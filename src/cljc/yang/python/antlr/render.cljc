@@ -43,6 +43,43 @@
 (declare repr)
 
 
+(defn- code-unit
+  [s i]
+  #?(:cljd (.codeUnitAt ^String s i)
+     :clj (int (.charAt ^String s (int i)))
+     :cljs (.charCodeAt s i)))
+
+
+(defn- hex2
+  [n]
+  (let [digits "0123456789abcdef"]
+    (str (subs digits (quot n 16) (inc (quot n 16)))
+         (subs digits (rem n 16) (inc (rem n 16))))))
+
+
+(defn string-repr
+  "Python's str repr: single quotes unless the text has a single quote and
+   no double quote; backslash, the quote, \\n \\r \\t and other control
+   characters escaped."
+  [s]
+  (let [q (if (and (str/includes? s "'") (not (str/includes? s "\""))) "\"" "'")]
+    (str q
+         (apply str
+                (map (fn [i]
+                       (let [c (code-unit s i)
+                             ch (subs s i (inc i))]
+                         (cond
+                           (= ch "\\") "\\\\"
+                           (= ch q) (str "\\" q)
+                           (= c 10) "\\n"
+                           (= c 13) "\\r"
+                           (= c 9) "\\t"
+                           (or (< c 32) (= c 127)) (str "\\x" (hex2 c))
+                           :else ch)))
+                     (range (count s))))
+         q)))
+
+
 (defn- seq-repr
   [open close xs]
   (str open (str/join ", " (map repr xs)) close))
@@ -55,7 +92,7 @@
     (nil? v) "None"
     (true? v) "True"
     (false? v) "False"
-    (string? v) (str "'" (str/replace (str/replace v "\\" "\\\\") "'" "\\'") "'")
+    (string? v) (string-repr v)
     (number? v) (str v)
     (vector? v) (seq-repr "[" "]" v)
     (map? v)
@@ -75,6 +112,9 @@
                                 (if (= 1 s)
                                   (str "range(" a ", " b ")")
                                   (str "range(" a ", " b ", " s ")")))
+      (contains? v :py/set) (if (empty? (:py/set v))
+                              "set()"
+                              (seq-repr "{" "}" (:py/set v)))
       (contains? v :py/instance) (str "<" (:py/instance v) " object>")
       (contains? v :py/class) (str "<class '" (:py/class v) "'>")
       (contains? v :py/function) (str "<function " (:py/function v) ">")

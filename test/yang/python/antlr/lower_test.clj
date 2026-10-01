@@ -69,9 +69,9 @@
 
 
 (defn- fobj
-  "A function object with no defaults."
-  [nm nparams star? args code-body]
-  (py 'py/make-function (u/lit nm) (u/lit nparams) (u/lit []) (u/lit star?)
+  "A function object with positional `params` and no defaults."
+  [nm params args code-body]
+  (py 'py/make-function (u/lit nm) (u/lit {:params params}) (u/lit []) (u/lit [])
       (u/lam [args] code-body)))
 
 
@@ -104,7 +104,7 @@
           args (sym "args" src "funcdef")]
       (is (= (u/then
                (gset "f"
-                     (fobj "f" 1 false args
+                     (fobj "f" ["a"] args
                            (u/app (u/lam '[a b]
                                          (py 'py/call-ec
                                              (u/lam [ret]
@@ -122,7 +122,7 @@
   (testing "no return statement, no escape; no locals, no cell frame"
     (let [src "def g():\n    print()\n"
           args (sym "args" src "funcdef")]
-      (is (= (u/then (gset "g" (fobj "g" 0 false args
+      (is (= (u/then (gset "g" (fobj "g" [] args
                                      (u/then (call (builtin "print")) none)))
                      none)
              (body src))))))
@@ -130,19 +130,22 @@
 
 (deftest defaults-and-star-golden-test
   (testing "defaults are evaluated at definition time in the enclosing scope;
-            *rest is the last parameter and nparams excludes it"
-    (let [src "def f(a, b=k, *rest):\n    pass\n"
+            the static spec names the positional, keyword-only and starred
+            parameters; the code vector is laid out as they are written"
+    (let [src "def f(a, b=k, *rest, c, d=m, **kw):\n    pass\n"
           args (sym "args" src "funcdef")]
       (is (= (u/then
                (gset "f"
-                     (py 'py/make-function (u/lit "f") (u/lit 2)
+                     (py 'py/make-function (u/lit "f")
+                         (u/lit {:params ["a" "b"], :star? true, :kwonly ["c" "d"],
+                                 :kwstar? true})
                          (py 'py/conj (u/lit []) (gget "k"))
-                         (u/lit true)
+                         (py 'py/conj (u/lit [])
+                             (py 'py/conj (py 'py/conj (u/lit []) (u/lit "d")) (gget "m")))
                          (u/lam [args]
-                                (u/app (u/lam '[a b rest] (u/then none none))
-                                       (py 'cell/new (py 'py/arg (u/v args) (u/lit 0)))
-                                       (py 'cell/new (py 'py/arg (u/v args) (u/lit 1)))
-                                       (py 'cell/new (py 'py/arg (u/v args) (u/lit 2)))))))
+                                (apply u/app (u/lam '[a b rest c d kw] (u/then none none))
+                                       (map #(py 'cell/new (py 'py/arg (u/v args) (u/lit %)))
+                                            (range 6))))))
                none)
              (body src))))))
 
@@ -170,7 +173,7 @@
         [cont w it i x] (map #(sym % src "for_stmt") ["cont" "w" "it" "i" "x"])]
     (is (= (u/then
              (u/let1 it
-                     (gget "xs")
+                     (py 'py/iterable (gget "xs"))
                      (u/let1 w
                              (u/lam [w i]
                                     (u/let1 x
@@ -190,19 +193,25 @@
 
 
 (deftest try-golden-test
-  (let [src "try:\n    f()\nexcept E as e:\n    raise\nexcept:\n    pass\n"
-        exc (sym "exc" src "try_stmt")]
-    (is (= (u/then
-             (py 'py/try
-                 (u/lam [] (call (gget "f")))
-                 (u/lam [exc]
-                        (u/if-node (py 'py/isinstance (u/v exc) (gget "E"))
-                                   (u/then (gset "e" (u/v exc))
-                                           (py 'py/raise (u/v exc)))
-                                   none))
-                 (u/lam [] none))
-             none)
-           (body src)))))
+  (testing "a clause matches through py/exc-matches; `as e` binds e for the
+            handler and unbinds it on every exit"
+    (let [src "try:\n    f()\nexcept E as e:\n    raise\nexcept:\n    pass\n"
+          exc (sym "exc" src "try_stmt")
+          ux (sym "ux" src "except_clause")]
+      (is (= (u/then
+               (py 'py/try
+                   (u/lam [] (call (gget "f")))
+                   (u/lam [exc]
+                          (u/if-node (py 'py/exc-matches (u/v exc) (gget "E"))
+                                     (py 'py/try-finally
+                                         (u/lam [] (u/then (gset "e" (u/v exc))
+                                                           (py 'py/raise (u/v exc))))
+                                         (u/lam [ux] (py 'py/global-del-quiet (u/v '%globals)
+                                                         (u/lit {:py/str "e"}))))
+                                     none))
+                   (u/lam [] none))
+               none)
+             (body src))))))
 
 
 (deftest boolean-and-comparison-golden-test
@@ -239,7 +248,7 @@
                      (u/seq-nodes
                        [(py 'py/setattr (u/v cls) (u/lit "k") (u/lit 1))
                         (py 'py/setattr (u/v cls) (u/lit "m")
-                            (fobj "m" 1 false args
+                            (fobj "m" ["self"] args
                                   (u/app (u/lam '[self]
                                                 (py 'py/call-ec
                                                     (u/lam [ret]
@@ -265,6 +274,84 @@
              (body src))))))
 
 
+(deftest try-finally-golden-test
+  (testing "finally is a thunk of the exception in flight (or None) run by
+            py/try-finally on every exit"
+    (let [src "try:\n    f()\nfinally:\n    g()\n"
+          fx (sym "fx" src "try_stmt")]
+      (is (= (u/then (py 'py/try-finally
+                         (u/lam [] (call (gget "f")))
+                         (u/lam [fx] (call (gget "g"))))
+                     none)
+             (body src))))))
+
+
+(deftest with-golden-test
+  (let [src "with m as x:\n    pass\n"
+        wv (sym "wv" src "with_item")]
+    (is (= (u/then (py 'py/with (gget "m")
+                       (u/lam [wv] (u/then (gset "x" (u/v wv)) none)))
+                   none)
+           (body src)))))
+
+
+(deftest unpacking-golden-test
+  (testing "the value is bound once; py/unpack-star returns before-items, the
+            middle as a list, after-items; targets are assigned left to right"
+    (let [src "a, *b = v\n"
+          tmp (sym "v" src "expr_stmt")
+          un (sym "u" src "testlist_star_expr")]
+      (is (= (u/then (u/let1 tmp (gget "v")
+                             (u/let1 un (py 'py/unpack-star (u/v tmp) (u/lit 1) (u/lit 0))
+                                     (u/then (gset "a" (py 'py/arg (u/v un) (u/lit 0)))
+                                             (gset "b" (py 'py/arg (u/v un) (u/lit 1))))))
+                     none)
+             (body src))))))
+
+
+(deftest comprehension-golden-test
+  (testing "the first iterable is evaluated outside; the target is a cell
+            local to the comprehension; the result is a fresh list"
+    (let [src "[x for x in y]\n"
+          fst (sym "first" src "testlist_comp")
+          acc (sym "acc" src "testlist_comp")
+          x (sym "x" src "exprlist")]
+      (is (= (u/then
+               (u/let1 fst (gget "y")
+                       (u/app (u/lam '[x]
+                                     (u/let1 acc (py 'py/list (u/lit []))
+                                             (u/then (py 'py/for-each (u/v fst)
+                                                         (u/lam [x]
+                                                                (u/then (py 'cell/set! (u/v 'x) (u/v x))
+                                                                        (py 'py/list-append (u/v acc)
+                                                                            (local "x")))))
+                                                     (u/v acc))))
+                              (py 'cell/new (u/lit :py/unbound))))
+               none)
+             (body src))))))
+
+
+(deftest keyword-call-golden-test
+  (testing "positional values and *splices build the argument vector in
+            order; keywords and **splices build the keyword pairs"
+    (is (= (u/then (py 'py/call-kw (gget "f")
+                       (py 'py/extend (py 'py/conj (u/lit []) (u/lit 1)) (gget "a"))
+                       (py 'py/kw-extend
+                           (py 'py/conj (u/lit [])
+                               (py 'py/conj (py 'py/conj (u/lit []) (u/lit "k")) (u/lit 2)))
+                           (gget "d")))
+                   none)
+           (body "f(1, *a, k=2, **d)\n")))))
+
+
+(deftest slice-and-power-golden-test
+  (testing "a slice is a value; ** is regrouped to the right"
+    (is (= (u/seq-nodes [(py 'py/getitem (gget "x") (py 'py/slice (u/lit 1) none none))
+                         (py 'py/pow (gget "a") (py 'py/pow (gget "b") (gget "c")))
+                         none])
+           (body "x[1:]\na ** b ** c\n")))))
+
+
 (deftest program-shape-test
   (let [program (lower/lower-packet (parser/parse-source "x = 1\n"))]
     (testing "prelude first, then the module run by py/run-module, with tail
@@ -272,7 +359,8 @@
       (is (= (u/mark-tails
                (u/then prelude/uast
                        (py 'py/run-module
-                           (u/lam '[%globals] (u/then (gset "x" (u/lit 1)) none)))))
+                           (u/lam '[%globals %globals-fn]
+                                  (u/then (gset "x" (u/lit 1)) none)))))
              program)))
     (testing "yin/def appears only in the prelude"
       (is (not (re-find #"yin/def" (pr-str (-> program :operands second))))))
@@ -306,24 +394,20 @@
 (deftest unsupported-constructs-are-qualified-test
   (doseq [[src rule construct]
           [["import os\n" "import_stmt" "import"]
-           ["with f: pass\n" "with_stmt" "with statement"]
            ["def g():\n    yield 1\n" "yield_stmt" "yield"]
-           ["x = [i for i in y]\n" "atom" "list comprehension"]
-           ["try:\n    pass\nfinally:\n    pass\n" "try_stmt" "finally"]
-           ["x = a ** 2\n" "expr" "operator **"]
-           ["x = a % 2\n" "expr" "operator %"]
-           ["def f(**kw): pass\n" "typedargslist" "**kwargs parameter"]
-           ["def f(*a, b): pass\n" "typedargslist" "keyword-only parameters"]
+           ["x = (i for i in y)\n" "atom" "generator expression (phase C2)"]
+           ["f(i for i in y)\n" "argument" "generator expression (phase C2)"]
+           ["x = a @ b\n" "expr" "operator @"]
+           ["x @= b\n" "augassign" "augmented @="]
            ["def f(a: int): pass\n" "tfpdef" "parameter annotation"]
-           ["g = globals\n" "name" "builtin globals used as a value"]
-           ["f(k=1)\n" "argument" "keyword, starred or generator argument"]
-           ["x = (1, 2)\n" "testlist_comp" "tuple"]
-           ["a, b = 1, 2\n" "testlist_star_expr" "tuple"]
-           ["x = a[1:2]\n" "trailer" "slice"]
+           ["a[1:2:3] = x\n" "trailer" "extended slice assignment"]
+           ["x = a[1:2, 3]\n" "trailer" "multi-dimensional slicing"]
+           ["x = {**d}\n" "atom" "dict unpacking in a display"]
            ["x = f'{a}'\n" "atom" "f-string"]
-           ["x = 1 in y\n" "comp_op" "comparison in"]
+           ["x = 1 <> 2\n" "comp_op" "comparison <>"]
            ["class C(A, B): pass\n" "classdef" "multiple inheritance"]
-           ["del x\n" "del_stmt" "del statement"]]]
+           ["del x\n" "del_stmt" "del statement"]
+           ["assert x\n" "assert_stmt" "assert statement"]]]
     (testing src
       (is (= {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
               :rule rule,
@@ -339,12 +423,30 @@
            ["def f(a, a): pass\n" "duplicate argument in function definition"]
            ["def f(a=1, b): pass\n" "non-default argument follows default argument"]
            ["while x:\n    def f():\n        break\n"
-            "'break' outside loop"]]]
+            "'break' outside loop"]
+           ["x = '\\U00110000'\n" "illegal Unicode character in \\U escape"]
+           ["a, *b, *c = x\n" "multiple starred expressions in assignment"]
+           ["*a = x\n" "starred assignment target must be in a list or tuple"]
+           ["f(a=1, a=2)\n" "keyword argument repeated: a"]
+           ["f(a=1, 2)\n" "positional argument follows keyword argument"]
+           ["def f(*, ): pass\n" "named arguments must follow bare *"]
+           ["a, b += 1\n" "illegal expression for augmented assignment"]
+           ["x = [*a for a in b]\n" "iterable unpacking cannot be used in comprehension"]
+           ["x = *a\n" "can't use starred expression here"]]]
     (testing src
       (is (= message
              (try (body src)
                   nil
                   (catch clojure.lang.ExceptionInfo e (ex-message e))))))))
+
+
+(deftest leading-zero-decimal-is-rejected-test
+  (testing "0755 never reaches the lowering: the pinned lexer has no token
+            for it, so the parser emits a syntax-error packet (the lowering
+            also refuses such a literal, should a grammar ever pass one)"
+    (is (= :yang.cst/syntax-error
+           (:yang.cst/outcome (parser/parse-source "x = 0755\n"))))
+    (is (= :yang.cst/ok (:yang.cst/outcome (parser/parse-source "x = 00\n"))))))
 
 
 (deftest every-grammar-rule-is-classified-test

@@ -103,6 +103,44 @@
     [(py/range-at (py/range3 0 10 3) 2) 6]
     [(py/range-len (py/range3 10 0 -3) 0) 4]
     [(py/iter-at (py/range3 0 2 1) 2) :py/stop]
+    [(py/floordiv -7 2) -4]
+    [(py/floordiv 7 -2) -4]
+    [(py/mod -7 3) 2]
+    [(py/mod 7 -3) -2]
+    [(py/floordiv 1000000007 97) 10309278]
+    [(py/floordiv {:py/float 7.5} 2) {:py/float 3.0}]
+    [(py/mod {:py/float -7.5} 2) {:py/float 0.5}]
+    [(py/floor -2.5) -3]
+    [(py/floor 2.0) 2]
+    [(py/pow 2 10) 1024]
+    [(py/pow 2 -1) {:py/float 0.5}]
+    [(py/pow -2 3) -8]
+    [(py/bitand -6 3) 2]
+    [(py/bitor 6 3) 7]
+    [(py/bitxor 6 3) 5]
+    [(py/bitand -1 -8) -8]
+    [(py/invert 5) -6]
+    [(py/lshift 1 4) 16]
+    [(py/rshift -16 2) -4]
+    [(py/eq (py/tuple [1 2]) (py/tuple [{:py/float 1.0} 2])) true]
+    [(= (py/key (py/tuple [1 2])) (py/key (py/tuple [{:py/float 1.0} 2]))) true]
+    [(py/slice-positions (py/slice :py/None :py/None -1) 5) [4 3 2 1 0]]
+    [(py/slice-positions (py/slice -2 100 :py/None) 5) [3 4]]
+    [(py/slice-positions (py/slice 1 :py/None 2) 6) [1 3 5]]
+    [(py/pow 2 53) 9007199254740992]
+    [(py/lshift 1 52) 4503599627370496]
+    [(py/lshift 1 53) 9007199254740992]
+    [(py/add 9007199254740991 1) 9007199254740992]
+    [(py/sub -9007199254740991 1) -9007199254740992]
+    [(py/mul 4503599627370496 2) 9007199254740992]
+    [(py/mul 94906265 94906265) 9007199136250225]
+    [(py/rshift -1 100) -1]
+    [(py/mod {:py/float 5.9} {:py/float 1.1}) {:py/float 0.3999999999999999}]
+    [(py/mod {:py/float -5.9} {:py/float 1.1}) {:py/float 0.7000000000000002}]
+    [(py/floordiv {:py/float 7.5} -2) {:py/float -4.0}]
+    [(py/range-len (py/range3 0 4503599627370496 3) 0) 1501199875790166]
+    [(py/range-has? (py/range3 10 0 -3) 7) true]
+    [(py/range-has? (py/range3 10 0 -3) 5) false]
     [(py/snapshot {:py/str "s"}) "s"]
     [(py/snapshot :py/None) nil]])
 
@@ -150,6 +188,41 @@
       (doseq [[k result] results]
         (testing (str k)
           (is (= {:py/out ["7 True"], :py/exception nil}
+                 (if (map? result) (render/output result) result))))))))
+
+
+(deftest integer-bound-on-every-host-test
+  (testing "over the real cell and data modules, results outside
+            [-2^53, 2^53] are a guest OverflowError identically on every VM
+            and host (the JVM would otherwise throw, JS round, Dart wrap):
+            2**53+1, 3**40, 1<<54, -(2**53)-1, (2**53-1)*3"
+    (let [ov '(fn [thunk]
+                (let [r (cell/new :py/None)]
+                  (do (py/try (fn [] (cell/set! r (thunk)))
+                              (fn [e] (cell/set! r {:py/str "overflow"}))
+                              (fn [] :py/None))
+                      (cell/get r))))
+          results (run-with-prelude
+                    prelude/uast
+                    (list 'py/run-module
+                          (list 'fn '[g gf]
+                                (list 'let ['ov ov]
+                                      '(py/print
+                                         (py/conj
+                                           (py/conj
+                                             (py/conj
+                                               (py/conj
+                                                 (py/conj
+                                                   (py/conj [] (py/pow 2 53))
+                                                   (ov (fn [] (py/add (py/pow 2 53) 1))))
+                                                 (ov (fn [] (py/pow 3 40))))
+                                               (ov (fn [] (py/lshift 1 54))))
+                                             (ov (fn [] (py/sub (py/neg (py/pow 2 53)) 1))))
+                                           (ov (fn [] (py/mul 9007199254740991 3)))))))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= {:py/out ["9007199254740992 overflow overflow overflow overflow overflow"],
+                  :py/exception nil}
                  (if (map? result) (render/output result) result))))))))
 
 

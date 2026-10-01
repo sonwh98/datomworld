@@ -133,6 +133,50 @@
            (get-in analysis [:scopes (:id lam)])))))
 
 
+(deftest tuple-star-and-with-targets-test
+  (let [a (analyze (str "def f():\n"
+                        "    a, (b, *c) = x\n"
+                        "    for k, v in y:\n"
+                        "        pass\n"
+                        "    with m as (p, q):\n"
+                        "        pass\n"
+                        "    [d] = z\n"))]
+    (is (= ["a" "b" "c" "k" "v" "p" "q" "d"] (:locals (scope-named a "f"))))))
+
+
+(defn- comprehension-scope
+  [[pk analysis]]
+  (let [node (first (filter #(scope/comprehension? pk %) (:yang.cst/nodes pk)))]
+    (get-in analysis [:scopes (:id node)])))
+
+
+(deftest comprehension-scope-test
+  (testing "comprehension targets are local to the comprehension, not the
+            function; free names resolve to the enclosing function"
+    (let [a (analyze (str "def f():\n"
+                          "    y = 1\n"
+                          "    return [x + y for x in z for w in x if w]\n"))
+          [_ analysis] a
+          c (comprehension-scope a)]
+      (is (= :comprehension (:kind c)))
+      (is (= ["x" "w"] (:locals c)))
+      (is (= ["y"] (:locals (scope-named a "f"))))
+      (is (= {:kind :cell} (scope/resolve analysis (:id c) "y")))
+      (is (= {:kind :global, :declared? false} (scope/resolve analysis (:id c) "z")))))
+  (testing "a lambda in the first iterable belongs to the enclosing scope;
+            one in the element belongs to the comprehension"
+    (let [[pk analysis :as a] (analyze "r = [lambda: x for x in (lambda: q)()]\n")
+          c (comprehension-scope a)
+          lambdas (filter #(= "lambdef" (:rule %)) (:yang.cst/nodes pk))
+          parents (set (map #(get-in analysis [:scopes (:id %) :parent]) lambdas))]
+      (is (= #{(:module analysis) (:id c)} parents))))
+  (testing "a class body's comprehension skips the class for free names"
+    (let [a (analyze "class C:\n    n = 3\n    v = [n for i in range(2)]\n")
+          [_ analysis] a
+          c (comprehension-scope a)]
+      (is (= {:kind :global, :declared? false} (scope/resolve analysis (:id c) "n"))))))
+
+
 (defn- analysis-error
   [src]
   (try (analyze src)

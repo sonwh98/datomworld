@@ -89,8 +89,8 @@
                              ["EOF" "<EOF>"]])))))
   (testing "an unsupported grammar rule names its construct"
     (is (= {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
-            :rule "with_stmt"}
-           (refusal (packet [:file_input [:stmt [:compound_stmt [:with_stmt]]]
+            :rule "match_stmt"}
+           (refusal (packet [:file_input [:stmt [:compound_stmt [:match_stmt]]]
                              ["EOF" "<EOF>"]]))))))
 
 

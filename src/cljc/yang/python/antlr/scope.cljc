@@ -2,10 +2,14 @@
   "Python binding collection and scope analysis over a CST packet
    (docs/design/yang.antlr.md §8.5: scope analysis precedes lowering).
 
-   A scope is opened by the module (`file_input`), `funcdef`, `lambdef` and
-   `classdef`, and keyed by that node's CST id. For each scope:
+   A scope is opened by the module (`file_input`), `funcdef`, `lambdef`
+   (and `lambdef_nocond`), `classdef`, and every comprehension or generator
+   expression (the `testlist_comp`, `dictorsetmaker` or `argument` node
+   holding the `comp_for`), and keyed by that node's CST id. A
+   comprehension's first iterable belongs to the enclosing scope, as in
+   Python 3. For each scope:
 
-     :kind       :module | :function | :lambda | :class
+     :kind       :module | :function | :lambda | :class | :comprehension
      :parent     enclosing scope id (nil for the module)
      :params     parameter names in order
      :assigned   names bound in the scope, in first-occurrence order
@@ -15,8 +19,9 @@
                  that are neither global nor nonlocal. class: the class
                  namespace. module: none (module names are globals).
 
-   Binding occurrences: `=` and augmented-assignment targets that are plain
-   names, `for` targets, `except ... as` names, and `def`/`class` names.
+   Binding occurrences: the names inside `=`, augmented-assignment, `for`,
+   comprehension `for` and `with ... as` targets (plain, tuple, list or
+   starred, however nested), `except ... as` names, and `def`/`class` names.
    A nested scope's body is not scanned for the enclosing scope.
 
    `resolve` answers, for a name read or written in a scope, one of
@@ -65,6 +70,52 @@
   (:text (first (p/children pk name-node))))
 
 
+(def ^:private tuple-rules
+  "Rules that are a tuple (or list) of targets when they hold several
+   elements or a trailing comma."
+  #{"testlist_star_expr" "testlist" "exprlist" "testlist_comp"})
+
+
+(defn target-names
+  "Every name a binding target binds: a plain name, or the names inside a
+   tuple, list or starred target, however nested. Subscript and attribute
+   targets bind nothing."
+  [pk n]
+  (loop [n n]
+    (cond
+      (simple-name pk n) [(simple-name pk n)]
+      (p/rule? n "star_expr") (target-names pk (last (p/children pk n)))
+      (and (p/rule? n) (contains? tuple-rules (:rule n))
+           (or (< 1 (count (:children n))) (p/has-token? pk n ",")))
+      (vec (mapcat #(target-names pk %) (filter p/rule? (p/children pk n))))
+      (and (p/rule? n "atom")
+           (or (p/token? (first (p/children pk n)) "(")
+               (p/token? (first (p/children pk n)) "[")))
+      (let [inner (second (p/children pk n))]
+        (if (p/rule? inner "testlist_comp")
+          (vec (mapcat #(target-names pk %) (filter p/rule? (p/children pk inner))))
+          []))
+      (and (p/rule? n) (= 1 (count (:children n))))
+      (recur (first (p/children pk n)))
+      :else [])))
+
+
+(defn comprehension?
+  "True for the node a comprehension or generator expression scopes over:
+   a `testlist_comp`, `dictorsetmaker` or `argument` with a `comp_for`."
+  [pk n]
+  (and (p/rule? n)
+       (contains? #{"testlist_comp" "dictorsetmaker" "argument"} (:rule n))
+       (boolean (some #(p/rule? % "comp_for") (p/children pk n)))))
+
+
+(defn first-iterable
+  "The iterable of a comprehension's first `for`: Python evaluates it in the
+   enclosing scope."
+  [pk comp-node]
+  (first (p/child-rules pk (first (p/child-rules pk comp-node "comp_for")) "or_test")))
+
+
 (defn- names-of-decl
   "The names a `global_stmt` or `nonlocal_stmt` declares."
   [pk n]
@@ -82,8 +133,8 @@
                                       (first (p/child-rules pk scope-node
                                                             "parameters"))
                                       "typedargslist"))
-                   "lambdef" (first (p/child-rules pk scope-node
-                                                   "varargslist"))
+                   ("lambdef" "lambdef_nocond")
+                   (first (p/child-rules pk scope-node "varargslist"))
                    nil)]
     (if arg-list
       (mapv #(name-text pk (first (p/child-rules pk % "name")))
@@ -105,43 +156,58 @@
 
 
 (defn- collect
-  "Bindings, declarations and nested scope nodes of one scope's body."
-  [pk body-nodes]
+  "Bindings, declarations and nested scope nodes of one scope's body. When
+   the scope is itself a comprehension, `own` is its node: that node's
+   `comp_for` clauses bind here and its first iterable is skipped (it
+   belongs to the enclosing scope)."
+  [pk body-nodes own]
   (let [acc (volatile! {:assigned [], :globals [], :nonlocals [], :nested []})
         bind! (fn [nm]
                 (when nm
                   (vswap! acc update :assigned
-                          #(if (some #{nm} %) % (conj % nm)))))]
+                          #(if (some #{nm} %) % (conj % nm)))))
+        skip (when own (:id (first-iterable pk own)))]
     (letfn [(walk
               [n]
-              (when (p/rule? n)
-                (case (:rule n)
-                  ("funcdef" "classdef")
-                  (do (bind! (name-text pk (first (p/child-rules pk n "name"))))
-                      (vswap! acc update :nested conj n)
-                      ;; class bases are evaluated in the enclosing scope
-                      (when (= "classdef" (:rule n))
-                        (run! walk (p/child-rules pk n "arglist"))))
-                  "lambdef" (vswap! acc update :nested conj n)
-                  "global_stmt" (vswap! acc update :globals into
-                                        (names-of-decl pk n))
-                  "nonlocal_stmt" (vswap! acc update :nonlocals into
+              (when (and (p/rule? n) (not= skip (:id n)))
+                (cond
+                  ;; a nested comprehension: its own scope, except that its
+                  ;; first iterable is evaluated here
+                  (and (comprehension? pk n) (not= (:id own) (:id n)))
+                  (do (vswap! acc update :nested conj n)
+                      (walk (first-iterable pk n)))
+                  :else
+                  (case (:rule n)
+                    ("funcdef" "classdef")
+                    (do (bind! (name-text pk (first (p/child-rules pk n "name"))))
+                        (vswap! acc update :nested conj n)
+                        ;; class bases are evaluated in the enclosing scope
+                        (when (= "classdef" (:rule n))
+                          (run! walk (p/child-rules pk n "arglist"))))
+                    ("lambdef" "lambdef_nocond") (vswap! acc update :nested conj n)
+                    "global_stmt" (vswap! acc update :globals into
                                           (names-of-decl pk n))
-                  "expr_stmt" (do (run! #(bind! (simple-name pk %))
-                                        (expr-stmt-targets pk n))
-                                  (run! walk (p/children pk n)))
-                  "for_stmt" (do (bind! (simple-name
-                                          pk
-                                          (first (p/child-rules pk n
-                                                                "exprlist"))))
-                                 (run! walk (p/children pk n)))
-                  "except_clause" (do (when (p/has-token? pk n "as")
-                                        (bind! (name-text
-                                                 pk
-                                                 (first (p/child-rules
-                                                          pk n "name")))))
-                                      (run! walk (p/children pk n)))
-                  (run! walk (p/children pk n)))))]
+                    "nonlocal_stmt" (vswap! acc update :nonlocals into
+                                            (names-of-decl pk n))
+                    "expr_stmt" (do (run! #(run! bind! (target-names pk %))
+                                          (expr-stmt-targets pk n))
+                                    (run! walk (p/children pk n)))
+                    ("for_stmt" "comp_for")
+                    (do (run! bind! (target-names pk (first (p/child-rules pk n
+                                                                           "exprlist"))))
+                        (run! walk (p/children pk n)))
+                    "with_item" (do (when (p/has-token? pk n "as")
+                                      (run! bind! (target-names
+                                                    pk
+                                                    (last (p/children pk n)))))
+                                    (run! walk (p/children pk n)))
+                    "except_clause" (do (when (p/has-token? pk n "as")
+                                          (bind! (name-text
+                                                   pk
+                                                   (first (p/child-rules
+                                                            pk n "name")))))
+                                        (run! walk (p/children pk n)))
+                    (run! walk (p/children pk n))))))]
       (run! walk body-nodes))
     @acc))
 
@@ -151,7 +217,10 @@
   (case (:rule scope-node)
     "file_input" (p/children pk scope-node)
     ("funcdef" "classdef") (p/child-rules pk scope-node "block")
-    "lambdef" (p/child-rules pk scope-node "test")))
+    "lambdef" (p/child-rules pk scope-node "test")
+    "lambdef_nocond" (p/child-rules pk scope-node "test_nocond")
+    ;; a comprehension: its elements and clauses (first iterable skipped)
+    ("testlist_comp" "dictorsetmaker" "argument") [scope-node]))
 
 
 (defn- scope-kind
@@ -159,16 +228,18 @@
   (case (:rule scope-node)
     "file_input" :module
     "funcdef" :function
-    "lambdef" :lambda
-    "classdef" :class))
+    ("lambdef" "lambdef_nocond") :lambda
+    "classdef" :class
+    ("testlist_comp" "dictorsetmaker" "argument") :comprehension))
 
 
 (defn- analyze-scope
   "Records for `scope-node` and every scope nested in it."
   [pk scope-node parent-id]
-  (let [{:keys [assigned globals nonlocals nested]}
-        (collect pk (body-nodes pk scope-node))
-        kind (scope-kind scope-node)
+  (let [kind (scope-kind scope-node)
+        {:keys [assigned globals nonlocals nested]}
+        (collect pk (body-nodes pk scope-node)
+                 (when (= :comprehension kind) scope-node))
         params (params-of pk scope-node)
         global-set (set globals)
         nonlocal-set (set nonlocals)
@@ -209,7 +280,7 @@
 
 (defn- function-scope?
   [s]
-  (contains? #{:function :lambda} (:kind s)))
+  (contains? #{:function :lambda :comprehension} (:kind s)))
 
 
 (defn- enclosing-binding

@@ -254,7 +254,7 @@
   (every-vm= {:py/out [],
               :py/exception
               {:type "TypeError",
-               :args ["g() got the wrong number of positional arguments"]}}
+               :args ["g() takes too many positional arguments"]}}
              "def g(a):\n    return a\ng(1, 2)\n"))
 
 

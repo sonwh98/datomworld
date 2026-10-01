@@ -16,12 +16,20 @@
      namespace dict, `%globals` (`py/global-get`, a miss is NameError;
      `py/global-set`); `yin/def` is reserved for the prelude and builtins.
    - A `def` or `lambda` is a function object (`py/make-function`) whose
-     code takes one argument vector; every call is `(py/call f [args])`,
-     which checks arity, fills defaults and packs `*args`.
+     code takes one argument vector; every call is `(py/call f [args])` or,
+     with keywords, `(py/call-kw f [args] [[name value] ...])`; the callee
+     binds positional, keyword, default, `*args` and `**kwargs`.
    - Control flow is continuations: a function with a `return` runs its body
      under `py/call-ec`; loops are self-applied lambdas whose `break` and
      `continue` are escapes; `try` installs a handler continuation through
-     `py/try`, and `raise` invokes the innermost one. `finally` is rejected.
+     `py/try`, and `raise` invokes the innermost one. `finally` is a
+     `py/try-finally` frame that every exit runs; `with` is `py/with`, the
+     language reference's expansion over the same two forms.
+   - Tuple, list and starred targets unpack with `py/unpack` /
+     `py/unpack-star`; comprehensions run in their own scope with the first
+     iterable evaluated outside it; a generator expression is accepted only
+     as the sole argument of a consuming builtin (list, tuple, set, sum,
+     any, all), where it is a list.
    - Operators, truthiness, equality, objects and exceptions are prelude
      calls (`yang.python.antlr.prelude`).
 
@@ -84,8 +92,6 @@
    "dotted_as_names" "import",
    "dotted_name" "import",
    "assert_stmt" "assert statement",
-   "with_stmt" "with statement",
-   "with_item" "with statement",
    "match_stmt" "match statement",
    "subject_expr" "match statement",
    "star_named_expressions" "match statement",
@@ -124,13 +130,6 @@
    "positional_patterns" "match statement",
    "keyword_patterns" "match statement",
    "keyword_pattern" "match statement",
-   "star_expr" "starred expression",
-   "sliceop" "slice",
-   "comp_iter" "comprehension",
-   "comp_for" "comprehension",
-   "comp_if" "comprehension",
-   "test_nocond" "comprehension",
-   "lambdef_nocond" "comprehension",
    "encoding_decl" "encoding declaration"})
 
 
@@ -138,8 +137,8 @@
   "Rules read only by their parent's arm; they never reach `lower` alone."
   #{"parameters" "typedargslist" "tfpdef" "varargslist" "vfpdef"
     "augassign" "except_clause" "block" "comp_op" "trailer" "subscriptlist"
-    "subscript_" "arglist" "argument" "testlist_comp" "dictorsetmaker"
-    "strings"})
+    "subscript_" "sliceop" "arglist" "argument" "testlist_comp"
+    "dictorsetmaker" "strings" "comp_for" "comp_iter" "comp_if" "with_item"})
 
 
 (def handled-rules
@@ -148,8 +147,9 @@
     "flow_stmt" "expr_stmt" "testlist_star_expr" "testlist" "exprlist"
     "pass_stmt" "break_stmt" "continue_stmt" "return_stmt" "raise_stmt"
     "global_stmt" "nonlocal_stmt" "if_stmt" "while_stmt" "for_stmt"
-    "try_stmt" "funcdef" "classdef" "test" "lambdef" "or_test" "and_test"
-    "not_test" "comparison" "expr" "atom_expr" "atom" "name"})
+    "try_stmt" "with_stmt" "funcdef" "classdef" "test" "test_nocond"
+    "lambdef" "lambdef_nocond" "or_test" "and_test" "not_test" "comparison"
+    "expr" "star_expr" "atom_expr" "atom" "name"})
 
 
 (defn- default-arm
@@ -223,7 +223,7 @@
           (kids ctx n))))
 
 
-(def ^:private scope-rules #{"funcdef" "lambdef" "classdef"})
+(def ^:private scope-rules #{"funcdef" "lambdef" "lambdef_nocond" "classdef"})
 
 
 (def ^:private loop-and-scope-rules
@@ -234,7 +234,9 @@
 ;; Literals
 ;; =============================================================================
 
-(def ^:private max-exact-int 9007199254740991)
+(def ^:private max-exact-int
+  "2^53: the prelude's integer range is [-2^53, 2^53], exact on every host."
+  9007199254740992)
 
 
 (defn- parse-radix
@@ -264,6 +266,10 @@
       (re-find #"[.eE]" t) {:py/float #?(:cljd (double/parse t)
                                          :clj (Double/parseDouble t)
                                          :cljs (js/parseFloat t))}
+      ;; Python 3 reads 0755 as an error, not as octal or decimal
+      (and (str/starts-with? t "0") (re-find #"[1-9]" t))
+      (syntax! n (str "leading zeros in decimal integer literals are not "
+                      "permitted; use an 0o prefix for octal integers"))
       :else (parse-radix n t 10))))
 
 
@@ -278,7 +284,10 @@
   [n s]
   (when-not (re-matches #"[0-9a-fA-F]+" s)
     (syntax! n "malformed escape in string literal"))
-  (parse-radix n s 16))
+  (let [cp (parse-radix n s 16)]
+    (when (> cp 0x10FFFF)
+      (syntax! n "illegal Unicode character in \\U escape"))
+    cp))
 
 
 (def ^:private simple-escapes
@@ -350,6 +359,12 @@
   '%globals)
 
 
+(def globals-fn-sym
+  "The module's `globals` builtin: a function object returning `%globals`,
+   the module body's second parameter."
+  '%globals-fn)
+
+
 (defn- global-key
   [name]
   (u/lit {:py/str name}))
@@ -359,12 +374,13 @@
   "A module-level read at run time: the module dict, then, for a builtin
    name, the builtin. A present module key always wins, so
    `print(len([])); len = 1` reads the builtin first and the global after."
-  [n name]
+  [_n name]
   (cond
     (contains? prelude/builtin-names name)
     (app* 'py/global-or (u/v globals-sym) (global-key name)
           (u/v (get prelude/builtin-names name)))
-    (= "globals" name) (unsupported! n "builtin globals used as a value")
+    (= "globals" name)
+    (app* 'py/global-or (u/v globals-sym) (global-key name) (u/v globals-fn-sym))
     :else (app* 'py/global-get (u/v globals-sym) (global-key name))))
 
 
@@ -387,6 +403,14 @@
     (and (= :global (:kind r)) (not (:declared? r)))))
 
 
+(def ^:private consuming-builtins
+  "Builtins that consume an iterable argument eagerly: a generator
+   expression passed as their sole argument is indistinguishable from a
+   list, so it is lowered as one. Any other generator expression waits for
+   C2."
+  #{"list" "tuple" "set" "sum" "any" "all"})
+
+
 (defn- assign-name
   [ctx name value]
   (let [r (resolve-name ctx name)]
@@ -396,20 +420,47 @@
       :global (app* 'py/global-set (u/v globals-sym) (global-key name) value))))
 
 
+(defn- unbind-name
+  "Make `name` unbound again: a cell back to unbound, a module or class
+   binding removed (quietly when already absent)."
+  [ctx name]
+  (let [r (resolve-name ctx name)]
+    (case (:kind r)
+      :cell (app* 'cell/set! (u/v (symbol name)) (u/lit :py/unbound))
+      :class-attr (app* 'py/delattr-quiet (u/v (:class ctx)) (u/lit name))
+      :global (app* 'py/global-del-quiet (u/v globals-sym) (global-key name)))))
+
+
 ;; =============================================================================
 ;; The dispatch: one arm per grammar rule
 ;; =============================================================================
 
-(declare lower-block lower-call)
+(declare lower-block lower-call lower-comprehension)
 
 
-(defn- single-child
-  "Lower a list rule that must hold exactly one element."
-  [ctx lower n construct]
-  (let [elems (rule-kids ctx n)]
-    (if (and (= 1 (count elems)) (not (p/has-token? (:pk ctx) n ",")))
-      (lower ctx (first elems))
-      (unsupported! n construct))))
+(defn- elements
+  "A host vector of display elements: each value conj'd, each `*iterable`
+   spliced, left to right."
+  [ctx elems]
+  (reduce (fn [acc e]
+            (if (p/rule? e "star_expr")
+              (app* 'py/extend acc ((:lower ctx) ctx (last (kids ctx e))))
+              (app* 'py/conj acc ((:lower ctx) ctx e))))
+          (u/lit [])
+          elems))
+
+
+(defn- display
+  "A list rule's value: its one element, or the tuple of its elements when
+   it has several, a trailing comma or a starred element."
+  [ctx n]
+  (let [elems (rule-kids ctx n)
+        single? (and (= 1 (count elems)) (not (p/has-token? (:pk ctx) n ",")))]
+    (cond
+      (and single? (p/rule? (first elems) "star_expr"))
+      (syntax! n "can't use starred expression here")
+      single? ((:lower ctx) ctx (first elems))
+      :else (app* 'py/tuple (elements ctx elems)))))
 
 
 (defn- fold-bool
@@ -428,11 +479,33 @@
 
 
 (def ^:private binary-ops
-  {"+" 'py/add, "-" 'py/sub, "*" 'py/mul, "/" 'py/truediv})
+  {"+" 'py/add, "-" 'py/sub, "*" 'py/mul, "/" 'py/truediv, "//" 'py/floordiv,
+   "%" 'py/mod, "**" 'py/pow, "&" 'py/bitand, "|" 'py/bitor, "^" 'py/bitxor,
+   "<<" 'py/lshift, ">>" 'py/rshift})
 
 
 (def ^:private unary-ops
-  {"-" 'py/neg, "+" 'py/pos})
+  {"-" 'py/neg, "+" 'py/pos, "~" 'py/invert})
+
+
+(defn- lower-brace
+  "`{...}`: an empty dict, a dict or set display, or a dict or set
+   comprehension."
+  [ctx n inner]
+  (if (p/token? inner "}")
+    (app* 'py/dict-from (u/lit []))
+    (let [parts (kids ctx inner)]
+      (cond
+        (some #(p/token? % "**") parts) (unsupported! n "dict unpacking in a display")
+        (scope/comprehension? (:pk ctx) inner)
+        (lower-comprehension ctx inner (if (p/token? (second parts) ":") :dict :set))
+        (p/token? (second parts) ":")
+        (app* 'py/dict-from
+              (build-vector
+                (map (fn [[k v]]
+                       (build-vector [((:lower ctx) ctx k) ((:lower ctx) ctx v)]))
+                     (partition 2 (filter p/rule? parts)))))
+        :else (app* 'py/set-from (elements ctx (filter p/rule? parts)))))))
 
 
 (defn- lower-atom
@@ -444,36 +517,18 @@
       (p/token? head "(")
       (let [inner (second ks)]
         (cond
-          (p/token? inner ")") (unsupported! n "tuple")
+          (p/token? inner ")") (app* 'py/tuple (u/lit []))
           (p/rule? inner "yield_expr") (unsupported! n "yield")
-          (some #(p/rule? % "comp_for") (kids ctx inner))
-          (unsupported! n "generator expression")
-          :else (single-child ctx (:lower ctx) inner "tuple")))
+          (scope/comprehension? (:pk ctx) inner)
+          (unsupported! n "generator expression (phase C2)")
+          :else (display ctx inner)))
       (p/token? head "[")
       (let [inner (second ks)]
-        (if (p/token? inner "]")
-          (app* 'py/list (u/lit []))
-          (let [elems (rule-kids ctx inner)]
-            (when (some #(p/rule? % "comp_for") elems)
-              (unsupported! n "list comprehension"))
-            (app* 'py/list
-                  (build-vector (map #((:lower ctx) ctx %) elems))))))
-      (p/token? head "{")
-      (let [inner (second ks)]
-        (if (p/token? inner "}")
-          (app* 'py/dict-from (u/lit []))
-          (let [parts (kids ctx inner)
-                ok? (and (p/token? (second parts) ":")
-                         (every? #(or (p/rule? % "test") (p/token? % ":")
-                                      (p/token? % ","))
-                                 parts))]
-            (when-not ok? (unsupported! n "set, dict comprehension or unpacking"))
-            (app* 'py/dict-from
-                  (build-vector
-                    (map (fn [[k v]]
-                           (build-vector [((:lower ctx) ctx k)
-                                          ((:lower ctx) ctx v)]))
-                         (partition 2 (filter p/rule? parts))))))))
+        (cond
+          (p/token? inner "]") (app* 'py/list (u/lit []))
+          (scope/comprehension? (:pk ctx) inner) (lower-comprehension ctx inner :list)
+          :else (app* 'py/list (elements ctx (rule-kids ctx inner)))))
+      (p/token? head "{") (lower-brace ctx n (second ks))
       (p/token? head "None") none
       (p/token? head "True") (u/lit true)
       (p/token? head "False") (u/lit false)
@@ -484,58 +539,120 @@
       :else (unsupported! n "atom"))))
 
 
+(defn- slice-parts
+  "`[start stop step]` nodes (nil where absent) of a slicing subscript_, or
+   nil when it is a plain index."
+  [ctx s]
+  (let [sk (kids ctx s)]
+    (when (some #(p/token? % ":") sk)
+      (let [[before after] (split-with #(not (p/token? % ":")) sk)
+            after (rest after)
+            stop (first (filter #(p/rule? % "test") after))
+            sliceop (first (filter #(p/rule? % "sliceop") after))]
+        [(first (filter #(p/rule? % "test") before))
+         stop
+         (when sliceop (first (rules ctx sliceop "test")))]))))
+
+
+(defn- lower-subscript
+  "One subscript_: its index, or `(py/slice start stop step)`."
+  [ctx s]
+  (if-let [[a b c] (slice-parts ctx s)]
+    (app* 'py/slice
+          (if a ((:lower ctx) ctx a) none)
+          (if b ((:lower ctx) ctx b) none)
+          (if c ((:lower ctx) ctx c) none))
+    ((:lower ctx) ctx (first (kids ctx s)))))
+
+
 (defn- subscript-key
+  "The key a `[...]` trailer passes: one index or slice, or the tuple of
+   several indices (`d[1, 2]`)."
   [ctx trailer]
   (let [sl (first (rules ctx trailer "subscriptlist"))
         subs* (rules ctx sl "subscript_")]
-    (when (or (not= 1 (count subs*)) (p/has-token? (:pk ctx) sl ","))
-      (unsupported! trailer "tuple subscript"))
-    (let [s (first subs*)
-          sk (kids ctx s)]
-      (when-not (and (= 1 (count sk)) (p/rule? (first sk) "test"))
-        (unsupported! trailer "slice"))
-      ((:lower ctx) ctx (first sk)))))
+    (if (or (< 1 (count subs*)) (p/has-token? (:pk ctx) sl ","))
+      (do (when (some #(slice-parts ctx %) subs*)
+            (unsupported! trailer "multi-dimensional slicing"))
+          (app* 'py/tuple (build-vector (map #(lower-subscript ctx %) subs*))))
+      (lower-subscript ctx (first subs*)))))
 
 
-(defn- call-args
+(defn- call-parts
+  "A call's arguments as `{:args node :kwargs node-or-nil}`: positional
+   values and `*iterable` splices in order, then `name=value` pairs and
+   `**mapping` splices in order. A generator expression is allowed only as
+   the sole argument of a consuming builtin (`:genexp` is then its node)."
   [ctx trailer]
   (let [al (first (rules ctx trailer "arglist"))
-        args (if al (rules ctx al "argument") [])]
-    (mapv (fn [a]
-            (let [ak (kids ctx a)]
-              (when-not (and (= 1 (count ak)) (p/rule? (first ak) "test"))
-                (unsupported! a "keyword, starred or generator argument"))
-              ((:lower ctx) ctx (first ak))))
-          args)))
+        args (if al (rules ctx al "argument") [])
+        lower (:lower ctx)]
+    (loop [as args
+           pos (u/lit [])
+           kw nil
+           seen #{}]
+      (if-let [a (first as)]
+        (let [ak (kids ctx a)]
+          (cond
+            (scope/comprehension? (:pk ctx) a)
+            (if (= 1 (count args))
+              {:genexp a}
+              (syntax! a "Generator expression must be parenthesized"))
+            (p/token? (first ak) "*")
+            (do (when kw (syntax! a "iterable argument unpacking follows keyword argument unpacking"))
+                (recur (rest as) (app* 'py/extend pos (lower ctx (second ak))) kw seen))
+            (p/token? (first ak) "**")
+            (recur (rest as) pos
+                   (app* 'py/kw-extend (or kw (u/lit [])) (lower ctx (second ak)))
+                   seen)
+            (and (= 3 (count ak)) (p/token? (second ak) "="))
+            (let [nm (scope/simple-name (:pk ctx) (first ak))]
+              (when-not nm (syntax! a "expression cannot contain assignment"))
+              (when (contains? seen nm) (syntax! a (str "keyword argument repeated: " nm)))
+              (recur (rest as) pos
+                     (app* 'py/conj (or kw (u/lit []))
+                           (build-vector [(u/lit nm) (lower ctx (nth ak 2))]))
+                     (conj seen nm)))
+            :else
+            (do (when kw (syntax! a "positional argument follows keyword argument"))
+                (recur (rest as) (app* 'py/conj pos (lower ctx (first ak))) kw seen))))
+        {:args pos, :kwargs kw}))))
+
+
+(defn- callee-builtin
+  "The builtin name `receiver-atom` reads, when it reads one."
+  [ctx atom-node]
+  (let [head (first (kids ctx atom-node))]
+    (when (p/rule? head "name")
+      (let [nm (name-of ctx head)]
+        (when (builtin? ctx nm) nm)))))
 
 
 (defn- apply-trailer
-  [ctx receiver trailer]
+  [ctx receiver trailer & [callee]]
   (let [head (first (kids ctx trailer))]
     (cond
-      (p/token? head "(") (lower-call receiver (call-args ctx trailer))
+      (p/token? head "(")
+      (let [{:keys [args kwargs genexp]} (call-parts ctx trailer)]
+        (if genexp
+          (if (contains? consuming-builtins callee)
+            (lower-call receiver
+                        (build-vector [(lower-comprehension ctx genexp :list)])
+                        nil)
+            (unsupported! genexp "generator expression (phase C2)"))
+          (lower-call receiver args kwargs)))
       (p/token? head "[") (app* 'py/getitem receiver (subscript-key ctx trailer))
       (p/token? head ".") (app* 'py/getattr receiver
                                 (u/lit (name-of ctx (second (kids ctx trailer))))))))
 
 
 (defn- lower-call
-  "Every call is `(py/call f [args...])`: the callee checks the count."
-  [f args]
-  (app* 'py/call f (build-vector args)))
-
-
-(defn- builtin-call
-  "`globals()` is the module namespace itself; nil for any other call."
-  [ctx atom-node trailer]
-  (let [head (first (kids ctx atom-node))]
-    (when (and (p/rule? head "name")
-               (p/token? (first (kids ctx trailer)) "(")
-               (= "globals" (name-of ctx head))
-               (builtin? ctx "globals"))
-      (when (seq (call-args ctx trailer))
-        (unsupported! trailer "globals() with arguments"))
-      (u/v globals-sym))))
+  "`(py/call f args)`, or `(py/call-kw f args kwargs)` when the call
+   passes keywords: the callee binds them."
+  [f args kwargs]
+  (if kwargs
+    (app* 'py/call-kw f args kwargs)
+    (app* 'py/call f args)))
 
 
 (defn- lower-atom-expr
@@ -543,13 +660,25 @@
   (let [ks (kids ctx n)]
     (when (p/token? (first ks) "await") (unsupported! n "await"))
     (let [atom-node (first ks)
-          trailers (rest ks)]
-      (if-let [special (and (seq trailers)
-                            (builtin-call ctx atom-node (first trailers)))]
-        (reduce #(apply-trailer ctx %1 %2) special (rest trailers))
-        (reduce #(apply-trailer ctx %1 %2)
-                ((:lower ctx) ctx atom-node)
-                trailers)))))
+          trailers (rest ks)
+          callee (callee-builtin ctx atom-node)]
+      (reduce (fn [acc [i t]]
+                (apply-trailer ctx acc t (when (zero? i) callee)))
+              ((:lower ctx) ctx atom-node)
+              (map-indexed vector trailers)))))
+
+
+(defn- power-operands
+  "The operands of a `**` chain, left to right. The grammar's left-
+   recursive rule groups `a ** b ** c` as `(a ** b) ** c`; Python's `**` is
+   right-associative, so the chain is regrouped here."
+  [ctx n]
+  (let [[a op b] (kids ctx n)]
+    (if (and (p/token? op "**") (p/rule? a "expr")
+             (= 3 (count (:children a)))
+             (p/token? (second (kids ctx a)) "**"))
+      (conj (power-operands ctx a) b)
+      [a b])))
 
 
 (defn- lower-expr
@@ -564,6 +693,11 @@
                   (unsupported! n (str "unary " (:text tok)))))
               ((:lower ctx) ctx (peek ks))
               (rseq (pop ks)))
+      (p/token? (second ks) "**")
+      (let [operands (mapv #((:lower ctx) ctx %) (power-operands ctx n))]
+        (reduce (fn [acc x] (app* 'py/pow x acc))
+                (peek operands)
+                (rseq (pop operands))))
       :else
       (let [[a op b] ks]
         (if-let [f (get binary-ops (:text op))]
@@ -573,7 +707,8 @@
 
 (def ^:private comparison-ops
   {"<" 'py/lt, ">" 'py/gt, "==" 'py/eq, ">=" 'py/ge, "<=" 'py/le,
-   "!=" 'py/ne, "is" 'py/is, "is not" 'py/is-not})
+   "!=" 'py/ne, "is" 'py/is, "is not" 'py/is-not, "in" 'py/in,
+   "not in" 'py/not-in})
 
 
 (defn- lower-comparison
@@ -622,39 +757,110 @@
       :else nil)))
 
 
+(defn- target-elements
+  "The element targets when `t` is a tuple or list target, else nil."
+  [ctx t]
+  (loop [n t]
+    (cond
+      (and (p/rule? n) (contains? #{"testlist_star_expr" "testlist" "exprlist"
+                                    "testlist_comp"}
+                                  (:rule n))
+           (or (< 1 (count (:children n))) (p/has-token? (:pk ctx) n ",")))
+      (rule-kids ctx n)
+      (and (p/rule? n "atom")
+           (or (p/token? (first (kids ctx n)) "(")
+               (p/token? (first (kids ctx n)) "[")))
+      (let [inner (second (kids ctx n))]
+        (cond
+          (not (p/rule? inner "testlist_comp")) []
+          (scope/comprehension? (:pk ctx) inner)
+          (syntax! n "cannot assign to comprehension")
+          ;; `[x]` is always a sequence target; `(x)` is just `x`
+          (or (p/token? (first (kids ctx n)) "[")
+              (< 1 (count (:children inner)))
+              (p/has-token? (:pk ctx) inner ","))
+          (rule-kids ctx inner)
+          :else (recur (first (rule-kids ctx inner)))))
+      (and (p/rule? n) (= 1 (count (:children n))))
+      (recur (first (kids ctx n)))
+      :else nil)))
+
+
+(declare assign-target)
+
+
+(defn- assign-unpacked
+  "Unpack `value` into element targets: exactly as many items, or with one
+   starred target the rest as a list. Items are assigned left to right."
+  [ctx t elems value]
+  (let [stars (keep-indexed (fn [i e] (when (p/rule? e "star_expr") i)) elems)
+        u (gen "u" t)
+        n (count elems)]
+    (when (< 1 (count stars))
+      (syntax! t "multiple starred expressions in assignment"))
+    (u/let1 u
+            (if-let [s (first stars)]
+              (app* 'py/unpack-star value (u/lit s) (u/lit (- n s 1)))
+              (app* 'py/unpack value (u/lit n)))
+            (if (zero? n)
+              none
+              (u/seq-nodes
+                (map-indexed
+                  (fn [i e]
+                    (assign-target ctx
+                                   (if (p/rule? e "star_expr") (last (kids ctx e)) e)
+                                   (app* 'py/arg (u/v u) (u/lit i))))
+                  elems))))))
+
+
 (defn- assign-target
-  "Store `value` (already evaluated: a variable node) into target `t`."
+  "Store `value` (a node, evaluated once here) into target `t`."
   [ctx t value]
   (if-let [nm (scope/simple-name (:pk ctx) t)]
     (assign-name ctx nm value)
-    (let [ae (target-atom-expr ctx t)
-          ks (when ae (kids ctx ae))
-          trailers (rest ks)]
-      (when (or (nil? ae) (empty? trailers))
-        (unsupported! t "assignment target"))
-      (let [receiver (reduce #(apply-trailer ctx %1 %2)
-                             ((:lower ctx) ctx (first ks))
-                             (butlast trailers))
-            last-t (last trailers)
-            head (first (kids ctx last-t))]
-        (cond
-          (p/token? head "[")
-          (app* 'py/setitem receiver (subscript-key ctx last-t) value)
-          (p/token? head ".")
-          (app* 'py/setattr receiver
-                (u/lit (name-of ctx (second (kids ctx last-t))))
-                value)
-          :else (unsupported! t "assignment to a call"))))))
+    (if-let [elems (target-elements ctx t)]
+      (assign-unpacked ctx t elems value)
+      (let [ae (target-atom-expr ctx t)
+            ks (when ae (kids ctx ae))
+            trailers (rest ks)]
+        (when (or (nil? ae) (empty? trailers))
+          (if (p/rule? (loop [n t]
+                         (if (and (p/rule? n) (= 1 (count (:children n))))
+                           (recur (first (kids ctx n)))
+                           n))
+                       "star_expr")
+            (syntax! t "starred assignment target must be in a list or tuple")
+            (unsupported! t "assignment target")))
+        (let [receiver (reduce #(apply-trailer ctx %1 %2)
+                               ((:lower ctx) ctx (first ks))
+                               (butlast trailers))
+              last-t (last trailers)
+              head (first (kids ctx last-t))]
+          (cond
+            (p/token? head "[")
+            (let [sl (first (rules ctx last-t "subscriptlist"))
+                  [_ _ step] (some #(slice-parts ctx %) (rules ctx sl "subscript_"))]
+              (when step (unsupported! last-t "extended slice assignment"))
+              (app* 'py/setitem receiver (subscript-key ctx last-t) value))
+            (p/token? head ".")
+            (app* 'py/setattr receiver
+                  (u/lit (name-of ctx (second (kids ctx last-t))))
+                  value)
+            :else (unsupported! t "assignment to a call")))))))
 
 
 (def ^:private augmented-ops
-  {"+=" 'py/add, "-=" 'py/sub, "*=" 'py/mul, "/=" 'py/truediv})
+  {"+=" 'py/iadd, "-=" 'py/sub, "*=" 'py/imul, "/=" 'py/truediv, "//=" 'py/floordiv,
+   "%=" 'py/mod, "**=" 'py/pow, "&=" 'py/bitand, "|=" 'py/bitor, "^=" 'py/bitxor,
+   "<<=" 'py/lshift, ">>=" 'py/rshift})
 
 
 (defn- lower-augmented
   [ctx n target aug rhs]
   (let [op (or (get augmented-ops (:text (first (kids ctx aug))))
                (unsupported! aug (str "augmented " (:text (first (kids ctx aug))))))
+        _ (when (target-elements ctx target)
+            (syntax! target "illegal expression for augmented assignment"))
         rhs (if (p/rule? rhs "yield_expr")
               (unsupported! rhs "yield")
               ((:lower ctx) ctx rhs))]
@@ -714,51 +920,67 @@
 ;; Functions and classes
 ;; -----------------------------------------------------------------------------
 
+(defn- param-name
+  [ctx param]
+  (when (< 1 (count (:children param)))
+    (unsupported! param "parameter annotation"))
+  (name-of ctx (first (rules ctx param "name"))))
+
+
 (defn- param-spec
-  "The shape of a parameter list: positional parameters, the default value
-   nodes of the trailing ones, and whether a `*name` follows. Keyword-only
-   parameters, `**kwargs` and annotations are refused."
+  "The shape of a parameter list, in the order Python writes it:
+   positional names with the default nodes of the trailing ones; `*name`
+   (or a bare `*`); keyword-only names with their default nodes; `**name`."
   [ctx arg-list param-rule]
   (loop [ks (if arg-list (kids ctx arg-list) [])
-         spec {:defaults [], :star? false}]
+         phase :positional
+         spec {:params [], :defaults [], :star? false, :kwonly [], :kwdefaults [],
+               :kwstar? false}]
     (if-let [k (first ks)]
       (cond
-        (p/token? k ",") (recur (rest ks) spec)
-        (p/token? k "**") (unsupported! arg-list "**kwargs parameter")
+        (p/token? k ",") (recur (rest ks) phase spec)
+        (p/token? k "**")
+        (do (when (some #(p/rule? % param-rule) (drop 2 ks))
+              (syntax! arg-list "arguments cannot follow var-keyword argument"))
+            (param-name ctx (second ks))
+            (recur (drop 2 ks) :done (assoc spec :kwstar? true)))
         (p/token? k "*")
-        (let [target (second ks)]
-          (when-not (p/rule? target param-rule)
-            (unsupported! arg-list "keyword-only parameters"))
-          (when (< 1 (count (:children target)))
-            (unsupported! target "parameter annotation"))
-          (when (some #(p/rule? % param-rule) (drop 2 ks))
-            (unsupported! arg-list "keyword-only parameters"))
-          (recur (drop 2 ks) (assoc spec :star? true)))
+        (if (p/rule? (second ks) param-rule)
+          (do (param-name ctx (second ks))
+              (recur (drop 2 ks) :kwonly (assoc spec :star? true)))
+          (do (when-not (some #(p/rule? % param-rule) (rest ks))
+                (syntax! arg-list "named arguments must follow bare *"))
+              (recur (rest ks) :kwonly spec)))
         (p/rule? k param-rule)
-        (do (when (< 1 (count (:children k)))
-              (unsupported! k "parameter annotation"))
-            (if (p/token? (second ks) "=")
-              (recur (drop 3 ks) (update spec :defaults conj (nth ks 2)))
-              (do (when (seq (:defaults spec))
-                    (syntax! k "non-default argument follows default argument"))
-                  (recur (rest ks) spec))))
+        (let [nm (param-name ctx k)
+              default (when (p/token? (second ks) "=") (nth ks 2))
+              ks' (if default (drop 3 ks) (rest ks))]
+          (if (= phase :kwonly)
+            (recur ks' phase (cond-> (update spec :kwonly conj nm)
+                               default (update :kwdefaults conj [nm default])))
+            (do (when (and (not default) (seq (:defaults spec)))
+                  (syntax! k "non-default argument follows default argument"))
+                (recur ks' phase (cond-> (update spec :params conj nm)
+                                   default (update :defaults conj default))))))
         :else (unsupported! arg-list "parameter list"))
       spec)))
 
 
 (defn- function-value
   "A guest function object: `py/make-function` over code taking one
-   argument vector. Parameters (the `*args` tuple last) are rebound to
+   argument vector laid out as the parameters are written (positional,
+   `*args` tuple, keyword-only, `**kwargs` dict). Parameters are rebound to
    cells, other locals are allocated unbound, then `body` (a node lowered
    with the function's context). Defaults are evaluated here, at
    definition time, in the enclosing context."
-  [ctx scope-node fname {:keys [defaults star?]} body-fn]
+  [ctx scope-node fname {:keys [params defaults star? kwonly kwdefaults kwstar?]}
+   body-fn]
   (let [s (get-in (:analysis ctx) [:scopes (:id scope-node)])
-        params (:params s)
-        _ (when-not (= (count params) (count (distinct params)))
+        all-params (:params s)
+        _ (when-not (= (count all-params) (count (distinct all-params)))
             (syntax! scope-node "duplicate argument in function definition"))
         args (gen "args" scope-node)
-        others (drop (count params) (:locals s))
+        others (drop (count all-params) (:locals s))
         body (body-fn (assoc ctx
                              :scope (:id scope-node)
                              :loop nil
@@ -767,14 +989,19 @@
         cells (concat (map-indexed (fn [i _]
                                      (app* 'cell/new
                                            (app* 'py/arg (u/v args) (u/lit i))))
-                                   params)
+                                   all-params)
                       (map (fn [_] (app* 'cell/new (u/lit :py/unbound)))
                            others))]
     (app* 'py/make-function
           (u/lit fname)
-          (u/lit (if star? (dec (count params)) (count params)))
+          (u/lit (cond-> {:params params}
+                   star? (assoc :star? true)
+                   (seq kwonly) (assoc :kwonly kwonly)
+                   kwstar? (assoc :kwstar? true)))
           (build-vector (map #((:lower ctx) ctx %) defaults))
-          (u/lit star?)
+          (build-vector (map (fn [[nm d]]
+                               (build-vector [(u/lit nm) ((:lower ctx) ctx d)]))
+                             kwdefaults))
           (u/lam [args]
                  (if (seq (:locals s))
                    (apply u/app (u/lam (map symbol (:locals s)) body) cells)
@@ -806,12 +1033,12 @@
 
 
 (defn- lower-lambdef
+  "`lambdef` and `lambdef_nocond` (a lambda inside a comprehension's `if`)."
   [ctx n]
   (function-value ctx n "<lambda>"
                   (param-spec ctx (first (rules ctx n "varargslist")) "vfpdef")
                   (fn [fctx]
-                    ((:lower ctx) (assoc fctx :ret nil)
-                                  (first (rules ctx n "test"))))))
+                    ((:lower ctx) (assoc fctx :ret nil) (peek (rule-kids ctx n))))))
 
 
 (defn- lower-classdef
@@ -906,12 +1133,9 @@
         x (gen "x" n)
         body (loop-body ctx body-block brk (gen "cont" n))
         orelse (if else-block (u/seq-nodes (lower-block ctx else-block)) none)]
-    (when-not (scope/simple-name (:pk ctx) target)
-      (unsupported! target "for target other than a name"))
     (with-break ctx body-block brk
       (u/let1 it
-              (single-child ctx (:lower ctx) (first (rules ctx n "testlist"))
-                            "tuple")
+              (app* 'py/iterable (display ctx (first (rules ctx n "testlist"))))
               (u/let1 w
                       (u/lam [w i]
                              (u/let1 x
@@ -927,45 +1151,87 @@
                       (u/app (u/v w) (u/v w) (u/lit 0)))))))
 
 
+(declare lower-try-except)
+
+
 (defn- lower-try
+  "`try` with `except` clauses (`py/try`), with `finally` (`py/try-finally`
+   around the rest), or both. The finally thunk takes the exception being
+   raised through it, or None, and ignores it."
   [ctx n]
-  (let [ks (kids ctx n)]
-    (when (some #(p/token? % "finally") ks)
-      (unsupported! n "finally"))
-    (let [exc (gen "exc" n)
-          blocks (rules ctx n "block")
-          clauses (rules ctx n "except_clause")
-          body (u/seq-nodes (lower-block ctx (first blocks)))
-          handler-blocks (subvec blocks 1 (inc (count clauses)))
-          else-block (get blocks (inc (count clauses)))
-          hctx (assoc ctx :exc exc)
-          dispatch
-          (reduce
-            (fn [fallthrough [clause block]]
-              (let [ck (kids ctx clause)
-                    cls-node (first (rules ctx clause "test"))
-                    as-name (first (rules ctx clause "name"))
-                    handler (u/seq-nodes
-                              (concat (when as-name
-                                        [(assign-name ctx (name-of ctx as-name)
-                                                      (u/v exc))])
-                                      (lower-block hctx block)))]
-                (when (and (nil? cls-node) (> (count ck) 1))
-                  (unsupported! clause "except clause"))
-                (if cls-node
-                  (u/if-node (app* 'py/isinstance (u/v exc)
-                                   ((:lower ctx) ctx cls-node))
-                             handler
-                             fallthrough)
-                  handler)))
-            (app* 'py/raise (u/v exc))
-            (reverse (map vector clauses handler-blocks)))]
-      (app* 'py/try
-            (u/lam [] body)
-            (u/lam [exc] dispatch)
-            (u/lam [] (if else-block
-                        (u/seq-nodes (lower-block ctx else-block))
-                        none))))))
+  (let [ks (kids ctx n)
+        blocks (rules ctx n "block")]
+    (if (some #(p/token? % "finally") ks)
+      (app* 'py/try-finally
+            (u/lam [] (if (seq (rules ctx n "except_clause"))
+                        (lower-try-except ctx n (pop blocks))
+                        (u/seq-nodes (lower-block ctx (first blocks)))))
+            (u/lam [(gen "fx" n)] (u/seq-nodes (lower-block ctx (peek blocks)))))
+      (lower-try-except ctx n blocks))))
+
+
+(defn- lower-with
+  "`with a as x, b:` nests as `with a as x: with b:`; each item is
+   `(py/with manager (fn [value] (assign target value) ...))`."
+  [ctx n]
+  (let [items (rules ctx n "with_item")
+        body (u/seq-nodes (lower-block ctx (first (rules ctx n "block"))))]
+    (reduce (fn [inner item]
+              (let [ik (kids ctx item)
+                    v (gen "wv" item)]
+                (app* 'py/with
+                      ((:lower ctx) ctx (first ik))
+                      (u/lam [v]
+                             (if (p/has-token? (:pk ctx) item "as")
+                               (u/then (assign-target ctx (last ik) (u/v v)) inner)
+                               inner)))))
+            body
+            (reverse items))))
+
+
+(defn- lower-try-except
+  "`try` with `except` clauses and an optional `else`: `blocks` are the try
+   body, one block per clause, then the else block if any."
+  [ctx n blocks]
+  (let [exc (gen "exc" n)
+        clauses (rules ctx n "except_clause")
+        body (u/seq-nodes (lower-block ctx (first blocks)))
+        handler-blocks (subvec blocks 1 (inc (count clauses)))
+        else-block (get blocks (inc (count clauses)))
+        hctx (assoc ctx :exc exc)
+        dispatch
+        (reduce
+          (fn [fallthrough [clause block]]
+            (let [ck (kids ctx clause)
+                  cls-node (first (rules ctx clause "test"))
+                  as-name (first (rules ctx clause "name"))
+                  handler (if as-name
+                            ;; `except E as e:` binds e for the handler and
+                            ;; unbinds it on every exit, as `del e` in a
+                            ;; finally would
+                            (let [nm (name-of ctx as-name)]
+                              (app* 'py/try-finally
+                                    (u/lam [] (u/seq-nodes
+                                                (cons (assign-name ctx nm (u/v exc))
+                                                      (lower-block hctx block))))
+                                    (u/lam [(gen "ux" clause)] (unbind-name ctx nm))))
+                            (u/seq-nodes (lower-block hctx block)))]
+              (when (and (nil? cls-node) (> (count ck) 1))
+                (unsupported! clause "except clause"))
+              (if cls-node
+                (u/if-node (app* 'py/exc-matches (u/v exc)
+                                 ((:lower ctx) ctx cls-node))
+                           handler
+                           fallthrough)
+                handler)))
+          (app* 'py/raise (u/v exc))
+          (reverse (map vector clauses handler-blocks)))]
+    (app* 'py/try
+          (u/lam [] body)
+          (u/lam [exc] dispatch)
+          (u/lam [] (if else-block
+                      (u/seq-nodes (lower-block ctx else-block))
+                      none)))))
 
 
 (defn- lower-flow
@@ -980,7 +1246,7 @@
     "return_stmt" (if-let [ret (:ret ctx)]
                     (u/app (u/v ret)
                            (if-let [value (first (rules ctx n "testlist"))]
-                             (single-child ctx (:lower ctx) value "tuple")
+                             (display ctx value)
                              none))
                     (syntax! n "'return' outside function"))
     "raise_stmt"
@@ -992,6 +1258,77 @@
                          (unsupported! n "bare raise outside except"))
         :else (app* 'py/raise (app* 'py/as-exception
                                     ((:lower ctx) ctx (first tests))))))))
+
+
+;; -----------------------------------------------------------------------------
+;; Comprehensions
+;; -----------------------------------------------------------------------------
+
+(defn- comp-clauses
+  "A comprehension's clauses in order: `[:for target iterable]` and
+   `[:if test]`."
+  [ctx comp-node]
+  (let [next-clause (fn [n]
+                      (when-let [it (first (rules ctx n "comp_iter"))]
+                        (first (rule-kids ctx it))))]
+    (loop [n (first (rules ctx comp-node "comp_for"))
+           acc []]
+      (cond
+        (nil? n) acc
+        (p/rule? n "comp_for")
+        (do (when (p/token? (first (kids ctx n)) "async")
+              (unsupported! n "async comprehension"))
+            (recur (next-clause n)
+                   (conj acc [:for (first (rules ctx n "exprlist"))
+                              (first (rules ctx n "or_test"))])))
+        :else (recur (next-clause n)
+                     (conj acc [:if (first (rules ctx n "test_nocond"))]))))))
+
+
+(defn- lower-comprehension
+  "A list, set or dict comprehension (or a generator expression consumed
+   eagerly, as a list) in its own scope: the first iterable is evaluated in
+   the enclosing scope; the targets are cells local to the comprehension;
+   each `for` walks with `py/for-each`, each `if` filters, and the
+   innermost clause adds to a fresh result object."
+  [ctx comp-node kind]
+  (let [s (get-in (:analysis ctx) [:scopes (:id comp-node)])
+        cctx (assoc ctx :scope (:id comp-node) :loop nil :ret nil :exc nil :class nil)
+        clauses (comp-clauses ctx comp-node)
+        elems (filterv #(not (p/rule? % "comp_for")) (rule-kids ctx comp-node))
+        _ (when (some #(p/rule? % "star_expr") elems)
+            (syntax! comp-node "iterable unpacking cannot be used in comprehension"))
+        fst (gen "first" comp-node)
+        acc (gen "acc" comp-node)
+        lower (:lower ctx)
+        emit (case kind
+               :list (app* 'py/list-append (u/v acc) (lower cctx (first elems)))
+               :set (app* 'py/set-add (u/v acc) (lower cctx (first elems)))
+               :dict (app* 'py/dict-set (u/v acc) (lower cctx (first elems))
+                           (lower cctx (second elems))))
+        body (reduce (fn [inner [i [tag a b]]]
+                       (if (= tag :for)
+                         (let [x (gen "x" a)]
+                           (app* 'py/for-each
+                                 (if (zero? i) (u/v fst) (lower cctx b))
+                                 (u/lam [x] (u/then (assign-target cctx a (u/v x))
+                                                    inner))))
+                         (u/if-node (truthy (lower cctx a)) inner none)))
+                     emit
+                     (reverse (map-indexed vector clauses)))
+        result (u/let1 acc
+                       (case kind
+                         :list (app* 'py/list (u/lit []))
+                         :set (app* 'py/set-new)
+                         :dict (app* 'py/dict-new))
+                       (u/then body (u/v acc)))]
+    (u/let1 fst
+            (lower ctx (nth (first clauses) 2))
+            (if (seq (:locals s))
+              (apply u/app
+                     (u/lam (map symbol (:locals s)) result)
+                     (map (fn [_] (app* 'cell/new (u/lit :py/unbound))) (:locals s)))
+              result))))
 
 
 ;; -----------------------------------------------------------------------------
@@ -1024,12 +1361,16 @@
     "while_stmt" (lower-while ctx n)
     "for_stmt" (lower-for ctx n)
     "try_stmt" (lower-try ctx n)
+    "with_stmt" (lower-with ctx n)
     "funcdef" (lower-funcdef ctx n)
     "classdef" (lower-classdef ctx n)
     ;; ---- expressions
-    "testlist_star_expr" (single-child ctx lower n "tuple")
-    "testlist" (single-child ctx lower n "tuple")
-    "exprlist" (single-child ctx lower n "tuple")
+    "testlist_star_expr" (display ctx n)
+    "testlist" (display ctx n)
+    "exprlist" (display ctx n)
+    "star_expr" (syntax! n "can't use starred expression here")
+    "test_nocond" (lower ctx (first (kids ctx n)))
+    "lambdef_nocond" (lower-lambdef ctx n)
     "test" (let [ks (kids ctx n)]
              (if (= 1 (count ks))
                (lower ctx (first ks))
@@ -1094,7 +1435,7 @@
   (u/mark-tails
     (u/then prelude/uast
             (app* 'py/run-module
-                  (u/lam [globals-sym] (lower-module-body packet))))))
+                  (u/lam [globals-sym globals-fn-sym] (lower-module-body packet))))))
 
 
 ;; =============================================================================
