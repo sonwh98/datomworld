@@ -9108,3 +9108,152 @@ Next (for the incoming seat; nothing is in flight):
   build:yin-repl-node + bb gen:python-antlr before clj -M:test in fresh worktrees; CLJD traps (:cljd first; no duplicate
   protocol params; unary minus); pass file lists via xargs; check origin/master..master and ask before publishing other
   seats' commits; only touch worktrees/branches you created (cross-seat incident 2026-10-01 21:22).
+
+
+## 2026-10-02 00:10:00 +0700 — Correction: the C1 landing commits belong to the peer ZCode orchestrator (yang.antlr epic)
+Completed-GMT: 2026-10-01 17:10:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Correction to this seat's takeover record and log entries of 2026-10-01:
+the commits 34c3986b (Python phase C1), 93e83213 (signed-zero
+preservation), and 24cdf535 (unary float negation) were landed by a
+PEER ZCode orchestrator seat (GLM-5.3-Flash) running the yang.antlr
+epic (docs/design/yang.antlr.md) — not by the claude seat, whose own
+work (the L0-L5 linker-over-DHT landing recorded earlier) stands as
+recorded. This seat's "urgent coordination warning" about a "parallel
+claude session" was likewise a misreading: the concurrent engineer
+activity in the py-c1 worktree was the peer orchestrator's.
+Coordination rules this seat adopts while the peer seat runs:
+- The peer owns the yang.antlr subsystem (docs/design/yang.antlr.md,
+  src/cljc/yang/python/, its tests, and related prelude files). This
+  seat's rounds exclude those files.
+- shared append-only state (this log, collab/, archive/) is operated
+  by both seats; this seat makes no further collab/archive
+  reorganization while the peer is active.
+- Master commits from both seats interleave; this seat pushes only its
+  own landed work and re-bases on the peer's commits as they appear.
+
+## 2026-10-02 00:40:00 +07 — Seat takeover (zcode glm-5.3-flash); overnight yang.antlr run: safepoint s1 + C2/C3 designs dispatched
+Completed-GMT: 2026-10-01 17:40:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@111a9823 = origin/master (24cdf535, C1) + 3 UNPUSHED docs commits made by the OTHER seat
+  (00da7c5d hygiene+hardening docs, f5ce7146 B6 doc retirement, 111a9823 coordination records, 23:48-23:52) — not
+  mine, left unpushed for that seat. Main tree also carries that seat's 12 uncommitted linker/DHT files — its
+  territory, untouched.
+Done: OWNER handed the seat over ("ok you can take over now"), then overnight standing orders, verbatim: "work
+  autonomously with the team.md to complete yang.antlr.md. If there are questions you need from me, then mob between
+  gpt-6-astra and fable-5.1. I'm going to sleep"; "if an architect.md signs off on implementation, then you can commit
+  and push"; "you can use codex, agy, claude, and glm-5.3 via cli". Recorded in routing-status.md (2026-10-02 00:16).
+  Re-derived state: C1 landed+pushed by the claude seat (final handoff 23:38); linker seat still live on yin.vm.linker
+  (owner-confirmed; coordination = separate worktrees, no main-tree edits from this seat).
+  Dispatched the owner-approved three-unit queue:
+  1. Safepoint interpreter slice 1 (engineer, worktree /Users/sto/workspace/datomworld-py-safepoint1, branch
+     yang-python-safepoint-s1 from 111a9823) — brief collab/1790874837000-compiler-engineer-python-safepoint-s1.prompt.md
+     (also staged in the worktree's collab/), design = the fable safepoint findings.
+  2. C2 generators design (fable, read-only, fresh session) — collab/1790874900000-architect-python-c2-generators-design.*
+  3. C3 bignum design (gpt-6-astra via codex, read-only, fresh thread) — collab/1790874940000-architect-python-c3-bignum-design.*
+  Returned the same hour: C2 findings (generator = one heap cell holding a suspended Continuation + its own handler
+  stack; two explicit continuation invocations; prelude + four lowering arms; no VM change, no new AST tag; slices S1-S5,
+  9 owner decisions) and C3 findings (reuse Jing's exact-integer carriers + CBOR tags 2/3 — no new wire format; fix
+  py/key double normalization; 4 evaluators x 3 hosts acceptance matrix; 14 owner decisions). Both promoted to findings.
+  Mob cross-rulings dispatched per the owner's delegation: astra's 14 -> fable (resume),
+  collab/1790875860000-architect-c3-bignum-crossruling.*; fable's 9 -> astra (thread resume),
+  collab/1790875890000-architect-c2-generators-crossruling.*.
+Decisions: owner decisions recorded verbatim above; safepoint slice 1 proceeds on the accepted 11 decisions
+  (2026-10-01 17:37); C2/C3 implementations wait for converged rulings; doc-writer pass for yang.antlr.md after
+  rulings converge; commit+push gate = architect sign-off + green lanes (owner directive).
+Verification: dispatch startup verified for all three delegates (astra streamed; fable returned findings; engineer
+  confirmed reading the brief before implementation).
+Delegates: engineer claude opus (session bfaf5e35-70a5-4e4b-9686-bf5717d46bd8, in-worktree; provenance: 720bbffc
+  burned on a bad model string, 71532d55 started in the wrong cwd and did nothing); architect claude-fable-5-1
+  (session e9543cd5-12e4-4812-8367-617982d54ea5); architect gpt-6-astra (thread 01a0f878-281b-7253-ac44-ff2402583d35).
+Next: safepoint s1 return -> orchestrator lanes -> gpt-6.1-sol gate -> land; cross-rulings return -> record converged
+  rulings -> dispatch C2-S1 and C3-S1 engineers (separate worktrees) + doc writer for yang.antlr.md -> glm gate -> land.
+  Watch for the other seat's master moves; rebase before landing. CLJD lane contention possible if both seats run lanes.
+
+## 2026-10-02 00:58:00 +07 — C2/C3 rulings converged (mob); C2-S1, C3-S1 engineers and doc writer dispatched
+Completed-GMT: 2026-10-01 17:58:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@1df123d1 (linker seat landing its doc line; yang.python untouched); three engineer worktrees + one
+  writer worktree active, none touching the main tree.
+Done: Both cross-rulings returned. C2 (astra ruling on fable's 9 decisions): all adopted with strengthening
+  conditions — per-generator handler contexts restored whole at every crossing; flag-cell pass discrimination with
+  bounded-allocation verification; tagged outcomes preserving PEP 479; consuming-builtin inlining removed in S4;
+  py/iter-at signature retained; dropped generators reclaimed without implicit close; stale-base retention accepted
+  for C2 (delimited capture deferred as a VM question); user-defined iterators in S5; no persisted generator flag.
+  C3 (fable ruling on astra's 14 decisions): untagged exact scalars of any magnitude; one carrier per host
+  (signed 64-bit JVM/Dart, ±(2^53-1) JS, host BigInt beyond) with mandatory demotion; Jing major types 0/1 and CBOR
+  tags 2/3 unchanged — no new payload kind; carrier recognition in encoder/heap/pin-refs/kind-of/data-number?
+  tested on Node and Dart before any bignum reaches a cell; versioned :pure integer module over a per-host shim;
+  reduced-rational decimal-string numeric keys; P=2^61-1 guest hashing; value-based is; exact conversions as named
+  deliverables; explicit numeric-limits profile data (MemoryError/ValueError, never OverflowError); no stream-codec
+  widening; acceptance = 4 VMs x 3 hosts + goldens + mutation evidence. Sequencing ruling 14: module slices may run
+  alongside C2; prelude/lowering slices land after C2.
+  Dispatched on the converged rulings: C2-S1 core engineer (worktree datomworld-py-c2gen1, branch yang-python-c2-s1,
+  brief collab/1790875893000-compiler-engineer-python-c2-s1.prompt.md, session f5c578c3-b4b7-41a3-9e0e-66d8582b073f);
+  C3-S1 integer-module + carrier-recognition engineer (worktree datomworld-py-c3int1, branch yang-python-c3-s1, brief
+  collab/1790876200000-compiler-engineer-python-c3-s1.prompt.md, session aca6eb75-a02d-4556-b7e9-d69ccb513811); doc
+  writer for the three ruling sets into yang.antlr.md (worktree datomworld-yang-doc, branch docs-yang-antlr-c2-c3-sp,
+  brief collab/1790876053000-writer-yang-antlr-rulings.prompt.md, session c9cabf75-804a-41c3-9da8-bf1efba15b76).
+  Safepoint-s1 engineer still running (session bfaf5e35, ~45 min; quiet is not failure).
+Decisions: rulings recorded as architect rulings under the owner's mob delegation (not owner rulings); C3 prelude/
+  lowering slices queued behind the C2 landing per ruling 14; safepoint s2 (recursion) queued behind safepoint s1.
+Verification: findings promoted from stdout logs for all four returned delegates (C2 design, C3 design, both
+  cross-rulings); dispatch health confirmed per delegate before treating as in flight.
+Delegates: as named above; cross-ruling artifacts collab/1790875860000-architect-c3-bignum-crossruling.* and
+  collab/1790875890000-architect-c2-generators-crossruling.* (fable resume e9543cd5...; astra thread resume
+  01a0f878...; first astra resume attempt failed: codex exec resume rejects -s, use -c sandbox_mode="read-only").
+Next: four returns -> per-unit: orchestrator lanes (gen:python-antlr + build:yin-repl-node first), gpt-6.1-sol gate
+  (fresh thread), land on GRANTED (commit+push per owner standing order, rebase onto moved master first); doc writer
+  -> glm gate -> land. Then safepoint s2, C2-S2, C3-S2.
+
+
+## 2026-10-02 00:55:00 +0700 — Overnight log: hygiene batch landed, C1 record, incident findings, hardening stage 1 dispatch
+Completed-GMT: 2026-10-01 17:55:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@c478935f (hygiene batch); hardening worktree staged
+Done:
+- Hygiene batch landed: c478935f (12 files) — corrects the codex
+  round's conversion defects (em-dash residues, mid-word splits with
+  byte-identical concatenations); added-line gate 0 across all files;
+  JVM lane 2,839/225,791/0 (orchestrator run). The codex round's own
+  report claimed its output clean; the independent scan found the " , "
+  residues and mid-word splits — the independent-gate discipline held.
+- C1 record: the peer orchestrator landed C1 on master (34c3986b +
+  93e83213 + 24cdf535); the C1 fix subagent root-caused the dht-process
+  failures as a STALE yin-repl-node build (rebuilt; focused test
+  2/91/0) and verified JVM 2,839/225,791/0 and Node 2,656/91,265/0 via
+  bb lanes. Process finding: bare `clojure -M:test` omits the
+  build:yin-repl-node and antlr-gen steps that bb test:clj/cljs chain —
+  lanes must run via bb.
+- INCIDENT (process finding): this seat dispatched two codex agents
+  writing docs/design/yin.vm.linker.dht.md concurrently (the hardening
+  design and the hygiene round); the hygiene rewrite from a stale base
+  clobbered the architect's just-authored section 14. The design
+  reviewer recovered the section byte-for-byte from the architect's
+  before-copy, reviewed it (REQUEST CHANGES: re-apply + P1 em-dash
+  restorations + P2 amendment payload + P3 terminology), and the fixes
+  are re-applied and scan-clean. LESSON (logged for all future
+  seats): never dispatch two writers on one document; writer isolation
+  is per-file, not per-round.
+- GLM budget events: the pool hit "exceed quota limit" once (hygiene
+  subagent died); the owner replenished 100M, then clarified the peer
+  orchestrator draws a different pool — 33M is this seat's alone.
+- Attribution correction: the C1 landing commits belong to the peer
+  ZCode orchestrator (yang.antlr epic), not the claude seat (see the
+  earlier correction entry).
+- Hardening stage 1 dispatched to glm-5.3 CLI (session 4b857b1a, the
+  worktree /Users/sto/workspace/datomworld-linker-hardening, branch
+  linker-hardening): blocked once on a read-only resume (the acceptEdits
+  flag dropped on resume); re-dispatched with write access. Its plan:
+  migrate ucf.cljc to :yin.safepoint/kinds, new yin/vm/ucf/handoff.cljc
+  lift/lower per section 14.1.2, the nine-host-pair test matrix, and
+  the stage-2 UCF amendment obligations recorded.
+Next: on stage 1 COMPLETE: orchestrator verification (three lanes),
+  gate review, commit; then stage 2 (UCF version-1 amendment), stage 3
+  (durable authority), stage 4 (handoff integration), stage 5
+  (acceptance suites) in sequence; then the :reasons Option B
+  implementation and the audit-gap transfer test.
