@@ -13,7 +13,8 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.module :as module]
             [yin.vm.test-utils :as tu :refer [compile-and-run create-vm
-                                              queue-ast!]]))
+                                              queue-ast!]]
+            [yin.vm.values :as values]))
 
 
 (defn- throws?
@@ -152,8 +153,9 @@
     (let [closure (compile-and-run {:type :lambda,
                                     :params ['x],
                                     :body {:type :variable, :name 'x}})]
-      (is (= :closure (:type closure)))
-      (is (= ['x] (:params closure))))))
+      (is (values/closure? closure))
+      (is (= :closure (:type (values/payload closure))))
+      (is (= ['x] (:params (values/payload closure)))))))
 
 
 (deftest under-arity-call-binds-missing-param-to-nil-test

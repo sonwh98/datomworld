@@ -38,6 +38,7 @@
             [yin.vm.macro :as macro]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
+            [yin.vm.values :as values]
             [dao.stream.observer :as observer]))
 
 
@@ -392,6 +393,10 @@
   [namer quoted? x]
   (cond (symbol? x) (if quoted? x (list 'quote x))
         (fn? x) (host-fn-marker namer x)
+        ;; a closure or continuation is opaque: its kind, never its payload,
+        ;; a captured value or its owner tag
+        (values/host-typed? x)
+        (typed-map [[:type (if (values/closure? x) :closure :continuation)]])
         (vector? x) (mapv #(quote-symbols namer quoted? %) x)
         (map? x)
         (render-map

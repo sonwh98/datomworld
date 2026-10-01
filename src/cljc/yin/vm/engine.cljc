@@ -36,7 +36,8 @@
             [yin.vm.ffi :as ffi]
             [yin.vm.linker :as linker]
             [yin.vm.module :as module]
-            [yin.vm.telemetry :as telemetry]))
+            [yin.vm.telemetry :as telemetry]
+            [yin.vm.values :as values]))
 
 
 (defn- outcome
@@ -57,20 +58,55 @@
   (into {} (map vector params (concat args (repeat nil)))))
 
 
-(defn reified-continuation?
-  [f]
-  (and (map? f) (= :reified-continuation (:type f))))
+;; =============================================================================
+;; Application refusals (D6)
+;; =============================================================================
+;;
+;; One vocabulary, in the `:reason` shape, for every kernel:
+;;
+;;   :not-applicable      the operator is neither a host function, a
+;;                        closure nor a continuation; carries a coarse
+;;                        `:kind`, never the value
+;;   :foreign-value       a closure or continuation another task minted;
+;;                        carries `:kind :closure` or `:continuation`
+;;   :foreign-format      a continuation of another kernel format or image
+;;   :continuation-arity  a continuation applied to other than one argument
+
+(defn operator-kind
+  "Classify the operator `f` a kernel of `state` is about to apply:
+   `:host-fn`, `:closure` or `:continuation`. A closure or continuation
+   must be owned by this task (`:owner`); anything else is refused. The
+   one classifier every kernel's application calls."
+  [state f]
+  (cond (fn? f) :host-fn
+        (values/host-typed? f)
+        (if (values/owned-by? f (:owner state))
+          (if (values/closure? f) :closure :continuation)
+          (fail "Cannot apply a value of another task"
+                {:reason :foreign-value, :kind (values/kind-of f)}))
+        :else (fail "Cannot apply non-function"
+                    {:reason :not-applicable, :kind (values/kind-of f)})))
+
+
+(defn marker-mismatch!
+  "Refuse to lower closure `marker` whose binders (a named kernel's
+   `:yin.k/params`, a positional kernel's `:yin.k/arity`) are not those of
+   the attached lambda it names: a lower mints an applicable closure, so
+   the wire never chooses what a closure binds."
+  [marker]
+  (fail "Closure marker disagrees with its attached lambda"
+        {:reason :marker-mismatch, :segment (:yin.k/segment marker)}))
 
 
 (defn continuation-argument
   "The one value a captured continuation is applied to. Applying a
-   `:reified-continuation` is abortive: the current continuation is
-   discarded and the argument becomes the value of the capture point.
-   Every VM refuses any other arity with this same message."
-  [k args]
+   continuation is abortive: the current continuation is discarded and
+   the argument becomes the value of the capture point. Every VM refuses
+   any other arity with this same message."
+  [args]
   (when-not (= 1 (count args))
     (throw (ex-info "Continuation expects exactly one argument"
-                    {:continuation-type (:type k), :argc (count args)})))
+                    {:reason :continuation-arity, :argc (count args)})))
   (first args))
 
 
@@ -639,8 +675,11 @@
    closure origin segment, module store, and cursor cell the encoding
    reaches. A closure lifts through the kernel and names the module store
    its body resolves against: its own `:store-of`, or `own` when it has
-   none -- a closure the child's own body made. Every literal map is
-   wrapped, so a program's data can never forge a marker. A stream or
+   none -- a closure the child's own body made. A closure or
+   continuation another task minted refuses as `:foreign-value`: lift is
+   the only crossing, and only for the owner. Every literal map is
+   wrapped, a `:type :closure` map included, so a program's data can
+   never forge a marker. A stream or
    cursor reference is authenticated before it is encoded (r11): its seal
    and resource kind must verify under the emitter's own secret, or it
    refuses as `:forged-resource-reference`; only then is it encoded,
@@ -653,10 +692,14 @@
             [x]
             (cond
               (scalar? x) x
-              (map? x)
-              (case (:type x)
-                :closure
-                (let [marker (module/lift-closure vm x encode)
+              ;; Host types before the map arm: a plain map carrying
+              ;; `:type :closure` is a literal and is wrapped as one.
+              (values/host-typed? x)
+              (cond
+                (not (values/owned-by? x (:owner vm)))
+                (non-portable! :foreign-value {:yin.k/hint (values/kind-of x)})
+                (values/closure? x)
+                (let [marker (module/lift-closure vm (values/payload x) encode)
                       m (or (get marker store-of-key) own)]
                   (swap! found (fn [acc]
                                  (-> acc
@@ -664,6 +707,11 @@
                                              (:yin.k/segment marker))
                                      (update :stores conj m))))
                   (assoc marker store-of-key m))
+                :else
+                (non-portable! :non-canonicalizable
+                               {:yin.k/hint :reified-continuation}))
+              (map? x)
+              (case (:type x)
                 (:stream-ref :cursor-ref)
                 (cond
                   (not (authentic-ref? vm (:type x) x))
@@ -672,7 +720,7 @@
                   (= :stream-ref (:type x)) (stream-marker vm (:id x))
                   :else {:yin.k/tag :yin.k/cursor-ref,
                          :yin.k/cell (cell-for! vm found (:id x))})
-                (:reified-continuation :parked-continuation)
+                :parked-continuation
                 (non-portable! :non-canonicalizable {:yin.k/hint (:type x)})
                 ;; slice 1 refuses every cell-bearing lift; copy-on-lift
                 ;; of the heap slice is slice 2
@@ -1846,68 +1894,100 @@
       (when (and (some? entry) (= (:seal x) (:seal entry))) id))))
 
 
+(defn- moded
+  "`work` with each of `xs` pushed in `mode`, `:kernel` or `:data`."
+  [work mode xs]
+  (into work (map (fn [x] [mode x])) xs))
+
+
 (defn- trace
-  "`found` plus the ids of `heap` reachable from `roots`. Scalars hold
-   nothing; a value of the kernel's own shape contributes what the kernel's
-   `gc-children` answers; any other collection contributes its elements, a
-   map its keys and values. With `follow?` a newly found id's content is
-   traced too (marking); without, only the refs met directly (pinning).
-   Each value is visited once, so shared environments cost one walk and a
-   cell holding its own ref terminates. The worklist is explicit: a deep
-   continuation chain does not grow the host stack."
+  "`found` plus the ids of `heap` reachable from `roots`, a map
+   `{:kernel [...] :data [...]}` of root values by mode. Two modes keep
+   guest data from being read as kernel shapes (gemini reclamation gate,
+   concern 1):
+
+   - `:kernel`, a value in a kernel position (a kernel root, an engine
+     table entry, a closure or continuation payload, or a kernel child of
+     one): the kernel's `gc-children` may interpret it, and answers which
+     of its children are kernel positions and which are values. A value
+     it does not recognize is walked whole, as data.
+   - `:data`, a value position (an environment value, an operand, a
+     register, a cell's content): every map is walked whole, never
+     pruned, so a guest map shaped like a frame cannot hide a cell ref.
+     Only a closure or continuation, a host type no guest can forge,
+     re-enters `:kernel` mode through its payload.
+
+   Scalars hold nothing. With `follow?` a newly found id's content is
+   traced too, as data (marking); without, only the refs met directly
+   (pinning). Each value is visited once per mode, so shared environments
+   cost one walk and a cell holding its own ref terminates. The worklist
+   is explicit: a deep continuation chain does not grow the host stack."
   [vm heap roots found follow?]
   (let [children-of (if (satisfies? module/IModuleKernel vm)
                       #(module/gc-children vm %)
                       (constantly nil))]
-    (loop [work (into () roots)
+    (loop [work (-> ()
+                    (moded :kernel (:kernel roots))
+                    (moded :data (:data roots)))
            seen #{}
            found found]
       (if (empty? work)
         found
-        (let [x (peek work)
+        (let [[mode x :as entry] (peek work)
               work (pop work)]
-          (if (or (scalar? x) (contains? seen x))
+          (if (or (scalar? x) (contains? seen entry))
             (recur work seen found)
             (let [id (when (map? x) (heap-ref-id heap x))
                   new-id? (and (some? id) (not (contains? found id)))
-                  children (children-of x)
+                  children (when (and (= :kernel mode)
+                                      (not (values/host-typed? x)))
+                             (children-of x))
                   work (cond-> work
-                         (and new-id? follow?) (conj (:value (get heap id)))
-                         (some? children) (into children)
-                         (and (nil? children) (map? x)) (-> (into (keys x))
-                                                            (into (vals x)))
+                         (and new-id? follow?)
+                         (conj [:data (:value (get heap id))])
+                         (values/host-typed? x)
+                         (conj [:kernel (values/payload x)])
+                         (some? children)
+                         (-> (moded :kernel (:kernel children))
+                             (moded :data (:values children)))
+                         (and (nil? children) (map? x))
+                         (-> (moded :data (keys x))
+                             (moded :data (vals x)))
                          (and (nil? children) (not (map? x)) (coll? x))
-                         (into x))]
+                         (moded :data x))]
               (recur work
-                     (conj seen x)
+                     (conj seen entry)
                      (if new-id? (conj found id) found)))))))))
 
 
 (defn- gc-roots
-  "Every root of `vm` (design Q1): the kernel's registers, the store and
-   every module store, `:parked`, `:wait-set` and `:ready-queue`, then
-   `extra`. Code, images, the registry, primitives, `:callable-effects`,
-   telemetry and `:resources` are not roots: a literal can never be an
-   authentic ref, and a value inside a stream is the medium's (hence
-   pinning)."
+  "Every root of `vm` (design Q1), by mode: the kernel's registers as it
+   classifies them (`module/gc-roots`), each entry of `:parked`,
+   `:wait-set` and `:ready-queue` as a kernel position, the store and
+   every module store as values, then `extra` as values. Code, images,
+   the registry, primitives, `:callable-effects`, telemetry and
+   `:resources` are not roots: a literal can never be an authentic ref,
+   and a value inside a stream is the medium's (hence pinning)."
   [vm extra]
-  (-> [(:store vm)
-       (:module-stores vm)
-       (:parked vm)
-       (:wait-set vm)
-       (:ready-queue vm)]
-      (into (when (satisfies? module/IModuleKernel vm) (module/gc-roots vm)))
-      (into extra)))
+  (let [kernel (when (satisfies? module/IModuleKernel vm)
+                 (module/gc-roots vm))]
+    {:kernel (-> (vec (:kernel kernel))
+                 (into (vals (:parked vm)))
+                 (into (:wait-set vm))
+                 (into (:ready-queue vm))),
+     :data (-> [(:store vm) (:module-stores vm)]
+               (into (:values kernel))
+               (into extra))}))
 
 
 (defn- mark
   "The ids of `heap` live from `roots` and from the `pinned` ids: a pinned
-   cell is a root, so its content is traced too."
+   cell is a root, so its content is traced too, as data."
   [vm heap roots pinned]
   (let [pins (filterv #(contains? heap %) pinned)]
     (trace vm
            heap
-           (into roots (map #(:value (get heap %))) pins)
+           (update roots :data into (map #(:value (get heap %))) pins)
            (set pins)
            true)))
 
@@ -1964,7 +2044,7 @@
   [state v]
   (if (or (scalar? v) (empty? (:heap state)))
     state
-    (let [ids (trace state (:heap state) [v] #{} false)]
+    (let [ids (trace state (:heap state) {:data [v]} #{} false)]
       (if (seq ids)
         (assoc state :gc (update (gc-of state) :pinned into ids))
         state))))

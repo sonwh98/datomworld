@@ -21,7 +21,8 @@
   (:require [clojure.edn :as edn]
             [clojure.walk :as walk]
             [yin.vm :as vm]
-            [yin.vm.semantic :as semantic]))
+            [yin.vm.semantic :as semantic]
+            [yin.vm.values :as values]))
 
 
 (def handoff-keys
@@ -77,23 +78,31 @@
 (def tag-key
   "The one key the register encoding interprets. A map carrying it is a tag:
    `{tag-key :primitive, :name n}` is a host primitive, resolved by name
-   against the receiver's primitives, and `{tag-key :quote, :value m}` is an
-   ordinary map `m` that happened to carry `tag-key` itself. Every other value
-   is literal data, so no program value can decode as executable identity."
+   against the receiver's primitives; `{tag-key :closure, :payload p}` and
+   `{tag-key :continuation, :payload p}` are a closure and a continuation
+   (host types, D7), minted again on the receiver with its own owner tag;
+   and `{tag-key :quote, :value m}` is an ordinary map `m` that happened to
+   carry `tag-key` itself. Every other value is literal data, so no program
+   value can decode as executable identity."
   :yin.continuation/tag)
 
 
 (defn- encode-primitives
   "Replace each host function in `x` with a primitive tag naming it in
-   `primitives`, and quote any ordinary map that carries `tag-key`. Throws on
-   a host function that is not a primitive: it has no portable encoding
-   (§7 item 2)."
+   `primitives`, each closure and continuation with a tag carrying its
+   encoded payload (never the sender's owner tag), and quote any ordinary
+   map that carries `tag-key`. Throws on a host function that is not a
+   primitive: it has no portable encoding (§7 item 2)."
   [primitives x]
   (let [names (into {} (map (fn [[n entry]]
                               [(vm/primitive-function entry) n]))
                     primitives)]
     (walk/postwalk (fn [v]
-                     (cond (fn? v)
+                     (cond (values/host-typed? v)
+                           {tag-key (if (values/closure? v) :closure :continuation),
+                            :payload (encode-primitives primitives
+                                                        (values/payload v))}
+                           (fn? v)
                            (if-let [n (get names v)]
                              {tag-key :primitive, :name n}
                              (throw (ex-info "Cannot ship a continuation holding a host function"
@@ -105,10 +114,13 @@
 
 
 (defn- decode-primitives
-  "Invert `encode-primitives`. Walks top-down so a quoted map's own
-   `tag-key` is never read as a tag; only its contents are decoded."
-  [primitives x]
-  (let [decode-children #(walk/walk (partial decode-primitives primitives)
+  "Invert `encode-primitives` into receiver `base`: a primitive resolves
+   against its primitives, and a closure or continuation is minted with
+   its owner tag. Walks top-down so a quoted map's own `tag-key` is never
+   read as a tag; only its contents are decoded."
+  [base x]
+  (let [primitives (:primitives base)
+        decode-children #(walk/walk (partial decode-primitives base)
                                     identity
                                     %)]
     (if (and (map? x) (contains? x tag-key))
@@ -117,6 +129,11 @@
                                vm/primitive-function)
                        (throw (ex-info "The receiver has no such primitive"
                                        {:name (:name x)})))
+        :closure (values/closure (:owner base)
+                                 (decode-primitives base (:payload x)))
+        :continuation (values/continuation (:owner base)
+                                           (decode-primitives base
+                                                              (:payload x)))
         :quote (decode-children (:value x))
         (throw (ex-info "Unknown continuation tag" {:tag (get x tag-key)})))
       (decode-children x))))
@@ -202,8 +219,7 @@
             (throw (ex-info "Handoff batch carries no registers" {:batch-size (count batch)})))
         base (make-vm)
         {:keys [contract segment pc value stack env k id-counter defs]}
-        (decode-primitives (:primitives base)
-                           (edn/read-string (nth registers-datom 2)))
+        (decode-primitives base (edn/read-string (nth registers-datom 2)))
         ;; the batch carries its own stamp; the receiver never assigns one
         loaded (semantic/vm-load-program base code contract)]
     (when-not (= segment (:program loaded))

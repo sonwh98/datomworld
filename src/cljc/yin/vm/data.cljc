@@ -36,7 +36,8 @@
   (:require
     [clojure.string :as str]
     [yin.vm :as vm]
-    [yin.vm.module :as module]))
+    [yin.vm.module :as module]
+    [yin.vm.values :as values]))
 
 
 (def module-name
@@ -404,6 +405,24 @@
 
 
 ;; =============================================================================
+;; Kinds
+;; =============================================================================
+
+(defn- data-number?
+  "True when `x` is a host number. A closure, a continuation, nil and a
+   map are not, whatever they answer to `get`."
+  [x]
+  (number? x))
+
+
+(defn- callable?
+  "True when `x` can be applied: a host function, a closure or a
+   continuation. A map is never callable, whatever keys it carries."
+  [x]
+  (or (fn? x) (values/closure? x) (values/continuation? x)))
+
+
+;; =============================================================================
 ;; The module
 ;; =============================================================================
 
@@ -429,7 +448,9 @@
    ['char-at [2] char-at]
    ['str->code-points [1] str->code-points]
    ['code-points->str [1] code-points->str]
-   ['str-compare [2] str-compare]])
+   ['str-compare [2] str-compare]
+   ['number? [1] data-number?]
+   ['callable? [1] callable?]])
 
 
 (defn- arity-checked

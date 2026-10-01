@@ -27,7 +27,8 @@
             [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -665,8 +666,10 @@
 (deftest current-continuation-test
   (let [segment [[:const 1] [:push] [:current-continuation] [:halt]]
         done (run-segment segment)
-        k (vm/value done)]
+        reified (vm/value done)
+        k (values/payload reified)]
     (testing "the continuation after the instruction, as a tagged payload"
+      (is (values/continuation? reified))
       (is (= :reified-continuation (:type k)))
       (is (= 3 (:pc k)))
       (is (= [1] (:stack k)) "the stack before the continuation was pushed")
@@ -676,7 +679,7 @@
       (is (= :yin.debruijn.code (:format k)))
       (is (= (:hash done) (:hash k))))
     (testing "B0 compares it by type only, matching the named VM's tag"
-      (is (= {:type :reified-continuation} (b0/normalize k))))))
+      (is (= {:type :reified-continuation} (b0/normalize reified))))))
 
 
 (def ^:private park-then-resume-segment

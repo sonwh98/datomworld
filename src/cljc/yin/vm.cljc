@@ -27,7 +27,8 @@
             [dao.jing :as jing]
             [dao.space.query :as query]
             [dao.stream :as stream]
-            [yin.vm.effect :as effect]))
+            [yin.vm.effect :as effect]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -133,6 +134,26 @@
    (throw (ex-info (str "Reserved name " name " used as "
                         (clojure.core/name role))
                    (merge data (reserved-name-defect role name))))))
+
+
+(defn check-params!
+  "Refuse a lambda's binders where they would bind: a reserved name
+   (Rule R), and any binder that is not a symbol, refused as
+   `:non-symbol-parameter` with the binder's coarse `:kind`. A keyword
+   parameter would otherwise write any key into a named kernel's
+   environment, `:yin.k/store-of` included. `data` is merged into the
+   refusal. Returns `params`."
+  ([params] (check-params! params {}))
+  ([params data]
+   (when-let [p (some #(when (reserved-name? %) %) params)]
+     (refuse-reserved! :binder p data))
+   ;; the bad binder is boxed: a nil or false binder must not read as none
+   (when-let [[p] (some #(when-not (symbol? %) [%]) params)]
+     (throw (ex-info "Lambda parameter is not a symbol"
+                     (merge data
+                            {:reason :non-symbol-parameter,
+                             :kind (values/kind-of p)}))))
+   params))
 
 
 (defn check-bindings!
@@ -946,6 +967,25 @@
                  (coll? x) (every? plain-data? x)
                  :else false)
            (plain-data? (meta x)))))
+
+
+(defn machine-data?
+  "`plain-data?` for a value inside a machine payload: a closure or a
+   continuation, a host type only a kernel mints, counts as its payload,
+   as the plain map it was before D7. Rows and code datoms stay
+   `plain-data?`."
+  [x]
+  (or (nil? x)
+      (if (values/host-typed? x)
+        (machine-data? (values/payload x))
+        (and (cond (or (boolean? x) (number? x) (string? x) (keyword? x)
+                       (symbol? x))
+                   true
+                   (map? x) (and (every? machine-data? (keys x))
+                                 (every? machine-data? (vals x)))
+                   (coll? x) (every? machine-data? x)
+                   :else false)
+             (machine-data? (meta x))))))
 
 
 (defn occurrence-origin?
@@ -2040,7 +2080,9 @@
                    own random source. Every resource reference the engine
                    issues is sealed under it; a task composed without one
                    issues none, and every stream effect over a supplied
-                   reference fails closed.
+                   reference fails closed. The task's owner tag
+                   (`yin.vm.values/owner-tag`) is derived from it once,
+                   here, and held as `:owner`.
      :secret-source (fn [origin] -> secret): the composition's minting of
                    an install child's secret; without it a child has none
      :attach-stream (fn [descriptor] -> attach outcome): how a lowered
@@ -2163,6 +2205,7 @@
         :origin (or (:origin opts) :t0),
         :ancestry (vec (:ancestry opts)),
         :capability-secret (:capability-secret opts),
+        :owner (values/owner-tag (:capability-secret opts)),
         :secret-source (:secret-source opts),
         :attach-stream (:attach-stream opts),
         :ffi-caller-id (:ffi-caller-id opts),

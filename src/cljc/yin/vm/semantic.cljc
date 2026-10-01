@@ -22,7 +22,9 @@
    and resource ids — never a resolved stream handle and never a resume
    closure: `engine/check-wait-set` resolves handles from the store on every
    poll and the scheduler restores a woken entry explicitly, so the wait set
-   of a blocked machine survives an EDN round-trip. A segment id is stable:
+   of a blocked machine survives an EDN round-trip once any closure or
+   continuation in its registers, a host type (D7, `yin.vm.values`), is
+   encoded as the handoff demo encodes it. A segment id is stable:
    loading different code under an id that continuations already name is a
    load error; an identical reload is accepted.
 
@@ -38,7 +40,8 @@
             [yin.vm.ffi :as ffi]
             [yin.vm.module :as module]
             [yin.vm.telemetry :as telemetry]
-            [yin.vm.ucf :as ucf]))
+            [yin.vm.ucf :as ucf]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -227,15 +230,16 @@
    is the frame its own caller gave it. A primitive that yields an effect
    parks with the continuation after the call site."
   [code seg pc val St E K vm tail? f args]
-  (cond
-    (= :closure (:type f))
-    (let [E' (merge (:env f) (engine/bind-params (:params f) args))
+  (case (engine/operator-kind vm f)
+    :closure
+    (let [c (values/payload f)
+          E' (merge (:env c) (engine/bind-params (:params c) args))
           frame {:type :return, :segment seg, :pc (inc pc), :env E,
                  :stack-base (count St)}
-          seg' (:segment f)]
-      {:goto [seg' (:entry f) val St E' (if tail? K (conj K frame))
+          seg' (:segment c)]
+      {:goto [seg' (:entry c) val St E' (if tail? K (conj K frame))
               vm (get code seg')]})
-    (fn? f)
+    :host-fn
     (let [result (apply f args)]
       (if (module/effect? result)
         (let [{:keys [state value blocked?]}
@@ -251,11 +255,12 @@
     ;; An abortive jump: the call site's St/E/K are dropped and the
     ;; captured registers take over, with the argument in val as the
     ;; capture instruction left it (19). The store is not a register.
-    (engine/reified-continuation? f)
-    (let [v (engine/continuation-argument f args)
-          seg' (:segment f)]
-      {:goto [seg' (:pc f) v (:stack f) (:env f) (:k f) vm (get code seg')]})
-    :else (throw (ex-info "Cannot apply non-function" {:fn f}))))
+    :continuation
+    (let [v (engine/continuation-argument args)
+          c (values/payload f)
+          seg' (:segment c)]
+      {:goto [seg' (:pc c) v (:stack c) (:env c) (:k c) vm
+              (get code seg')]})))
 
 
 ;; =============================================================================
@@ -303,11 +308,13 @@
                        St E K vm image (and fuel (dec fuel)))
               ;; :closure — val ← clo(params, entry, seg, E) (4, :lambda)
               4 (recur seg (inc pc)
-                       {:type :closure,
-                        :params (nth inst 1),
-                        :entry (nth inst 2),
-                        :segment seg,
-                        :env E}
+                       (values/closure (:owner vm)
+                                       {:type :closure,
+                                        :params (vm/check-params!
+                                                  (nth inst 1)),
+                                        :entry (nth inst 2),
+                                        :segment seg,
+                                        :env E})
                        St E K vm image (and fuel (dec fuel)))
               ;; :push — St ← St ⧺ [val] (22, :push)
               22 (recur seg (inc pc) val (conj St val) E K vm image
@@ -354,12 +361,13 @@
                           (and fuel (dec fuel))))
               ;; :current-continuation — val ← {seg, pc+1, E, St, K} (19)
               19 (recur seg (inc pc)
-                        {:type :reified-continuation,
-                         :segment seg,
-                         :pc (inc pc),
-                         :env E,
-                         :stack St,
-                         :k K}
+                        (values/continuation (:owner vm)
+                                             {:type :reified-continuation,
+                                              :segment seg,
+                                              :pc (inc pc),
+                                              :env E,
+                                              :stack St,
+                                              :k K})
                         St E K vm image (and fuel (dec fuel)))
               ;; :park — write {segment pc+1 env stack k} and halt (17)
               17 (-> (put-registers vm seg pc val St E K)
@@ -1022,15 +1030,28 @@
         (throw (ex-info "Closure origin image is not attached"
                         {:reason :origin-not-attached,
                          :segment (:yin.k/segment marker)})))
-      {:type :closure,
-       :params (:yin.k/params marker),
-       :entry entry,
-       :segment local,
-       :env (cond-> (into {}
-                          (map (fn [[k x]] [k (decode x)]))
-                          (:yin.k/env marker))
-              store-of (assoc engine/store-of-key store-of))}))
-  (gc-roots [vm] [(:control vm) (:env vm) (:stack vm) (:k vm) (:value vm)])
+      ;; the binders are those of a `:closure` (4) of the attached image
+      ;; whose entry this is, never the wire's
+      (vm/check-params! (:yin.k/params marker))
+      (when-not (some (fn [inst]
+                        (and (= 4 (nth inst 0))
+                             (= entry (nth inst 2))
+                             (= (:yin.k/params marker) (nth inst 1))))
+                      (get-in vm [:code local :code]))
+        (engine/marker-mismatch! marker))
+      (values/closure
+        (:owner vm)
+        {:type :closure,
+         :params (:yin.k/params marker),
+         :entry entry,
+         :segment local,
+         :env (cond-> (into {}
+                            (map (fn [[k x]] [k (decode x)]))
+                            (:yin.k/env marker))
+                store-of (assoc engine/store-of-key store-of))})))
+  (gc-roots [vm]
+    {:kernel [(:control vm) (:k vm)],
+     :values [(:env vm) (:stack vm) (:value vm)]})
   ;; Nothing of this kernel's shape holds code: a closure names its segment
   ;; and entry, and a frame or continuation its segment and pc, so every
   ;; value is plain data and is walked whole.

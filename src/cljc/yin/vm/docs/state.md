@@ -108,13 +108,19 @@ The state is an immutable map that contains all information needed to continue e
          2 [1 2 3]}}    ; address 2 contains vector
 ```
 
+### `:owner` - The Task's Owner Tag
+
+**Type:** a string, or nil
+
+**Purpose:** The owner tag every closure and continuation this task mints carries (D7), derived once from the capability secret by `yin.vm.values/owner-tag` in `yin.vm/empty-state` and never revealing it. A task composed without a secret has owner nil. Application and invocation refuse a closure or continuation whose owner is not this task's (`:foreign-value`); the lift encoder refuses one as `:yin.k/non-portable`, and `lower-closure` mints with the receiver's owner. Cell, stream and cursor references are not owner-tagged: they stay sealed plain data.
+
 ### `:heap` and `:gc` - Task Heap and Its Collector
 
 **Type:** `:heap` is `{cell-id {:value v :seal s}}`; `:gc` is `{:since n :base b :threshold t :pinned #{cell-id}}`
 
 **Purpose:** `:heap` holds the task's cells, the mutable locations `cell/new` allocates and a sealed `:cell-ref` reaches. It is VM state, not continuation state: a write is seen by every holder of the ref and survives continuation re-entry (box semantics). `:gc` is its collector's state. Both are declared record fields wherever a VM is a positional record, and both start empty in every constructor and `spawn-module` child.
 
-**Reclamation:** deterministic, allocation-triggered, stop-the-world mark-sweep, a pure `vm -> vm'` (`yin.vm.engine/collect`). `:since` counts allocations; when it reaches `:threshold`, the `:cell/new` effect collects before allocating, and the threshold becomes `max(:base, 2 x live)`. `:base` is a composition parameter (`:gc-threshold`, default 4096). Marking runs over the heap as it was when the cycle began, and the sweep removes only ids of that snapshot, so an id allocated at or after the cycle's counter start is spared; a budgeted marker can later reuse it. `:pinned` holds cells whose refs left the VM's view on a stream or in an FFI request; they stay live for the task's life. Ids are never reused (`:id-counter` only grows), and a ref to a swept cell is refused with `:dead-or-forged-reference`. This supersedes the cell ruling's "heap reclamation can wait".
+**Reclamation:** deterministic, allocation-triggered, stop-the-world mark-sweep, tracing kernel positions and value positions in two modes (`ast.md` Part 6),, a pure `vm -> vm'` (`yin.vm.engine/collect`). `:since` counts allocations; when it reaches `:threshold`, the `:cell/new` effect collects before allocating, and the threshold becomes `max(:base, 2 x live)`. `:base` is a composition parameter (`:gc-threshold`, default 4096). Marking runs over the heap as it was when the cycle began, and the sweep removes only ids of that snapshot, so an id allocated at or after the cycle's counter start is spared; a budgeted marker can later reuse it. `:pinned` holds cells whose refs left the VM's view on a stream or in an FFI request; they stay live for the task's life. Ids are never reused (`:id-counter` only grows), and a ref to a swept cell is refused with `:dead-or-forged-reference`. This supersedes the cell ruling's "heap reclamation can wait".
 
 ### `:continuation` - Return Context
 
@@ -173,8 +179,8 @@ The state is an immutable map that contains all information needed to continue e
 ;; Literal evaluated to 42
 {:value 42}
 
-;; Function evaluated
-{:value #<closure>}
+;; Function evaluated: a yin.vm.values/Closure host value
+{:value <Closure>}  ; prints opaquely as {:type :closure}
 
 ;; Expression result
 {:value [1 2 3]}

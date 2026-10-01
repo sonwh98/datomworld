@@ -323,8 +323,9 @@ Lambdas are the primary mechanism for defining functions. When evaluated, a lamb
 
 When the Yin VM encounters a lambda node, it doesn't execute the body. Instead, it creates a **closure**:
 
-1. **Capture Environment** - The VM takes the current lexical environment (`env`).
-2. **Create Closure Value** - It returns a map containing the params, body, and the captured environment.
+1. **Check the binders** - Every parameter must be a symbol other than a reserved name (`vm/check-params!`). A reserved binder is refused by Rule R; any other non-symbol binder is refused with `{:reason :non-symbol-parameter, :kind k}`. A keyword parameter would otherwise write any key into the environment, the module-store key `:yin.k/store-of` included.
+2. **Capture Environment** - The VM takes the current lexical environment (`env`).
+3. **Create Closure Value** - It mints a closure over the params, body, and the captured environment.
 
 **Implementation (from `ast_walker.cljc`):**
 ```clojure
@@ -334,19 +335,27 @@ When the Yin VM encounters a lambda node, it doesn't execute the body. Instead, 
             nil
             env
             k
-            {:type :closure, :params params, :body body, :env env}))
+            (closure-of (:owner state) node params body env)))
 ```
 
 ### Closure Structure (Runtime Value)
 
-The resulting closure is a runtime value:
+A closure is a host type, `yin.vm.values/Closure` (D7), minted only by a kernel. It wraps the kernel's payload map and the owner tag of the task that minted it:
 ```clojure
-{:type :closure
- :params [...]
- :body <ast-node>
- :env {...}  ; The captured lexical scope
- }
+(values/closure owner
+                {:type :closure
+                 :params [...]
+                 :body <ast-node>
+                 :env {...}})  ; the captured lexical scope
 ```
+
+- **Unforgeable.** `values/closure?` is a type test. A guest map carrying `:type :closure` is data: applying it refuses `:not-applicable`, and the lift encoder wraps it as a literal.
+- **Opaque.** The type answers no keyword lookup, so a guest `(get f :env)` is nil and never reads the captured environment; `assoc` on it yields nothing applicable. It is not a host function (`fn?` is false).
+- **Owned.** The owner tag is derived once per task from its capability secret (`values/owner-tag`, held in VM state as `:owner`; nil for a task without a secret). Application refuses a closure another task minted with `:foreign-value`. Lift is the only crossing: the encoder refuses a foreign closure as `:yin.k/non-portable` of kind `:foreign-value`, and `lower-closure` mints with the receiver's owner. A lower takes its binders from the attached lambda, never the wire: a marker whose `:yin.k/params` (named kernels) or `:yin.k/arity` (positional kernels) is not the attached lambda's refuses `:marker-mismatch`, and a non-symbol binder refuses `:non-symbol-parameter` first.
+- **Equal by structure.** `=` compares kind, owner and payload, and `hash` agrees, so two runs of one program give equal VM states and a closure can be a set member. A closure never equals its payload map.
+- **Opaque in print.** Every host rendering (`str`, `pr-str`, guest `print`/`println`/`prn`, the REPL display, nested inside a collection) is the kind marker `{:type :closure}` or `{:type :continuation}`, shaped like the `{:type :host-fn}` marker: never the payload, a captured value, or the owner tag.
+
+The semantic VM's payload names `:entry` and `:segment` instead of `:body`; the positional kernels' names `:arity`, `:body-pc` and `:frames`.
 
 ### Key Characteristics
 
@@ -425,25 +434,37 @@ The evaluation of an application node follows several steps:
 ;; Once operator and every operand are evaluated:
 (defn- apply-function
   [state fn-value evaluated-operands k env]
-  (cond (fn? fn-value)
-        (handle-primitive-result state
-                                 (apply fn-value evaluated-operands)
-                                 k
-                                 env)
-        (= :closure (:type fn-value))
-        (let [{:keys [params body], closure-env :env} fn-value
-              extended-env (merge closure-env
-                                  (engine/bind-params params evaluated-operands))]
-          (cesk-return state body extended-env k (:value state)))
-        (engine/reified-continuation? fn-value)
-        (cesk-return state
-                     nil
-                     (:env fn-value)
-                     (:k fn-value)
-                     (engine/continuation-argument fn-value
-                                                   evaluated-operands))
-        :else (throw (ex-info "Cannot apply non-function" {:fn fn-value}))))
+  (case (engine/operator-kind state fn-value)
+    :host-fn (handle-primitive-result state
+                                      fn-value
+                                      (apply fn-value evaluated-operands)
+                                      k
+                                      env)
+    :closure (let [{:keys [params body], closure-env :env}
+                   (values/payload fn-value)
+                   extended-env (merge closure-env
+                                       (engine/bind-params params
+                                                           evaluated-operands))]
+               (cesk-return state body extended-env k (:value state)))
+    :continuation (let [c (values/payload fn-value)]
+                    (cesk-return state
+                                 nil
+                                 (:env c)
+                                 (:k c)
+                                 (engine/continuation-argument
+                                   evaluated-operands)))))
 ```
+
+**Application refusals (D6).** `engine/operator-kind` is the one classifier
+every kernel's application calls. Its refusals, and the continuation ones,
+share one vocabulary in the `:reason` shape:
+
+| `:reason` | When |
+|---|---|
+| `:not-applicable` | The operator is neither a host function, a closure nor a continuation. Carries a coarse `:kind` (`:number`, `:map`, ...), never the value. |
+| `:foreign-value` | A closure or continuation another task minted. Carries `:kind :closure` or `:continuation`. |
+| `:foreign-format` | A continuation of another kernel format or image (the positional kernels' restore check). |
+| `:continuation-arity` | A continuation applied to other than one argument; carries `:argc`. |
 
 **Under-arity calls do not silently drop parameters.** `engine/bind-params`
 binds each positional operand to its parameter name and **nil-fills** any
@@ -659,7 +680,7 @@ Runtime-allocated mutable locations are not AST nodes. They are the `cell` host 
 **Reclamation.** The heap is collected (Architect heap-reclamation design, slice 1; this supersedes the cell ruling's "heap reclamation can wait"). The `:cell/new` effect counts allocations, and when the count reaches the threshold it runs a deterministic, stop-the-world mark-sweep before allocating:
 
 - **Roots:** the kernel's registers (`IModuleKernel/gc-roots`), the store and every module store, `:parked`, `:wait-set`, `:ready-queue`, the value being boxed, and every pinned cell. Code, images, the registry, primitives and `:resources` are not roots.
-- **Tracing:** a cell ref marks its cell and traces its content; a frame, closure or register payload contributes what the kernel's `gc-children` answers (a walker frame's `:evaluated` and `:fn`, never its operand subtrees); other data is walked whole.
+- **Tracing, in two modes:** a cell ref marks its cell and traces its content. In a *kernel* position (a continuation register, an engine table entry, a closure or continuation payload, or a kernel child of one) a value of the kernel's own shape contributes what the kernel's `gc-children` answers, split into further kernel positions and values (a walker frame's `:evaluated` and `:fn`, never its operand subtrees). In a *value* position (an environment value, an operand, a value register, the store, a cell's content) every map is walked whole, so a guest map shaped like a frame never hides a cell ref; only a closure or continuation, which no guest can forge, re-enters kernel mode through its payload.
 - **Pinning:** a cell ref inside a value appended by `:stream/put`, or inside FFI request arguments, is pinned for the task's life, because the VM cannot see inside a medium.
 - **Ids are never reused.** A ref to a swept cell is refused with `:dead-or-forged-reference`.
 - **Determinism:** collection is triggered by counts only, never by time or host memory, so it cannot change a program's result.
@@ -681,15 +702,17 @@ Continuations represent "the rest of the computation." Yin VM provides first-cla
 {:type :vm/current-continuation}
 ```
 
-**Evaluation:** Returns a `:reified-continuation` value carrying the current continuation and lexical environment.
+**Evaluation:** Returns a continuation value carrying the current continuation and lexical environment: a `yin.vm.values/Continuation` host type, minted only by a kernel and owned by the capturing task, over the `:reified-continuation` payload map. Like a closure (Part 3) it is unforgeable, opaque to guest `get`, equal by structure, and refused with `:foreign-value` in another task. A continuation never crosses a lift (`:non-canonicalizable`). A `:parked-continuation` stays plain data: resume goes by id through the engine's `:parked` table.
 
 **Implementation (from `ast_walker.cljc`):**
 ```clojure
 :vm/current-continuation
-(cesk-return state nil env k {:type :reified-continuation, :k k, :env env})
+(cesk-return state nil env k
+             (values/continuation (:owner state)
+                                  {:type :reified-continuation, :k k, :env env}))
 ```
 
-**Invocation:** A `:reified-continuation` is applicable, in tail or non-tail
+**Invocation:** A continuation is applicable, in tail or non-tail
 operator position, on every VM. Applying it to exactly one argument is
 abortive, Scheme-style: the current continuation is discarded and the
 argument becomes the value of the original capture point, with the captured
@@ -698,7 +721,8 @@ semantic, de Bruijn stack and register VMs). The store is not part of a
 continuation and is not rolled back. A continuation is multi-shot: it can be
 invoked any number of times, including after the expression that captured it
 has returned. Any other arity throws `"Continuation expects exactly one
-argument"` (`engine/continuation-argument`), identically on every VM.
+argument"` with `{:reason :continuation-arity, :argc n}`
+(`engine/continuation-argument`), identically on every VM.
 
 ```clojure
 ;; ((fn [r] (if (= r 7) r (+ 1000 (r 7)))) (current-continuation))  ;; -> 7

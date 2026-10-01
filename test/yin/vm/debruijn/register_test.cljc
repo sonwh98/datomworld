@@ -18,7 +18,8 @@
             [yin.vm.linearize :as linearize]
             [yin.vm.parity-test :as parity]
             [yin.vm.semantic :as semantic]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -397,7 +398,9 @@
     (let [img (hand-image 2 [[:current-continuation 0 []]
                              [:halt 0]])
           vm (register-run img)
-          val (vm/value vm)]
+          k (vm/value vm)
+          val (values/payload k)]
+      (is (values/continuation? k))
       (is (= :reified-continuation (:type val)))
       (is (= :yin.debruijn.register (:format val)))
       (is (= (rcode/register-hash img) (:hash val)))

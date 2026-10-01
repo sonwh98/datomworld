@@ -33,7 +33,8 @@
             [yin.vm.debruijn-register-effects :as effects]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.module :as module]))
+            [yin.vm.module :as module]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -276,6 +277,7 @@
             :origin (:origin base),
             :ancestry (:ancestry base),
             :capability-secret (:capability-secret base),
+            :owner (:owner base),
             :secret-source (:secret-source base),
             :attach-stream (:attach-stream base),
             :hash nil,
@@ -345,7 +347,8 @@
 (defn- refuse-continuation!
   [base entry]
   (throw (ex-info "Cannot restore a continuation of another model or image"
-                  {:rule :continuation-format,
+                  {:reason :foreign-format,
+                   :rule :continuation-format,
                    :format (:format entry),
                    :hash (:hash entry),
                    :image (:image entry),
@@ -411,7 +414,7 @@
   (when-let [defect (effects/continuation-defect entry)]
     (throw (ex-info "Corrupt or tampered continuation payload"
                     defect)))
-  (when-not (vm/plain-data? val)
+  (when-not (vm/machine-data? val)
     (throw (ex-info "Resume value must be plain data"
                     {:rule :resume-value, :val val})))
   (if (:request-sent entry)
@@ -558,11 +561,12 @@
                :registers (assoc registers (nth inst 1) val)))
 
       :closure
-      (let [clos (cond-> {:type :closure,
-                          :arity (nth inst 2),
-                          :body-pc (nth inst 3),
-                          :frames frames}
-                   store-of (assoc :store-of store-of))]
+      (let [clos (values/closure (:owner vm)
+                                 (cond-> {:type :closure,
+                                          :arity (nth inst 2),
+                                          :body-pc (nth inst 3),
+                                          :frames frames}
+                                   store-of (assoc :store-of store-of)))]
         (assoc vm
                :pc (inc pc)
                :registers (assoc registers (nth inst 1) clos)))
@@ -581,14 +585,15 @@
             live (nth inst 5)
             f (nth registers fn-reg)
             args (mapv #(nth registers %) arg-regs)]
-        (cond
-          (and (map? f) (= :closure (:type f)))
-          (let [callee-pc (:body-pc f)
+        (case (engine/operator-kind vm f)
+          :closure
+          (let [c (values/payload f)
+                callee-pc (:body-pc c)
                 callee-body (body-of-pc segment callee-pc)
-                callee-arity (:arity f)
+                callee-arity (:arity c)
                 callee-reg-count (:registers callee-body)
                 locals (bind-positional callee-arity args)
-                body-frames (conj (:frames f) locals)
+                body-frames (conj (:frames c) locals)
                 callee-regs (into locals
                                   (repeat (- callee-reg-count callee-arity)
                                           nil))
@@ -611,9 +616,9 @@
                    :frames body-frames
                    :registers callee-regs
                    :continuation continuation'
-                   :store-of (:store-of f)))
+                   :store-of (:store-of c)))
 
-          (fn? f)
+          :host-fn
           (let [result (apply f args)]
             (if (module/effect? result)
               (run-call-effect (engine/check-callee-effect! vm f result)
@@ -633,13 +638,11 @@
           ;; payload-defect and plain-data gates are for a continuation
           ;; or value crossing into the machine, and a capture's live
           ;; registers may hold closures and primitives.
-          (engine/reified-continuation? f)
-          (let [v (engine/continuation-argument f args)]
-            (check-format! vm f)
-            (write-back vm f v))
-
-          :else
-          (throw (ex-info "Cannot apply non-function" {:fn f}))))
+          :continuation
+          (let [v (engine/continuation-argument args)
+                c (values/payload f)]
+            (check-format! vm c)
+            (write-back vm c v))))
 
       :branch-false
       (let [c (nth registers (nth inst 1))]
@@ -710,7 +713,9 @@
 
       :current-continuation
       (let [payload (payload-of vm inst)
-            reified (merge {:type :reified-continuation} payload)]
+            reified (values/continuation
+                      (:owner vm)
+                      (merge {:type :reified-continuation} payload))]
         (assoc vm
                :pc (inc pc)
                :registers (assoc registers (nth inst 1) reified)))
@@ -844,16 +849,27 @@
         (throw (ex-info "Closure origin image is not attached"
                         {:reason :origin-not-attached,
                          :segment (:yin.k/segment marker)})))
-      (cond-> {:type :closure,
-               :arity (:yin.k/arity marker),
-               :body-pc pc,
-               :frames (mapv #(mapv decode %) (:yin.k/frames marker))}
-        (:yin.k/store-of marker)
-        (assoc :store-of (:yin.k/store-of marker)))))
-  (gc-roots [vm] [(:frames vm) (:registers vm) (:continuation vm) (:value vm)])
+      ;; the arity is that of a `:closure` of the attached code whose body
+      ;; this is, never the wire's
+      (when-not (some #(and (= :closure (nth % 0))
+                            (= (:yin.k/arity marker) (nth % 2))
+                            (= pc (nth % 3)))
+                      (:instructions (:segment vm)))
+        (engine/marker-mismatch! marker))
+      (values/closure
+        (:owner vm)
+        (cond-> {:type :closure,
+                 :arity (:yin.k/arity marker),
+                 :body-pc pc,
+                 :frames (mapv #(mapv decode %) (:yin.k/frames marker))}
+          (:yin.k/store-of marker)
+          (assoc :store-of (:yin.k/store-of marker))))))
+  (gc-roots [vm]
+    {:kernel [(:continuation vm)],
+     :values [(:frames vm) (:registers vm) (:value vm)]})
   ;; A register payload (a wait, ready or parked entry, or a reified
   ;; continuation) names the code space as `:segment`; that is code, so
   ;; every other key is traced. Closures and return frames hold no code.
   (gc-children [_ x]
     (when (and (map? x) (= format-tag (:format x)))
-      (into [] (vals (dissoc x :segment))))))
+      {:values (into [] (vals (dissoc x :segment)))})))

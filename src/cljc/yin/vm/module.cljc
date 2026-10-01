@@ -414,17 +414,25 @@
   (gc-roots
     [vm]
     "This kernel's registers as heap-reclamation root values, each a whole
-     register, never selected keys, so no root is missed here. The engine
+     register, never selected keys, so no root is missed here:
+     `{:kernel [...] :values [...]}`. A `:kernel` register holds this
+     kernel's own shapes (a continuation, the control); a `:values`
+     register holds program values (the accumulator, an operand stack,
+     the registers, the bound frames), which are walked whole. The engine
      adds the store, the module stores, `:parked`, `:wait-set` and
      `:ready-queue` itself.")
 
   (gc-children
     [vm x]
-    "The values `x` may hold a cell ref in, as a sequence, when `x` is a
-     value of this kernel's own shape that mixes code with runtime values
-     (a frame, a closure, a register payload naming the code space); nil
-     when `x` is plain data the engine walks itself. The engine never reads
-     a continuation's keys generically: this is the seam."))
+    "Asked only of a value in a kernel position (a kernel register, an
+     engine table entry, a closure or continuation payload, or a
+     `:kernel` child): when `x` is of this kernel's own shape and mixes
+     code with runtime values (a frame, a closure payload, a register
+     payload naming the code space), `{:kernel [...] :values [...]}`, the
+     children `x` may hold a cell ref in, split into further kernel
+     positions and program values; nil when `x` is plain data the engine
+     walks itself. The engine never reads a continuation's keys
+     generically: this is the seam."))
 
 
 (def link-request-resource

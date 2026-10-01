@@ -75,17 +75,7 @@
      (fn [x]
        (if (= x true)
          true
-         (if (= x false)
-           true
-           (if (py/float? x)
-             true
-             (if (nil? (get x :py/str))
-               (if (nil? (get x :type))
-                 (if (nil? (get x :py/type))
-                   (if (= x :py/None) false (not (= x :py/unbound)))
-                   false)
-                 false)
-               false)))))]
+         (if (= x false) true (if (py/float? x) true (data/number? x)))))]
     [py/num
      (fn [x]
        (if (= x true) 1 (if (= x false) 0 (if (py/float? x) (get x :py/float) x))))]

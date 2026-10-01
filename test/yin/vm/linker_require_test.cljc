@@ -31,7 +31,8 @@
             [yin.repl :as repl]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -728,7 +729,10 @@
   (let [child (vm/run (dvm/create-vm (stack-image (returning 1))
                                      {:primitives vm/primitives,
                                       :contract vm/stack-contract}))
-        stray (assoc (get (vm/store child) 'f) :store-of :segment/absent)
+        f (get (vm/store child) 'f)
+        stray (values/closure (values/owner f)
+                              (assoc (values/payload f)
+                                     :store-of :segment/absent))
         child (assoc-in child [:store 'g] stray)
         refusal (refusal-of #(engine/lift-slice child :segment/own ['g]))]
     (is (= :yin.k/non-portable (:yin.k/status refusal)))
@@ -1062,7 +1066,7 @@
   (let [stack-task (vm/run (dvm/create-vm (stack-image (returning 1))
                                           {:primitives vm/primitives,
                                            :contract vm/stack-contract}))
-        closure (get (vm/store stack-task) 'f)
+        closure (values/payload (get (vm/store stack-task) 'f))
         marker (module/lift-closure stack-task closure identity)
         semantic-task (semantic/create-vm {})
         register-task (rvm/create-vm nil {})]

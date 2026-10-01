@@ -25,7 +25,8 @@
             [dao.space.query :as query]
             [yin.vm :as vm]
             [yin.vm.code :as code]
-            [yin.vm.module :as module]))
+            [yin.vm.module :as module]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -86,10 +87,11 @@
                   [:frame a (:pc f) (context-of env (:env f))]
                   [:unaddressed (:segment f)]))]
     (cond
-      (typed? v :closure)
-      (if-let [a (addr (:segment v))]
-        #{[:closure a (:entry v) (context-of env (:env v))]}
-        #{[:unaddressed (:segment v)]})
+      (values/closure? v)
+      (let [c (values/payload v)]
+        (if-let [a (addr (:segment c))]
+          #{[:closure a (:entry c) (context-of env (:env c))]}
+          #{[:unaddressed (:segment c)]}))
 
       (typed? v :stream-ref) #{[:stream (:id v)]}
       (typed? v :cursor-ref) #{[:cursor (:id v)]}
@@ -103,12 +105,13 @@
                        :yin.k/kind :cell,
                        :yin.k/hint (:id v)}))
 
-      (typed? v :reified-continuation)
-      (if-let [a (addr (:segment v))]
-        #{[:k a (:pc v) (context-of env (:env v))
-           (mapv frame (:k v))
-           (into #{} (mapcat #(abstract-value env %)) (:stack v))]}
-        #{[:unaddressed (:segment v)]})
+      (values/continuation? v)
+      (let [c (values/payload v)]
+        (if-let [a (addr (:segment c))]
+          #{[:k a (:pc c) (context-of env (:env c))
+             (mapv frame (:k c))
+             (into #{} (mapcat #(abstract-value env %)) (:stack c))]}
+          #{[:unaddressed (:segment c)]}))
 
       (fn? v)
       (let [sym (vm/name-of registry canonical-names v)]

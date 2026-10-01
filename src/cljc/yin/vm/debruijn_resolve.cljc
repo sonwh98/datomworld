@@ -166,8 +166,7 @@
       (let [params (get-attr e :yin/params)
             macro? (get-attr e :yin/macro?)]
         (reject-host-value! e :yin/params params)
-        (when-let [p (some #(when (vm/reserved-name? %) %) params)]
-          (vm/refuse-reserved! :binder p {:entity e}))
+        (vm/check-params! params {:entity e})
         (emit! :yin/type :lambda)
         (when macro? (emit! :yin/macro? macro?))
         (emit! :yin.resolved/arity (count params))

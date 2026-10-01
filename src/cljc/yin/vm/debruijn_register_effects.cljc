@@ -199,13 +199,13 @@
                               {:rule :continuation-registers,
                                :frame-index frame-idx})
                             (when-not (every? (fn [p]
-                                                (vm/plain-data? (nth p 1)))
+                                                (vm/machine-data? (nth p 1)))
                                               regs)
                               {:rule :continuation-registers,
                                :frame-index frame-idx})
                             (when-not (and (vector? frames)
                                            (every? vector? frames)
-                                           (vm/plain-data? frames))
+                                           (vm/machine-data? frames))
                               {:rule :continuation-frames,
                                :frame-index frame-idx})))))))))))
 
@@ -329,7 +329,7 @@
                           (when-not (= live (mapv (fn [p] (nth p 0)) regs))
                             {:rule :continuation-registers})
                           (when-not (every? (fn [p]
-                                              (vm/plain-data? (nth p 1)))
+                                              (vm/machine-data? (nth p 1)))
                                             regs)
                             {:rule :continuation-registers})
                           (if (= :write-result resume-mode)
@@ -344,7 +344,7 @@
                               {:rule :continuation-destination}))
                           (when-not (and (vector? frames)
                                          (every? vector? frames)
-                                         (vm/plain-data? frames))
+                                         (vm/machine-data? frames))
                             {:rule :continuation-frames})
                           (when-not (vector? continuation)
                             {:rule :continuation-continuation})
@@ -396,7 +396,7 @@
                         {:rule :wait-resource, :field :stream-id})
                       (when-not (contains? entry :datom)
                         {:rule :wait-resource, :field :datom})
-                      (when-not (vm/plain-data? (:datom entry))
+                      (when-not (vm/machine-data? (:datom entry))
                         {:rule :wait-resource, :field :datom}))
 
                   :stream-reader
@@ -425,7 +425,7 @@
                               {:rule :wait-resource, :field :call-id})
                             (when-not (= (:op entry) (apply2/request-op req))
                               {:rule :wait-resource, :field :op})
-                            (when-not (vm/plain-data? (apply2/request-args req))
+                            (when-not (vm/machine-data? (apply2/request-args req))
                               {:rule :wait-resource, :field :datom}))))
 
                   :ffi-reader

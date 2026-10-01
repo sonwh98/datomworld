@@ -26,7 +26,8 @@
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
             [yin.vm.module :as module]
-            [yin.vm.telemetry :as telemetry]))
+            [yin.vm.telemetry :as telemetry]
+            [yin.vm.values :as values]))
 
 
 (declare ast-walker-restore)
@@ -76,6 +77,7 @@
    link-retired   ; {link-id :restored | :abandoned}
    link-diagnostics ; skipped link responses not yet taken
    capability-secret ; this task's secret; every reference is sealed by it
+   owner          ; this task's owner tag, yin.vm.values/owner-tag of the secret
    secret-source  ; the composition's minting of child task secrets
    attach-stream  ; the composition's attacher for lowered streams
    ffi-caller-id  ; caller token of this VM's FFI call ids, or nil
@@ -133,6 +135,7 @@
                    (:link-retired vm)
                    (:link-diagnostics vm)
                    (:capability-secret vm)
+                   (:owner vm)
                    (:secret-source vm)
                    (:attach-stream vm)
                    (:ffi-caller-id vm)
@@ -141,22 +144,19 @@
 
 
 (defn- closure-of
-  "The closure a `:lambda` `node` instantiates. A node the row decoder
-   annotated with its source row id (`vm-load-rows`, `attach-image`)
-   passes the id on as `:lambda` (yin.vm.linker.md section 7.3, the
-   walker rule); a node from any other loader carries none."
-  [node params body env]
+  "The closure a `:lambda` `node` instantiates, owned by `owner`. Its
+   binders are checked first (`vm/check-params!`: Rule R, and symbols
+   only). A node the row decoder annotated with its source row id
+   (`vm-load-rows`, `attach-image`) passes the id on as `:lambda`
+   (yin.vm.linker.md section 7.3, the walker rule); a node from any other
+   loader carries none."
+  [owner node params body env]
+  (vm/check-params! params)
   (let [closure {:type :closure, :params params, :body body, :env env}]
-    (if-let [id (::lambda-row (meta node))]
-      (assoc closure :lambda id)
-      closure)))
-
-
-(defn- check-params!
-  "Rule R at transition time: the definition operator is never a binder."
-  [params]
-  (when-let [p (some #(when (vm/reserved-name? %) %) params)]
-    (vm/refuse-reserved! :binder p)))
+    (values/closure owner
+                    (if-let [id (::lambda-row (meta node))]
+                      (assoc closure :lambda id)
+                      closure))))
 
 
 (defn- handle-primitive-result
@@ -257,25 +257,25 @@
   "Shared logic for applying a function (primitive or closure) to arguments.
    env is the active environment at the call site."
   [state fn-value evaluated-operands k env]
-  (cond (fn? fn-value)
-        (handle-primitive-result state
-                                 fn-value
-                                 (apply fn-value evaluated-operands)
-                                 k
-                                 env)
-        (= :closure (:type fn-value))
-        (let [{:keys [params body], closure-env :env} fn-value
-              extended-env (merge closure-env
-                                  (engine/bind-params params evaluated-operands))]
-          (cesk-return state body extended-env k (:value state)))
-        (engine/reified-continuation? fn-value)
-        (cesk-return state
-                     nil
-                     (:env fn-value)
-                     (:k fn-value)
-                     (engine/continuation-argument fn-value
-                                                   evaluated-operands))
-        :else (throw (ex-info "Cannot apply non-function" {:fn fn-value}))))
+  (case (engine/operator-kind state fn-value)
+    :host-fn (handle-primitive-result state
+                                      fn-value
+                                      (apply fn-value evaluated-operands)
+                                      k
+                                      env)
+    :closure (let [{:keys [params body], closure-env :env}
+                   (values/payload fn-value)
+                   extended-env (merge closure-env
+                                       (engine/bind-params params
+                                                           evaluated-operands))]
+               (cesk-return state body extended-env k (:value state)))
+    :continuation (let [c (values/payload fn-value)]
+                    (cesk-return state
+                                 nil
+                                 (:env c)
+                                 (:k c)
+                                 (engine/continuation-argument
+                                   evaluated-operands)))))
 
 
 (defn- cesk-transition
@@ -467,13 +467,12 @@
                                         primitives modules (:name node))]
           (cesk-return state nil env k value))
         :lambda (let [{:keys [params body]} node]
-                  (check-params! params)
                   (cesk-return
                     state
                     nil
                     env
                     k
-                    (closure-of node params body env)))
+                    (closure-of (:owner state) node params body env)))
         :application
         (if (vm/definition? node)
           ;; Rule R: a definition never resolves its operator. The key is
@@ -542,7 +541,10 @@
                      nil
                      env
                      k
-                     {:type :reified-continuation, :k k, :env env})
+                     (values/continuation (:owner state)
+                                          {:type :reified-continuation,
+                                           :k k,
+                                           :env env}))
         :vm/park (-> (engine/park-continuation state {:k k, :env env})
                      (assoc :control nil
                             :k nil))
@@ -631,31 +633,35 @@
                   operands (:operands frame)
                   saved-env (or (:env k) env)]
               (if (empty? operands)
-                (cond (= :closure (:type fn-value))
-                      (let [{:keys [params body], closure-env :env} fn-value
-                            extended-env (merge closure-env
-                                                (engine/bind-params params []))]
-                        (recur body extended-env (:next k) val vm))
-                      (fn? fn-value)
-                      (let [result (apply fn-value [])]
-                        (if (module/effect? result)
-                          (let [state (cesk-return vm control env k val)
-                                res (handle-primitive-result state
-                                                             fn-value
-                                                             result
-                                                             (:next k)
-                                                             saved-env)]
-                            (if (or (:blocked? res)
-                                    (and (nil? (:control res)) (nil? (:k res))))
-                              res
-                              (recur (:control res)
-                                     (:env res)
-                                     (:k res)
-                                     (:value res)
-                                     res)))
-                          (recur nil saved-env (:next k) result vm)))
-                      :else (throw (ex-info "Cannot apply non-function"
-                                            {:fn fn-value})))
+                (case (engine/operator-kind vm fn-value)
+                  :closure
+                  (let [{:keys [params body], closure-env :env}
+                        (values/payload fn-value)
+                        extended-env (merge closure-env
+                                            (engine/bind-params params []))]
+                    (recur body extended-env (:next k) val vm))
+                  :continuation
+                  (let [c (values/payload fn-value)]
+                    (recur nil (:env c) (:k c)
+                           (engine/continuation-argument []) vm))
+                  :host-fn
+                  (let [result (apply fn-value [])]
+                    (if (module/effect? result)
+                      (let [state (cesk-return vm control env k val)
+                            res (handle-primitive-result state
+                                                         fn-value
+                                                         result
+                                                         (:next k)
+                                                         saved-env)]
+                        (if (or (:blocked? res)
+                                (and (nil? (:control res)) (nil? (:k res))))
+                          res
+                          (recur (:control res)
+                                 (:env res)
+                                 (:k res)
+                                 (:value res)
+                                 res)))
+                      (recur nil saved-env (:next k) result vm))))
                 (let [updated-frame (assoc frame
                                            :operator-evaluated? true
                                            :fn fn-value)]
@@ -674,33 +680,37 @@
                   saved-env (or (:env k) env)]
               (if (= (count evaluated) (count operands))
                 (let [fn-value (:fn frame)]
-                  (cond (= :closure (:type fn-value))
-                        (let [{:keys [params body], closure-env :env} fn-value
-                              extended-env (merge closure-env
-                                                  (engine/bind-params params
-                                                                      evaluated))]
-                          (recur body extended-env (:next k) val vm))
-                        (fn? fn-value)
-                        (let [result (apply fn-value evaluated)]
-                          (if (module/effect? result)
-                            (let [state (cesk-return vm control env k val)
-                                  res (handle-primitive-result state
-                                                               fn-value
-                                                               result
-                                                               (:next k)
-                                                               saved-env)]
-                              (if (or (:blocked? res)
-                                      (and (nil? (:control res))
-                                           (nil? (:k res))))
-                                res
-                                (recur (:control res)
-                                       (:env res)
-                                       (:k res)
-                                       (:value res)
-                                       res)))
-                            (recur nil saved-env (:next k) result vm)))
-                        :else (throw (ex-info "Cannot apply non-function"
-                                              {:fn fn-value}))))
+                  (case (engine/operator-kind vm fn-value)
+                    :closure
+                    (let [{:keys [params body], closure-env :env}
+                          (values/payload fn-value)
+                          extended-env (merge closure-env
+                                              (engine/bind-params params
+                                                                  evaluated))]
+                      (recur body extended-env (:next k) val vm))
+                    :continuation
+                    (let [c (values/payload fn-value)]
+                      (recur nil (:env c) (:k c)
+                             (engine/continuation-argument evaluated) vm))
+                    :host-fn
+                    (let [result (apply fn-value evaluated)]
+                      (if (module/effect? result)
+                        (let [state (cesk-return vm control env k val)
+                              res (handle-primitive-result state
+                                                           fn-value
+                                                           result
+                                                           (:next k)
+                                                           saved-env)]
+                          (if (or (:blocked? res)
+                                  (and (nil? (:control res))
+                                       (nil? (:k res))))
+                            res
+                            (recur (:control res)
+                                   (:env res)
+                                   (:k res)
+                                   (:value res)
+                                   res)))
+                        (recur nil saved-env (:next k) result vm)))))
                 (let [next-idx (count evaluated)
                       next-node (nth operands next-idx)
                       updated-frame (assoc frame :evaluated evaluated)]
@@ -737,15 +747,15 @@
                                                      (:modules vm)
                                                      (:name node))]
                            (recur nil env k v vm))
-               :lambda (do (check-params! (:params node))
-                           (recur nil
-                                  env
-                                  k
-                                  (closure-of node
-                                              (:params node)
-                                              (:body node)
-                                              env)
-                                  vm))
+               :lambda (recur nil
+                              env
+                              k
+                              (closure-of (:owner vm)
+                                          node
+                                          (:params node)
+                                          (:body node)
+                                          env)
+                              vm)
                :application
                (if (vm/definition? node)
                  (let [next (cesk-transition (cesk-return vm node env k val)
@@ -1118,21 +1128,40 @@
     :eval-stream-cursor-source :eval-stream-next-cursor})
 
 
+(def ^:private continuation-types
+  "Every continuation type the walker links through `:next`."
+  (into frame-continuations
+        #{:dao.stream.apply/request-sent :dao.stream.apply/eval-call
+          :eval-define :eval-resume-val}))
+
+
 (defn- gc-children-of
-  "Heap reclamation's view of a walker value. A frame continuation's
-   `:frame` is code with the runtime keys `:evaluated` and `:fn` assoc'd
-   in, so only those are traced, never the operand subtrees; the rest of
-   the continuation (`:next`, `:env`, a `:stream-ref`) is. A closure
+  "Heap reclamation's view of a walker value in a kernel position (the
+   engine never asks of a program value). A continuation's `:next` is a
+   further kernel position; a frame continuation's `:frame` is code with
+   the runtime keys `:evaluated` and `:fn` assoc'd in, so only those are
+   traced, never the operand subtrees, and the rest of the continuation
+   (`:env`, a `:stream-ref`) is traced as values. A closure payload
    contributes everything but its body and params, so its captured
-   environment. Anything else is plain data."
+   environment; a continuation payload its `:k` and `:env`; a parked,
+   wait or ready entry its `:k`, and the rest as values. Anything else
+   is plain data."
   [x]
   (when (map? x)
-    (cond (= :closure (:type x)) (into [] (vals (dissoc x :body :params)))
-          (and (contains? frame-continuations (:type x)) (contains? x :frame))
-          (let [frame (:frame x)]
-            (-> (into [] (vals (dissoc x :frame)))
-                (conj (:evaluated frame) (:fn frame))))
-          :else nil)))
+    (let [type (:type x)]
+      (cond (= :closure type) {:values (into [] (vals (dissoc x :body :params)))}
+            (= :reified-continuation type) {:kernel [(:k x)], :values [(:env x)]}
+            (contains? continuation-types type)
+            (let [frame (:frame x)
+                  values (into [] (vals (dissoc x :frame :next)))]
+              {:kernel [(:next x)],
+               :values (cond (nil? frame) values
+                             (contains? frame-continuations type)
+                             (conj values (:evaluated frame) (:fn frame))
+                             :else (conj values frame))})
+            (and (nil? type) (contains? x :k))
+            {:kernel [(:k x)], :values (into [] (vals (dissoc x :k)))}
+            :else nil))))
 
 
 (extend-type ASTWalkerVM
@@ -1188,13 +1217,20 @@
       (when-not (and row (= :lambda (nth row 1)))
         (throw (ex-info "Closure origin image is not attached"
                         {:reason :origin-not-attached, :segment id})))
-      {:type :closure,
-       :params (:yin.k/params marker),
-       :body (row-node vm (nth row 3)),
-       :env (cond-> (into {}
-                          (map (fn [[k x]] [k (decode x)]))
-                          (:yin.k/env marker))
-              store-of (assoc engine/store-of-key store-of)),
-       :lambda id}))
-  (gc-roots [vm] [(:control vm) (:env vm) (:k vm) (:value vm)])
+      ;; the binders are the attached lambda row's, never the wire's
+      (vm/check-params! (:yin.k/params marker))
+      (when-not (= (:yin.k/params marker) (nth row 2))
+        (engine/marker-mismatch! marker))
+      (values/closure
+        (:owner vm)
+        {:type :closure,
+         :params (:yin.k/params marker),
+         :body (row-node vm (nth row 3)),
+         :env (cond-> (into {}
+                            (map (fn [[k x]] [k (decode x)]))
+                            (:yin.k/env marker))
+                store-of (assoc engine/store-of-key store-of)),
+         :lambda id})))
+  (gc-roots [vm]
+    {:kernel [(:control vm) (:k vm)], :values [(:env vm) (:value vm)]})
   (gc-children [_ x] (gc-children-of x)))

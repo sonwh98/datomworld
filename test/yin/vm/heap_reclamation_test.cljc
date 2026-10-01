@@ -14,7 +14,8 @@
             [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -291,7 +292,7 @@
                                      (lam [] (get-cell (v 'c)))))
                          1000000)
           closure (vm/value result)]
-      (is (= :closure (:type closure)) (str k))
+      (is (values/closure? closure) (str k))
       (is (= #{:keep} (survivors (assoc (quiesce result) :value closure)))
           (str k " the closure's captured environment holds the cell")))))
 

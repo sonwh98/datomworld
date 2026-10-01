@@ -5,7 +5,8 @@
             [yin.vm :as vm]
             [yin.vm.encoder :as encoder]
             [yin.vm.module :as module]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; v1 registered the stream module globally at load time; the v2 composition
@@ -312,7 +313,7 @@
   (testing "Lambda with multiple expressions in body"
     (let [result (compile-and-run '(fn [x] (+ x 1) (+ x 2) (* x 3)))]
       ;; Should create a closure
-      (is (= :closure (:type result))))))
+      (is (values/closure? result)))))
 
 
 (deftest test-let-with-multi-expression-body

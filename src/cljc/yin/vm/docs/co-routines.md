@@ -8,7 +8,7 @@ The AST Walker VM already has the primitives needed for coroutines. No new node 
 
 | Primitive | Location | What it does |
 |---|---|---|
-| `:vm/current-continuation` | `ast_walker.cljc:396-400` | Captures the current continuation as `{:type :reified-continuation, :k k, :env env}` |
+| `:vm/current-continuation` | `ast_walker.cljc:396-400` | Captures the current continuation as a `yin.vm.values/Continuation` over `{:type :reified-continuation, :k k, :env env}` (D7: kernel-minted, task-owned, opaque to `get`) |
 | `:vm/park` | `ast_walker.cljc:402-413` | Suspends the current computation, stores continuation in `:parked` map, halts. Returns the parked continuation descriptor as the VM's value. |
 | `:vm/resume` | `ast_walker.cljc:415-428` | Restores a parked continuation with a given value. |
 | `stream/next` (parking) | `ast_walker.cljc:143-164` | Parks the continuation in the wait-set when a stream is empty. |
@@ -102,7 +102,7 @@ The host decides which parked continuation to resume and what value to pass. Thi
 
 ```
 ;; Capture continuation, store it, park
-(let [k (current-continuation)]    ;; k = {:type :reified-continuation, ...}
+(let [k (current-continuation)]    ;; k = a Continuation over {:type :reified-continuation, ...}
   (store-put :saved-k k)           ;; save to VM store
   (park))                          ;; halt, return parked-cont to host
 

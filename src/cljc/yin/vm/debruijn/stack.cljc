@@ -55,7 +55,8 @@
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.module :as module]))
+            [yin.vm.module :as module]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -262,6 +263,7 @@
             :origin (:origin base),
             :ancestry (:ancestry base),
             :capability-secret (:capability-secret base),
+            :owner (:owner base),
             :secret-source (:secret-source base),
             :attach-stream (:attach-stream base),
             :hash nil,
@@ -355,7 +357,8 @@
 (defn- refuse-continuation!
   [base entry]
   (throw (ex-info "Cannot restore a continuation of another model or image"
-                  {:rule :continuation-format,
+                  {:reason :foreign-format,
+                   :rule :continuation-format,
                    :format (:format entry),
                    :hash (:hash entry),
                    :image (:image entry),
@@ -545,9 +548,11 @@
         (assoc vm
                :pc (inc pc)
                :stack (conj stack
-                            (cond-> {:type :closure, :arity arity,
-                                     :body-pc body-pc, :frames frames}
-                              store-of (assoc :store-of store-of)))))
+                            (values/closure
+                              (:owner vm)
+                              (cond-> {:type :closure, :arity arity,
+                                       :body-pc body-pc, :frames frames}
+                                store-of (assoc :store-of store-of))))))
 
       ;; The named VM (semantic.cljc) keeps a separate `val` accumulator
       ;; distinct from its operand stack `St`, so `:push` there commits
@@ -570,10 +575,11 @@
             f (nth stack f-pos)
             args (subvec stack (inc f-pos) total)
             stack' (subvec stack 0 f-pos)]
-        (cond
-          (and (map? f) (= :closure (:type f)))
-          (let [locals (bind-positional (:arity f) args)
-                body-frames (conj (:frames f) locals)
+        (case (engine/operator-kind vm f)
+          :closure
+          (let [c (values/payload f)
+                locals (bind-positional (:arity c) args)
+                body-frames (conj (:frames c) locals)
                 continuation' (if tail?
                                 continuation
                                 (conj continuation
@@ -582,11 +588,11 @@
                                                :stack-base (count stack')}
                                         store-of (assoc :store-of store-of))))]
             (assoc vm
-                   :pc (:body-pc f)
+                   :pc (:body-pc c)
                    :frames body-frames
                    :stack stack'
                    :continuation continuation'
-                   :store-of (:store-of f)))
+                   :store-of (:store-of c)))
 
           ;; A primitive host function, resolved by :load-free. The same
           ;; path the named engine's `apply-call` uses for a `fn?` callee:
@@ -594,7 +600,7 @@
           ;; `require`, a `stream` module call) is dispatched
           ;; through the engine and may park with the continuation after
           ;; the call site.
-          (fn? f)
+          :host-fn
           (let [result (apply f args)]
             (if (module/effect? result)
               (run-effect (engine/check-callee-effect! vm f result)
@@ -606,11 +612,10 @@
           ;; frames and return frames are dropped and the captured
           ;; registers are restored with the argument on the stack, as a
           ;; resume would deliver it. The store is not a register.
-          (engine/reified-continuation? f)
-          (stack-restore vm f (engine/continuation-argument f args))
-
-          :else
-          (throw (ex-info "Cannot apply non-function" {:fn f}))))
+          :continuation
+          (stack-restore vm
+                         (values/payload f)
+                         (engine/continuation-argument args))))
 
       :return
       (let [val (peek stack)
@@ -699,8 +704,10 @@
       (assoc vm
              :pc (inc pc)
              :stack (conj stack
-                          (merge {:type :reified-continuation}
-                                 (registers vm (inc pc) stack))))
+                          (values/continuation
+                            (:owner vm)
+                            (merge {:type :reified-continuation}
+                                   (registers vm (inc pc) stack)))))
 
       ;; :park -- the engine records the payload under a fresh parked id,
       ;; writes the record into :value, and halts the machine
@@ -843,16 +850,25 @@
         (throw (ex-info "Closure origin image is not attached"
                         {:reason :origin-not-attached,
                          :segment (:yin.k/segment marker)})))
-      (cond-> {:type :closure,
-               :arity (:yin.k/arity marker),
-               :body-pc pc,
-               :frames (mapv #(mapv decode %) (:yin.k/frames marker))}
-        (:yin.k/store-of marker)
-        (assoc :store-of (:yin.k/store-of marker)))))
-  (gc-roots [vm] [(:frames vm) (:stack vm) (:continuation vm) (:value vm)])
+      ;; the arity is that of a `:closure` of the attached code whose body
+      ;; this is, never the wire's
+      (when-not (some #(= [:closure (:yin.k/arity marker) pc] %)
+                      (:segment vm))
+        (engine/marker-mismatch! marker))
+      (values/closure
+        (:owner vm)
+        (cond-> {:type :closure,
+                 :arity (:yin.k/arity marker),
+                 :body-pc pc,
+                 :frames (mapv #(mapv decode %) (:yin.k/frames marker))}
+          (:yin.k/store-of marker)
+          (assoc :store-of (:yin.k/store-of marker))))))
+  (gc-roots [vm]
+    {:kernel [(:continuation vm)],
+     :values [(:frames vm) (:stack vm) (:value vm)]})
   ;; A register payload (a wait, ready or parked entry, or a reified
   ;; continuation) names the code space as `:segment`; that is code, so
   ;; every other key is traced. Closures and return frames hold no code.
   (gc-children [_ x]
     (when (and (map? x) (= format-tag (:format x)))
-      (into [] (vals (dissoc x :segment))))))
+      {:values (into [] (vals (dissoc x :segment)))})))

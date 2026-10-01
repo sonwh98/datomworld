@@ -14,7 +14,8 @@
             [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -284,6 +285,23 @@
   (is (= (wrong-type 'str-compare 1 :string) (refusal 'str-compare "a" nil))))
 
 
+(deftest number?-callable?-test
+  (let [closure (values/closure nil {:type :closure, :params [], :env {}})
+        k (values/continuation nil {:type :reified-continuation})]
+    (is (true? (call 'number? 1)))
+    (is (true? (call 'number? 1.5)))
+    (doseq [x [nil true "1" :n {} [] closure k
+               {:type :closure, :params [], :env {}}]]
+      (is (false? (call 'number? x)) (pr-str x)))
+    (is (true? (call 'callable? inc)) "a host function")
+    (is (true? (call 'callable? closure)))
+    (is (true? (call 'callable? k)))
+    (doseq [x [nil 1 "f" :f {} [] {:type :closure, :params [], :env {}}
+               {:type :reified-continuation}]]
+      (is (false? (call 'callable? x)) (pr-str x)))
+    (is (= (refused 'number? :arity {::data/argc 2}) (refusal 'number? 1 2)))))
+
+
 (deftest arity-refusal-test
   (is (= (refused 'count :arity {::data/argc 0}) (refusal 'count)))
   (is (= (refused 'nth :arity {::data/argc 3}) (refusal 'nth [1] 0 :x)))
@@ -299,7 +317,7 @@
   (is (= #{'count 'nth 'contains? 'dissoc 'disj 'peek 'pop 'subvec 'hash-set
            'into 'str-concat 'str-length 'substring 'str-index-of 'str-split
            'str-join 'char-at 'str->code-points 'code-points->str
-           'str-compare}
+           'str-compare 'number? 'callable?}
          (set (keys data/data-module))
          (set (keys data/data-profiles))))
   (doseq [[sym profile] data/data-profiles]
@@ -413,7 +431,13 @@
              [(d 'char-at (lit (str grin "b")) (lit 0)) grin]
              [(d 'str->code-points (lit grin)) [0x1F600]]
              [(d 'code-points->str (lit [0x1F600])) grin]
-             [(d 'str-compare (lit grin) (lit "￿")) 1]]]
+             [(d 'str-compare (lit grin) (lit "￿")) 1]
+             [(d 'number? (lit 7)) true]
+             [(d 'number? (lit {:type :closure})) false]
+             [(d 'number? {:type :lambda, :params [], :body (lit 1)}) false]
+             [(d 'callable? {:type :lambda, :params [], :body (lit 1)}) true]
+             [(d 'callable? (v '+)) true]
+             [(d 'callable? (lit {:type :closure})) false]]]
       (doseq [[k result] (on-every-vm with-data ast)]
         (is (= expected (vm/value result)) (str k " " (:operator ast))))))
   (testing "a composed program: the length of the second split field"

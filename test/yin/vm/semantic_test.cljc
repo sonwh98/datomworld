@@ -14,7 +14,8 @@
             [yin.vm.engine :as engine]
             [yin.vm.malformed-rows :as malformed]
             [yin.vm.semantic :as semantic]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -617,14 +618,16 @@
                          (instruction 5 :halt)
                          (instruction 6 :current-continuation)
                          (instruction 7 :halt)))
-          reified (vm/value vm)]
+          k (vm/value vm)
+          reified (values/payload k)]
+      (is (values/continuation? k))
       (is (= :reified-continuation (:type reified)))
       (is (= seg (:segment reified)))
       (is (= 7 (:pc reified)) "the reified pc is the pc after the instruction")
       (is (= [{:type :return, :segment seg, :pc 5, :env {}, :stack-base 0}]
              (:k reified)))
       (is (= [] (:stack reified)))
-      (testing "and the reification round-trips through pr-str/read-string"
+      (testing "and its payload round-trips through pr-str/read-string"
         (is (= reified (edn/read-string (pr-str reified)))))))
   (testing "Env and operand stack are captured with the frame"
     (let [vm (run-segment (make-vm {:env {'x 42}})
@@ -633,7 +636,7 @@
                                     (instruction 1 :push)
                                     (instruction 2 :current-continuation)
                                     (instruction 3 :halt)))
-          reified (vm/value vm)]
+          reified (values/payload (vm/value vm))]
       (is (= {'x 42} (:env reified)))
       (is (= [10] (:stack reified)))
       (is (= 3 (:pc reified)))

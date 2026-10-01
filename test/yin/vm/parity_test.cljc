@@ -16,7 +16,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -124,7 +125,8 @@
    A closure carries its defining environment, which holds host functions; a
    stream reference carries a store key. Both are compared by shape."
   [value]
-  (cond (and (map? value) (= :closure (:type value)))
+  (cond (values/host-typed? value) (normalize (values/payload value))
+        (and (map? value) (= :closure (:type value)))
         {:type :closure, :params (:params value), :body (:body value)}
         (and (map? value) (= :stream-ref (:type value)))
         {:type :stream-ref, :id (:id value)}

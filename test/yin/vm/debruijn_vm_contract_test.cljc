@@ -28,6 +28,7 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.completion :as completion]
             [yin.vm.parity-test :as parity]
+            [yin.vm.values :as values]
             [yin.vm.test-utils :as tu]
             [yin.vm-test :as vm-test]))
 
@@ -44,6 +45,9 @@
    reimplemented."
   [value]
   (cond
+    ;; a host-typed closure or continuation normalizes as its payload
+    (values/host-typed? value) (normalize-node (values/payload value))
+
     (and (map? value) (= :closure (:type value)))
     {:type :closure,
      :arity (if (contains? value :arity) (:arity value) (count (:params value)))}
@@ -233,7 +237,8 @@
         run1 (catch-normalized)
         run2 (catch-normalized)]
     (is (= "Cannot apply non-function" (:message run1)))
-    (is (= {:fn 1} (:data run1)) "ex-data with the value normalizer applied")
+    (is (= {:reason :not-applicable, :kind :number} (:data run1))
+        "a qualified refusal: the operator's kind, never the value")
     (is (= run1 run2) "self-parity")))
 
 

@@ -24,7 +24,8 @@
             [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -128,11 +129,20 @@
            :halted? false :blocked? false :value nil)))
 
 
+(defn- mint
+  "A closure over `payload` owned by `vm`'s task: what a lower mints, for
+   the tests that lower by hand."
+  [vm payload]
+  (values/closure (:owner vm) payload))
+
+
 (defn- rebase-closures
   "Rebase the `:body-pc` of every positional closure inside `x` by `f`,
    the body references a lifted continuation carries."
   [f x]
-  (cond (and (map? x) (= :closure (:type x)))
+  (cond (values/closure? x)
+        (values/closure (values/owner x) (rebase-closures f (values/payload x)))
+        (and (map? x) (= :closure (:type x)))
         (-> x (update :body-pc f) (update :frames #(rebase-closures f %)))
         (map? x) (into {} (map (fn [[k v]] [k (rebase-closures f v)])) x)
         (vector? x) (mapv #(rebase-closures f %) x)
@@ -243,7 +253,7 @@
   "Run the module in a child and lift its export `f` to `[identity pc]`."
   []
   (let [child (vm/run (stack-vm (stack-image module-ast)))
-        f (get (vm/store child) 'f)]
+        f (values/payload (get (vm/store child) 'f))]
     {:closure f, :marker (dvm/image-pc child (:body-pc f))}))
 
 
@@ -256,7 +266,9 @@
         body-pc (dvm/absolute-pc attached marker)
         caller (stack-image caller-ast)
         with-caller (-> attached
-                        (assoc-in [:store 'f] (assoc closure :body-pc body-pc))
+                        (assoc-in [:store 'f]
+                                  (mint attached
+                                        (assoc closure :body-pc body-pc)))
                         (dvm/attach-image caller vm/stack-contract))
         start (dvm/absolute-pc with-caller [(dc/image-hash caller) 0])]
     {:body-pc body-pc,
@@ -494,13 +506,13 @@
     (testing "the attachment is intact after the return and runs"
       (let [start (rvm/absolute-pc done [(rcode/register-hash module) 0])
             defined (vm/run (register-start-at done start))]
-        (is (= :closure (:type (get (vm/store defined) 'f))))))))
+        (is (values/closure? (get (vm/store defined) 'f)))))))
 
 
 (defn- register-export
   []
   (let [child (vm/run (register-vm (register-image module-ast)))
-        f (get (vm/store child) 'f)]
+        f (values/payload (get (vm/store child) 'f))]
     {:closure f, :marker (rvm/image-pc child (:body-pc f))}))
 
 
@@ -511,7 +523,9 @@
         body-pc (rvm/absolute-pc attached marker)
         caller (register-image caller-ast)
         with-caller (-> attached
-                        (assoc-in [:store 'f] (assoc closure :body-pc body-pc))
+                        (assoc-in [:store 'f]
+                                  (mint attached
+                                        (assoc closure :body-pc body-pc)))
                         (rvm/attach-image caller vm/register-contract))
         start (rvm/absolute-pc with-caller [(rcode/register-hash caller) 0])]
     {:body-pc body-pc,
@@ -624,7 +638,7 @@
   (let [attached (semantic/attach-image parent (semantic-vector module-ast)
                                         vm/semantic-contract)
         local (get (:code-aliases attached) address)
-        lowered (assoc closure :segment local)]
+        lowered (mint attached (assoc closure :segment local))]
     {:local local,
      :value (-> attached
                 (assoc-in [:store 'f] lowered)
@@ -638,7 +652,7 @@
   (let [module (semantic-vector module-ast)
         child (vm/run (semantic/load-vector (semantic-vm) module
                                             vm/semantic-contract))
-        closure (get (vm/store child) 'f)
+        closure (values/payload (get (vm/store child) 'f))
         address (some (fn [[a l]] (when (= l (:segment closure)) a))
                       (:code-aliases child))
         short-parent (semantic-vm)
@@ -661,11 +675,12 @@
   (let [image (semantic-vector module-ast)
         child (vm/run (semantic/load-vector (semantic-vm) image
                                             vm/semantic-contract))
-        closure (get (vm/store child) 'f)
+        closure (values/payload (get (vm/store child) 'f))
         marker (module/lift-closure child closure identity)
         lower #(module/lower-closure child (assoc marker :yin.k/entry %)
                                      identity)]
-    (is (= (:entry closure) (:entry (lower (:entry closure)))))
+    (is (= (:entry closure)
+           (:entry (values/payload (lower (:entry closure))))))
     (doseq [entry [(count image) -1 nil]]
       (is (= :origin-not-attached (:reason (ex-data-of #(lower entry))))
           (str "entry " entry)))))
@@ -697,7 +712,7 @@
 (deftest walker-load-annotates-lambda-nodes-and-closures-test
   (let [bc (vm/ast->semantic-bytecode module-ast)
         done (vm/run (load-rows (walker-vm) module-ast))
-        closure (get (vm/store done) 'f)
+        closure (values/payload (get (vm/store done) 'f))
         id (lambda-row-id bc [])]
     (testing "the loader holds the rows and indexes each :lambda row"
       (is (= (:rows bc) (select-keys (:rows done) (keys (:rows bc)))))
@@ -748,7 +763,7 @@
 (deftest walker-shared-body-lifts-from-its-recorded-row-test
   (let [bc (vm/ast->semantic-bytecode shared-body-ast)
         done (vm/run (load-rows (walker-vm) shared-body-ast))
-        closure (vm/value done)
+        closure (values/payload (vm/value done))
         x-row (lambda-row-id bc '[x])
         y-row (lambda-row-id bc '[y])]
     (testing "one body row under two :lambda rows"
@@ -775,7 +790,7 @@
 
 (deftest walker-row-nodes-are-decoded-once-and-held-test
   (let [child (vm/run (load-rows (walker-vm) module-ast))
-        closure (get (vm/store child) 'f)
+        closure (values/payload (get (vm/store child) 'f))
         body-id (nth (get (:rows child) (:lambda closure)) 3)]
     (testing "row-node answers from the held decode, not a rebuild"
       (is (identical? (walker/row-node child body-id)
@@ -793,13 +808,13 @@
 
 (deftest walker-exported-closure-lowers-structurally-equal-test
   (let [child (vm/run (load-rows (walker-vm) module-ast))
-        closure (get (vm/store child) 'f)
+        closure (values/payload (get (vm/store child) 'f))
         id (walker/closure-row child closure)
         parent (walker/attach-image (vm/run (load-rows (walker-vm) (lit 0)))
                                     (vm/ast->semantic-bytecode module-ast)
                                     vm/ast-contract)
         body (walker/row-node parent (nth (get (:rows parent) id) 3))
-        lowered (assoc closure :body body)]
+        lowered (mint parent (assoc closure :body body))]
     (is (= (:body closure) body))
     (is (= 42 (-> parent
                   (assoc-in [:store 'f] lowered)

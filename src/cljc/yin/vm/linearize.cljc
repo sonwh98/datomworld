@@ -91,9 +91,8 @@
                            (vm/refuse-reserved! :variable n {:node e}))
                          (emit! e :var :yin.code/name n))
              :lambda (let [l (fresh!)]
-                       (when-let [p (some #(when (vm/reserved-name? %) %)
-                                          (get-attr e :yin/params))]
-                         (vm/refuse-reserved! :binder p {:node e}))
+                       (vm/check-params! (get-attr e :yin/params)
+                                         {:node e})
                        (swap! bodies conj [l e (get-attr e :yin/body)])
                        (emit! e :closure
                               :yin.code/params (get-attr e :yin/params)

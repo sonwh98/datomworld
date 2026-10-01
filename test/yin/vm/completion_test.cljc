@@ -11,7 +11,8 @@
             [yin.vm.module :as module]
             [yin.vm.parity-test :as parity]
             [yin.vm.semantic :as semantic]
-            [yin.vm.test-utils :as tu]))
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -319,8 +320,10 @@
                     (assoc-in [:code -999]
                               {:segment -999, :length 1, :code [[23]],
                                :address gone})
-                    (assoc :env {'c {:type :closure, :params [], :entry 0,
-                                     :segment -999, :env {}}}))
+                    (assoc :env {'c (values/closure
+                                      nil
+                                      {:type :closure, :params [], :entry 0,
+                                       :segment -999, :env {}})}))
         result (completion/complete {:vm machine})]
     (is (= :blocked (get-in result [:yin.k/requires :yin.k/discovery])))
     (is (= #{gone} (get-in result [:yin.k/missing :segments])))
@@ -336,8 +339,10 @@
                     (assoc-in [:code -999]
                               {:segment -999, :length 1, :code [[23]],
                                :address address})
-                    (assoc :env {'c {:type :closure, :params [], :entry 0,
-                                     :segment -999, :env {}}}))
+                    (assoc :env {'c (values/closure
+                                      nil
+                                      {:type :closure, :params [], :entry 0,
+                                       :segment -999, :env {}})}))
         result (completion/complete {:vm machine, :fetch {address v}})]
     (is (= :incomplete (get-in result [:yin.k/requires :yin.k/discovery])))
     (is (= '#{unbound-name} (get-in result [:yin.k/missing :obligations])))))
