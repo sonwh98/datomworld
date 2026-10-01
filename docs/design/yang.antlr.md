@@ -6,6 +6,28 @@ Status: Proposed architecture and implementation roadmap. Drafted
 and the orchestrator's standard-library discussion. No repository code was
 changed by this document.
 
+Updated 2026-10-01 with the Architect rulings of 2026-09-30 and
+2026-10-01, each accepted by the owner. Later sections cite them by the
+short names given here:
+
+- the cell ruling:
+  `collab/1790773810605-architect-cell-primitive.claude-fable-5-1.findings.md`;
+- mob D1 to D10 (round 2):
+  `collab/1790776815400-architect-mob-outstanding-decisions.claude-fable-5-1.findings-r2.md`
+  and `collab/1790776815400-architect-mob-outstanding-decisions.gpt-6-astra.findings-r2.md`;
+- the mutable-objects ruling:
+  `collab/1790778866412-architect-mutable-objects.claude-fable-5-1.findings.md`;
+- the Python mappability ruling:
+  `collab/1790797984227-architect-python3-mappability.claude-fable-5-1.findings.md`.
+
+They amend sections 8.1, 8.5, 9.3, 9.4, and 9.5, add sections 8.5.1 and
+8.11, and add cross-references from sections 8.6 and 8.9. Landed on
+master since: captured continuations are invocable on all four VMs
+(`8f9f90b0`); effects are an unforgeable host type and callee profiles
+bound the effects they may raise (mob D4, `9a69e58f`); task-heap cells,
+slice 1 (`5e790683`); and the pure `data` host module (`yin.vm.data`,
+`fe8bce4a`).
+
 This document is subordinate to
 [`datom.world.md`](./datom.world.md) (axioms and invariants),
 [`dao.stream.md`](./dao.stream.md) (the passive stream substrate),
@@ -989,20 +1011,61 @@ The reference semantic ABI should define:
 Do not inherit Clojure truthiness, equality, integer arithmetic, or
 argument binding merely because the frontend is implemented in Clojure.
 
-A practical baseline is an explicit state-passing and continuation-based
-lowering:
+The baseline is a task-owned heap of cells updated through persistent
+VM-state transitions, with continuation-based control flow (mob D3,
+amending the earlier baseline of a threaded immutable heap; cell
+ruling Q1 to Q5):
 
-- Immutable heap state is threaded through guest operations.
-- References are logical identities into that state.
-- Loops and control transfers become lambdas, applications, and
-  conditionals.
-- Abrupt completion is explicit, for example normal, return, throw,
-  break, continue, or yield.
+- Mutable guest locations are cells. A cell is an ordinary sealed
+  reference value `{:type :cell-ref :id :cell-N :seal s}` into a
+  task-scoped `:heap` field of the VM value, reached through the `cell`
+  host module: `cell/new`, `cell/get`, and `cell/set!`. A write yields a
+  new VM value; nothing host-mutable is introduced. No AST tag is added,
+  and `yin/def`, Rule R, `:vm/store-put`, and the canonical grammar are
+  unchanged.
+- Cells have box semantics: they are shared across continuation
+  re-entries and never rolled back, so mutations made before a `raise`
+  persist at the handler.
+- Explicit state threading stays an allowed per-frontend choice. Either
+  lowering can be implemented by a stream-consuming interpreter.
+- References are logical identities: a `:cell-ref` is data, and a forged
+  or foreign ref fails closed at the evaluator.
+- Loops lower to recursive lambdas. Continuations are used for the
+  escapes (`break`, `continue`, `return`), because a continuation takes
+  exactly one argument.
+- Abrupt completion (return, throw, break, continue, yield) lowers to
+  captured continuations, not explicit completion records (cell ruling,
+  owner decision 5). Locals assigned inside `try` bodies and
+  continuation-exited loops therefore need cells.
 - Suspended state consists of portable code references and data.
+
+In this document a "store cell" or "binding cell" means a `cell` module
+ref over the task heap. It is not a location in the named store: the
+named store stays statically keyed under Rule R and holds `yin/def`
+definitions.
+
+Every function-local binding and every parameter is a cell, allocated at
+function entry with an unbound sentinel (mob D5). A continuation
+captures its environment, so an env-bound local assigned between capture
+and invocation would rewind; a closure that refers to a name before its
+first assignment needs a pre-established location. Binding collection
+(which names are local to a function, and where `global` and `nonlocal`
+apply) is part of the required lowering stage. Liveness analysis and
+un-boxing are a separately attached interpreter that reads the naive
+lowering's stream and writes its own; the composition chooses which
+stream the evaluator reads, and correctness never depends on an optional
+observer.
+
+Cells cross task boundaries by copy (mob D1). Aliases and cycles are
+preserved within one transferred value graph, and the receiver mints
+fresh ids and re-seals. Cell slice 1 refuses every cell-bearing lift.
+There is no cross-task shared cell; cross-task shared state requires an
+explicit stream protocol.
 
 Aliased guest objects share logical identity, not host mutable objects.
 Concurrent access to a guest heap has one owning interpreter or an
-explicitly defined stream protocol.
+explicitly defined stream protocol. Section 8.11 states how mutable guest
+objects and collections are represented over cells.
 
 Generated names come from a deterministic, capture-avoiding name supply
 in compiler state. Namespace-global `gensym` counters, request IDs,
@@ -1010,12 +1073,20 @@ source positions, and host map iteration order must not affect canonical
 code.
 
 The existing AST's `:vm/store-put` value is data, not an evaluated child.
-Dynamic assignment must use a supported effectful application or the
-explicit state ABI; inserting an AST under `:val` would store syntax.
+Dynamic assignment must use a supported effectful application, such as
+`cell/set!`, or the explicit state ABI; inserting an AST under `:val`
+would store syntax.
 
 Runtime values must also avoid accidental interpretation as engine
-effects. Use a defined tagged value representation so a guest object
-containing a property named `effect` cannot trigger `module/effect?`.
+effects. Effects are an unforgeable host type minted only by
+`module/make-effect`, and a map is data whatever keys it carries, so a
+guest object containing a property named `effect` stays data. When a
+primitive's result is an effect, the engine checks its kind against the
+callee's declared effect set, so a callee profile bounds the effects it
+may raise (mob D4, landed in `9a69e58f`). The effect constructor is not
+exposed as a guest primitive, and its host wrapper is not the
+representation emitted onto compilation or effect streams. Language
+values still use a defined tagged representation per runtime profile.
 
 ### 8.2 Placement of semantics
 
@@ -1112,23 +1183,185 @@ The frontend and prelude divide responsibilities as follows:
 - Indentation, line joining, and lexical state belong to the grammar
   package and its parsing helpers.
 - Scope analysis precedes lowering.
-- Assignments update explicit binding cells or threaded state; nested
-  lambdas alone do not implement mutable captured variables.
+- Every function-local binding and parameter is a cell (section 8.1,
+  mob D5), and assignments are `cell/set!`; nested lambdas alone do not
+  implement mutable captured variables.
+- A module namespace is a dict object in a heap cell, Python's own
+  `__dict__` model, not a set of `yin/def` store keys (Python mappability
+  ruling, owner decision 1). Global reads and writes go through that
+  dict, and an undefined global is a dict miss that raises `NameError`.
+  `yin/def` is reserved for the prelude and builtins. `exec` with a
+  namespace is a compilation request whose lowering targets a given dict
+  object. For Python this replaces the cell ruling's Q5 statement that
+  module-level variables and `global x` stay `(yin/def x v)` into the
+  module store. Open: the rulings do not say whether other languages'
+  module-level variables stay in the store or move to heap namespaces.
 - `and` and `or` preserve short-circuiting and return operand values.
 - Comprehensions preserve evaluation order and their dialect-specific
   scope.
 - Decorator expressions and application order are explicit; execution
   occurs when the definition is evaluated.
 - Default arguments, keyword arguments, and variadic binding use
-  Python's calling rules.
-- Generators lower to explicit resumable state machines, including
-  completion and injected exceptions.
+  Python's calling rules. Defaults, `*args`, `**kwargs`, `__name__`,
+  function identity, and arity checking need a function-object wrapper
+  in a cell; a bare closure nil-fills missing arguments (Python
+  mappability ruling Q4).
+- Generators lower to explicit resumable state, including completion and
+  injected exceptions: the generator is a mutable identity whose saved
+  resume continuation lives in a cell, and `throw` resumes that
+  continuation with a tagged "raise here" value the yield site checks
+  (cell ruling Q1 and Q4; Python mappability ruling). The lowering invokes
+  each captured continuation at most once.
 
 Truthiness, arbitrary-precision integers, division, equality, attribute
 lookup, descriptors, and iteration belong to the Python runtime profile.
+The Python value encoding tags floats on every host, since JavaScript
+cannot distinguish `2` from `2.0` and ints are the common case (Python
+mappability ruling, owner decision 3); `print(4/2)` belongs in the Node
+parity set.
 
 Generator support is incomplete until `send`, `throw`, `close`, cleanup,
 and suspension are tested. It is not established by parsing `yield`.
+
+#### 8.5.1 Python 3 mappability
+
+Headline (Python mappability ruling): with multi-shot continuations,
+cells, closures, and effects, the Universal AST is a complete target for
+the Python 3 language reference. Nothing in the language reference is
+inexpressible. Every "cannot" is one of: cost, host coupling, a
+datom.world invariant, or a CPython implementation detail the language
+reference does not promise. The residue is exactly:
+
+- Nondeterminism: hash randomization, `id()` layout, `random`, and time.
+  These lower to effects or are forbidden by determinism, and the
+  reference never promises their values.
+- Arbitrary-point asynchrony: signals delivered anywhere. Forbidden by
+  "no implicit control flow"; safepoints are the faithful-enough form.
+- CPython internals: refcounts, the C API, and bytecode bytes.
+- Preemptive shared-memory threads: forbidden by "no shared mutable
+  state"; green threads within one task are the mapping.
+
+Python itself needs no multi-shot re-entry: everything it does is
+one-shot escape or generator resume. Multi-shot is the VM's generality,
+not a Python requirement.
+
+The corrected bucket table follows. The ruling labels bucket 1 as
+expressible at a cost and bucket 3 (in the analysis it corrects) as
+needing VM infrastructure. Open: the ruling does not define buckets 2
+and 4 in words; its usage attaches 2 to host-coupled constructs and 4 to
+invariant-forbidden constructs and CPython internals.
+
+```text
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| Construct                                    | Bucket                 | Reason                                                                       |
++==============================================+========================+==============================================================================+
+| Frame introspection: `sys._getframe`, live   | 1 (cost)               | The lowering can maintain an explicit frame record (a cell stack of frames   |
+| `locals()`, `f_back`, tracebacks             |                        | whose locals are already cells), which is Python's own model. VM-exposed     |
+|                                              |                        | continuations are only needed to get it for free, and D7 is moving the other |
+|                                              |                        | way.                                                                         |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| Line numbers in tracebacks                   | 1, with an owner       | Derived by default at the boundary from the position side tables of          |
+|                                              | decision               | `yin.vm.code-as-tuples.md` section 2.5 (see the decisions below).            |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| `RecursionError`, `setrecursionlimit`        | 1                      | Continuations are heap data on all four VMs, so nothing overflows; a depth   |
+|                                              |                        | counter in a cell, decremented by escapes, is prelude code.                  |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| `weakref`, `__del__`, `gc`                   | 1 conforming, 3        | The reference says `__del__` is not guaranteed to run and a weakref may stay |
+|                                              | faithful               | alive; never collecting conforms. Faithful behavior needs reclamation.       |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| `KeyboardInterrupt`, signals                 | 2 plus safepoints;     | Delivery at an arbitrary point is implicit control flow and                  |
+|                                              | arbitrary-point        | nondeterministic. The signal is an event on a stream, polled at safepoints.  |
+|                                              | delivery is 4          | CPython itself delivers only between bytecodes.                              |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| `sys.settrace`, `setprofile`                 | 1, via safepoints      | A trace hook calls back into guest state, so it cannot be a stream observer. |
+|                                              |                        | Same safepoint mechanism as signals and thread switches.                     |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| GIL atomicity                                | 1                      | Green threads switch only at safepoints, so every operation between them is  |
+|                                              |                        | atomic, which is stronger than the GIL. Preemptive shared-memory threads     |
+|                                              |                        | stay 4.                                                                      |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| Code objects, `__code__`, `compile()`        | 1 for code objects; 4  | Code is content-addressed rows; a closure already carries its lambda row id. |
+| results                                      | only for CPython       | Programs reading `co_code` or `dis` output want CPython bytes, which are an  |
+|                                              | bytecode fidelity      | implementation detail.                                                       |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| `globals()` writes, `del` of a global,       | 1, but not with        | Inexpressible against the store by design of the store (Rule R literal keys, |
+| `exec` with a namespace, `setattr(module,    | store-based globals    | no delete); expressible once a module namespace is a heap dict (see the      |
+| ...)`                                        |                        | decisions below).                                                            |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| Hash randomization                           | 4 by invariant,        | Nondeterministic by design; the reference makes no ordering promise that     |
+|                                              | harmless               | depends on it. Deterministic (insertion) set order is within spec.           |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| Generators, including `send`, `throw`,       | 1, with 3 for          | `throw` resumes the saved continuation with a tagged "raise here" value the  |
+| `close`, and `try`/`finally` inside          | close-on-collection    | yield site checks. `close()` triggered by garbage collection needs           |
+|                                              |                        | reclamation.                                                                 |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| `match`, walrus, comprehension scopes, class | 1                      | Desugaring, scope analysis, or prelude. `__class__` is literally a cell      |
+| body execution, `__set_name__`,              |                        | captured by methods. `sys.exc_info` is a handler-stack cell.                 |
+| `__init_subclass__`, `__class_getitem__`,    |                        |                                                                              |
+| zero-argument `super`/`__class__`,           |                        |                                                                              |
+| descriptors, `__slots__`, `__radd__`         |                        |                                                                              |
+| fallback, `except*`,                         |                        |                                                                              |
+| `__context__`/`__cause__`                    |                        |                                                                              |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| `async`/`await`, async generators, `async    | 1 for the machinery, 2 | The job scheduler is prelude over continuations reading a completion stream. |
+| with`/`for`                                  | for what is awaited    |                                                                              |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| `importlib` hooks, `sys.modules`, `reload`   | 2                      | Python module objects must be heap objects; the yin.vm linker delivers code, |
+|                                              |                        | not namespaces.                                                              |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| Float semantics, IEEE, NaN, `-0.0`           | 1, with a tag          | All three hosts are binary64, but JS cannot distinguish `2` from `2.0`, so   |
+|                                              | requirement            | the value encoding must tag floats (or ints) explicitly on every host.       |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| `str` as code points, normalization          | 1                      | Hosts are UTF-16; the data module's code-point operations are required, and  |
+|                                              |                        | normalization tables are Layer 1 data.                                       |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+| C extensions, `ctypes`, refcount timing,     | 4                      | Agreed by the ruling: CPython internals.                                     |
+| `sys.getrefcount`, interning seen by `is`    |                        |                                                                              |
++----------------------------------------------+------------------------+------------------------------------------------------------------------------+
+```
+
+Owner decisions on the ruling:
+
+1. A Python module namespace is a heap dict, not `yin/def py.g/*` store
+   keys (section 8.5). The cost is a dict lookup per global read; an
+   un-boxing interpreter can later recover static reads where no dynamic
+   write is reachable. It unlocks `globals()`, `del`, `exec`, module
+   attributes, and `sys.modules`.
+2. Traceback line numbers are derived by default at the boundary from
+   the position side tables (not guest-visible), per derive-don't-persist.
+   Line literals are embedded in frame records only under a profile that
+   demands a guest-visible `tb_lineno`; embedding makes code addresses
+   sensitive to whitespace changes.
+3. The Python value encoding tags floats (section 8.5).
+4. Safepoint insertion (signals, tracing, thread switches, recursion
+   accounting) is a separately attached interpreter over the row stream,
+   not part of the naive lowering.
+
+Further interactions stated by the ruling:
+
+- A suspended generator, a green thread, or a frame record holds a
+  reified continuation in a cell. The encoder refuses those, so a task
+  with one reachable is non-migratable until reified continuations
+  encode.
+- The prelude must not test the continuation representation, since
+  host-typed continuations (mob D7) would break such a test. The
+  representation-independent form is a per-capture flag cell allocated
+  before the capture, set on the first pass, that tells the passes apart.
+  Frame introspection must not read `:env` out of a continuation map; the
+  explicit frame record avoids it.
+- Python threads share one heap and module objects are shared
+  identities, so one Python "process" is one task. `multiprocessing` maps
+  to tasks and streams.
+- Python module identity lives in the heap. The linker delivers
+  content-addressed code images (prelude, standard library), never
+  Python namespaces.
+- Exceptions carrying tracebacks retain frames and continuations, and
+  generators retain their whole activation, so Python programs raise the
+  priority of heap reclamation.
+- Until the prelude is a linked module, each unit bundles its own prelude
+  and so its own builtin class identities, and `isinstance` across units
+  fails. A linked prelude's class objects are copied per receiving task
+  (mob D1), which is fine within one Python task.
 
 ### 8.6 Object-oriented and web: PHP, mixed text and ordered maps
 
@@ -1148,6 +1381,8 @@ The semantic profile must cover:
 - Ordered arrays and observable copy behavior.
 - Coercion, comparisons, missing values, and error behavior.
 - Function and class calls, including supported type declarations.
+
+Section 8.11 maps PHP arrays, objects, and references onto cells.
 
 Superglobals are explicit request-context values supplied by the
 composition. They do not read ambient process or HTTP state.
@@ -1211,6 +1446,8 @@ semantic analysis and runtime profiles:
 Go's value and reference-bearing types need their specified copying
 behavior; goroutines and channels require a language scheduler above
 streams rather than treating a broadcast log as a destructive channel.
+Section 8.11 maps Go values, pointers, slices, maps, and channels onto
+cells.
 
 Rust requires ownership and lifetime analysis beyond parsing, plus
 explicit drop behavior. Those analyses may be an additional service
@@ -1235,6 +1472,161 @@ ownership, and asynchronous results.
 Start with a small portable-value interop profile. Rich object sharing
 requires adapters; JavaScript `null`, Python `None`, PHP `null`, and Java
 null references must not be conflated accidentally.
+
+### 8.11 Mutable objects and collections over cells
+
+This section records the mutable-objects ruling. A mutable guest object
+is one cell holding one persistent value, and the object's identity is
+the cell:
+
+- The guest reference is the bare `:cell-ref`. The type tag and payload
+  live inside the cell's content, so `type(x)` answers the same through
+  every alias. The content is a tagged header plus payload, for example
+  `{type-tag, items}` for a list or `{class-ref, attrs}` for an instance;
+  the exact encoding belongs to each language's runtime profile.
+- Immutable guest values get no cell. Numbers, strings, tuples, `None`,
+  and the like are plain tagged persistent values.
+- A slot gets its own cell only when the language lets that slot itself
+  be aliased. PHP reference slots are the case. Go interior pointers need
+  no extra cell: they are a `(cell, path)` pair.
+- Classes are objects too. Class attributes are assignable, so a class
+  is a cell, and an instance holds a ref to it.
+- A mutation is `cell/get`, then a pure update, then `cell/set!`.
+  Persistent structures make the copy a path copy, not a whole-value
+  copy. No atomic update form is needed: a task switches only at park
+  points, and the prelude evaluates operands before the get/set pair.
+  `cell/swap!` is rejected, because applying a guest closure inside
+  effect handling would need continuation frames the engine does not
+  build there.
+
+```text
++--------------------------------+-------------------+----------------------------------------------------------------+
+| Option                         | Ruling            | Why                                                            |
++================================+===================+================================================================+
+| One cell per object,           | Adopt             | `assoc` and `conj` are path copies, so a mutation costs two    |
+| persistent value inside        |                   | effect dispatches plus one pure call regardless of size.       |
++--------------------------------+-------------------+----------------------------------------------------------------+
+| One cell per field or element  | Reject as default | A list of n elements means n allocations, n seals, and n heap  |
+|                                |                   | entries. Dicts with dynamic keys need a container anyway.      |
++--------------------------------+-------------------+----------------------------------------------------------------+
+| Host mutable objects           | Forbidden         | Violates "no shared mutable state" and the section 8.1 rule    |
+|                                |                   | that aliased guest objects share logical identity, not host    |
+|                                |                   | mutable objects.                                               |
++--------------------------------+-------------------+----------------------------------------------------------------+
+```
+
+Aliasing and identity:
+
+- Aliasing falls out. After `a = []; b = a; b.append(1)`, both variable
+  cells hold the same ref, so both see the update.
+- Identity comparison is `=` on two refs, which is true exactly when they
+  name the same cell, because a ref is data. It never touches host object
+  identity, so it is portable across CLJ, CLJS, and CLJD. Python `is`, JS
+  `===` on objects, and Java `==` on references all lower to it. This is
+  an invariant: if refs later become host types (mob D7), `=` on refs must
+  still mean same-cell, and refs must stay usable as map keys, on every
+  host.
+- Guest value equality is prelude code. Python `==` on lists recurses
+  through cells; it is never host `=` on a value containing refs, which
+  would compare elements by identity.
+- `is` on immutable values is same type and value, confirmed per
+  language profile (owner decision 1). Python's reference permits it. A
+  Java profile cannot use it: boxed objects and `new String` require
+  distinct identity, so a Java profile gives them cells.
+- The ref itself is a valid host map key, so default instance hashing
+  needs no id extraction.
+- A guest-visible `id()` is not stable across a lift, because cell ids are
+  task-local and re-minted on lift. This is accepted and documented as a
+  limitation (owner decision 2).
+- Functions: two closures from one lambda with equal environments compare
+  equal structurally, while JS and Python require them distinct and allow
+  attributes on functions. Full fidelity wraps a function as an object in
+  a cell; the Python spike uses bare closures and leaves `is` on functions
+  unsupported.
+
+Value-semantics languages map as follows. PHP reference binding cannot be
+a lexical rebinding of the name, since a continuation captured earlier
+would still see the old binding; that is why the reference marker lives
+in the variable's cell.
+
+```text
++--------------------------------------+----------------------------------------------------------------------------+
+| Language feature                     | Mapping                                                                    |
++======================================+============================================================================+
+| PHP array                            | Plain persistent value stored directly in the variable's cell. Assignment  |
+|                                      | copies in O(1); the observable-copy rule is free.                          |
++--------------------------------------+----------------------------------------------------------------------------+
+| PHP object                           | Handle = cell ref.                                                         |
++--------------------------------------+----------------------------------------------------------------------------+
+| PHP `&$x`, `use (&$x)`, `f(&$x)`     | A variable cell holds either a value or a reference marker pointing at a   |
+|                                      | shared cell; reads dereference one level. `$b = &$a` moves `$a`'s content  |
+|                                      | into a fresh shared cell and sets both variables to the marker.            |
++--------------------------------------+----------------------------------------------------------------------------+
+| PHP reference to an array element    | The same marker sits in the array slot. It survives array copy, which is   |
+|                                      | PHP's real behavior.                                                       |
++--------------------------------------+----------------------------------------------------------------------------+
+| Go struct, array                     | Plain persistent value; assignment copies.                                 |
++--------------------------------------+----------------------------------------------------------------------------+
+| Go `&x`                              | The variable's existing cell ref, since every local is boxed.              |
++--------------------------------------+----------------------------------------------------------------------------+
+| Go `&s.f`, `&a[i]`                   | A `(cell, path)` pair: read is a nested get, write is a nested update plus |
+|                                      | `cell/set!`.                                                               |
++--------------------------------------+----------------------------------------------------------------------------+
+| Go slice                             | Header by value (`backing-ref`, offset, length, capacity); the backing     |
+|                                      | array is in a cell.                                                        |
++--------------------------------------+----------------------------------------------------------------------------+
+| Go map, channel                      | Cell.                                                                      |
++--------------------------------------+----------------------------------------------------------------------------+
+| Java object, array                   | Cell each.                                                                 |
++--------------------------------------+----------------------------------------------------------------------------+
+```
+
+Cycles and graphs:
+
+- Persistent values stay acyclic. `a.append(a)` stores a's ref inside a's
+  content, so the cycle exists only through heap ids and host printing,
+  hashing, and equality never loop. Guest `repr` and `==` need their own
+  guards, as in Python.
+- Copy-on-lift pulls the heap slice by reachability, with the portable id
+  reserved before contents are traversed; aliases and cycles inside one
+  lift are preserved. One reference to one object pulls its whole
+  reachable graph, including its class and the class's methods.
+- Every temporary list is a heap entry for the life of the task, and cell
+  slice 1 never frees cells. A collector must trace refs nested inside
+  cell contents. Reclamation moves ahead of lift and lower as the first
+  work after the Python spike (owner decision 4). Finalizers and weak
+  references are out of scope.
+
+Where the semantics lives:
+
+- Prelude (Universal AST): object layout, attribute lookup, method
+  resolution, guest equality and hashing, list, dict, and set operations,
+  and reference markers.
+- The `cell` module: only allocation, read, and write.
+- The runtime profile per language: value encoding. Each language's null
+  is its own tagged sentinel, never host `nil` shared across languages.
+- Cross-language calls: a cell ref crosses as an opaque object handle
+  under the section 8.10 interop profile. The receiver may hold it and
+  pass it back but not read its content without an adapter.
+- Grammar: unchanged. Every operation is an ordinary `:application`.
+- Inline caches, field-slot layouts, and un-boxing are separately attached
+  interpreters writing their own stream; the lowering emits naive prelude
+  calls.
+
+Two constraints bind every prelude:
+
+- Never iterate a host map. Python dicts and PHP arrays are ordered; host
+  maps are not, and iteration order differs by host. An ordered dict is
+  an index map plus an order vector.
+- Normalize dict keys in the runtime profile. Host `=` on numbers differs
+  by host: `1` and `1.0` are distinct on the JVM and identical on JS and
+  Dart, while Python requires `1`, `1.0`, and `True` to be one key. The
+  profile defines key normalization and guest equality explicitly.
+
+`obj.method()` costs roughly three or more effect dispatches (instance,
+class, bases), each on the slow effect path. This is recorded as a
+measurement for the spike; promotion to tags or opcodes stays the later
+remedy.
 
 ---
 
@@ -1303,6 +1695,16 @@ Preludes are Universal AST code, so they are inspectable, queryable by
 `dao.space.query/q` over their rows, and portable across CLJ, CLJS, and
 CLJD without per-host reimplementation.
 
+The pure data primitives a prelude needs (length, deletion, removal,
+string operations) live in a `:pure` host module named by the language's
+runtime profile, not in the standard `vm/primitives` registry, whose
+change would affect every composition (mutable-objects ruling, owner
+decision 3). The module is `yin.vm.data`, module name `data`, landed in
+`fe8bce4a`: a composition whose runtime profile names it installs it
+explicitly with `register-data-module`. It is a registry addition, not a
+grammar change. Its strings are code-point indexed on every host, and no
+export iterates a host map.
+
 ### 9.4 Layer 3: object system desugaring
 
 Class, prototype, and trait hierarchies are desugared to records, store
@@ -1320,6 +1722,11 @@ grammar of `yin.vm.code-as-tuples.md` section 2.3 has no class, method,
 prototype, or trait tag, and this document adds none. Dispatch, method
 resolution, and inheritance are prelude code (layer 2) operating on data
 that desugaring produced.
+
+"Store cells" here are `cell` module refs over the task heap (section
+8.1). A mutable object, including a class, is one cell holding one
+persistent value, and a mutable collection is likewise one cell; section
+8.11 gives the representation, identity, and aliasing rules.
 
 ### 9.5 Layer 4: system I/O and effects
 
@@ -1341,7 +1748,9 @@ a frontend's runtime profile, not properties of any grammar.
 
 Capabilities are declared: the runtime profile lists the effects a
 language's standard library may request, and a composition grants or
-withholds them.
+withholds them. Inside the VM, effects are an unforgeable host type and
+the engine checks an effect raised by a primitive against the callee's
+declared effect set (section 8.1, mob D4).
 
 ### 9.6 Module distribution
 
