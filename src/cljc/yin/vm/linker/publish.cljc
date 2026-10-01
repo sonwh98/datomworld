@@ -10,7 +10,8 @@
             [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.ledger :as ledger]
             [yin.vm.linearize :as linearize]
-            [yin.vm.linker :as linker]))
+            [yin.vm.linker :as linker]
+            [yin.vm.linker.closure :as closure]))
 
 
 (defn- refusal
@@ -80,6 +81,32 @@
                                       (vals requires))))})))
 
 
+(def code-formats
+  "The four code format records a module manifest links through."
+  [linker/ast-format linker/semantic-format
+   linker/stack-format linker/register-format])
+
+
+(defn link-local
+  "Link `format`'s image through the manifest `address` over `handle`'s
+   own content, `:verifying` with discharge deferred, as a serving
+   composition does (yin.vm.linker.dht.md 4.1): a fresh local runtime per
+   call, so no request reaches any peer.  `opts` overrides the link
+   options."
+  ([handle address format] (link-local handle address format nil))
+  ([handle address format opts]
+   (linker/link-manifest
+     (linker/local-runtime
+       handle {:formats (into {} (map (fn [f] [(:format f) f]))
+                              (conj code-formats linker/manifest-format
+                                    linker/record-format))})
+     address (:format format) {:primitives vm/primitives}
+     (merge {:contract (:contract format)
+             :derivation :verifying
+             :defer-discharge true}
+            opts))))
+
+
 (defn publish-module!
   "Mint all four code formats, derivation records, and one schema-1 manifest."
   [handle {:keys [name ast exports requires primitives] :as spec}]
@@ -90,15 +117,21 @@
                       (refusal :yin.link.publish/malformed-tree {}))))
         defect (when (and tree (not= :refused (:status tree)))
                  (vm/validate-rows tree))
-        invalid-requirement
-        (when (and tree (not defect))
+        ;; each pinned closure is walked before anything is written; an
+        ;; absent pinned manifest is the footprint's missing-requirement
+        requirement
+        (when (and tree (not defect) (not= :refused (:status tree)))
           (some (fn [[n address]]
-                  (let [manifest (jing/get handle address ::absent)]
-                    (when (and (not= ::absent manifest)
-                               (linker/manifest-defect manifest))
-                      n)))
-                requires))
-        fp (when (and tree (not defect) (not invalid-requirement)
+                  (let [w (closure/walk handle address)]
+                    (case (:yin.link.closure/outcome w)
+                      :complete nil
+                      :invalid (refusal :yin.link.publish/invalid-requirement
+                                        {:name n})
+                      :missing (when (not= address (:address w))
+                                 (refusal :yin.link.publish/incomplete-requirement
+                                          {:name n :walk w})))))
+                (sort-by (fn [[n _]] (str n)) requires)))
+        fp (when (and tree (not defect) (not requirement)
                       (not= :refused (:status tree)))
              (footprint handle (assoc spec :tree tree)))]
     (cond
@@ -110,9 +143,7 @@
       defect
       (refusal :yin.link.publish/malformed-tree {:defect defect})
 
-      invalid-requirement
-      (refusal :yin.link.publish/invalid-requirement
-               {:name invalid-requirement})
+      requirement requirement
 
       (= :refused (:status fp)) fp
 
@@ -153,26 +184,16 @@
                                     primitives))
                       :yin.module/footprint fp}
             address (jing/materialize! handle manifest)
-            formats [linker/ast-format linker/semantic-format
-                     linker/stack-format linker/register-format]
-            runtime-opts {:formats
-                          (into {} (map (fn [f] [(:format f) f]))
-                                (concat formats
-                                        [linker/manifest-format
-                                         linker/record-format]))}
-            links (into {}
-                        (map (fn [f]
-                               [(:format f)
-                                (linker/link-manifest
-                                  (linker/local-runtime handle runtime-opts)
-                                  address (:format f)
-                                  {:primitives vm/primitives}
-                                  {:contract (:contract f)
-                                   :derivation :verifying
-                                   :defer-discharge true})])
-                             formats))]
-        {:address address :manifest manifest
-         :identities {:yin.semantic/code sem
-                      :yin.debruijn.code h
-                      :yin.debruijn.register r}
-         :links links}))))
+            walked (closure/walk handle address)]
+        (if (not= :complete (:yin.link.closure/outcome walked))
+          (refusal :yin.link.publish/incomplete-closure
+                   {:address address :walk walked})
+          (let [links (into {}
+                            (map (fn [f]
+                                   [(:format f) (link-local handle address f)]))
+                            code-formats)]
+            {:address address :manifest manifest
+             :identities {:yin.semantic/code sem
+                          :yin.debruijn.code h
+                          :yin.debruijn.register r}
+             :links links}))))))

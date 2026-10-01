@@ -1183,6 +1183,14 @@
       (:value record))))
 
 
+(defn loaded-indexes
+  "The covered-index manifests whose load is `:loaded` on `node`, as a
+   vector sorted by address text: a load of another kind, one still
+   loading and a failed one are not listed."
+  [node]
+  (vec (sort-by str (filter #(loaded-datoms node %) (keys (:loads node))))))
+
+
 (defn- walk-outcome
   "The walk's answer, held to the three shapes: a throw is `walk-threw`,
    any other shape `walk-shape`."

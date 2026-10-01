@@ -1067,7 +1067,16 @@ JVM, Node and Dart. A consumer matches `:reason` and, for
 Publication refusals, returned by the plain functions and printed by the
 REPL: `:yin.link.publish/no-key`, `/undefined-export`, `/undeclared-free`,
 `/host-module`, `/missing-requirement`, `/unprofiled-primitive`, `/ffi-op`,
-`/parked-id`. Replication outcomes arrive through the `:published` event of
+`/parked-id`, and the three closure refusals below. Each is
+`{:status :refused :reason <reason> ...carried data}`.
+
+| `:reason` | Carried data | When |
+|---|---|---|
+| `:yin.link.publish/invalid-requirement` | `:name` the requirement's name | The walk (4.2) of a pinned manifest under `:requires` answers `:invalid`. Raised before anything is written. |
+| `:yin.link.publish/incomplete-requirement` | `:name`, `:walk` the walk's `:missing` outcome | A pinned manifest is present but its closure answers `:missing` beyond it. Raised before anything is written. A pinned manifest that is itself absent is `/missing-requirement`. |
+| `:yin.link.publish/incomplete-closure` | `:address` the minted manifest, `:walk` the walk's outcome | The walk of the closure just minted is not `:complete`. Raised after the writes and before any link: `:links` is never reported for it. |
+
+Replication outcomes arrive through the `:published` event of
 section 5.5; a blob's `:reason` there is one of the DHT's `/unacknowledged`
 reasons, `:dao.space.dht/backlog-full`, `:dao.space.dht/publications-full`
 or `:dao.space.dht/cancelled`.
@@ -1099,6 +1108,7 @@ join -> publish!  -> assert! -> announce!                 (publisher)
 | `dao.space.dht/join`, `step`, `store`, `local`, `announce!`, `close!` | S5, unchanged. |
 | `dao.space.dht/load-index`, `load-status`, `db`, `q` | S5; statuses and reasons per section 4.3. |
 | `dao.space.dht/load`, `forget` | Section 4.3. |
+| `(dao.space.dht/loaded-indexes node)` | The covered-index manifests whose load is `:loaded`, sorted by address text. `yin.vm.linker.dht/snapshots` reads the node's loads only through it. |
 | `dao.space.dht/retry!`, `cancel!` | Section 5.5. Each answers the node; refusal codes in section 9. |
 | `(dao.space.dht/backlog node)` | What the node retains now: `{:fresh n :repair n :outstanding n :outstanding-fresh n :outstanding-repair n :live n :open n :repairing n :ledger-entries n}`. These are queue entries, requests outstanding (in total and per queue), live publications, those awaiting a first report, those repairing, and the ledger entries live publications hold (section 5.5.2). |
 | `(dao.space.dht/publications node)` | Every live publication, oldest first, each `{:manifest m :blobs n :sent s :result r :reported? b :repairing? b :delay ticks :due reading-or-nil :cycles n :cycle-open? b :repair-queued n :entries {address entry}}`. An entry is `{:state :waiting}`, `{:state :sent :peers k}` or `{:state :failed :reason r :peers k}`, with `:was` after a cancellation. |

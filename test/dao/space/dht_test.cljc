@@ -417,6 +417,33 @@
     (dht/close! node)))
 
 
+(deftest loaded-indexes-lists-only-loaded-index-manifests
+  (let [node (solo-node)
+        m1 (publish-datoms! node facts)
+        m2 (publish-datoms! node [{:db/id datom/first-user-id :code/name "gamma"
+                                   :code/arity 3}])
+        other (jing/segment-key "another kind")
+        failed (jing/segment-key "invalid index")
+        node (-> node
+                 (dht/load-index m1)
+                 (dht/load-index m2)
+                 (dht/load other {:kind ::test
+                                  :walk (fn [_] {::dht/walk :complete :value 1})})
+                 (dht/load failed {:kind dht/index-kind
+                                   :walk (fn [_]
+                                           {::dht/walk :invalid :address nil
+                                            :defect {:code :index-invalid}})}))]
+    (is (= [] (dht/loaded-indexes node)) "nothing is loaded while loading")
+    (let [[node _] (dht/step node 0)]
+      (is (= :loaded (:status (dht/load-status node other))))
+      (is (= :failed (:status (dht/load-status node failed))))
+      (is (= (vec (sort-by str [m1 m2])) (dht/loaded-indexes node))
+          "loaded index manifests only, sorted: not another kind, not a failure")
+      (is (= [m2] (dht/loaded-indexes (dht/forget node m1)))
+          "a forgotten record is no longer listed")
+      (dht/close! node))))
+
+
 (deftest a-walk-answering-invalid-fails-without-any-fetch
   (let [a (jing/segment-key "invalid")
         [node events] (settle (dht/load (solo-node) a
