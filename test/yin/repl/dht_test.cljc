@@ -58,7 +58,8 @@
               (doseq [child (.listFiles f)]
                 (.delete child))
               (.delete f)))
-     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force true})
+     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force
+                                                    true})
                 (catch :default _ nil))))
 
 
@@ -153,7 +154,7 @@
 
 (defn- run-until
   "Step every shell's DHT runner and every peer at readings `now`, `now` +
-   10, … until `done?` holds over the collected lines or `limit` readings
+   10, ... until `done?` holds over the collected lines or `limit` readings
    pass.  Answers `[shells peers lines now]`."
   [shells peers now limit done?]
   (loop [shells shells
@@ -198,7 +199,8 @@
 
 
 (deftest peers-publication-and-binding-are-separate-explicit-flags
-  (let [spec #(:index-store-spec (main/parse-args (into ["--index-store" "dht:d"] %)))]
+  (let [spec #(:index-store-spec (main/parse-args (into ["--index-store"
+                                                         "dht:d"] %)))]
     (testing "peers declare nothing: publication stays off"
       (is (= {:peers [{:host "127.0.0.1" :port 7001}
                       {:host "::1" :port 7002}]
@@ -218,7 +220,8 @@
     (testing "the inbound storage bound has a CLI default and a flag"
       (is (= repl.dht/default-max-inbound-bytes
              (:max-inbound-bytes (spec []))))
-      (is (= 1024 (:max-inbound-bytes (spec ["--dht-max-inbound-bytes" "1024"]))))))
+      (is (= 1024 (:max-inbound-bytes (spec ["--dht-max-inbound-bytes"
+                                             "1024"]))))))
   (testing "every malformed or meaningless combination is refused, not ignored"
     (doseq [[args text] [[["--dht-peer" "127.0.0.1:1"] "dht:<dir>"]
                          [["--dht-publish"] "dht:<dir>"]
@@ -243,7 +246,8 @@
                          [["--index-store" "dht:d" "--dht-peer" "127.0.0.1:1"
                            "--dht-manifest" "not-an-address"]
                           "manifest"]
-                         [["--index-store" "dht:d" "--dht-max-inbound-bytes" "-1"]
+                         [["--index-store" "dht:d" "--dht-max-inbound-bytes"
+                           "-1"]
                           "max-inbound-bytes"]]]
       (let [e (refusal-of #(main/parse-args args))]
         (is (some? e) (pr-str args))
@@ -266,7 +270,8 @@
         binds (atom 0)]
     (try
       (let [shell (repl/create-state
-                    {:index-store-spec (dht-spec dir {:bind! (mesh-bind net 9 binds)
+                    {:index-store-spec (dht-spec dir {:bind! (mesh-bind net 9
+                                                                        binds)
                                                       :publish? true})})
             runner (:dht shell)]
         (is (zero? @binds) "no socket was bound")
@@ -298,7 +303,8 @@
                            (repl/create-state
                              {:index-store-spec
                               (dht-spec dir {:bind! (mesh-bind net port binds)
-                                             :peers [{:host "127.0.0.1" :port 1}]
+                                             :peers [{:host "127.0.0.1" :port
+                                                      1}]
                                              :publish? true})}))
                          dirs [11 12])
             secrets (mapv #(get-in % [:dht :composition ::dht/secret]) shells)
@@ -331,7 +337,8 @@
 
 (deftest the-banner-states-what-will-be-shared-before-anything-is
   (let [banner #(str/join "\n" (main/banner (main/parse-args
-                                              (into ["--index-store" "dht:idx"] %))))]
+                                              (into ["--index-store" "dht:idx"]
+                                                    %))))]
     (testing "publishing states the whole store is public"
       (let [text (banner ["--dht-peer" "127.0.0.1:7001" "--dht-publish"])]
         (is (str/includes? text "will be shared"))
@@ -414,43 +421,65 @@
   (fn [a] (not= a @manifest)))
 
 
-(deftest a-partial-publication-is-reported-and-repaired-through-the-host-module
-  (let [dir (temp-dir)
-        net (mesh/mesh)
-        peers {121 (peer-node net 121) 122 (peer-node net 122)}
-        manifest (atom nil)
-        refuse (atom (rows-refuser manifest))]
+(deftest
+  a-partial-publication-is-reported-and-repaired-through-the-host-module
+  (let
+    [dir (temp-dir)
+     net (mesh/mesh)
+     peers {121 (peer-node net 121) 122 (peer-node net 122)}
+     manifest (atom nil)
+     refuse (atom (rows-refuser manifest))]
     (try
-      (let [shell (repl/create-state
-                    {:index-store-spec
-                     (dht-spec dir {:bind! (refusing-bind net 120 refuse)
-                                    :peers [{:host "127.0.0.1" :port 121}
-                                            {:host "127.0.0.1" :port 122}]
-                                    :publish? true})})
-            [shell _] (repl/eval-input shell "(def partly 7)")
-            m (get-in shell [:indexer :manifest-address])
-            _ (reset! manifest m)
-            [[shell] peers lines now] (run-until [shell] peers 0 20000
-                                                 #(line-with % (str "published " m)))
-            first-line (line-with lines (str "published " m))]
-        (testing "the first report names the result, the failed count and the retry"
+      (let
+        [shell (repl/create-state
+                 {:index-store-spec
+                  (dht-spec dir {:bind! (refusing-bind net 120 refuse)
+                                 :peers [{:host "127.0.0.1" :port 121}
+                                         {:host "127.0.0.1" :port 122}]
+                                 :publish? true})})
+         [shell _] (repl/eval-input shell "(def partly 7)")
+         m (get-in shell [:indexer :manifest-address])
+         _ (reset! manifest m)
+         [[shell] peers lines now] (run-until
+                                     [shell] peers 0 20000
+                                     #(line-with
+                                        % (str
+                                            "published " m)))
+         first-line (line-with lines (str "published " m))]
+        (testing (str
+                   "the first report names the result, the failed"
+                   " count and the retry")
           (is (str/includes? first-line "PARTIAL") first-line)
           (is (re-find #"\d+ of \d+ blobs not sent" first-line) first-line)
           (is (str/includes? first-line "too few peers") first-line)
-          (is (str/includes? first-line "retrying while the node is open") first-line)
+          (is (str/includes? first-line "retrying while the node is open")
+              first-line)
           (is (= m (head-manifest dir)) "HEAD moved"))
         (reset! refuse (constantly false))
-        (let [[shell required] (repl/eval-input shell "(require (quote dao.space.dht))")
-              [shell retried] (repl/eval-input shell (str "(dao.space.dht/retry " m ")"))
-              [[shell] _ lines] (run-until [shell] peers now (+ now 20000)
-                                           #(line-with % (str "republished " m)))
-              line (line-with lines (str "republished " m))]
+        (let
+          [[shell required] (repl/eval-input
+                              shell
+                              "(require (quote dao.space.dht))")
+           [shell retried] (repl/eval-input
+                             shell (str
+                                     "(dao.space.dht/retry " m ")"))
+           [[shell] _ lines] (run-until [shell] peers now (+ now 20000)
+                                        #(line-with % (str "republished "
+                                                           m)))
+           line (line-with lines (str "republished " m))]
           (is (= "'dao.space.dht" required))
           (is (= ":retrying" retried) "retry brings the repair forward")
-          (is (str/includes? (str line) "acknowledged: sent to 2 peers") (pr-str lines))
-          (testing "retry and cancel are refused for what is not live, as data"
-            (let [[shell again] (repl/eval-input shell (str "(dao.space.dht/retry " m ")"))
-                  [shell cancelled] (repl/eval-input shell (str "(dao.space.dht/cancel " m ")"))]
+          (is (str/includes? (str line) "acknowledged: sent to 2 peers")
+              (pr-str lines))
+          (testing
+            "retry and cancel are refused for what is not live, as data"
+            (let
+              [[shell again] (repl/eval-input
+                               shell (str
+                                       "(dao.space.dht/retry " m ")"))
+               [shell cancelled] (repl/eval-input
+                                   shell (str
+                                           "(dao.space.dht/cancel " m ")"))]
               (is (str/includes? again "not-repairing") again)
               (is (str/includes? cancelled "not-live") cancelled)
               (close! shell)))))
@@ -458,29 +487,37 @@
         (cleanup-dir! dir)))))
 
 
-(deftest a-refused-manifest-is-reported-unacknowledged-and-cancel-ends-it
-  (let [dir (temp-dir)
-        net (mesh/mesh)
-        peers {124 (peer-node net 124) 125 (peer-node net 125)}
-        refuse (atom (constantly false))]
+(deftest
+  a-refused-manifest-is-reported-unacknowledged-and-cancel-ends-it
+  (let
+    [dir (temp-dir)
+     net (mesh/mesh)
+     peers {124 (peer-node net 124) 125 (peer-node net 125)}
+     refuse (atom (constantly false))]
     (try
-      (let [shell (repl/create-state
-                    {:index-store-spec
-                     (dht-spec dir {:bind! (refusing-bind net 123 refuse)
-                                    :peers [{:host "127.0.0.1" :port 124}
-                                            {:host "127.0.0.1" :port 125}]
-                                    :publish? true})})
-            [shell _] (repl/eval-input shell "(def unsent 8)")
-            m (get-in shell [:indexer :manifest-address])
-            _ (reset! refuse #{m})
-            [[shell] peers lines now] (run-until [shell] peers 0 20000
-                                                 #(line-with % (str "published " m)))
-            first-line (line-with lines (str "published " m))
-            _ (is (= m (head-manifest dir)) "HEAD moved")
-            [shell _] (repl/eval-input shell "(require (quote dao.space.dht))")
-            [shell cancelled] (repl/eval-input shell (str "(dao.space.dht/cancel " m ")"))
-            [[shell] _ lines] (run-until [shell] peers now (+ now 1000)
-                                         #(line-with % (str "republished " m)))]
+      (let
+        [shell (repl/create-state
+                 {:index-store-spec
+                  (dht-spec dir {:bind! (refusing-bind net 123 refuse)
+                                 :peers [{:host "127.0.0.1" :port 124}
+                                         {:host "127.0.0.1" :port 125}]
+                                 :publish? true})})
+         [shell _] (repl/eval-input shell "(def unsent 8)")
+         m (get-in shell [:indexer :manifest-address])
+         _ (reset! refuse #{m})
+         [[shell] peers lines now] (run-until
+                                     [shell] peers 0 20000
+                                     #(line-with
+                                        % (str
+                                            "published " m)))
+         first-line (line-with lines (str "published " m))
+         _ (is (= m (head-manifest dir)) "HEAD moved")
+         [shell _] (repl/eval-input shell "(require (quote dao.space.dht))")
+         [shell cancelled] (repl/eval-input
+                             shell (str
+                                     "(dao.space.dht/cancel " m ")"))
+         [[shell] _ lines] (run-until [shell] peers now (+ now 1000)
+                                      #(line-with % (str "republished " m)))]
         (is (str/includes? first-line "NOT acknowledged") first-line)
         (is (re-find #"1 of \d+ blobs not sent" first-line) first-line)
         (is (str/includes? first-line "retrying") first-line)
@@ -567,7 +604,8 @@
           (let [[reader _] (repl/eval-input reader require-line)
                 [reader answer] (repl/eval-input reader query-line)]
             (is (str/includes? (str answer) (:shell-token pub))
-                (str "q answers the publisher's fact, under its token: " answer))
+                (str "q answers the publisher's fact, under its token: "
+                     answer))
             (is (not (str/includes? (str answer) (:shell-token reader)))
                 "the reader itself never evaluated it")
             (close! reader))
@@ -608,7 +646,8 @@
             manifest (get-in pub [:indexer :manifest-address])
             state (main/boot {:index-store-spec
                               (dht-spec rdir {:bind! (mesh-bind net 72 (atom 0))
-                                              :peers [{:host "127.0.0.1" :port 70}]
+                                              :peers [{:host "127.0.0.1" :port
+                                                       70}]
                                               :manifest manifest})})
             _ (driver/submit-line! (:input state) "(+ 1 2)")
             [state _ lines] (main/step-all state nil 0)]
@@ -642,7 +681,8 @@
 
 (defn- failing-bind
   [{:keys [identity deposit]}]
-  (stream/append! deposit (datagram/bind-failed-event identity "address in use"))
+  (stream/append! deposit (datagram/bind-failed-event identity
+                                                      "address in use"))
   {:send! (fn [_ _ _] {:dao.stream/outcome :dao.stream/transport-error})
    :close! (fn [] nil)})
 
@@ -652,7 +692,8 @@
     (try
       (let [state (main/boot {:index-store-spec
                               (dht-spec dir {:bind! failing-bind
-                                             :peers [{:host "127.0.0.1" :port 1}]})})
+                                             :peers [{:host "127.0.0.1" :port
+                                                      1}]})})
             _ (driver/submit-line! (:input state) "(+ 1 2)")
             [state _ lines] (main/step-all state nil 0)]
         (is (line-with lines "could not bind"))
@@ -694,7 +735,8 @@
                              reader (str "(dao.space.dht/q " manifest
                                          " (quote " (pr-str remote-query) "))"))
             [reader asked] (repl/eval-input
-                             reader (str "(dao.space.dht/load-index " manifest ")"))]
+                             reader (str "(dao.space.dht/load-index " manifest
+                                         ")"))]
         (is (= "'dao.space.dht" required))
         (is (str/includes? early "is not loaded")
             "q refuses an index that is not loaded, rather than wait")
@@ -716,7 +758,8 @@
                                     reader (str "(dao.space.dht/q " manifest
                                                 " (quote " (pr-str remote-query)
                                                 "))"))]
-              (is (line-with lines (str "dht: loaded " manifest)) (pr-str lines))
+              (is (line-with lines (str "dht: loaded " manifest)) (pr-str
+                                                                    lines))
               (is (str/includes? status ":status :loaded"))
               (is (str/includes? status ":kind :dao.space.dht/index"))
               (is (re-find #":datoms \d+" status) status)
@@ -805,7 +848,8 @@
            now 0]
       (let [[node events] (space.dht/step node now)
             peers (step-peers peers now)]
-        (if (or (some #(= :published (::space.dht/event %)) events) (> now 20000))
+        (if (or (some #(= :published (::space.dht/event %)) events) (> now
+                                                                       20000))
           {:holder node :peers peers :now (+ now 10) :manifest m}
           (recur node peers (+ now 10)))))))
 
@@ -817,7 +861,9 @@
   [net dir port peer-ports names]
   (-> (main/boot {:index-store-spec
                   (dht-spec dir {:bind! (mesh-bind net port (atom 0))
-                                 :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
+                                 :peers (mapv (fn [p]
+                                                {:host "127.0.0.1" :port
+                                                 p})
                                               peer-ports)})})
       (assoc-in [:repl :link-source :name-env] names)))
 
@@ -886,7 +932,8 @@
   nil)
 
 
-(deftest a-require-a-peer-holds-parks-and-completes-on-a-later-tick-with-no-typed-line
+(deftest
+  a-require-a-peer-holds-parks-and-completes-on-a-later-tick-with-no-typed-line
   (let [dir (temp-dir)
         net (mesh/mesh)
         w (holder-world net)
@@ -909,19 +956,24 @@
           (testing "a later tick completed it, with no line typed"
             (is (nil? (:pending-run repl)))
             (is (= 'mod (:last-value repl)))
-            (is (line-with (:lines w) (str "dht: loaded " m)) (pr-str (:lines w))))
+            (is (line-with (:lines w) (str "dht: loaded " m)) (pr-str (:lines
+                                                                        w))))
           (testing "the export then answers"
             (is (= "42" (second (type! (:state w) "(mod/f)")))))
-          (testing "a repeated or late event for the answered link changes nothing"
+          (testing (str
+                     "a repeated or late event for the answered lin"
+                     "k changes nothing")
             (let [late {::space.dht/event :loaded :manifest m
                         :kind ld/module-kind :fetched 1}
                   [repl' text'] (repl/recheck-on-load-events repl [late late])
                   [waiting _] (repl/eval-input repl "(require (quote gone))")
-                  [waiting' text''] (repl/recheck-on-load-events waiting [late])]
+                  [waiting' text''] (repl/recheck-on-load-events waiting
+                                                                 [late])]
               (is (identical? repl repl'))
               (is (nil? text'))
               (testing "nor while another require waits on its own load"
-                (is (= [nowhere] (mapv :manifest (:links (:pending-run waiting)))))
+                (is (= [nowhere] (mapv :manifest (:links (:pending-run
+                                                           waiting)))))
                 (is (identical? waiting waiting'))
                 (is (nil? text'')))))
           (close-world! w)))
@@ -939,18 +991,23 @@
             index (get-in state [:repl :indexer :manifest-address])
             other (publish-mod! (space.dht/local (node-of state)))
             state (update-in state [:repl :dht]
-                             #(-> % (ld/load-module other) (space.dht/load-index index)))
+                             #(-> % (ld/load-module other)
+                                  (space.dht/load-index index)))
             [state text] (type! state "(require (quote mod))")
             before (parked state)
-            w (reduce (fn [w _] (tick w)) {:state state :peers {} :now 0} (range 5))
+            w (reduce (fn [w _] (tick w)) {:state state :peers {} :now 0}
+                      (range 5))
             after (parked (:state w))]
         (is (str/includes? text "pending"))
-        (testing "the node reported a publication, an index load and another module's load"
+        (testing (str
+                   "the node reported a publication, an index loa"
+                   "d and another module's load")
           (is (line-with (:lines w) "dht: published"))
           (is (line-with (:lines w) (str "dht: loaded " other)))
           (is (line-with (:lines w) (str "dht: loaded " index))))
         (testing "none of them re-checked the run"
-          (is (= :loading (:status (ld/module-status (node-of (:state w)) nowhere))))
+          (is (= :loading (:status (ld/module-status (node-of (:state w))
+                                                     nowhere))))
           (is (= 0 (:checks before) (:checks after)))
           (is (identical? (:vm before) (:vm after))))
         (close-world! w))
@@ -1000,9 +1057,11 @@
       (let [state (-> (reader-state net dir 4 [9] {'gone nowhere})
                       (assoc-in [:repl :link-policy] (constantly :keep)))
             [state _] (type! state "(require (quote gone))")
-            repl (nth (iterate #(first (repl/recheck-pending %)) (:repl state)) 6)
+            repl (nth (iterate #(first (repl/recheck-pending %)) (:repl state))
+                      6)
             _ (is (= 6 (:checks (:pending-run repl))))
-            w (run-ticks {:state (assoc state :repl repl) :peers {} :now 0} 20000
+            w (run-ticks {:state (assoc state :repl repl) :peers {} :now 0}
+                         20000
                          #(nil? (parked (:state %))))]
         (testing "only the load's own failure ended it, as a refusal"
           (is (nil? (parked (:state w))))
@@ -1013,29 +1072,40 @@
         (cleanup-dir! dir)))))
 
 
-(deftest abandon-during-a-load-then-a-new-require-finds-it-loaded
-  (let [dir (temp-dir)
-        net (mesh/mesh)
-        w (holder-world net)
-        m (:manifest w)]
+(deftest
+  abandon-during-a-load-then-a-new-require-finds-it-loaded
+  (let
+    [dir (temp-dir)
+     net (mesh/mesh)
+     w (holder-world net)
+     m (:manifest w)]
     (try
-      (let [state (reader-state net dir 4 [1 2 3] {'mod m})
-            [state _] (type! state "(require (quote mod))")
-            [state text] (type! state "(abandon)")
-            _ (is (str/includes? text "abandoned"))
-            _ (is (nil? (parked state)))
-            w (run-ticks (assoc w :state state) 60000
-                         #(= :loaded (:status (ld/module-status (node-of (:state %)) m))))
-            state (:state w)]
+      (let
+        [state (reader-state net dir 4 [1 2 3] {'mod m})
+         [state _] (type! state "(require (quote mod))")
+         [state text] (type! state "(abandon)")
+         _ (is (str/includes? text "abandoned"))
+         _ (is (nil? (parked state)))
+         w (run-ticks
+             (assoc w :state state) 60000
+             #(=
+                :loaded (:status
+                          (ld/module-status
+                            (node-of
+                              (:state %)) m))))
+         state (:state w)]
         (testing "the load completed and settled nothing"
           (is (= :loaded (:status (ld/module-status (node-of state) m))))
           (is (nil? (parked state)))
           (is (nil? (get-in state [:repl :last-value])))
-          (is (= [] (responses state)) "no answer was appended for the abandoned run"))
+          (is (= [] (responses state))
+              "no answer was appended for the abandoned run"))
         (let [fetched (:fetched (ld/module-status (node-of state) m))
               [state _] (type! state "(require (quote mod))")
               repl (:repl state)]
-          (testing "a new require of the name finds the closure loaded and links"
+          (testing (str
+                     "a new require of the name finds the closure l"
+                     "oaded and links")
             (is (nil? (:pending-run repl)))
             (is (= 'mod (:last-value repl)))
             (is (= fetched (:fetched (ld/module-status (node-of state) m)))
@@ -1070,21 +1140,27 @@
     {:state (:state w) :text text :lines (:lines w)}))
 
 
-(deftest a-solo-node-s-require-fails-with-cause-solo-and-a-new-require-starts-a-new-load
+^:cljstyle/ignore
+(deftest
+ a-solo-node-s-require-fails-with-cause-solo-and-a-new-require-starts-a-new-load
   (let [dir (temp-dir)]
     (try
-      (let [{:keys [state lines]} (fail-require (solo-state dir {'mod nowhere}) 'mod)]
+      (let [{:keys [state lines]} (fail-require (solo-state dir {'mod nowhere})
+                                                'mod)]
         (testing "the node's next step failed it with /solo"
           (is (nil? (parked state)))
           (is (line-with lines "Module link refused: absent"))
           (is (= [{:status :refused :reason :absent :address nowhere
                    :cause ::dht/solo}]
                  (responses state))))
-        (testing "the failed record was forgotten; a new require starts a new load"
+        (testing (str
+                   "the failed record was forgotten; a new requir"
+                   "e starts a new load")
           (is (nil? (ld/module-status (node-of state) nowhere)))
           (let [[state text] (type! state "(require (quote mod))")]
             (is (str/includes? text "pending"))
-            (is (= :loading (:status (ld/module-status (node-of state) nowhere))))
+            (is (= :loading (:status (ld/module-status (node-of state)
+                                                       nowhere))))
             (main/close-index-store! state))))
       (finally
         (cleanup-dir! dir)))))
@@ -1096,9 +1172,11 @@
       (let [state (solo-state dir {})
             store (space.dht/local (node-of state))
             res (ct/publish-base! store)
-            bad (jing/materialize! store (assoc (:manifest res) :yin.module/schema 2))
+            bad (jing/materialize! store (assoc (:manifest res)
+                                                :yin.module/schema 2))
             {:keys [state lines]} (fail-require
-                                    (assoc-in state [:repl :link-source :name-env]
+                                    (assoc-in state [:repl :link-source
+                                                     :name-env]
                                               {'base bad})
                                     'base)
             [body] (responses state)]
@@ -1124,10 +1202,12 @@
   (let [dir (temp-dir)]
     (try
       (let [state (-> (solo-state dir {'mod nowhere})
-                      (update-in [:repl :dht :client] assoc :requests (undeliverable)))
+                      (update-in [:repl :dht :client] assoc :requests
+                                 (undeliverable)))
             {:keys [state lines]} (fail-require state 'mod)]
         (is (line-with lines "Module link refused: unaskable"))
-        (is (= [{:status :refused :reason :yin.link.dht/unaskable :address nowhere
+        (is (= [{:status :refused :reason :yin.link.dht/unaskable :address
+                 nowhere
                  :outcome :request-undeliverable}]
                (responses state)))
         (main/close-index-store! state))
@@ -1162,7 +1242,8 @@
             base (:address (ct/publish-base! store))
             app (:address (publish-requiring-app! store base))
             {:keys [state lines]} (fail-require
-                                    (assoc-in state [:repl :link-source :name-env]
+                                    (assoc-in state [:repl :link-source
+                                                     :name-env]
                                               {'app app})
                                     'app)]
         (is (line-with lines "Module link refused: dependency-binding"))
@@ -1180,7 +1261,8 @@
                 w (run-ticks {:state state :peers {} :now 0} 1000
                              #(nil? (parked (:state %))))
                 state (:state w)]
-            (is (= 'app (get-in state [:repl :last-value])) (pr-str (:lines w)))
+            (is (= 'app (get-in state [:repl :last-value]))
+                (pr-str (:lines w)))
             (is (= :loaded (:status (ld/module-status (node-of state) base))))
             (is (= "43" (second (type! state "app/g"))))
             (main/close-index-store! state))))
@@ -1215,7 +1297,9 @@
                       (is (= 'mod (get-in state [:repl :last-value])))
                       (is (= "42" (second (type! state "(mod/f)")))))
                     (when (= :register vm-type)
-                      (testing "the register kernel asks for R and no fallback is composed"
+                      (testing (str
+                                 "the register kernel asks for R and no fallbac"
+                                 "k is composed")
                         (is (= [:yin.debruijn.register]
                                (mapv :yin.link/format (requests state))))
                         (is (= [:ok] (mapv :status (responses state))))
@@ -1232,7 +1316,8 @@
                          (let [dir (temp-dir)]
                            (try
                              (let [state (solo-state dir {'mod nowhere})
-                                   [state _] (type! state (str "(vm " vm-type ")"))
+                                   [state _] (type! state (str "(vm " vm-type
+                                                               ")"))
                                    {:keys [state]} (fail-require state 'mod)]
                                (main/close-index-store! state)
                                (responses state))
@@ -1301,7 +1386,8 @@
    `port` with bootstrap contacts `peer-ports` (none: solo), holding
    `key` (nil: none) and declaring the principals `principals`."
   ([net dir port peer-ports key principals]
-   (keyed-state net dir port peer-ports key principals (mesh-bind net port (atom 0))))
+   (keyed-state net dir port peer-ports key principals (mesh-bind net port
+                                                                  (atom 0))))
   ([_net dir _port peer-ports key principals bind!]
    (main/boot {:index-store-spec
                (dht-spec dir {:bind! bind!
@@ -1346,23 +1432,29 @@
         [state _] (type! state "(require (quote base))")
         w (run-ticks {:state state :peers {} :now 0} 1000
                      #(nil? (parked (:state %))))]
-    (is (= 'base (get-in w [:state :repl :last-value])) (pr-str (:lines w)))
+    (is (= 'base (get-in w [:state :repl :last-value]))
+        (pr-str (:lines w)))
     [(:state w) base]))
 
 
-(deftest publish-at-the-prompt-derives-one-tree-and-declares-what-it-reads
-  (let [dir (temp-dir)
-        key (sign/generate)]
+(deftest
+  publish-at-the-prompt-derives-one-tree-and-declares-what-it-reads
+  (let
+    [dir (temp-dir)
+     key (sign/generate)]
     (try
-      (let [state (keyed-state (mesh/mesh) dir 4 [] key [])
-            [state base] (link-base! state)
-            store (space.dht/local (node-of state))
-            [state _] (type! state "(def h (fn [x] (+ x 1)))")
-            [state _] (type! state "(def unused 5)")
-            [state _] (type! state "(def f (fn [] (h (base/f))))")
-            [state required] (type! state "(require (quote yin.link))")
-            [state res text] (value-of state "(yin.link/publish (quote my.lib) (quote [f]))")
-            manifest (jing/get store (:address res) nil)]
+      (let
+        [state (keyed-state (mesh/mesh) dir 4 [] key [])
+         [state base] (link-base! state)
+         store (space.dht/local (node-of state))
+         [state _] (type! state "(def h (fn [x] (+ x 1)))")
+         [state _] (type! state "(def unused 5)")
+         [state _] (type! state "(def f (fn [] (h (base/f))))")
+         [state required] (type! state "(require (quote yin.link))")
+         [state res text] (value-of
+                            state
+                            "(yin.link/publish (quote my.lib) (quote [f]))")
+         manifest (jing/get store (:address res) nil)]
         (is (= "'yin.link" required))
         (testing "one tree, the defining programs in t order"
           (is (= '[h f] (publish-test/module-defs
@@ -1378,7 +1470,10 @@
           (is (= #{:yin.ast/code :yin.semantic/code :yin.debruijn.code
                    :yin.debruijn.register}
                  (set (keys (:links res))))))
-        (testing "the assertion is in the round's index, and the node resolves it"
+        (testing
+          (str
+            "the assertion is in the round's index, and th"
+            "e node resolves it")
           (is (= [{:yin.module/op :assert :yin.module/name 'my.lib
                    :yin.module/manifest (:address res)
                    :yin.module/asserted-by (sign/principal (:public key))
@@ -1387,18 +1482,31 @@
           (is (= (get-in state [:repl :indexer :manifest-address])
                  (head-manifest dir))
               "HEAD names the index holding it")
-          (let [[state names] (value-of state "(yin.link/names)")]
+          (let
+            [[state names] (value-of state "(yin.link/names)")]
             (is (= (:address res) (get-in names [:names 'my.lib :address])))
-            (testing "republishing with a new manifest retracts, then asserts"
-              (let [[state _] (type! state "(def f (fn [] (h 2)))")
-                    [state again] (value-of state "(yin.link/publish (quote my.lib) (quote [f]))")
-                    [state names] (value-of state "(yin.link/names)")
-                    [state same] (value-of state "(yin.link/publish (quote my.lib) (quote [f]))")]
+            (testing
+              "republishing with a new manifest retracts, then asserts"
+              (let
+                [[state _] (type! state "(def f (fn [] (h 2)))")
+                 [state again] (value-of
+                                 state
+                                 (str
+                                   "(yin.link/publish (quote "
+                                   "my.lib) (quote [f]))"))
+                 [state names] (value-of state "(yin.link/names)")
+                 [state same] (value-of
+                                state
+                                (str
+                                  "(yin.link/publish (quote "
+                                  "my.lib) (quote [f]))"))]
                 (is (not= (:address res) (:address again)))
                 (is (= [[:assert 1] [:retract 2] [:assert 3]]
                        (mapv (juxt :yin.module/op :yin.module/seq)
-                             (sort-by :yin.module/seq (index-envelopes state)))))
-                (is (= (:address again) (get-in names [:names 'my.lib :address])))
+                             (sort-by :yin.module/seq (index-envelopes
+                                                        state)))))
+                (is (= (:address again) (get-in names [:names 'my.lib
+                                                       :address])))
                 (is (= (:address again) (:address same)))
                 (is (= 3 (count (index-envelopes state)))
                     "the same manifest again writes nothing")
@@ -1407,52 +1515,67 @@
         (cleanup-dir! dir)))))
 
 
-(deftest publish-at-the-prompt-refuses-and-writes-nothing
-  (let [dir (temp-dir)
-        key (sign/generate)]
+(deftest
+  publish-at-the-prompt-refuses-and-writes-nothing
+  (let
+    [dir (temp-dir)
+     key (sign/generate)]
     (try
-      (let [state (keyed-state (mesh/mesh) dir 4 [] key [])
-            lines ["(def ok (fn [] 1))"
-                   "(def g (fn [] (mystery 1)))"
-                   "(require (quote dao.space.query))"
-                   "(def q2 (fn [] (dao.space.query/q 1)))"
-                   "(require (quote yin.link))"]
-            state (reduce (fn [s l] (first (type! s l))) state lines)
-            refused (fn [state exports reason]
-                      (let [before (get-in state [:repl :indexer :transactions])
-                            [state text] (type! state (str "(yin.link/publish (quote my.lib) (quote "
-                                                           exports "))"))]
-                        (is (str/includes? (str text) reason) (str text))
-                        (is (empty? (index-envelopes state)) "no name was asserted")
-                        (is (= (inc before) (get-in state [:repl :indexer :transactions]))
-                            "only the round's own program was committed")
-                        state))
-            state (refused state "[nope]" "undefined-export")
-            state (refused state "[g]" "undeclared-free")
-            state (refused state "[q2]" "host-module")
-            state (refused (assoc-in state [:repl :dht-key] nil) "[ok]" "no-key")]
+      (let
+        [state (keyed-state (mesh/mesh) dir 4 [] key [])
+         lines ["(def ok (fn [] 1))"
+                "(def g (fn [] (mystery 1)))"
+                "(require (quote dao.space.query))"
+                "(def q2 (fn [] (dao.space.query/q 1)))"
+                "(require (quote yin.link))"]
+         state (reduce (fn [s l] (first (type! s l))) state lines)
+         refused (fn [state exports reason]
+                   (let
+                     [before (get-in state [:repl :indexer :transactions])
+                      [state text] (type!
+                                     state (str
+                                             "(yin.link/publish (quote "
+                                             "my.lib) (quote "
+                                             exports "))"))]
+                     (is (str/includes? (str text) reason) (str text))
+                     (is (empty? (index-envelopes state))
+                         "no name was asserted")
+                     (is (= (inc before) (get-in state [:repl :indexer
+                                                        :transactions]))
+                         "only the round's own program was committed")
+                     state))
+         state (refused state "[nope]" "undefined-export")
+         state (refused state "[g]" "undeclared-free")
+         state (refused state "[q2]" "host-module")
+         state (refused (assoc-in state [:repl :dht-key] nil) "[ok]"
+                        "no-key")]
         (main/close-index-store! state))
       (finally
         (cleanup-dir! dir)))))
 
 
-(deftest the-next-sequence-is-derived-from-the-index-after-a-restart
-  (let [dir (temp-dir)
-        key (sign/generate)]
+(deftest
+  the-next-sequence-is-derived-from-the-index-after-a-restart
+  (let
+    [dir (temp-dir)
+     key (sign/generate)]
     (try
-      (let [state (keyed-state (mesh/mesh) dir 4 [] key [])
-            state (reduce (fn [s l] (first (type! s l)))
-                          state
-                          ["(def f (fn [] 1))" "(require (quote yin.link))"
-                           "(yin.link/publish (quote my.lib) (quote [f]))"])
-            _ (main/close-index-store! state)
-            ;; a new process over the same directory and the same key file
-            state (keyed-state (mesh/mesh) dir 4 [] key [])
-            state (reduce (fn [s l] (first (type! s l)))
-                          state
-                          ["(def f (fn [] 2))" "(require (quote yin.link))"])
-            [state res] (value-of state "(yin.link/publish (quote my.lib) (quote [f]))")
-            [state names] (value-of state "(yin.link/names)")]
+      (let
+        [state (keyed-state (mesh/mesh) dir 4 [] key [])
+         state (reduce (fn [s l] (first (type! s l)))
+                       state
+                       ["(def f (fn [] 1))" "(require (quote yin.link))"
+                        "(yin.link/publish (quote my.lib) (quote [f]))"])
+         _ (main/close-index-store! state)
+         ;; a new process over the same directory and the same key file
+         state (keyed-state (mesh/mesh) dir 4 [] key [])
+         state (reduce (fn [s l] (first (type! s l)))
+                       state
+                       ["(def f (fn [] 2))" "(require (quote yin.link))"])
+         [state res] (value-of
+                       state
+                       "(yin.link/publish (quote my.lib) (quote [f]))")
+         [state names] (value-of state "(yin.link/names)")]
         (is (= [[:assert 1] [:retract 2] [:assert 3]]
                (mapv (juxt :yin.module/op :yin.module/seq)
                      (sort-by :yin.module/seq (index-envelopes state))))
@@ -1489,7 +1612,9 @@
   (repl/create-state
     {:index-store-spec (dht-spec dir {:bind! bind!
                                       :publish? true
-                                      :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
+                                      :peers (mapv (fn [p]
+                                                     {:host "127.0.0.1"
+                                                      :port p})
                                                    peer-ports)})
      :dht-key key
      :principals principals}))
@@ -1628,27 +1753,41 @@
 ;; Rows every round
 ;; -----------------------------------------------------------------------------
 
-(deftest every-round-s-rows-are-published-and-a-second-node-loads-the-tree-by-its-root
-  (let [dir (temp-dir)
-        net (mesh/mesh)]
+(deftest
+  every-round-s-rows-are-published-and-a-second-node-loads-the-tree-by-its-root
+  (let
+    [dir (temp-dir)
+     net (mesh/mesh)]
     (try
-      (let [w (assoc-in (world net [2 3]) [:shells :p]
-                        (shell-at dir (mesh-bind net 10 (atom 0)) [2 3] nil []))
-            [w _] (eval-at w :p "(def answer (fn [x] (+ x 4242)))")
-            m (head-of w :p)
-            root (root-of-value w :p 4242)
-            w (run-world w 10 20000 #(event-of % :p :published m))
-            report (event-of w :p :published m)]
+      (let
+        [w (assoc-in (world net [2 3]) [:shells :p]
+                     (shell-at dir (mesh-bind net 10 (atom 0)) [2 3] nil []))
+         [w _] (eval-at w :p "(def answer (fn [x] (+ x 4242)))")
+         m (head-of w :p)
+         root (root-of-value w :p 4242)
+         w (run-world w 10 20000 #(event-of % :p :published m))
+         report (event-of w :p :published m)]
         (is (= :acknowledged (:result report)) (pr-str (dissoc report :failed)))
         (testing "the round's publication holds the program's rows"
           (is (< 8 (:blobs report)) "rows and the index blobs both")
-          (is (some? (jing/get (space.dht/local (get-in w [:shells :p :dht])) root nil))))
-        (let [w (assoc-in w [:nodes :r] (load-tree (plain-node (mesh/seam net 11) [2 3 10])
-                                                   root))
-              w (run-world w 10 60000
-                           #(#{:loaded :failed} (:status (space.dht/load-status
-                                                           (get-in % [:nodes :r]) root))))
-              status (space.dht/load-status (get-in w [:nodes :r]) root)]
+          (is (some? (jing/get (space.dht/local (get-in w [:shells :p :dht]))
+                               root nil))))
+        (let
+          [w (assoc-in
+               w [:nodes :r] (load-tree
+                               (plain-node
+                                 (mesh/seam
+                                   net
+                                   11) [2 3 10])
+                               root))
+           w (run-world
+               w 10 60000
+               #(#{:loaded :failed} (:status
+                                      (space.dht/load-status
+                                        (get-in
+                                          % [:nodes
+                                             :r]) root))))
+           status (space.dht/load-status (get-in w [:nodes :r]) root)]
           (is (= :loaded (:status status)) (pr-str status))
           (is (pos? (:fetched status)) "the rows came from the network")
           (close-all! w)))
@@ -1712,61 +1851,111 @@
     [w m row]))
 
 
-(deftest a-failed-row-is-partial-unreachable-except-from-the-publisher-and-repaired
-  (let [dir (temp-dir)
-        net (mesh/mesh)
-        refuse (atom (constantly false))]
+(deftest
+  a-failed-row-is-partial-unreachable-except-from-the-publisher-and-repaired
+  (let
+    [dir (temp-dir)
+     net (mesh/mesh)
+     refuse (atom (constantly false))]
     (try
-      (let [[w m row] (refused-row-world net dir refuse)
-            report (event-of w :p :published m)
-            first-line (line-with (:lines w) (str "published " m))
-            root (root-of-value w :p 7007)]
-        (testing "the round is indexed, HEAD moves, and the result is partial naming the row"
+      (let
+        [[w m row] (refused-row-world net dir refuse)
+         report (event-of w :p :published m)
+         first-line (line-with (:lines w) (str "published " m))
+         root (root-of-value w :p 7007)]
+        (testing (str
+                   "the round is indexed, HEAD moves, and the res"
+                   "ult is partial naming the row")
           (is (= :partial (:result report)))
           (is (= [row] (mapv :address (:failed report))))
           (is (true? (:repairing? report)))
           (is (= m (head-manifest dir))))
-        (testing "the first line names the result, the failed count and the retry"
+        (testing (str
+                   "the first line names the result, the failed c"
+                   "ount and the retry")
           (is (str/includes? first-line "PARTIAL") first-line)
-          (is (str/includes? first-line (str "1 of " (:blobs report) " blobs not sent")))
+          (is (str/includes? first-line (str "1 of " (:blobs report)
+                                             " blobs not sent")))
           (is (str/includes? first-line "retrying while the node is open")))
-        (let [w (-> w
-                    (assoc-in [:nodes :far] (-> (plain-node (blocking-bind net 11 #{10}) [2 3])
-                                                (space.dht/load-index m)))
-                    (assoc-in [:nodes :near] (plain-node (mesh/seam net 12) [2 3 10])))
-              w (run-world w 10 60000
-                           #(= :loaded (:status (space.dht/load-status
-                                                  (get-in % [:nodes :far]) m))))
-              _ (is (= :loaded (:status (space.dht/load-status (get-in w [:nodes :far]) m)))
-                    "a reader loads the index from the peers")
-              settled? (fn [w k]
-                         (#{:loaded :failed}
-                          (:status (space.dht/load-status (get-in w [:nodes k]) root))))
-              w (run-world (update-in w [:nodes :far] load-tree root) 10 120000
-                           #(settled? % :far))
-              far (space.dht/load-status (get-in w [:nodes :far]) root)
-              w (run-world (update-in w [:nodes :near] load-tree root) 10 (+ (:now w) 120000)
-                           #(settled? % :near))]
-          (testing "a lookup that does not reach the publisher misses exactly that row"
+        (let
+          [w (->
+               w
+               (assoc-in
+                 [:nodes :far] (->
+                                 (plain-node
+                                   (blocking-bind
+                                     net
+                                     11 #{10}) [2 3])
+                                 (space.dht/load-index m)))
+               (assoc-in
+                 [:nodes :near] (plain-node
+                                  (mesh/seam net 12) [2
+                                                      3 10])))
+           w (run-world w 10 60000
+                        #(= :loaded (:status (space.dht/load-status
+                                               (get-in % [:nodes :far]) m))))
+           _ (is
+               (=
+                 :loaded (:status
+                           (space.dht/load-status
+                             (get-in
+                               w
+                               [:nodes :far]) m)))
+               "a reader loads the index from the peers")
+           settled? (fn [w k]
+                      (#{:loaded :failed}
+                       (:status (space.dht/load-status (get-in w [:nodes k])
+                                                       root))))
+           w (run-world (update-in w [:nodes :far] load-tree root) 10 120000
+                        #(settled? % :far))
+           far (space.dht/load-status (get-in w [:nodes :far]) root)
+           w (run-world
+               (update-in w [:nodes :near] load-tree root) 10 (+
+                                                                (:now w) 120000)
+               #(settled? % :near))]
+          (testing (str
+                     "a lookup that does not reach the publisher mi"
+                     "sses exactly that row")
             (is (= :failed (:status far)) (pr-str far))
             (is (= :miss (get-in far [:reason ::space.dht/failure])))
             (is (= row (get-in far [:reason :address])))
             (is (keyword? (get-in far [:reason :cause]))))
-          (testing "a lookup that reaches the publisher loads it"
-            (is (= :loaded (:status (space.dht/load-status (get-in w [:nodes :near]) root)))))
+          (testing
+            "a lookup that reaches the publisher loads it"
+            (is
+              (=
+                :loaded (:status
+                          (space.dht/load-status
+                            (get-in
+                              w [:nodes
+                                 :near]) root)))))
           (reset! refuse #{})
-          (let [first-at (:at report)
-                w (run-world w 100 (+ first-at 200000) #(event-of % :p :republished m))
-                again (event-of w :p :republished m)]
+          (let
+            [first-at (:at report)
+             w (run-world
+                 w 100 (+ first-at 200000) #(event-of
+                                              % :p
+                                              :republished m))
+             again (event-of w :p :republished m)]
             (testing "the node repairs on its own, after :repair-ticks"
               (is (= :acknowledged (:result again)) (pr-str again))
               (is (<= 30000 (- (:at again) first-at)))
-              (is (str/includes? (str (line-with (:lines w) (str "republished " m)))
+              (is (str/includes? (str (line-with (:lines w) (str "republished "
+                                                                 m)))
                                  "acknowledged: sent to 2 peers")))
-            (testing "and a new load succeeds"
-              (let [w (update-in w [:nodes :far] #(load-tree (space.dht/forget % root) root))
-                    w (run-world w 10 (+ (:now w) 60000) #(settled? % :far))]
-                (is (= :loaded (:status (space.dht/load-status (get-in w [:nodes :far]) root))))
+            (testing
+              "and a new load succeeds"
+              (let
+                [w (update-in w [:nodes :far] #(load-tree (space.dht/forget
+                                                            % root) root))
+                 w (run-world w 10 (+ (:now w) 60000) #(settled? % :far))]
+                (is
+                  (=
+                    :loaded (:status
+                              (space.dht/load-status
+                                (get-in
+                                  w
+                                  [:nodes :far]) root))))
                 (close-all! w))))))
       (finally
         (cleanup-dir! dir)))))
@@ -1782,7 +1971,8 @@
             _ (reset! refuse #{})
             [w _] (eval-at w :p "(require (quote dao.space.dht))")
             [w retried] (eval-at w :p (str "(dao.space.dht/retry " m ")"))
-            w (run-world w 10 (+ first-at 20000) #(event-of % :p :republished m))
+            w (run-world w 10 (+ first-at 20000) #(event-of % :p :republished
+                                                            m))
             again (event-of w :p :republished m)]
         (is (= ":retrying" retried))
         (is (= :acknowledged (:result again)) (pr-str again))
@@ -1792,21 +1982,28 @@
         (cleanup-dir! dir)))))
 
 
-(deftest a-refused-manifest-is-unacknowledged-and-repaired-the-same-way
-  (let [dir (temp-dir)
-        net (mesh/mesh)
-        refuse (atom (constantly false))]
+(deftest
+  a-refused-manifest-is-unacknowledged-and-repaired-the-same-way
+  (let
+    [dir (temp-dir)
+     net (mesh/mesh)
+     refuse (atom (constantly false))]
     (try
-      (let [w (assoc-in (world net [2 3]) [:shells :p]
-                        (shell-at dir (refusing-bind net 10 refuse) [2 3] nil []))
-            [w _] (eval-at w :p "(def unsent 8)")
-            m (head-of w :p)
-            _ (reset! refuse #{m})
-            w (run-world w 10 20000 #(event-of % :p :published m))
-            report (event-of w :p :published m)
-            _ (reset! refuse #{})
-            w (run-world w 100 (+ (:at report) 200000) #(event-of % :p :republished m))
-            again (event-of w :p :republished m)]
+      (let
+        [w (assoc-in (world net [2 3]) [:shells :p]
+                     (shell-at dir (refusing-bind net 10 refuse) [2 3] nil
+                               []))
+         [w _] (eval-at w :p "(def unsent 8)")
+         m (head-of w :p)
+         _ (reset! refuse #{m})
+         w (run-world w 10 20000 #(event-of % :p :published m))
+         report (event-of w :p :published m)
+         _ (reset! refuse #{})
+         w (run-world
+             w 100 (+ (:at report) 200000) #(event-of
+                                              % :p
+                                              :republished m))
+         again (event-of w :p :republished m)]
         (is (= :unacknowledged (:result report)))
         (is (= [m] (mapv :address (:failed report))))
         (is (= m (head-manifest dir)) "HEAD moved")
@@ -1821,32 +2018,41 @@
 ;; Peers that never accept: twenty rounds, the prompt and the ticker
 ;; -----------------------------------------------------------------------------
 
-(deftest with-peers-that-never-accept-twenty-rounds-report-and-the-ticker-idles
-  (let [dir (temp-dir)
-        net (mesh/mesh)
-        peers {2 (peer-node net 2) 3 (peer-node net 3)}]
+(deftest
+  with-peers-that-never-accept-twenty-rounds-report-and-the-ticker-idles
+  (let
+    [dir (temp-dir)
+     net (mesh/mesh)
+     peers {2 (peer-node net 2) 3 (peer-node net 3)}]
     (try
-      (let [state (keyed-state net dir 10 [2 3] nil [] (refusing-bind net 10 (atom (constantly true))))
-            step (fn [{:keys [state peers now] :as w}]
-                   (let [[state _ lines] (main/step-all state nil now)]
-                     (-> w
-                         (assoc :state state :peers (step-peers peers now) :now (+ now 250)
-                                :moved? (main/moved? state nil lines))
-                         (update :lines into lines)
-                         (update :moved into [(main/moved? state nil lines)]))))
-            w (reduce (fn [w i]
-                        (let [[state text] (type! (:state w) (str "(def v" i " " i ")"))
-                              m (get-in state [:repl :indexer :manifest-address])]
-                          (is (= (str i) text) "the prompt answers at once")
-                          (loop [w (assoc w :state state)]
-                            (if (or (line-with (:lines w) (str "published " m))
-                                    (> (:now w) 2000000))
-                              w
-                              (recur (step w))))))
-                      {:state state :peers peers :now 0 :lines [] :moved []}
-                      (range 20))
-            firsts (filter #(re-find #"dht: published " %) (:lines w))
-            idle (reduce (fn [w _] (step w)) (assoc w :moved []) (range 400))]
+      (let
+        [state (keyed-state
+                 net dir 10 [2 3] nil [] (refusing-bind
+                                           net 10
+                                           (atom (constantly true))))
+         step (fn [{:keys [state peers now] :as w}]
+                (let [[state _ lines] (main/step-all state nil now)]
+                  (-> w
+                      (assoc :state state :peers (step-peers peers now) :now
+                             (+ now 250)
+                             :moved? (main/moved? state nil lines))
+                      (update :lines into lines)
+                      (update :moved into [(main/moved? state nil lines)]))))
+         w (reduce (fn [w i]
+                     (let [[state text] (type! (:state w) (str "(def v" i
+                                                               " " i ")"))
+                           m (get-in state [:repl :indexer
+                                            :manifest-address])]
+                       (is (= (str i) text) "the prompt answers at once")
+                       (loop [w (assoc w :state state)]
+                         (if (or (line-with (:lines w) (str "published " m))
+                                 (> (:now w) 2000000))
+                           w
+                           (recur (step w))))))
+                   {:state state :peers peers :now 0 :lines [] :moved []}
+                   (range 20))
+         firsts (filter #(re-find #"dht: published " %) (:lines w))
+         idle (reduce (fn [w _] (step w)) (assoc w :moved []) (range 400))]
         (is (= 20 (count firsts)) (pr-str (count firsts)))
         (is (every? #(str/includes? % "NOT acknowledged") firsts))
         (is (not-any? #(str/includes? % "acknowledged: sent") (:lines idle))
@@ -1864,53 +2070,73 @@
 ;; A module published at the prompt in a partial round
 ;; -----------------------------------------------------------------------------
 
-(deftest a-module-published-in-a-partial-round-is-absent-until-repaired
-  (let [[pdir rdir] [(temp-dir) (temp-dir)]
-        net (mesh/mesh)
-        refuse (atom #{})
-        kp (sign/generate)]
+(deftest
+  a-module-published-in-a-partial-round-is-absent-until-repaired
+  (let
+    [[pdir rdir] [(temp-dir) (temp-dir)]
+     net (mesh/mesh)
+     refuse (atom #{})
+     kp (sign/generate)]
     (try
-      (let [w (-> (world net [2 3])
-                  (assoc-in [:shells :p] (shell-at pdir (refusing-bind net 10 refuse)
-                                                   [2 3] kp []))
-                  (assoc-in [:shells :r] (shell-at rdir (blocking-bind net 12 #{10})
-                                                   [2 3] nil [(:public kp)])))
-            [w _] (eval-at w :p "(def f (fn [] 4242))")
-            [w _] (eval-at w :p "(require (quote yin.link))")
-            [w _ res] (eval-at w :p "(yin.link/publish (quote my.lib) (quote [f]))")
-            a (:address res)
-            m (head-of w :p)
-            store (space.dht/local (get-in w [:shells :p :dht]))
-            image (get-in (jing/get store a nil) [:yin.module/derivations :yin.semantic/code])
-            _ (reset! refuse #{image})
-            w (run-world w 10 20000 #(event-of % :p :published m))
-            report (event-of w :p :published m)]
+      (let
+        [w (-> (world net [2 3])
+               (assoc-in [:shells :p] (shell-at pdir (refusing-bind net 10
+                                                                    refuse)
+                                                [2 3] kp []))
+               (assoc-in [:shells :r] (shell-at rdir (blocking-bind net 12
+                                                                    #{10})
+                                                [2 3] nil [(:public kp)])))
+         [w _] (eval-at w :p "(def f (fn [] 4242))")
+         [w _] (eval-at w :p "(require (quote yin.link))")
+         [w _ res] (eval-at w :p
+                            "(yin.link/publish (quote my.lib) (quote [f]))")
+         a (:address res)
+         m (head-of w :p)
+         store (space.dht/local (get-in w [:shells :p :dht]))
+         image (get-in (jing/get store a nil) [:yin.module/derivations
+                                               :yin.semantic/code])
+         _ (reset! refuse #{image})
+         w (run-world w 10 20000 #(event-of % :p :published m))
+         report (event-of w :p :published m)]
         (is (= :partial (:result report)) (pr-str (dissoc report :failed)))
         (is (= [image] (mapv :address (:failed report))))
-        (let [[w _] (eval-at w :r "(require (quote dao.space.dht))")
-              [w _] (eval-at w :r (str "(dao.space.dht/load-index " m ")"))
-              w (run-world w 10 (+ (:now w) 60000) #(event-of % :r :loaded m))
-              [w _] (eval-at w :r "(require (quote yin.link))")
-              [w _ names] (eval-at w :r "(yin.link/names)")
-              _ (is (= a (get-in names [:names 'my.lib :address])) "the reader resolves the name")
-              [w text] (eval-at w :r "(require (quote my.lib))")
-              _ (is (str/includes? text "pending"))
-              w (run-world w 10 (+ (:now w) 120000)
-                           #(nil? (get-in % [:shells :r :pending-run])))
-              refusal (peek (mesh/values (get-in w [:shells :r :link-pair :responses])))]
-          (testing "until repair completes the require is refused :absent with the miss cause"
+        (let
+          [[w _] (eval-at w :r "(require (quote dao.space.dht))")
+           [w _] (eval-at w :r (str "(dao.space.dht/load-index " m ")"))
+           w (run-world w 10 (+ (:now w) 60000) #(event-of % :r :loaded m))
+           [w _] (eval-at w :r "(require (quote yin.link))")
+           [w _ names] (eval-at w :r "(yin.link/names)")
+           _ (is (= a (get-in names [:names 'my.lib :address]))
+                 "the reader resolves the name")
+           [w text] (eval-at w :r "(require (quote my.lib))")
+           _ (is (str/includes? text "pending"))
+           w (run-world w 10 (+ (:now w) 120000)
+                        #(nil? (get-in % [:shells :r :pending-run])))
+           refusal (peek (mesh/values (get-in w [:shells :r :link-pair
+                                                 :responses])))]
+          (testing (str
+                     "until repair completes the require is refused"
+                     " :absent with the miss cause")
             (is (= {:status :refused :reason :absent :address image}
                    (select-keys refusal [:status :reason :address])))
             (is (keyword? (:cause refusal)) (pr-str refusal)))
           (reset! refuse #{})
-          (let [w (run-world w 100 (+ (:at report) 200000) #(event-of % :p :republished m))
-                _ (is (= :acknowledged (:result (event-of w :p :republished m))))
-                [w text] (eval-at w :r "(require (quote my.lib))")
-                _ (is (str/includes? text "pending"))
-                w (run-world w 10 (+ (:now w) 120000)
-                             #(nil? (get-in % [:shells :r :pending-run])))
-                _ (is (= 'my.lib (get-in w [:shells :r :last-value])) (pr-str (:lines w)))
-                [w answer] (eval-at w :r "(my.lib/f)")]
+          (let
+            [w (run-world
+                 w 100 (+ (:at report) 200000) #(event-of
+                                                  % :p
+                                                  :republished m))
+             _ (is (= :acknowledged (:result (event-of w :p :republished
+                                                       m))))
+             [w text] (eval-at w :r "(require (quote my.lib))")
+             _ (is (str/includes? text "pending"))
+             w (run-world w 10 (+ (:now w) 120000)
+                          #(nil? (get-in % [:shells :r :pending-run])))
+             _ (is
+                 (= 'my.lib (get-in w [:shells :r :last-value]))
+                 (pr-str
+                   (:lines w)))
+             [w answer] (eval-at w :r "(my.lib/f)")]
             (testing "a require after it evaluates"
               (is (= "4242" answer)))
             (close-all! w))))
@@ -1948,84 +2174,141 @@
           :yin.link/id))
 
 
-(deftest a-two-principal-dependency-evaluates-or-raises-dependency-binding
-  (let [dirs (vec (repeatedly 3 temp-dir))
-        net (mesh/mesh)
-        k1 (sign/generate)
-        k2 (sign/generate)]
+(deftest
+  a-two-principal-dependency-evaluates-or-raises-dependency-binding
+  (let
+    [dirs (vec (repeatedly 3 temp-dir))
+     net (mesh/mesh)
+     k1 (sign/generate)
+     k2 (sign/generate)]
     (try
-      (let [w (-> (world net [2 3])
-                  (assoc-in [:shells :p1] (shell-at (dirs 0) (mesh-bind net 10 (atom 0))
-                                                    [2 3 11 12] k1 []))
-                  (assoc-in [:shells :p2] (shell-at (dirs 1) (mesh-bind net 11 (atom 0))
-                                                    [2 3 10 12] k2 [(:public k1)]))
-                  (assoc-in [:shells :r] (shell-at (dirs 2) (mesh-bind net 12 (atom 0))
-                                                   [2 3 10 11] nil
-                                                   [(:public k1) (:public k2)])))
-            ;; P1 publishes base
-            [w _] (eval-at w :p1 "(def f (fn [] 42))")
-            [w _] (eval-at w :p1 "(require (quote yin.link))")
-            [w _ base] (eval-at w :p1 "(yin.link/publish (quote base) (quote [f]))")
-            m1 (head-of w :p1)
-            w (until-settled w)
-            ;; P2 loads P1's index, links base, and publishes app against it
-            [w _] (eval-at w :p2 "(require (quote dao.space.dht))")
-            [w _] (eval-at w :p2 (str "(dao.space.dht/load-index " m1 ")"))
-            w (run-world w 10 (+ (:now w) 60000) #(event-of % :p2 :loaded m1))
-            [w _] (require-at w :p2 'base)
-            ;; the require above is its own program: 5.3's closure by
-            ;; linked requirements collects it into app's tree
-            [w _] (eval-at w :p2 "(def g (fn [] (+ (base/f) 1)))")
-            [w _] (eval-at w :p2 "(require (quote yin.link))")
-            [w _ app] (eval-at w :p2 "(yin.link/publish (quote app) (quote [g]))")
-            m2 (head-of w :p2)
-            w (until-settled w)
-            ;; a (reset) drops host modules: require the DHT one each time
-            load-at (fn [w m]
-                      (let [[w _] (eval-at w :r "(require (quote dao.space.dht))")
-                            [w _] (eval-at w :r (str "(dao.space.dht/load-index " m ")"))]
-                        (run-world w 10 (+ (:now w) 60000) #(event-of % :r :loaded m))))]
-        (is (= {'base (:address base)}
-               (:yin.module/requires (jing/get (space.dht/local (get-in w [:shells :p2 :dht]))
-                                               (:address app) nil)))
-            "app pins the base P2 linked")
-        (testing "absent: the reader has not loaded P1's index"
-          (let [w (load-at w m2)
-                [w _] (require-at w :r 'app)]
+      (let
+        [w (->
+             (world net [2 3])
+             (assoc-in
+               [:shells :p1] (shell-at
+                               (dirs 0) (mesh-bind
+                                          net 10
+                                          (atom 0))
+                               [2 3 11 12] k1 []))
+             (assoc-in
+               [:shells :p2] (shell-at
+                               (dirs 1) (mesh-bind
+                                          net 11
+                                          (atom 0))
+                               [2 3 10 12] k2 [(:public
+                                                 k1)]))
+             (assoc-in [:shells :r] (shell-at (dirs 2) (mesh-bind net 12
+                                                                  (atom 0))
+                                              [2 3 10 11] nil
+                                              [(:public k1) (:public
+                                                              k2)])))
+         ;; P1 publishes base
+         [w _] (eval-at w :p1 "(def f (fn [] 42))")
+         [w _] (eval-at w :p1 "(require (quote yin.link))")
+         [w _ base] (eval-at w :p1
+                             "(yin.link/publish (quote base) (quote [f]))")
+         m1 (head-of w :p1)
+         w (until-settled w)
+         ;; P2 loads P1's index, links base, and publishes app against it
+         [w _] (eval-at w :p2 "(require (quote dao.space.dht))")
+         [w _] (eval-at w :p2 (str "(dao.space.dht/load-index " m1 ")"))
+         w (run-world w 10 (+ (:now w) 60000) #(event-of % :p2 :loaded m1))
+         [w _] (require-at w :p2 'base)
+         ;; the require above is its own program: 5.3's closure by
+         ;; linked requirements collects it into app's tree
+         [w _] (eval-at w :p2 "(def g (fn [] (+ (base/f) 1)))")
+         [w _] (eval-at w :p2 "(require (quote yin.link))")
+         [w _ app] (eval-at w :p2
+                            "(yin.link/publish (quote app) (quote [g]))")
+         m2 (head-of w :p2)
+         w (until-settled w)
+         ;; a (reset) drops host modules: require the DHT one each time
+         load-at (fn [w m]
+                   (let
+                     [[w _] (eval-at w :r
+                                     "(require (quote dao.space.dht))")
+                      [w _] (eval-at
+                              w :r (str
+                                     "(dao.space.dht/load-index " m ")"))]
+                     (run-world
+                       w 10 (+ (:now w) 60000) #(event-of
+                                                  % :r
+                                                  :loaded m))))]
+        (is
+          (=
+            {'base (:address base)}
+            (:yin.module/requires
+              (jing/get
+                (space.dht/local
+                  (get-in
+                    w
+                    [:shells :p2 :dht]))
+                (:address app) nil)))
+          "app pins the base P2 linked")
+        (testing
+          "absent: the reader has not loaded P1's index"
+          (let
+            [w (load-at w m2)
+             [w _] (require-at w :r 'app)]
             (is (= {:status :refused :reason :yin.link.dht/dependency-binding
                     :module (:address app) :name 'base :pinned (:address base)
                     :binding :absent :diagnostics []}
                    (last-response w :r)))
-            (testing "matching: both indexes loaded, both principals declared"
-              (let [w (load-at w m1)
-                    [w _] (require-at w :r 'app)
-                    _ (is (= 'app (get-in w [:shells :r :last-value])) (pr-str (last-response w :r)))
-                    [w answer] (eval-at w :r "(app/g)")]
+            (testing
+              "matching: both indexes loaded, both principals declared"
+              (let
+                [w (load-at w m1)
+                 [w _] (require-at w :r 'app)
+                 _ (is
+                     (= 'app (get-in w [:shells :r :last-value]))
+                     (pr-str
+                       (last-response w :r)))
+                 [w answer] (eval-at w :r "(app/g)")]
                 (is (= "43" answer))
-                (testing "mismatch: P1 republished base at another address"
-                  (let [[w _] (eval-at w :p1 "(def f (fn [] 7))")
-                        [w _ base2] (eval-at w :p1 "(yin.link/publish (quote base) (quote [f]))")
-                        w (until-settled w)
-                        w (load-at w (head-of w :p1))
-                        [w _] (eval-at w :r "(reset)")
-                        [w _] (require-at w :r 'app)]
-                    (is (= {:status :refused :reason :yin.link.dht/dependency-binding
-                            :module (:address app) :name 'base :pinned (:address base)
+                (testing
+                  "mismatch: P1 republished base at another address"
+                  (let
+                    [[w _] (eval-at w :p1 "(def f (fn [] 7))")
+                     [w _ base2] (eval-at
+                                   w :p1
+                                   (str
+                                     "(yin.link/publish (quote "
+                                     "base) (quote [f]))"))
+                     w (until-settled w)
+                     w (load-at w (head-of w :p1))
+                     [w _] (eval-at w :r "(reset)")
+                     [w _] (require-at w :r 'app)]
+                    (is (= {:status :refused :reason
+                            :yin.link.dht/dependency-binding
+                            :module (:address app) :name 'base :pinned
+                            (:address base)
                             :binding :mismatch :resolved (:address base2)
                             :asserters [(sign/principal (:public k1))]}
                            (last-response w :r)))
-                    (testing "ambiguous: P2 also asserts base at another address"
-                      (let [[w _] (eval-at w :p2 "(def f (fn [] 9))")
-                            [w _ own] (eval-at w :p2 "(yin.link/publish (quote base) (quote [f]))")
-                            w (until-settled w)
-                            w (load-at w (head-of w :p2))
-                            [w _] (eval-at w :r "(reset)")
-                            [w _] (require-at w :r 'app)
-                            body (last-response w :r)]
+                    (testing
+                      "ambiguous: P2 also asserts base at another address"
+                      (let
+                        [[w _] (eval-at w :p2 "(def f (fn [] 9))")
+                         [w _ own] (eval-at
+                                     w :p2
+                                     (str
+                                       "(yin.link/publish (quote "
+                                       "base) (quote [f]))"))
+                         w (until-settled w)
+                         w (load-at w (head-of w :p2))
+                         [w _] (eval-at w :r "(reset)")
+                         [w _] (require-at w :r 'app)
+                         body (last-response w :r)]
                         (is (= [:yin.link.dht/dependency-binding :ambiguous]
                                [(:reason body) (:binding body)]))
-                        (is (= (set [(:address base2) (:address own)]) (set (:addresses body))))
-                        (is (= #{(sign/principal (:public k1)) (sign/principal (:public k2))}
+                        (is
+                          (=
+                            (set [(:address base2) (:address own)])
+                            (set
+                              (:addresses body))))
+                        (is (= #{(sign/principal (:public k1)) (sign/principal
+                                                                 (:public k2))}
                                (set (:asserters body))))
                         (close-all! w))))))))))
       (finally

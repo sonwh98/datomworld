@@ -62,7 +62,8 @@
                [p (mesh/join! net p
                               (merge {::dht/publish? true
                                       ::dht/bootstrap (mapv mesh/contact
-                                                            (remove #{p} ports))}
+                                                            (remove #{p}
+                                                                    ports))}
                                      opts))]))
         ports))
 
@@ -97,22 +98,31 @@
 ;; Composition
 ;; ---------------------------------------------------------------------------
 
-(deftest composition-defects-throw-and-perform-no-stream-operation
-  (let [net (mesh/mesh)
-        c (mesh/join! net 1)]
+(deftest
+  composition-defects-throw-and-perform-no-stream-operation
+  (let
+    [net (mesh/mesh)
+     c (mesh/join! net 1)]
     (testing "ack-peers floor 2 and ceiling k"
       (is (map? (throws-data #(dht/state (assoc c ::dht/ack-peers 1)))))
       (is (map? (throws-data #(dht/state (assoc c ::dht/ack-peers 21)))))
       (is (= 2 (::dht/ack-peers (dht/state (assoc c ::dht/ack-peers 2)))))
       (is (= 20 (::dht/ack-peers (dht/state (assoc c ::dht/ack-peers 20)))))
       (is (= 2 (::dht/ack-peers (dht/state c))) "default 2"))
-    (testing "missing handles and a half-composed socket"
+    (testing
+      "missing handles and a half-composed socket"
       (is (map? (throws-data #(dht/state (dissoc c :local)))))
       (is (map? (throws-data #(dht/state (dissoc c :answers)))))
       (is (map? (throws-data #(dht/state (dissoc c :datagrams)))))
       (is (map? (throws-data #(dht/state (dissoc c :traffic)))))
       (is (map? (throws-data #(dht/state (assoc c ::dht/id "not-hex")))))
-      (is (map? (throws-data #(dht/state (assoc c ::dht/secret (dht/hex->bytes (apply str (repeat 62 "0"))))))))
+      (is
+        (map?
+          (throws-data
+            #(dht/state
+               (assoc
+                 c ::dht/secret (dht/hex->bytes
+                                  (apply str (repeat 62 "0"))))))))
       (is (map? (throws-data #(dht/state (dissoc c ::dht/max-inbound-bytes))))))
     (testing "publish? defaults to false"
       (is (false? (::dht/publish? (dht/state c)))))
@@ -143,12 +153,16 @@
     (is (not= (hex c) (hex (dht/cookie-for mesh/secret 3 "127.0.0.1" 4101))))))
 
 
-(deftest need-cookie-reply-never-exceeds-first-contact-bytes
+(deftest
+  need-cookie-reply-never-exceeds-first-contact-bytes
   (is (= 256 dht/first-contact-bytes))
-  (let [largest {::dht/v 1, :op :reply, :q 9007199254740991,
-                 :id (dht/hex->bytes (mesh/node-id 1)),
-                 :cookie (dht/cookie-for mesh/secret 999999999999 "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" 65535),
-                 :need-cookie true}]
+  (let
+    [largest {::dht/v 1, :op :reply, :q 9007199254740991,
+              :id (dht/hex->bytes (mesh/node-id 1)),
+              :cookie (dht/cookie-for
+                        mesh/secret 999999999999
+                        "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" 65535),
+              :need-cookie true}]
     (is (<= (mesh/byte-count (wire/encode largest)) dht/first-contact-bytes))))
 
 
@@ -158,7 +172,8 @@
   [c from m]
   (stream/append! (:traffic c)
                   {:dao.stream.datagram/socket "test"
-                   :dao.stream.datagram/source {:dao.stream.datagram/host mesh/host
+                   :dao.stream.datagram/source {:dao.stream.datagram/host
+                                                mesh/host
                                                 :dao.stream.datagram/port from}
                    :dao.stream.datagram/bytes (jing/bytes->base64
                                                 (wire/encode m))}))
@@ -169,32 +184,43 @@
   (dht/hex->bytes (apply str (repeat (* 2 n) "0"))))
 
 
-(deftest the-gate-answers-need-cookie-or-silence
-  (let [net (mesh/mesh)
-        b (mesh/join! net 2 {::dht/publish? true})
-        _ (mesh/join! net 9)
-        s (dht/state b)
-        v [:gate 1]
-        address (jing/segment-key v)
-        base {::dht/v 1, :q 7, :id (dht/hex->bytes (mesh/node-id 9))}]
+(deftest
+  the-gate-answers-need-cookie-or-silence
+  (let
+    [net (mesh/mesh)
+     b (mesh/join! net 2 {::dht/publish? true})
+     _ (mesh/join! net 9)
+     s (dht/state b)
+     v [:gate 1]
+     address (jing/segment-key v)
+     base {::dht/v 1, :q 7, :id (dht/hex->bytes (mesh/node-id 9))}]
     (mesh/tick! b 0)
-    (testing "a short cookie-less ping is answered with silence"
+    (testing
+      "a short cookie-less ping is answered with silence"
       (inject! b 9 (assoc base :op :ping))
-      (let [before (mesh/log-size net)
-            s (dht/step s 64)]
+      (let
+        [before (mesh/log-size net)
+         s (dht/step s 64)]
         (is (= before (mesh/log-size net)))
         (is (empty? (dht/routing-entries s)))
-        (testing "a padded ping gets exactly the need-cookie reply"
+        (testing
+          "a padded ping gets exactly the need-cookie reply"
           (inject! b 9 (assoc base :op :ping :pad (zeros 300)))
-          (let [s (dht/step s 64)
-                [reply & more] (drop before (mesh/sent net))
-                m (:message reply)]
+          (let
+            [s (dht/step s 64)
+             [reply & more] (drop before (mesh/sent net))
+             m (:message reply)]
             (is (nil? more))
             (is (= [mesh/host 9] (:to reply)))
             (is (= #{::dht/v :op :q :id :cookie :need-cookie} (set (keys m))))
-            (is (= [1 :reply 7 true] [(::dht/v m) (:op m) (:q m) (:need-cookie m)]))
+            (is (= [1 :reply 7 true] [(::dht/v m) (:op m) (:q m) (:need-cookie
+                                                                   m)]))
             (is (= (mesh/node-id 2) (hex (:id m))))
-            (is (= (hex (dht/cookie-for mesh/secret 0 mesh/host 9)) (hex (:cookie m))))
+            (is
+              (=
+                (hex (dht/cookie-for mesh/secret 0 mesh/host 9)) (hex
+                                                                   (:cookie
+                                                                     m))))
             (is (<= (:size reply) dht/first-contact-bytes))
             (is (empty? (dht/routing-entries s)) "no routing entry")
             (testing "a store with a missing or wrong cookie causes no work"
@@ -217,7 +243,8 @@
                         _ (inject! b 9 (-> store
                                            (dissoc :pad)
                                            (assoc :cookie (dht/cookie-for
-                                                            mesh/secret 0 mesh/host 9))))
+                                                            mesh/secret 0
+                                                            mesh/host 9))))
                         s (dht/step s 64)
                         [m] (map :message (drop before (mesh/sent net)))]
                     (is (= true (:ok m)))
@@ -304,7 +331,8 @@
                 reply (last (filter #(and (= peer (:from %))
                                           (= [mesh/host 1] (:to %))
                                           (= :reply (get-in % [:message :op]))
-                                          (not (get-in % [:message :need-cookie])))
+                                          (not (get-in % [:message
+                                                          :need-cookie])))
                                     earlier))]
             (is (some? reply))
             (is (= (hex (get-in reply [:message :cookie]))
@@ -348,7 +376,8 @@
         v [:cold 1]
         address (jing/segment-key v)
         bs (jing/canonical-bytes v)
-        c0 (client/client-state (:requests a) (:answers a) (oldest (:answers a)))
+        c0 (client/client-state (:requests a) (:answers a) (oldest (:answers
+                                                                     a)))
         {c :state, id :id} (client/request-put-bytes c0 address bs)]
     (mesh/tick! a 0)
     (let [s (dht/step (dht/state a) 64)
@@ -438,7 +467,8 @@
       (if (or (> tick 80) (seq (mesh/answers a)))
         (do
           (is (= 21 (count (kad/nearest table target 21))))
-          (is (= {:jing/request "next" :jing/found? true :jing/bytes (b64 value)}
+          (is (= {:jing/request "next" :jing/found? true :jing/bytes (b64
+                                                                       value)}
                  (last (mesh/answers a))))
           (is (some #(= [mesh/host (:port live)] (:to %)) (mesh/sent net)))
           (is (not-any? (at-port? (:port (first (kad/nearest table target 21))))
@@ -567,7 +597,8 @@
    client, drive every node, and return [completions states]."
   [net comps v]
   (let [a (comps 1)
-        c0 (client/client-state (:requests a) (:answers a) (oldest (:answers a)))
+        c0 (client/client-state (:requests a) (:answers a) (oldest (:answers
+                                                                     a)))
         {c :state} (client/request-get c0 (jing/segment-key v))
         states (drive (start comps) comps 0 10)]
     (is (some? net))
@@ -592,7 +623,8 @@
     (testing "only a forger: not found, exhausted"
       (let [net (mesh/mesh)
             comps (grid net [1 2] {})
-            comps (assoc comps 2 (assoc (comps 2) :local (mem/create-content-mem forged)))
+            comps (assoc comps 2 (assoc (comps 2) :local
+                                        (mem/create-content-mem forged)))
             [completions] (get-through-client net comps v)]
         (is (= [{:id (:id (first completions)), :found? false, :value nil}]
                completions))
@@ -603,7 +635,8 @@
     (testing "a forger and an honest peer: found"
       (let [net (mesh/mesh)
             comps (grid net [1 2 3] {})
-            comps (assoc comps 2 (assoc (comps 2) :local (mem/create-content-mem forged)))
+            comps (assoc comps 2 (assoc (comps 2) :local
+                                        (mem/create-content-mem forged)))
             _ (jing/materialize! (:local (comps 3)) v)
             [completions] (get-through-client net comps v)]
         (is (= [true v] ((juxt :found? :value) (first completions))))))))
@@ -616,7 +649,8 @@
     (jing/materialize! (:local (comps 2)) v)
     (let [[completions] (get-through-client net comps v)]
       (is (false? (:found? (first completions))))
-      (is (= ::dht/exhausted (::dht/reason (first (fact-of (comps 1) ::dht/miss))))))))
+      (is (= ::dht/exhausted (::dht/reason (first (fact-of (comps 1)
+                                                           ::dht/miss))))))))
 
 
 (deftest read-deadline-and-busy
@@ -657,7 +691,8 @@
         a (comps 1)
         v {:materialize [1 2 3]}
         address (jing/segment-key v)
-        c0 (client/client-state (:requests a) (:answers a) (oldest (:answers a)))
+        c0 (client/client-state (:requests a) (:answers a) (oldest (:answers
+                                                                     a)))
         {c :state, id :id} (client/request-materialize c0 v)
         states (mesh/step-all states 2)
         r0 (client/step c 64)]
@@ -672,7 +707,8 @@
             r2 (client/step (:state r1) 64)
             _ (mesh/step-all states 2)
             r3 (client/step (:state r2) 64)]
-        (is (= [{:id id, :materialized? true, :address address, :result :present}]
+        (is (= [{:id id, :materialized? true, :address address, :result
+                 :present}]
                (mapcat :completions [r1 r2 r3])))))))
 
 
@@ -681,7 +717,8 @@
         comps (grid net [1 2 3] {})
         v {:algo :sha256}
         address (jing/segment-key v {:algorithm :sha256})]
-    (mesh/request! (comps 1) {:jing/request "p", :jing/put address, :jing/bytes (b64 v)})
+    (mesh/request! (comps 1) {:jing/request "p", :jing/put address, :jing/bytes
+                              (b64 v)})
     (let [states (drive (start comps) comps 0 6)]
       (is (= address (::dht/address (first (fact-of (comps 1) ::dht/sent)))))
       (mesh/request! (comps 3) {:jing/request "g", :jing/get address})
@@ -736,10 +773,12 @@
         (is (= ::dht/oversize
                (:reason (throws-data
                           #((:put-bytes-fn small) big
-                                                  (jing/canonical-bytes big-value))))))
+                                                  (jing/canonical-bytes
+                                                    big-value))))))
         (is (nil? (jing/get small big nil)))
         (is (map? (throws-data #((:put-bytes-fn small) address
-                                                       (jing/canonical-bytes w-mismatch)))))))))
+                                                       (jing/canonical-bytes
+                                                         w-mismatch)))))))))
 
 
 (defn- temp-path
@@ -828,7 +867,9 @@
   ;; advances have their queries expired in that step
   (let [c (mesh/join! (mesh/mesh) 1 {::dht/publish? true
                                      ::dht/bootstrap [(mesh/contact 2)]})
-        expired (fn [s] (count (filter #(seq (:failures %)) (vals (:writes s)))))]
+        expired (fn [s]
+                  (count (filter #(seq (:failures %)) (vals (:writes
+                                                              s)))))]
     (doseq [i (range 5)]
       (mesh/request! c (put-request (str "e" i) [:expiry i])))
     (mesh/tick! c 0)
@@ -865,11 +906,14 @@
       ;; budget 2: both late replies are read, and the round robin advances
       ;; the skipped write first
       (let [s (dht/step s 2)]
-        (is (empty? (fact-of c ::dht/sent)) "no acknowledgement from a late reply")
+        (is (empty? (fact-of c ::dht/sent))
+            "no acknowledgement from a late reply")
         (is (empty? (dht/routing-entries s)) "the late reply proves no peer")
         (is (empty? (:seen s)) "and freshens none")
         (is (= 2 (count (filter #(seq (:failures %)) (vals (:writes s)))))
-            "the skipped write recorded its failed tries in its own advance")))))
+            (str
+              "the skipped write recorded its failed tries i"
+              "n its own advance"))))))
 
 
 (defn- queries-by-owner
@@ -892,7 +936,8 @@
                    (doseq [[p s] states]
                      (is (= (queries-by-owner s) (:query-index s))
                          (str "node " p ", round " n)))
-                   (if (< n 12) (recur (mesh/step-all states 1) (inc n)) states))]
+                   (if (< n 12) (recur (mesh/step-all states 1) (inc n))
+                       states))]
       (is (= [{} {}] [(:writes (states 1)) (:gets (states 2))]) "all finished")
       (is (every? #(= {} (:query-index %)) (vals states)))))
   (testing "an operation dropped with queries pending leaves no index entry"
@@ -1031,7 +1076,9 @@
 
 (deftest largest-find-reply-fits-one-datagram
   (let [id (dht/hex->bytes (apply str (repeat 64 "f")))
-        peers (mapv (fn [port] [id "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff" port])
+        peers (mapv (fn [port]
+                      [id "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
+                       port])
                     (range 65528 65536))
         reply {::dht/v 1 :op :reply :q 9007199254740991
                :id id :cookie (dht/cookie-for mesh/secret 0 "127.0.0.1" 65535)
@@ -1155,13 +1202,15 @@
                     (recur (inc n) next (inc checked)
                            (and safe?
                                 (<= (count replies) 1)
-                                (every? #(<= (:size %) (mesh/byte-count bs)) replies)
+                                (every? #(<= (:size %) (mesh/byte-count bs))
+                                        replies)
                                 (empty? (:partial next))
                                 (empty? (dht/routing-entries next)))
                            (+ replied (count replies)))))))))]
     (is (pos? (nth result 0)))
     (is (true? (nth result 1)))
-    (is (pos? (nth result 2)) "At least one iteration produced a reply when it fit")))
+    (is (pos? (nth result 2))
+        "At least one iteration produced a reply when it fit")))
 
 
 (deftest every-raw-datagram-size-through-the-budget-is-silent-when-unproven
@@ -1218,7 +1267,11 @@
                  :part 0 :parts 2
                  :cookie (dht/hex->bytes (apply str (repeat 32 "1")))
                  :bytes (wire/encode "payload")}
-        expected "qNgnYjpxEdgnYzpvcNgnZjpjaHVua9gnZDpkaXLYJ2g6cmVxdWVzdNgnZTpwYXJ0ANgnZjpieXRlc0hncGF5bG9hZNgnZjpwYXJ0cwLYJ2c6Y29va2llUBERERERERERERERERERERHYJ286ZGFvLmppbmcuZGh0L3YB"
+        expected (str
+                   "qNgnYjpxEdgnYzpvcNgnZjpjaHVua9gnZDpkaXLYJ2g6c"
+                   "mVxdWVzdNgnZTpwYXJ0ANgnZjpieXRlc0hncGF5bG9hZN"
+                   "gnZjpwYXJ0cwLYJ2c6Y29va2llUBERERERERERERERERE"
+                   "RERHYJ286ZGFvLmppbmcuZGh0L3YB")
         encoded (wire/encode message)
         decoded (wire/decode (jing/base64->bytes expected))]
     (is (= expected (jing/bytes->base64 encoded)))

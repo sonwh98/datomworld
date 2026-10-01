@@ -6,8 +6,8 @@
    the durable directory, the lines it prints, and when it admits
    evaluation.
 
-   `open` opens `<dir>` exactly as `file:<dir>` does — the exclusive lock,
-   the content log, HEAD, the validated snapshot (dao.space.store) — and
+   `open` opens `<dir>` exactly as `file:<dir>` does: the exclusive lock,
+   the content log, HEAD, the validated snapshot (dao.space.store), and
    joins a `dao.space.dht` node with that locked store as its `:local`.
    The indexer publishes through the node's store: each put inserts
    locally and appends one replicate request, and the manifest reads back
@@ -17,9 +17,9 @@
    `step` is the node's one step owner, called by the host's single
    ticker (yin.repl.main/step-all) with the host's clock reading; it
    renders the node's events as the lines the REPL prints: where the
-   socket bound, and for each publication its result — acknowledged,
+   socket bound, and for each publication its result (acknowledged,
    sent to N peers, or partial or not acknowledged with the count of
-   blobs not sent, the first reason, and whether the node is retrying —
+   blobs not sent, the first reason, and whether the node is retrying)
    and each later change of it (yin.vm.linker.dht.md 5.5.6).  A load's
    failure reason is data; it is rendered as text here.
 
@@ -56,9 +56,9 @@
 (defn open
   "Open a `dht:<dir>` store from its spec (yin.repl.store/checked-spec):
    the durable directory store, and the `dao.space.dht` node joined over
-   it.  Answers the store handle the shell keeps — the node's store, with
+   it.  Answers the store handle the shell keeps (the node's store, with
    the durable HEAD write announcing each publication, the recovery, and
-   the directory — carrying the node under `:dht`, which the shell moves
+   the directory), carrying the node under `:dht`, which the shell moves
    onto its own state (yin.repl/create-state)."
   [spec]
   (let [{:keys [dir peers publish? bind-host bind-port max-inbound-bytes
@@ -76,7 +76,8 @@
                             :max-inbound-bytes max-inbound-bytes
                             :bind! (or bind! (dht/default-bind))})
             node (cond-> (assoc node ::dir dir)
-                   (and manifest (not= manifest (get-in base [:recovery :manifest])))
+                   (and manifest (not= manifest (get-in base [:recovery
+                                                              :manifest])))
                    (-> (dht/load-index manifest)
                        (assoc ::hydrating manifest)))]
         (assoc (dht/store node)
@@ -112,11 +113,11 @@
   "One blob's failure reason as the REPL prints it."
   [node {:keys [reason peers]}]
   (case reason
-    :dao.jing.dht/solo (str "solo — no --dht-peer is configured, so nothing "
+    :dao.jing.dht/solo (str "solo: no --dht-peer is configured, so nothing "
                             "was sent; the index is in " (::dir node) " only")
-    :dao.jing.dht/unpublished (str "publication is off — this node fetches "
+    :dao.jing.dht/unpublished (str "publication is off: this node fetches "
                                    "only; start with --dht-publish to share")
-    :dao.jing.dht/too-few-peers (str "too few peers — sent to " peers " of "
+    :dao.jing.dht/too-few-peers (str "too few peers, sent to " peers " of "
                                      (dht/ack-peers node) " before the "
                                      "acknowledgement deadline")
     :dao.jing.dht/oversize "a blob exceeds the DHT message bound"
@@ -176,16 +177,18 @@
                 (if (:publish? node) "; publishing" "; fetch-only"))
     :bind-failed (str "dht: refused: the socket could not bind: " reason)
     (:published :republished)
-    (str "dht: " (name (::dht/event event)) " " manifest " (" blobs " blobs) — "
+    (str "dht: " (name (::dht/event event)) " " manifest " (" blobs " blobs), "
          (result-text node event))
     :publication-unknown (str "dht: published " manifest
-                              " — acknowledgement unknown: facts were lost")
-    :loaded (str (if (= manifest (::hydrating node)) "dht: hydrated " "dht: loaded ")
-                 manifest " — "
+                              ", acknowledgement unknown: facts were lost")
+    :loaded (str (if (= manifest (::hydrating node)) "dht: hydrated "
+                     "dht: loaded ")
+                 manifest ", "
                  (when datoms (str datoms " datoms, "))
                  fetched " blobs fetched"
                  (when (= manifest (::hydrating node)) "; evaluation admitted"))
-    :load-failed (str "dht: " (if (= manifest (::hydrating node)) "refused: " "")
+    :load-failed (str "dht: " (if (= manifest (::hydrating node)) "refused: "
+                                  "")
                       "loading " manifest " failed: " (failure-text reason)
                       (when (= manifest (::hydrating node))
                         "; the remote index was not hydrated"))
@@ -217,25 +220,33 @@
    failed one or a failed bind recorded as the shell's refusal.  A shell
    without a DHT store is answered unchanged."
   [shell now]
-  (if-let [node (:dht shell)]
-    (let [[node events] (dht/step node now)
-          lines (mapv #(event-line node %) events)
-          hydrating (::hydrating node)
-          status (when hydrating (:status (dht/load-status node hydrating)))
-          node (cond-> node
-                 (and hydrating (= :failed status))
-                 (assoc ::refusal (str/join "\n" (filter #(str/includes? % "refused")
-                                                         lines)))
-                 (dht/refusal node)
-                 (assoc ::refusal (dht/refusal node)))
-          shell (assoc shell :dht node)]
+  (if-let
+    [node (:dht shell)]
+    (let
+      [[node events] (dht/step node now)
+       lines (mapv #(event-line node %) events)
+       hydrating (::hydrating node)
+       status (when hydrating (:status (dht/load-status node hydrating)))
+       node (cond->
+              node
+              (and hydrating (= :failed status))
+              (assoc
+                ::refusal (str/join
+                            "\n" (filter
+                                   #(str/includes?
+                                      %
+                                      "refused")
+                                   lines)))
+              (dht/refusal node)
+              (assoc ::refusal (dht/refusal node)))
+       shell (assoc shell :dht node)]
       [(if (= :loaded status) (hydrated shell node) shell) lines events])
     [shell [] []]))
 
 
 (defn refusal
-  "The text that refused the shell's DHT store after startup — a failed
-   bind or a hydration that could not complete — or nil."
+  "The text that refused the shell's DHT store after startup (a failed
+   bind or a hydration that could not complete), or nil."
   [shell]
   (get-in shell [:dht ::refusal]))
 
@@ -258,14 +269,16 @@
 
 (defn banner
   "What the REPL states at startup about a DHT store spec, before the
-   node steps once — and so before anything is shared."
+   node steps once, and so before anything is shared."
   [{:keys [dir peers publish? bind-host bind-port]}]
   (let [content (durable/content-path dir)
-        peers-text (str/join ", " (map #(address-text (:host %) (:port %)) peers))]
+        peers-text (str/join ", " (map #(address-text (:host %) (:port %))
+                                       peers))]
     (cond-> []
       (empty? peers)
-      (conj (str "dht: solo — no --dht-peer, so no socket is opened; "
-                 "publications are durable in " dir " and acknowledged by no one"))
+      (conj (str "dht: solo, no --dht-peer, so no socket is opened; "
+                 "publications are durable in " dir
+                 " and acknowledged by no one"))
 
       (seq peers)
       (conj (str "dht: binding " (address-text bind-host bind-port)
@@ -275,8 +288,8 @@
       (and publish? (seq peers))
       (conj (str "dht: publishing is ON. Everything in " content
                  " will be shared: the whole code index this directory holds"
-                 " — every program recovered from HEAD and every program"
-                 " evaluated from now on — with any peer that asks for its"
+                 ", every program recovered from HEAD and every program"
+                 " evaluated from now on, with any peer that asks for its"
                  " address. Omit --dht-publish to fetch only."))
 
       (and publish? (empty? peers))
@@ -284,7 +297,9 @@
                  " leaves this process"))
 
       (and (not publish?) (seq peers))
-      (conj "dht: fetch-only — nothing this node holds is shared (--dht-publish shares it)")
+      (conj (str
+              "dht: fetch-only, nothing this node holds is "
+              "shared (--dht-publish shares it)"))
 
       true
       (conj (str "dht: a (require ...) of a module this node does not hold "

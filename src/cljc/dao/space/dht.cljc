@@ -10,11 +10,11 @@
    load's walk is an argument.
 
    A node is a value, advanced only by `step`, which its one owner calls
-   with a nondecreasing millisecond reading it owns — the node's only
+   with a nondecreasing millisecond reading it owns, the node's only
    time.  Nothing here waits:
 
    * `join` composes the node over a local `dao.jing` store.  With no
-     peers it is solo — no socket, no secret, nothing sent.  With peers
+     peers it is solo: no socket, no secret, nothing sent.  With peers
      it binds one datagram socket through a `dao.stream.datagram` host
      seam, on loopback unless `:bind-host` names another address, and
      mints the node's root secret (32 bytes of the host CSPRNG, per
@@ -190,15 +190,20 @@
     (not (and (integer? max-inbound-bytes) (<= 0 max-inbound-bytes)))
     ":max-inbound-bytes must be a nonnegative integer"
 
-    (not (every? count-option? [max-backlog repair-batch max-open max-repairing]))
-    ":max-backlog, :repair-batch, :max-open and :max-repairing must be positive integers"
+    (not (every? count-option? [max-backlog repair-batch max-open
+                                max-repairing]))
+    (str
+      ":max-backlog, :repair-batch, :max-open"
+      " and :max-repairing must be positive integers")
 
     (not (and (count-option? repair-slots) (< repair-slots max-pending-writes)))
     (str ":repair-slots must be a positive integer below " max-pending-writes)
 
     (not (and (integer? repair-ticks) (<= 0 repair-ticks)
               (integer? repair-max-ticks) (<= repair-ticks repair-max-ticks)))
-    ":repair-ticks must be a nonnegative integer no greater than :repair-max-ticks"
+    (str
+      ":repair-ticks must be a nonnegative integer"
+      " no greater than :repair-max-ticks")
 
     (and (seq peers) (not (fn? bind!)))
     "a node with peers needs a datagram host seam (:bind!)"))
@@ -243,7 +248,8 @@
 (defn- node-over
   "The node composed from checked `opts` over the opened `local` store."
   [opts local]
-  (let [{:keys [peers publish? bind-host bind-port max-inbound-bytes bind!]} opts
+  (let [{:keys [peers publish? bind-host bind-port max-inbound-bytes bind!]}
+        opts
         [requests answers facts ticks traffic ledger] (repeatedly 6 ring)
         socket? (boolean (seq peers))
         composition (cond-> {:local local
@@ -318,21 +324,21 @@
 (defn join
   "Join the DHT from `opts` and answer the node:
 
-   * `:local` — the node's own `dao.jing` store, already opened (and, if
-     it is a directory, already locked) by the caller, as `yin.repl` does
-     — or `:dir`, a directory `join` opens as the durable directory store
+   * `:local`: the node's own `dao.jing` store, already opened (and, if
+     it is a directory, already locked) by the caller, as `yin.repl` does;
+     or `:dir`, a directory `join` opens as the durable directory store
      (`dao.space.store/open`): exclusively, under the directory lock, so
      a second owner in this process or another is refused naming it, and
      the lock is held until `close!`;
-   * `:peers` — bootstrap contacts `[{:host ip :port p} ...]`, none for
+   * `:peers`: bootstrap contacts `[{:host ip :port p} ...]`, none for
      solo;
-   * `:publish?` — whether everything in the local store is public;
-   * `:bind-host`, `:bind-port` — the socket's address, loopback and
+   * `:publish?`: whether everything in the local store is public;
+   * `:bind-host`, `:bind-port`: the socket's address, loopback and
      ephemeral by default;
-   * `:max-inbound-bytes` — the inbound storage bound;
-   * `:bind!` — the datagram host seam, `default-bind` by default;
+   * `:max-inbound-bytes`: the inbound storage bound;
+   * `:bind!`: the datagram host seam, `default-bind` by default;
    * `:max-backlog`, `:repair-batch`, `:max-open`, `:repair-slots`,
-     `:repair-ticks`, `:repair-max-ticks`, `:max-repairing` — the
+     `:repair-ticks`, `:repair-max-ticks`, `:max-repairing`: the
      backlog and repair bounds (`defaults`).
 
    Refuses an invalid option with its reason.  The node owns `:local`
@@ -425,9 +431,11 @@
             (case (:dao.stream.datagram/event v)
               :dao.stream.datagram/bound
               (let [{host :dao.stream.datagram/host
-                     port :dao.stream.datagram/port} (:dao.stream.datagram/local v)
+                     port :dao.stream.datagram/port}
+                    (:dao.stream.datagram/local v)
                     descriptor {:dao.stream/type datagram/transport-type
-                                :dao.stream/identity (:dao.stream.datagram/socket v)
+                                :dao.stream/identity
+                                (:dao.stream.datagram/socket v)
                                 :dao.stream.datagram/bind-host host
                                 :dao.stream.datagram/bind-port port}
                     composition (assoc (:composition node)
@@ -575,7 +583,8 @@
       (update :pubs (fn [pubs]
                       (mapv (fn [p]
                               (if (and (not (:cancelled? p))
-                                       (open-entry? (get-in p [:entries address])))
+                                       (open-entry? (get-in p [:entries
+                                                               address])))
                                 (put-entry p address entry)
                                 p))
                             pubs)))))
@@ -683,7 +692,8 @@
                      (conj events {::event :publication-unknown
                                    :manifest (::manifest v)}))
 
-              (::manifest v) (recur (announce node (::manifest v)) cursor events)
+              (::manifest v) (recur (announce node (::manifest v)) cursor
+                                    events)
               (:window-lost? node) (recur node cursor events)
               :else (recur (admit node (::put v)) cursor events)))
 
@@ -715,14 +725,22 @@
 
 (defn- open-cycle
   [node pub]
-  (if (and (repairing? pub) (nil? (:cycle pub))
-           (>= (:reading node) (:due pub)))
-    (assoc pub
-           :cycle {:offered (vec (sort-by str (filter #(retryable? (get-in pub [:entries %]))
-                                                      (:order pub))))
-                   :next 0
-                   :sent? false}
-           :cycles (inc (:cycles pub)))
+  (if
+    (and (repairing? pub) (nil? (:cycle pub))
+         (>= (:reading node) (:due pub)))
+    (assoc
+      pub
+      :cycle {:offered (vec
+                         (sort-by
+                           str (filter
+                                 #(retryable?
+                                    (get-in
+                                      pub
+                                      [:entries %]))
+                                 (:order pub))))
+              :next 0
+              :sent? false}
+      :cycles (inc (:cycles pub)))
     pub))
 
 
@@ -862,7 +880,8 @@
   (let [[facts cursor gap?] (read-all (get-in node [:composition :facts])
                                       (:facts node))
         wanted (fetching node)
-        node (reduce #(apply-fact %1 %2 wanted) (assoc node :facts cursor) facts)]
+        node (reduce #(apply-fact %1 %2 wanted) (assoc node :facts cursor)
+                     facts)]
     (if gap?
       [(assoc node :pubs [] :fresh [] :repair [] :queued {} :repair-owner {}
               :inflight {})
@@ -978,7 +997,8 @@
   [node]
   (let [[node events retired]
         (reduce (fn [[node events retired] i]
-                  (let [[pub event retire?] (evaluate node (get-in node [:pubs i]))]
+                  (let [[pub event retire?] (evaluate node (get-in node [:pubs
+                                                                         i]))]
                     [(assoc-in node [:pubs i] pub)
                      (cond-> events event (conj event))
                      (cond-> retired retire? (conj pub))]))
@@ -995,7 +1015,9 @@
 
 (defn- update-pubs
   [node manifest f]
-  (update node :pubs (fn [pubs] (mapv #(if (= manifest (:manifest %)) (f %) %) pubs))))
+  (update node :pubs (fn [pubs]
+                       (mapv #(if (= manifest (:manifest %)) (f %) %)
+                             pubs))))
 
 
 (defn retry!
@@ -1033,22 +1055,34 @@
    `:ended :dao.space.dht/cancelled`.  Refused (`:dao.space.dht/not-live`)
    for a manifest with no live publication.  Answers the node."
   [node manifest-address]
-  (let [live (filterv #(and (= manifest-address (:manifest %)) (not (:cancelled? %)))
-                      (:pubs node))]
+  (let
+    [live (filterv
+            #(and
+               (= manifest-address (:manifest %)) (not
+                                                    (:cancelled? %)))
+            (:pubs node))]
     (when (empty? live)
       (throw (refused ::not-live
                       (str "no publication of " manifest-address " is live")
                       {:manifest manifest-address})))
-    (let [node (update-pubs node manifest-address
-                            (fn [pub]
-                              (if (:cancelled? pub)
-                                pub
-                                (-> (reduce (fn [p a]
-                                              (put-entry p a (cancel-entry
-                                                               (get-in p [:entries a]))))
-                                            pub
-                                            (:order pub))
-                                    (assoc :cancelled? true :cycle nil)))))]
+    (let
+      [node (update-pubs
+              node manifest-address
+              (fn [pub]
+                (if
+                  (:cancelled? pub)
+                  pub
+                  (->
+                    (reduce
+                      (fn [p a]
+                        (put-entry
+                          p a (cancel-entry
+                                (get-in
+                                  p
+                                  [:entries a]))))
+                      pub
+                      (:order pub))
+                    (assoc :cancelled? true :cycle nil)))))]
       (reduce (fn [node pub] (release-entries node (:order pub) (:id pub)))
               node
               live))))
@@ -1105,7 +1139,8 @@
    `:invalid` with the code `:index-invalid`."
   [manifest-address]
   (fn [handle]
-    (try {::walk :complete :value (index-datoms (probing handle) manifest-address)}
+    (try {::walk :complete :value (index-datoms (probing handle)
+                                                manifest-address)}
          (catch #?(:cljd Object :clj Throwable :cljs :default) e
            (if-some [address (missing-in e)]
              {::walk :missing :address address}
@@ -1131,7 +1166,8 @@
   (if (contains? (:loads node) address)
     node
     (assoc-in node [:loads address]
-              {:status :loading :kind kind :walk walk :fetching nil :fetched 0})))
+              {:status :loading :kind kind :walk walk :fetching nil :fetched
+               0})))
 
 
 (def index-kind
@@ -1198,14 +1234,16 @@
   (let [v (try (walk handle)
                (catch #?(:cljd Object :clj Throwable :cljs :default) e
                  {::walk :invalid :address nil
-                  :defect {:code ::walk-threw :text (or (ex-message e) (str e))}}))
+                  :defect {:code ::walk-threw :text (or (ex-message e) (str
+                                                                         e))}}))
         defect (when (map? v) (:defect v))]
     (if (and (map? v)
              (case (::walk v)
                :missing (jing/segment-address? (:address v))
                :complete (contains? v :value)
                :invalid (and (map? defect) (keyword? (:code defect))
-                             (or (nil? (:address v)) (jing/segment-address? (:address v))))
+                             (or (nil? (:address v)) (jing/segment-address?
+                                                       (:address v))))
                false))
       v
       {::walk :invalid :address nil :defect {:code ::walk-shape}})))
@@ -1236,11 +1274,13 @@
 
       :else
       (let [fetched (cond-> (:fetched record) done inc)
-            node (update-in node [:loads m] assoc :fetching nil :fetched fetched)
+            node (update-in node [:loads m] assoc :fetching nil :fetched
+                            fetched)
             walked (walk-outcome walk (local node))]
         (case (::walk walked)
           :complete
-          [(update-in node [:loads m] #(-> % (assoc :status :loaded :value (:value walked))
+          [(update-in node [:loads m] #(-> % (assoc :status :loaded :value
+                                                    (:value walked))
                                            (dissoc :walk)))
            [(cond-> {::event :loaded :manifest m :kind kind :fetched fetched}
               (= index-kind kind) (assoc :datoms (count (:value walked))))]]
@@ -1251,7 +1291,8 @@
 
           :missing
           (let [a (:address walked)
-                {:keys [outcome id], :as asked} (content.step/request-get (:client node) a)]
+                {:keys [outcome id], :as asked} (content.step/request-get
+                                                  (:client node) a)]
             (case outcome
               (:requested :pending-request)
               [(-> node
@@ -1263,12 +1304,15 @@
               :busy [(assoc node :client (:state asked)) []]
 
               (fail-load (assoc node :client (:state asked)) m
-                         {::failure :unaskable :address a :outcome outcome}))))))))
+                         {::failure :unaskable :address a :outcome
+                          outcome}))))))))
 
 
 (defn- advance-loads
   [node]
-  (let [loading (sort-by str (keep (fn [[m r]] (when (= :loading (:status r)) m))
+  (let [loading (sort-by str (keep (fn [[m r]]
+                                     (when (= :loading (:status r))
+                                       m))
                                    (:loads node)))]
     (if (or (empty? loading) (nil? (:dht node)))
       [node []]
@@ -1276,7 +1320,8 @@
                                                            fetch-budget)
             done-by-id (into {} (map (juxt :id identity)) completions)
             [node events] (reduce (fn [[node events] m]
-                                    (let [[node more] (advance-load node m done-by-id)]
+                                    (let [[node more] (advance-load node m
+                                                                    done-by-id)]
                                       [node (into events more)]))
                                   [(assoc node :client state) []]
                                   loading)]
@@ -1308,11 +1353,12 @@
           [node lost] (read-facts node)
           [node loaded] (advance-loads node)
           [node reported] (settle-publications node)]
-      [node (-> bound (into unknown) (into lost) (into loaded) (into reported))])))
+      [node (-> bound (into unknown) (into lost) (into loaded) (into
+                                                                 reported))])))
 
 
 (defn refusal
-  "Why the node stopped — its socket could not bind — or nil."
+  "Why the node stopped (its socket could not bind), or nil."
   [node]
   (:refusal node))
 
@@ -1362,7 +1408,8 @@
   "The oldest live publication of `manifest-address`, as `publications`
    answers it, or nil."
   [node manifest-address]
-  (some #(when (= manifest-address (:manifest %)) (summary node %)) (:pubs node)))
+  (some #(when (= manifest-address (:manifest %)) (summary node %)) (:pubs
+                                                                      node)))
 
 
 (defn busy?
@@ -1376,7 +1423,8 @@
          (or (nil? (:dht node))
              (some #(= :loading (:status %)) (vals (:loads node)))
              (= :dao.stream/ok (:dao.stream/outcome
-                                 (stream/next (:ledger node) (:ledger-cursor node))))
+                                 (stream/next (:ledger node) (:ledger-cursor
+                                                               node))))
              (seq (:order (:window node)))
              (some #(or (not (:reported? %)) (:cancelled? %)) (:pubs node))
              (seq (:fresh node))
@@ -1391,7 +1439,8 @@
   (when-not (loaded-datoms node manifest-address)
     (throw (ex-info (str "the index " manifest-address " is not loaded")
                     {:manifest manifest-address
-                     :status (dissoc (load-status node manifest-address) :value)})))
+                     :status (dissoc (load-status node manifest-address)
+                                     :value)})))
   (query/published-db (local node) manifest-address))
 
 

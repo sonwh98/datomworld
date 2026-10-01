@@ -33,7 +33,7 @@
 
 (defn publish-datoms!
   "Publish `tx-data` as one transaction's covered index through `node`'s
-   store — the transactor's publish, its intake drained into the store —
+   store (the transactor's publish, its intake drained into the store)
    and announce it.  Answers the manifest address.  This is what any
    Clojure publisher does; yin.repl.index is one."
   [node tx-data]
@@ -62,7 +62,7 @@
 
 
 (defn run-nodes
-  "Step every node at readings 0, 10, … until `done?` holds over the
+  "Step every node at readings 0, 10, ... until `done?` holds over the
    collected events or `limit` passes.  Answers `[nodes events]`."
   [nodes limit done?]
   (loop [nodes nodes
@@ -118,7 +118,8 @@
    every test's writes."
   [net port]
   (let [c (mesh/join! net port {::jing.dht/publish? true
-                                ::jing.dht/max-inbound-bytes (* 256 1024 1024)})]
+                                ::jing.dht/max-inbound-bytes (* 256 1024
+                                                                1024)})]
     {:c c :s (jing.dht/state c)}))
 
 
@@ -165,13 +166,21 @@
 (defn- new-facts
   "The DHT facts the node appended since the world last read them."
   [w]
-  (let [facts (get-in w [:node :composition :facts])]
-    (loop [cursor (or (:facts-cursor w)
-                      (:dao.stream/cursor (stream/cursor facts :dao.stream/oldest)))
-           acc []]
-      (let [r (stream/next facts cursor)]
-        (case (:dao.stream/outcome r)
-          :dao.stream/ok (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+  (let
+    [facts (get-in w [:node :composition :facts])]
+    (loop
+      [cursor (or (:facts-cursor w)
+                  (:dao.stream/cursor (stream/cursor facts
+                                                     :dao.stream/oldest)))
+       acc []]
+      (let
+        [r (stream/next facts cursor)]
+        (case
+          (:dao.stream/outcome r)
+          :dao.stream/ok (recur
+                           (:dao.stream/cursor r) (conj
+                                                    acc
+                                                    (:dao.stream/value r)))
           :dao.stream/gap (recur (:dao.stream/cursor r) acc)
           [acc cursor])))))
 
@@ -191,7 +200,8 @@
     (-> w
         (assoc :facts-cursor cursor :last events)
         (update :events into events)
-        (update :busy-facts + (count (filter #(= ::jing.dht/busy (::jing.dht/reason %))
+        (update :busy-facts + (count (filter #(= ::jing.dht/busy
+                                                 (::jing.dht/reason %))
                                              fs))))))
 
 
@@ -276,7 +286,8 @@
       (is (= [:fetched :kind :status :value]
              (sort (keys (dht/load-status reader manifest)))))
       (is (= 4 (count (:value (dht/load-status reader manifest)))))
-      (is (= #{["alpha" 1] ["beta" 2]} (set (dht/q reader manifest names-query))))
+      (is (= #{["alpha" 1] ["beta" 2]} (set (dht/q reader manifest
+                                                   names-query))))
       (is (= #{["beta"]}
              (set (dht/q reader manifest
                          '[:find ?n :in $ ?a :where [?e :code/arity ?a]
@@ -285,7 +296,8 @@
           "inputs follow the query")
       (is (some? (jing/get (dht/local reader) manifest nil))
           "the loaded blobs are the reader's own now")
-      (is (= 1 (count (filter #(#{:loaded :load-failed} (::dht/event %)) events)))
+      (is (= 1 (count (filter #(#{:loaded :load-failed} (::dht/event %))
+                              events)))
           "exactly one terminal event")
       (dht/close! publisher)
       (dht/close! reader))))
@@ -354,17 +366,20 @@
         [nodes events] (run-nodes [reader other] 30000
                                   #(event % :load-failed m))]
     (is (= {:status :failed :kind ::dht/index :fetched 0
-            :reason {::dht/failure :miss :address m :cause ::jing.dht/exhausted}}
+            :reason {::dht/failure :miss :address m :cause
+                     ::jing.dht/exhausted}}
            (dht/load-status (first nodes) m)))
     (is (= {::dht/event :load-failed :manifest m :kind ::dht/index
-            :reason {::dht/failure :miss :address m :cause ::jing.dht/exhausted}}
+            :reason {::dht/failure :miss :address m :cause
+                     ::jing.dht/exhausted}}
            (event events :load-failed m)))
     (run! dht/close! nodes)))
 
 
 (deftest join-refuses-options-it-cannot-honour
   (doseq [opts [{}
-                {:local (mem/create-content-mem) :peers [{:host "localhost" :port 1}]
+                {:local (mem/create-content-mem) :peers [{:host "localhost"
+                                                          :port 1}]
                  :bind! (fn [_])}
                 {:local (mem/create-content-mem) :bind-host "::zz"}
                 {:local (mem/create-content-mem) :publish? :yes}
@@ -392,7 +407,7 @@
 
 
 (defn- settle
-  "Step `node` at readings 0, 10, … until `address`'s load is terminal."
+  "Step `node` at readings 0, 10, ... until `address`'s load is terminal."
   [node address]
   (loop [node node
          now 0
@@ -408,7 +423,9 @@
   (let [a (jing/segment-key "complete")
         [node events] (settle (dht/load (solo-node) a
                                         {:kind ::test
-                                         :walk (fn [_] {::dht/walk :complete :value 42})})
+                                         :walk (fn [_]
+                                                 {::dht/walk :complete
+                                                  :value 42})})
                               a)]
     (is (= {:status :loaded :kind ::test :fetched 0 :value 42}
            (dht/load-status node a)))
@@ -428,7 +445,9 @@
                  (dht/load-index m1)
                  (dht/load-index m2)
                  (dht/load other {:kind ::test
-                                  :walk (fn [_] {::dht/walk :complete :value 1})})
+                                  :walk (fn [_]
+                                          {::dht/walk :complete :value
+                                           1})})
                  (dht/load failed {:kind dht/index-kind
                                    :walk (fn [_]
                                            {::dht/walk :invalid :address nil
@@ -438,7 +457,9 @@
       (is (= :loaded (:status (dht/load-status node other))))
       (is (= :failed (:status (dht/load-status node failed))))
       (is (= (vec (sort-by str [m1 m2])) (dht/loaded-indexes node))
-          "loaded index manifests only, sorted: not another kind, not a failure")
+          (str
+            "loaded index manifests only, sorted: not anot"
+            "her kind, not a failure"))
       (is (= [m2] (dht/loaded-indexes (dht/forget node m1)))
           "a forgotten record is no longer listed")
       (dht/close! node))))
@@ -483,18 +504,21 @@
 (deftest a-walk-answering-missing-fetches-from-a-peer
   (let [net (mesh/mesh)
         publisher (node-at net 41 [42] {:publish? true})
-        blob (jing/materialize! (dht/local publisher) {:held "by the publisher"})
+        blob (jing/materialize! (dht/local publisher) {:held
+                                                       "by the publisher"})
         walk (fn [handle]
                (if (= ::absent ((:get-bytes-fn handle) blob ::absent))
                  {::dht/walk :missing :address blob}
                  {::dht/walk :complete :value :got-it}))
-        reader (dht/load (node-at net 42 [41] {}) blob {:kind ::test :walk walk})
+        reader (dht/load (node-at net 42 [41] {}) blob {:kind ::test :walk
+                                                        walk})
         [[_ reader] events] (run-nodes [publisher reader] 20000
                                        #(event % :loaded blob))]
     (is (= {:status :loaded :kind ::test :fetched 1 :value :got-it}
            (dht/load-status reader blob)))
     (is (= [blob] (mapv :jing/get (gets-asked reader))) "one fetch")
-    (is (= 1 (count (filter #(#{:loaded :load-failed} (::dht/event %)) events))))
+    (is (= 1 (count (filter #(#{:loaded :load-failed} (::dht/event %))
+                            events))))
     (dht/close! publisher)
     (dht/close! reader)))
 
@@ -517,7 +541,8 @@
    then appends to the node's own request ring."
   [node outcomes]
   (update node :client assoc :requests
-          (->FlakyWriter (get-in node [:composition :requests]) (atom outcomes))))
+          (->FlakyWriter (get-in node [:composition :requests]) (atom
+                                                                  outcomes))))
 
 
 (deftest a-busy-client-leaves-the-load-loading-and-asks-again
@@ -527,7 +552,8 @@
         node (-> (solo-node)
                  (dht/load a {:kind ::test :walk (missing a)})
                  (dht/load b {:kind ::test :walk (missing b)})
-                 ;; the first request is not appended at once: the client owes it
+                 ;; the first request is not appended at once: the client owes
+                 ;; it
                  (with-flaky-client [:dao.stream/full]))
         [node _] (dht/step node 0)
         asked (sort-by str [a b])]
@@ -540,7 +566,8 @@
         (is (= :failed (:status (dht/load-status node (second asked)))))
         (is (= ::jing.dht/solo
                (get-in (dht/load-status node (second asked)) [:reason :cause])))
-        (is (not-any? #(= :unaskable (get-in % [:reason ::dht/failure])) events))
+        (is (not-any? #(= :unaskable (get-in % [:reason ::dht/failure]))
+                      events))
         (dht/close! node)))))
 
 
@@ -561,9 +588,12 @@
   (testing "/solo"
     (let [a (jing/segment-key "solo")
           [node _] (settle (dht/load-index (solo-node) a) a)]
-      (is (= ::jing.dht/solo (get-in (dht/load-status node a) [:reason :cause])))
+      (is (= ::jing.dht/solo (get-in (dht/load-status node a) [:reason
+                                                               :cause])))
       (dht/close! node)))
-  (testing "/exhausted and /deadline: a peer that never answers outlives get-ticks"
+  (testing (str
+             "/exhausted and /deadline: a peer that never a"
+             "nswers outlives get-ticks")
     (let [net (mesh/mesh)
           _silent (mesh/join! net 2)          ; registered, never stepped
           a (jing/segment-key "deadline")
@@ -582,7 +612,8 @@
           node (reduce dht/load-index (node-at net 5 [4] {}) as)
           node (loop [node node now 0]
                  (if (or (> now 200)
-                         (some #(= :failed (:status (dht/load-status node %))) as))
+                         (some #(= :failed (:status (dht/load-status node %)))
+                               as))
                    node
                    (recur (first (dht/step node now)) (+ now 10))))
           failed (keep #(:reason (dht/load-status node %)) as)]
@@ -617,10 +648,12 @@
         [m1 m2 m3] (mapv #(jing/segment-key (str "load " %)) [1 2 3])
         reason (fn [node m] (:reason (dht/load-status node m)))]
     (testing "/solo: two loads asking in the same step"
-      (let [[node _] (step-until-failed (-> (solo-node) (load-missing m1 a) (load-missing m2 a))
+      (let [[node _] (step-until-failed (-> (solo-node) (load-missing m1 a)
+                                            (load-missing m2 a))
                                         [m1 m2] 0 1000)]
         (doseq [m [m1 m2]]
-          (is (= {::dht/failure :miss :address a :cause ::jing.dht/solo} (reason node m))
+          (is (= {::dht/failure :miss :address a :cause ::jing.dht/solo}
+                 (reason node m))
               (str m)))
         (dht/close! node)))
     (testing "/exhausted: later loads join the first one's request steps later"
@@ -635,13 +668,17 @@
             node (load-missing node m3 a)
             [node _] (step-until-failed node [m1 m2 m3] 40 30000)]
         (doseq [m [m1 m2 m3]]
-          (is (= {::dht/failure :miss :address a :cause ::jing.dht/exhausted} (reason node m))
+          (is (= {::dht/failure :miss :address a :cause ::jing.dht/exhausted}
+                 (reason node m))
               (str m)))
         (testing "and the cause is not kept once no load waits on it"
           (is (empty? (:misses node))))
         (dht/close! node)))
-    (testing "a load started after the first one failed asks again and keeps its own cause"
-      (let [[node now] (step-until-failed (load-missing (solo-node) m1 a) [m1] 0 1000)
+    (testing (str
+               "a load started after the first one failed ask"
+               "s again and keeps its own cause")
+      (let [[node now] (step-until-failed (load-missing (solo-node) m1 a) [m1]
+                                          0 1000)
             [node _] (step-until-failed (load-missing node m2 a) [m2] now 2000)]
         (is (= ::jing.dht/solo (:cause (reason node m1))))
         (is (= ::jing.dht/solo (:cause (reason node m2))))
@@ -674,7 +711,8 @@
               (recur reader (update liar :s jing.dht/step 64) (+ now 10)
                      (into events more)))))]
     (is (nil? (event events :loaded a)))
-    (is (= :miss (get-in (event events :load-failed a) [:reason ::dht/failure])))
+    (is (= :miss (get-in (event events :load-failed a) [:reason
+                                                        ::dht/failure])))
     (is (= ::absent ((:get-bytes-fn (dht/local reader)) a ::absent))
         "the lie never entered :local")
     (dht/close! reader)))
@@ -683,7 +721,9 @@
 (deftest forget-clears-a-terminal-record-and-is-refused-while-loading
   (let [a (jing/segment-key "forget")
         node (dht/load (solo-node) a {:kind ::test
-                                      :walk (fn [_] {::dht/walk :missing :address a})})]
+                                      :walk (fn [_]
+                                              {::dht/walk :missing
+                                               :address a})})]
     (is (= ::dht/loading (refused-code #(dht/forget node a))))
     (let [[node _] (settle node a)
           _ (is (= :failed (:status (dht/load-status node a))))
@@ -691,7 +731,9 @@
       (is (nil? (dht/load-status node a)))
       (testing "a new load starts over"
         (let [node (dht/load node a {:kind ::test
-                                     :walk (fn [_] {::dht/walk :complete :value 1})})
+                                     :walk (fn [_]
+                                             {::dht/walk :complete :value
+                                              1})})
               [node events] (settle node a)]
           (is (= :loaded (:status (dht/load-status node a))))
           (is (= 1 (count events)))
@@ -731,7 +773,8 @@
                      #(every? (fn [m] (event (:events %) :published m)) rounds)
                      bounded-outstanding)
         published (filterv #(= :published (::dht/event %)) (:events w))]
-    (is (= rounds (mapv :manifest published)) "each once, in announcement order")
+    (is (= rounds (mapv :manifest published))
+        "each once, in announcement order")
     (is (every? #(= :acknowledged (:result %)) published))
     (let [w (run-world w 10 (+ (:now w) 20000)
                        #(not (dht/busy? (:node %))))]
@@ -761,7 +804,8 @@
                                 late)
                        bounded-outstanding)]
       (doseq [m late
-              :let [results (mapv :result (events-of (:events w) :republished m))]]
+              :let [results (mapv :result (events-of (:events w) :republished
+                                                     m))]]
         (is (= :acknowledged (last results)) (pr-str results))
         (is (= results (distinct results)) "each result change reported once")
         (is (every? #{:partial :acknowledged} results)))
@@ -815,7 +859,8 @@
         republished (events-of (:events w) :republished manifest)]
     (is (= 1 (count republished)) (pr-str republished))
     (is (= {:result :acknowledged :sent 6 :blobs 6 :repairing? false}
-           (select-keys (first republished) [:result :sent :blobs :repairing?])))
+           (select-keys (first republished) [:result :sent :blobs
+                                             :repairing?])))
     (is (= 1 (replicates (:node w) manifest)) "the manifest was asked once")
     (is (= 2 (replicates (:node w) refused)))
     (doseq [row (remove #{refused} rows)]
@@ -829,12 +874,14 @@
         refused (set (cons manifest (take 2 rows)))
         _ (reset! (:refuse w) refused)
         w (run-world w 50 20000 #(event (:events %) :published manifest))
-        _ (is (= :unacknowledged (:result (event (:events w) :published manifest))))
+        _ (is (= :unacknowledged (:result (event (:events w) :published
+                                                 manifest))))
         _ (reset! (:refuse w) (disj refused manifest))
         w (run-world w 50 80000 #(event (:events %) :republished manifest))
         _ (reset! (:refuse w) #{})
         w (run-world w 50 200000
-                     #(= 2 (count (events-of (:events %) :republished manifest))))
+                     #(= 2 (count (events-of (:events %) :republished
+                                             manifest))))
         w (run-world w 50 (+ (:now w) 100000) (constantly false))]
     (is (= [:partial :acknowledged]
            (mapv :result (events-of (:events w) :republished manifest))))
@@ -873,51 +920,66 @@
    local verdict of every put."
   [node r n]
   (let [put (:put-bytes-fn (dht/store node))
-        payloads (conj (mapv #(hash-map :round r :row %) (range n)) {:round r :rows n})
-        verdicts (mapv #(put (jing/segment-key %) (jing/canonical-bytes %)) payloads)
+        payloads (conj (mapv #(hash-map :round r :row %) (range n)) {:round r
+                                                                     :rows n})
+        verdicts (mapv #(put (jing/segment-key %) (jing/canonical-bytes %))
+                       payloads)
         m (jing/segment-key (peek payloads))]
     (dht/announce! node m)
     {:manifest m :verdicts verdicts}))
 
 
-(deftest a-peer-that-never-accepts-is-never-acknowledged-and-stays-bounded
-  (let [limits {:max-backlog 64 :max-repairing 3 :repair-batch 4 :max-open 4
-                :repair-ticks 1000 :repair-max-ticks 8000}
-        w (world [25 26] limits)
-        _ (reset! (:refuse w) (constantly true))
-        rounds (mapv #(round-verdicts! (:node w) % 9) (range 6))
-        manifests (atom (mapv :manifest rounds))
-        _ (testing "no put waits: every put and announcement completed before any step"
-            (is (nil? (:reading (:node w))) "the node has not stepped")
-            (is (every? #(= :inserted %) (mapcat :verdicts rounds))
-                "each put answered its local verdict at once")
-            (is (= 60 (count (mapcat :verdicts rounds)))))
-        idle (atom [])
-        delays (atom {})
-        w (run-world w 100 300000 (constantly false)
-                     (fn [w]
-                       ((check-dead-network limits 10) w)
-                       (doseq [p (dht/publications (:node w))]
-                         (swap! delays update (:manifest p) (fnil conj []) (:delay p)))
-                       (let [b (dht/backlog (:node w))
-                             between? (and (zero? (:open b)) (zero? (:fresh b))
-                                           (zero? (:repair b)) (zero? (:outstanding b))
-                                           (not-any? :cycle-open?
-                                                     (dht/publications (:node w))))]
-                         (when between?
-                           (is (false? (dht/busy? (:node w))))
-                           (swap! idle conj (:now w))))))]
+(deftest
+  a-peer-that-never-accepts-is-never-acknowledged-and-stays-bounded
+  (let
+    [limits {:max-backlog 64 :max-repairing 3 :repair-batch 4 :max-open 4
+             :repair-ticks 1000 :repair-max-ticks 8000}
+     w (world [25 26] limits)
+     _ (reset! (:refuse w) (constantly true))
+     rounds (mapv #(round-verdicts! (:node w) % 9) (range 6))
+     manifests (atom (mapv :manifest rounds))
+     _ (testing (str
+                  "no put waits: every put and announcement comp"
+                  "leted before any step")
+         (is (nil? (:reading (:node w))) "the node has not stepped")
+         (is (every? #(= :inserted %) (mapcat :verdicts rounds))
+             "each put answered its local verdict at once")
+         (is (= 60 (count (mapcat :verdicts rounds)))))
+     idle (atom [])
+     delays (atom {})
+     w (run-world
+         w 100 300000 (constantly false)
+         (fn [w]
+           ((check-dead-network limits 10) w)
+           (doseq [p (dht/publications (:node w))]
+             (swap! delays update (:manifest p) (fnil conj [])
+                    (:delay p)))
+           (let
+             [b (dht/backlog (:node w))
+              between? (and
+                         (zero? (:open b)) (zero? (:fresh b))
+                         (zero? (:repair b)) (zero?
+                                               (:outstanding b))
+                         (not-any? :cycle-open?
+                                   (dht/publications (:node
+                                                       w))))]
+             (when between?
+               (is (false? (dht/busy? (:node w))))
+               (swap! idle conj (:now w))))))]
     (testing "every first report is unacknowledged and repairing"
       (doseq [m @manifests]
         (let [p (event (:events w) :published m)]
           (is (= :unacknowledged (:result p)) (pr-str p))
           (is (true? (:repairing? p))))))
     (is (not-any? #(= :acknowledged (:result %)) (:events w)))
-    (testing "only displacement ends a publication, once each, beyond :max-repairing"
+    (testing (str
+               "only displacement ends a publication, once ea"
+               "ch, beyond :max-repairing")
       (let [republished (filterv #(= :republished (::dht/event %)) (:events w))]
         (is (every? #(= ::dht/displaced (:ended %)) republished))
         (is (= 3 (count republished)))
-        (is (= (count republished) (count (distinct (map :manifest republished)))))))
+        (is (= (count republished) (count (distinct (map :manifest
+                                                         republished)))))))
     (testing "the delay doubles to :repair-max-ticks and stays"
       (let [seen (distinct (val (last (sort-by #(count (val %)) @delays))))]
         (is (= [1000 2000 4000 8000] (vec (take 4 seen))) (pr-str seen))
@@ -951,13 +1013,16 @@
     (is (every? #(= ::dht/publications-full (:reason %)) (:failed published)))
     (is (= 4 (count (:failed published))))
     (is (true? (:repairing? published)))
-    (is (not-any? #(event (:events w) :published %) open) "it displaced nothing open")
+    (is (not-any? #(event (:events w) :published %) open)
+        "it displaced nothing open")
     (is (= 3 (:open (dht/backlog (:node w)))))
     (is (= 4 (:live (dht/backlog (:node w)))))
     (is (<= (:ledger-entries (dht/backlog (:node w)))
             (* (+ 3 4) dht/ring-capacity)))
     (close-world! w))
-  (testing "publications sharing one address, on a dead network: bounded every step"
+  (testing (str
+             "publications sharing one address, on a dead n"
+             "etwork: bounded every step")
     (let [limits {:max-backlog 64 :max-repairing 3 :repair-batch 4 :max-open 4
                   :repair-ticks 1000 :repair-max-ticks 4000}
           w (world [63 64] limits)
@@ -970,7 +1035,8 @@
                         "the shared address holds one queue entry or request")))
           w (reduce (fn [w _]
                       (dht/announce! (:node w) a)
-                      (run-world w 50 (+ (:now w) 500) (constantly false) check))
+                      (run-world w 50 (+ (:now w) 500) (constantly false)
+                                 check))
                     w
                     (range 12))
           w (run-world w 100 (+ (:now w) 60000) (constantly false) check)]
@@ -979,15 +1045,18 @@
   (testing "many open publications sharing one queued address hold one entry"
     (let [w (world [29 30] {:max-open 16})
           a (jing/materialize! (dht/store (:node w)) {:shared true})
-          node (reduce (fn [node _] (dht/announce! node a)) (:node w) (range 16))
+          node (reduce (fn [node _] (dht/announce! node a)) (:node w) (range
+                                                                        16))
           [node _] (dht/step node 0)]
       (is (= 16 (:open (dht/backlog node))))
       (is (= 16 (:ledger-entries (dht/backlog node))))
-      (is (= 1 (+ (:fresh (dht/backlog node)) (:outstanding (dht/backlog node)))))
+      (is (= 1 (+ (:fresh (dht/backlog node)) (:outstanding (dht/backlog
+                                                              node)))))
       (dht/close! node))))
 
 
-(deftest fresh-and-repair-requests-share-the-bound-fairly
+(deftest
+  fresh-and-repair-requests-share-the-bound-fairly
   (let [limits {:max-repairing 4 :repair-batch 8 :repair-slots 16
                 :repair-ticks 500 :repair-max-ticks 500}
         w (world [31 32] limits)
@@ -998,7 +1067,8 @@
         w (run-world w 50 60000
                      #(= 32 (:repair (dht/backlog (:node %))))
                      bounded-outstanding)
-        _ (is (= 32 (:repair (dht/backlog (:node w)))) "the repair queue is full")
+        _ (is (= 32 (:repair (dht/backlog (:node w))))
+              "the repair queue is full")
         {:keys [manifest]} (round! (:node w) 9 200)
         fresh-peak (atom 0)
         w (run-world w 10 (+ (:now w) 60000)
@@ -1012,12 +1082,19 @@
         "the new round is reported while repairs continue")
     (is (pos? (:repairing (dht/backlog (:node w)))))
     (close-world! w))
-  (testing "with no repair queued a fresh round uses the whole bound"
-    (let [w (world [33 34] {})
-          {:keys [manifest]} (round! (:node w) 1 300)
-          peak (atom 0)
-          w (run-world w 10 60000 #(event (:events %) :published manifest)
-                       #(swap! peak max (:outstanding-fresh (dht/backlog (:node %)))))]
+  (testing
+    "with no repair queued a fresh round uses the whole bound"
+    (let
+      [w (world [33 34] {})
+       {:keys [manifest]} (round! (:node w) 1 300)
+       peak (atom 0)
+       w (run-world
+           w 10 60000 #(event (:events %) :published manifest)
+           #(swap!
+              peak max (:outstanding-fresh
+                         (dht/backlog
+                           (:node
+                             %)))))]
       (is (= 64 @peak))
       (close-world! w))))
 
@@ -1047,35 +1124,47 @@
               (when (and (nil? @admitted) (= 1 (:cycles p)))
                 (reset! admitted {:fresh (:fresh (dht/backlog (:node w)))
                                   :asked (replicates (:node w) refused)}))
-              (if (or (event (:events w) :republished manifest) (> (:now w) 200000))
+              (if (or (event (:events w) :republished manifest) (> (:now w)
+                                                                   200000))
                 w
                 (recur (top-up w)))))]
     (is (some? @admitted) "the cycle opened while fresh writes continued")
     (is (<= (- 128 64) (:fresh @admitted))
         "the fresh queue was full at admission and barely drained in that step")
     (is (= :acknowledged (:result (event (:events w) :republished manifest))))
-    (is (<= (- 128 64) (:fresh (dht/backlog (:node w)))) "fresh writes continued")
+    (is (<= (- 128 64) (:fresh (dht/backlog (:node w))))
+        "fresh writes continued")
     (is (some #(= ::dht/backlog-full (:reason %))
-              (mapcat :failed (filter #(= :published (::dht/event %)) (:events w)))))
+              (mapcat :failed (filter #(= :published (::dht/event %)) (:events
+                                                                        w)))))
     (close-world! w)))
 
 
-(deftest a-repair-batch-bounds-each-publication-and-all-progress
-  (let [limits {:max-repairing 3 :repair-batch 4 :repair-ticks 1000
-                :repair-max-ticks 1000}
-        w (world [37 38] limits)
-        _ (reset! (:refuse w) (constantly true))
-        pubs (mapv (fn [r] (round! (:node w) r 9)) (range 3))
-        cycles (atom {})
-        w (run-world w 50 150000
-                     #(every? (fn [p] (<= 3 (:cycles (dht/publication (:node %) (:manifest p)) 0)))
-                              pubs)
-                     (fn [w]
-                       (doseq [{:keys [manifest]} pubs
-                               :let [p (dht/publication (:node w) manifest)]]
-                         (is (some? p) "no publication is retired")
-                         (is (<= (:repair-queued p 0) 4))
-                         (swap! cycles assoc manifest (:cycles p)))))]
+(deftest
+  a-repair-batch-bounds-each-publication-and-all-progress
+  (let
+    [limits {:max-repairing 3 :repair-batch 4 :repair-ticks 1000
+             :repair-max-ticks 1000}
+     w (world [37 38] limits)
+     _ (reset! (:refuse w) (constantly true))
+     pubs (mapv (fn [r] (round! (:node w) r 9)) (range 3))
+     cycles (atom {})
+     w (run-world
+         w 50 150000
+         #(every?
+            (fn [p]
+              (<=
+                3 (:cycles
+                    (dht/publication
+                      (:node %)
+                      (:manifest p)) 0)))
+            pubs)
+         (fn [w]
+           (doseq [{:keys [manifest]} pubs
+                   :let [p (dht/publication (:node w) manifest)]]
+             (is (some? p) "no publication is retired")
+             (is (<= (:repair-queued p 0) 4))
+             (swap! cycles assoc manifest (:cycles p)))))]
     (doseq [{:keys [manifest rows]} pubs]
       (is (<= 3 (get @cycles manifest)) "every publication cycles")
       (doseq [a (cons manifest rows)]
@@ -1121,19 +1210,24 @@
           first-report (event (:last w) :published a)]
       (is (= {:result :unacknowledged :repairing? true}
              (select-keys first-report [:result :repairing?])))
-      (is (= (set (remove nil? [a own])) (set (map :address (:failed first-report)))))
-      (is (every? #(= ::dht/publications-full (:reason %)) (:failed first-report)))
+      (is (= (set (remove nil? [a own])) (set (map :address (:failed
+                                                              first-report)))))
+      (is (every? #(= ::dht/publications-full (:reason %)) (:failed
+                                                             first-report)))
       (let [no-cycle (fn [w]
                        (when-let [p (and (= shape :only-shared)
                                          (dht/publication (:node w) a))]
                          (is (zero? (:cycles p)) "no repair cycle of it opens"))
-                       ;; an explicit value: cljd types a nested when-of-is as Null
+                       ;; an explicit value: cljd types a nested when-of-is as
+                       ;; Null
                        nil)
             _ (no-cycle w)
-            w (run-world w 10 20000 #(event (:events %) :republished a) no-cycle)
+            w (run-world w 10 20000 #(event (:events %) :republished a)
+                         no-cycle)
             republished (event (:events w) :republished a)]
         (when (= shape :only-shared)
-          (is (nil? (dht/publication (:node w) a)) "retired on acknowledgement"))
+          (is (nil? (dht/publication (:node w) a))
+              "retired on acknowledgement"))
         (is (< (:now w) 30000) "well before :repair-ticks")
         (case shape
           :only-shared
@@ -1142,24 +1236,34 @@
           :with-own-row
           (let [_ (is (= :partial (:result republished)))
                 w (run-world w 100 200000
-                             #(= 2 (count (events-of (:events %) :republished a))))]
+                             #(= 2 (count (events-of (:events %) :republished
+                                                     a))))]
             (is (= [:partial :acknowledged]
                    (mapv :result (events-of (:events w) :republished a))))))
         (is (= 1 (replicates (:node w) a)) "no second request for a")
         (close-world! w)))))
 
 
-(deftest a-shared-failure-changes-no-result-and-produces-no-event
-  (let [w (silent-world [43 44] {:max-open 1 :repair-ticks 100000})
-        node (:node w)
-        a (jing/materialize! (dht/store node) {:shared "fails"})
-        _ (dht/announce! node a)
-        w (step-node-only w 10)
-        _ (dht/announce! (:node w) a)
-        w (step-node-only w 10)
-        _ (is (= 2 (count (filter #(= a (:manifest %)) (dht/publications (:node w))))))
-        _ (reset! (:refuse w) #{a})
-        w (run-world w 50 30000 #(<= 2 (count (events-of (:events %) :published a))))]
+(deftest
+  a-shared-failure-changes-no-result-and-produces-no-event
+  (let
+    [w (silent-world [43 44] {:max-open 1 :repair-ticks 100000})
+     node (:node w)
+     a (jing/materialize! (dht/store node) {:shared "fails"})
+     _ (dht/announce! node a)
+     w (step-node-only w 10)
+     _ (dht/announce! (:node w) a)
+     w (step-node-only w 10)
+     _ (is
+         (=
+           2 (count
+               (filter
+                 #(= a (:manifest %)) (dht/publications
+                                        (:node
+                                          w))))))
+     _ (reset! (:refuse w) #{a})
+     w (run-world w 50 30000 #(<= 2 (count (events-of (:events %) :published
+                                                      a))))]
     (is (= 2 (count (events-of (:events w) :published a))))
     (is (empty? (events-of (:events w) :republished a))
         "the overflow's entry changed reason, not result")
@@ -1206,7 +1310,9 @@
       (is (= ::jing.dht/oversize (:reason (first (:failed published)))))
       (is (= ::dht/terminal (:ended published)))
       (close-world! w)))
-  (testing "a terminal and a retryable failure: repair, then end :terminal :partial"
+  (testing (str
+             "a terminal and a retryable failure: repair, t"
+             "hen end :terminal :partial")
     (let [hidden (atom #{})
           w (world [49 50] {:repair-ticks 1000} (hiding-store hidden))
           {:keys [manifest rows]} (round! (:node w) 1 3)
@@ -1218,7 +1324,8 @@
           _ (reset! (:refuse w) #{})
           w (run-world w 50 60000 #(event (:events %) :republished manifest))
           w (run-world w 50 (+ (:now w) 20000) (constantly false))]
-      (is (= [{:result :partial :repairing? false :ended ::dht/terminal :sent 3}]
+      (is (= [{:result :partial :repairing? false :ended ::dht/terminal :sent
+               3}]
              (mapv #(select-keys % [:result :repairing? :ended :sent])
                    (events-of (:events w) :republished manifest))))
       (close-world! w))))
@@ -1238,14 +1345,17 @@
     (is (= ::dht/not-repairing
            (refused-code #(dht/retry! (:node w) (jing/segment-key "unknown")))))
     (let [w (run-world w 50 (+ (:now w) 20000)
-                       #(not (:cycle-open? (dht/publication (:node %) manifest))))
+                       #(not (:cycle-open? (dht/publication (:node %)
+                                                            manifest))))
           _ (is (empty? (events-of (:events w) :republished manifest))
                 "a failed cycle changes no result")
           _ (reset! (:refuse w) #{})
           w (update w :node dht/retry! manifest)
-          w (run-world w 50 (+ (:now w) 20000) #(event (:events %) :republished manifest))]
+          w (run-world w 50 (+ (:now w) 20000) #(event (:events %) :republished
+                                                       manifest))]
       (is (= :acknowledged (:result (event (:events w) :republished manifest))))
-      (is (= ::dht/not-repairing (refused-code #(dht/retry! (:node w) manifest)))
+      (is (= ::dht/not-repairing (refused-code #(dht/retry! (:node w)
+                                                            manifest)))
           "refused once acknowledged")
       (close-world! w))))
 
@@ -1269,38 +1379,51 @@
 ;; 5.5.5: cancel!
 ;; =============================================================================
 
-(deftest cancel-settles-every-ledger-state
-  (let [w (world [55 56] {})
-        node (:node w)
-        h (dht/store node)
-        sent (mapv #(jing/materialize! h {:sent %}) (range 10))
-        failing (mapv #(jing/materialize! h {:failing %}) (range 54))
-        slow (mapv #(jing/materialize! h {:slow %}) (range 10))
-        _queued (mapv #(jing/materialize! h {:queued %}) (range 100))
-        manifest (jing/materialize! h {:cancel "me"})
-        _ (dht/announce! node manifest)
-        _ (reset! (:refuse w) (set (concat failing slow)))
-        state-of (fn [w a] (get-in (dht/publication (:node w) manifest) [:entries a :state]))
-        w (run-world w 10 30000 #(every? (fn [a] (= :failed (state-of % a))) failing))]
+(deftest
+  cancel-settles-every-ledger-state
+  (let
+    [w (world [55 56] {})
+     node (:node w)
+     h (dht/store node)
+     sent (mapv #(jing/materialize! h {:sent %}) (range 10))
+     failing (mapv #(jing/materialize! h {:failing %}) (range 54))
+     slow (mapv #(jing/materialize! h {:slow %}) (range 10))
+     _queued (mapv #(jing/materialize! h {:queued %}) (range 100))
+     manifest (jing/materialize! h {:cancel "me"})
+     _ (dht/announce! node manifest)
+     _ (reset! (:refuse w) (set (concat failing slow)))
+     state-of (fn [w a]
+                (get-in (dht/publication (:node w) manifest)
+                        [:entries a :state]))
+     w (run-world w 10 30000 #(every? (fn [a] (= :failed (state-of % a)))
+                                      failing))]
     (testing "the four states hold before the call"
       (is (every? #(= :sent (state-of w %)) sent))
       (is (every? #(= :failed (state-of w %)) failing))
       (is (some #(= :waiting (state-of w %)) slow) "outstanding")
       (is (pos? (:fresh (dht/backlog (:node w)))) "and queued"))
-    (let [w (update w :node dht/cancel! manifest)
-          w (step-world w 10)
-          reported (event (:last w) :published manifest)]
+    (let
+      [w (update w :node dht/cancel! manifest)
+       w (step-world w 10)
+       reported (event (:last w) :published manifest)]
       (is (= {:ended ::dht/cancelled :repairing? false :sent 10 :blobs 175}
              (select-keys reported [:ended :repairing? :sent :blobs])))
       (is (every? #(= ::dht/cancelled (:reason %)) (:failed reported)))
-      (is (= ::jing.dht/too-few-peers
-             (:was (first (filter #(= (first failing) (:address %)) (:failed reported))))))
+      (is
+        (=
+          ::jing.dht/too-few-peers
+          (:was
+            (first
+              (filter
+                #(= (first failing) (:address %)) (:failed
+                                                    reported))))))
       (is (= 0 (:fresh (dht/backlog (:node w)))) "its queue entries are gone")
       (testing "a late fact changes nothing reported"
         (let [w (run-world w 50 (+ (:now w) 20000)
                            #(zero? (:outstanding (dht/backlog (:node %)))))]
           (is (= 1 (count (reports w))))
-          (is (= ::dht/not-live (refused-code #(dht/cancel! (:node w) manifest))))
+          (is (= ::dht/not-live (refused-code #(dht/cancel! (:node w)
+                                                            manifest))))
           (close-world! w))))))
 
 
@@ -1338,13 +1461,17 @@
         m2 (jing/materialize! h {:m 2})
         _ (dht/announce! node m2)
         w (step-node-only w 10)
-        _ (is (= 9 (:fresh (dht/backlog (:node w)))) "a joined, not queued twice")
+        _ (is (= 9 (:fresh (dht/backlog (:node w))))
+              "a joined, not queued twice")
         w (update w :node dht/cancel! m1)
-        _ (is (= 2 (:fresh (dht/backlog (:node w)))) "a stays queued for the second")
+        _ (is (= 2 (:fresh (dht/backlog (:node w))))
+              "a stays queued for the second")
         w (run-world w 10 30000 #(event (:events %) :published m2))
         first-pub (event (:events w) :published m1)
         second-pub (event (:events w) :published m2)
-        reason-of (fn [e x] (:reason (first (filter #(= x (:address %)) (:failed e)))))]
+        reason-of (fn [e x]
+                    (:reason (first (filter #(= x (:address %))
+                                            (:failed e)))))]
     (is (= ::dht/cancelled (:ended first-pub)))
     (is (= ::dht/cancelled (reason-of first-pub x1)))
     (is (= ::dht/cancelled (reason-of first-pub a)))
@@ -1376,7 +1503,8 @@
               (doseq [child (.listFiles f)]
                 (.delete child))
               (.delete f)))
-     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force true})
+     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force
+                                                    true})
                 (catch :default _ nil))))
 
 
@@ -1401,22 +1529,30 @@
         (cleanup-dir! dir)))))
 
 
-(deftest close-reports-nothing-and-a-reopened-node-repairs-nothing
-  (let [dir (temp-dir)
-        net (mesh/mesh)
-        refuse (atom (constantly true))
-        open! #(dht/join {:dir dir :publish? true :repair-ticks 1000
-                          :peers [{:host mesh/host :port 62}]
-                          :bind! (refusing-bind net 61 refuse)})]
+(deftest
+  close-reports-nothing-and-a-reopened-node-repairs-nothing
+  (let
+    [dir (temp-dir)
+     net (mesh/mesh)
+     refuse (atom (constantly true))
+     open! #(dht/join {:dir dir :publish? true :repair-ticks 1000
+                       :peers [{:host mesh/host :port 62}]
+                       :bind! (refusing-bind net 61 refuse)})]
     (try
-      (let [_peer (peer! net 62)
-            node (open!)
-            {:keys [manifest]} (round! node 1 3)
-            [node events] (loop [node node now 0 events []]
-                            (if (or (event events :published manifest) (> now 20000))
-                              [node events]
-                              (let [[node more] (dht/step node now)]
-                                (recur node (+ now 50) (into events more)))))]
+      (let
+        [_peer (peer! net 62)
+         node (open!)
+         {:keys [manifest]} (round! node 1 3)
+         [node events] (loop
+                         [node node now 0 events []]
+                         (if
+                           (or
+                             (event events :published manifest) (>
+                                                                  now
+                                                                  20000))
+                           [node events]
+                           (let [[node more] (dht/step node now)]
+                             (recur node (+ now 50) (into events more)))))]
         (is (= :unacknowledged (:result (event events :published manifest))))
         (is (nil? (dht/close! node)) "close! reports nothing")
         (let [again (open!)
@@ -1424,10 +1560,13 @@
                                (if (> now 20000)
                                  [node events]
                                  (let [[node more] (dht/step node now)]
-                                   (recur node (+ now 50) (into events more)))))]
-          (is (some? (jing/get (dht/local again) manifest nil)) "every blob is local")
+                                   (recur node (+ now 50) (into events
+                                                                more)))))]
+          (is (some? (jing/get (dht/local again) manifest nil))
+              "every blob is local")
           (is (zero? (count (filter ::jing.dht/replicate
-                                    (mesh/values (get-in again [:composition :requests])))))
+                                    (mesh/values (get-in again [:composition
+                                                                :requests])))))
               "no repair request")
           (is (empty? (reports {:events events})))
           (dht/close! again)))

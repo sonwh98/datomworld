@@ -50,7 +50,8 @@
               (doseq [child (.listFiles f)]
                 (.delete ^java.io.File child))
               (.delete f)))
-     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force true})
+     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force
+                                                    true})
                 (catch :default _ nil))))
 
 
@@ -84,7 +85,8 @@
   (repl/create-state
     {:index-store-spec {:type :dht
                         :dir dir
-                        :peers (mapv (fn [p] {:host "127.0.0.1" :port p}) peer-ports)
+                        :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
+                                     peer-ports)
                         :publish? (some? key)
                         :bind-host "127.0.0.1"
                         :bind-port 0
@@ -132,7 +134,8 @@
   (loop [w w]
     (cond
       (done? w) w
-      (> (:now w) limit) (assoc w :failure (str cause " within " limit " readings"))
+      (> (:now w) limit) (assoc w :failure (str cause " within " limit
+                                                " readings"))
       :else (recur (step-world w)))))
 
 
@@ -217,7 +220,8 @@
    the require's own text."
   [w k module]
   (let [[w text] (eval-at w k (str "(require (quote " module "))"))
-        w (run-world w (+ (:now w) 120000) (str "the require of " module " never ended")
+        w (run-world w (+ (:now w) 120000) (str "the require of " module
+                                                " never ended")
                      #(nil? (get-in % [:shells k :pending-run])))]
     (is (nil? (:failure w)) (:failure w))
     [w text]))
@@ -260,12 +264,14 @@
                 (is (= "4201" answer))
                 (testing "the store corpus"
                   (when (= :ast-walker vm-type)
-                    (is (= {:status :refused :reason :undeclared-free :name 'base}
+                    (is (= {:status :refused :reason :undeclared-free :name
+                            'base}
                            (select-keys store-response [:status :reason :name]))
                         (str "the linker's reason, naming the read: "
                              (pr-str store-response))))
                   (when-not (= :ast-walker vm-type)
-                    (is (= :ok (:status store-response)) (pr-str store-response))
+                    (is (= :ok (:status store-response)) (pr-str
+                                                           store-response))
                     (is (= "8" value))))
                 nil)
               w))
@@ -296,16 +302,21 @@
         (run! cleanup-dir! [adir cdir])))))
 
 
-(deftest a-dangling-retraction-is-one-global-diagnostic-at-the-prompt
-  (let [[adir edir] [(temp-dir) (temp-dir)]
-        net (mesh/mesh)
-        key (sign/generate)
-        principal (sign/principal (:public key))
-        ;; an assertion signed but never published: no snapshot holds it
-        unpublished (:envelope (publish/assertion key {:name 'my.lib
-                                                       :manifest (jing/segment-key "elsewhere")
-                                                       :seq 90}))
-        of (jing/segment-key unpublished)]
+(deftest
+  a-dangling-retraction-is-one-global-diagnostic-at-the-prompt
+  (let
+    [[adir edir] [(temp-dir) (temp-dir)]
+     net (mesh/mesh)
+     key (sign/generate)
+     principal (sign/principal (:public key))
+     ;; an assertion signed but never published: no snapshot holds it
+     unpublished (:envelope
+                   (publish/assertion
+                     key {:name 'my.lib
+                          :manifest
+                          (jing/segment-key "elsewhere")
+                          :seq 90}))
+     of (jing/segment-key unpublished)]
     (try
       (let [[w _] (publish-world net adir key)
             node (get-in w [:shells :a :dht])
@@ -315,41 +326,53 @@
                          [{:db/id datom/first-user-id
                            :yin.module/envelope (:envelope r)
                            :yin.module/proof (:proof r)}]))
-            w (run-world w (+ (:now w) 60000) "the retraction index was not reported"
+            w (run-world w (+ (:now w) 60000)
+                         "the retraction index was not reported"
                          #(published % :a dangling))
             w (hydrate w :e edir 7 dangling [(:public key)])
             [w _] (eval-at w :e "(require (quote yin.link))")
             [w _] (eval-at w :e "(yin.link/names)")
             env (get-in w [:shells :e :last-value])]
         (is (nil? (:failure w)) (:failure w))
-        (testing "(yin.link/names) carries it once, globally, with principal and id"
+        (testing (str
+                   "(yin.link/names) carries it once, globally, w"
+                   "ith principal and id")
           (is (= [[:dangling-retraction principal of]]
                  (mapv (juxt :reason :principal :of) (:global-diagnostics env)))
               (pr-str env)))
         (testing "and in no per-name diagnostic"
-          (is (not-any? #(= :dangling-retraction (:reason %)) (:diagnostics env))
+          (is (not-any? #(= :dangling-retraction (:reason %)) (:diagnostics
+                                                                env))
               (pr-str (:diagnostics env))))
-        (testing "a require of the name it would have retracted is absent, no diagnostic"
+        (testing (str
+                   "a require of the name it would have retracted"
+                   " is absent, no diagnostic")
           (let [[w _] (require-at w :e 'my.lib)]
-            (is (= {:status :refused :reason :absent :name 'my.lib :diagnostics []}
+            (is (= {:status :refused :reason :absent :name 'my.lib :diagnostics
+                    []}
                    (last-response w :e)))
             (close-all! w))))
       (finally
         (run! cleanup-dir! [adir edir])))))
 
 
-(deftest a-retraction-of-a-retraction-is-global-at-the-prompt
-  (let [[adir edir] [(temp-dir) (temp-dir)]
-        net (mesh/mesh)
-        key (sign/generate)
-        principal (sign/principal (:public key))
-        unpublished (:envelope (publish/assertion key {:name 'my.lib
-                                                       :manifest (jing/segment-key "elsewhere")
-                                                       :seq 90}))
-        r1 (publish/retraction key {:of (jing/segment-key unpublished) :seq 91})
-        r1-id (jing/segment-key (:envelope r1))
-        ;; its target is a retraction, which carries no name
-        r2 (publish/retraction key {:of r1-id :seq 92})]
+(deftest
+  a-retraction-of-a-retraction-is-global-at-the-prompt
+  (let
+    [[adir edir] [(temp-dir) (temp-dir)]
+     net (mesh/mesh)
+     key (sign/generate)
+     principal (sign/principal (:public key))
+     unpublished (:envelope
+                   (publish/assertion
+                     key {:name 'my.lib
+                          :manifest
+                          (jing/segment-key "elsewhere")
+                          :seq 90}))
+     r1 (publish/retraction key {:of (jing/segment-key unpublished) :seq 91})
+     r1-id (jing/segment-key (:envelope r1))
+     ;; its target is a retraction, which carries no name
+     r2 (publish/retraction key {:of r1-id :seq 92})]
     (try
       (let [[w _] (publish-world net adir key)
             index (dht-test/publish-datoms!
@@ -359,7 +382,8 @@
                                          :yin.module/envelope (:envelope r)
                                          :yin.module/proof (:proof r)})
                                       [r1 r2])))
-            w (run-world w (+ (:now w) 60000) "the retraction index was not reported"
+            w (run-world w (+ (:now w) 60000)
+                         "the retraction index was not reported"
                          #(published % :a index))
             w (hydrate w :e edir 8 index [(:public key)])
             [w _] (eval-at w :e "(require (quote yin.link))")
@@ -367,13 +391,16 @@
             env (get-in w [:shells :e :last-value])]
         (is (nil? (:failure w)) (:failure w))
         (testing "(yin.link/names): both retractions are global, each once"
-          (is (= #{[:dangling-retraction principal (jing/segment-key unpublished)]
+          (is (= #{[:dangling-retraction principal (jing/segment-key
+                                                     unpublished)]
                    [:dangling-retraction principal r1-id]}
-                 (set (mapv (juxt :reason :principal :of) (:global-diagnostics env))))
+                 (set (mapv (juxt :reason :principal :of) (:global-diagnostics
+                                                            env))))
               (pr-str env))
           (is (= 2 (count (:global-diagnostics env)))))
         (testing "and neither is a per-name diagnostic"
-          (is (not-any? #(= :dangling-retraction (:reason %)) (:diagnostics env))
+          (is (not-any? #(= :dangling-retraction (:reason %)) (:diagnostics
+                                                                env))
               (pr-str (:diagnostics env))))
         (close-all! w))
       (finally
@@ -386,10 +413,12 @@
         key (sign/generate)]
     (try
       (let [[w _] (publish-world net adir key)
-            [w text] (eval-at w :a "(yin.link/publish (quote empty.lib) (quote []))")
+            [w text] (eval-at w :a
+                              "(yin.link/publish (quote empty.lib) (quote []))")
             res (get-in w [:shells :a :last-value])
             m (head-of w :a)
-            w (run-world w (+ (:now w) 60000) "the publisher's HEAD was not reported"
+            w (run-world w (+ (:now w) 60000)
+                         "the publisher's HEAD was not reported"
                          #(published % :a m))]
         (testing "answered as data, not thrown"
           (is (= 'empty.lib (:module res)) text)
@@ -402,8 +431,10 @@
                 w (reduce (fn [w vm-type]
                             (let [[w _] (eval-at w :b (str "(vm " vm-type ")"))
                                   [w _] (require-at w :b 'empty.lib)]
-                              (is (= 'empty.lib (get-in w [:shells :b :last-value]))
-                                  (str vm-type " " (pr-str (last-response w :b))))
+                              (is (= 'empty.lib (get-in w [:shells :b
+                                                           :last-value]))
+                                  (str vm-type " " (pr-str (last-response w
+                                                                          :b))))
                               w))
                           w
                           vm-types)]
@@ -426,7 +457,8 @@
                                 :yin.module/envelope env
                                 :yin.module/proof (sign/sign-envelope
                                                     (:seed key)
-                                                    (update env :yin.module/seq + 1000))})))
+                                                    (update env :yin.module/seq
+                                                            + 1000))})))
           (index/read-datoms (dht/local node) m))))
 
 
@@ -437,7 +469,8 @@
     (try
       (let [[w m] (publish-world net adir key)
             forged (forged-index! (get-in w [:shells :a :dht]) m key)
-            w (run-world w (+ (:now w) 60000) "the forged index was not reported"
+            w (run-world w (+ (:now w) 60000)
+                         "the forged index was not reported"
                          #(published % :a forged))
             w (hydrate w :d ddir 6 forged [(:public key)])
             [w _] (require-at w :d 'my.lib)

@@ -34,8 +34,8 @@
 
 
 (def default-cadence
-  "The tick owner's idle curve.  `tick-millis` is the base interval — what a
-   wake resets to and what a pending write holds — and an idle composition
+  "The tick owner's idle curve.  `tick-millis` is the base interval, what a
+   wake resets to and what a pending write holds, and an idle composition
    backs off doubling to 200 ms.  Local input and the explicit stop trigger
    nudge the wake source, so operator actions never wait the curve out; a
    lost nudge costs at most the armed interval."
@@ -49,7 +49,7 @@
 (def telemetry-text
   (str "--telemetry and --telemetry-stream are not part of the DaoStream "
        "REPL slice: the telemetry emit path is built (yin.vm.telemetry, opt-in "
-       "via the :telemetry {:stream ...} construction option — "
+       "via the :telemetry {:stream ...} construction option ("
        "yin.vm.telemetry.implementation-plan.md), but composing a sink into "
        "this shell is not, so the flags are rejected rather than ignored"))
 
@@ -87,8 +87,8 @@
 
 
 (defn- parse-manifest
-  "A `--dht-manifest` value — the address as printed, with or without its
-   leading colon — as the segment address keyword."
+  "A `--dht-manifest` value (the address as printed, with or without its
+   leading colon) as the segment address keyword."
   [text]
   (when (string? text)
     (keyword (if (str/starts-with? text ":") (subs text 1) text))))
@@ -161,25 +161,29 @@
                     (catch Object _ (throw (exists))))
                (.writeAsStringSync f text))
        :clj (let [p (.toPath (java.io.File. ^String path))
-                  owner-only (java.nio.file.attribute.PosixFilePermissions/asFileAttribute
-                               (java.nio.file.attribute.PosixFilePermissions/fromString
-                                 "rw-------"))]
+                  owner-only
+                  (java.nio.file.attribute.PosixFilePermissions/asFileAttribute
+                    (java.nio.file.attribute.PosixFilePermissions/fromString
+                      "rw-------"))]
               (try
                 (try (java.nio.file.Files/createFile
                        p (into-array java.nio.file.attribute.FileAttribute
                                      [owner-only]))
                      (catch UnsupportedOperationException _
                        (java.nio.file.Files/createFile
-                         p (make-array java.nio.file.attribute.FileAttribute 0))))
+                         p (make-array java.nio.file.attribute.FileAttribute
+                                       0))))
                 (catch java.nio.file.FileAlreadyExistsException _
                   (throw (exists))))
               (spit path text))
        :cljs (let [fs-module (js/require "fs")]
-               (try (.writeFileSync fs-module path text #js {:flag "wx" :mode 384})
+               (try (.writeFileSync fs-module path text #js {:flag "wx" :mode
+                                                             384})
                     (catch :default e
                       (if (= "EEXIST" (.-code e))
                         (throw (exists))
-                        (throw (ex-info (str "--dht-keygen " path ": " (.-message e))
+                        (throw (ex-info (str "--dht-keygen " path ": "
+                                             (.-message e))
                                         {:path path})))))))))
 
 
@@ -190,13 +194,18 @@
   [path]
   (let [key (sign/generate)]
     (write-new-file! path (str (sign/key-text key) "\n"))
-    {:lines (cond-> [(str "dht: wrote a new Ed25519 key to " path "; its principal is "
-                          (sign/principal (:public key)) ". Keep the file: a lost key "
-                          "can never sign again, and a new key is a new principal.")]
+    {:lines (cond-> [(str "dht: wrote a new Ed25519 key to " path
+                          "; its principal is "
+                          (sign/principal (:public key))
+                          ". Keep the file: a lost key "
+                          "can never sign again, and a new key is a new "
+                          "principal.")]
               ;; dart:io sets no file permissions (yin.vm.linker.dht.md 6.5)
               #?(:cljd true :default false)
-              (conj (str "dht: WARNING: this host cannot restrict the key file's "
-                         "permissions; it is readable as the process umask allows. "
+              (conj (str "dht: WARNING: this host cannot restrict the k"
+                         "ey file's "
+                         "permissions; it is readable as the process um"
+                         "ask allows. "
                          "Restrict it now: chmod 600 " path)))
      :exit 0}))
 
@@ -246,13 +255,13 @@
 (defn parse-args
   "Parse the host arguments.  `--telemetry` and `--telemetry-stream` are
    rejected rather than ignored.  `--index-store` is parsed into
-   `:index-store-spec` — `:mem` (also what omission means),
-   `{:type :file :dir dir}`, or the DHT store `{:type :dht :dir dir ...}`
-   — and a missing value, an unknown scheme, or an empty directory is
+   `:index-store-spec`: `:mem` (also what omission means),
+   `{:type :file :dir dir}`, or the DHT store `{:type :dht :dir dir ...}`;
+   and a missing value, an unknown scheme, or an empty directory is
    refused here, by `yin.repl.store/parse-arg`, before any host composes.
 
    The DHT store's options are their own flags (yin.repl.dht):
-   `--dht-peer host:port`, repeatable, the bootstrap contacts — none
+   `--dht-peer host:port`, repeatable, the bootstrap contacts; none
    means solo, with no socket; `--dht-publish`, the separate declaration
    that shares the store; `--dht-bind ip` and `--dht-port p`, the
    socket's address, loopback and ephemeral unless given;
@@ -300,8 +309,9 @@
           "--dht-key" (recur (nnext args)
                              (assoc opts :dht-key-file
                                     (or value
-                                        (throw (ex-info "--dht-key needs a key file"
-                                                        {}))))
+                                        (throw (ex-info
+                                                 "--dht-key needs a key file"
+                                                 {}))))
                              dht)
           "--dht-principal" (recur (nnext args)
                                    (update opts :principals (fnil conj [])
@@ -310,8 +320,9 @@
           "--dht-keygen" (recur (nnext args)
                                 (assoc opts :dht-keygen
                                        (or value
-                                           (throw (ex-info "--dht-keygen needs a file"
-                                                           {}))))
+                                           (throw (ex-info
+                                                    "--dht-keygen needs a file"
+                                                    {}))))
                                 dht)
           "--telemetry" (recur (next args) (update opts :rejected conj arg) dht)
           "--telemetry-stream" (recur (nnext args)
@@ -322,7 +333,7 @@
 
 (defn boot
   "Create the composition: one shell, one input medium, one cursor held only by
-   the step owner, and the host WebSocket adapter `(connect …)` attaches
+   the step owner, and the host WebSocket adapter `(connect ...)` attaches
    through.  The parsed `:index-store-spec` reaches the shell's store
    selection, which resolves and opens it once at construction."
   ([] (boot {}))
@@ -347,8 +358,8 @@
 
 
 (defn startup
-  "Parse the arguments and compose the whole shell — the store the parsed
-   `:index-store-spec` names included — or answer the refusal text.  This
+  "Parse the arguments and compose the whole shell (the store the parsed
+   `:index-store-spec` names included), or answer the refusal text.  This
    is the one gate every host's `-main` passes through before it prints a
    banner or starts a loop, so an invalid `--index-store`, an unsupported
    host for it, or a directory that cannot be opened refuses startup with
@@ -392,8 +403,8 @@
 
 
 (defn close-index-store!
-  "Release the index store's lifecycle resources before the host exits —
-   in durable mode, the exclusive directory lock.  The shell has already
+  "Release the index store's lifecycle resources before the host exits
+   (in durable mode, the exclusive directory lock).  The shell has already
    stopped when a host calls this; the memory store has nothing to
    release."
   [state]
@@ -407,8 +418,8 @@
 
 (defn banner
   "Text the composition prints before the first prompt, given parsed
-   options.  A DHT store states here — before its node steps once, so
-   before anything is shared — what it will share: the whole store when
+   options.  A DHT store states here (before its node steps once, so
+   before anything is shared) what it will share: the whole store when
    `--dht-publish` is given, nothing otherwise (yin.repl.dht/banner)."
   [opts]
   (let [spec (:index-store-spec opts)
@@ -443,15 +454,16 @@
 
 (defn step-all
   "One tick of the single step owner: the local shell first, then the served
-   endpoint — against the same shell value.  A DHT index store's node is stepped
+   endpoint, against the same shell value.  A DHT index store's node is stepped
    first (yin.repl.dht/step): its lines print before the shell's, a
    hydration still outstanding leaves every typed line waiting in the
    input medium, and a refused one stops the shell.  A `--port` process
-   serves one shared shell, as v1's atom made it: the driver evaluates this tick's local
+   serves one shared shell, as v1's atom made it: the driver evaluates this
+   tick's local
    lines first, so a definition typed at the local prompt is already in the
    shell the endpoint evaluates remote requests against in the same tick, and
-   the endpoint's shell — remote definitions included — is threaded back before
-   the next tick.  A require parked on a closure load the node ended this
+   the endpoint's shell (remote definitions included) is threaded back
+   before the next tick.  A require parked on a closure load the node ended this
    tick is re-checked once, before any typed line, with no line of its
    own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2): its
    text prints after the node's lines.  Returns `[state server lines]`;
@@ -487,8 +499,8 @@
 
 (defn moved?
   "The tick owner's cadence bit, computed from this tick's own results: true
-   when there are lines to print, when the endpoint reports movement — a
-   woken probe, a published notice — or when either composition still owes a
+   when there are lines to print, when the endpoint reports movement (a
+   woken probe, a published notice), or when either composition still owes a
    write.  A pending write keeps cadence at the base interval; it must never
    wait out a backoff ceiling."
   [state server lines]
@@ -526,7 +538,7 @@
   "How long a host thread may wait for the step owner to finish shutdown.
 
    The drain performs `stop-ticks + 1` steps with a sleep between them, so it
-   needs strictly more than `tick-millis × stop-ticks`; a join of exactly that
+   needs strictly more than `tick-millis x stop-ticks`; a join of exactly that
    expires mid-drain and the announced timeout never prints."
   (* tick-millis (+ stop-ticks 2)))
 
@@ -537,7 +549,7 @@
 
    This is the whole of what a host signal handler, a headless supervisor, or a
    test does to stop the composition.  It is a line producer like any other, so
-   the one step owner still performs the shutdown — `(quit)` stops the shell,
+   the one step owner still performs the shutdown: `(quit)` stops the shell,
    and the shell stopping is what stops the endpoint.  The wake source, when
    one is supplied, is nudged so the step owner runs the quit line at once
    rather than at the idle interval it had armed."
@@ -563,10 +575,11 @@
 
 
 ;; =============================================================================
-;; clj — a reader thread that only appends, and one owned poller thread
+;; clj: a reader thread that only appends, and one owned poller thread
 ;; =============================================================================
 
-#?(:cljd nil
+#?(:cljd
+   nil
    :clj
    (do
      (defn- print-prompt!
@@ -579,13 +592,13 @@
         once, then keep stepping until it reports `:stopped` or the bounded
         budget runs out.  A connected client must observe `:ws/ended`, not the
         `:ws/closed` a process exit would leave behind.  The bounded drain
-        sleeps the base interval — it is a budget, not a cadence."
+        sleeps the base interval; it is a budget, not a cadence."
        [server w]
        (when server
          (loop [server (serve/stop! server)
                 remaining stop-ticks]
-           (let [[server' lines stopped?] (stop-tick server
-                                                     (System/currentTimeMillis))]
+           (let [[server' lines stopped?]
+                 (stop-tick server (System/currentTimeMillis))]
              (doseq [line lines]
                (println line))
              (cond
@@ -600,7 +613,7 @@
 
         Its cadence is `cadence/cadence-step` over `default-cadence`, slept
         through the wake source `w` (one is made when the caller supplied
-        none): any line the reader deposits — and the explicit stop trigger —
+        none): any line the reader deposits, and the explicit stop trigger,
         nudges it, so operator actions never wait out the idle curve.
 
         It also owns the exit.  The reader is parked in `read-line` and cannot
@@ -624,7 +637,8 @@
               (do (when (and (seq lines) (not headless?))
                     (print-prompt!))
                   (let [{:keys [cadence-state sleep-ms]}
-                        (cadence/cadence-step cadence (moved? state' server' lines))]
+                        (cadence/cadence-step cadence
+                                              (moved? state' server' lines))]
                     (wake/sleep! w sleep-ms)
                     (recur state' server' cadence-state)))
               (do (drain-server! server' w)
@@ -649,38 +663,50 @@
 
      (defn -main
        [& args]
-       (let [started (startup args)]
+       (let
+         [started (startup args)]
          (when (contains? started :exit) (exit-with! started))
-         (if-some [refusal (:refusal started)]
+         (if-some
+           [refusal (:refusal started)]
            (refuse! refusal)
-           (let [{:keys [opts state server]} started
-                 headless? (boolean (:headless? opts))
-                 w (wake/make-wake)]
+           (let
+             [{:keys [opts state server]} started
+              headless? (boolean (:headless? opts))
+              w (wake/make-wake)]
              (doseq [line (banner opts)]
                (println line))
-             (let [poller (Thread. ^Runnable (fn []
-                                               (poll-loop! state
-                                                           server
-                                                           headless?
-                                                           #(.halt (Runtime/getRuntime) 0)
-                                                           w)))]
+             (let
+               [poller (Thread.
+                         ^Runnable (fn []
+                                     (poll-loop!
+                                       state
+                                       server
+                                       headless?
+                                       #(.halt
+                                          (Runtime/getRuntime) 0)
+                                       w)))]
                (.setDaemon poller true)
                (.start poller)
                ;; Headless attends the endpoint only: there is no reader, so the
-               ;; step owner is joined until it stops, and the explicit stop trigger
-               ;; is the host signal a shutdown hook observes.  The hook appends a
-               ;; line like any producer, nudges, and then waits for the one step
+               ;; step owner is joined until it stops, and the explicit stop
+               ;; trigger
+               ;; is the host signal a shutdown hook observes.  The hook appends
+               ;; a
+               ;; line like any producer, nudges, and then waits for the one
+               ;; step
                ;; owner.
                (if headless?
                  (do (.addShutdownHook
                        (Runtime/getRuntime)
                        (Thread. ^Runnable (fn []
                                             (request-stop! state w)
-                                            (.join poller ^long stop-join-millis))))
+                                            (.join poller ^long
+                                                   stop-join-millis))))
                      (.join poller))
                  (do (print-prompt!)
                      ;; End-of-input is one way to stop; a typed `(quit)` is the
-                     ;; other, and the step owner has already exited the process by
+                     ;; other, and the step owner has already exited the process
+                     ;; by
                      ;; the time this join is reached in that case.
                      (read-loop! (:input state) w)
                      (.join poller ^long stop-join-millis))))
@@ -688,7 +714,7 @@
 
 
 ;; =============================================================================
-;; cljs (Node) — a readline handler that only appends, and one interval owner
+;; cljs (Node): a readline handler that only appends, and one interval owner
 ;; =============================================================================
 
 #?(:cljs
@@ -697,15 +723,15 @@
        "The tick owner on Node: one wake source arms exactly one timer per
         round, at the interval `cadence-step` computes over
         `default-cadence`.  Returns the wake so the composition can wire its
-        line producers — the readline handlers, the stop signals — as
+        line producers (the readline handlers, the stop signals) as
         `nudge!` callers.
 
         `repl-step` is synchronous and the Node event loop is single
         threaded, so a tick cannot overlap itself.  The box is host cadence
         plumbing: the tick is the only reader and writer of it.  `:stopping`
         is nil while the shell runs and a tick budget afterwards: the
-        endpoint is asked to stop once and stepped at the base interval — a
-        bounded drain, not a curve — until it reports it."
+        endpoint is asked to stop once and stepped at the base interval (a
+        bounded drain, not a curve) until it reports it."
        [state server rl]
        (let [box (atom {:state state :server server :stopping nil
                         :cadence (cadence/init default-cadence)})
@@ -735,8 +761,8 @@
                           (cond
                             (:running? state')
                             (let [{:keys [cadence-state sleep-ms]}
-                                  (cadence/cadence-step cadence
-                                                        (moved? state' server' lines))]
+                                  (cadence/cadence-step
+                                    cadence (moved? state' server' lines))]
                               (swap! box assoc :cadence cadence-state)
                               (when (and (seq lines) rl) (.prompt rl))
                               (wake/arm! @wake-ref sleep-ms))
@@ -748,14 +774,14 @@
                                 (wake/arm! @wake-ref tick-millis))
 
                             :else (finish!)))
-                        (let [[server' lines stopped?] (stop-tick server
-                                                                  (js/Date.now))]
+                        (let [[server' lines stopped?]
+                              (stop-tick server (js/Date.now))]
                           (doseq [line lines]
                             (js/console.log line))
                           (cond
                             stopped? (finish!)
-                            (zero? stopping) (do (js/console.log stop-timeout-text)
-                                                 (finish!))
+                            (zero? stopping)
+                            (do (js/console.log stop-timeout-text) (finish!))
                             :else (do (swap! box assoc
                                              :server server'
                                              :stopping (dec stopping))
@@ -779,7 +805,8 @@
                                              :prompt prompt}))]
              (doseq [line (banner opts)]
                (js/console.log line))
-             ;; The tick owner arms its first round, and the composition wires the
+             ;; The tick owner arms its first round, and the composition wires
+             ;; the
              ;; deposit it hands each line producer with the nudge: a typed line
              ;; ends the idle sleep at once.
              (let [w (run-node! state server rl)]
@@ -788,18 +815,22 @@
                                       (driver/submit-line! (:input state) line)
                                       (wake/nudge! w)))
                      (.on rl "close" (fn []
-                                       (driver/submit-line! (:input state) "(quit)")
+                                       (driver/submit-line! (:input state)
+                                                            "(quit)")
                                        (wake/nudge! w)))
                      (.prompt rl))
-                 ;; Headless has no reader, so the explicit stop trigger is the host
+                 ;; Headless has no reader, so the explicit stop trigger is the
+                 ;; host
                  ;; signal: it appends a line, nudges, and returns, like any
                  ;; producer.
                  (doseq [signal ["SIGINT" "SIGTERM"]]
-                   (.on js/process signal (fn [] (request-stop! state w))))))))))))
+                   (.on js/process signal (fn []
+                                            (request-stop! state
+                                                           w))))))))))))
 
 
 ;; =============================================================================
-;; cljd — a stdin listener that only appends, and one periodic timer owner
+;; cljd: a stdin listener that only appends, and one periodic timer owner
 ;; =============================================================================
 
 #?(:cljd
@@ -816,14 +847,14 @@
      (defn- run-dart!
        "One wake source owns the tick: exactly one `Timer` armed per round, at
         the interval `cadence-step` computes over `default-cadence`, because a
-        synchronous poll loop would deadlock the Dart event loop — IO never
+        synchronous poll loop would deadlock the Dart event loop: IO never
         progresses, so `blocked` never clears.  Returns the wake so the
-        composition can wire its line producers — the stdin listener, the
-        stop signals — as `nudge!` callers.
+        composition can wire its line producers (the stdin listener, the
+        stop signals) as `nudge!` callers.
 
         `:stopping` is nil while the shell runs and a tick budget afterwards:
-        the endpoint is asked to stop once and stepped at the base interval —
-        a bounded drain, not a curve — until it reports it, so the host does
+        the endpoint is asked to stop once and stepped at the base interval
+        (a bounded drain, not a curve) until it reports it, so the host does
         not exit with a live listener."
        [state server headless?]
        (let [box (atom {:state state :server server :stopping nil
@@ -842,9 +873,11 @@
                     ;; disarms, so a finished owner parks nothing.
                     (wake/arm! @wake-ref tick-millis)
                     (let [{:keys [state server stopping cadence]} @box
-                          now (.-millisecondsSinceEpoch (dart-core/DateTime.now))]
+                          now (.-millisecondsSinceEpoch
+                                (dart-core/DateTime.now))]
                       (if (nil? stopping)
-                        (let [[state' server' lines] (step-all state server now)]
+                        (let [[state' server' lines]
+                              (step-all state server now)]
                           (reset! box {:state state'
                                        :server server'
                                        :stopping nil
@@ -854,8 +887,8 @@
                           (cond
                             (:running? state')
                             (let [{:keys [cadence-state sleep-ms]}
-                                  (cadence/cadence-step cadence
-                                                        (moved? state' server' lines))]
+                                  (cadence/cadence-step
+                                    cadence (moved? state' server' lines))]
                               (swap! box assoc :cadence cadence-state)
                               (when (and (seq lines) (not headless?))
                                 (print-prompt!))
@@ -895,14 +928,16 @@
                  headless? (boolean (:headless? opts))]
              (doseq [line (banner opts)]
                (write-line! line))
-             ;; The tick owner arms its first round, and the composition wires the
+             ;; The tick owner arms its first round, and the composition wires
+             ;; the
              ;; deposit it hands each line producer with the nudge: a typed line
              ;; ends the idle sleep at once.  A timer fires only on the event
              ;; loop, so arming before the producers are wired races nothing.
              (let [w (run-dart! state server headless?)]
                (if headless?
                  ;; Headless has no reader, so the explicit stop trigger is the
-                 ;; host signal: it appends a line, nudges, and returns, like any
+                 ;; host signal: it appends a line, nudges, and returns, like
+                 ;; any
                  ;; producer.
                  (-> (.watch io/ProcessSignal.sigint)
                      (.listen (fn [_signal] (request-stop! state w))))
@@ -913,7 +948,8 @@
                                     (driver/submit-line! (:input state) line)
                                     (wake/nudge! w))
                                   .onDone (fn []
-                                            (driver/submit-line! (:input state) "(quit)")
+                                            (driver/submit-line! (:input state)
+                                                                 "(quit)")
                                             (wake/nudge! w))))
                      (print-prompt!))))))))
 

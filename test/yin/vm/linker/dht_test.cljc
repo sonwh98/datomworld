@@ -146,7 +146,8 @@
 (defn- gets
   "The `:jing/get` requests `node`'s load client has appended."
   [node]
-  (count (filter :jing/get (mesh/values (get-in node [:composition :requests])))))
+  (count (filter :jing/get (mesh/values (get-in node [:composition
+                                                      :requests])))))
 
 
 (defn- close-world!
@@ -159,23 +160,30 @@
 ;; Load by address, then link with no fetch
 ;; =============================================================================
 
-(deftest a-closure-loaded-by-address-links-on-all-four-formats-with-no-fetch
-  (let [w (world {} {})
-        published (ld/publish! (:a w) {:name 'base :ast ct/base-ast
-                                       :exports #{'f} :requires {}
-                                       :primitives ct/plus})
-        m (:address published)
-        _ (dht/announce! (:a w) m)
-        w (run-world w 20000 #(event (get-in % [:events :a]) :published m))
-        report (event (get-in w [:events :a]) :published m)]
+(deftest
+  a-closure-loaded-by-address-links-on-all-four-formats-with-no-fetch
+  (let
+    [w (world {} {})
+     published (ld/publish! (:a w) {:name 'base :ast ct/base-ast
+                                    :exports #{'f} :requires {}
+                                    :primitives ct/plus})
+     m (:address published)
+     _ (dht/announce! (:a w) m)
+     w (run-world w 20000 #(event (get-in % [:events :a]) :published m))
+     report (event (get-in w [:events :a]) :published m)]
     (testing "A's publication is acknowledged"
       (is (= :acknowledged (:result report)) (pr-str report)))
-    (let [w (update w :b ld/load-module m)
-          w (run-world w 60000 #(terminal? (:b %) m))
-          b (:b w)
-          loaded (event (get-in w [:events :b]) :loaded m)]
-      (testing "B loads the whole closure over the network"
-        (is (= :loaded (:status (ld/module-status b m))) (pr-str (ld/module-status b m)))
+    (let
+      [w (update w :b ld/load-module m)
+       w (run-world w 60000 #(terminal? (:b %) m))
+       b (:b w)
+       loaded (event (get-in w [:events :b]) :loaded m)]
+      (testing
+        "B loads the whole closure over the network"
+        (is
+          (= :loaded (:status (ld/module-status b m))) (pr-str
+                                                         (ld/module-status b
+                                                                           m)))
         (is (= ld/module-kind (:kind loaded)))
         (is (pos? (:fetched loaded)) "the blobs came from peers")
         (is (= (count (ct/entries (dht/local (:a w))))
@@ -215,13 +223,15 @@
                                                linker/semantic-format)))
                              "the semantic format links from what is local")
                          (is (= :yin.link.dht/not-loaded
-                                (:reason (ld/link (:b w) m :yin.semantic/code))))))]
+                                (:reason (ld/link (:b w) m
+                                                  :yin.semantic/code))))))]
       (is (not (contains? @seen :loaded)))
       (is (= {:status :failed :kind ld/module-kind :fetched 0
               :reason {::dht/failure :miss :address h-address
                        :cause ::jing.dht/exhausted}}
              (ld/module-status (:b w) m)))
-      (is (= :yin.link.dht/not-loaded (:reason (ld/link (:b w) m :yin.semantic/code))))
+      (is (= :yin.link.dht/not-loaded (:reason (ld/link (:b w) m
+                                                        :yin.semantic/code))))
       (close-world! w))))
 
 
@@ -234,7 +244,8 @@
     (is (= {::dht/failure :miss :address m :cause ::jing.dht/exhausted}
            (:reason (ld/module-status (:b w) m))))
     (is (= {::dht/event :load-failed :manifest m :kind ld/module-kind
-            :reason {::dht/failure :miss :address m :cause ::jing.dht/exhausted}}
+            :reason {::dht/failure :miss :address m :cause
+                     ::jing.dht/exhausted}}
            (event (get-in w [:events :b]) :load-failed m)))
     (close-world! w)))
 
@@ -244,14 +255,16 @@
         m (:address (ct/publish-base! store))
         node (dht/join {:local store})]
     (testing "with no load at all"
-      (is (= {:status :refused :reason :yin.link.dht/not-loaded :address m :load nil}
+      (is (= {:status :refused :reason :yin.link.dht/not-loaded :address m
+              :load nil}
              (ld/link node m :yin.semantic/code)))
       (is (= :yin.link.dht/not-loaded
              (:reason (ld/dependency-bindings node {} m)))))
     (testing "while loading"
       (let [node (ld/load-module node m)]
         (is (= {:status :refused :reason :yin.link.dht/not-loaded :address m
-                :load {:status :loading :kind ld/module-kind :fetched 0 :fetching nil}}
+                :load {:status :loading :kind ld/module-kind :fetched 0
+                       :fetching nil}}
                (ld/link node m :yin.semantic/code)))
         (testing "and once loaded, the same call links"
           (let [[node _] (dht/step node 0)]
@@ -265,14 +278,19 @@
 ;; A failed load as its section 9 row
 ;; =============================================================================
 
-(deftest a-failed-load-is-its-section-9-row
-  (let [m (jing/segment-key "a module")]
+(deftest
+  a-failed-load-is-its-section-9-row
+  (let
+    [m (jing/segment-key "a module")]
     (testing ":miss is :absent with the miss cause"
-      (is (= {:status :refused :reason :absent :address m :cause ::jing.dht/exhausted}
+      (is (= {:status :refused :reason :absent :address m :cause
+              ::jing.dht/exhausted}
              (ld/load-refusal {:status :failed :kind ld/module-kind :fetched 0
                                :reason {::dht/failure :miss :address m
                                         :cause ::jing.dht/exhausted}}))))
-    (testing ":invalid is :descriptor-defect with the code, and detail and text when present"
+    (testing (str
+               ":invalid is :descriptor-defect with the code,"
+               " and detail and text when present")
       (is (= {:status :refused :reason :descriptor-defect :address m
               :code :manifest-defect}
              (ld/load-refusal {:status :failed :kind ld/module-kind :fetched 1
@@ -293,15 +311,23 @@
                                         :outcome :request-undeliverable}}))))
     (testing "a load that has not failed has no row"
       (is (nil? (ld/load-refusal nil)))
-      (is (nil? (ld/load-refusal {:status :loading :kind ld/module-kind :fetched 0
+      (is (nil? (ld/load-refusal {:status :loading :kind ld/module-kind
+                                  :fetched 0
                                   :fetching nil})))
-      (is (nil? (ld/load-refusal {:status :loaded :kind ld/module-kind :fetched 3}))))
-    (testing "over a real failed load: the node's own status converts"
-      (let [node (ld/load-module (dht/join {:local (mem/create-content-mem)}) m)
-            [node _] (dht/step node 0)
-            [node _] (dht/step node 10)]
-        (is (= :failed (:status (ld/module-status node m))) (pr-str (ld/module-status node m)))
-        (is (= {:status :refused :reason :absent :address m :cause ::jing.dht/solo}
+      (is (nil? (ld/load-refusal {:status :loaded :kind ld/module-kind :fetched
+                                  3}))))
+    (testing
+      "over a real failed load: the node's own status converts"
+      (let
+        [node (ld/load-module (dht/join {:local (mem/create-content-mem)}) m)
+         [node _] (dht/step node 0)
+         [node _] (dht/step node 10)]
+        (is
+          (= :failed (:status (ld/module-status node m))) (pr-str
+                                                            (ld/module-status
+                                                              node m)))
+        (is (= {:status :refused :reason :absent :address m :cause
+                ::jing.dht/solo}
                (ld/load-refusal (ld/module-status node m))))
         (dht/close! node)))))
 
@@ -310,9 +336,11 @@
   (doseq [bad [42 [1] "bad"]]
     (testing (pr-str bad)
       (let [store (mem/create-content-mem)
-            m (jing/materialize! store (assoc (:manifest (ct/publish-base! store))
+            m (jing/materialize! store (assoc (:manifest (ct/publish-base!
+                                                           store))
                                               :yin.module/index bad))
-            [node events] (dht/step (ld/load-module (dht/join {:local store}) m) 0)]
+            [node events] (dht/step (ld/load-module (dht/join {:local store})
+                                                    m) 0)]
         (is (= {:status :refused :reason :descriptor-defect :address m
                 :code :manifest-defect
                 :detail {:rule :manifest-shape :key :yin.module/index}}
@@ -332,14 +360,21 @@
              ((:get-bytes-fn store) address not-found)))))
 
 
-(deftest a-blob-lost-after-loaded-is-closure-incomplete
-  (let [store (mem/create-content-mem)
-        res (ct/publish-base! store)
-        m (:address res)
-        image (get-in res [:identities :yin.semantic/code])
-        hidden (atom #{})
-        [node _] (dht/step (ld/load-module (dht/join {:local (hiding store hidden)}) m)
-                           0)]
+(deftest
+  a-blob-lost-after-loaded-is-closure-incomplete
+  (let
+    [store (mem/create-content-mem)
+     res (ct/publish-base! store)
+     m (:address res)
+     image (get-in res [:identities :yin.semantic/code])
+     hidden (atom #{})
+     [node _] (dht/step
+                (ld/load-module
+                  (dht/join
+                    {:local (hiding
+                              store
+                              hidden)}) m)
+                0)]
     (is (= :loaded (:status (ld/module-status node m))))
     (is (linker/ok? (ld/link node m :yin.semantic/code)))
     (swap! hidden conj image)
@@ -368,7 +403,8 @@
         (is (= code (get-in status [:reason :defect :code])) (pr-str status))
         (is (= 1 (count (filter #(= :load-failed (::dht/event %)) events))))
         (let [[node more] (reduce (fn [[n es] t]
-                                    (let [[n e] (dht/step n t)] [n (into es e)]))
+                                    (let [[n e] (dht/step n t)] [n (into es
+                                                                         e)]))
                                   [node []]
                                   [10 20 30])]
           (is (= status (ld/module-status node m)) "a failed load stays failed")
@@ -438,7 +474,8 @@
         node (reduce dht/load-index node indexes)
         node (ld/load-module node app)
         [node _] (dht/step node 0)]
-    (is (every? #(= :loaded (:status (dht/load-status node %))) (conj indexes app)))
+    (is (every? #(= :loaded (:status (dht/load-status node %))) (conj indexes
+                                                                      app)))
     {:node node :app app :base base :base2 base2 :indexes indexes}))
 
 
@@ -457,7 +494,8 @@
             b (only-binding r (declare-keys p1 p2))]
         (is (= {:module (:app r) :name 'base :pinned (:base r) :binding :ok} b))
         (testing "and app links and runs"
-          (doseq [f [:yin.semantic/code :yin.debruijn.code :yin.debruijn.register
+          (doseq [f [:yin.semantic/code :yin.debruijn.code
+                     :yin.debruijn.register
                      :yin.ast/code]]
             (is (linker/ok? (ld/link (:node r) (:app r) f)) (name f)))
           (let [base-run (vm/run (loaded-vm :yin.ast/code
@@ -467,7 +505,8 @@
                                             {}))
                 f (get (vm/store base-run) 'f)
                 app-run (vm/run (loaded-vm :yin.ast/code
-                                           (ld/link (:node r) (:app r) :yin.ast/code)
+                                           (ld/link (:node r) (:app r)
+                                                    :yin.ast/code)
                                            {'base/f f}))]
             (is (= 43 (get (vm/store app-run) 'g)))))
         (dht/close! (:node r))))
@@ -489,10 +528,12 @@
     (testing "conflicting: P1 has republished base at another address"
       (let [r (reader (fn [{:keys [base2] :as a}]
                         (let [old (p1-base a)]
-                          [[old (retraction p1 old 2) (assertion p1 'base base2 3)]
+                          [[old (retraction p1 old 2) (assertion p1 'base base2
+                                                                 3)]
                            [(p2-app a)]])))
             b (only-binding r (declare-keys p1 p2))]
-        (is (= {:module (:app r) :name 'base :pinned (:base r) :binding :mismatch
+        (is (= {:module (:app r) :name 'base :pinned (:base r) :binding
+                :mismatch
                 :resolved (:base2 r) :asserters [(sign/principal (:public p1))]}
                b))
         (dht/close! (:node r))))
@@ -522,7 +563,8 @@
       (let [r (reader (fn [_] []))
             b (only-binding r {:name-env {'base (:base r)}})]
         (is (= :ok (:binding b)))
-        (is (= :composition (get-in (ld/names (:node r) {:name-env {'base (:base r)}})
+        (is (= :composition (get-in (ld/names (:node r) {:name-env {'base
+                                                                    (:base r)}})
                                     [:names 'base :yin.link/provenance])))
         (dht/close! (:node r))))))
 
@@ -559,7 +601,8 @@
               (doseq [child (.listFiles f)]
                 (.delete ^java.io.File child))
               (.delete f)))
-     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force true})
+     :cljs (try (.rmSync (js/require "fs") dir #js {:recursive true :force
+                                                    true})
                 (catch :default _ nil))))
 
 
@@ -588,12 +631,14 @@
             stray (envelope-index! node [(assertion p1 'other other 2)])]
         (testing "before HEAD is written, nothing is in the snapshot set"
           (is (= [] (ld/snapshots node)))
-          (is (= :absent (get-in (ld/names node authority) [:names 'base :reason]
+          (is (= :absent (get-in (ld/names node authority) [:names 'base
+                                                            :reason]
                                  :absent))))
         ((:head-fn local) at-head)
         (testing "the manifest HEAD names is a snapshot without any load"
           (is (= [at-head] (ld/snapshots node)))
-          (is (= base (get-in (ld/names node authority) [:names 'base :address])))
+          (is (= base (get-in (ld/names node authority) [:names 'base
+                                                         :address])))
           (is (= [at-head] (:snapshot (ld/names node authority)))))
         (testing "an index merely in the local store is never considered"
           (is (some? (jing/get local stray nil)))
@@ -632,7 +677,9 @@
       (is (= :absent (get-in env [:names 'base :reason])))
       (is (= [[:unauthenticated :bad-proof]]
              (mapv (juxt :reason :kind) (:diagnostics env))))))
-  (testing "two declared principals on different addresses: ambiguous, naming both"
+  (testing (str
+             "two declared principals on different addresse"
+             "s: ambiguous, naming both")
     (let [env (names-of (fn [{:keys [base base2]}]
                           [[(assertion p1 'base base 1)]
                            [(assertion p2 'base base2 1)]])
@@ -655,7 +702,8 @@
   (testing "a retraction removes exactly its assertion"
     (let [env (names-of (fn [{:keys [base base2]}]
                           (let [a (assertion p1 'base base 1)]
-                            [[a (assertion p1 'other base2 2) (retraction p1 a 3)]]))
+                            [[a (assertion p1 'other base2 2) (retraction p1 a
+                                                                          3)]]))
                         (declare-keys p1))]
       (is (= :absent (get-in env [:names 'base :reason])))
       (is (= (get-in env [:r :base2]) (get-in env [:names 'other :address])))
@@ -666,34 +714,49 @@
 ;; A dangling retraction is one global diagnostic (owner decision 6)
 ;; =============================================================================
 
-(deftest a-retraction-of-an-assertion-outside-the-snapshot-set-is-global
-  (let [gone (fn [{:keys [base]}] (assertion p1 'base base 1))
-        gone-id (fn [r] (jing/segment-key (:env (gone r))))]
-    (testing "reported once, globally, with the retraction's principal and the id it names"
-      (let [r (reader (fn [a]
-                        [[(retraction p1 (gone a) 2)]
-                         [(retraction p1 (gone a) 2) (assertion p1 'app (:app a) 3)]]))
-            authority (declare-keys p1)
-            env (ld/names (:node r) authority)]
-        (is (= [[:dangling-retraction (sign/principal (:public p1)) (gone-id r)]]
+(deftest
+  a-retraction-of-an-assertion-outside-the-snapshot-set-is-global
+  (let
+    [gone (fn [{:keys [base]}] (assertion p1 'base base 1))
+     gone-id (fn [r] (jing/segment-key (:env (gone r))))]
+    (testing
+      (str
+        "reported once, globally, with the retraction'"
+        "s principal and the id it names")
+      (let
+        [r (reader
+             (fn [a]
+               [[(retraction p1 (gone a) 2)]
+                [(retraction p1 (gone a) 2) (assertion
+                                              p1 'app (:app
+                                                        a) 3)]]))
+         authority (declare-keys p1)
+         env (ld/names (:node r) authority)]
+        (is (= [[:dangling-retraction (sign/principal (:public p1)) (gone-id
+                                                                      r)]]
                (mapv (juxt :reason :principal :of) (:global-diagnostics env)))
             (pr-str env))
         (testing "and in no per-name diagnostic"
-          (is (not-any? #(= :dangling-retraction (:reason %)) (:diagnostics env))
+          (is (not-any? #(= :dangling-retraction (:reason %)) (:diagnostics
+                                                                env))
               (pr-str (:diagnostics env)))
           (is (= {:status :refused :reason :absent :name 'base :diagnostics []}
                  (ld/resolve-name (:node r) authority 'base)))
           (is (= (:app r) (:address (ld/resolve-name (:node r) authority 'app)))
               "the other name still resolves"))
         (dht/close! (:node r))))
-    (testing "a retraction whose target is a retraction names no name: global too"
+    (testing (str
+               "a retraction whose target is a retraction nam"
+               "es no name: global too")
       (let [r (reader (fn [a]
                         (let [r1 (retraction p1 (gone a) 2)]
-                          [[r1 (retraction p1 r1 3) (assertion p1 'app (:app a) 4)]])))
+                          [[r1 (retraction p1 r1 3) (assertion p1 'app (:app a)
+                                                               4)]])))
             authority (declare-keys p1)
             env (ld/names (:node r) authority)
             r1-id (jing/segment-key (:env (retraction p1 (gone r) 2)))]
-        (is (= #{[:dangling-retraction (gone-id r)] [:dangling-retraction r1-id]}
+        (is (= #{[:dangling-retraction (gone-id r)] [:dangling-retraction
+                                                     r1-id]}
                (set (mapv (juxt :reason :of) (:global-diagnostics env))))
             (pr-str env))
         (is (= 2 (count (:global-diagnostics env))) "each once")
@@ -739,7 +802,8 @@
       (is (zero? (entries))))
     (testing "an undefined export: refused, nothing written"
       (is (= :yin.link.publish/undefined-export
-             (:reason (ld/publish-name! node db (assoc opts :exports '[nope])))))
+             (:reason (ld/publish-name! node db (assoc opts :exports
+                                                       '[nope])))))
       (is (zero? (entries))))
     (let [res (ld/publish-name! node db opts)]
       (is (= :ok (:status res)))
@@ -783,7 +847,8 @@
                           (index/read-datoms (dht/local node) m1)))
                   opts)
         new (:address changed)
-        m2 (signed-index! node (into (:envelopes first-run) (:envelopes changed)))
+        m2 (signed-index! node (into (:envelopes first-run) (:envelopes
+                                                              changed)))
         authority (declare-keys p1)
         resolve-in (fn [manifests]
                      (let [reader (reader-of node manifests)
@@ -793,7 +858,9 @@
     (is (not= old new))
     (testing "the new manifest writes the retraction, then the assertion"
       (is (= [[:retract 2] [:assert 3]]
-             (mapv (fn [s] [(:yin.module/op (:envelope s)) (:yin.module/seq (:envelope s))])
+             (mapv (fn [s]
+                     [(:yin.module/op (:envelope s)) (:yin.module/seq
+                                                       (:envelope s))])
                    (:envelopes changed))))
       (is (= (jing/segment-key (:envelope (first (:envelopes first-run))))
              (:yin.module/of (:envelope (first (:envelopes changed)))))))
