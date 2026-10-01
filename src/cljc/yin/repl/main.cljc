@@ -293,9 +293,13 @@
    lines first, so a definition typed at the local prompt is already in the
    shell the endpoint evaluates remote requests against in the same tick, and
    the endpoint's shell — remote definitions included — is threaded back before
-   the next tick.  Returns `[state server lines]`; the caller only prints."
+   the next tick.  A require parked on a closure load the node ended this
+   tick is re-checked once, before any typed line, with no line of its
+   own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2): its
+   text prints after the node's lines.  Returns `[state server lines]`;
+   the caller only prints."
   [state server now]
-  (let [[repl dht-lines] (repl.dht/step (:repl state) now)
+  (let [[repl dht-lines events] (repl.dht/step (:repl state) now)
         state (assoc state :repl repl)]
     (cond
       (repl.dht/refusal repl)
@@ -305,7 +309,11 @@
       [state server dht-lines]
 
       :else
-      (let [stepped (driver/repl-step state now)
+      (let [[repl rechecked] (shell/recheck-on-load-events repl events)
+            dht-lines (cond-> dht-lines
+                        (seq rechecked) (conj rechecked))
+            state (assoc state :repl repl)
+            stepped (driver/repl-step state now)
             [entries state'] (driver/take-outbox stepped)
             server' (when server
                       (serve/step (assoc-in server [:repl] (:repl state'))

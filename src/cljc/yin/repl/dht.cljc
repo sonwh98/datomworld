@@ -211,10 +211,11 @@
 
 (defn step
   "Advance the shell's node once at the host's clock reading `now`
-   (dao.space.dht/step) and answer `[shell' lines]`: its events as lines,
-   a completed hydration installed, a failed one or a failed bind
-   recorded as the shell's refusal.  A shell without a DHT store is
-   answered unchanged."
+   (dao.space.dht/step) and answer `[shell' lines events]`: its events as
+   lines, and as the data the ticker reads to re-check a pending require
+   (yin.repl/recheck-on-load-events), a completed hydration installed, a
+   failed one or a failed bind recorded as the shell's refusal.  A shell
+   without a DHT store is answered unchanged."
   [shell now]
   (if-let [node (:dht shell)]
     (let [[node events] (dht/step node now)
@@ -228,8 +229,8 @@
                  (dht/refusal node)
                  (assoc ::refusal (dht/refusal node)))
           shell (assoc shell :dht node)]
-      [(if (= :loaded status) (hydrated shell node) shell) lines])
-    [shell []]))
+      [(if (= :loaded status) (hydrated shell node) shell) lines events])
+    [shell [] []]))
 
 
 (defn refusal
@@ -283,4 +284,9 @@
                  " leaves this process"))
 
       (and (not publish?) (seq peers))
-      (conj "dht: fetch-only — nothing this node holds is shared (--dht-publish shares it)"))))
+      (conj "dht: fetch-only — nothing this node holds is shared (--dht-publish shares it)")
+
+      true
+      (conj (str "dht: a (require ...) of a module this node does not hold "
+                 "may fetch its code from peers; it stays pending until the "
+                 "load ends, and (abandon) gives it up")))))

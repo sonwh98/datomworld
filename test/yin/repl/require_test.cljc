@@ -768,3 +768,33 @@
       (is (nil? (:pending-run step2)))
       (is (str/includes? text "the session link policy ended the require"))
       (is (str/includes? text "Module link refused: link-policy")))))
+
+
+;; =============================================================================
+;; The DHT link source beside the two content sources
+;; (docs/design/yin.vm.linker.dht.md 4.1, slice L3)
+;; =============================================================================
+
+(deftest a-dht-source-composes-alone-and-the-content-budget-is-unchanged-test
+  (testing "a DHT source holds no handle of its own"
+    (is (= {:kind :dht} (:content (link/composition {:dht? true})))))
+  (testing "and is refused together with either content source"
+    (doseq [opts [{:content-store (mem/create-content-mem)}
+                  {:content-client (silent-client)}]]
+      (is (some? (try (link/composition (assoc opts :dht? true))
+                      nil
+                      (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+                        e))))))
+  (testing "the :content-store and :content-client attempt budget is unchanged"
+    (is (= 64 link/attempt-budget))
+    (let [state (repl/create-state {:vm-type :stack
+                                    :content-client (silent-client)
+                                    :name-env {'mod (:address
+                                                      (publish-module
+                                                        (mem/create-content-mem)
+                                                        closed-module 'mod
+                                                        closed-exports))}})
+          [pending text] (repl/eval-input state "(require (quote mod))")]
+      (is (str/includes? text "pending"))
+      (is (nil? (:manifest (first (:links (:pending-run pending)))))
+          "a content-pair link waits on no load"))))

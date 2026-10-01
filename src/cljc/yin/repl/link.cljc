@@ -22,11 +22,22 @@
    reports the link `:pending` -- nothing is appended, the request is
    re-read and re-attempted on a later round, and `abandon` is the
    shell's.  No clock, no atom, no global: every input is an argument or
-   a composition value, and every outcome is plain data."
+   a composition value, and every outcome is plain data.
+
+   A DHT link source (docs/design/yin.vm.linker.dht.md 4.1) holds no
+   handle: each serve round receives the shell's `dao.space.dht` node
+   and answers the node after it.  A resolved name whose closure is not
+   loaded starts its load (`yin.vm.linker.dht/load-module`) and reports
+   the link `:pending`, naming the manifest it waits on; the node's own
+   step fetches.  A failed load is refused in its section 9 shape and
+   forgotten; a loaded one has its dependency bindings checked, then
+   links over a local runtime on the node's store, asking no peer."
   (:require [dao.jing.content :as content]
+            [dao.space.dht :as dht]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
-            [yin.vm.linker :as linker]))
+            [yin.vm.linker :as linker]
+            [yin.vm.linker.dht :as linker.dht]))
 
 
 (def pair-capacity
@@ -113,13 +124,22 @@
    serves content (the remote-content row), and the drive then only
    steps the linker, the server running elsewhere (section 6.4).  A
    content source is optional: with none, every link stays `:pending`
-   and says so.  Supplying both is a composition defect."
-  [{:keys [name-env content-store content-client]}]
+   and says so.  Supplying both is a composition defect.  `dht?` is the
+   DHT link source (yin.vm.linker.dht.md 4.1): it reads content from the
+   node each serve round is handed, holds nothing here, and is refused
+   together with either content source."
+  [{:keys [name-env content-store content-client dht?]}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
+  (when (and dht? (or content-store content-client))
+    (throw (ex-info (str "a dht:<dir> index store is the link source; "
+                         "content-store and content-client are refused with it")
+                    {:dht? dht?})))
   {:name-env (or name-env {})
    :content (cond
+              dht? {:kind :dht}
+
               content-store
               {:kind :local
                :store content-store
@@ -227,25 +247,113 @@
       ::pending)))
 
 
-(defn- answer
-  "The response body for one link request, or `::pending` when nothing
-   this round can answer it: no content source, or an attempt that spent
-   its budget.  A request that is not by name is refused: the
-   interpreter serves what the shell's own VMs send, the by-name
-   manifest requests of section 7.2, and nothing else."
-  [source request]
-  (let [name (:yin.link/name request)]
-    (cond
-      (nil? (:content source)) ::pending
+;; =============================================================================
+;; The DHT link source (yin.vm.linker.dht.md 4.1)
+;; =============================================================================
 
-      (nil? name)
-      {:status :refused, :reason :invalid-request,
-       :defect :yin.repl/name-required}
+(defn- load-refusal
+  "The one response shape of a failed closure load (section 9)."
+  [{::dht/keys [failure] :keys [address cause defect outcome]}]
+  (case failure
+    :miss {:status :refused, :reason :absent, :address address, :cause cause}
+    :invalid (merge {:status :refused, :reason :descriptor-defect,
+                     :address address, :code (:code defect)}
+                    (select-keys defect [:detail :text]))
+    :unaskable {:status :refused, :reason :yin.link.dht/unaskable,
+                :address address, :outcome outcome}))
+
+
+(defn- dht-link
+  "Link the loaded closure of `address` over a local runtime on the
+   node's store (`yin.vm.linker/local-runtime`), `:verifying`, discharge
+   deferred.  A local store answers every content request at once, so no
+   attempt budget applies; an `:absent` refusal after the load is a
+   walker defect, `:yin.link.dht/closure-incomplete`."
+  [node request address]
+  (let [res (linker/link-manifest
+              (linker/local-runtime (dht/store node) {:formats formats})
+              address
+              (:yin.link/format request)
+              {}
+              {:contract (:yin.link/contract request)
+               :name (:yin.link/name request)
+               :derivation :verifying
+               :defer-discharge true})]
+    (cond
+      (linker/ok? res) {:status :ok
+                        :image {:value (:value res)}
+                        :manifest (:manifest res)
+                        :obligations (:obligations res)}
+      (= :absent (:reason res)) {:status :refused
+                                 :reason :yin.link.dht/closure-incomplete
+                                 :address (:address res)}
+      :else res)))
+
+
+(defn- dht-attempt
+  "One attempt against the DHT source for the resolved `address`:
+   `{:node n :body b}`, `b` `::pending` with `:waits` the manifest whose
+   load the link waits on.  No record starts the load; `:loading` waits;
+   `:failed` is refused and forgotten, so a later require loads again;
+   `:loaded` checks the dependency bindings, the first that is not `:ok`
+   refusing before any link, then links."
+  [node authority request address]
+  (let [status (linker.dht/module-status node address)]
+    (cond
+      (nil? status) {:node (linker.dht/load-module node address)
+                     :body ::pending
+                     :waits address}
+
+      (= :loading (:status status)) {:node node, :body ::pending, :waits address}
+
+      (= :failed (:status status)) {:node (dht/forget node address)
+                                    :body (load-refusal (:reason status))}
 
       :else
-      (if-let [address (get (:name-env source) name)]
-        (attempt source request address)
-        {:status :refused, :reason :absent, :name name}))))
+      (let [bindings (linker.dht/dependency-bindings node authority address)
+            unbound (if (map? bindings)
+                      bindings
+                      (some (fn [b]
+                              (when-not (= :ok (:binding b))
+                                (merge {:status :refused
+                                        :reason :yin.link.dht/dependency-binding}
+                                       b)))
+                            bindings))]
+        {:node node
+         :body (or unbound (dht-link node request address))}))))
+
+
+(defn- answer
+  "The response body for one link request under `:body`, or `::pending`
+   when nothing this round can answer it: no content source, an attempt
+   that spent its budget, or a DHT closure load not yet ended (its
+   manifest under `:waits`).  `:node` is the shell's DHT node after the
+   answer.  A request that is not by name is refused: the interpreter
+   serves what the shell's own VMs send, the by-name manifest requests
+   of section 7.2, and nothing else."
+  [source node request]
+  (let [name (:yin.link/name request)
+        dht? (= :dht (get-in source [:content :kind]))]
+    (cond
+      (nil? (:content source)) {:node node, :body ::pending}
+
+      (nil? name)
+      {:node node
+       :body {:status :refused, :reason :invalid-request,
+              :defect :yin.repl/name-required}}
+
+      dht?
+      (let [authority {:name-env (:name-env source)}
+            entry (get-in (linker.dht/names node authority) [:names name])]
+        (if (= :ok (:status entry))
+          (dht-attempt node authority request (:address entry))
+          {:node node, :body {:status :refused, :reason :absent, :name name}}))
+
+      :else
+      {:node node
+       :body (if-let [address (get (:name-env source) name)]
+               (attempt source request address)
+               {:status :refused, :reason :absent, :name name})})))
 
 
 (defn- respond!
@@ -266,32 +374,39 @@
    order -- and is reported under `:pending`; its cursor stays, so a
    later round re-reads and re-attempts it.  A response the response
    medium refuses reports its request pending the same way, and the
-   round reports no progress.  Returns
-   `{:pair pair :pending pending :progress? bool}`, `:progress?` true
-   when at least one response was appended, so the shell knows the round
-   moved something."
+   round reports no progress.  `dht` is the shell's DHT node, which a DHT
+   source reads and advances.  Returns
+   `{:pair pair :pending pending :progress? bool :dht node}`,
+   `:progress?` true when at least one response was appended, so the
+   shell knows the round moved something; a pending entry a DHT load
+   holds names that load's manifest under `:manifest`."
   ([comp] (serve comp serve-budget))
-  ([{:keys [pair source]} budget]
+  ([{:keys [pair source dht]} budget]
    (loop [pair pair
+          node dht
           remaining budget
           pending []
           progress? false]
      (if (zero? remaining)
-       {:pair pair, :pending pending, :progress? progress?}
+       {:pair pair, :pending pending, :progress? progress?, :dht node}
        (let [r (stream/next (:requests pair) (:cursor pair))]
          (if-not (= :dao.stream/ok (:dao.stream/outcome r))
            ;; blocked, or a gap: nothing more is answerable this round
-           {:pair pair, :pending pending, :progress? progress?}
+           {:pair pair, :pending pending, :progress? progress?, :dht node}
            (let [request (:dao.stream/value r)
-                 body (answer source request)
+                 {:keys [node body waits]} (answer source node request)
                  answered? (and (not= ::pending body)
                                 (respond! pair request body))]
              (if answered?
                (recur (assoc pair :cursor (:dao.stream/cursor r))
+                      node
                       (dec remaining)
                       pending
                       true)
                {:pair pair
-                :pending (conj pending {:name (:yin.link/name request)
-                                        :yin.link/id (:yin.link/id request)})
-                :progress? progress?}))))))))
+                :pending (conj pending
+                               (cond-> {:name (:yin.link/name request)
+                                        :yin.link/id (:yin.link/id request)}
+                                 waits (assoc :manifest waits)))
+                :progress? progress?
+                :dht node}))))))))

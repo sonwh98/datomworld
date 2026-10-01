@@ -255,6 +255,8 @@
        "  (reset)\n"
        "  (connect \"daostream:ws://host:port\")\n"
        "  (disconnect)\n"
+       "  (require (quote m))  - link module m; with a dht:<dir> index store"
+       " it may fetch m's code from peers, and stays pending until it has\n"
        "  (abandon)  - give up a (require ...) that is still pending\n"
        "  (repl-state)\n"
        "  (help)\n"
@@ -838,7 +840,11 @@
    durable directory store with a `dao.jing.dht` node composed over it.
    Its step-owner value is `:dht`, advanced only by `yin.repl.dht/step`
    from the host's ticker; a round publishes against the local store and
-   never waits on it."
+   never waits on it.  It is also the link source
+   (yin.vm.linker.dht.md 4.1): a `(require ...)` of a name `name-env`
+   resolves starts a closure load on the node, which may fetch from
+   peers, and parks until the load ends; `content-store` and
+   `content-client` are refused with it."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
@@ -860,14 +866,17 @@
                             index-store nil
 
                             :else (store/checked-spec index-store-spec))
-         index-store (or index-store
-                         (if (= :dht (:type index-store-spec))
-                           (repl.dht/open index-store-spec)
-                           (store/open index-store-spec)))
+         ;; composed before the store opens: a refused composition never
+         ;; holds a directory lock
          link-source (link/composition
                        {:name-env name-env
                         :content-store content-store
-                        :content-client content-client})]
+                        :content-client content-client
+                        :dht? (= :dht (:type index-store-spec))})
+         index-store (or index-store
+                         (if (= :dht (:type index-store-spec))
+                           (repl.dht/open index-store-spec)
+                           (store/open index-store-spec)))]
      (merge
        (update (make-session vm-type output-stream primitives shell-token
                              index-store)
@@ -1289,7 +1298,20 @@
            (assoc (or (ex-data error) {})
                   ::link-counter (:id-counter vm)
                   ::link-origins (:origins vm)
-                  ::query-pair (:query-pair state))))
+                  ::query-pair (:query-pair state)
+                  ::link-pair (:link-pair state)
+                  ::dht (:dht state))))
+
+
+(defn- carry-served
+  "`state` rolled back by a link raise, keeping what the interpreters
+   already concluded: the query pair, the link pair past every request
+   answered, and the DHT node a load started or forgot on."
+  [state d]
+  (cond-> state
+    (::query-pair d) (assoc :query-pair (::query-pair d))
+    (::link-pair d) (assoc :link-pair (::link-pair d))
+    (contains? d ::dht) (assoc :dht (::dht d))))
 
 
 (defn- drive-links
@@ -1336,7 +1358,11 @@
         :else
         (let [served (when link?
                        (link/serve {:pair (:link-pair state)
-                                    :source (:link-source state)}))
+                                    :source (:link-source state)
+                                    :dht (:dht state)}))
+              state (cond-> state
+                      served (assoc :link-pair (:pair served)
+                                    :dht (:dht served)))
               answered (when query?
                          (query/serve {:pair (:query-pair state)
                                        :indexer (:indexer state)
@@ -1348,7 +1374,6 @@
                                                     (- query-drive-budget
                                                        calls))}))
               state (cond-> state
-                      served (assoc :link-pair (:pair served))
                       answered (assoc :query-pair (:pair answered)
                                       :dht (:dht answered)))
               pending (if (seq (:pending served)) (:pending served) pending)]
@@ -1583,9 +1608,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                         :origins (::link-origins d)})
                      (:vm state))
                    (:query-pair expanded))]
-        (consume-failed-round (cond-> (assoc expanded :vm base)
-                                (::query-pair d) (assoc :query-pair
-                                                        (::query-pair d)))
+        (consume-failed-round (carry-served (assoc expanded :vm base) d)
                               error)))))
 
 
@@ -1835,15 +1858,15 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
         (let [[st text] (drain-output state)
               d (ex-data error)]
           (fold-queued
-            [(cond-> (assoc st
-                            :vm (query/discard-answers
-                                  (carry-link-identity
-                                    (:base parked)
-                                    {:id-counter (::link-counter d)
-                                     :origins (::link-origins d)})
-                                  (:query-pair st))
-                            :pending-run nil)
-               (::query-pair d) (assoc :query-pair (::query-pair d)))
+            [(carry-served (assoc st
+                                  :vm (query/discard-answers
+                                        (carry-link-identity
+                                          (:base parked)
+                                          {:id-counter (::link-counter d)
+                                           :origins (::link-origins d)})
+                                        (:query-pair st))
+                                  :pending-run nil)
+                           d)
              (str text
                   (format-error error)
                   (dropped-lines-text (count (:pending-lines parked))))]
@@ -1863,6 +1886,23 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   (if (:pending-run state)
     (recheck-pending* state nil)
     [state nil]))
+
+
+(defn recheck-on-load-events
+  "The host ticker's re-check of a pending run over a DHT link source
+   (yin.vm.linker.dht.md 8.2): `recheck-pending`, once, if and only if
+   `events` -- one tick's `dao.space.dht/step` events -- hold a `:loaded`
+   or `:load-failed` event for a manifest a pending link waits on.  Any
+   other event, and any event while nothing waits on its manifest,
+   answers `[state nil]` with `state` itself: no re-check, no `:checks`."
+  [state events]
+  (let [waits (set (keep :manifest (get-in state [:pending-run :links])))]
+    (if (some (fn [e]
+                (and (contains? #{:loaded :load-failed} (:dao.space.dht/event e))
+                     (contains? waits (:manifest e))))
+              events)
+      (recheck-pending state)
+      [state nil])))
 
 
 (defn- resume-pending

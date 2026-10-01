@@ -28,7 +28,12 @@
             [yin.repl.dht :as repl.dht]
             [yin.repl.driver :as driver]
             [yin.repl.main :as main]
-            [yin.repl.store :as store]))
+            [yin.repl.store :as store]
+            [yin.vm :as vm]
+            [yin.vm.engine :as engine]
+            [yin.vm.linker.closure-test :as ct]
+            [yin.vm.linker.dht :as ld]
+            [yin.vm.linker.publish :as publish]))
 
 
 ;; =============================================================================
@@ -749,3 +754,534 @@
         (space.dht/close! node))
       (finally
         (cleanup-dir! dir)))))
+
+
+;; =============================================================================
+;; L3: the REPL's DHT link source and the relevant re-check
+;; (docs/design/yin.vm.linker.dht.md 4.1, 7.4, 8.2, 8.4, 9 and 12, slice L3)
+;; =============================================================================
+
+(def ^:private closed-ast
+  "`(yin/def f (fn [] (+ 40 2)))`: the closed corpus."
+  (ct/def! 'f {:type :lambda
+               :params []
+               :body {:type :application
+                      :operator {:type :variable :name '+}
+                      :operands [(ct/lit 40) (ct/lit 2)]}}))
+
+
+(defn- publish-mod!
+  "Publish the closed corpus as the module `mod` into `store`; answers its
+   manifest address."
+  [store]
+  (:address (publish/publish-module! store {:name 'mod :ast closed-ast
+                                            :exports #{'f} :requires {}
+                                            :primitives ct/plus})))
+
+
+(def ^:private nowhere
+  "A manifest address no node holds."
+  (jing/segment-key "a module no node holds"))
+
+
+(defn- holder-world
+  "A plain `dao.space.dht` node at mesh port 1 holding `mod`, and plain
+   publishing peers at 2 and 3, stepped until the holder's publication is
+   reported.  Answers `{:holder node :peers peers :now t :manifest m}`."
+  [net]
+  (let [node (space.dht/join {:local (mem/create-content-mem)
+                              :peers [{:host "127.0.0.1" :port 2}
+                                      {:host "127.0.0.1" :port 3}]
+                              :publish? true
+                              :bind! (mesh/seam net 1)})
+        m (publish-mod! (space.dht/local node))
+        _ (space.dht/announce! node m)]
+    (loop [node node
+           peers {2 (peer-node net 2) 3 (peer-node net 3)}
+           now 0]
+      (let [[node events] (space.dht/step node now)
+            peers (step-peers peers now)]
+        (if (or (some #(= :published (::space.dht/event %)) events) (> now 20000))
+          {:holder node :peers peers :now (+ now 10) :manifest m}
+          (recur node peers (+ now 10)))))))
+
+
+(defn- reader-state
+  "The step owner's state for a shell over a dht store at mesh `port`
+   with bootstrap contacts `peer-ports` (none: solo), its name
+   environment `names` -- direct addresses, as in slice L3."
+  [net dir port peer-ports names]
+  (-> (main/boot {:index-store-spec
+                  (dht-spec dir {:bind! (mesh-bind net port (atom 0))
+                                 :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
+                                              peer-ports)})})
+      (assoc-in [:repl :link-source :name-env] names)))
+
+
+(defn- type!
+  "Evaluate `line` at the shell's prompt: `[state text]`."
+  [state line]
+  (let [[repl text] (repl/eval-input (:repl state) line)]
+    [(assoc state :repl repl) text]))
+
+
+(defn- tick
+  "One reading for the whole world: the shell's step owner
+   (`main/step-all`), then the holder and the plain peers.  The shell's
+   printed lines accumulate under `:lines`."
+  [{:keys [state holder peers now] :as w}]
+  (let [[state _ lines] (main/step-all state nil now)
+        holder (when holder (first (space.dht/step holder now)))]
+    (-> w
+        (assoc :state state :holder holder :peers (step-peers peers now)
+               :now (+ now 10))
+        (update :lines (fnil into []) lines))))
+
+
+(defn- run-ticks
+  "Tick `w` until `(done? w)` or the reading passes `limit`, calling
+   `(check w)` after every tick."
+  ([w limit done?] (run-ticks w limit done? (fn [_] nil)))
+  ([w limit done? check]
+   (loop [w w]
+     (if (or (done? w) (> (:now w) limit))
+       w
+       (let [w (tick w)]
+         (check w)
+         (recur w))))))
+
+
+(defn- node-of
+  [state]
+  (get-in state [:repl :dht]))
+
+
+(defn- parked
+  [state]
+  (get-in state [:repl :pending-run]))
+
+
+(defn- responses
+  "Every link response on the shell's link pair, oldest first, each
+   without its id."
+  [state]
+  (mapv #(dissoc % :yin.link/id)
+        (mesh/values (get-in state [:repl :link-pair :responses]))))
+
+
+(defn- requests
+  "Every link request on the shell's link pair, oldest first."
+  [state]
+  (mesh/values (get-in state [:repl :link-pair :requests])))
+
+
+(defn- close-world!
+  [w]
+  (when-let [h (:holder w)] (space.dht/close! h))
+  (when-let [s (:state w)] (main/close-index-store! s))
+  nil)
+
+
+(deftest a-require-a-peer-holds-parks-and-completes-on-a-later-tick-with-no-typed-line
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        w (holder-world net)
+        m (:manifest w)]
+    (try
+      (let [state (reader-state net dir 4 [1 2 3] {'mod m 'gone nowhere})
+            [state text] (type! state "(require (quote mod))")]
+        (testing "the require parks on the closure load it started"
+          (is (str/includes? text "pending"))
+          (is (= [m] (mapv :manifest (:links (parked state)))))
+          (is (= :loading (:status (ld/module-status (node-of state) m)))))
+        (let [w (run-ticks (assoc w :state state) 60000
+                           #(nil? (parked (:state %)))
+                           (fn [w]
+                             (when-let [p (parked (:state w))]
+                               (is (= 0 (:checks p))
+                                   "no re-check ran before the load ended"))
+                             nil))
+              repl (:repl (:state w))]
+          (testing "a later tick completed it, with no line typed"
+            (is (nil? (:pending-run repl)))
+            (is (= 'mod (:last-value repl)))
+            (is (line-with (:lines w) (str "dht: loaded " m)) (pr-str (:lines w))))
+          (testing "the export then answers"
+            (is (= "42" (second (type! (:state w) "(mod/f)")))))
+          (testing "a repeated or late event for the answered link changes nothing"
+            (let [late {::space.dht/event :loaded :manifest m
+                        :kind ld/module-kind :fetched 1}
+                  [repl' text'] (repl/recheck-on-load-events repl [late late])
+                  [waiting _] (repl/eval-input repl "(require (quote gone))")
+                  [waiting' text''] (repl/recheck-on-load-events waiting [late])]
+              (is (identical? repl repl'))
+              (is (nil? text'))
+              (testing "nor while another require waits on its own load"
+                (is (= [nowhere] (mapv :manifest (:links (:pending-run waiting)))))
+                (is (identical? waiting waiting'))
+                (is (nil? text'')))))
+          (close-world! w)))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest an-unrelated-node-event-causes-no-re-check
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        _silent (mesh/join! net 9)]
+    (try
+      (let [state (reader-state net dir 4 [9] {'mod nowhere})
+            [state _] (type! state "(def z 1)")
+            index (get-in state [:repl :indexer :manifest-address])
+            other (publish-mod! (space.dht/local (node-of state)))
+            state (update-in state [:repl :dht]
+                             #(-> % (ld/load-module other) (space.dht/load-index index)))
+            [state text] (type! state "(require (quote mod))")
+            before (parked state)
+            w (reduce (fn [w _] (tick w)) {:state state :peers {} :now 0} (range 5))
+            after (parked (:state w))]
+        (is (str/includes? text "pending"))
+        (testing "the node reported a publication, an index load and another module's load"
+          (is (line-with (:lines w) "dht: published"))
+          (is (line-with (:lines w) (str "dht: loaded " other)))
+          (is (line-with (:lines w) (str "dht: loaded " index))))
+        (testing "none of them re-checked the run"
+          (is (= :loading (:status (ld/module-status (node-of (:state w)) nowhere))))
+          (is (= 0 (:checks before) (:checks after)))
+          (is (identical? (:vm before) (:vm after))))
+        (close-world! w))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest a-function-policy-counts-only-re-checks-of-this-run
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        _silent (mesh/join! net 9)]
+    (try
+      (let [views (atom [])
+            state (-> (reader-state net dir 4 [9] {'gone nowhere})
+                      (assoc-in [:repl :link-policy]
+                                (fn [v]
+                                  (swap! views conj (:checks v))
+                                  (if (>= (:checks v) 2) :abandon :keep))))
+            [state _] (type! state "(require (quote gone))")
+            [repl _] (repl/recheck-pending (:repl state))
+            _ (is (= 1 (:checks (:pending-run repl))))
+            [repl _] (repl/eval-input repl "(abandon)")
+            [repl _] (repl/eval-input repl "(require (quote gone))")
+            _ (is (= 0 (:checks (:pending-run repl))) "a new run starts at 0")
+            w (reduce (fn [w _] (tick w))
+                      {:state (assoc state :repl repl) :peers {} :now 0}
+                      (range 5))
+            repl (:repl (:state w))
+            _ (is (= 0 (:checks (:pending-run repl)))
+                  "the node's steps are not re-checks")
+            [repl _] (repl/recheck-pending repl)
+            _ (is (some? (:pending-run repl)) "one re-check of this run: kept")
+            [repl text] (repl/recheck-pending repl)]
+        (is (nil? (:pending-run repl)))
+        (is (str/includes? text "the session link policy ended the require"))
+        (is (= [0 1 0 1 2] @views))
+        (close-world! (assoc w :state (assoc (:state w) :repl repl))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest a-keep-policy-never-ends-a-dht-run
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        _silent (mesh/join! net 9)]
+    (try
+      (let [state (-> (reader-state net dir 4 [9] {'gone nowhere})
+                      (assoc-in [:repl :link-policy] (constantly :keep)))
+            [state _] (type! state "(require (quote gone))")
+            repl (nth (iterate #(first (repl/recheck-pending %)) (:repl state)) 6)
+            _ (is (= 6 (:checks (:pending-run repl))))
+            w (run-ticks {:state (assoc state :repl repl) :peers {} :now 0} 20000
+                         #(nil? (parked (:state %))))]
+        (testing "only the load's own failure ended it, as a refusal"
+          (is (nil? (parked (:state w))))
+          (is (line-with (:lines w) "Module link refused: absent"))
+          (is (not (line-with (:lines w) "session link policy"))))
+        (close-world! w))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest abandon-during-a-load-then-a-new-require-finds-it-loaded
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        w (holder-world net)
+        m (:manifest w)]
+    (try
+      (let [state (reader-state net dir 4 [1 2 3] {'mod m})
+            [state _] (type! state "(require (quote mod))")
+            [state text] (type! state "(abandon)")
+            _ (is (str/includes? text "abandoned"))
+            _ (is (nil? (parked state)))
+            w (run-ticks (assoc w :state state) 60000
+                         #(= :loaded (:status (ld/module-status (node-of (:state %)) m))))
+            state (:state w)]
+        (testing "the load completed and settled nothing"
+          (is (= :loaded (:status (ld/module-status (node-of state) m))))
+          (is (nil? (parked state)))
+          (is (nil? (get-in state [:repl :last-value])))
+          (is (= [] (responses state)) "no answer was appended for the abandoned run"))
+        (let [fetched (:fetched (ld/module-status (node-of state) m))
+              [state _] (type! state "(require (quote mod))")
+              repl (:repl state)]
+          (testing "a new require of the name finds the closure loaded and links"
+            (is (nil? (:pending-run repl)))
+            (is (= 'mod (:last-value repl)))
+            (is (= fetched (:fetched (ld/module-status (node-of state) m)))
+                "no new load"))
+          (testing "the abandoned request's late answer was skipped"
+            (let [ids (mapv :yin.link/id (requests state))]
+              (is (= [{:kind :unknown :id (first ids) :entry (second ids)}]
+                     (first (engine/take-link-diagnostics (:vm repl)))))))
+          (is (= "42" (second (type! state "(mod/f)"))))
+          (close-world! (assoc w :state state))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+;; -----------------------------------------------------------------------------
+;; Failures, each its one response shape (section 9)
+;; -----------------------------------------------------------------------------
+
+(defn- solo-state
+  [dir names]
+  (reader-state (mesh/mesh) dir 4 [] names))
+
+
+(defn- fail-require
+  "Require `name` on the solo shell `state`, step the node until the run
+   ends, and answer `{:state s :text t :lines l}`."
+  [state name]
+  (let [[state text] (type! state (str "(require (quote " name "))"))
+        w (run-ticks {:state state :peers {} :now 0} 1000
+                     #(nil? (parked (:state %))))]
+    (is (str/includes? text "pending"))
+    {:state (:state w) :text text :lines (:lines w)}))
+
+
+(deftest a-solo-node-s-require-fails-with-cause-solo-and-a-new-require-starts-a-new-load
+  (let [dir (temp-dir)]
+    (try
+      (let [{:keys [state lines]} (fail-require (solo-state dir {'mod nowhere}) 'mod)]
+        (testing "the node's next step failed it with /solo"
+          (is (nil? (parked state)))
+          (is (line-with lines "Module link refused: absent"))
+          (is (= [{:status :refused :reason :absent :address nowhere
+                   :cause ::dht/solo}]
+                 (responses state))))
+        (testing "the failed record was forgotten; a new require starts a new load"
+          (is (nil? (ld/module-status (node-of state) nowhere)))
+          (let [[state text] (type! state "(require (quote mod))")]
+            (is (str/includes? text "pending"))
+            (is (= :loading (:status (ld/module-status (node-of state) nowhere))))
+            (main/close-index-store! state))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest a-defective-closure-raises-descriptor-defect-with-its-code
+  (let [dir (temp-dir)]
+    (try
+      (let [state (solo-state dir {})
+            store (space.dht/local (node-of state))
+            res (ct/publish-base! store)
+            bad (jing/materialize! store (assoc (:manifest res) :yin.module/schema 2))
+            {:keys [state lines]} (fail-require
+                                    (assoc-in state [:repl :link-source :name-env]
+                                              {'base bad})
+                                    'base)
+            [body] (responses state)]
+        (is (line-with lines "Module link refused: descriptor-defect"))
+        (is (= {:status :refused :reason :descriptor-defect :address bad
+                :code :manifest-defect}
+               (dissoc body :detail :text)))
+        (main/close-index-store! state))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(defn- undeliverable
+  "A request writer that refuses every append as closed."
+  []
+  (reify
+    stream/IDaoStreamWriter
+
+    (append! [_ _] {:dao.stream/outcome :dao.stream/closed})))
+
+
+(deftest a-load-that-cannot-ask-raises-unaskable-with-the-outcome
+  (let [dir (temp-dir)]
+    (try
+      (let [state (-> (solo-state dir {'mod nowhere})
+                      (update-in [:repl :dht :client] assoc :requests (undeliverable)))
+            {:keys [state lines]} (fail-require state 'mod)]
+        (is (line-with lines "Module link refused: unaskable"))
+        (is (= [{:status :refused :reason :yin.link.dht/unaskable :address nowhere
+                 :outcome :request-undeliverable}]
+               (responses state)))
+        (main/close-index-store! state))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(defn- publish-requiring-app!
+  "Publish `app` into `store`: `(require 'base)`, then
+   `(yin/def g (+ (base/f) 1))`, pinned to the manifest `base`."
+  [store base]
+  (let [variable (fn [n] {:type :variable :name n})
+        call (fn [f & xs] {:type :application :operator f :operands (vec xs)})]
+    (publish/publish-module!
+      store {:name 'app
+             :ast (call {:type :lambda :params '[_]
+                         :body (ct/def! 'g (call (variable '+)
+                                                 (call (variable 'base/f))
+                                                 (ct/lit 1)))}
+                        (call (variable 'require) (ct/lit 'base)))
+             :exports #{'g}
+             :requires {'base base}
+             :primitives (assoc ct/plus 'require
+                                (vm/profile-of vm/primitives 'require))})))
+
+
+(deftest a-dependency-binding-that-is-not-ok-raises-before-any-install
+  (let [dir (temp-dir)]
+    (try
+      (let [state (solo-state dir {})
+            store (space.dht/local (node-of state))
+            base (:address (ct/publish-base! store))
+            app (:address (publish-requiring-app! store base))
+            {:keys [state lines]} (fail-require
+                                    (assoc-in state [:repl :link-source :name-env]
+                                              {'app app})
+                                    'app)]
+        (is (line-with lines "Module link refused: dependency-binding"))
+        (is (= [{:status :refused :reason :yin.link.dht/dependency-binding
+                 :module app :name 'base :pinned base :binding :absent
+                 :diagnostics []}]
+               (responses state)))
+        (testing "no install child started: none asked for base"
+          (is (= ['app] (mapv :yin.link/name (requests state))))
+          (is (zero? (or (get-in state [:repl :vm :origins]) 0))))
+        (testing "with the dependency named, app links through two loads"
+          (let [state (assoc-in state [:repl :link-source :name-env]
+                                {'app app 'base base})
+                [state _] (type! state "(require (quote app))")
+                w (run-ticks {:state state :peers {} :now 0} 1000
+                             #(nil? (parked (:state %))))
+                state (:state w)]
+            (is (= 'app (get-in state [:repl :last-value])) (pr-str (:lines w)))
+            (is (= :loaded (:status (ld/module-status (node-of state) base))))
+            (is (= "43" (second (type! state "app/g"))))
+            (main/close-index-store! state))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+;; -----------------------------------------------------------------------------
+;; All four VMs
+;; -----------------------------------------------------------------------------
+
+(def ^:private vm-types
+  [:ast-walker :semantic :stack :register])
+
+
+(deftest all-four-vms-link-the-closed-corpus-over-the-dht
+  (let [net (mesh/mesh)
+        w0 (holder-world net)
+        m (:manifest w0)
+        dirs (mapv (fn [_] (temp-dir)) vm-types)]
+    (try
+      (let [w (reduce
+                (fn [w [vm-type dir port]]
+                  (let [state (reader-state net dir port [1 2 3] {'mod m})
+                        [state _] (type! state (str "(vm " vm-type ")"))
+                        [state text] (type! state "(require (quote mod))")
+                        w (run-ticks (assoc w :state state) (+ (:now w) 60000)
+                                     #(nil? (parked (:state %))))
+                        state (:state w)]
+                    (testing (name vm-type)
+                      (is (str/includes? text "pending"))
+                      (is (= 'mod (get-in state [:repl :last-value])))
+                      (is (= "42" (second (type! state "(mod/f)")))))
+                    (when (= :register vm-type)
+                      (testing "the register kernel asks for R and no fallback is composed"
+                        (is (= [:yin.debruijn.register]
+                               (mapv :yin.link/format (requests state))))
+                        (is (= [:ok] (mapv :status (responses state))))
+                        (is (not-any? :fallback (responses state)))))
+                    (main/close-index-store! state)
+                    (dissoc w :state :lines)))
+                w0
+                (map vector vm-types dirs (range 4 8)))]
+        (space.dht/close! (:holder w)))
+      (finally
+        (run! cleanup-dir! dirs))))
+  (testing "a failed load raises the same refusal on each"
+    (let [bodies (mapv (fn [vm-type]
+                         (let [dir (temp-dir)]
+                           (try
+                             (let [state (solo-state dir {'mod nowhere})
+                                   [state _] (type! state (str "(vm " vm-type ")"))
+                                   {:keys [state]} (fail-require state 'mod)]
+                               (main/close-index-store! state)
+                               (responses state))
+                             (finally
+                               (cleanup-dir! dir)))))
+                       vm-types)]
+      (is (= (repeat 4 [{:status :refused :reason :absent :address nowhere
+                         :cause ::dht/solo}])
+             bodies)))))
+
+
+;; -----------------------------------------------------------------------------
+;; The host module, the composition, the banner and (help)
+;; -----------------------------------------------------------------------------
+
+(deftest load-module-and-module-status-answer-through-the-plain-functions
+  (let [dir (temp-dir)]
+    (try
+      (let [state (solo-state dir {})
+            m (:address (ct/publish-base! (space.dht/local (node-of state))))
+            [state _] (type! state "(require (quote dao.space.dht))")
+            [state _] (type! state (str "(dao.space.dht/module-status " m ")"))
+            _ (is (nil? (get-in state [:repl :last-value])))
+            [state _] (type! state (str "(dao.space.dht/load-module " m ")"))
+            _ (is (= :loading (get-in state [:repl :last-value])))
+            _ (is (= :loading (:status (ld/module-status (node-of state) m))))
+            [state _ _] (main/step-all state nil 0)
+            [state _] (type! state (str "(dao.space.dht/module-status " m ")"))]
+        (is (= (dissoc (ld/module-status (node-of state) m) :value)
+               (get-in state [:repl :last-value])))
+        (is (= :loaded (get-in state [:repl :last-value :status])))
+        (main/close-index-store! state))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest a-dht-store-refuses-a-second-content-source
+  (let [dir (temp-dir)]
+    (try
+      (is (some? (refusal-of #(repl/create-state
+                                {:index-store-spec (dht-spec dir {})
+                                 :content-store (mem/create-content-mem)}))))
+      (testing "and the refusal left the directory unlocked"
+        (close! (repl/create-state {:index-store-spec (dht-spec dir {})})))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest the-banner-and-help-say-a-require-may-fetch-from-peers
+  (let [banner (str/join "\n" (main/banner (main/parse-args
+                                             ["--index-store" "dht:idx"])))
+        [_ help] (repl/eval-input (repl/create-state) "(help)")]
+    (is (str/includes? banner "require"))
+    (is (str/includes? banner "may fetch"))
+    (is (str/includes? help "require"))
+    (is (str/includes? help "may fetch"))))

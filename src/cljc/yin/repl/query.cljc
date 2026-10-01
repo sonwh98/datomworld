@@ -64,6 +64,7 @@
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
+            [yin.vm.linker.dht :as linker.dht]
             [yin.vm.module :as module]))
 
 
@@ -86,13 +87,17 @@
 (def dht-ops
   "The `dao.stream.apply` operations the `dao.space.dht` module requests:
    `load-index`, `load-status` and `q`, each answered by the
-   `dao.space.dht` function of that name, and `retry` and `cancel`,
-   answered by `retry!` and `cancel!`."
+   `dao.space.dht` function of that name, `retry` and `cancel`,
+   answered by `retry!` and `cancel!`, and `load-module` and
+   `module-status`, answered by the `yin.vm.linker.dht` function of that
+   name (yin.vm.linker.dht.md 10)."
   {'load-index ::dht-load-index
    'load-status ::dht-load-status
    'q ::dht-q
    'retry ::dht-retry
-   'cancel ::dht-cancel})
+   'cancel ::dht-cancel
+   'load-module ::dht-load-module
+   'module-status ::dht-module-status})
 
 
 (def views
@@ -136,7 +141,8 @@
 
 
 (def ^:private dht-arities
-  {'load-index [1] 'load-status [1] 'q [2 :variadic] 'retry [1] 'cancel [1]})
+  {'load-index [1] 'load-status [1] 'q [2 :variadic] 'retry [1] 'cancel [1]
+   'load-module [1] 'module-status [1]})
 
 
 (defn activate-dht
@@ -598,7 +604,9 @@
    its status at once, never waiting; `load-status` answers the load's
    status map; `q` answers `dao.space.dht/q` under `limits`, refused
    until the index is loaded; `retry` and `cancel` answer `:retrying`
-   and `:cancelled`, or the plain function's refusal.  Answers
+   and `:cancelled`, or the plain function's refusal; `load-module`
+   starts a closure load and answers its status, and `module-status`
+   answers it without the loaded closure.  Answers
    `[node response]`."
   [node limits request]
   (let [id (apply2/request-id request)
@@ -624,6 +632,13 @@
 
             ::dht-load-status
             [node {:ok (host-status (dht/load-status node manifest))}]
+
+            ::dht-load-module
+            (let [node (linker.dht/load-module node manifest)]
+              [node {:ok (:status (linker.dht/module-status node manifest))}])
+
+            ::dht-module-status
+            [node {:ok (host-status (linker.dht/module-status node manifest))}]
 
             ::dht-retry
             (publication-call node manifest dht/retry! :retrying)
