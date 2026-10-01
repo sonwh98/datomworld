@@ -1,15 +1,17 @@
 (ns dao.space.dht
-  "Code indexes over the DHT, for any Clojure program: join a
-   `dao.jing.dht` node, load a published covered index from its manifest
-   address, and query it with `dao.space.query/q` (DHT epic slice S5;
-   docs/design/dao.jing.dht.md section 10, \"The plain Clojure path\").
+  "Code over the DHT, for any Clojure program: join a `dao.jing.dht`
+   node, publish through its store, load content from a manifest address
+   by any walk, and query a loaded covered index with `dao.space.query/q`
+   (DHT epic slice S5, docs/design/dao.jing.dht.md section 10; linker
+   slice L1, docs/design/yin.vm.linker.dht.md sections 4.3 and 5.5).
    Portable to the JVM, Node and Dart.  `yin.repl` is one consumer: its
    `dht:<dir>` store is a node joined here, and its `dao.space.dht` host
-   module calls these same functions.
+   module calls these same functions.  Nothing here knows `yin.*`: a
+   load's walk is an argument.
 
    A node is a value, advanced only by `step`, which its one owner calls
    with a nondecreasing millisecond reading it owns — the node's only
-   time (section 5.3).  Nothing here waits:
+   time.  Nothing here waits:
 
    * `join` composes the node over a local `dao.jing` store.  With no
      peers it is solo — no socket, no secret, nothing sent.  With peers
@@ -17,25 +19,35 @@
      seam, on loopback unless `:bind-host` names another address, and
      mints the node's root secret (32 bytes of the host CSPRNG, per
      join, held only in the node) and a random node id.  Publication is
-     `:publish?`, never implied by peers (owner decision 1).
+     `:publish?`, never implied by peers.
    * `store` is the node's `dao.jing` byte-store handle: a put inserts
-     locally and appends one replicate request (`dao.jing.dht/
-     store-handle`); a get reads the local store.  A publisher writes a
-     covered index through it and calls `announce!` with the manifest, so
-     `step` reports that publication acknowledged or not.
-   * `load-index` starts loading a manifest: `step` walks the index it
-     names through the local store and fetches each blob the store lacks
-     with a `:jing/get` (`dao.jing.content.step`), until all four covered
-     indexes read back whole and cover the manifest's count.
+     locally, records the address on the node's ledger ring and answers
+     the local verdict.  It asks the DHT for nothing: `step` admits each
+     put to a bounded backlog and releases replicate requests below the
+     DHT's pending-write bound, so the node's own writes never draw
+     `/busy`.  `announce!` closes the puts since the last announcement
+     into one publication, whose ledger `step` reports once every blob
+     has an outcome (`:published`), and again whenever its result
+     changes or its automatic repair ends (`:republished`).
+   * `load` starts loading content from an address with a walk over the
+     local store; `step` fetches each address the walk answers
+     `:missing` with a `:jing/get` (`dao.jing.content.step`), one at a
+     time, until the walk answers `:complete` or `:invalid`.
+     `load-index` is `load` with the covered-index walk.  Failure
+     reasons are data.
    * `db` and `q` read a loaded index through `dao.space.index/
      read-manifest` and `restored-indexes` (`dao.space.query/
      published-db`), locally.
 
    `step` answers `[node events]`, each event a plain map under
-   `:dao.space.dht/event`: `:bound`, `:bind-failed`, `:published`
-   (`:acknowledged?`, with `:peers` sent to, or the `:reason` and the
-   `:peers` it reached), `:publication-unknown` (the facts were lost),
-   `:loaded`, and `:load-failed`."
+   `:dao.space.dht/event`: `:bound`, `:bind-failed`, `:published`,
+   `:republished`, `:publication-unknown` (the facts were lost),
+   `:loaded`, and `:load-failed`.
+
+   The publication ledger, the backlog and repair are process state:
+   `close!` discards them, and a node joined again repairs nothing from
+   before.  Every blob stays local."
+  (:refer-clojure :exclude [load])
   (:require #?@(:cljd [["dart:math" :as math]
                        ["dart:typed_data" :as typed]
                        [dao.stream.datagram.dart :as datagram.host]]
@@ -64,14 +76,28 @@
   (* 64 1024 1024))
 
 
+(def max-pending-writes
+  "Replicate requests the node holds outstanding at most: the DHT's own
+   pending-write bound, so the node never draws `/busy`."
+  (::dht/max-pending-writes dht/defaults))
+
+
 (def defaults
   "`join`'s option defaults: solo, publishing off, loopback on an
-   ephemeral port, the default inbound bound."
+   ephemeral port, the default inbound bound, and the backlog and repair
+   bounds of yin.vm.linker.dht.md section 11."
   {:peers []
    :publish? false
    :bind-host "127.0.0.1"
    :bind-port 0
-   :max-inbound-bytes default-max-inbound-bytes})
+   :max-inbound-bytes default-max-inbound-bytes
+   :max-backlog 4096
+   :repair-batch 64
+   :max-open 16
+   :repair-slots 16
+   :repair-ticks 30000
+   :repair-max-ticks 600000
+   :max-repairing 16})
 
 
 (def secret-length
@@ -93,6 +119,12 @@
 (def fetch-budget
   "Answers the load client reads per step."
   16)
+
+
+(def retryable
+  "Failure reasons repair retries (yin.vm.linker.dht.md 5.5.4).  Every
+   other reason is terminal."
+  #{::dht/too-few-peers ::dht/busy ::backlog-full ::publications-full})
 
 
 (defn default-bind
@@ -117,10 +149,23 @@
      :cljs (.getRandomValues js/crypto (js/Uint8Array. n))))
 
 
+(defn- refused
+  "A refused call: the error, returned for the caller to throw.  Its data
+   names the closed `code` under `:dao.space.dht/refused`."
+  [code message data]
+  (ex-info (str "dao.space.dht: " message) (assoc data ::refused code)))
+
+
+(defn- count-option?
+  [n]
+  (and (integer? n) (pos? n)))
+
+
 (defn- option-refusal
   "Why `opts` cannot join, or nil."
   [{:keys [local dir peers publish? bind-host bind-port max-inbound-bytes
-           bind!]}]
+           bind! max-backlog repair-batch max-open repair-slots repair-ticks
+           repair-max-ticks max-repairing]}]
   (cond
     (not (or (and (map? local) (ifn? (:put-bytes-fn local)))
              (and (string? dir) (not (str/blank? dir)))))
@@ -145,6 +190,16 @@
     (not (and (integer? max-inbound-bytes) (<= 0 max-inbound-bytes)))
     ":max-inbound-bytes must be a nonnegative integer"
 
+    (not (every? count-option? [max-backlog repair-batch max-open max-repairing]))
+    ":max-backlog, :repair-batch, :max-open and :max-repairing must be positive integers"
+
+    (not (and (count-option? repair-slots) (< repair-slots max-pending-writes)))
+    (str ":repair-slots must be a positive integer below " max-pending-writes)
+
+    (not (and (integer? repair-ticks) (<= 0 repair-ticks)
+              (integer? repair-max-ticks) (<= repair-ticks repair-max-ticks)))
+    ":repair-ticks must be a nonnegative integer no greater than :repair-max-ticks"
+
     (and (seq peers) (not (fn? bind!)))
     "a node with peers needs a datagram host seam (:bind!)"))
 
@@ -154,10 +209,11 @@
 ;; =============================================================================
 
 (defn- ring
-  []
-  (:dao.stream/handle
-    (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type
-                         ringbuffer/capacity-key ring-capacity})))
+  ([] (ring ring-capacity))
+  ([capacity]
+   (:dao.stream/handle
+     (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type
+                          ringbuffer/capacity-key capacity}))))
 
 
 (defn- oldest
@@ -170,6 +226,18 @@
    directory store `dao.space.store/open` opens exclusively at `:dir`."
   [{:keys [local dir]}]
   (or local (durable/open dir)))
+
+
+(defn- new-ledger
+  "An empty publication ledger: every address in order, its entry, and
+   the counts its result reads."
+  []
+  {:order []
+   :entries {}
+   :waiting 0
+   :sent 0
+   :retryable 0
+   :min-peers nil})
 
 
 (defn- node-over
@@ -199,13 +267,19 @@
                        :bind-host bind-host
                        :bind-port bind-port
                        :max-bytes (::dht/max-datagram dht/defaults)}))
+        ;; the DHT handle's put checks (address, oversize) over :local; its
+        ;; own replicate request goes to a sink, since the node's step
+        ;; owns every request (yin.vm.linker.dht.md 5.5)
         front (dht/store-handle
                 {:local local
-                 :requests requests
+                 :requests (ring 1)
                  :max-message-bytes (::dht/max-message-bytes dht/defaults)})
         closed? (volatile! false)]
     {:peers (vec peers)
      :publish? publish?
+     :limits (select-keys opts [:max-backlog :repair-batch :max-open
+                                :repair-slots :repair-ticks :repair-max-ticks
+                                :max-repairing])
      :composition composition
      :dht (when-not socket? (dht/state composition))
      :seam seam
@@ -215,8 +289,16 @@
      :ledger-cursor (oldest ledger)
      :origin nil
      :reading nil
-     :window []
-     :publications []
+     :window (new-ledger)
+     :window-lost? false
+     :pubs []
+     :next-id 0
+     :fresh []
+     :repair []
+     :queued {}
+     :repair-owner {}
+     :inflight {}
+     :misses {}
      :client (content.step/client-state requests answers (oldest answers))
      :loads {}
      :refusal nil
@@ -248,7 +330,10 @@
    * `:bind-host`, `:bind-port` — the socket's address, loopback and
      ephemeral by default;
    * `:max-inbound-bytes` — the inbound storage bound;
-   * `:bind!` — the datagram host seam, `default-bind` by default.
+   * `:bind!` — the datagram host seam, `default-bind` by default;
+   * `:max-backlog`, `:repair-batch`, `:max-open`, `:repair-slots`,
+     `:repair-ticks`, `:repair-max-ticks`, `:max-repairing` — the
+     backlog and repair bounds (`defaults`).
 
    Refuses an invalid option with its reason.  The node owns `:local`
    from here: `close!` closes it."
@@ -268,9 +353,9 @@
 
 (defn store
   "The node's `dao.jing` byte-store handle: put inserts into the local
-   store and asks the node to replicate, answering the local verdict at
-   once; get reads the local store; close closes the socket and the
-   local store."
+   store and records the address for the node's next publication,
+   answering the local verdict at once; get reads the local store; close
+   closes the socket and the local store."
   [node]
   (:handle node))
 
@@ -287,19 +372,27 @@
   (get-in node [:composition ::dht/id]))
 
 
+(defn ack-peers
+  "The distinct peers a blob must be handed to before it is `sent`."
+  [node]
+  (::dht/ack-peers (or (:dht node) dht/defaults)))
+
+
 (defn announce!
   "Declare that the blobs put through `store` since the last announcement
    are the publication whose manifest is `manifest-address`: `step`
-   reports it `:published`, acknowledged or not."
+   reports it `:published` once every blob has an outcome."
   [node manifest-address]
   (stream/append! (:ledger node) {::manifest manifest-address})
   node)
 
 
 (defn close!
-  "Close the node's socket and its local store.  Idempotent."
+  "Close the node's socket and its local store, discarding its ledgers
+   and queues unreported.  Idempotent; answers nil."
   [node]
-  (jing/close! (:handle node)))
+  (jing/close! (:handle node))
+  nil)
 
 
 ;; =============================================================================
@@ -362,10 +455,6 @@
             [(assoc node :traffic-cursor cursor) []]))))))
 
 
-;; =============================================================================
-;; Publications: the ledger, and the facts that answer it
-;; =============================================================================
-
 (defn- read-all
   "Every value on `handle` after `cursor`: `[values cursor' gap?]`."
   [handle cursor]
@@ -381,77 +470,592 @@
         [acc cursor gap?]))))
 
 
-(defn- open-publications
-  "Close the ledger's windows into publications: the blobs put since the
-   last announcement, up to the manifest announced."
-  [node]
-  (let [[entries cursor gap?] (read-all (:ledger node) (:ledger-cursor node))]
-    (reduce (fn [node entry]
-              (if-some [m (::manifest entry)]
-                (let [addresses (distinct (conj (:window node) m))]
-                  (-> node
-                      (update :publications conj
-                              {:manifest m
-                               :waiting (set addresses)
-                               :blobs (count addresses)
-                               :sent {}
-                               :refused {}})
-                      (assoc :window [])))
-                (update node :window conj (::put entry))))
-            (cond-> (assoc node :ledger-cursor cursor)
-              gap? (assoc :window []))
-            entries)))
+;; =============================================================================
+;; The ledger: entries and the counts a result reads (5.5.1)
+;; =============================================================================
+
+(defn- retryable?
+  [entry]
+  (and (= :failed (:state entry)) (contains? retryable (:reason entry))))
 
 
-(defn- apply-fact
-  [publication {::dht/keys [fact address peers reason]}]
-  (if (contains? (:waiting publication) address)
-    (case fact
-      ::dht/sent (-> publication
-                     (update :waiting disj address)
-                     (assoc-in [:sent address] peers))
-      ::dht/unacknowledged (-> publication
-                               (update :waiting disj address)
-                               (assoc-in [:refused address]
-                                         {:reason reason :peers peers}))
-      publication)
-    publication))
+(defn- tally
+  [ledger entry sign]
+  (cond-> ledger
+    (= :waiting (:state entry)) (update :waiting + sign)
+    (= :sent (:state entry)) (update :sent + sign)
+    (retryable? entry) (update :retryable + sign)))
 
 
-(defn- publication-event
-  [node {:keys [manifest blobs sent refused]}]
-  (if (empty? refused)
-    {::event :published :manifest manifest :blobs blobs
-     :acknowledged? true :peers (apply min (vals sent))}
-    (let [[_ {:keys [reason peers]}] (first (sort-by (comp str key) refused))]
-      {::event :published :manifest manifest :blobs blobs
-       :acknowledged? false :reason reason :peers peers
-       :ack-peers (::dht/ack-peers (:dht node) (::dht/ack-peers dht/defaults))})))
+(defn- put-entry
+  "`ledger` with `address`'s entry replaced by `entry`, its counts kept."
+  [ledger address entry]
+  (let [old (get-in ledger [:entries address])]
+    (-> (cond-> ledger
+          (nil? old) (update :order conj address)
+          old (tally old -1))
+        (tally entry 1)
+        (assoc-in [:entries address] entry)
+        (cond-> (= :sent (:state entry))
+          (-> (update :min-peers #(if % (min % (:peers entry)) (:peers entry)))
+              (cond-> (:cycle ledger) (assoc-in [:cycle :sent?] true)))))))
 
 
-(defn- settle-publications
-  "Report every publication all of whose blobs the DHT has settled, in
-   publication order.  A lost fact reports the publications it may have
-   belonged to as unknown, never as acknowledged."
-  [node]
-  (let [[facts cursor gap?] (read-all (get-in node [:composition :facts])
-                                      (:facts node))
-        pubs (reduce (fn [pubs f] (mapv #(apply-fact % f) pubs))
-                     (:publications node)
-                     facts)]
-    (if gap?
-      [(assoc node :facts cursor :publications [])
-       (mapv #(hash-map ::event :publication-unknown :manifest (:manifest %))
-             pubs)]
-      [(assoc node
-              :facts cursor
-              :publications (filterv #(seq (:waiting %)) pubs))
-       (mapv #(publication-event node %)
-             (filterv #(empty? (:waiting %)) pubs))])))
+(defn- open-entry?
+  "Whether an entry still takes an outcome: waiting, or failed."
+  [entry]
+  (contains? #{:waiting :failed} (:state entry)))
+
+
+(defn- result
+  [pub]
+  (cond
+    (= (:sent pub) (:blobs pub)) :acknowledged
+    (= :sent (get-in pub [:entries (:manifest pub) :state])) :partial
+    :else :unacknowledged))
+
+
+(defn- outstanding?
+  [node address]
+  (when-let [request (get-in node [:inflight address])]
+    (not (:settled? request))))
+
+
+(defn- attempting?
+  "Whether `address` has a queue entry or an outstanding request."
+  [node address]
+  (or (contains? (:queued node) address) (outstanding? node address)))
+
+
+(defn- needed?
+  "Whether the window or a live publication other than `except` (an id)
+   still takes an outcome for `address`."
+  [node address except]
+  (or (open-entry? (get-in node [:window :entries address]))
+      (some #(and (not= except (:id %))
+                  (not (:cancelled? %))
+                  (open-entry? (get-in % [:entries address])))
+            (:pubs node))))
+
+
+(defn- dequeue
+  "`node` without `address`'s queue entry."
+  [node address]
+  (case (get-in node [:queued address])
+    :fresh (-> node
+               (update :queued dissoc address)
+               (update :fresh (fn [q] (filterv #(not= address %) q))))
+    :repair (-> node
+                (update :queued dissoc address)
+                (update :repair-owner dissoc address)
+                (update :repair (fn [q] (filterv #(not= address %) q))))
+    node))
+
+
+(defn- release-entries
+  "Remove every queue entry of `addresses` no other live holder needs."
+  [node addresses except]
+  (reduce (fn [node a]
+            (if (and (contains? (:queued node) a) (not (needed? node a except)))
+              (dequeue node a)
+              node))
+          node
+          addresses))
+
+
+(defn- write-outcome
+  "Write one request's outcome, `entry`, to the window and to every live
+   publication holding `address` waiting or failed (5.5.1)."
+  [node address entry]
+  (-> node
+      (update :window (fn [w]
+                        (if (open-entry? (get-in w [:entries address]))
+                          (put-entry w address entry)
+                          w)))
+      (update :pubs (fn [pubs]
+                      (mapv (fn [p]
+                              (if (and (not (:cancelled? p))
+                                       (open-entry? (get-in p [:entries address])))
+                                (put-entry p address entry)
+                                p))
+                            pubs)))))
 
 
 ;; =============================================================================
-;; Loading a published index
+;; Admission (5.5.2)
+;; =============================================================================
+
+(defn- limit
+  [node k]
+  (get-in node [:limits k]))
+
+
+(defn- admit
+  "Admit `address` to the window: its entry, and a fresh queue entry
+   when nothing attempts it yet."
+  [node address]
+  (let [failed (fn [reason] {:state :failed :reason reason :peers 0})]
+    (cond
+      (contains? (get-in node [:window :entries]) address) node
+
+      (empty? (:peers node))
+      (update node :window put-entry address (failed ::dht/solo))
+
+      (not (:publish? node))
+      (update node :window put-entry address (failed ::dht/unpublished))
+
+      (attempting? node address)
+      (update node :window put-entry address {:state :waiting})
+
+      (>= (count (:fresh node)) (limit node :max-backlog))
+      (update node :window put-entry address (failed ::backlog-full))
+
+      :else
+      (-> node
+          (update :window put-entry address {:state :waiting})
+          (update :fresh conj address)
+          (assoc-in [:queued address] :fresh)))))
+
+
+(defn- open-count
+  [node]
+  (count (remove :reported? (:pubs node))))
+
+
+(defn- announce
+  "Close the window into the publication of `manifest`.  Beyond
+   `:max-open` publications awaiting a first report, every blob not
+   already sent is failed `:publications-full` at once."
+  [node manifest]
+  (let [node (admit node manifest)
+        window (:window node)
+        overflow? (>= (open-count node) (limit node :max-open))
+        pub (merge window
+                   {:id (:next-id node)
+                    :manifest manifest
+                    :blobs (count (:order window))
+                    :reported? false
+                    :last nil
+                    :ended nil
+                    :cancelled? false
+                    :delay (limit node :repair-ticks)
+                    :due nil
+                    :retry? false
+                    :cycle nil
+                    :cycles 0})
+        pub (if overflow?
+              (reduce (fn [p a]
+                        (let [e (get-in p [:entries a])]
+                          (if (= :sent (:state e))
+                            p
+                            (put-entry p a {:state :failed
+                                            :reason ::publications-full
+                                            :peers (or (:peers e) 0)}))))
+                      pub
+                      (:order pub))
+              pub)
+        node (-> node
+                 (assoc :window (new-ledger))
+                 (update :next-id inc)
+                 (update :pubs conj pub))]
+    (cond-> node
+      overflow? (release-entries (:order pub) (:id pub)))))
+
+
+(defn- admit-ledger
+  "Read the ledger ring: admit each put to the window and close it at each
+   announcement.  A lost entry loses its window: that publication is
+   reported unknown and is not live."
+  [node]
+  (let [ledger (:ledger node)]
+    (loop [node node
+           cursor (:ledger-cursor node)
+           events []]
+      (let [next (stream/next ledger cursor)
+            v (:dao.stream/value next)]
+        (case (:dao.stream/outcome next)
+          :dao.stream/ok
+          (let [cursor (:dao.stream/cursor next)]
+            (cond
+              (and (::manifest v) (:window-lost? node))
+              (recur (assoc node :window (new-ledger) :window-lost? false)
+                     cursor
+                     (conj events {::event :publication-unknown
+                                   :manifest (::manifest v)}))
+
+              (::manifest v) (recur (announce node (::manifest v)) cursor events)
+              (:window-lost? node) (recur node cursor events)
+              :else (recur (admit node (::put v)) cursor events)))
+
+          :dao.stream/gap
+          (let [lost (:order (:window node))]
+            (recur (-> node
+                       (assoc :window (new-ledger) :window-lost? true)
+                       (release-entries lost nil))
+                   (:dao.stream/cursor next)
+                   events))
+
+          [(assoc node :ledger-cursor cursor) events])))))
+
+
+;; =============================================================================
+;; Repair admission (5.5.4): before fresh admission, oldest first
+;; =============================================================================
+
+(defn- repairing?
+  [pub]
+  (and (:reported? pub) (not (:cancelled? pub)) (nil? (:ended pub))
+       (not= :acknowledged (result pub))))
+
+
+(defn- held-in-repair
+  [node id]
+  (count (filter #(= id %) (vals (:repair-owner node)))))
+
+
+(defn- open-cycle
+  [node pub]
+  (if (and (repairing? pub) (nil? (:cycle pub))
+           (>= (:reading node) (:due pub)))
+    (assoc pub
+           :cycle {:offered (vec (sort-by str (filter #(retryable? (get-in pub [:entries %]))
+                                                      (:order pub))))
+                   :next 0
+                   :sent? false}
+           :cycles (inc (:cycles pub)))
+    pub))
+
+
+(defn- fill-batch
+  "Offer the publication's open cycle to the repair queue until it holds
+   `:repair-batch` addresses there."
+  [node i]
+  (let [{:keys [id cycle] :as pub} (get-in node [:pubs i])
+        offered (:offered cycle)
+        batch (limit node :repair-batch)]
+    (loop [node node
+           k (:next cycle)
+           held (held-in-repair node id)]
+      (if (or (nil? cycle) (>= k (count offered)) (>= held batch))
+        (cond-> node cycle (assoc-in [:pubs i :cycle :next] k))
+        (let [a (nth offered k)]
+          (cond
+            (= :sent (get-in pub [:entries a :state])) (recur node (inc k) held)
+            (attempting? node a) (recur node (inc k) held)
+            :else (recur (-> node
+                             (update :repair conj a)
+                             (assoc-in [:queued a] :repair)
+                             (assoc-in [:repair-owner a] id))
+                         (inc k)
+                         (inc held))))))))
+
+
+(defn- admit-repairs
+  [node]
+  (reduce (fn [node i]
+            (-> node
+                (update-in [:pubs i] #(open-cycle node %))
+                (fill-batch i)))
+          node
+          (range (count (:pubs node)))))
+
+
+;; =============================================================================
+;; Release (5.5.2): below the DHT's bound, repair slots reserved
+;; =============================================================================
+
+(defn- take-issuable
+  "Up to `n` addresses of `queue`, in order, with no request in flight."
+  [node queue n]
+  (loop [q queue
+         acc []]
+    (if (or (empty? q) (>= (count acc) n))
+      acc
+      (let [a (first q)]
+        (recur (rest q)
+               (if (contains? (:inflight node) a) acc (conj acc a)))))))
+
+
+(defn- issue
+  [node kind addresses]
+  (if (empty? addresses)
+    node
+    (let [requests (get-in node [:composition :requests])
+          issued (set addresses)]
+      (doseq [a addresses]
+        (stream/append! requests {::dht/replicate a}))
+      (-> (reduce (fn [node a]
+                    (-> node
+                        (update :queued dissoc a)
+                        (update :repair-owner dissoc a)
+                        (assoc-in [:inflight a] {:kind kind :settled? false})))
+                  node
+                  addresses)
+          (update kind (fn [q] (filterv #(not (contains? issued %)) q)))))))
+
+
+(defn- in-flight
+  [node kind]
+  (count (filter #(= kind (:kind %)) (vals (:inflight node)))))
+
+
+(defn- release
+  [node]
+  (if (nil? (:dht node))
+    node
+    (let [slots (limit node :repair-slots)
+          room #(- max-pending-writes (count (:inflight %)))
+          node (issue node :repair
+                      (take-issuable node (:repair node)
+                                     (min (room node)
+                                          (- slots (in-flight node :repair)))))
+          fresh-bound (if (seq (:repair node))
+                        (- max-pending-writes slots)
+                        max-pending-writes)]
+      (issue node :fresh
+             (take-issuable node (:fresh node)
+                            (min (room node)
+                                 (- fresh-bound (in-flight node :fresh))))))))
+
+
+;; =============================================================================
+;; Facts (5.5.1): outcomes, written to every holder
+;; =============================================================================
+
+(defn- fetching
+  [node]
+  (set (keep #(get-in % [:fetching :address]) (vals (:loads node)))))
+
+
+(defn- apply-fact
+  [node {::dht/keys [fact address peers reason]} wanted]
+  (case fact
+    ::dht/sent
+    (if (outstanding? node address)
+      (-> node
+          (assoc-in [:inflight address :settled?] true)
+          (write-outcome address {:state :sent :peers peers}))
+      node)
+
+    ::dht/unacknowledged
+    (if (outstanding? node address)
+      (-> node
+          (update :inflight dissoc address)
+          (write-outcome address {:state :failed :reason reason :peers peers}))
+      node)
+
+    ::dht/replicated
+    (update node :inflight dissoc address)
+
+    ::dht/miss
+    (if (contains? wanted address)
+      (assoc-in node [:misses address] reason)
+      node)
+
+    node))
+
+
+(defn- read-facts
+  "Apply every fact the DHT appended.  A lost fact reports every live
+   publication unknown, never acknowledged, and ends it."
+  [node]
+  (let [[facts cursor gap?] (read-all (get-in node [:composition :facts])
+                                      (:facts node))
+        wanted (fetching node)
+        node (reduce #(apply-fact %1 %2 wanted) (assoc node :facts cursor) facts)]
+    (if gap?
+      [(assoc node :pubs [] :fresh [] :repair [] :queued {} :repair-owner {}
+              :inflight {})
+       (mapv #(hash-map ::event :publication-unknown :manifest (:manifest %))
+             (:pubs node))]
+      [node []])))
+
+
+;; =============================================================================
+;; Reports (5.5.3): the first report, every change, and the ends
+;; =============================================================================
+
+(defn- report
+  [kind pub]
+  (let [r (result pub)
+        failed (->> (:order pub)
+                    (keep (fn [a]
+                            (let [e (get-in pub [:entries a])]
+                              (when-not (= :sent (:state e))
+                                (cond-> {:address a :reason (:reason e)
+                                         :peers (or (:peers e) 0)}
+                                  (:was e) (assoc :was (:was e)))))))
+                    (sort-by (comp str :address))
+                    vec)]
+    (cond-> {::event kind
+             :manifest (:manifest pub)
+             :result r
+             :blobs (:blobs pub)
+             :sent (:sent pub)
+             :failed failed
+             :repairing? (and (not= :acknowledged r) (nil? (:ended pub)))}
+      (pos? (:sent pub)) (assoc :peers (:min-peers pub))
+      (:ended pub) (assoc :ended (:ended pub)))))
+
+
+(defn- close-cycle
+  [node pub]
+  (let [{:keys [offered next sent?] :as cycle} (:cycle pub)]
+    (if (and cycle
+             (>= next (count offered))
+             (not-any? #(attempting? node %) offered))
+      (let [delay (if sent?
+                    (limit node :repair-ticks)
+                    (min (* 2 (:delay pub)) (limit node :repair-max-ticks)))]
+        (assoc pub
+               :cycle nil
+               :delay delay
+               :due (if (:retry? pub) (:reading node) (+ (:reading node) delay))
+               :retry? false))
+      pub)))
+
+
+(defn- ending
+  [pub]
+  (or (:ended pub)
+      (when (and (not= :acknowledged (result pub)) (zero? (:retryable pub)))
+        ::terminal)))
+
+
+(defn- evaluate
+  "One publication's report this step, if any: `[pub' event-or-nil
+   retire?]`."
+  [node pub]
+  (cond
+    (:cancelled? pub)
+    (let [pub (assoc pub :ended ::cancelled)]
+      [pub (report (if (:reported? pub) :republished :published) pub) true])
+
+    (not (:reported? pub))
+    (if (pos? (:waiting pub))
+      [pub nil false]
+      (let [pub (assoc pub :ended (ending pub))
+            pub (assoc pub
+                       :reported? true
+                       :last [(result pub) (:ended pub)]
+                       :due (+ (:reading node) (:delay pub)))]
+        [pub (report :published pub)
+         (or (= :acknowledged (result pub)) (some? (:ended pub)))]))
+
+    :else
+    (let [pub (close-cycle node pub)
+          pub (assoc pub :ended (ending pub))
+          now [(result pub) (:ended pub)]]
+      (if (= now (:last pub))
+        [pub nil false]
+        [(assoc pub :last now) (report :republished pub)
+         (or (= :acknowledged (result pub)) (some? (:ended pub)))]))))
+
+
+(defn- retire
+  "`node` without the publication `pub`; its queue entries no other live
+   holder needs are dropped."
+  [node pub]
+  (-> node
+      (update :pubs (fn [pubs] (filterv #(not= (:id pub) (:id %)) pubs)))
+      (release-entries (:order pub) (:id pub))))
+
+
+(defn- displace
+  "Beyond `:max-repairing`, retire the oldest repairing publications."
+  [node]
+  (loop [node node
+         events []]
+    (let [repairing (filter repairing? (:pubs node))]
+      (if (<= (count repairing) (limit node :max-repairing))
+        [node events]
+        (let [oldest (assoc (first repairing) :ended ::displaced)]
+          (recur (retire node oldest)
+                 (conj events (report :republished oldest))))))))
+
+
+(defn- settle-publications
+  [node]
+  (let [[node events retired]
+        (reduce (fn [[node events retired] i]
+                  (let [[pub event retire?] (evaluate node (get-in node [:pubs i]))]
+                    [(assoc-in node [:pubs i] pub)
+                     (cond-> events event (conj event))
+                     (cond-> retired retire? (conj pub))]))
+                [node [] []]
+                (range (count (:pubs node))))
+        node (reduce retire node retired)
+        [node displaced] (displace node)]
+    [node (into events displaced)]))
+
+
+;; =============================================================================
+;; retry! and cancel! (5.5.4, 5.5.5)
+;; =============================================================================
+
+(defn- update-pubs
+  [node manifest f]
+  (update node :pubs (fn [pubs] (mapv #(if (= manifest (:manifest %)) (f %) %) pubs))))
+
+
+(defn retry!
+  "Make the next repair cycle of the publication `manifest-address` due
+   now, its delay reset.  Reports nothing itself.  Refused
+   (`:dao.space.dht/not-repairing`) unless it is repairing.  Answers the
+   node."
+  [node manifest-address]
+  (when-not (some #(and (= manifest-address (:manifest %)) (repairing? %))
+                  (:pubs node))
+    (throw (refused ::not-repairing
+                    (str "no publication of " manifest-address " is repairing")
+                    {:manifest manifest-address})))
+  (update-pubs node manifest-address
+               (fn [pub]
+                 (if (repairing? pub)
+                   (cond-> (assoc pub :delay (limit node :repair-ticks))
+                     (:cycle pub) (assoc :retry? true)
+                     (nil? (:cycle pub)) (assoc :due (or (:reading node) 0)))
+                   pub))))
+
+
+(defn- cancel-entry
+  [entry]
+  (case (:state entry)
+    :sent entry
+    :failed (assoc entry :reason ::cancelled :was (:reason entry))
+    {:state :failed :reason ::cancelled :peers 0}))
+
+
+(defn cancel!
+  "End the live publication `manifest-address` now: every entry not sent
+   is failed `:dao.space.dht/cancelled`, its queue entries no other live
+   publication needs are dropped, and the next step reports it with
+   `:ended :dao.space.dht/cancelled`.  Refused (`:dao.space.dht/not-live`)
+   for a manifest with no live publication.  Answers the node."
+  [node manifest-address]
+  (let [live (filterv #(and (= manifest-address (:manifest %)) (not (:cancelled? %)))
+                      (:pubs node))]
+    (when (empty? live)
+      (throw (refused ::not-live
+                      (str "no publication of " manifest-address " is live")
+                      {:manifest manifest-address})))
+    (let [node (update-pubs node manifest-address
+                            (fn [pub]
+                              (if (:cancelled? pub)
+                                pub
+                                (-> (reduce (fn [p a]
+                                              (put-entry p a (cancel-entry
+                                                               (get-in p [:entries a]))))
+                                            pub
+                                            (:order pub))
+                                    (assoc :cancelled? true :cycle nil)))))]
+      (reduce (fn [node pub] (release-entries node (:order pub) (:id pub)))
+              node
+              live))))
+
+
+;; =============================================================================
+;; Loads (4.3): a walk over the local store, one fetch at a time
 ;; =============================================================================
 
 (defn- probing
@@ -495,90 +1099,163 @@
     (or (:eavt walked) [])))
 
 
+(defn index-walk
+  "The covered-index walk of `manifest-address` (4.3): `:complete` with
+   its EAVT datoms, `:missing` naming the first absent blob, or
+   `:invalid` with the code `:index-invalid`."
+  [manifest-address]
+  (fn [handle]
+    (try {::walk :complete :value (index-datoms (probing handle) manifest-address)}
+         (catch #?(:cljd Object :clj Throwable :cljs :default) e
+           (if-some [address (missing-in e)]
+             {::walk :missing :address address}
+             {::walk :invalid :address manifest-address
+              :defect {:code :index-invalid
+                       :text (or (ex-message e) (str e))}})))))
+
+
+(defn load
+  "Start loading `address` with `{:kind k :walk f}`: `f` is `(fn [handle]
+   outcome)` over the node's local store, answering
+   `{:dao.space.dht/walk :missing :address a}`, `{... :complete :value v}`
+   or `{... :invalid :address a-or-nil :defect {:code c ...}}`.  `step`
+   fetches each missing address and walks again, and reports `:loaded`
+   or `:load-failed` once.  A load already started, loaded or failed is
+   left as it is.  Answers the node."
+  [node address {:keys [kind walk]}]
+  (when-not (jing/segment-address? address)
+    (throw (ex-info "dao.space.dht/load takes a segment address"
+                    {:address address})))
+  (when-not (ifn? walk)
+    (throw (ex-info "dao.space.dht/load takes a :walk function" {:kind kind})))
+  (if (contains? (:loads node) address)
+    node
+    (assoc-in node [:loads address]
+              {:status :loading :kind kind :walk walk :fetching nil :fetched 0})))
+
+
+(def index-kind
+  "The `:kind` of a covered-index load."
+  ::index)
+
+
 (defn load-index
-  "Start loading the published index `manifest-address` names into the
-   node's local store; `step` advances it and reports `:loaded` or
-   `:load-failed`.  A load already started, loaded or failed is left as
-   it is.  Answers the node."
+  "`load` of the published index `manifest-address` names, with the
+   covered-index walk: its `:loaded` value is the index's EAVT datoms."
   [node manifest-address]
   (when-not (jing/segment-address? manifest-address)
     (throw (ex-info "dao.space.dht/load-index takes a manifest address"
                     {:manifest manifest-address})))
-  (if (contains? (:loads node) manifest-address)
-    node
-    (assoc-in node [:loads manifest-address]
-              {:status :loading :fetching nil :fetched 0})))
+  (load node manifest-address {:kind index-kind
+                               :walk (index-walk manifest-address)}))
 
 
 (defn load-status
-  "`{:status :loading | :loaded | :failed ...}` for `manifest-address`, or
-   nil when no load was started: `:loaded` carries `:datoms` (the count)
-   and `:fetched` (blobs fetched from peers), `:failed` its `:reason`."
-  [node manifest-address]
-  (when-let [{:keys [status fetched datoms reason]}
-             (get-in node [:loads manifest-address])]
-    (cond-> {:status status :fetched fetched}
-      (= :loaded status) (assoc :datoms (count datoms))
-      (= :failed status) (assoc :reason reason))))
+  "`address`'s load, or nil when none was started:
+   `{:status :loading :kind k :fetched n :fetching address-or-nil}`,
+   `{:status :loaded :kind k :fetched n :value v}` or
+   `{:status :failed :kind k :fetched n :reason reason}`."
+  [node address]
+  (when-let [{:keys [status kind fetched fetching value reason]}
+             (get-in node [:loads address])]
+    (case status
+      :loading {:status status :kind kind :fetched fetched
+                :fetching (:address fetching)}
+      :loaded {:status status :kind kind :fetched fetched :value value}
+      :failed {:status status :kind kind :fetched fetched :reason reason})))
+
+
+(defn forget
+  "`node` without `address`'s terminal load record, so a new `load`
+   starts over.  Refused (`:dao.space.dht/loading`) while it loads."
+  [node address]
+  (when (= :loading (get-in node [:loads address :status]))
+    (throw (refused ::loading (str address " is still loading")
+                    {:address address})))
+  (update node :loads dissoc address))
 
 
 (defn loaded-datoms
   "The EAVT datoms of a loaded index, or nil."
   [node manifest-address]
   (let [record (get-in node [:loads manifest-address])]
-    (when (= :loaded (:status record))
-      (:datoms record))))
+    (when (and (= :loaded (:status record)) (= index-kind (:kind record)))
+      (:value record))))
+
+
+(defn- walk-outcome
+  "The walk's answer, held to the three shapes: a throw is `walk-threw`,
+   any other shape `walk-shape`."
+  [walk handle]
+  (let [v (try (walk handle)
+               (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                 {::walk :invalid :address nil
+                  :defect {:code ::walk-threw :text (or (ex-message e) (str e))}}))
+        defect (when (map? v) (:defect v))]
+    (if (and (map? v)
+             (case (::walk v)
+               :missing (jing/segment-address? (:address v))
+               :complete (contains? v :value)
+               :invalid (and (map? defect) (keyword? (:code defect))
+                             (or (nil? (:address v)) (jing/segment-address? (:address v))))
+               false))
+      v
+      {::walk :invalid :address nil :defect {:code ::walk-shape}})))
 
 
 (defn- fail-load
   [node m reason]
-  [(update-in node [:loads m] assoc :status :failed :reason reason :fetching nil)
-   [{::event :load-failed :manifest m :reason reason}]])
+  (let [{:keys [kind]} (get-in node [:loads m])]
+    [(update-in node [:loads m] #(-> % (assoc :status :failed :reason reason
+                                              :fetching nil)
+                                     (dissoc :walk)))
+     [{::event :load-failed :manifest m :kind kind :reason reason}]]))
 
 
 (defn- advance-load
   [node m done-by-id]
-  (let [{:keys [fetching], :as record} (get-in node [:loads m])
+  (let [{:keys [fetching kind walk], :as record} (get-in node [:loads m])
         done (when fetching (get done-by-id (:id fetching)))]
     (cond
       (and fetching (nil? done)) [node []]
 
       (and done (not (:found? done)))
-      (fail-load node m (str "no peer produced " (:address fetching)
-                             (when-let [why (or (:lost done)
-                                                (get-in done [:error :code]))]
-                               (str " (" why ")"))))
+      (let [a (:address fetching)
+            cause (get-in node [:misses a] ::dht/gap)]
+        (fail-load (update node :misses dissoc a) m
+                   {::failure :miss :address a :cause cause}))
 
       :else
       (let [fetched (cond-> (:fetched record) done inc)
-            node (update-in node [:loads m] assoc :fetching nil :fetched fetched)
-            walked (try {:datoms (index-datoms (probing (local node)) m)}
-                        (catch #?(:cljd Object :clj Throwable :cljs :default) e
-                          (if-some [address (missing-in e)]
-                            {:missing address}
-                            {:error e})))]
-        (cond
-          (contains? walked :datoms)
-          [(update-in node [:loads m] assoc :status :loaded :datoms (:datoms walked))
-           [{::event :loaded :manifest m :datoms (count (:datoms walked))
-             :fetched fetched}]]
+            node (cond-> (update-in node [:loads m] assoc :fetching nil :fetched fetched)
+                   fetching (update :misses dissoc (:address fetching)))
+            walked (walk-outcome walk (local node))]
+        (case (::walk walked)
+          :complete
+          [(update-in node [:loads m] #(-> % (assoc :status :loaded :value (:value walked))
+                                           (dissoc :walk)))
+           [(cond-> {::event :loaded :manifest m :kind kind :fetched fetched}
+              (= index-kind kind) (assoc :datoms (count (:value walked))))]]
 
-          (:missing walked)
-          (let [{:keys [outcome id], :as asked}
-                (content.step/request-get (:client node) (:missing walked))]
-            (if (#{:requested :pending-request} outcome)
+          :invalid
+          (fail-load node m {::failure :invalid :address (:address walked)
+                             :defect (:defect walked)})
+
+          :missing
+          (let [a (:address walked)
+                {:keys [outcome id], :as asked} (content.step/request-get (:client node) a)]
+            (case outcome
+              (:requested :pending-request)
               [(-> node
                    (assoc :client (:state asked))
-                   (assoc-in [:loads m :fetching]
-                             {:id id :address (:missing walked)}))
+                   (assoc-in [:loads m :fetching] {:id id :address a}))
                []]
-              (fail-load node m (str "could not ask for " (:missing walked)
-                                     " (" (name outcome) ")"))))
 
-          :else
-          (fail-load node m (str "the index is invalid: "
-                                 (or (ex-message (:error walked))
-                                     (str (:error walked))))))))))
+              ;; the client still owes a request: ask again next step
+              :busy [(assoc node :client (:state asked)) []]
+
+              (fail-load (assoc node :client (:state asked)) m
+                         {::failure :unaskable :address a :outcome outcome}))))))))
 
 
 (defn- advance-loads
@@ -603,19 +1280,24 @@
 
 (defn step
   "Advance the node once at the owner's millisecond reading `now`:
-   append it as a tick, finish binding, step the DHT, advance loads, and
-   settle publications.  Answers `[node' events]`.  A refused node (its
-   socket could not bind) is answered unchanged."
+   append it as a tick; finish binding; admit repairs, then the puts and
+   announcements on the ledger ring; release replicate requests; step
+   the DHT; apply its facts; advance loads; and report publications.
+   Answers `[node' events]`.  A refused node (its socket could not bind)
+   is answered unchanged."
   [node now]
   (if (:refusal node)
     [node []]
     (let [node (tick node now)
           [node bound] (bind-step node)
+          node (admit-repairs node)
+          [node unknown] (admit-ledger node)
+          node (release node)
           node (cond-> node (:dht node) (update :dht dht/step step-budget))
+          [node lost] (read-facts node)
           [node loaded] (advance-loads node)
-          node (open-publications node)
-          [node settled] (settle-publications node)]
-      [node (-> bound (into loaded) (into settled))])))
+          [node reported] (settle-publications node)]
+      [node (-> bound (into unknown) (into lost) (into loaded) (into reported))])))
 
 
 (defn refusal
@@ -624,25 +1306,81 @@
   (:refusal node))
 
 
-(defn busy?
-  "True while the node owes its owner an event: binding, a load, or an
-   unsettled publication."
+(defn backlog
+  "What the node retains now: queue entries (`:fresh`, `:repair`),
+   requests outstanding (`:outstanding`, split `:outstanding-fresh` and
+   `:outstanding-repair`), live publications (`:live`), those awaiting a
+   first report (`:open`) and repairing (`:repairing`), and the ledger
+   entries they hold (`:ledger-entries`)."
   [node]
-  (boolean (and (nil? (:refusal node))
-                (or (nil? (:dht node))
-                    (some #(= :loading (:status %)) (vals (:loads node)))
-                    (seq (:window node))
-                    (seq (:publications node))))))
+  {:fresh (count (:fresh node))
+   :repair (count (:repair node))
+   :outstanding (count (:inflight node))
+   :outstanding-fresh (in-flight node :fresh)
+   :outstanding-repair (in-flight node :repair)
+   :live (count (:pubs node))
+   :open (open-count node)
+   :repairing (count (filter repairing? (:pubs node)))
+   :ledger-entries (reduce + 0 (map :blobs (:pubs node)))})
+
+
+(defn- summary
+  [node pub]
+  {:manifest (:manifest pub)
+   :blobs (:blobs pub)
+   :sent (:sent pub)
+   :result (result pub)
+   :reported? (:reported? pub)
+   :repairing? (repairing? pub)
+   :delay (:delay pub)
+   :due (:due pub)
+   :cycles (:cycles pub)
+   :cycle-open? (some? (:cycle pub))
+   :repair-queued (held-in-repair node (:id pub))
+   :entries (:entries pub)})
+
+
+(defn publications
+  "Every live publication, oldest first, as data: its result, counts,
+   repair state and ledger entries."
+  [node]
+  (mapv #(summary node %) (:pubs node)))
+
+
+(defn publication
+  "The oldest live publication of `manifest-address`, as `publications`
+   answers it, or nil."
+  [node manifest-address]
+  (some #(when (= manifest-address (:manifest %)) (summary node %)) (:pubs node)))
+
+
+(defn busy?
+  "True while the node owes its owner an event or holds work: binding, a
+   load, unread puts, a first report owed, or an address queued or
+   outstanding.  A publication waiting for its next repair cycle does
+   not make the node busy."
+  [node]
+  (boolean
+    (and (nil? (:refusal node))
+         (or (nil? (:dht node))
+             (some #(= :loading (:status %)) (vals (:loads node)))
+             (= :dao.stream/ok (:dao.stream/outcome
+                                 (stream/next (:ledger node) (:ledger-cursor node))))
+             (seq (:order (:window node)))
+             (some #(or (not (:reported? %)) (:cancelled? %)) (:pubs node))
+             (seq (:fresh node))
+             (seq (:repair node))
+             (seq (:inflight node))))))
 
 
 (defn db
   "The `dao.space.query` value over the loaded index `manifest-address`
    names, read from the node's local store.  Throws unless it is loaded."
   [node manifest-address]
-  (when-not (= :loaded (:status (load-status node manifest-address)))
+  (when-not (loaded-datoms node manifest-address)
     (throw (ex-info (str "the index " manifest-address " is not loaded")
                     {:manifest manifest-address
-                     :status (load-status node manifest-address)})))
+                     :status (dissoc (load-status node manifest-address) :value)})))
   (query/published-db (local node) manifest-address))
 
 

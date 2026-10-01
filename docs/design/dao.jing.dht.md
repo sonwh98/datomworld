@@ -644,16 +644,31 @@ dependency.
   root secret at join: 32 CSPRNG bytes, held only in the node value.
 - `(step node now)` is the node's only advance; `now` is its owner's
   nondecreasing millisecond reading, appended as a tick. It answers
-  `[node events]`: `:bound`, `:bind-failed`, `:published` (per announced
-  publication: acknowledged with the peers sent to, or not with the reason
-  and peers reached, from the `/sent` and `/unacknowledged` facts),
-  `:publication-unknown`, `:loaded`, `:load-failed`.
-- `(store node)` is the node's byte-store handle (5.1); `(announce! node
-  manifest)` closes the publication its puts made.
-- `(load-index node manifest)` starts a load; `step` walks the index through
-  the local store with `dao.space.index/read-manifest` and fetches each
-  missing blob with a `:jing/get` through `dao.jing.content.step`, until all
-  four covered indexes read back and cover the manifest's count.
+  `[node events]` (`yin.vm.linker.dht.md` 4.3 and 5.5.3):
+  - `:bound`, `:bind-failed`;
+  - `:published`, the first report of an announced publication, once every
+    blob has an outcome: `:result` (`:acknowledged`, `:partial` or
+    `:unacknowledged`), `:blobs`, `:sent`, `:peers`, `:failed` (every blob
+    not sent, with its reason), `:repairing?`, and `:ended` when repair
+    will not run;
+  - `:republished`, the same shape, whenever that result changes after the
+    first report or its automatic repair ends;
+  - `:publication-unknown` (the facts were lost);
+  - `:loaded` and `:load-failed`, one per load, with its `:kind` and, on
+    failure, a `:reason` that is data.
+- `(store node)` is the node's byte-store handle; a put records the address
+  for the node's next publication and asks the DHT for nothing.
+  `(announce! node manifest)` closes the publication its puts made. `step`
+  paces the replicate requests below `max-pending-writes` through a bounded
+  backlog, so the node's own writes never draw `/busy`. `retry!` and
+  `cancel!` act on a live publication (`yin.vm.linker.dht.md` 5.5).
+- `(load node address {:kind k :walk f})` starts a staged load over any
+  walk; `(load-index node manifest)` is `load` with the covered-index walk,
+  which reads the index through the local store with
+  `dao.space.index/read-manifest`. `step` fetches each blob the walk names
+  missing with a `:jing/get` through `dao.jing.content.step`, until all
+  four covered indexes read back and cover the manifest's count. `forget`
+  clears a terminal load.
 - `(db node manifest)` is `dao.space.query/published-db` over the loaded
   index (`restored-indexes`); `(q node manifest query & inputs)` is
   `dao.space.query/q` over its current view.

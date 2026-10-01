@@ -17,8 +17,11 @@
    `step` is the node's one step owner, called by the host's single
    ticker (yin.repl.main/step-all) with the host's clock reading; it
    renders the node's events as the lines the REPL prints: where the
-   socket bound, and for each publication whether it was acknowledged —
-   sent to N peers — or not, and why.
+   socket bound, and for each publication its result — acknowledged,
+   sent to N peers, or partial or not acknowledged with the count of
+   blobs not sent, the first reason, and whether the node is retrying —
+   and each later change of it (yin.vm.linker.dht.md 5.5.6).  A load's
+   failure reason is data; it is rendered as text here.
 
    A reader handed a manifest address (`:manifest`) loads it through
    `dao.space.dht/load-index` before the shell admits any evaluation, as a
@@ -106,24 +109,65 @@
 
 
 (defn- reason-text
-  [node {:keys [reason peers ack-peers]}]
+  "One blob's failure reason as the REPL prints it."
+  [node {:keys [reason peers]}]
   (case reason
     :dao.jing.dht/solo (str "solo — no --dht-peer is configured, so nothing "
                             "was sent; the index is in " (::dir node) " only")
     :dao.jing.dht/unpublished (str "publication is off — this node fetches "
                                    "only; start with --dht-publish to share")
     :dao.jing.dht/too-few-peers (str "too few peers — sent to " peers " of "
-                                     ack-peers " before the acknowledgement "
-                                     "deadline")
+                                     (dht/ack-peers node) " before the "
+                                     "acknowledgement deadline")
     :dao.jing.dht/oversize "a blob exceeds the DHT message bound"
     :dao.jing.dht/absent "a blob was no longer in the local store"
     :dao.jing.dht/busy "too many writes were pending"
+    :dao.space.dht/backlog-full "the replicate backlog was full"
+    :dao.space.dht/publications-full (str "too many publications awaited "
+                                          "their first report")
+    :dao.space.dht/cancelled "cancelled"
     (str reason)))
 
 
+(def ^:private ended-text
+  {:dao.space.dht/terminal "every remaining failure is final"
+   :dao.space.dht/cancelled "cancelled"
+   :dao.space.dht/displaced "displaced by newer publications"})
+
+
+(defn- result-text
+  "A publication's result (yin.vm.linker.dht.md 5.5.6): when it is not
+   acknowledged, the count of failed blobs, the first reason, and whether
+   the node is retrying."
+  [node {:keys [result blobs peers failed repairing? ended]}]
+  (if (= :acknowledged result)
+    (str "acknowledged: sent to " peers " peers")
+    (str (if (= :partial result)
+           "PARTIAL: the manifest was sent; "
+           "NOT acknowledged: ")
+         (reason-text node (first failed))
+         "; " (count failed) " of " blobs " blobs not sent"
+         (cond
+           repairing? "; retrying while the node is open"
+           ended (str "; not retrying (" (get ended-text ended (str ended)) ")")
+           :else "; not retrying")
+         "; the local copy is durable")))
+
+
+(defn- failure-text
+  "A load's failure reason, data (dao.space.dht 4.3), as text."
+  [{:dao.space.dht/keys [failure] :keys [address cause defect outcome]}]
+  (case failure
+    :miss (str "no peer produced " address " (" (name cause) ")")
+    :invalid (str "the content " (when address (str "at " address " "))
+                  "is invalid (" (:code defect) ")"
+                  (when-let [text (:text defect)] (str ": " text)))
+    :unaskable (str "could not ask for " address " (" (name outcome) ")")
+    (pr-str failure)))
+
+
 (defn- event-line
-  [node {:keys [manifest blobs acknowledged? peers host port id reason datoms
-                fetched], :as event}]
+  [node {:keys [manifest blobs host port id reason datoms fetched], :as event}]
   (case (::dht/event event)
     :bound (str "dht: node " (subs id 0 16) " listening on "
                 (address-text host port) "; peers: "
@@ -131,18 +175,18 @@
                                     (:peers node)))
                 (if (:publish? node) "; publishing" "; fetch-only"))
     :bind-failed (str "dht: refused: the socket could not bind: " reason)
-    :published (str "dht: published " manifest " (" blobs " blobs) — "
-                    (if acknowledged?
-                      (str "acknowledged: sent to " peers " peers")
-                      (str "NOT acknowledged: " (reason-text node event)
-                           "; the local copy is durable")))
+    (:published :republished)
+    (str "dht: " (name (::dht/event event)) " " manifest " (" blobs " blobs) — "
+         (result-text node event))
     :publication-unknown (str "dht: published " manifest
                               " — acknowledgement unknown: facts were lost")
     :loaded (str (if (= manifest (::hydrating node)) "dht: hydrated " "dht: loaded ")
-                 manifest " — " datoms " datoms, " fetched " blobs fetched"
+                 manifest " — "
+                 (when datoms (str datoms " datoms, "))
+                 fetched " blobs fetched"
                  (when (= manifest (::hydrating node)) "; evaluation admitted"))
     :load-failed (str "dht: " (if (= manifest (::hydrating node)) "refused: " "")
-                      "loading " manifest " failed: " reason
+                      "loading " manifest " failed: " (failure-text reason)
                       (when (= manifest (::hydrating node))
                         "; the remote index was not hydrated"))
     (pr-str event)))

@@ -1072,6 +1072,19 @@ section 5.5; a blob's `:reason` there is one of the DHT's `/unacknowledged`
 reasons, `:dao.space.dht/backlog-full`, `:dao.space.dht/publications-full`
 or `:dao.space.dht/cancelled`.
 
+Node-call refusals. `dao.space.dht/retry!`, `cancel!` and `forget` refuse by
+throwing an `ex-info` whose data carries
+`{:dao.space.dht/refused code ...}`, with the code from this closed set:
+
+| Code | Raised by | When |
+|---|---|---|
+| `:dao.space.dht/not-repairing` | `retry!` | No live publication of the manifest is repairing. Carries `:manifest`. |
+| `:dao.space.dht/not-live` | `cancel!` | No live publication of the manifest. Carries `:manifest`. |
+| `:dao.space.dht/loading` | `forget` | The load record is `:loading`. Carries `:address`. |
+
+A consumer matches the code, never the message. The `dao.space.dht` host
+module answers each one as the call's error under the same code.
+
 ## 10. The plain Clojure API
 
 The one path, for any Clojure program:
@@ -1086,7 +1099,11 @@ join -> publish!  -> assert! -> announce!                 (publisher)
 | `dao.space.dht/join`, `step`, `store`, `local`, `announce!`, `close!` | S5, unchanged. |
 | `dao.space.dht/load-index`, `load-status`, `db`, `q` | S5; statuses and reasons per section 4.3. |
 | `dao.space.dht/load`, `forget` | Section 4.3. |
-| `dao.space.dht/retry!`, `cancel!` | Section 5.5. |
+| `dao.space.dht/retry!`, `cancel!` | Section 5.5. Each answers the node; refusal codes in section 9. |
+| `(dao.space.dht/backlog node)` | What the node retains now: `{:fresh n :repair n :outstanding n :outstanding-fresh n :outstanding-repair n :live n :open n :repairing n :ledger-entries n}`. These are queue entries, requests outstanding (in total and per queue), live publications, those awaiting a first report, those repairing, and the ledger entries live publications hold (section 5.5.2). |
+| `(dao.space.dht/publications node)` | Every live publication, oldest first, each `{:manifest m :blobs n :sent s :result r :reported? b :repairing? b :delay ticks :due reading-or-nil :cycles n :cycle-open? b :repair-queued n :entries {address entry}}`. An entry is `{:state :waiting}`, `{:state :sent :peers k}` or `{:state :failed :reason r :peers k}`, with `:was` after a cancellation. |
+| `(dao.space.dht/publication node manifest-address)` | The oldest live publication of that manifest in the shape above, or nil. |
+| `(dao.space.dht/ack-peers node)` | The distinct peers a blob must be handed to before it is `sent`. |
 | `yin.vm.linker.closure/walk` | Section 4.2. |
 | `yin.vm.linker.sign/*` | Section 6.4. |
 | `yin.vm.linker.publish/publish-module!`, `footprint`, `module-from-index`, `assertion`, `retraction` | Sections 5.2, 5.3, 6.1. `assertion` and `retraction` answer `{:envelope e :proof p :datoms [...]}` for a key and a sequence. |

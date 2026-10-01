@@ -346,7 +346,7 @@
                 ;; Its require and q rounds each published over the hydrated
                 ;; index, so its HEAD has moved past the manifest it fetched,
                 ;; and publishing is off, so none of it left the process.
-                (is (await-line d #"dht: published :segment/\S+ .*NOT acknowledged: publication is off"
+                (is (await-line d #"dht: published :segment/\S+ \(\d+ blobs\) — NOT acknowledged: publication is off.*; \d+ of \d+ blobs not sent; not retrying"
                                 exchange-ms)
                     (transcript d))
                 (is (re-find #"\{:version 1, :manifest :segment/"

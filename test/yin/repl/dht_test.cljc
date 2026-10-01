@@ -377,6 +377,113 @@
         (cleanup-dir! dir)))))
 
 
+(defn- refusing-bind
+  "The mesh seam at `port`, whose socket refuses every `:store` datagram
+   for an address `(@refuse? a)` holds (dao.space.dht-test's seam).  A
+   store too large for one datagram travels as `:chunk` frames, which
+   name no address: they are refused when `(@refuse? nil)` holds."
+  [net port refuse?]
+  (let [bind! (mesh/seam net port)]
+    (fn [opts]
+      (let [seam (bind! opts)]
+        (assoc seam
+               :send! (fn [host to-port bs]
+                        (let [m (dht/decode-message bs)
+                              refused? (case (:op m)
+                                         :store (@refuse? (:address m))
+                                         :chunk (and (= :request (:dir m))
+                                                     (@refuse? nil))
+                                         false)]
+                          (if refused?
+                            {:dao.stream/outcome :dao.stream/transport-error}
+                            ((:send! seam) host to-port bs)))))))))
+
+
+(defn- rows-refuser
+  "A refusal of every store but `@manifest`'s."
+  [manifest]
+  (fn [a] (not= a @manifest)))
+
+
+(deftest a-partial-publication-is-reported-and-repaired-through-the-host-module
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        peers {121 (peer-node net 121) 122 (peer-node net 122)}
+        manifest (atom nil)
+        refuse (atom (rows-refuser manifest))]
+    (try
+      (let [shell (repl/create-state
+                    {:index-store-spec
+                     (dht-spec dir {:bind! (refusing-bind net 120 refuse)
+                                    :peers [{:host "127.0.0.1" :port 121}
+                                            {:host "127.0.0.1" :port 122}]
+                                    :publish? true})})
+            [shell _] (repl/eval-input shell "(def partly 7)")
+            m (get-in shell [:indexer :manifest-address])
+            _ (reset! manifest m)
+            [[shell] peers lines now] (run-until [shell] peers 0 20000
+                                                 #(line-with % (str "published " m)))
+            first-line (line-with lines (str "published " m))]
+        (testing "the first report names the result, the failed count and the retry"
+          (is (str/includes? first-line "PARTIAL") first-line)
+          (is (re-find #"\d+ of \d+ blobs not sent" first-line) first-line)
+          (is (str/includes? first-line "too few peers") first-line)
+          (is (str/includes? first-line "retrying while the node is open") first-line)
+          (is (= m (head-manifest dir)) "HEAD moved"))
+        (reset! refuse (constantly false))
+        (let [[shell required] (repl/eval-input shell "(require (quote dao.space.dht))")
+              [shell retried] (repl/eval-input shell (str "(dao.space.dht/retry " m ")"))
+              [[shell] _ lines] (run-until [shell] peers now (+ now 20000)
+                                           #(line-with % (str "republished " m)))
+              line (line-with lines (str "republished " m))]
+          (is (= "'dao.space.dht" required))
+          (is (= ":retrying" retried) "retry brings the repair forward")
+          (is (str/includes? (str line) "acknowledged: sent to 2 peers") (pr-str lines))
+          (testing "retry and cancel are refused for what is not live, as data"
+            (let [[shell again] (repl/eval-input shell (str "(dao.space.dht/retry " m ")"))
+                  [shell cancelled] (repl/eval-input shell (str "(dao.space.dht/cancel " m ")"))]
+              (is (str/includes? again "not-repairing") again)
+              (is (str/includes? cancelled "not-live") cancelled)
+              (close! shell)))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest a-refused-manifest-is-reported-unacknowledged-and-cancel-ends-it
+  (let [dir (temp-dir)
+        net (mesh/mesh)
+        peers {124 (peer-node net 124) 125 (peer-node net 125)}
+        refuse (atom (constantly false))]
+    (try
+      (let [shell (repl/create-state
+                    {:index-store-spec
+                     (dht-spec dir {:bind! (refusing-bind net 123 refuse)
+                                    :peers [{:host "127.0.0.1" :port 124}
+                                            {:host "127.0.0.1" :port 125}]
+                                    :publish? true})})
+            [shell _] (repl/eval-input shell "(def unsent 8)")
+            m (get-in shell [:indexer :manifest-address])
+            _ (reset! refuse #{m})
+            [[shell] peers lines now] (run-until [shell] peers 0 20000
+                                                 #(line-with % (str "published " m)))
+            first-line (line-with lines (str "published " m))
+            _ (is (= m (head-manifest dir)) "HEAD moved")
+            [shell _] (repl/eval-input shell "(require (quote dao.space.dht))")
+            [shell cancelled] (repl/eval-input shell (str "(dao.space.dht/cancel " m ")"))
+            [[shell] _ lines] (run-until [shell] peers now (+ now 1000)
+                                         #(line-with % (str "republished " m)))]
+        (is (str/includes? first-line "NOT acknowledged") first-line)
+        (is (re-find #"1 of \d+ blobs not sent" first-line) first-line)
+        (is (str/includes? first-line "retrying") first-line)
+        (is (= ":cancelled" cancelled))
+        (is (str/includes? (str (line-with lines (str "republished " m)))
+                           "not retrying (cancelled)")
+            (pr-str lines))
+        (close! shell))
+      (finally
+        (cleanup-dir! dir)))))
+
+
 (deftest a-publication-with-publishing-off-is-reported-and-sends-nothing
   (let [dir (temp-dir)
         net (mesh/mesh)
@@ -474,6 +581,9 @@
         (is (not (repl.dht/admitting? reader))
             "a refused hydration never admits evaluation over an empty index")
         (is (line-with lines (str absent)))
+        (is (str/includes? (repl.dht/refusal reader) "no peer produced")
+            "the reason, data, is rendered as text by the REPL")
+        (is (str/includes? (repl.dht/refusal reader) "exhausted"))
         (close! reader))
       (finally
         (cleanup-dir! dir)))))
@@ -599,6 +709,10 @@
                                                 "))"))]
               (is (line-with lines (str "dht: loaded " manifest)) (pr-str lines))
               (is (str/includes? status ":status :loaded"))
+              (is (str/includes? status ":kind :dao.space.dht/index"))
+              (is (re-find #":datoms \d+" status) status)
+              (is (not (str/includes? status ":value"))
+                  "the host answers the status, not the datoms")
               (is (contains? (set expected) [4242])
                   "the plain path answers the publisher's fact")
               (is (= (pr-str expected) answer)

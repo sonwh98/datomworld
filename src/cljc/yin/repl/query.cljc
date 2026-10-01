@@ -86,10 +86,13 @@
 (def dht-ops
   "The `dao.stream.apply` operations the `dao.space.dht` module requests:
    `load-index`, `load-status` and `q`, each answered by the
-   `dao.space.dht` function of that name."
+   `dao.space.dht` function of that name, and `retry` and `cancel`,
+   answered by `retry!` and `cancel!`."
   {'load-index ::dht-load-index
    'load-status ::dht-load-status
-   'q ::dht-q})
+   'q ::dht-q
+   'retry ::dht-retry
+   'cancel ::dht-cancel})
 
 
 (def views
@@ -133,7 +136,7 @@
 
 
 (def ^:private dht-arities
-  {'load-index [1] 'load-status [1] 'q [2 :variadic]})
+  {'load-index [1] 'load-status [1] 'q [2 :variadic] 'retry [1] 'cancel [1]})
 
 
 (defn activate-dht
@@ -567,13 +570,36 @@
        (apply2/success-response id (:ok answer))))))
 
 
+(defn- host-status
+  "A load status as the host answers it: the status without its loaded
+   value, which an index load counts under `:datoms` instead."
+  [status]
+  (when status
+    (cond-> (dissoc status :value)
+      (and (= :loaded (:status status)) (= dht/index-kind (:kind status)))
+      (assoc :datoms (count (:value status))))))
+
+
+(defn- publication-call
+  "`[node' answer]` of `retry!` or `cancel!` on `manifest`: `ok` answers
+   `ok`; the plain function's refusal is answered under its own code."
+  [node manifest f ok]
+  (try [(f node manifest) {:ok ok}]
+       (catch #?(:cljd Object :clj Exception :cljs :default) e
+         (if-let [code (:dao.space.dht/refused (ex-data e))]
+           [node (refusal code (ex-message e) nil)]
+           (throw e)))))
+
+
 (defn- dht-answer
   "The response to one `dao.space.dht` call, answered from `node` — the
    shell's DHT node — by the `dao.space.dht` function the operation
    names, and the node after it: `load-index` starts a load and answers
    its status at once, never waiting; `load-status` answers the load's
    status map; `q` answers `dao.space.dht/q` under `limits`, refused
-   until the index is loaded.  Answers `[node response]`."
+   until the index is loaded; `retry` and `cancel` answer `:retrying`
+   and `:cancelled`, or the plain function's refusal.  Answers
+   `[node response]`."
   [node limits request]
   (let [id (apply2/request-id request)
         [manifest & more] (apply2/request-args request)
@@ -597,7 +623,13 @@
               [node {:ok (:status (dht/load-status node manifest))}])
 
             ::dht-load-status
-            [node {:ok (dht/load-status node manifest)}]
+            [node {:ok (host-status (dht/load-status node manifest))}]
+
+            ::dht-retry
+            (publication-call node manifest dht/retry! :retrying)
+
+            ::dht-cancel
+            (publication-call node manifest dht/cancel! :cancelled)
 
             ::dht-q
             (let [status (dht/load-status node manifest)
