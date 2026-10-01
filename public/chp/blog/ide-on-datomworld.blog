@@ -344,7 +344,7 @@
             [:a {:href "/blog/russian-dolls-yin-vm-llm-symmetry.blog"} "Russian Dolls: The Fractal Symmetry of Yin.VM and LLMs"]
             " (why the LLM and the VM are the same shape)"]
            [:li
-            [:a {:href "/blog/leibnitz-datomworld.blog"} "Leibniz's Monad Model and Datom.world"]
+            [:a {:href "/blog/leibnitz-datomworld.blog"} "Leibniz's Monad Model and Datom.world: Windowless Computation in an Open Moduli Space"]
             " (windowless agents, stigmergic harmony)"]
            [:li
             [:a {:href "/blog/what-makes-datalog-datalog.blog"} "What Makes Datalog Datalog: Semantics, Not Syntax"]
