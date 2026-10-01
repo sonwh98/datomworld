@@ -667,6 +667,17 @@ Out of this epic: pinning, garbage collection, availability repair and
 reconciliation sweeps, NAT meeting, a browser transport, latest-root
 discovery, authenticated node ids.
 
+**Loading code for evaluation** is the next epic, specified in
+[`yin.vm.linker.dht.md`](./yin.vm.linker.dht.md). It generalizes
+`load-index` into `dao.space.dht/load` (a staged load over any walk, with
+failure reasons as data), adds a bounded replicate backlog so a round's
+many row writes never report `/busy`, replaces the `:published` event's
+`:acknowledged?` with a result of `:acknowledged`, `:partial` or
+`:unacknowledged` that lists every blob not sent, retries a publication
+that is not acknowledged automatically while the node is open (reported by
+a `:republished` event), and makes the node's store the linker's content
+source. It changes nothing in sections 2 to 9.
+
 ## Relationship to the intake-pool observer
 
 The DHT is a content-store backend, not a stream transport. The intake-pool

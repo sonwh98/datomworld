@@ -30,6 +30,10 @@ Related documents:
 - `docs/design/dao.jing.md` - content-addressed storage and the stepped
   remote client
 - `docs/design/dao.stream.md` - the stream contract, in particular OD-5
+- `docs/design/yin.vm.linker.dht.md` - the peer-network composition:
+  publishing a module closure, loading it over `dao.jing.dht`, and
+  resolving names from signed envelopes in loaded indexes (section 8.2's
+  signature proof kind, made concrete)
 
 ## 1. Objective and architectural position
 
@@ -799,6 +803,12 @@ the server today. A portable stepped DHT client would be a `dao.jing.dht`
 design and is out of scope; the peer-network row is therefore equivalent
 at the linker's boundary and no further, and M3's tests say so (section
 9).
+
+Since the DHT epic the handle is `dao.jing.dht`'s local-only store handle
+and a remote miss is staged around it. How a module closure is loaded onto
+a node before the link, and why a content client on the node's own rings
+waits for a persistent stepped linker, is
+[`yin.vm.linker.dht.md`](./yin.vm.linker.dht.md) section 4.
 
 ### 6.2 Linker-local state
 

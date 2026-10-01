@@ -136,6 +136,14 @@ Which of the two holds is settled by reading those namespaces at
 implementation time. Either way the REPL itself stays free of clocks,
 timers, callbacks and global atoms (the `yin.repl` namespace docstring).
 
+Settled on master `c66809fa`: the second holds. `yin.repl/recheck-pending`
+is that step function, and no host driver calls it yet. Its first caller is
+the DHT link source: the ticker re-checks only when a module load a pending
+link waits on completes or fails
+([`yin.vm.linker.dht.md`](./yin.vm.linker.dht.md) section 8.2). That
+document also states why a DHT request budget is not the lease of section 6
+(its section 8.3).
+
 ## 5. Why a function comes first
 
 A function policy covers every rule an embedder can want, from "give up
