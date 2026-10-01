@@ -734,6 +734,12 @@ decode. No rule asks whether a map "looks like" data; no decoder decision
 depends on program content. Scalar and collection values pass through only
 because no marker is ever a non-map, which the closed tag table fixes.
 
+The scalar arm's "number" includes every exact-integer carrier Jing
+supports, not only what a host's `number?` admits: a JS or Dart `BigInt`
+is a scalar like a `long`, encoded as itself and carried by Jing's major
+types 0/1 and tags 2/3 (C3 converged ruling 4). No marker is added, and a
+big integer inside a heap cell stays under the cell-lift refusal.
+
 Map keys are values and are encoded as such — inside `:yin.k/entries`
 alternately with their values, and nowhere else; the frame's own `:yin.k/env`
 keys are the program's symbols and are structural, not encoded values.

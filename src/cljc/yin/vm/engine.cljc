@@ -34,6 +34,7 @@
             [dao.stream.waitset :as waitset]
             [yin.vm :as vm]
             [yin.vm.ffi :as ffi]
+            [yin.vm.integer.host :as integer-host]
             [yin.vm.linker :as linker]
             [yin.vm.module :as module]
             [yin.vm.telemetry :as telemetry]
@@ -617,9 +618,13 @@
 
 
 (defn- scalar?
+  "True for a value that holds nothing: UCF 7.5.1's scalar arm, also the
+   leaf test of the heap trace and of pinning. An exact-integer carrier
+   is a scalar on every host, including a JS or Dart big integer, which
+   answers false to `number?` (C3 ruling 4)."
   [x]
-  (or (nil? x) (boolean? x) (number? x) (string? x) (keyword? x)
-      (symbol? x)))
+  (or (nil? x) (boolean? x) (number? x) (integer-host/big-carrier? x)
+      (string? x) (keyword? x) (symbol? x)))
 
 
 (defn- encode-primitive

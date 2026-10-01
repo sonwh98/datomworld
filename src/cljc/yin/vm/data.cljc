@@ -36,6 +36,7 @@
   (:require
     [clojure.string :as str]
     [yin.vm :as vm]
+    [yin.vm.integer.host :as integer-host]
     [yin.vm.module :as module]
     [yin.vm.values :as values]))
 
@@ -409,10 +410,12 @@
 ;; =============================================================================
 
 (defn- data-number?
-  "True when `x` is a host number. A closure, a continuation, nil and a
-   map are not, whatever they answer to `get`."
+  "True when `x` is a host number or an exact-integer carrier, including
+   a JS or Dart big integer, which answers false to `number?`. A
+   closure, a continuation, nil and a map are not, whatever they answer
+   to `get`."
   [x]
-  (number? x))
+  (or (number? x) (integer-host/big-carrier? x)))
 
 
 (defn- callable?
