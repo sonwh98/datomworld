@@ -1036,7 +1036,7 @@ before R2 or R4.
 
     Fulfilled by: Phase B6 (src/cljc/yin/vm/linker.cljc,
     test/yin/vm/linker_test.cljc)
-    Specification: docs/design/yin.vm.debruijn.linker.md
+    Specification: docs/design/yin.vm.linker.md
     Must not change: stack H, dao.stream, dao.jing, dao.jing.dht
 
 Per the owner's directive ("B6 should be used by both the stack and register
@@ -1046,7 +1046,7 @@ are fulfilled directly within the unified B6 linker phase. Phase B6 delivers
 function, the register format record (`:yin.debruijn.register`), the R index,
 and same-root pairing datoms (`[root :yin.debruijn.register/hash R]`) with
 both trusted and verifying fallback paths. Full specification, file box,
-and completion criteria are defined in `docs/design/yin.vm.debruijn.linker.md`.
+and completion criteria are defined in `docs/design/yin.vm.linker.md`.
 
 ## 7. Non-goals and protected surfaces
 

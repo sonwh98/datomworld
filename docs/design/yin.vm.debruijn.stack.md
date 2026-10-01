@@ -716,14 +716,15 @@ lanes must agree under the normalizer.
     Must not change: merged projection namespace, image-hash, dao.stream,
     dao.jing, dao.jing.dht, dao.jing.remote, named VM semantics
 
-B6 is specified in `docs/design/yin.vm.debruijn.linker.md`, the
+B6 was specified in `docs/design/yin.vm.debruijn.linker.md`, the
 standalone linker design for Phase B6, used by both the stack and register
-VM for linking code over `dao.stream`. That document specifies the format-
-parameterized fetch function over `dao.stream` / `dao.jing`, the address and
-identity distinction, the six-step fetch protocol, the qualified refusal
-vocabulary, the H and R indexes, the transitional content-hash risk, and the
-completion list. Section 7.2 below remains the topology summary and D8, D9,
-D11, D13, D14, D15, and D16 remain the governing decisions.
+VM for linking code over `dao.stream`; that document was merged into
+`docs/design/yin.vm.linker.md` and deleted (2026-10-01), which now
+specifies the format-parameterized fetch function over `dao.stream` /
+`dao.jing`, the address and identity distinction, the six-step fetch
+protocol, the qualified refusal vocabulary, the H and R indexes, and
+the completion list. Section 7.2 below remains the topology summary and
+D8, D9, D11, D13, D14, D15, and D16 remain the governing decisions.
 
 ### B7: dependency closure linker
 

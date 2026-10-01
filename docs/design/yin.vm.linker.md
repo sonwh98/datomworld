@@ -1,10 +1,15 @@
 # yin.vm.linker: the universal code linker over dao.stream
 
 Status: design, proposed (2026-09-24, revision r11). Supersedes the
-namespace placement and the two-backend scope of
-`yin.vm.debruijn.linker.md` (Phase B6); that document's fetch pipeline,
-format records, refusal vocabulary, and same-root pairing are carried
-here in substance and extended to all four `yin.vm` execution backends.
+namespace placement and the two-backend scope of the Phase B6
+predecessor `yin.vm.debruijn.linker.md`; that document's fetch
+pipeline, format records, refusal vocabulary, and same-root pairing
+are carried here in substance and extended to all four `yin.vm`
+execution backends. Its remaining load-bearing content was merged
+into this document and the predecessor file was deleted (2026-10-01),
+on the completion audit's confirmation that all five milestones of
+section 9 landed:
+collab/1790871424000-qa-yin-vm-linker-spec-completion-audit.md
 Revision r2 reconciled the adversarial review
 `collab/1790250614225-reviewer-universal-linker-spec.gpt-5.6-sol.findings.md`;
 revisions r3 to r11 reconcile the round-2 to round-10 consensus
@@ -18,8 +23,6 @@ sections 4 and 5, and the ledger of `yin.vm.ledger`.
 
 Related documents:
 
-- `docs/design/yin.vm.debruijn.linker.md` - the B6 predecessor (two
-  formats, one synchronous fetch)
 - `docs/design/yin.vm.debruijn.stack.md` - governing decisions D5 to D16
 - `docs/design/yin.vm.code-as-tuples.md` - AST rows, segment vectors,
   derivation records
@@ -167,9 +170,12 @@ it and is never the interface another interpreter is written against.
 run.** The storage address and the format identity have different
 preimages for two of the four formats and the same preimage for the other
 two; in every case both checks execute, because an index entry is a claim
-and never a proof (`yin.vm.debruijn.linker.md` section 6; D14). Every
-check is directed by the algorithm the address or identity carries; the
-linker never re-mints under a default and compares with `=` (Class 3 of
+and never a proof: step 2 proves the retrieved value is the content at
+that storage address, step 3 proves that content is the exact program
+requested, and neither check subsumes the other (D14,
+`yin.vm.debruijn.stack.md`). Every check is directed by the algorithm
+the address or identity carries; the linker never re-mints under a
+default and compares with `=` (Class 3 of
 `dao.jing.call-site-classification.md`).
 
 **I6. The VM never invokes a loader.** Absence of code is a park plus a
@@ -201,7 +207,9 @@ defect B6 guarded against with D9, and the unification here adds a third.
 
 **Storage address.** `(jing/segment-key payload)` under the storage
 encoder in force. Changes when the encoder changes (the CBOR landing,
-`dao.jing.md` *Open items*). Carries its own hash algorithm.
+`dao.jing.md` *Open items*); when it does, every identity-to-address
+index is re-minted, while the contract-pinned identities (H and R) and
+the code they name are unchanged. Carries its own hash algorithm.
 
 **Format identity.** What the VM contract calls the code. There are two
 families:
@@ -331,10 +339,15 @@ is one more record.
 
 ### 4.2 The six steps
 
-The order is B6's, unchanged, and remains load-bearing for the reasons
-B6 gives. An admission check precedes step 1; step 2 is a bounded
-worklist; steps 1 and 2 are stream exchanges (section 6); step 5 has a
-linker half and a receiver half.
+The order is B6's, unchanged, and remains load-bearing: the address
+check (step 2) precedes the identity check (step 3) because the
+address was requested from the store; validation (step 4) precedes
+the scans of step 5 so the scanners only ever see structurally valid
+values; and the closure check (step 5) precedes return so an unclosed
+image is never handed to the caller (D11). An admission check
+precedes step 1; step 2 is a bounded worklist; steps 1 and 2 are
+stream exchanges (section 6); step 5 has a linker half and a receiver
+half.
 
 ```text
 (link runtime format identity)
@@ -788,8 +801,9 @@ operational: a "local" require and a "remote" require are the same four
 appends and four reads.
 
 The content pair is `dao.jing.content`'s request and response vocabulary
-(`dao.stream.remote.implementation-plan.md`, section 1): `{:jing/request r :jing/get address}`
-answered by `{:jing/request r :jing/found? b :jing/bytes b64}`, over local
+(`dao.stream.remote.implementation-plan.md`, section 1):
+`{:jing/request r :jing/get address}` answered by
+`{:jing/request r :jing/found? b :jing/bytes b64}`, over local
 ring buffers or reflections of remote streams, with the shared ingress
 check `dao.jing/accept-bytes!` applied to every answer. The linker writes
 no protocol of its own for content.
@@ -1747,7 +1761,8 @@ as a pure function over plain data.
   datom, carrying its entity's proof value (an envelope with no
   proof datom, or whose entity carries two distinct proof values, is the
   no-proof case below; a proof datom with no envelope datom names no
-  event, and joins one only if an envelope later appears on its entity), with the carrier
+  event, and joins one only if an envelope later appears on its
+  entity), with the carrier
   `:dao.stream/identity` of the read supplied by the composition, never
   read from a datom. An envelope is honored only with
   a proof; a bare `:asserted-by` value is a string anyone can write.
@@ -1948,9 +1963,14 @@ flowchart TD
 test likewise. Update the five design documents that name the old
 namespace (`yin.vm.debruijn.stack.md`, `yin.vm.debruijn.register.md`,
 `dao.agent.md`, `dao.agent.harness.md`, `dao.agent.mcp.server.md`) and
-the orchestrator log. Mark `yin.vm.debruijn.linker.md` as superseded by
-this document in its status line. No behavior changes. The B6 test
-suite passes unchanged apart from the require alias.
+the orchestrator log. The predecessor document
+`yin.vm.debruijn.linker.md` was first marked superseded by this
+document in its status line (2026-09-25); when the completion audit
+(collab/1790871424000-qa-yin-vm-linker-spec-completion-audit.md)
+confirmed all five milestones landed, its remaining load-bearing
+content was merged into this document and the file was deleted
+(2026-10-01). No behavior changes. The B6 test suite passes unchanged
+apart from the require alias.
 
 **M2. Four format records.** Replace `:hash-fn` with `:identity-fn` and
 `:identity-matches-fn`; rename `:free-names-fn` to `:obligations-fn`;
@@ -2148,7 +2168,8 @@ Structure:
 
 Verification:
 
-5. Every B6 completion criterion (section 11 there) holds for all four
+5. Every B6 completion criterion -- the refusal matrix, the structure
+   rules, and the cross-host transfer rules -- holds for all four
    formats where applicable, through both `fetch` and `step`.
 6. A payload whose address is valid but whose identity is not the one
    requested is refused for every format, including the two whose

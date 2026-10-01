@@ -218,7 +218,7 @@ under which the B6 index entry was minted, and the reviewer fetches by
 identity through the linker. `:artifact/image-r` and `:artifact/image-h`
 are both optional; an artifact with both is a same-root pairing claim
 and must carry `:artifact/root` so a verifying receiver can re-lower
-(`yin.vm.debruijn.linker.md`, section 7).
+(`yin.vm.linker.md`, sections 5.5 and 8.1).
 
 `:artifact/claim` binds the artifact to the granted claim under which it
 was produced. An artifact whose claim is not `:granted` at the artifact's
