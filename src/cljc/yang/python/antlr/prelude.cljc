@@ -701,7 +701,10 @@
     ;; 0.0 * inf is NaN.
     [py/zero-like
      ;; copysign(0.0, y) for a nonzero y
-     (fn [y] (if (< y 0) (- 0.0) 0.0))]
+     ;; -0.0 is built as (* -1.0 0.0): ClojureDart compiles one-argument
+     ;; `-` to (0 - x), and 0 - 0.0 is +0.0; multiplying by -1.0 negates
+     ;; exactly on every host
+     (fn [y] (if (< y 0) (* -1.0 0.0) 0.0))]
     [py/float-mod
      ;; x % y as CPython computes it: the exact fmod, sign-corrected toward
      ;; y. No quotient is formed, so a large finite quotient is fine.
@@ -862,7 +865,9 @@
     ;; unary - and + on a float negate or keep it, so -0.0 and +(-0.0)
     ;; keep their sign (0 - 0.0 would be 0.0)
     [py/neg
-     (fn [a] (if (py/float? a) (py/float (- (get a :py/float))) (py/arith :sub 0 a)))]
+     ;; a float is negated by (* -1.0 x), not one-argument `-`, which is
+     ;; (0 - x) on ClojureDart and turns -(0.0) into +0.0 there
+     (fn [a] (if (py/float? a) (py/float (* -1.0 (get a :py/float))) (py/arith :sub 0 a)))]
     [py/pos (fn [a] (if (py/float? a) a (py/arith :add 0 a)))]
     [py/lt (fn [a b] (py/compare < a b))]
     [py/gt (fn [a b] (py/compare > a b))]
