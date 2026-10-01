@@ -375,3 +375,47 @@ walker's behaviour, not a different behaviour.
 
 **Shared, not a divergence:** neither `reset` restores `:env`. Each keeps the
 environment the last run ended in.
+
+## The metadata divergence
+
+**Vector `=` does not imply address `=` for metadata-carrying literals.**
+UCF 7.3.2 expects that literal operands "hash under the same encoder as
+everything else, so equal literals address equally however their maps
+were built" (section 7.3.2 of `yin.vm.universal-continuation-format.md`).
+The address is `(dao.jing/segment-key vector)` (`ucf.cljc:203`,
+`code-address`, "UCF mints no second addressing scheme"), and the encoder
+beneath it makes collection and symbol metadata address-significant
+([`dao.jing.md`](./dao.jing.md)): reader-position keys are stripped and
+empty metadata is dropped, but every other metadata difference changes
+the canonical bytes the digest reads. Clojure `=` ignores metadata, so
+two metadata-carrying literals can be `=`, canonicalize to vectors that
+are `=`, and still mint different addresses. The divergence is from the
+UCF contract's own expectation, not from v1. It is observable on the
+semantic evaluator's load path, which verifies a claimed
+`:yin.code/hash` by re-canonicalizing (`yin.vm.ucf-revisions.md` I-2),
+and wherever the linker compares images; the walker has no code table
+and no such conflict.
+
+**Inherited, and recorded here as the finding directed.** The UCF
+Phase 1 review found it at `ucf.cljc:203-207 (inherited)` and
+prescribed "Record in the divergence register, not in ucf.cljc"
+(`collab/1790268690622-reviewer-ucf-phase1.glm-flash.findings.md`,
+last finding; recorded here 2026-10-01). The stamp names no address
+basis, and UCF 7.3.2 forbids minting a second one
+(`yin.vm.ucf-revisions.md` section 2). The finding was made against
+the transitional order-normalized printer (`jing.cljc:105` at review
+time), whose rule was already "every other metadata difference changes
+the address". The canonical CBOR codec (3ddaa21b, I-1) restated and
+widened that rule in the current encoder: collection and symbol
+metadata both travel in explicit `clojure/with-meta` frames, so the
+divergence stands, owner-accepted for the current encoder.
+
+**The recorded future amendment.** Pinning `:yin.ast/code` and
+`:yin.semantic/code` identities to a contract hash, with explicit
+identity-to-address indexes, is named but not landed:
+[`yin.vm.linker.md`](./yin.vm.linker.md) section 12 ("Contract-pinned
+AST and semantic identities") and section 6 of
+[`yin.vm.ucf-revisions.md`](./yin.vm.ucf-revisions.md), the latter
+noting it "would amend the referent's address semantics". Until it
+lands, address equality must not be assumed for metadata-carrying
+literals anywhere a UCF address is compared, deduplicated, or verified.
