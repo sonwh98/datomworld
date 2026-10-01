@@ -581,8 +581,12 @@
 (defn- call-parts
   "A call's arguments as `{:args node :kwargs node-or-nil}`: positional
    values and `*iterable` splices in order, then `name=value` pairs and
-   `**mapping` splices in order. A generator expression is allowed only as
-   the sole argument of a consuming builtin (`:genexp` is then its node)."
+   `**mapping` splices in order. CPython evaluates every positional and
+   `*` argument before any keyword value, and so does this. As in the
+   language reference, `*iterable` may follow `name=value` but not
+   `**mapping`, and a plain positional argument may follow neither. A
+   generator expression is allowed only as the sole argument of a consuming
+   builtin (`:genexp` is then its node)."
   [ctx trailer]
   (let [al (first (rules ctx trailer "arglist"))
         args (if al (rules ctx al "argument") [])
@@ -590,7 +594,8 @@
     (loop [as args
            pos (u/lit [])
            kw nil
-           seen #{}]
+           seen #{}
+           dstar? false]
       (if-let [a (first as)]
         (let [ak (kids ctx a)]
           (cond
@@ -599,12 +604,15 @@
               {:genexp a}
               (syntax! a "Generator expression must be parenthesized"))
             (p/token? (first ak) "*")
-            (do (when kw (syntax! a "iterable argument unpacking follows keyword argument unpacking"))
-                (recur (rest as) (app* 'py/extend pos (lower ctx (second ak))) kw seen))
+            (do (when dstar?
+                  (syntax! a "iterable argument unpacking follows keyword argument unpacking"))
+                (recur (rest as) (app* 'py/extend pos (lower ctx (second ak))) kw seen
+                       dstar?))
             (p/token? (first ak) "**")
             (recur (rest as) pos
                    (app* 'py/kw-extend (or kw (u/lit [])) (lower ctx (second ak)))
-                   seen)
+                   seen
+                   true)
             (and (= 3 (count ak)) (p/token? (second ak) "="))
             (let [nm (scope/simple-name (:pk ctx) (first ak))]
               (when-not nm (syntax! a "expression cannot contain assignment"))
@@ -612,10 +620,14 @@
               (recur (rest as) pos
                      (app* 'py/conj (or kw (u/lit []))
                            (build-vector [(u/lit nm) (lower ctx (nth ak 2))]))
-                     (conj seen nm)))
+                     (conj seen nm)
+                     dstar?))
             :else
-            (do (when kw (syntax! a "positional argument follows keyword argument"))
-                (recur (rest as) (app* 'py/conj pos (lower ctx (first ak))) kw seen))))
+            (do (when dstar?
+                  (syntax! a "positional argument follows keyword argument unpacking"))
+                (when kw (syntax! a "positional argument follows keyword argument"))
+                (recur (rest as) (app* 'py/conj pos (lower ctx (first ak))) kw seen
+                       dstar?))))
         {:args pos, :kwargs kw}))))
 
 
@@ -636,9 +648,22 @@
       (let [{:keys [args kwargs genexp]} (call-parts ctx trailer)]
         (if genexp
           (if (contains? consuming-builtins callee)
-            (lower-call receiver
-                        (build-vector [(lower-comprehension ctx genexp :list)])
-                        nil)
+            ;; The consumer's own semantics, inline and lazy: elements are
+            ;; produced one at a time, any/all stop at the first decisive
+            ;; one, sum and set fold as they go. This is the builtin's
+            ;; behaviour only while the name still denotes the builtin
+            ;; (globals() may rebind it), which is checked at run time.
+            (u/if-node (app* 'py/is receiver (u/v (get prelude/builtin-names callee)))
+                       (case callee
+                         "list" (lower-comprehension ctx genexp :list)
+                         "set" (lower-comprehension ctx genexp :set)
+                         "tuple" (app* 'py/tuple
+                                       (app* 'py/to-vector
+                                             (lower-comprehension ctx genexp :list)))
+                         "sum" (lower-comprehension ctx genexp :sum)
+                         "any" (lower-comprehension ctx genexp :any)
+                         "all" (lower-comprehension ctx genexp :all))
+                       (app* 'py/genexp-unsupported))
             (unsupported! genexp "generator expression (phase C2)"))
           (lower-call receiver args kwargs)))
       (p/token? head "[") (app* 'py/getitem receiver (subscript-key ctx trailer))
@@ -1305,7 +1330,18 @@
                :list (app* 'py/list-append (u/v acc) (lower cctx (first elems)))
                :set (app* 'py/set-add (u/v acc) (lower cctx (first elems)))
                :dict (app* 'py/dict-set (u/v acc) (lower cctx (first elems))
-                           (lower cctx (second elems))))
+                           (lower cctx (second elems)))
+               ;; generator expressions consumed by sum/any/all: a running
+               ;; fold, or an escape at the first decisive element
+               :sum (app* 'cell/set! (u/v acc)
+                          (app* 'py/add (app* 'cell/get (u/v acc))
+                                (lower cctx (first elems))))
+               :any (u/if-node (truthy (lower cctx (first elems)))
+                               (u/app (u/v acc) (u/lit true))
+                               none)
+               :all (u/if-node (truthy (lower cctx (first elems)))
+                               none
+                               (u/app (u/v acc) (u/lit false))))
         body (reduce (fn [inner [i [tag a b]]]
                        (if (= tag :for)
                          (let [x (gen "x" a)]
@@ -1316,12 +1352,18 @@
                          (u/if-node (truthy (lower cctx a)) inner none)))
                      emit
                      (reverse (map-indexed vector clauses)))
-        result (u/let1 acc
-                       (case kind
-                         :list (app* 'py/list (u/lit []))
-                         :set (app* 'py/set-new)
-                         :dict (app* 'py/dict-new))
-                       (u/then body (u/v acc)))]
+        result (case kind
+                 ;; acc is the escape: (acc true) / (acc false) ends early
+                 :any (app* 'py/call-ec (u/lam [acc] (u/then body (u/lit false))))
+                 :all (app* 'py/call-ec (u/lam [acc] (u/then body (u/lit true))))
+                 :sum (u/let1 acc (app* 'cell/new (u/lit 0))
+                              (u/then body (app* 'cell/get (u/v acc))))
+                 (u/let1 acc
+                         (case kind
+                           :list (app* 'py/list (u/lit []))
+                           :set (app* 'py/set-new)
+                           :dict (app* 'py/dict-new))
+                         (u/then body (u/v acc))))]
     (u/let1 fst
             (lower ctx (nth (first clauses) 2))
             (if (seq (:locals s))

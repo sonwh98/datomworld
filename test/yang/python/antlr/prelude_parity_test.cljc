@@ -141,6 +141,21 @@
     [(py/range-len (py/range3 0 4503599627370496 3) 0) 1501199875790166]
     [(py/range-has? (py/range3 10 0 -3) 7) true]
     [(py/range-has? (py/range3 10 0 -3) 5) false]
+    [(py/to-vector (py/range3 -9007199254740992 9007199254740992 6004799503160661))
+     [-9007199254740992 -3002399751580331 3002399751580330 9007199254740991]]
+    [(py/to-vector (py/range3 9007199254740992 -9007199254740992 -6004799503160661))
+     [9007199254740992 3002399751580331 -3002399751580330 -9007199254740991]]
+    [(py/range-len (py/range3 -9007199254740992 9007199254740992 9007199254740992) 0) 2]
+    [(py/range-len (py/range3 -9007199254740992 9007199254740992 6004799503160661) 0) 4]
+    [(py/range-has? (py/range3 -9007199254740992 9007199254740992 6004799503160661)
+                    9007199254740991)
+     true]
+    [(py/range-has? (py/range3 -9007199254740992 9007199254740992 9007199254740992) 1)
+     false]
+    [(py/range-elem -9007199254740992 6004799503160661 3) 9007199254740991]
+    [(py/float-mod 1.0E20 3.0) 1.0]
+    [(py/float-mod -1.0E20 3.0) 2.0]
+    [(py/float-mod 1.0E300 7.0) 1.0]
     [(py/snapshot {:py/str "s"}) "s"]
     [(py/snapshot :py/None) nil]])
 
@@ -224,6 +239,38 @@
           (is (= {:py/out ["9007199254740992 overflow overflow overflow overflow overflow"],
                   :py/exception nil}
                  (if (map? result) (render/output result) result))))))))
+
+
+(deftest signed-zero-floats-on-every-host-test
+  (testing "float % and // on exact multiples and infinite divisors, rendered
+            on the host because = cannot see a zero's sign: the JVM (where
+            host = tells 0.0 from 0) and Node (where it cannot) agree with
+            CPython"
+    (let [forms '[(py/float-mod 4.0 -2.0)
+                  (py/float-mod -4.0 2.0)
+                  (py/float-mod -4.0 -2.0)
+                  (get (py/float-divmod 4.0 -2.0) 0)
+                  (get (py/float-divmod -4.0 2.0) 0)
+                  (get (py/float-divmod 4.0 -2.0) 1)
+                  (py/float-mod 0.0 ##Inf)
+                  (py/float-mod 0.0 ##-Inf)
+                  (py/float-mod 5.0 ##Inf)
+                  (py/float-mod -5.0 ##Inf)
+                  (py/float-mod 5.0 ##-Inf)
+                  (get (py/float-divmod -5.0 ##Inf) 0)
+                  (get (py/float-divmod 0.0 ##-Inf) 0)
+                  (get (py/float-divmod 5.0 ##Inf) 0)
+                  (get (py/float-divmod 0.0 ##Inf) 1)
+                  (get (py/neg {:py/float 0.0}) :py/float)]
+          expected ["-0.0" "0.0" "-0.0" "-2.0" "-2.0" "-0.0"
+                    "0.0" "-0.0" "5.0" "inf" "-inf"
+                    "-1.0" "-0.0" "0.0" "0.0" "-0.0"]
+          results (run-with-prelude prelude/functions-uast
+                                    (reduce (fn [acc f] (list 'py/conj acc f)) [] forms))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= expected
+                 (if (vector? result) (mapv render/float-repr result) result))))))))
 
 
 (deftest render-test

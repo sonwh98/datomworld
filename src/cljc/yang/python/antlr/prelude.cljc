@@ -449,7 +449,13 @@
          ;; become `args`); any other class takes none
          (do (if (= init :py/missing)
                (if (py/subclass? cls py.b/BaseException)
-                 (py/setattr inst "args" (py/tuple args))
+                 ;; the builtin exception constructor takes positional
+                 ;; arguments only; an explicit __init__ binds keywords
+                 (if (< 0 (data/count kwargs))
+                   (py/type-error
+                     (py/str (data/str-concat (get (cell/get cls) :name)
+                                              "() takes no keyword arguments")))
+                   (py/setattr inst "args" (py/tuple args)))
                  (if (if (< 0 (data/count args)) true (< 0 (data/count kwargs)))
                    (py/type-error
                      (py/str (data/str-concat (get (cell/get cls) :name)
@@ -689,17 +695,38 @@
          x
          (let [r (py/fmod-pos x (+ y y))]
            (if (< r y) r (- r y)))))]
+    ;; Zero tests here go through py/zero?: host `=` tells 0.0 from 0 on the
+    ;; JVM but not on JS or Dart. A zero result takes its sign from the
+    ;; divisor (never zero here), chosen rather than computed, since
+    ;; 0.0 * inf is NaN.
+    [py/zero-like
+     ;; copysign(0.0, y) for a nonzero y
+     (fn [y] (if (< y 0) (- 0.0) 0.0))]
+    [py/float-mod
+     ;; x % y as CPython computes it: the exact fmod, sign-corrected toward
+     ;; y. No quotient is formed, so a large finite quotient is fine.
+     (fn [x y]
+       (if (if (py/finite? x) (= y y) false)
+         (let [m0 (py/fmod-pos (py/abs x) (py/abs y))
+               m (if (< x 0) (- 0 m0) m0)]
+           (if (py/zero? m)
+             (py/zero-like y)
+             (if (= (< y 0) (< m 0)) m (+ m y))))
+         (- x x)))]
     [py/float-divmod
      ;; [floor-quotient remainder] as CPython's float_divmod computes them:
-     ;; the remainder from the exact fmod, then sign-corrected
+     ;; the remainder from the exact fmod, then sign-corrected; the quotient
+     ;; is floored, so it is bounded to +-2^53
      (fn [x y]
        (if (if (py/finite? x) (= y y) false)
          (let [m0 (py/fmod-pos (py/abs x) (py/abs y))
                m (if (< x 0) (- 0 m0) m0)
-               adjust (if (= m 0) false (not (= (< y 0) (< m 0))))
-               mod (if (= m 0) (* 0.0 y) (if adjust (+ m y) m))
+               adjust (if (py/zero? m) false (not (= (< y 0) (< m 0))))
+               mod (if (py/zero? m) (py/zero-like y) (if adjust (+ m y) m))
                div (- (/ (- x m) y) (if adjust 1.0 0.0))
-               fd (if (= div 0)
+               ;; a zero quotient is copysign(0.0, x / y); here |x| < |y|,
+               ;; so x / y is finite and 0.0 * (x / y) carries its sign
+               fd (if (py/zero? div)
                     (* 0.0 (/ x y))
                     (let [f (py/floor div)] (if (< 0.5 (- div f)) (+ f 1) f)))]
            (py/conj (py/conj [] fd) mod))
@@ -744,7 +771,7 @@
        (do (py/division-check a b)
            (if (if (py/int? a) (py/int? b) false)
              (py/int-mod (py/num a) (py/num b))
-             (py/float (get (py/float-divmod (* 1.0 (py/num a)) (* 1.0 (py/num b))) 1)))))]
+             (py/float (py/float-mod (* 1.0 (py/num a)) (* 1.0 (py/num b)))))))]
     [py/ipow
      ;; int base ** e for an integer e >= 0, by squaring, bound-checked
      (fn [base e]
@@ -832,8 +859,11 @@
              (py/float (/ (* 1.0 (py/num a)) (py/num b))))
            (py/type-error {:py/str "unsupported operand type"}))
          (py/type-error {:py/str "unsupported operand type"})))]
-    [py/neg (fn [a] (py/arith :sub 0 a))]
-    [py/pos (fn [a] (py/arith :add 0 a))]
+    ;; unary - and + on a float negate or keep it, so -0.0 and +(-0.0)
+    ;; keep their sign (0 - 0.0 would be 0.0)
+    [py/neg
+     (fn [a] (if (py/float? a) (py/float (- (get a :py/float))) (py/arith :sub 0 a)))]
+    [py/pos (fn [a] (if (py/float? a) a (py/arith :add 0 a)))]
     [py/lt (fn [a b] (py/compare < a b))]
     [py/gt (fn [a b] (py/compare > a b))]
     [py/le (fn [a b] (py/compare <= a b))]
@@ -902,8 +932,16 @@
          (if (if (< 0 step)
                (if (<= start x) (< x stop) false)
                (if (< stop x) (<= x start) false))
-           (= 0 (py/int-mod (py/checked-sub x start) step))
+           ;; on the step: x and start leave the same floor remainder, which
+           ;; needs no (possibly out-of-range) difference x - start
+           (= (py/int-mod x step) (py/int-mod start step))
            false)))]
+    [py/genexp-unsupported
+     ;; a generator expression passed to a consumer name that no longer
+     ;; denotes the builtin: a real generator is phase C2
+     (fn []
+       (py/raise-new py.b/NotImplementedError
+                     {:py/str "generator expressions are phase C2"}))]
     [py/in (fn [x c] (py/contains c x))]
     [py/not-in (fn [x c] (not (py/contains c x)))]
     [py/eq-items
@@ -1168,32 +1206,57 @@
 
     ;; ---------------------------------------------------------- iteration
     [py/range3
+     ;; every argument an int (bools as 0 and 1), checked before any
+     ;; arithmetic
      (fn [a b s]
-       (if (if (py/float? a) true (if (py/float? b) true (py/float? s)))
-         (py/type-error {:py/str "range() arguments must be integers"})
+       (if (if (py/int? a) (if (py/int? b) (py/int? s) false) false)
          (if (py/zero? s)
            (py/raise-new py.b/ValueError {:py/str "range() arg 3 must not be zero"})
-           (assoc (assoc (assoc (assoc {} :py/type :range) :start a) :stop b)
-                  :step s))))]
+           (assoc (assoc (assoc (assoc {} :py/type :range) :start (py/num a))
+                         :stop (py/num b))
+                  :step (py/num s)))
+         (py/type-error {:py/str "range() arguments must be integers"})))]
+    [py/range-count
+     ;; ceil((stop - start) / step) for a non-empty range, from the floor
+     ;; quotients and remainders of each bound: no difference of the bounds
+     ;; (up to 2^54) is formed; only the length itself is range-checked
+     (fn [start stop step]
+       (if (< 0 step)
+         (if (< start stop)
+           (py/checked-add (py/checked-sub (py/int-floordiv stop step)
+                                           (py/int-floordiv start step))
+                           (if (< (py/int-mod start step) (py/int-mod stop step)) 1 0))
+           0)
+         (if (< stop start)
+           (let [m (- 0 step)]
+             (py/checked-add (py/checked-sub (py/int-floordiv start m)
+                                             (py/int-floordiv stop m))
+                             (if (< (py/int-mod stop m) (py/int-mod start m)) 1 0)))
+           0)))]
+    [py/range-elem
+     ;; start + i * step for 0 <= i < len, exactly on every host: by halving
+     ;; i and doubling step, every partial sum is itself an element of the
+     ;; range (so within +-2^53) and every addend a power-of-two multiple of
+     ;; step; i * step (up to 2^54) is never formed
+     (fn [start step i]
+       (if (= i 0)
+         start
+         (if (= (py/int-mod i 2) 1)
+           (+ (py/range-elem start step (- i 1)) step)
+           (py/range-elem start (+ step step) (py/int-floordiv i 2)))))]
     [py/range-at
+     ;; a valid element is exact (range-elem); the one-past element may
+     ;; exceed 2^53 on JS, but its true value is beyond stop and rounding is
+     ;; monotone, so the bound test still ends the range exactly there
      (fn [r i]
-       (let [x (+ (get r :start) (* i (get r :step)))]
+       (let [x (py/range-elem (get r :start) (get r :step) i)]
          (if (if (< 0 (get r :step)) (< x (get r :stop)) (> x (get r :stop)))
            x
            :py/stop)))]
     [py/range-len
-     ;; O(1): (|stop - start| - 1) // |step| + 1 when non-empty
-     (fn [r _i]
-       (let [start (get r :start)
-             stop (get r :stop)
-             step (get r :step)]
-         (if (< 0 step)
-           (if (< start stop)
-             (+ 1 (py/int-floordiv (- (py/checked-sub stop start) 1) step))
-             0)
-           (if (< stop start)
-             (+ 1 (py/int-floordiv (- (py/checked-sub start stop) 1) (- 0 step)))
-             0))))]
+     ;; O(1); a length beyond 2^53 is an OverflowError, as len() of such a
+     ;; range is in CPython
+     (fn [r _i] (py/range-count (get r :start) (get r :stop) (get r :step)))]
     [py/iter-at
      (fn [it i]
        (if (py/cell? it)

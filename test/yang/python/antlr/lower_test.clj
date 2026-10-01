@@ -344,6 +344,18 @@
            (body "f(1, *a, k=2, **d)\n")))))
 
 
+(deftest star-after-keyword-golden-test
+  (testing "*iterable may follow name=value (the language reference allows
+            it); positional and * arguments are evaluated before keyword
+            values, as CPython does"
+    (is (= (u/then (py 'py/call-kw (gget "f")
+                       (py 'py/extend (u/lit []) (gget "b"))
+                       (py 'py/conj (u/lit [])
+                           (py 'py/conj (py 'py/conj (u/lit []) (u/lit "a")) (u/lit 1))))
+                   none)
+           (body "f(a=1, *b)\n")))))
+
+
 (deftest slice-and-power-golden-test
   (testing "a slice is a value; ** is regrouped to the right"
     (is (= (u/seq-nodes [(py 'py/getitem (gget "x") (py 'py/slice (u/lit 1) none none))
@@ -429,6 +441,8 @@
            ["*a = x\n" "starred assignment target must be in a list or tuple"]
            ["f(a=1, a=2)\n" "keyword argument repeated: a"]
            ["f(a=1, 2)\n" "positional argument follows keyword argument"]
+           ["f(**d, 1)\n" "positional argument follows keyword argument unpacking"]
+           ["f(**d, *a)\n" "iterable argument unpacking follows keyword argument unpacking"]
            ["def f(*, ): pass\n" "named arguments must follow bare *"]
            ["a, b += 1\n" "illegal expression for augmented assignment"]
            ["x = [*a for a in b]\n" "iterable unpacking cannot be used in comprehension"]

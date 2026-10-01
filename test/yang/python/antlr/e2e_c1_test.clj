@@ -499,3 +499,124 @@
                       "        pass"
                       "except (TypeError, AttributeError):"
                       "    print('not a context manager')"))))
+
+
+;; =============================================================================
+;; Round 3: the C1 gate r2's findings. Expected output is CPython 3.9.6's for
+;; the same source (every value here is within +-2^53).
+;; =============================================================================
+
+(deftest gate-round3-test
+  (testing "range elements exact near +-2^53 (no oversized i*step); range
+            len and membership from split quotient/remainder (only the
+            result is bounded); any/all over a generator short-circuit, sum
+            and set over one stop at the failing element; float % without a
+            quotient; range argument validation; builtin exception
+            constructors reject keywords while an explicit __init__ binds
+            them; * after explicit keywords binds as Python does"
+    (every-vm=
+      (prints (str "[-9007199254740992, -3002399751580331, 3002399751580330, "
+                   "9007199254740991] 4 True False")
+              "2 [-9007199254740992, 0]"
+              (str "[9007199254740992, 3002399751580331, -3002399751580330, "
+                   "-9007199254740991] 4")
+              "True False"
+              "4 [0]"
+              "True [1]"
+              "False False [1]"
+              "sum stopped [1, 'a']"
+              "set stopped [1, [2]]"
+              "1.0 2.0 1.0 5.5"
+              "range TypeError"
+              "range TypeError"
+              "range TypeError"
+              "ctor TypeError"
+              "code 7"
+              "TypeError h() got multiple values for argument 'a'"
+              "21")
+      (lines "r = range(-9007199254740992, 9007199254740992, 6004799503160661)"
+             "print(list(r), len(r), 9007199254740991 in r, 9007199254740990 in r)"
+             "print(len(range(-9007199254740992, 9007199254740992, 9007199254740992)), list(range(-9007199254740992, 9007199254740992, 9007199254740992)))"
+             "print(list(range(9007199254740992, -9007199254740992, -6004799503160661)), len(range(9007199254740992, -9007199254740992, -6004799503160661)))"
+             "print(-9007199254740992 in range(-9007199254740992, 9007199254740992, 9007199254740992), 1 in range(-9007199254740992, 9007199254740992, 9007199254740992))"
+             "print(len(range(True, 5)), list(range(False, True)))"
+             "log = []"
+             "def f(x):"
+             "    log.append(x)"
+             "    return 1 // x"
+             "print(any(f(x) for x in [1, 0]), log)"
+             "log = []"
+             "print(all(0 // x for x in [1, 0]), all(f(x) > 5 for x in [1, 0]), log)"
+             "log = []"
+             "def g(x):"
+             "    log.append(x)"
+             "    return x"
+             "try:"
+             "    sum(g(x) for x in [1, 'a', 3])"
+             "except TypeError:"
+             "    print('sum stopped', log)"
+             "log = []"
+             "try:"
+             "    set(g(x) for x in [1, [2], 3])"
+             "except TypeError:"
+             "    print('set stopped', log)"
+             "print(1e20 % 3.0, -1e20 % 3.0, 1e300 % 7.0, 5.5 % 1e300)"
+             "for bad in ['a', 1.5, None]:"
+             "    try:"
+             "        range(bad)"
+             "    except TypeError:"
+             "        print('range TypeError')"
+             "try:"
+             "    raise ValueError(nope=1)"
+             "except TypeError:"
+             "    print('ctor TypeError')"
+             "class E(Exception):"
+             "    def __init__(self, code=0):"
+             "        self.code = code"
+             "try:"
+             "    raise E(code=7)"
+             "except E as e:"
+             "    print('code', e.code)"
+             "def h(a):"
+             "    print(a)"
+             "try:"
+             "    h(a=1, *[2])"
+             "except TypeError as e:"
+             "    print('TypeError', e.args[0])"
+             "def k(a, b):"
+             "    return a * 10 + b"
+             "print(k(b=1, *[2]))"))))
+
+
+(deftest generator-consumer-rebound-test
+  (testing "the inline consumer is used only while the name denotes the
+            builtin; rebound through globals(), a generator argument is a
+            C2 NotImplementedError rather than a wrong answer"
+    (every-vm= (prints "c2")
+               (lines "globals()['any'] = lambda it: 'mine'"
+                      "try:"
+                      "    any(x for x in [1])"
+                      "except NotImplementedError:"
+                      "    print('c2')"))))
+
+
+;; =============================================================================
+;; Round 4: gate r3. Expected output is CPython 3.9.6's for the same source.
+;; =============================================================================
+
+(deftest float-zero-and-infinity-test
+  (testing "exact float multiples with both divisor signs, x % +-inf and
+            x // +-inf, and signed zeros, identical on every VM (zero tests
+            are host-independent; a zero result's sign comes from the
+            divisor, never from 0.0 * inf)"
+    (every-vm= (prints "-0.0 0.0 -2.0 -2.0 0.0 -0.0 2.0 2.0"
+                       "-0.0 -0.0 0.0 -0.0 0.0 0.0 -0.0 -0.0"
+                       "5.0 inf -inf -5.0 0.0 -0.0"
+                       "0.0 -1.0 -1.0 0.0 0.0 -0.0"
+                       "-0.0 -0.0 -0.0 0.0 -0.0 -inf inf")
+               (lines "print(4.0 % -2.0, -4.0 % 2.0, 4.0 // -2.0, -4.0 // 2.0, 4.0 % 2.0, -4.0 % -2.0, 6.0 // 3.0, -6.0 // -3.0)"
+                      "print(4 % -2.0, 4.0 % -2, 0.0 % 5.0, 0.0 % -5.0, -0.0 % 5.0, 0.0 // 5.0, 0.0 // -5.0, -0.0 // 5.0)"
+                      "inf = 1e400"
+                      "print(5.0 % inf, -5.0 % inf, 5.0 % -inf, -5.0 % -inf, 0.0 % inf, 0.0 % -inf)"
+                      "print(5.0 // inf, -5.0 // inf, 5.0 // -inf, -5.0 // -inf, 0.0 // inf, 0.0 // -inf)"
+                      "print(-0.0, +(-0.0), -(0.0), -(-0.0), 0.0 * -1, -1e400, 1e400)"))))
