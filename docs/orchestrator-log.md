@@ -8952,3 +8952,159 @@ Routing as of stop:
 - GLM paced until 2026-10-04 01:26.
 - gemini stood in while codex was capped; its reviews were lighter. r2 found an L1 defect it had passed.
 - Five ClojureDart reader bugs were found this session and are candidates for an upstream report: % outside #(), no duplicate refusal, no syntax-quote resolver, list :tag <Type> metadata, whitespace before a closer.
+
+
+## 2026-10-01 20:20:00 +07 — Seat takeover: re-derived stop-state verified; resuming the recorded L5 landing plan
+Completed-GMT: 2026-10-01 13:20:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@c2ba68aa; linker-l5 uncommitted (13 paths) in
+  ../datomworld-linker-l2 (branch linker-l5 @ e5b856b9)
+Done:
+- Took over the orchestrator seat from the claude seat (this ZCode
+  session forked from the 2026-09-25 state; the interim week ran under
+  claude). Re-derived everything per handoff posture rather than
+  trusting either memory or the record.
+- Stop-state claims verified against the tree: linker-l5 has exactly 13
+  uncommitted paths in ../datomworld-linker-l2; the L5 fix round 4
+  report exists (collab/1790837000000-engineer-linker-L5.claude-opus-5-5.report.md,
+  written 20:05 tonight); master is +1 unpushed (c2ba68aa, the session
+  stop-state commit); the r3 epic findings and the owner-decisions
+  artifact are present in collab/.
+- Noted for the record: the fork-era ucf-phase2 branch no longer exists
+  and is not an ancestor of master — the linker direction was superseded
+  by the linker-over-DHT design pass (docs/design/yin.vm.linker.dht.md,
+  a1f41db3). The interim seat's account ends at the stop-state; the
+  disposition of the old branch's M2-era work is not recorded in the
+  tail I inherited. Non-blocking; flagged as a provenance question.
+Owner standing orders honored: "after existing task complete, stop" was
+  the claude seat's stop; the owner has now re-seated an orchestrator,
+  and the claude seat's recorded "Next, on resume" list (1 epic confirm,
+  2 orchestrator lanes, 3 commit L5, 4 rebase+verify, 5 ff master,
+  6 cleanup worktrees) is the mandate this seat resumes.
+Routing constraints honored: codex is gpt-6.1-sol with fresh threads
+  (no cross-model resumes); cmd is budget-frozen; GLM is paced until
+  2026-10-04 01:26, so ZCode subagent use is minimized and lanes run
+  orchestrator-direct.
+Next: dispatch the fresh gpt-6.1-sol epic confirm (r3 findings + fix
+  round 4 + the 13-file diff); run the orchestrator lanes sequentially;
+  on both pass, commit L5, rebase onto master, verify, fast-forward,
+  clean up the four merged worktrees; log each landing.
+- 2026-10-01 20:50 +0700: OWNER, verbatim: "yes, include it in the push" — for the zcode seat's unpushed docs commit c2ba68aa (orchestrator stop state) to go out with Python C1's push. Approval is specific to c2ba68aa; any other foreign commit still needs asking.
+
+
+## 2026-10-01 21:10:00 +07 — Linker-over-DHT epic landed: L0-L5 fast-forwarded to master (df7cf1f4)
+Completed-GMT: 2026-10-01 14:10:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@df7cf1f4 (fast-forward from c2ba68aa); 35 files,
+  +10335/-471: yin.vm.linker.dht.md design, linker/{closure,dht,publish,
+  sign}.cljc namespaces, Ed25519 name signing with stable key files,
+  same-address consensus, automatic repair, the end-to-end portable
+  gate, and the DHT engine hardening (staged loads, bounded queues).
+Done (the claude seat's recorded resume list, executed in order):
+1. Epic confirm: fresh gpt-6.1-sol thread
+   (collab/1790322912*-architect-linker-epic-confirm.*) returned
+   READY/GRANTED — fix round 4 verified to close the r3 withholding
+   defect (validator short-circuits before vals on a non-map,
+   regression tests cited at closure_test.cljc:320, dht_test.cljc:309,
+   publish_test.cljc:77); L0-L5 verified against the design and owner
+   decisions 1-6; no blocking cross-slice seams. One P3, nonblocking:
+   the engineer report's "88-case" scan executes 80 cases (ten manifest
+   keys x eight malformed values); the artifact was left untouched per
+   the immutability protocol and the correction is recorded here.
+2. Orchestrator lanes (my runs, on the uncommitted L5 tree, sequential):
+   JVM 2,700 tests / 224,574 assertions / 0 failures; Node 2,613 /
+   90,633 / 0; CLJD 2,568 passed, 0 failed.
+3. Committed L5: 05881992 (13 paths; hook reformatted two test files,
+   covered by step 4's re-verification).
+4. Rebased linker-l5 onto master (df7cf1f4): clean, 7 commits replayed.
+   Post-rebase JVM re-verify: 2,808 tests / 225,640 assertions /
+   0 failures — after `clj -M:antlr-gen`, because master's deps.edn now
+   puts build/antlr/python3/classes on :paths and a fresh worktree
+   without the generated parser dies on
+   ClassNotFoundException: yang.python.antlr.gen.Python3Lexer. Note for
+   every future worktree/clone: run `clj -M:antlr-gen` once before test
+   runs on or after master's yang.python work.
+5. Fast-forwarded master c2ba68aa -> df7cf1f4.
+6. Removed the four merged worktrees (dht-s5, linker-l0, linker-l1,
+   linker-dht) after per-worktree checks: zero tracked modifications,
+   zero unique collab artifacts each.
+Corrections this seat:
+- Correction to this seat's own takeover entry: the fork-era ucf-phase2
+  branch WAS merged into master (b3d0b5a1, 2026-09-26) after its
+  uncommitted M2 work was committed (19719d66) alongside M3 (9779044c);
+  the branch and worktree were deleted in routine post-epic cleanup,
+  and the interim log confirmed "fully merged". The takeover entry's
+  "not an ancestor / superseded" note failed vacuously on the deleted
+  branch name. Full provenance:
+  collab/1790860752799-provenance-ucf-phase2-disposition.md
+- LICENSE verification closed the relicensing open item: the committed
+  LICENSE is byte-identical to the canonical GPL-2.0 text from
+  ftp.gnu.org (www.gnu.org remains unreachable; SPDX fallbacks differ
+  by normalization only), and LICENSE-EXCEPTION matches the
+  owner-approved digest 0f8f7359...e313.
+Open items:
+- Push master (df7cf1f4) to origin: surfaced to the owner.
+- ucf-phase2 provenance report committed to collab/ only; keep with the
+  epic record.
+- The linker-over-DHT design's cross-host kept-cursor proof and full
+  ownership fencing remain post-M5 hardening per the acceptance matrix.
+Next: No queued epic work. Await owner direction; candidates surface in
+  the record (upstream CLJD reader-bug report draft; repo hygiene pass).
+
+## 2026-10-01 22:00:34 +07 — C1: gate r4 READY; CLJD signed-zero failure; another seat committed/rebased my in-flight branch
+Completed-GMT: 2026-10-01 15:00:34 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@df7cf1f4 (zcode seat's linker-over-DHT L2-L5, pushed); C1 branch yang-python-phase-c1@fb1c02da
+Done: gpt-6.1-sol r4 READY/GRANTED (thread 01a0f762-755f-7913-985d-6782759f2dd9). Orchestrator lanes on round 4: JVM
+2722/187957/0, Node green, CLJD -1 (prelude-parity signed-zero-floats-on-every-host-test: py/zero-like loses the sign on
+ClojureDart). Orchestrator tried building zeros as (- (* 1.0 0)) — no change; reverted (hypothesis "integral float
+literals become ints" disproved as stated).
+INCIDENT: at 21:22 another orchestrator seat (the owner says zcode, glm-5.3-flash, same orchestrator role) committed the
+engineer's uncommitted round-4 edits on yang-python-phase-c1 (d7402823) and rebased the branch onto master df7cf1f4
+(-> 9583809c + fb1c02da). Content verified intact (only C1's 10 yang files differ from master). Asked the owner to tell
+that seat to leave this seat's worktrees alone. Next lanes must rebuild the Node REPL (L5's dht-process-test).
+Dispatched C1 round 5 (session 976059c2-629b-4b91-8b63-7c4d9604d7cf), allowed to run bb test:cljd to find the root cause.
+Pending pause (owner: "after the existing tasks is done, pause and write to your log"): C1 is the only remaining task.
+
+## 2026-10-01 23:38:36 +07 — FINAL HANDOFF: Claude Code orchestrator seat -> zcode (glm-5.3-flash)
+Completed-GMT: 2026-10-01 16:38:36 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: master@24cdf535 == origin/master (pushed); worktree datomworld-py-c1 (branch yang-python-phase-c1) merged, kept
+pending owner OK to remove; no uncommitted work of this seat in any tree.
+Done: OWNER, verbatim: "after the tasks finish, stop and write to your log. i want to hand over your role to zcode
+glm-5.3-flash". Last unit: Python phase C1 landed (34c3986b, 93e83213, 24cdf535; pushed 6fb8d704..24cdf535): finally/with,
+tuples/slices, ** // % bitwise in, comprehensions, kwargs, exception-protocol and range fixes, +-2^53 OverflowError, and
+the ClojureDart unary-minus fix ((- x) is 0 - x on CLJD; floats now negated with (* -1.0 x)). Gates: qwen3.8-max r1 (cmd),
+gpt-6.1-sol r2-r5 (thread 01a0f762-755f-7913-985d-6782759f2dd9) READY. Lanes on the final code: JVM 2839/225791/0, Node
+2656/91265/0, CLJD +2611 passed. Engineer: claude-opus-5-5 session 976059c2-629b-4b91-8b63-7c4d9604d7cf.
+Landed by this seat on 2026-09-30/10-01 (all pushed): 8f9f90b0 continuations invocable; 17ce78b5 (rewrote the other seat's
+ca5a38f8 to drop committed collab/, owner-approved); e3cf971b collab/ untracked + collab/ pre-commit hook (untracked, in
+.git/hooks); 9a69e58f D4 host-typed effects; 5e790683 cell slice 1; fe8bce4a data module; 6969289f yang.antlr.md rulings;
+bf6c5544 Python spike A+B; 60b60898 heap reclamation; 6b8502fd D7 slice A; d0a4b00e relicence GPL-2.0-only +
+LICENSE-EXCEPTION (owner-approved text, digest 0f8f7359...); C1 above.
+Decisions: see the dated entries above; owner rulings recorded verbatim there (mob D1-D10, mutable objects, mappability,
+reclamation, D6/D7, safepoints, licence option 1, auto-push rule, cmd pause).
+Verification: per-unit lanes and gates recorded in each entry above.
+Delegates: Architect claude-fable-5-1 sessions f8eef849-bc12-4f36-87ee-4ae5da8aaa8c and ba6d62ab-caeb-424c-a44e-4637d8333092;
+engineers claude-opus-5-5 (sessions in each entry); gates gpt-6.1-sol / gpt-6-sol / glm-5.3 / gemini-3.1-pro-high /
+qwen3.8-max as recorded. Handoff prompt: collab/1790872665559-orchestrator-seat-handoff.prompt.md.
+Next (for the incoming seat; nothing is in flight):
+- Owner decisions open: D7 slice B (linker origin/store check; isolation incomplete until it lands) then slice C; dispatch
+  the big-integer design (Python C3) to the Architect; host-side debug inspector for opaque closures (recommended defer);
+  licence release caveats (counsel, inbound contribution policy, dependency audit incl. Datomic peer artifact); remove
+  datomworld-py-c1.
+- Owner-approved, paused: safepoint interpreter slice 1 (design + 11 decisions:
+  collab/1790849347715-architect-safepoint-interpreter.claude-fable-5-1.findings.md).
+- Pending check: fresh gnu.org byte comparison of LICENSE (sha256 edaef632...).
+- Roadmap: Python C2 generators; C3/C4 big ints, imports, linked prelude, REPL frontend catalog/SPI; cell slice 2
+  copy-on-lift; JavaScript/TypeScript parked by the owner.
+- Routing: cmd PAUSED (owner); codex = gpt-6.1-sol (owner updated team.md); claude subscription session limits hit once
+  (reset 19:40) — resume the same delegate session after a reset.
+- Rules learned: delegates run lanes in the FOREGROUND; stage briefs in the delegate worktree's collab/; bb
+  build:yin-repl-node + bb gen:python-antlr before clj -M:test in fresh worktrees; CLJD traps (:cljd first; no duplicate
+  protocol params; unary minus); pass file lists via xargs; check origin/master..master and ask before publishing other
+  seats' commits; only touch worktrees/branches you created (cross-seat incident 2026-10-01 21:22).
