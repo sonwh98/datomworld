@@ -453,20 +453,14 @@
    and `:responses`."
   ([store opts] (local-runtime store opts 64))
   ([store opts capacity]
-   (let [requests (ring-handle capacity)
-         responses (ring-handle capacity)
-         server (atom (oldest requests))]
-     {:state (linker/link-state
-               (assoc opts
-                      :content {:requests requests
-                                :answers responses
-                                :cursor (oldest responses)})),
-      :drive (fn [state]
-               (swap! server
-                      (fn [s] (serve-all store requests responses s)))
-               state),
-      :requests requests,
-      :responses responses})))
+   (linker/local-runtime store opts capacity)))
+
+
+(deftest local-runtime-shares-production-seam
+  (let [store (mem/create-content-mem)
+        runtime (linker/local-runtime store {})]
+    (is (map? (:state runtime)))
+    (is (fn? (:drive runtime)))))
 
 
 (defn fetch-local

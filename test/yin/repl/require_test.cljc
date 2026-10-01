@@ -20,23 +20,15 @@
    non-evaluating reader, so quoted names are spelled `(quote ...)`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [dao.jing :as jing]
             [dao.jing.mem :as mem]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
             [yin.repl.link :as link]
             [yin.vm :as vm]
-            [yin.vm.code :as code]
-            [yin.vm.debruijn-code :as dcode]
             [yin.vm.engine :as engine]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn-vm-contract-test :as b0]
-            [yin.vm.ledger :as ledger]
-            [yin.vm.linker :as linker]
-            [yin.vm.linearize :as linearize]
+            [yin.vm.linker.publish :as publish]
             [yin.vm.test-utils :as tu]))
 
 
@@ -100,29 +92,14 @@
    carries a store snapshot across the child-to-parent boundary.  The
    tree scanner conservatively retains the in-body read of `n`
    (section 4.1) and a manifest declares only primitives and requires,
-   so this one links on the backends whose join discharges it -- the
-   H and R pair."
+   so this one links on semantic, stack and register, whose scans
+   discharge the read."
   (progn (def! 'n (lit 40))
          (def! 'f (lam [] (app (v '+) (v 'n) (lit 2))))))
 
 
 (def store-exports
   #{'n 'f})
-
-
-(defn- stack-image
-  [ast]
-  (:image (dl/adapt (vm/ast->datoms ast))))
-
-
-(defn- register-image
-  [ast]
-  (:image (rc/adapt (second (vm/ast->datoms-with-root ast)))))
-
-
-(defn- semantic-vector
-  [ast]
-  (:vector (linearize/lower-rows (vm/ast->semantic-bytecode ast))))
 
 
 (def plus-profile
@@ -137,42 +114,18 @@
    linker re-lowers, and the schema-1 manifest naming them.  Returns
    `{:address a :h h :r r}`: the manifest's content address and the two
    lowered identities, which are distinct for any corpus worth
-   linking.  `overlay` replaces manifest fields, for a module that
-   requires another."
+   linking.  `overlay` supplies requires and primitive declarations."
   [store ast name exports & [overlay]]
-  (let [tree (vm/ast->semantic-bytecode ast)
-        tree-addr (vm/materialize-tree! store tree)
-        sem (code/materialize-vector! store (semantic-vector ast))
-        h-img (stack-image ast)
-        r-img (register-image ast)
-        h (dcode/image-hash h-img)
-        r (rcode/register-hash r-img)
-        h-addr (jing/materialize! store h-img)
-        r-addr (jing/materialize! store r-img)
-        mint (fn [out profile]
-               (jing/materialize!
-                 store (assoc (ledger/derive-record tree-addr out)
-                              :yin.ledger/profile profile)))
-        manifest {:yin.module/name name
-                  :yin.module/schema linker/manifest-schema
-                  :yin.module/contracts
-                  {:yin.ast/code vm/ast-contract
-                   :yin.semantic/code vm/semantic-contract
-                   :yin.debruijn.code vm/stack-contract
-                   :yin.debruijn.register vm/register-contract}
-                  :yin.module/tree tree-addr
-                  :yin.module/derivations
-                  {:yin.semantic/code (mint sem ledger/lowering-profile)
-                   :yin.debruijn.code (mint h linker/stack-lowering-profile)
-                   :yin.debruijn.register
-                   (mint r linker/register-lowering-profile)}
-                  :yin.module/index {h h-addr, r r-addr}
-                  :yin.module/exports (set exports)
-                  :yin.module/requires {}
-                  :yin.module/primitives {'+ plus-profile}
-                  :yin.module/footprint {:store-keys #{} :effects #{}}}]
-    {:address (jing/materialize! store (merge manifest overlay))
-     :h h, :r r}))
+  (let [declared (merge {'+ (get vm/primitives '+)}
+                        (into {} (map (fn [[n _]] [n (get vm/primitives n)]))
+                              (:yin.module/primitives overlay)))
+        result (publish/publish-module!
+                 store {:name name :ast ast :exports exports
+                        :requires (or (:yin.module/requires overlay) {})
+                        :primitives declared})]
+    {:address (:address result)
+     :h (get-in result [:identities :yin.debruijn.code])
+     :r (get-in result [:identities :yin.debruijn.register])}))
 
 
 (defn- shell

@@ -82,7 +82,7 @@ Section 13 lists every deferral.
 | The fold resolves a name when every accepted assertion names the same address, keeping all asserters; it refuses only on more than one distinct address. | `authority.cljc:226-255` |
 | `yin.repl/recheck-pending` exists; no host driver calls it. A parked require progresses only on a typed line. | `yin/repl.cljc:1848`; `yin/repl/main.cljc:286` |
 | The `dao.space.dht` host module answers `load-index`, `load-status` and `q` as effects on the query call pair, threading the node through `query/serve`. | `src/cljc/yin/repl/query.cljc:127-153, 570-616` |
-| A module whose export reads another module-level definition from inside a lambda body links on the stack and register backends only; the tree scanners retain the read and the manifest cannot declare it. | `require_test.cljc:98-106`; `yin.vm.linker.md` 4.2 step 5a |
+| A module whose export reads another module-level definition from inside a lambda body links on the semantic, stack and register backends. The tree scanner alone retains the read (its path order places the operator's body before the operand that defines the name), and the manifest cannot declare it. | `require_test.cljc:90-98`; `linker_test.cljc` `a-definition-dominating-every-application-discharges-a-body-occurrence`; `yin.vm.linker.md` 4.2 step 5a |
 | `dao.jing/canonical-bytes` is deterministic CBOR, identical across hosts. | `src/cljc/dao/jing.cljc:279` |
 | A DHT node holds at most 64 pending writes; a write beyond that is `/busy`. | `dao.jing.dht.md` 9 |
 | The node's handle appends one replicate request per put, at once, and a publication with any refused blob is reported `:acknowledged? false` with one reason. | `src/cljc/dao/space/dht.cljc:223-227, 421-429` |
@@ -433,12 +433,7 @@ argument from a queryable index and a name. It persists nothing.
   derived tree, the declared primitives and the required manifests.
   `module-from-index` supplies none.
 
-**What links where.** Step 5a of `yin.vm.linker.md` is unchanged by this
-epic. A module whose exported lambda reads another module-level definition
-is published with `:links` showing the tree and semantic formats refused and
-the stack and register formats ok, exactly as the starting tree behaves.
-Such a module loads and evaluates on the stack and register VMs. The
-publisher prints which.
+**What links where.** Step 5a of `yin.vm.linker.md` is unchanged by this epic. A module whose exported lambda reads another module-level definition is published with `:links` showing the tree format refused (`:undeclared-free`, naming the read) and the semantic, stack and register formats ok, exactly as the starting tree behaves. Such a module loads and evaluates on the semantic, stack and register VMs. `:links` is the linker's own verdict per format; the publisher never restates it. The publisher prints which.
 
 ### 5.4 Announcing
 
@@ -1150,8 +1145,8 @@ reasons and publication results and its two host-function entries.
 **L0 — publisher, signing, local runtime.** Plain Clojure, host neutral.
 Files: `src/cljc/yin/vm/linker.cljc` (`local-runtime`), new
 `src/cljc/yin/vm/linker/publish.cljc`, new
-`src/cljc/yin/vm/linker/sign.cljc`, `pubspec.yaml` (the Dart Ed25519
-package), `test/yin/repl/require_test.cljc`,
+`src/cljc/yin/vm/linker/sign.cljc`, `pubspec.yaml` and `pubspec.lock` (the Dart Ed25519 package and its resolution),
+`test/yin/repl/require_test.cljc`,
 `test/yin/vm/linker_manifest_test.cljc`, `test/yin/vm/linker_test.cljc`, new
 `test/yin/vm/linker/sign_test.cljc`, new
 `test/yin/vm/linker/sign_vectors.edn`, new
@@ -1164,9 +1159,7 @@ package), `test/yin/repl/require_test.cljc`,
 - `key-from-text` refuses each malformed file of 6.5 with its reason.
 - `publish-module!` replaces both test helpers; the existing require and
   manifest tests pass unchanged against it.
-- `:links` reports ok on all four formats for the closed corpus, and the
-  tree and semantic refusals beside stack and register ok for the store
-  corpus.
+- `:links` reports ok on all four formats for the closed corpus. For the store corpus it reports the tree format refused `:undeclared-free` naming the read, and semantic, stack and register ok.
 - An undefined export writes nothing.
 - The footprint of 5.2, with no prerequisite outside master: a tree that
   defines and reads store keys answers exactly `ast-requirements`'
@@ -1176,7 +1169,7 @@ package), `test/yin/repl/require_test.cljc`,
   an FFI call and a parked id each refuse with their reason and write
   nothing. The manifest it produces makes
   `yin.vm.completion` report no `:missing :footprints` for the module.
-- `yin.repl.link` and the tests share `local-runtime`; no behaviour changes.
+- `yin.vm.linker/local-runtime` exists and the linker tests' runtime delegates to it; no behaviour changes. `yin.repl.link` adopts it in L3.
 
 **L1 — the staged load, the backlog, the publication result.** Files:
 `src/cljc/dao/space/dht.cljc`,
@@ -1312,11 +1305,12 @@ package), `test/yin/repl/require_test.cljc`,
 - Time advances only by appended ticks.
 
 **L2 — the closure walker and module load, plain Clojure, by address.**
-Files: new `src/cljc/yin/vm/linker/closure.cljc`, new
+Files: `src/cljc/yin/vm/linker/publish.cljc`, new `src/cljc/yin/vm/linker/closure.cljc`, new
 `src/cljc/yin/vm/linker/dht.cljc`, new
 `test/yin/vm/linker/closure_test.cljc`, new
 `test/yin/vm/linker/dht_test.cljc` (over `test/dao/jing/dht/mesh.cljc`).
 Acceptance:
+- `publish-module!` walks the closure it minted and refuses unless the walk is `:complete`; a `:requires` address that holds no valid manifest is refused by that walk.
 - With the closure otherwise complete, removing in turn the manifest, a
   leaf row, an interior row, each of the three derivation records, each of
   the three lowered images, and a blob of a transitively required module
@@ -1353,6 +1347,7 @@ Acceptance:
 `src/cljc/yin/repl/query.cljc`, `test/yin/repl/dht_test.cljc`,
 `test/yin/repl/require_test.cljc`. Names are direct addresses in this
 slice. Acceptance:
+- `yin.repl.link` builds its DHT-source link runtime with `yin.vm.linker/local-runtime`. The attempt budget of the `:content-store` and `:content-client` sources is unchanged.
 - A require whose module a peer holds parks, and completes on a later tick
   **with no typed line**; the export then answers.
 - An unrelated node event (a publication settling, an index load, another
@@ -1450,9 +1445,7 @@ each, and the design docs this one cross-references. Acceptance:
   `:undeclared-principal` diagnostic.
 - The in-process form of the same scenario passes on Dart over the mesh
   seam, signatures verified, on all four VMs.
-- The store corpus (an export reading a module-level definition) evaluates
-  on the stack and register VMs and refuses on the other two with the
-  linker's reason.
+- The store corpus (an export reading a module-level definition) evaluates on the semantic, stack and register VMs and refuses on the walker with the linker's reason.
 
 ## 13. Deferrals
 
@@ -1477,9 +1470,8 @@ each, and the design docs this one cross-references. Acceptance:
   next process.
 - **FFI operations and parked ids in a published module.** Schema 1 cannot
   declare them; the publisher refuses.
-- **Step 5a for module-level reads in the tree formats.** Which modules
-  link on the walker and semantic VMs is the linker's rule, not this
-  epic's.
+- **Step 5a for module-level reads in the tree format.** Which modules link on the walker is the linker's rule, not this epic's.
+- The three hosts' verifiers may disagree on adversarial encodings that only the key holder can craft (small-order keys, non-canonical points).
 - **Host modules as dependencies of a published module.**
 - **Availability repair.** Pinning, re-replication of content whose holders
   left, and garbage collection are `dao.jing.dht.md`'s deferrals.

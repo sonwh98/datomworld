@@ -17,6 +17,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.ledger :as ledger]
             [yin.vm.linker :as linker]
+            [yin.vm.linker.publish :as publish]
             [yin.vm.linker-test :as lt]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
@@ -71,32 +72,19 @@
    `:address`, and the minted records' own data under `:records`."
   ([store ast] (module-manifest store ast 'my.lib))
   ([store ast name]
-   (let [tree (vm/ast->semantic-bytecode ast)
-         tree-addr (vm/materialize-tree! store tree)
-         {:keys [identities addresses] :as recs}
-         (derive-records store tree-addr ast)
-         manifest {:yin.module/name name
-                   :yin.module/schema linker/manifest-schema
-                   :yin.module/contracts
-                   {:yin.ast/code vm/ast-contract
-                    :yin.semantic/code vm/semantic-contract
-                    :yin.debruijn.code vm/stack-contract
-                    :yin.debruijn.register vm/register-contract}
-                   :yin.module/tree tree-addr
-                   :yin.module/derivations
-                   {:yin.semantic/code (get recs :yin.semantic/code)
-                    :yin.debruijn.code (get recs :yin.debruijn.code)
-                    :yin.debruijn.register (get recs :yin.debruijn.register)}
-                   :yin.module/index {(:h identities) (:h addresses)
-                                      (:r identities) (:r addresses)}
-                   :yin.module/exports #{'result}
-                   :yin.module/requires {}
-                   :yin.module/primitives {'+ plus-profile}
-                   :yin.module/footprint {:store-keys #{} :effects #{}}}]
-     {:manifest manifest
-      :address (jing/materialize! store manifest)
-      :records recs
-      :tree tree-addr})))
+   (let [{:keys [manifest address identities]}
+         (publish/publish-module!
+           store {:name name :ast ast :exports #{}
+                  :requires {} :primitives {'+ (get vm/primitives '+)}})
+         h (:yin.debruijn.code identities)
+         r (:yin.debruijn.register identities)]
+     {:manifest manifest :address address
+      :records (assoc (:yin.module/derivations manifest)
+                      :identities {:sem (:yin.semantic/code identities)
+                                   :h h :r r}
+                      :addresses {:h (get-in manifest [:yin.module/index h])
+                                  :r (get-in manifest [:yin.module/index r])})
+      :tree (:yin.module/tree manifest)})))
 
 
 (def all-formats

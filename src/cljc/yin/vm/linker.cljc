@@ -36,9 +36,11 @@
    is a returned plain data map (section 4.3)."
   (:require #?@(:cljd [["dart:typed_data" :as typed]])
             [dao.jing :as jing]
+            [dao.jing.content :as jing-content]
             [dao.jing.cbor :as cbor]
             [dao.space.query :as query]
             [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ring]
             [yin.vm :as vm]
             [yin.vm.code :as code]
             [yin.vm.debruijn-code :as debruijn-code]
@@ -1983,6 +1985,40 @@
                           (:completions r))]
            (fetched c receiver)
            (recur (:state r))))))))
+
+
+;; =============================================================================
+;; Local content runtime
+;; =============================================================================
+
+(defn local-runtime
+  "Serve a local DaoJing handle over a fresh content pair."
+  ([handle opts] (local-runtime handle opts 64))
+  ([handle opts capacity]
+   (let [medium (fn []
+                  (:dao.stream/handle
+                    (ring/create! {:dao.stream/type ring/transport-type
+                                   ring/capacity-key capacity})))
+         oldest (fn [h]
+                  (:dao.stream/cursor
+                    (stream/cursor h :dao.stream/oldest)))
+         requests (medium)
+         responses (medium)
+         server (atom (oldest requests))]
+     {:state (link-state
+               (assoc opts :content {:requests requests
+                                     :answers responses
+                                     :cursor (oldest responses)}))
+      :drive (fn [state]
+               (swap! server
+                      (fn [cursor]
+                        (loop [cursor cursor]
+                          (let [next (jing-content/serve-step
+                                       handle requests cursor responses 32)]
+                            (if (= next cursor) cursor (recur next))))))
+               state)
+      :requests requests
+      :responses responses})))
 
 
 ;; =============================================================================
