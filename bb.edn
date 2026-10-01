@@ -1,6 +1,10 @@
 {:tasks
- {test:clj {:doc "Run JVM tests (via clj); the DHT process test needs the Node REPL build"
-            :depends [build:yin-repl-node]
+ {gen:python-antlr
+  {:doc "Generate and compile the pinned grammars-v4 Python3 parser into build/antlr/python3/classes (antlr/python3/manifest.edn)"
+   :task (shell "clojure -M:antlr-gen")}
+
+  test:clj {:doc "Run JVM tests (via clj); the DHT process test needs the Node REPL build"
+            :depends [build:yin-repl-node gen:python-antlr]
             :task (shell "clojure -M:test")}
 
   build:yin-repl-node

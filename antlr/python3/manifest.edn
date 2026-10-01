@@ -1,0 +1,63 @@
+{:grammar {:repo "antlr/grammars-v4",
+           :path "python/python3",
+           :revision "8af0d4c26c796ea27c15c3d85418f2d0f77c3adb",
+           ;; The two MIT grammars are vendored verbatim beside this manifest
+           ;; (owner decision "Vendor .g4 only"); the two Java helpers, whose
+           ;; licence is unresolved, are still fetched at the pinned revision.
+           ;; Every file is digest-checked either way.
+           :files {"Python3Lexer.g4"
+                   {:sha256 "58c4dfa0b12dfb856b7348b99199bf1a3fdc7901d7fc4575ddf9584aeb831c19",
+                    :vendored "antlr/python3/Python3Lexer.g4"},
+                   "Python3Parser.g4"
+                   {:sha256 "74fa61c519832b694718c8006741a045a687725a9f0a06645dfdfa4c7ebce65d",
+                    :vendored "antlr/python3/Python3Parser.g4"},
+                   "Java/Python3LexerBase.java"
+                   {:sha256 "f8d057a0cbd0fa0d895d1aa27aa8914c3e85a1eaa95f7161da9a6e617c65f5ec"},
+                   "Java/Python3ParserBase.java"
+                   {:sha256 "2ae0ab2905c50c2675f1b827bc6ba4bc3d01d78cafcd92ad8e0d36f15682b773"}},
+           :generate ["Python3Lexer.g4" "Python3Parser.g4"]},
+ :tool {:antlr "4.13.2", :runtime "org.antlr/antlr4-runtime 4.13.2"},
+ :target :java,
+ :package "yang.python.antlr.gen",
+ :flags ["-Dlanguage=Java" "-package" "yang.python.antlr.gen" "-no-listener"
+         "-no-visitor"],
+ ;; Every Java helper gets `package yang.python.antlr.gen;` prepended.
+ ;; Exact-text replacements, applied in order after that. Upstream builds
+ ;; NEWLINE and DEDENT with CommonToken(start, stop) at the end of the
+ ;; newline-plus-indentation lexeme and never sets their text, so ANTLR reads
+ ;; their text back from whatever source sits there: a NEWLINE before an
+ ;; INDENT reads a space, and a DEDENT reads the newline it follows. The patch
+ ;; puts NEWLINE on its newline characters and makes DEDENT zero-width
+ ;; (stop = start - 1), so every token's span is the source it came from.
+ :patches
+ {"Java/Python3LexerBase.java"
+  [["            emit(commonToken(Python3Lexer.NEWLINE, newLine));"
+    "            emit(positionedToken(Python3Lexer.NEWLINE, this._tokenStartCharIndex, this._tokenStartCharIndex + newLine.length() - 1));"]
+   ["        CommonToken dedent = commonToken(Python3Lexer.DEDENT, \"\");"
+    "        CommonToken dedent = positionedToken(Python3Lexer.DEDENT, this.getCharIndex(), this.getCharIndex() - 1);"]
+   ["            this.emit(commonToken(Python3Lexer.NEWLINE, \"\\n\"));"
+    "            this.emit(positionedToken(Python3Lexer.NEWLINE, this.getCharIndex(), this.getCharIndex() - 1));"]
+   ["    private CommonToken commonToken(int type, String text) {"
+    "    private CommonToken positionedToken(int type, int start, int stop) {\n        return new CommonToken(this._tokenFactorySourcePair, type, DEFAULT_TOKEN_CHANNEL, start, stop);\n    }\n\n    private CommonToken commonToken(int type, String text) {"]]},
+ ;; SHA-256 of every generated/patched .java file; generation fails on drift
+ :generated {"Python3Lexer.java"
+             "a8db3fd99c5f0165f6cc53b6a0f3c3c2aa4cbdbf8fc4f4b69e1fedf3d0c362d0",
+             "Python3LexerBase.java"
+             "2d25c1aed94f537ebd700aba6ade1541105cd83fbc3c404e3eadad4a80f116c9",
+             "Python3Parser.java"
+             "25c0d2359f9666d5b8aec5108ef05c9a2f1efbbde981c988607e6e6742c2f572",
+             "Python3ParserBase.java"
+             "ad2a0ffbf8c1e7c4d2f46975cfab6433704c6838b19a0d2fcbc82916b83c5bc4"},
+ ;; §4.5 license review
+ :license {"Python3Lexer.g4" "MIT (header: Copyright (c) 2014 Bart Kiers); vendored with its notice verbatim",
+           "Python3Parser.g4" "MIT (header: Copyright (c) 2014 Bart Kiers); vendored with its notice verbatim",
+           "Java/Python3LexerBase.java" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "Java/Python3ParserBase.java" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "antlr4-runtime 4.13.2" "BSD-3-Clause"},
+ ;; Generated artifacts include code derived from the two helpers, so their
+ ;; provenance must be resolved before any generated artifact is distributed.
+ :redistribution {:vendored-sources ["antlr/python3/Python3Lexer.g4"
+                                     "antlr/python3/Python3Parser.g4"],
+                  :generated-artifacts :none,
+                  :blocked-until "Java helper provenance and licence resolved"}}
+

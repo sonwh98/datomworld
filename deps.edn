@@ -9,12 +9,18 @@
         http-kit/http-kit {:mvn/version "2.8.0"}
         org.jsoup/jsoup {:mvn/version "1.18.3"}
         instaparse/instaparse {:mvn/version "1.5.0"}
+        ;; yang.python.antlr: the runtime the generated Python3 parser runs
+        ;; on; pinned to the tool version in :antlr-gen (they are one release)
+        org.antlr/antlr4-runtime {:mvn/version "4.13.2"}
         criterium/criterium {:mvn/version "0.4.6"}
         io.github.rctcwyvrn/blake3 {:mvn/version "1.3"}
         stigmergy/chp {:mvn/version "0.1.0-SNAPSHOT"
                        :exclusions [refactor-nrepl/refactor-nrepl]}}
  :cljd/opts {}
- :paths ["src/clj" "src/cljc" "src/cljs" "src/cljd"]
+ ;; build/antlr/python3/classes: the generated Python3 parser, produced by
+ ;; `clj -M:antlr-gen` (antlr/python3/manifest.edn); absent until generated
+ :paths ["src/clj" "src/cljc" "src/cljs" "src/cljd"
+         "build/antlr/python3/classes"]
  :aliases {:clean {:extra-paths ["src/dev"]
                    :exec-fn clean/clean}
            :profile-btree {:extra-paths ["src/dev"]
@@ -63,6 +69,11 @@
             :main-opts ["-m" "shadow.cljs.devtools.cli" "run" "yin.repl.main/-main"]}
            :fmt {:extra-paths ["src/dev"]
                  :exec-fn tasks/fix-all}
+           ;; Build-time generation of the grammars-v4 Python3 parser.
+           ;; The tool version must equal the antlr4-runtime above.
+           :antlr-gen {:extra-paths ["src/dev"]
+                       :extra-deps {org.antlr/antlr4 {:mvn/version "4.13.2"}}
+                       :main-opts ["-m" "yang-antlr-gen"]}
            :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}
                    :main-opts ["-m" "clj-kondo.main"]}
            :dbg {:extra-paths ["test"]
