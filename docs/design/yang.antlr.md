@@ -28,6 +28,30 @@ bound the effects they may raise (mob D4, `9a69e58f`); task-heap cells,
 slice 1 (`5e790683`); and the pure `data` host module (`yin.vm.data`,
 `fe8bce4a`).
 
+Updated 2026-10-02 with three further ruling sets, cited by these short
+names:
+
+- the safepoint design, whose seven owner decisions the owner accepted
+  on 2026-10-01 ("accept all recommendations"):
+  `collab/1790849347715-architect-safepoint-interpreter.claude-fable-5-1.findings.md`;
+- the C2 generator design and the C2 cross-ruling:
+  `collab/1790874900000-architect-python-c2-generators-design.claude-fable-5-1.findings.md`
+  and
+  `collab/1790875890000-architect-c2-generators-crossruling.gpt-6-astra.findings.md`;
+- the C3 integer design and the C3 cross-ruling:
+  `collab/1790874940000-architect-python-c3-bignum-design.gpt-6-astra.findings.md`
+  and
+  `collab/1790875860000-architect-c3-bignum-crossruling.claude-fable-5-1.findings.md`.
+
+The two cross-rulings are the converged rulings of the architect pair
+(gpt-6-astra and fable-5.1), to which the owner delegated decision
+authority. Where a design and its cross-ruling differ, the converged
+ruling governs. These rulings amend sections 8.5, 8.5.1, 8.11, 9.3, 11,
+and 12 and add sections 8.5.2 to 8.5.4. They build on Python phase C1
+and on heap reclamation, both landed (`34c3986b`, `60b60898`). None of
+them has landed: each is recorded with its implementation pending in
+the slices it names.
+
 This document is subordinate to
 [`datom.world.md`](./datom.world.md) (axioms and invariants),
 [`dao.stream.md`](./dao.stream.md) (the passive stream substrate),
@@ -1211,14 +1235,16 @@ The frontend and prelude divide responsibilities as follows:
   resume continuation lives in a cell, and `throw` resumes that
   continuation with a tagged "raise here" value the yield site checks
   (cell ruling Q1 and Q4; Python mappability ruling). The lowering invokes
-  each captured continuation at most once.
+  each captured continuation at most once. Section 8.5.3 records the C2
+  design that realizes this.
 
 Truthiness, arbitrary-precision integers, division, equality, attribute
 lookup, descriptors, and iteration belong to the Python runtime profile.
 The Python value encoding tags floats on every host, since JavaScript
 cannot distinguish `2` from `2.0` and ints are the common case (Python
 mappability ruling, owner decision 3); `print(4/2)` belongs in the Node
-parity set.
+parity set. Integers stay untagged at every magnitude; section 8.5.4
+records the C3 integer rulings.
 
 Generator support is incomplete until `send`, `throw`, `close`, cleanup,
 and suspension are tested. It is not established by parsing `yield`.
@@ -1264,7 +1290,8 @@ invariant-forbidden constructs and CPython internals.
 |                                              | decision               | `yin.vm.code-as-tuples.md` section 2.5 (see the decisions below).            |
 +----------------------------------------------+------------------------+------------------------------------------------------------------------------+
 | `RecursionError`, `setrecursionlimit`        | 1                      | Continuations are heap data on all four VMs, so nothing overflows; a depth   |
-|                                              |                        | counter in a cell, decremented by escapes, is prelude code.                  |
+|                                              |                        | counter in a cell is prelude code. An escape restores the depth saved at     |
+|                                              |                        | capture rather than decrementing by one (section 8.5.2).                     |
 +----------------------------------------------+------------------------+------------------------------------------------------------------------------+
 | `weakref`, `__del__`, `gc`                   | 1 conforming, 3        | The reference says `__del__` is not guaranteed to run and a weakref may stay |
 |                                              | faithful               | alive; never collecting conforms. Faithful behavior needs reclamation.       |
@@ -1335,7 +1362,33 @@ Owner decisions on the ruling:
 3. The Python value encoding tags floats (section 8.5).
 4. Safepoint insertion (signals, tracing, thread switches, recursion
    accounting) is a separately attached interpreter over the row stream,
-   not part of the naive lowering.
+   not part of the naive lowering. The safepoint design fixes its shape:
+   sites come from frontend marks; a safepoint is an ordinary application
+   of a hook function defined in a per-language hook prelude; the engine
+   gains only the generic `:stream/poll` effect; names refer to the
+   canonical tree while the evaluator runs the derived one (decisions 5
+   to 7 and section 8.5.2).
+
+The owner accepted the safepoint design's seven decisions on 2026-10-01.
+This document numbers them 5 to 11, continuing the list above:
+
+5. One new generic effect, `:stream/poll`, exported as `stream/poll!`: a
+   non-parking stream read that returns `:dao.stream/blocked` as a value.
+   It exposes `blocked` to guest code. A dedicated safepoint effect,
+   which would put safepoint knowledge in the engine, is rejected.
+6. Sites come from frontend marks, not structural derivation. Revisit
+   when the prelude becomes a linked module.
+7. Identity: names, the ledger, and publication refer to the canonical
+   tree; the evaluator runs the derived tree; any guest-visible code
+   identity reports the canonical address through the derivation.
+8. Signal delivery timing is an operational event and is not journalled
+   in slice 1. Journalling each delivery with a safepoint ordinal is the
+   rejected alternative.
+9. Green threads switch count-based, every N safepoints, never
+   time-based.
+10. `sys.settrace` under a profile without tracing raises an explicit
+    unsupported error rather than being accepted silently.
+11. Slice order: signals, recursion, tracing, threads.
 
 Further interactions stated by the ruling:
 
@@ -1362,6 +1415,742 @@ Further interactions stated by the ruling:
   and so its own builtin class identities, and `isinstance` across units
   fails. A linked prelude's class objects are copied per receiving task
   (mob D1), which is fine within one Python task.
+
+#### 8.5.2 Safepoint insertion
+
+This section records the safepoint design under owner decisions 4 to 11
+above. Its implementation is pending, in the slices of decision 11; none
+of the parts below has landed.
+
+A generic stage reads the canonical program, inserts ordinary
+`:application` rows calling per-kind hook functions at frontend-marked
+sites, and writes a derived program to its own stream. All semantics
+live in a per-language hook prelude. The evaluator never learns what a
+safepoint is, the same shape as macros as stream topology.
+
+```text
++------------------+----------------------------------+------------------------+
+| Part             | Job                              | Knows about            |
++==================+==================================+========================+
+| Frontend         | Marks sites as `:yang/site`      | Which lambda is a loop |
+| lowering         | metadata on map-AST nodes.       | or a function; where   |
+|                  | Projection strips the marks into | statements start       |
+|                  | the frontend-metadata side       |                        |
+|                  | table, so the naive rows are     |                        |
+|                  | unchanged.                       |                        |
++------------------+----------------------------------+------------------------+
+| `yang.safepoint` | Rewrites tree A into tree A' by  | The Universal AST and  |
+| stage            | inserting hook applications at   | the side table only    |
+|                  | marked sites, per a profile      |                        |
+|                  | `{kind hook-symbol}`. A pure     |                        |
+|                  | function of tree, sites, and     |                        |
+|                  | profile.                         |                        |
++------------------+----------------------------------+------------------------+
+| Hook prelude,    | Defines the hook functions:      | The language's         |
+| per language     | signal delivery, depth           | semantics              |
+|                  | accounting, trace calls, thread  |                        |
+|                  | switch.                          |                        |
++------------------+----------------------------------+------------------------+
+| Engine           | `stream/poll!`: like             | Nothing about          |
+|                  | `stream/next!`, but `blocked` is | safepoints             |
+|                  | a value, not a park.             |                        |
++------------------+----------------------------------+------------------------+
+```
+
+A safepoint is an ordinary `:application` whose operator is a
+`:variable` naming a hook, for example `(py.sp/loop)`. There is no new
+tag: one would change the grammar on four VMs and the codec for a fact
+that is only placement. There is no dedicated `:safepoint` effect:
+effect handling cannot apply a guest closure, which is why `cell/swap!`
+was rejected (section 8.11), and `settrace` needs exactly that.
+
+The one engine addition (decision 5) exists because `stream/next!` parks
+on `blocked` and the stream module has no other read, so a hook polling
+with it would stop the program at the first safepoint with no signal
+pending. `stream/poll!` returns `:dao.stream/blocked` without parking,
+and `ok` advances the cursor. It is its own effect kind with a declared
+profile, so a callee without it is refused and a profile that omits it
+cannot observe timing. The prelude's async and thread schedulers need
+the same primitive.
+
+Sites come from frontend marks (decision 6):
+
+```text
++----------------+------------------------------+------------------------------+
+| Kind           | Mark                         | Inserted                     |
++================+==============================+==============================+
+| `:loop`        | On the loop lambda           | Hook at the head of the body |
++----------------+------------------------------+------------------------------+
+| `:call`,       | On the function code lambda  | Hook at the head; the body   |
+| `:return`      |                              | is wrapped so the exit hook  |
+|                |                              | runs after it                |
++----------------+------------------------------+------------------------------+
+| `:line`        | On the node that begins a    | Hook before it, with the     |
+|                | statement                    | line as a literal operand    |
++----------------+------------------------------+------------------------------+
+```
+
+- Structural derivation ("every closure-valued lambda") is rejected. It
+  cannot tell a function from a loop, which recursion accounting and
+  `:return` need. And while each unit bundles its prelude, it would
+  instrument the prelude and break the get/set atomicity section 8.11
+  relies on ("a task switches only at park points"). The prelude carries
+  no marks, so marked insertion leaves it untouched.
+- A kind absent from the profile is not inserted.
+- The `:line` literal lives only in the derived tree, so the canonical
+  program stays insensitive to whitespace (owner decision 2 holds).
+- The lowering emits an `encoder/source-envelope` with the map AST as
+  its member, so the marks reach the side table.
+
+Rewriting preserves addressing:
+
+- The stage reconstructs the map AST from rows, inserts, and
+  re-projects through `vm/ast->semantic-bytecode`. Every row id is
+  recomputed, so `id = segment-key(body)` holds by construction.
+  Ancestors of a site get new ids; untouched subtrees keep theirs and
+  are shared with the canonical tree.
+- The canonical program A is never modified. Names, the ledger, the
+  index, publication, the linker, and diffs refer to A (decision 7).
+- The link from A to the derived program A' is an existing `:derive`
+  ledger record: input A, output A', function `:yang.safepoint/insert`,
+  and a profile pinning the hook map and the address of the sorted site
+  set. Insertion is deterministic, so a repeat writes the same record
+  and no attempt identity is needed. No new ledger op is added;
+  tree-to-tree derivations are distinguished by `:yin.ledger/function`.
+- A' is admitted on the stage's own output medium with its own batch
+  token, so its occurrence origin is an ordinary `[:source medium' batch'
+  j]`. No new origin kind.
+- Side tables are not copied or re-keyed. Insertion only prefixes and
+  wraps, so the path map from A' back to A is a pure function of the
+  site set; positions for an A' node join through it to A's occurrence.
+- Inserted binders use a reserved `yang.safepoint/` namespace, with no
+  gensym counter.
+- Tail marks are stripped and recomputed over the whole derived tree. A
+  tail call pushes no frame, so a body wrapped by an exit hook whose
+  applications kept `tail? true` would skip the hook.
+- The evaluator reads exactly one stream, the canonical one for a naive
+  run or the stage's output, never both (section 1.1).
+
+The stage places hooks; the semantics are prelude code:
+
+```text
++---------------------+-----------------+--------------------------------------+
+| Consumer            | Sites           | Hook prelude behavior                |
++=====================+=================+======================================+
+| Signals,            | `:loop`,        | A host adapter appends a plain event |
+| `KeyboardInterrupt` | `:call`         | to a stream the composition          |
+|                     |                 | supplies. The hook calls             |
+|                     |                 | `stream/poll!`; on an event it runs  |
+|                     |                 | the registered Python handler, or by |
+|                     |                 | default raises `KeyboardInterrupt`   |
+|                     |                 | (a class under `BaseException`)      |
+|                     |                 | through `py/raise`, an explicit      |
+|                     |                 | continuation invoke at an explicit   |
+|                     |                 | program point.                       |
++---------------------+-----------------+--------------------------------------+
+| `sys.settrace`,     | `:call`,        | The trace function is a guest value  |
+| `setprofile`        | `:line`,        | in a cell; the hook reads it and     |
+|                     | `:return`       | applies it with `py/call`. Guest     |
+|                     |                 | code applies a guest function        |
+|                     |                 | through an ordinary row, so nothing  |
+|                     |                 | on the host calls back. Needs frame  |
+|                     |                 | records and a re-entrancy flag.      |
+|                     |                 | Observation-only profilers and       |
+|                     |                 | coverage stay telemetry stream       |
+|                     |                 | observers.                           |
++---------------------+-----------------+--------------------------------------+
+| Green threads       | `:loop`,        | A run queue of continuations in a    |
+|                     | `:call`         | cell. The hook counts safepoints and |
+|                     |                 | switches every N, capturing with the |
+|                     |                 | flag-cell pattern of `py/call-ec`.   |
+|                     |                 | All threads live in one task and one |
+|                     |                 | heap. `py/raise` itself emits the    |
+|                     |                 | `:exception` trace event.            |
++---------------------+-----------------+--------------------------------------+
+| `RecursionError`    | `:call`,        | Entry increments and checks the      |
+|                     | `:return`       | depth; normal exit decrements it; an |
+|                     |                 | escape restores the depth saved at   |
+|                     |                 | capture.                             |
++---------------------+-----------------+--------------------------------------+
+```
+
+Depth, handlers, and the current frame form one dynamic-context record
+in one cell, generalizing `py.rt/handlers`. An exception can unwind many
+frames, so an escape restores the whole record saved at capture, as
+`py/try` and `py/call-ec` already do for the handler stack; a thread
+switch swaps the whole record. Without that, thread B's raise would
+invoke thread A's handler. Hooks never test the continuation
+representation, so mob D7 does not affect them.
+
+Composition and cost:
+
+- There are three switches: which stream the evaluator observes, which
+  kinds the profile maps, and whether the hook prelude is loaded. An
+  empty profile is the identity, A' = A. A derived program run without
+  its hook prelude fails closed on an unresolved hook name.
+- A `:loop` site with signals on costs one application plus one effect
+  dispatch; `:call` and `:return` with depth accounting cost a cell get
+  and set each; `:line` sites cost one cell read per statement and are
+  inserted only under a trace profile. None of this has been measured.
+- Safepoints are not collection points; allocation stays the only
+  collection trigger. A run queue of continuations in a cell is traced
+  like any cell content.
+- Insertion is pure and host-independent, processing sites in sorted
+  path order. Depth, tracing, and count-based switching (decision 9) are
+  deterministic. Signals are the one nondeterministic input, and
+  `stream/poll!` is the only place where "was it blocked" becomes
+  program-visible. A signal is an operational event (section 11), not a
+  deterministic language error, and slice 1 does not journal it
+  (decision 8).
+- Under a profile without tracing, `sys.settrace` raises an explicit
+  unsupported error (decision 10).
+
+The stage is generic over the Universal AST and the frontend-metadata
+side table and lives at `yang.safepoint`, not under `yang.python`. Each
+language supplies its marks, its hook prelude, and its profile map. PHP
+reuses it directly: `declare(ticks=N)`, `register_tick_function`, and
+`pcntl_signal` are statement-level safepoints. JavaScript uses `:loop`
+and `:call` for interruption and debugging only; its jobs run to
+completion, so it never switches at a safepoint. Go and Java green
+threads use the same sites. The generic stage machinery now under
+`yang/python/antlr/stage.cljc` moves to a language-neutral namespace
+before the second user.
+
+Slice 1 is the mechanism plus signals, end to end: the `stream/poll!`
+export and `:stream/poll` arm in the shared effect handler with a
+declared profile; `:loop` and `:call` marks and the source envelope in
+the Python lowering; `yang.safepoint` with pure insertion, tail
+re-marking, the stage over the row medium, and the derive record; and
+the Python hook prelude, `py.sp/loop` and `py.sp/call` polling a signal
+cursor, with `KeyboardInterrupt` under `BaseException`. Later slices, in
+order: recursion (the dynamic-context record, the `:return` wrap,
+`RecursionError`), tracing (frame records, `:line` marks), threads.
+
+Slice 1 acceptance runs on all four VMs:
+
+- Transparency: the end-to-end corpus through the stage with no-op hooks
+  gives the naive output.
+- Identity: an empty profile yields the same root and rows.
+- Canonical untouched: the input batch is unchanged, every derived row
+  validates, and prelude rows keep their ids.
+- Insertion determinism: the same input gives the same A' and record
+  address on CLJ, CLJS, and CLJD.
+- Interrupt: `while True: pass` with one pre-appended signal ends with
+  `KeyboardInterrupt`; wrapped in `try/except KeyboardInterrupt`, it
+  prints from the handler.
+- No park: with an empty signal stream the derived program finishes
+  without blocking, with the naive output.
+- Tail preservation: a 100,000-iteration safepointed loop grows no
+  continuation on the VMs that honor tail marks.
+- Atomicity: no hook application appears under any prelude definition.
+- Fail closed: the derived program without the hook prelude reports the
+  unresolved hook name.
+- `stream/poll!`: on an empty stream it returns `:dao.stream/blocked`
+  without parking; `ok` advances the cursor; a callee without the
+  declared effect is refused.
+
+Open, outside slice 1 (stated by the design): a task parked on a
+blocking read cannot receive a signal, and several threads waiting on
+different streams need an any-of park.
+
+#### 8.5.3 Generators (phase C2)
+
+This section records the C2 generator design as amended by the C2
+cross-ruling's nine converged rulings. Its implementation is pending, in
+slices S1 to S5 below; none of it has landed.
+
+A generator is one heap cell holding a suspended continuation plus its
+own handler stack. `yield` and resume are two explicit continuation
+invocations that swap control and handler stack together. Everything is
+prelude code plus lowering arms: no VM change, no new AST node, no wire
+or ledger change.
+
+The load-bearing decision is that a generator owns its handler stack,
+with a boundary frame at its base (ruling 1). C1's `py/try`,
+`py/try-finally`, and `py/call-ec` restore absolute snapshots of
+`py.rt/handlers`; were generator frames on the caller's stack, a resume
+from a different caller depth would restore a stale stack. With a
+per-generator stack every snapshot taken in a generator body is of that
+generator's own stack, so the C1 machinery works unchanged. Every
+crossing restores the receiving context before it delivers a value or
+raises, and a validation failure leaves the generator unchanged.
+
+The generator cell (identity is the ref, section 8.11) holds:
+
+```text
++--------------------------+--------------+------------------------------------+
+| Key                      | Present when | Content                            |
++==========================+==============+====================================+
+| `:py/type` `:generator`, | always       | Tag and function name              |
+| `:name`                  |              |                                    |
++--------------------------+--------------+------------------------------------+
+| `:state`                 | always       | `:created`, `:suspended`,          |
+|                          |              | `:running`, or `:closed`           |
++--------------------------+--------------+------------------------------------+
+| `:body`                  | `:created`   | Closure `(fn [%gen] ...)`          |
++--------------------------+--------------+------------------------------------+
+| `:resume`                | `:suspended` | The continuation captured at the   |
+|                          |              | yield                              |
++--------------------------+--------------+------------------------------------+
+| `:ctx`                   | `:suspended` | The generator's own handler stack  |
++--------------------------+--------------+------------------------------------+
+| `:return`, `:caller-ctx` | `:running`   | The active resume call's           |
+|                          |              | continuation and the caller's      |
+|                          |              | handler stack                      |
++--------------------------+--------------+------------------------------------+
+```
+
+- Parameters and locals are cells allocated when the generator function
+  is called; the body does not run until the first resume.
+- Slots are cleared on every transition, so a suspended generator does
+  not hold its last caller in a named slot and a closed one holds
+  nothing.
+- The two crossings are `py/gen-switch` on the caller side and
+  `py/yield-raw` on the generator side, each an explicit invoke of a
+  continuation stored in the cell. A flag cell allocated before each
+  capture tells the two passes apart (ruling 2), the pattern C1 already
+  uses; each captured continuation is invoked once, and the prelude
+  never inspects the continuation representation. `py/gen-start`
+  installs a fresh stack whose only frame is the boundary.
+- The boundary frame needs no change to `py/raise` or `py/unwind-to`,
+  which already pass the exception to any non-`:finally` frame's
+  payload. `py/gen-fail` applies PEP 479 and exits; the caller side
+  re-raises in its own control and handler context.
+- `py/gen-exit` is the single exit of a finishing generator: it marks
+  the cell `:closed`, restores `:caller-ctx`, and invokes `:return`.
+- No escape crosses the boundary, since a function value resets its
+  `:loop` and `:ret` escapes; only exceptions and yields cross, both
+  explicitly. Guest locals are cells and generated temporaries are never
+  reassigned, so environment rewind is not a risk. Already-evaluated
+  operands, as in `f(a(), (yield x), b())`, ride in the captured operand
+  frame, which is why continuations are preferred to a state-machine
+  transform.
+
+Outcomes are tagged and translated only at protocol boundaries (ruling
+3). `py/gen-switch g msg` takes `[:send v]` or `[:throw e]` and answers
+`[:yield v]`, `[:return v]`, or `[:raise e]`; it never raises from the
+generator's side, and loops consume the outcome directly with no
+exception per item.
+
+- `next`, `send`, and `throw` turn `[:return v]` into
+  `raise StopIteration(v)`; `next(g, default)` consumes completion
+  directly. `py/iter-at` gains a `:generator` arm that maps
+  `[:return _]` to `:py/stop`, so the `for` lowering and its goldens do
+  not change. A `:closed` generator answers `[:return None]` forever.
+- A `StopIteration` escaping the body becomes
+  `RuntimeError("generator raised StopIteration")` (PEP 479). A
+  delegate's termination is consumed by `yield from` first, preserving
+  `.value`.
+- `send` of a non-None value to a `:created` generator raises
+  `TypeError` in the caller before any switch. `throw` raises at the
+  yield site on the generator's stack, so an enclosing `try` in the
+  generator catches it; on a `:created` generator it closes it and
+  raises in the caller.
+- `close` throws `GeneratorExit`, a new class under `BaseException`.
+  `[:return _]` or a raised `GeneratorExit` gives None; any other raise
+  propagates. If the generator yields instead, `close` raises
+  `RuntimeError` and the generator keeps its resulting suspended state;
+  it is not marked closed.
+- `finally` and `with` around a yield need no change: their frames are
+  saved in `:ctx` at suspend and reinstalled at resume, and a thrown
+  exception, `GeneratorExit`, or `return` unwinds them through the
+  existing code. A consumer's `break` unwinds only the caller's stack.
+- `StopIteration` is a new builtin class under `Exception` whose
+  `__init__` sets `args` and `value`. The guest surface adds `next` and
+  `iter`, and `__next__`, `__iter__`, `send`, `throw`, and `close`
+  through a `:generator` arm in `py/getattr`.
+- `py/yield-from` is the PEP 380 loop as a tail-recursive prelude
+  function over `py/yield-raw`. A non-generator delegate goes through a
+  stateful sequence iterator, the object `iter()` returns: a cell
+  `{:py/type :iterator :src it :i n}` over `py/iter-at`.
+
+Generator expressions lower to anonymous generators (ruling 4). The
+outermost iterable is evaluated and `iter()`-checked at creation in the
+enclosing scope; every other clause is lazy. The C1 inlining of a
+generator expression consumed by `sum`, `any`, or `all` is removed: it
+was a placeholder, it deviates under PEP 479, and eager materialization
+can run expressions a lazy consumer never reaches. Any later
+optimization belongs to an attached optimizer and must preserve these
+observations and runtime rebinding of the consumer. List, set, and dict
+comprehensions stay eager. `yield` at module or class level, or inside
+any comprehension or generator expression, is a syntax diagnostic.
+
+`py/iter-at` keeps its index signature as an internal compatibility
+interface, not the public iterator protocol (ruling 5). A stateful
+iterator advances once per call and ignores the index; iterable
+acquisition happens once per loop; `iter(iterator)` preserves identity;
+exhaustion handling covers only the advancement, never the loop body.
+The loop counter must not overflow or round under long consumption: it
+uses exact increment once C3 lands, without narrowing generator
+payloads.
+
+User-defined iterator classes are part of C2, in S5 (ruling 8).
+Implicit `__iter__` and `__next__` lookup uses the type's special-method
+path, since ordinary `py/getattr` prefers instance attributes; it
+validates the returned iterator and catches `StopIteration` only around
+advancement. Termination values are preserved for delegation, other
+exceptions propagate, and optional `send`, `throw`, and `close` are
+forwarded per PEP 380.
+
+No generator flag is persisted on function specs (ruling 9). Generator
+status is decided during scope-aware lowering, excluding nested function
+bodies and including unreachable `yield` and `yield from`, and is
+encoded in ordinary code. Future introspection, such as
+`inspect.isgeneratorfunction`, derives status from the scoped
+generator-construction pattern; a query for direct applications of
+`py/yield` alone is insufficient, because a body using only `yield from`
+need not apply it.
+
+Heap, identity, and wire:
+
+- Tracing needs no VM change: cell content is traced as data and a
+  continuation is walked through its payload.
+- An unreachable generator is reclaimed without an implicit `close()`
+  (ruling 6). Python specifies a `close()` on generator finalization, so
+  this is an explicit finalization restriction of the support profile,
+  not conformance. The landed collector has no finalizers; explicit
+  `close()` stays supported. Pinning roots the generator cell and traces
+  its current content, not every historical continuation.
+- `%capture` is undelimited, so `:resume` holds the frames of the first
+  `next()` call beneath the generator's own (stale base). This fixed
+  retention is accepted for C2; growth per yield is rejected (ruling 7).
+  Delimited capture is a separate VM question.
+- A suspended generator does not migrate: cells refuse lift and
+  continuations refuse as `:non-canonicalizable`. Once heap lift and a
+  continuation encoding land, generators migrate with no
+  generator-specific wire form; until then the refusal stays.
+- `is` is `=` on the ref, `iter(g) is g`, and a generator is a dict key
+  by ref through the non-numeric arm of `py/key`. `py/snapshot-obj`
+  renders `{:py/generator name}`, diagnostic data, never a resumable
+  wire form. The prelude compares only `:state` keywords, never
+  generator contents, since continuation equality and hash are
+  structural.
+- The canonical tree changes only by new prelude functions: `yield` is
+  an `:application` of `py/yield`, and `%capture` stays inside the
+  prelude. The prelude grows, so every bundled unit's address changes,
+  a prelude-profile bump under section 11.
+
+For safepoints, generator switches happen only at applications of
+`py/gen-switch`, `py/yield-raw`, and `py/yield-from`, which an attached
+inserter can find by query; `sys.settrace` sees nothing in C2. Future
+per-thread dynamic state (the frame-record stack, the recursion counter,
+`exc_info`) joins `:ctx` and swaps with the handler stack.
+
+```text
++--------+---------------------------------------------------------------------+
+| Slice  | Scope                                                               |
++========+=====================================================================+
+| S1     | Core: `py/make-generator`, `py/gen-switch`, `py/yield`,             |
+|        | `py/gen-exit`, `py/gen-fail`; `StopIteration`; `next`; the          |
+|        | `iter-at` and `iterable` arms; lowering arms for `yield_stmt` and   |
+|        | `yield_expr`, a `:gen` binder reset in every nested scope, and      |
+|        | removal of the three `yield` guards.                                |
++--------+---------------------------------------------------------------------+
+| S2     | `send`, `throw`, `close`, and the dynamic context: `GeneratorExit`, |
+|        | `finally` and `with` around a yield, the "generator already         |
+|        | executing" check, PEP 479.                                          |
++--------+---------------------------------------------------------------------+
+| S3     | `yield from`, `iter`, and stateful sequence iterators.              |
++--------+---------------------------------------------------------------------+
+| S4     | Generator expressions, with removal of the C1 consuming-builtin     |
+|        | inlining.                                                           |
++--------+---------------------------------------------------------------------+
+| S5     | Heap, wire, and hosts: collection of suspended and dropped          |
+|        | generators, lift refusal, determinism, snapshot rendering;          |
+|        | user-defined iterator classes.                                      |
++--------+---------------------------------------------------------------------+
+```
+
+The cross-ruling strengthens acceptance:
+
+- Every slice runs on all four evaluators on JVM, Node, and Dart;
+  "wherever the parity lane runs" does not support a portability claim.
+  Expected output for source programs is CPython 3.9.6's.
+- Ruling 1: nested generators, different resuming callers, and
+  suspension during exception unwinding.
+- Ruling 2: flags become collectible when unreachable, not necessarily
+  right after re-entry, so reachable heap is measured after repeated
+  suspension and collection.
+- Ruling 4: short-circuiting and side effects, not only PEP 479.
+- Ruling 7: the complete reachable continuation and heap graph across
+  many yields, changing callers, nested delegation, and forced
+  collections; top-level continuation length alone is insufficient, and
+  clearing named slots does not prove that references in captured
+  environments vanished.
+- Ruling 8: shared iterators, invalid `__iter__` results, subclassed
+  `StopIteration`, and exceptions from loop bodies.
+
+Deferred: close-on-collection, async generators, migration of suspended
+generators, `settrace` events, `gi_*` introspection, and the
+three-argument `throw`.
+
+#### 8.5.4 Integers (phase C3)
+
+This section records the C3 integer design as amended by the C3
+cross-ruling's fourteen converged rulings. Its implementation is
+pending, in slices S0 to S7 below; none of it has landed. C1 restricts
+integers to [-2^53, 2^53], an intentional limitation C3 replaces with
+exact promotion.
+
+Python integers are untagged exact scalars of any magnitude (ruling 1).
+A bignum is an immutable value, possibly the payload of an existing
+cell; there is no per-integer cell, no `:py/bigint` wrapper, no digit
+table, and no intern table. Bignums are immutable leaves: they hold no
+cell references and need no `gc-children` expansion, and a numeric
+result crossing a host boundary allocates no task cell. Aliasing is
+ordinary: after `x = 10**100; y = x; x += 1`, `y` keeps the old value.
+
+Each value has exactly one carrier per host (ruling 2):
+
+```text
++------------+----------------------------------+------------------------------+
+| Host       | Native carrier                   | Bignum carrier               |
++============+==================================+==============================+
+| JVM        | Signed `long`, [-2^63, 2^63-1]   | `clojure.lang.BigInt`; a raw |
+|            |                                  | `BigInteger` never leaves    |
+|            |                                  | the integer module           |
++------------+----------------------------------+------------------------------+
+| JavaScript | `Number` only within [-(2^53-1), | Native `BigInt`              |
+|            | 2^53-1], so 2^53 and -2^53 are   |                              |
+|            | bignums                          |                              |
++------------+----------------------------------+------------------------------+
+| Dart VM    | Signed `int`, [-2^63, 2^63-1]    | `BigInt`                     |
++------------+----------------------------------+------------------------------+
+| Dart to JS | Not claimed                      | Not claimed                  |
++------------+----------------------------------+------------------------------+
+```
+
+Promotion happens before an operation could overflow, wrap, or round;
+demotion after it is mandatory, not optional. On ClojureScript
+`(= 1 (js/BigInt 1))` is false and on Dart `int` and `BigInt` are
+unequal, so an undemoted result would split equality, `is`, and every
+prelude test against a native literal. The carrier must not affect
+Python type, equality, truthiness, rendering, hash, code addresses,
+serialized bytes, task-cell allocation counts, guest exceptions, or
+effect traces.
+
+Values use Jing's existing CBOR forms unchanged, with no new payload
+kind and no AST tag (ruling 3):
+
+```text
++----------------------+-------------------------------------------------------+
+| Integer n            | Canonical CBOR (existing Jing `int-wire`)             |
++======================+=======================================================+
+| 0 <= n < 2^64        | Major type 0, shortest argument width                 |
++----------------------+-------------------------------------------------------+
+| -2^64 <= n < 0       | Major type 1, argument -1-n, shortest width           |
++----------------------+-------------------------------------------------------+
+| n >= 2^64            | Tag 2 over a byte string holding n                    |
++----------------------+-------------------------------------------------------+
+| n < -2^64            | Tag 3 over a byte string holding -1-n, not abs(n)     |
++----------------------+-------------------------------------------------------+
+```
+
+- Digits are unsigned base-256, most significant byte first, minimal
+  length. A bignum tag is noncanonical when the value fits major type 0
+  or 1. Ingress refuses leading zeros, unnecessary tags, malformed
+  payloads, and trailing bytes; existing Jing fixtures stay unchanged.
+- A source literal within +/-(2^53-1) stays a native `:literal`. A
+  larger literal lowers to an application of the integer module's parse
+  function over its canonical decimal string, because the de Bruijn
+  canonical value table declares `:bigint` out of domain and the image
+  encoder refuses a JS or Dart bigint. Every literal thus stays inside
+  the existing domain on all four kernels, and every spelling of one
+  value (decimal, hexadecimal, binary, octal) has one address.
+  Widening the de Bruijn value domain is a separate kernel ruling.
+- `42` and `42.0` stay distinct content although numerically equal.
+
+Exact-integer carriers are recognized as scalars in the encoder, the
+heap trace, `pin-refs`, `values/kind-of`, and `data/number?`, and this
+is tested on Node and Dart before any bignum reaches a cell (ruling 4).
+On JS and Dart a bignum fails host `number?`. UCF gains no marker; its
+scalar number arm covers every Jing exact-integer carrier, and the
+cell-lift refusal is unchanged, so C3 does not establish Python-task
+migration.
+
+A separately installed, versioned `:pure` integer module carries the
+exact kernels (ruling 5). It follows `yin.vm.data` (section 9.3): the
+composition installs it explicitly, the Python runtime profile requires
+it, and a composition without it is refused at admission. It declares
+arities, raises no effects, holds no host state, never calls back into
+Python, and never touches the heap or store; expected arithmetic
+failures are returned as qualified data for the prelude to translate.
+`vm/primitives`, the grammar, opcodes, and evaluator dispatch do not
+change. Python dispatch, sign rules, and exceptions stay in the
+prelude:
+
+```text
++--------------------------------------+---------------------------------------+
+| Python prelude                       | Pure integer module                   |
++======================================+=======================================+
+| Python type dispatch and bool        | Exact integer recognition and         |
+| coercion                             | normalization                         |
++--------------------------------------+---------------------------------------+
+| Guest exception construction         | Exact add, subtract, multiply,        |
+|                                      | negate, compare                       |
++--------------------------------------+---------------------------------------+
+| Floor quotient and modulo sign       | Truncating quotient and remainder     |
+| adjustment                           | pair                                  |
++--------------------------------------+---------------------------------------+
+| Operator result-type selection       | Unbounded signed bit operations       |
++--------------------------------------+---------------------------------------+
+| Integer power loop and special cases | Checked shifts and bit length         |
++--------------------------------------+---------------------------------------+
+| Parsing syntax, bases, underscores,  | Exact digit accumulation and radix    |
+| whitespace                           | formatting                            |
++--------------------------------------+---------------------------------------+
+| Numeric key and guest hash policy    | Exact binary64 decomposition and      |
+|                                      | conversion; correctly rounded integer |
+|                                      | ratio to binary64                     |
++--------------------------------------+---------------------------------------+
+```
+
+- Guest integers go only through the module, since host `+` on mixed
+  carriers throws on JS and Dart. Internal counters, including C2's
+  `iter-at` index and the sequence iterator's `:i`, stay VM primitives
+  and never become guest values without normalization.
+- The conversion and rounding kernels are written once in portable code
+  over a minimal per-host bignum shim, not three host implementations.
+  The shim does not reach into `dao.jing.cbor` privates; Jing stays a
+  passive codec.
+- Floor division and modulo derive from the truncating pair: if the
+  remainder is nonzero and its sign differs from the divisor's, the
+  quotient decrements and the divisor is added to the remainder. Zero
+  division is checked before the primitive is invoked.
+- Bit operations follow an infinite signed two's-complement model:
+  `~a = -a-1`, `a << k = a * 2^k`, `a >> k = floor(a / 2^k)`. A negative
+  count raises `ValueError`; counts are never narrowed before that
+  check; a huge right shift returns 0 or -1 from the sign, and a huge
+  left shift of a nonzero operand passes result-size admission first.
+- Non-negative integer powers are exact, by squaring through exact
+  primitives (ruling 10). Float-result powers use the prelude's existing
+  squaring loop, `py/fpow`, as the pinned contract: bit-identical across
+  hosts and allowed to differ from CPython's `pow` in the last place,
+  documented. A negative exponent converts the base through the checked
+  conversion first, so a huge base raises `OverflowError`. Fractional
+  exponents, complex results, and three-argument `pow` are deferred.
+
+Conversions are acceptance conditions (ruling 9):
+
+- Integer text is parsed and formatted exactly, never through a double
+  or a native-width parser. Source-literal syntax and
+  `int(string, base)` validation are separate rules. `str` and `repr`
+  give exact decimal text with no suffix or exponent, and the guest
+  builtins and the boundary snapshot renderer share that contract.
+- `int(finite_float)` truncates the binary64 value exactly; infinity
+  raises `OverflowError` and NaN raises `ValueError`.
+- `float(integer)` rounds once, to nearest with ties to even, and raises
+  `OverflowError` outside the finite range.
+- Integer `/` is correctly rounded from the exact ratio, so
+  `(10**400) / (10**400)` is `1.0`.
+- Mixed arithmetic converts the integer through the checked conversion
+  and keeps the tagged float result; C1 float tags and signed-zero
+  behavior are preserved. Comparison between an integer and a finite
+  float is exact over the float's binary rational, never by rounding the
+  integer.
+- `int`, `float`, `str`, `repr`, `divmod`, and `hash` do not exist in
+  C1; each is a named C3 deliverable, or its tests are written at
+  prelude level.
+
+Python numeric equality, dict-key normalization, and canonical storage
+identity stay three distinct contracts. Numeric dict and set keys are
+reduced-rational keys in one form (ruling 6), `[:py.numeric/finite
+numerator-decimal denominator-decimal]`, replacing C1's double
+normalization:
+
+- `True`, `1`, and `1.0` share the key 1/1; `False`, `0`, and `+/-0.0`
+  share 0/1; `1.5` is 3/2; 2^53 and 2^53+1 stay distinct.
+- Infinities get their own signed keys; NaN keeps today's behavior.
+  Jing's private `exact-key` has this shape but collapses NaN and is not
+  reused.
+- Tuple elements normalize recursively under the existing tuple-key
+  convention; the non-numeric arm (generators and other identity
+  objects by ref) and the unhashable arm are preserved. The
+  insertion-order vector keeps the first inserted original key.
+
+Guest numeric `hash()` uses P = 2^61-1 on every host (ruling 7):
+`h(n) = sign(n) * (abs(n) mod P)`, with -1 replaced by -2. A finite
+float hashes its reduced rational with the same modulus and the modular
+inverse of the denominator; a bool hashes as 0 or 1. Host hash, Jing's
+`num-hash`, content digests, and cell ids are never exposed. Dicts do
+not consume `hash()`; they use the keys above. `hash()` of an identity
+object (generator, instance, function) is unsupported in C3, since the
+only available identity is the cell id, which is not exposed and not
+stable across lift.
+
+Integer `is` is value-based through the unchanged `py/is`, which stays
+`(= a b)` and is carrier-independent by ruling 2; this matches section
+8.11's "same type and value" rule (ruling 8). `True is 1` stays false.
+No CPython allocation or interning fidelity is promised.
+
+Numeric limits are explicit Python-profile data in bits and digits, with
+no implicit default and nothing inherited from environment variables or
+host library defaults (ruling 11). A bit-length breach is a guest
+`MemoryError` and a digit-limit breach is a guest `ValueError`, both
+catchable and deterministic; neither is `OverflowError`. Real host
+exhaustion, timeout, and cancellation stay operational (section 11).
+Calling a large synchronous kernel `:pure` does not make it
+interruptible, so C3 makes no mid-primitive safepoint or latency claim.
+
+The stream codec is not widened and C3 builds no new adapter (ruling
+12). A raw remote put of a bignum refuses with a qualified outcome;
+canonical Jing bytes through the existing `dao.jing.stream` adapter are
+the only remote form, and printing and re-reading EDN is not a bignum
+transport. NaN key identity and full float rendering parity remain
+separately tracked limitations, not claimed by C3 (ruling 13).
+
+```text
++--------+---------------------------------------------------------------------+
+| Slice  | Scope                                                               |
++========+=====================================================================+
+| S0     | Freeze contracts: profile, expected bytes, literals, hashes,        |
+|        | outcomes, and boundary values around 2^53, 2^63, and 2^64. No       |
+|        | existing canonical fixture changes.                                 |
++--------+---------------------------------------------------------------------+
+| S1     | Exact carriers and the pure module, installed explicitly; a         |
+|        | registry without it refuses.                                        |
++--------+---------------------------------------------------------------------+
+| S2     | Literal and boundary integration: equal spellings give equal rows,  |
+|        | bytes, and hashes; malformed encodings refuse.                      |
++--------+---------------------------------------------------------------------+
+| S3     | Integer operators, including augmented forms, through the prelude;  |
+|        | every C1 arithmetic regression still passes.                        |
++--------+---------------------------------------------------------------------+
+| S4     | Conversions and comparisons: float bits, exact text, tagged float   |
+|        | results, exceptions; no double rounding.                            |
++--------+---------------------------------------------------------------------+
+| S5     | Numeric dict and set keys and guest hashes.                         |
++--------+---------------------------------------------------------------------+
+| S6     | Heap and portability: collection, pinning, scalar UCF round trips,  |
+|        | honest refusal of cell lift and raw transport.                      |
++--------+---------------------------------------------------------------------+
+| S7     | Integration gate over the full C1 and C3 corpus, profile mismatch,  |
+|        | and resource-limit fixtures.                                        |
++--------+---------------------------------------------------------------------+
+```
+
+C3 is complete only with (ruling 14):
+
+- All four VMs on JVM, Node, and Dart VM, twelve lanes; Dart compiled to
+  JavaScript is not claimed. Source-level tests run on the JVM and
+  parserless forms on Node and Dart.
+- Golden byte fixtures checked on each host, in place of directed
+  host-pair runs, and unchanged Jing fixtures.
+- The full C1 corpus.
+- Generated operands from a checked-in table with CPython-computed
+  expectations, not a host RNG. The corpus covers the boundaries around
+  2^53, 2^63, and 2^64, promotion followed by cancellation, the
+  `divmod`, shift, power, conversion, key, and `hash(-1)` detectors, and
+  the C1 signed-zero cases.
+- Mutation evidence, each mutation shown failing its detector once and
+  recorded in the engineer's report: disabled promotion, skipped
+  demotion, double-coerced keys, omitted floor adjustment, `abs(n)` for
+  tag 3, host `number?` as the only scalar gate, and a prematurely
+  narrowed shift count.
+
+The module slices S0 and S1 may run alongside C2; the prelude and
+lowering slices land after C2 and audit its arithmetic sites. The
+contracts strengthen laws 3 to 5, 7 to 9, 11, and 12 of section 13.1.
 
 ### 8.6 Object-oriented and web: PHP, mixed text and ordered maps
 
@@ -1621,7 +2410,10 @@ Two constraints bind every prelude:
 - Normalize dict keys in the runtime profile. Host `=` on numbers differs
   by host: `1` and `1.0` are distinct on the JVM and identical on JS and
   Dart, while Python requires `1`, `1.0`, and `True` to be one key. The
-  profile defines key normalization and guest equality explicitly.
+  profile defines key normalization and guest equality explicitly. For
+  Python, C3 replaces normalization through a double, which merges
+  distinct large integers, with exact reduced-rational keys (section
+  8.5.4, C3 ruling 6).
 
 `obj.method()` costs roughly three or more effect dispatches (instance,
 class, bases), each on the slow effect path. This is recorded as a
@@ -1704,6 +2496,11 @@ decision 3). The module is `yin.vm.data`, module name `data`, landed in
 explicitly with `register-data-module`. It is a registry addition, not a
 grammar change. Its strings are code-point indexed on every host, and no
 export iterates a host map.
+
+Python's exact integers follow the same pattern with a second module: a
+versioned `:pure` integer module that the Python runtime profile
+requires and the composition installs explicitly (C3 ruling 5, section
+8.5.4). It is recorded, with implementation pending in C3 slice S1.
 
 ### 9.4 Layer 3: object system desugaring
 
@@ -1874,7 +2671,21 @@ containing executable helpers are admitted artifacts, not untrusted data
 to execute automatically.
 
 Timeout and cancellation facts are operational events. They must not be
-presented as deterministic language errors.
+presented as deterministic language errors. Signal delivery timing,
+which guest code observes only through the `:stream/poll` effect, is
+likewise operational and is not journalled in safepoint slice 1
+(section 8.5.2, safepoint decision 8). Host allocation failure is
+operational too; a profile-pinned numeric limit breach is not, and
+surfaces as a deterministic guest exception (C3 ruling 11).
+
+The runtime/prelude profile pins language semantics as explicit data.
+For Python under C3 it names the integer and binary64 conversion
+semantics, the numeric hash modulus, the integer-text conversion
+policy, the admitted numeric limits, and the required pure modules and
+boundary adapters; resource checks use portable quantities such as bit
+lengths and digit counts, never host object sizes or available memory
+(section 8.5.4). A prelude that grows, as C2's does, changes every
+bundled unit's address and is a prelude-profile bump.
 
 Cross-host content-address claims remain conditional on the canonical
 encoding actually used. The disclosed `dao.jing` encoding residuals
@@ -1927,6 +2738,19 @@ Deliverables:
 - JavaScript script/module distinction, lexical environments, and
   prototype operations.
 - Separate milestones for generators and asynchronous jobs.
+
+Python's milestones within this phase are named C1, C2, and C3:
+
+- C1 (`finally` and `with`, tuples and slices, full operators,
+  comprehensions, keyword arguments) landed in `34c3986b`.
+- C2, generators (section 8.5.3), is decided and recorded, with
+  implementation pending in its slices S1 to S5.
+- C3, exact integers (section 8.5.4), is decided and recorded, with
+  implementation pending in its slices S0 to S7. S0 and S1 may run
+  alongside C2; the prelude and lowering slices land after C2.
+- Safepoint insertion (section 8.5.2) is decided and recorded, with
+  implementation pending in four slices, in order: signals, recursion,
+  tracing, threads.
 
 Exit criteria:
 
