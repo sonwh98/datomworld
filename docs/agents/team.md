@@ -122,9 +122,11 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | fast response times. Improved factuality and coding. **Best for:** | invariant reasoning. Escalate complex architecture/security.        |
 |                             | High-volume tasks, extraction, scoped searches, and routine QA.    |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-6-sol`                 | Intelligent everyday work model; improved reasoning and 50% cheaper| More expensive than Luna. Use Astra when the task is the hardest    |
-|                             | than 5.6 promotional pricing. **Best for:** Complex implementation,| end-to-end problem.                                                 |
-|                             | advanced coding, high-stakes security, and architectural review.   |                                                                     |
+| `gpt-6.1-sol`               | Intelligent everyday workhorse with near-Astra intelligence, 1M+   | More expensive than Luna. Use Astra when the task is the hardest    |
+|                             | context window, and 95% prompt cache discount. Upgraded reasoning  | end-to-end problem requiring frontier architectural verification.   |
+|                             | effort control (low to max), +6.4% DeepSWE / +7% OSWorld gains over|                                                                     |
+|                             | predecessor. **Best for:** Complex implementation, advanced coding,|                                                                     |
+|                             | high-stakes security, and architectural review.                    |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gpt-6-terra`               | Balanced intelligence and cost. **Best for:** Default production   | Use Sol or Astra for the hardest reasoning, high-risk security, or  |
 |                             | engineering, integration work, network streams, VM runtimes,       | architecture decisions. Validate compiler-lowering and other        |
