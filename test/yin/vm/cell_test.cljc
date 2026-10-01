@@ -67,23 +67,31 @@
 
 (defn- on-every-vm
   "`[vm-key halted-vm]` for each VM; a throw becomes `[:thrown ex-data]`."
-  [ast]
-  (into {}
-        (map (fn [k]
-               [k (try (run-on k ast)
-                       (catch #?(:clj Exception
-                                 :cljs :default
-                                 :cljd Object)
-                              e
-                         [:thrown (ex-data e)]))]))
-        (keys builders)))
+  ([ast] (on-every-vm ast opts))
+  ([ast o]
+   (into {}
+         (map (fn [k]
+                [k (try (run-on k ast o)
+                        (catch #?(:clj Exception
+                                  :cljs :default
+                                  :cljd Object)
+                               e
+                          [:thrown (ex-data e)]))]))
+         (keys builders))))
+
+
+(def ^:private gc-thresholds
+  "Heap reclamation must not change a result: every program runs
+   collecting at every allocation and never collecting."
+  [1 1000000000])
 
 
 (defn- every-vm=
   [expected ast]
-  (doseq [[k result] (on-every-vm ast)]
+  (doseq [threshold gc-thresholds
+          [k result] (on-every-vm ast (assoc opts :gc-threshold threshold))]
     (is (= expected (if (vector? result) result (vm/value result)))
-        (str k))))
+        (str k " at gc threshold " threshold))))
 
 
 (defn- refusal-of
@@ -280,21 +288,23 @@
 
 (defn- forged-refusal
   "Every VM refuses the forged ref `forge` builds from two live refs `a`
-   and `b` with the qualified forged-reference error, naming `effect`."
-  [effect forge]
-  (let [use (fn [f]
-              (if (= :cell/get effect)
-                (get-cell f)
-                (set-cell! f (lit :stolen))))
-        ast (let1 'a (new-cell (lit :secret-a))
-                  (let1 'b (new-cell (lit :secret-b))
-                        (use forge)))]
-    (doseq [[k result] (on-every-vm ast)]
-      (is (= [:thrown {:reason :forged-resource-reference,
-                       :effect effect,
-                       :kind :cell-ref}]
-             (update result 1 dissoc :id))
-          (str k)))))
+   and `b` with the qualified `reason` (the forged-reference error unless
+   given), naming `effect`."
+  ([effect forge] (forged-refusal effect forge :forged-resource-reference))
+  ([effect forge reason]
+   (let [use (fn [f]
+               (if (= :cell/get effect)
+                 (get-cell f)
+                 (set-cell! f (lit :stolen))))
+         ast (let1 'a (new-cell (lit :secret-a))
+                   (let1 'b (new-cell (lit :secret-b))
+                         (use forge)))]
+     (doseq [[k result] (on-every-vm ast)]
+       (is (= [:thrown {:reason reason,
+                        :effect effect,
+                        :kind :cell-ref}]
+              (update result 1 dissoc :id))
+           (str k))))))
 
 
 (deftest forged-cell-ref-refused-test
@@ -304,9 +314,10 @@
     (testing (str effect " with another live cell's id under this seal")
       (forged-refusal effect (app (v 'assoc) (v 'a) (lit :id)
                                   (app (v 'get) (v 'b) (lit :id)))))
-    (testing (str effect " with an unknown id")
-      (forged-refusal effect (app (v 'assoc) (v 'a) (lit :id)
-                                  (lit :cell-999))))
+    (testing (str effect " with an unknown id: the heap holds no such cell")
+      (forged-refusal effect
+                      (app (v 'assoc) (v 'a) (lit :id) (lit :cell-999))
+                      :dead-or-forged-reference))
     (testing (str effect " with a literal that has no seal")
       (forged-refusal effect (app (v 'assoc) (v 'a) (lit :seal) (lit nil))))
     (testing (str effect " with a stream-ref type tag")

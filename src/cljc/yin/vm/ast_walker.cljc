@@ -67,6 +67,7 @@
    row-nodes      ; {row-id node}: each held row decoded once
    resources      ; private engine resources: the link pair
    heap           ; {cell-id {:value v :seal s}}: the task's cells
+   gc             ; {:since :base :threshold :pinned}: heap reclamation
    origin         ; this task's origin tag for link ids
    origins        ; counter for the origin tags of install children
    ancestry       ; the modules installing on this task's install chain
@@ -123,6 +124,7 @@
                    (:row-nodes vm)
                    (:resources vm)
                    (:heap vm)
+                   (:gc vm)
                    (:origin vm)
                    (:origins vm)
                    (:ancestry vm)
@@ -205,6 +207,8 @@
    here and name their outcome."
   [state op args k env]
   (let [{:keys [call-in]} (ffi/require-call-pair! (:resources state) op)
+        ;; the request carries `args` out of the VM's view
+        state (engine/pin-refs state args)
         response-cont {:type :dao.stream.apply/eval-call, :next k, :env env}
         parked-id (ffi/call-id state (engine/park-id state))
         parked (engine/park-continuation state
@@ -1072,7 +1076,7 @@
                                      :call-capacity :link-request
                                      :link-response :origin :ancestry
                                      :capability-secret :secret-source
-                                     :attach-stream])
+                                     :attach-stream :gc-threshold])
                        :telemetry (:telemetry opts)
                        :vm-model :ast-walker))]
      (-> (map->ASTWalkerVM (merge base
@@ -1106,6 +1110,31 @@
                    :expected-format :yin.ast/code})))
 
 
+(def ^:private frame-continuations
+  "The continuation types whose `:frame` is an AST node: the code of the
+   pending application, test, or stream operation."
+  #{:eval-operator :eval-operand :eval-test :dao.stream.apply/eval-operand
+    :eval-stream-put-target :eval-stream-put-val :eval-stream-close-source
+    :eval-stream-cursor-source :eval-stream-next-cursor})
+
+
+(defn- gc-children-of
+  "Heap reclamation's view of a walker value. A frame continuation's
+   `:frame` is code with the runtime keys `:evaluated` and `:fn` assoc'd
+   in, so only those are traced, never the operand subtrees; the rest of
+   the continuation (`:next`, `:env`, a `:stream-ref`) is. A closure
+   contributes everything but its body and params, so its captured
+   environment. Anything else is plain data."
+  [x]
+  (when (map? x)
+    (cond (= :closure (:type x)) (into [] (vals (dissoc x :body :params)))
+          (and (contains? frame-continuations (:type x)) (contains? x :frame))
+          (let [frame (:frame x)]
+            (-> (into [] (vals (dissoc x :frame)))
+                (conj (:evaluated frame) (:fn frame))))
+          :else nil)))
+
+
 (extend-type ASTWalkerVM
   module/IModuleKernel
   (link-format [_] {:format :yin.ast/code, :contract vm/ast-contract})
@@ -1126,7 +1155,8 @@
                      :ancestry ancestry,
                      :capability-secret capability-secret,
                      :secret-source (:secret-source vm),
-                     :attach-stream (:attach-stream vm)})
+                     :attach-stream (:attach-stream vm),
+                     :gc-threshold (:base (:gc vm))})
                   image
                   vm/ast-contract))
   (image-identity [_ image] (:root image))
@@ -1165,4 +1195,6 @@
                           (map (fn [[k x]] [k (decode x)]))
                           (:yin.k/env marker))
               store-of (assoc engine/store-of-key store-of)),
-       :lambda id})))
+       :lambda id}))
+  (gc-roots [vm] [(:control vm) (:env vm) (:k vm) (:value vm)])
+  (gc-children [_ x] (gc-children-of x)))

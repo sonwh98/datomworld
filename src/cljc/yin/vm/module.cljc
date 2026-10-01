@@ -409,7 +409,22 @@
     "The closure `marker` denotes in `vm`'s coordinates, captured values
      decoded by `decode`, carrying the marker's `:yin.k/store-of`. A
      marker of another binding discipline or format is
-     `:binding-mismatch`."))
+     `:binding-mismatch`.")
+
+  (gc-roots
+    [vm]
+    "This kernel's registers as heap-reclamation root values, each a whole
+     register, never selected keys, so no root is missed here. The engine
+     adds the store, the module stores, `:parked`, `:wait-set` and
+     `:ready-queue` itself.")
+
+  (gc-children
+    [vm x]
+    "The values `x` may hold a cell ref in, as a sequence, when `x` is a
+     value of this kernel's own shape that mixes code with runtime values
+     (a frame, a closure, a register payload naming the code space); nil
+     when `x` is plain data the engine walks itself. The engine never reads
+     a continuation's keys generically: this is the seam."))
 
 
 (def link-request-resource

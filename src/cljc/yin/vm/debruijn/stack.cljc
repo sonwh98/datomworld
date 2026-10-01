@@ -96,7 +96,8 @@
    store-of     ; the running body's module store address, or nil
    resources    ; private engine resources: the link pair
    origin       ; this task's origin tag for link ids
-   ancestry])   ; the modules installing on this task's install chain
+   ancestry     ; the modules installing on this task's install chain
+   gc])         ; {:since :base :threshold :pinned}: heap reclamation
 
 
 (def format-tag
@@ -252,7 +253,7 @@
                                           :link-request :link-response
                                           :origin :ancestry
                                           :capability-secret :secret-source
-                                          :attach-stream])
+                                          :attach-stream :gc-threshold])
                        :primitives (or (:primitives opts) {})))]
      (-> (map->DebruijnVM
            {:segment [],
@@ -278,6 +279,7 @@
             :ready-queue [],
             :parked {},
             :heap (:heap base),
+            :gc (:gc base),
             :id-counter 0,
             :ffi-caller-id (:ffi-caller-id base),
             :value nil,
@@ -476,7 +478,10 @@
         {:keys [call-in]} (ffi/require-call-pair! resources op)
         regs (registers vm (inc pc) stack')
         call-id (ffi/call-id vm (engine/park-id vm))
-        parked (engine/park-continuation (assoc vm :pc (inc pc) :stack stack')
+        ;; the request carries `args` out of the VM's view
+        parked (engine/park-continuation (assoc (engine/pin-refs vm args)
+                                                :pc (inc pc)
+                                                :stack stack')
                                          regs
                                          call-id)
         request (apply2/request call-id op args)
@@ -811,6 +816,7 @@
                 :capability-secret capability-secret,
                 :secret-source (:secret-source vm),
                 :attach-stream (:attach-stream vm),
+                :gc-threshold (:base (:gc vm)),
                 :contract vm/stack-contract}))
   (image-identity [_ image] (dcode/image-hash image))
   (image-holds? [_ image segment] (= segment (dcode/image-hash image)))
@@ -842,4 +848,11 @@
                :body-pc pc,
                :frames (mapv #(mapv decode %) (:yin.k/frames marker))}
         (:yin.k/store-of marker)
-        (assoc :store-of (:yin.k/store-of marker))))))
+        (assoc :store-of (:yin.k/store-of marker)))))
+  (gc-roots [vm] [(:frames vm) (:stack vm) (:continuation vm) (:value vm)])
+  ;; A register payload (a wait, ready or parked entry, or a reified
+  ;; continuation) names the code space as `:segment`; that is code, so
+  ;; every other key is traced. Closures and return frames hold no code.
+  (gc-children [_ x]
+    (when (and (map? x) (= format-tag (:format x)))
+      (into [] (vals (dissoc x :segment))))))

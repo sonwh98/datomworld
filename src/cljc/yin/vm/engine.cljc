@@ -311,15 +311,22 @@
 (defn check-ref!
   "The resource id a program-supplied `kind` reference names, once its
    seal verifies (r10). Anything else fails closed with
-   `:forged-resource-reference`, naming the effect and the id it named."
+   `:forged-resource-reference`, naming the effect and the id it named;
+   a cell ref whose id the heap does not hold is
+   `:dead-or-forged-reference` instead: its cell was swept, or never was.
+   Ids are never reused, so such a ref is never silently reallocated."
   [state effect-kind kind ref]
   (if (authentic-ref? state kind ref)
     (:id ref)
-    (fail "Forged resource reference"
-          {:reason :forged-resource-reference,
-           :effect effect-kind,
-           :kind kind,
-           :id (when (map? ref) (:id ref))})))
+    (let [id (when (map? ref) (:id ref))
+          dead? (and (= :cell-ref kind) (not (contains? (:heap state) id)))]
+      (fail (if dead? "Dead or forged cell reference" "Forged resource reference")
+            {:reason (if dead?
+                       :dead-or-forged-reference
+                       :forged-resource-reference),
+             :effect effect-kind,
+             :kind kind,
+             :id id}))))
 
 
 (declare gensym)
@@ -1814,6 +1821,155 @@
   (assoc-in state [:heap id] {:value v, :seal seal}))
 
 
+;; =============================================================================
+;; Heap reclamation (Architect heap-reclamation design, slice 1)
+;; =============================================================================
+;;
+;; A deterministic, allocation-triggered, stop-the-world mark-sweep over
+;; `:heap`, as a pure `vm -> vm'`. The `:cell/new` arm counts allocations in
+;; `:gc` and collects when the count reaches the threshold, so two runs
+;; collect at the same allocation. Marking runs over the heap as it was when
+;; the cycle began (a persistent map, so the snapshot is a reference) and the
+;; sweep removes only ids of that snapshot: an id allocated at or after the
+;; cycle's counter start is not in it and is spared. A budgeted marker can
+;; later run the same `trace` k steps per round. Ids are never reused:
+;; `:id-counter` only grows, so a ref to a swept cell names nothing and is
+;; refused `:dead-or-forged-reference`.
+
+(defn- heap-ref-id
+  "The id the map `x` names when it is a `:cell-ref` authentic against
+   `heap`, else nil."
+  [heap x]
+  (when (= :cell-ref (:type x))
+    (let [id (:id x)
+          entry (get heap id)]
+      (when (and (some? entry) (= (:seal x) (:seal entry))) id))))
+
+
+(defn- trace
+  "`found` plus the ids of `heap` reachable from `roots`. Scalars hold
+   nothing; a value of the kernel's own shape contributes what the kernel's
+   `gc-children` answers; any other collection contributes its elements, a
+   map its keys and values. With `follow?` a newly found id's content is
+   traced too (marking); without, only the refs met directly (pinning).
+   Each value is visited once, so shared environments cost one walk and a
+   cell holding its own ref terminates. The worklist is explicit: a deep
+   continuation chain does not grow the host stack."
+  [vm heap roots found follow?]
+  (let [children-of (if (satisfies? module/IModuleKernel vm)
+                      #(module/gc-children vm %)
+                      (constantly nil))]
+    (loop [work (into () roots)
+           seen #{}
+           found found]
+      (if (empty? work)
+        found
+        (let [x (peek work)
+              work (pop work)]
+          (if (or (scalar? x) (contains? seen x))
+            (recur work seen found)
+            (let [id (when (map? x) (heap-ref-id heap x))
+                  new-id? (and (some? id) (not (contains? found id)))
+                  children (children-of x)
+                  work (cond-> work
+                         (and new-id? follow?) (conj (:value (get heap id)))
+                         (some? children) (into children)
+                         (and (nil? children) (map? x)) (-> (into (keys x))
+                                                            (into (vals x)))
+                         (and (nil? children) (not (map? x)) (coll? x))
+                         (into x))]
+              (recur work
+                     (conj seen x)
+                     (if new-id? (conj found id) found)))))))))
+
+
+(defn- gc-roots
+  "Every root of `vm` (design Q1): the kernel's registers, the store and
+   every module store, `:parked`, `:wait-set` and `:ready-queue`, then
+   `extra`. Code, images, the registry, primitives, `:callable-effects`,
+   telemetry and `:resources` are not roots: a literal can never be an
+   authentic ref, and a value inside a stream is the medium's (hence
+   pinning)."
+  [vm extra]
+  (-> [(:store vm)
+       (:module-stores vm)
+       (:parked vm)
+       (:wait-set vm)
+       (:ready-queue vm)]
+      (into (when (satisfies? module/IModuleKernel vm) (module/gc-roots vm)))
+      (into extra)))
+
+
+(defn- mark
+  "The ids of `heap` live from `roots` and from the `pinned` ids: a pinned
+   cell is a root, so its content is traced too."
+  [vm heap roots pinned]
+  (let [pins (filterv #(contains? heap %) pinned)]
+    (trace vm
+           heap
+           (into roots (map #(:value (get heap %))) pins)
+           (set pins)
+           true)))
+
+
+(defn- sweep
+  "`heap` without each id of the cycle's `snapshot` that `marked` lacks.
+   An id allocated after the snapshot is not in it, so it is spared."
+  [heap snapshot marked]
+  (reduce-kv (fn [h id _] (if (contains? marked id) h (dissoc h id)))
+             heap
+             snapshot))
+
+
+(defn- gc-of
+  [state]
+  (or (:gc state) (vm/fresh-gc nil)))
+
+
+(defn collect
+  "`vm` after one stop-the-world collection of its `:heap`, with `extra`
+   traced as additional roots. The allocation count restarts and the
+   threshold becomes `max(base, 2 x live)`, so the total work stays linear
+   in allocations. Pure: the same state always collects to the same heap."
+  ([vm] (collect vm nil))
+  ([vm extra]
+   (let [gc (gc-of vm)
+         snapshot (:heap vm)
+         marked (mark vm snapshot (gc-roots vm extra) (:pinned gc))
+         heap (sweep (:heap vm) snapshot marked)]
+     (assoc vm
+            :heap heap
+            :gc (assoc gc
+                       :since 0
+                       :threshold (max (:base gc) (* 2 (count heap))))))))
+
+
+(defn- count-allocation
+  "`state` with one allocation counted, collected first when the count
+   reaches the threshold. `v`, the value being boxed, is held by no
+   register yet, so it is traced as an extra root."
+  [state v]
+  (let [gc (gc-of state)
+        since (inc (:since gc))]
+    (if (>= since (:threshold gc))
+      (collect state [v])
+      (assoc state :gc (assoc gc :since since)))))
+
+
+(defn pin-refs
+  "`state` with every cell `v` holds a ref to pinned for the task's life
+   (owner decision 1). A value appended to a stream or carried by an FFI
+   request leaves the VM's view, so no trace could find a ref inside it
+   when it comes back."
+  [state v]
+  (if (or (scalar? v) (empty? (:heap state)))
+    state
+    (let [ids (trace state (:heap state) [v] #{} false)]
+      (if (seq ids)
+        (assoc state :gc (update (gc-of state) :pinned into ids))
+        state))))
+
+
 (defn handle-effect
   "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
    park-entry-fns maps :stream/put and :stream/next to functions that build
@@ -1849,7 +2005,8 @@
                 [cursor-ref new-state] (handle-cursor s' effect id)]
             {:state new-state, :value cursor-ref, :blocked? false})
           :stream/put
-          (let [result (handle-put state effect)]
+          (let [state (pin-refs state (:val effect))
+                result (handle-put state effect)]
             (if (:park result)
               (let [built-entry (when park-entry
                                   (park-entry state effect result))
@@ -1875,7 +2032,7 @@
           ;; `:heap` is VM state, not continuation state: a write is seen
           ;; by every holder of the ref and survives continuation invocation
           :cell/new
-          (let [[id s'] (gensym state "cell")
+          (let [[id s'] (gensym (count-allocation state (:val effect)) "cell")
                 ref (issue-ref s' :cell-ref id)]
             {:state (heap-write s' id (:seal ref) (:val effect)),
              :value ref,

@@ -1126,7 +1126,9 @@
       (assoc :yin.k/segment "an image this scheduler never verified")))
   (lower-closure [t marker decode]
     (when (= :lower (:stage (:fault t))) (injected! :lower))
-    (module/lower-closure (as-stack t) marker decode)))
+    (module/lower-closure (as-stack t) marker decode))
+  (gc-roots [t] (module/gc-roots (as-stack t)))
+  (gc-children [t x] (module/gc-children (as-stack t) x)))
 
 
 (extend-type FaultyTask

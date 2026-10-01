@@ -1981,6 +1981,24 @@
                                    profiles))})
 
 
+(def default-gc-threshold
+  "The base heap-reclamation threshold: allocations between collections
+   while the live heap is small (owner decision 3 of the heap-reclamation
+   design)."
+  4096)
+
+
+(defn fresh-gc
+  "A task's empty collector state `:gc`: `:since` counts allocations since
+   the last collection, which runs when it reaches `:threshold`; after one,
+   the threshold is `max(:base, 2 x live)`. `:pinned` holds the cell ids a
+   stream or FFI request carried out of the VM's view, kept for the task's
+   life. `base` is the composition's parameter, nil for the default."
+  [base]
+  (let [base (or base default-gc-threshold)]
+    {:since 0, :base base, :threshold base, :pinned #{}}))
+
+
 (defn empty-state
   "Return an initial immutable VM state map.
 
@@ -2027,6 +2045,8 @@
                    an install child's secret; without it a child has none
      :attach-stream (fn [descriptor] -> attach outcome): how a lowered
                    stream reference (r9) attaches to its stream
+     :gc-threshold the base heap-reclamation threshold, in allocations
+                   (default `default-gc-threshold`); see `fresh-gc`
 
    The FFI pair comes from explicitly supplied `:call-in`/`:call-out` first --
    matching v1's precedence, so a composition handing over streams directly is
@@ -2148,6 +2168,7 @@
         :ffi-caller-id (:ffi-caller-id opts),
         :parked {},
         :heap {},
+        :gc (fresh-gc (:gc-threshold opts)),
         :id-counter 0,
         :ready-queue [],
         :wait-set [],

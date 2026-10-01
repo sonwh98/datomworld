@@ -652,6 +652,18 @@ Store operations are VM-level primitives that interact directly with the global 
 - 🌍 **Global** - The store is shared across all lexical scopes in the VM.
 - ⚡ **Side Effects** - `:vm/store-put` and `:vm/store-update` are primarily used for their side effects.
 
+### 5. Cells and the Task Heap
+
+Runtime-allocated mutable locations are not AST nodes. They are the `cell` host module's `cell/new`, `cell/get` and `cell/set!`, ordinary applications whose effects the engine interprets on all four VMs. `cell/new` answers a sealed `{:type :cell-ref :id :cell-N :seal s}`; the content lives in the task's `:heap` (see `state.md`), never in the named store.
+
+**Reclamation.** The heap is collected (Architect heap-reclamation design, slice 1; this supersedes the cell ruling's "heap reclamation can wait"). The `:cell/new` effect counts allocations, and when the count reaches the threshold it runs a deterministic, stop-the-world mark-sweep before allocating:
+
+- **Roots:** the kernel's registers (`IModuleKernel/gc-roots`), the store and every module store, `:parked`, `:wait-set`, `:ready-queue`, the value being boxed, and every pinned cell. Code, images, the registry, primitives and `:resources` are not roots.
+- **Tracing:** a cell ref marks its cell and traces its content; a frame, closure or register payload contributes what the kernel's `gc-children` answers (a walker frame's `:evaluated` and `:fn`, never its operand subtrees); other data is walked whole.
+- **Pinning:** a cell ref inside a value appended by `:stream/put`, or inside FFI request arguments, is pinned for the task's life, because the VM cannot see inside a medium.
+- **Ids are never reused.** A ref to a swept cell is refused with `:dead-or-forged-reference`.
+- **Determinism:** collection is triggered by counts only, never by time or host memory, so it cannot change a program's result.
+
 ---
 
 ## Part 7: Continuation Control

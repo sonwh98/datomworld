@@ -73,7 +73,8 @@
    vm-model       ; telemetry model keyword
    vm-id          ; telemetry instance id, minted by telemetry/install
    code           ; {segment-id image}; built once per segment, never written
-   code-aliases]) ; {address segment-id}; additive, one address one id (UCF §7.3.4)
+   code-aliases   ; {address segment-id}; additive, one address one id (UCF §7.3.4)
+   gc])           ; {:since :base :threshold :pinned}: heap reclamation
 
 
 (declare semantic-restore scheduler-round)
@@ -464,7 +465,9 @@
                        ;; in :parked and consume an id counter.
                        {:keys [call-in]}
                        (ffi/require-call-pair! (:resources vm) ffi-op)
-                       vm' (put-registers vm seg pc val St' E K)
+                       ;; the request carries `args` out of the VM's view
+                       vm' (put-registers (engine/pin-refs vm args)
+                                          seg pc val St' E K)
                        call-id (ffi/call-id vm' (engine/park-id vm'))
                        parked (engine/park-continuation
                                 vm'
@@ -920,7 +923,7 @@
                                      :call-capacity :link-request
                                      :link-response :origin :ancestry
                                      :capability-secret :secret-source
-                                     :attach-stream])
+                                     :attach-stream :gc-threshold])
                        :telemetry (:telemetry opts)
                        :vm-model :semantic))]
      (-> (map->SemanticVM (merge base
@@ -978,7 +981,8 @@
                     :ancestry ancestry,
                     :capability-secret capability-secret,
                     :secret-source (:secret-source vm),
-                    :attach-stream (:attach-stream vm)})
+                    :attach-stream (:attach-stream vm),
+                    :gc-threshold (:base (:gc vm))})
                  image
                  vm/semantic-contract))
   (image-identity [_ image] (jing/segment-key image))
@@ -1025,4 +1029,9 @@
        :env (cond-> (into {}
                           (map (fn [[k x]] [k (decode x)]))
                           (:yin.k/env marker))
-              store-of (assoc engine/store-of-key store-of))})))
+              store-of (assoc engine/store-of-key store-of))}))
+  (gc-roots [vm] [(:control vm) (:env vm) (:stack vm) (:k vm) (:value vm)])
+  ;; Nothing of this kernel's shape holds code: a closure names its segment
+  ;; and entry, and a frame or continuation its segment and pc, so every
+  ;; value is plain data and is walked whole.
+  (gc-children [_ _x] nil))
