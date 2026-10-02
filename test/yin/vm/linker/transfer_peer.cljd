@@ -1,0 +1,87 @@
+(ns yin.vm.linker.transfer-peer
+  "Dart receiver for the JVM transfer test. Bootstrap contains only
+   format, identity, and index. Transit lines carry remote protocol
+   envelopes; each side interprets them through dao.stream.remote over
+   rings. Verified H and R images execute in their native VMs."
+  (:require ["dart:io" :as io]
+            [dao.stream :as stream]
+            [dao.stream.remote :as remote]
+            [dao.stream.ringbuffer :as ring]
+            [dao.stream.transit :as transit]
+            [yin.vm :as vm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.linker :as linker]))
+
+
+(defn- medium
+  []
+  (:dao.stream/handle
+    (ring/create! {:dao.stream/type ring/transport-type
+                   ring/capacity-key 256})))
+
+
+(defn- emit!
+  [value]
+  (.writeln ^io/Stdout io/stdout (transit/encode value)))
+
+
+(defn- read!
+  []
+  (transit/decode (.readLineSync ^io/Stdin io/stdin)))
+
+
+(defn- drain!
+  [handle cursor]
+  (loop [values []]
+    (let [r (stream/next handle @cursor)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (do (reset! cursor (:dao.stream/cursor r))
+            (recur (conj values (:dao.stream/value r))))
+        values))))
+
+
+(defn ^{:dart/name main} main
+  [_args]
+  (let [{:keys [kind identity index]} (read!)
+        format (case kind :H linker/stack-format :R linker/register-format)
+        load-image (case kind :H dvm/create-vm :R rvm/create-vm)
+        incoming (medium)
+        outgoing (medium)
+        cursor (atom (:dao.stream/cursor
+                       (stream/cursor outgoing :dao.stream/oldest)))
+        channel {:dao.stream/type :dao.stream.test/channel
+                 :dao.stream/identity "jvm-dart-linker"}
+        attach! (remote/attacher
+                  {:dao.stream.remote/channels
+                   {channel {:reader incoming :writer outgoing}}})
+        attach (fn [name]
+                 (:dao.stream/handle
+                   (attach! {:dao.stream/type :dao.stream/remote
+                             :dao.stream/identity name
+                             :dao.stream/channel channel})))
+        runtime {:state (linker/link-state
+                          {:formats {(:format format) format}
+                           :indexes {(:format format) index}
+                           :content {:requests (attach "requests")
+                                     :answers (attach "answers")
+                                     :cursor :dao.stream/newest}})
+                 :drive (fn [state]
+                          (emit! {:wire (drain! outgoing cursor)})
+                          (doseq [value (:wire (read!))]
+                            (stream/append! incoming value))
+                          state)}
+        result (linker/fetch runtime (:format format) identity
+                             {:primitives vm/primitives}
+                             {:contract (:contract format)})]
+    (emit!
+      (if (linker/ok? result)
+        {:result (dissoc result :value)
+         :identity-matches
+         ((:identity-matches-fn format) identity (:value result))
+         :value (vm/value
+                  (vm/run
+                    (load-image (:value result)
+                                {:primitives vm/primitives
+                                 :contract (:contract format)})))}
+        {:result result}))))
