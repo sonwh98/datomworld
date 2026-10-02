@@ -302,8 +302,58 @@ so no published image is stranded. `yin.vm.linker.md` section 8.1 makes
 the same rule for manifests: a manifest naming "v2", "b1" or "r1" is
 `:contract-mismatch`.
 
+I-5. Stage 1 of the post-M5 hardening (linker-dht 14.1; the
+linker-hardening worktree, 2026-10-02, commit to be recorded by the
+seat when it lands). Two carriers. First, section 8's naming
+correction is executable: `ucf.cljc`'s static safepoint map now
+publishes `:yin.safepoint/kinds` (`ucf/parking-kinds`) with the
+ruling's values, and `:yin.safepoint/reasons` is gone; `ucf_test`'s
+pins migrated with it. Second, `yin.vm.ucf.handoff` is the 14.1.2
+lift/lower driver over canonical CBOR bytes (see section 6 for what
+its stage-2 amendment must carry). No named component of the stamp
+changed: code stamps, the vector grammar and cursor bytes are
+untouched, so no image validity changes.
+
 ## 6. Pending amendments named but not landed
 
+- The stage-2 amendment of the post-M5 hardening (M-next B,
+  linker-dht 14.3 item 2) must publish `:yin.k/version 1`, and stage 1
+  (M-next A, the kept-cursor handoff of linker-dht 14.1, carried by
+  `yin.vm.ucf.handoff`) records here what that amendment must carry
+  beside its own custody fields (sequence/pending operation state,
+  fenced-envelope grammar, grant epoch binding, admission outcomes):
+  1. The handoff body envelope as wire fact: tag `:yin.k/handoff`,
+     version, kind (`:blocked`, `:parked`, `:halted`), contract stamp,
+     ordered frames of registers plus pending, the parked-record slice
+     and its active id, install children as whole child bodies with
+     phase and response, the isolated store and module-store
+     snapshots, the one cell table, closed requirements (cursor
+     profiles, segments), the code vectors under their addresses, the
+     fresh-name counter, and the halt result.  Stage 1 mints these as
+     version-0 canonical CBOR bytes under their content address; the
+     amendment names them UCF grammar, not implementation detail.
+  2. The explicit-park no-wait shape 7.4.1 lacks: no pending variant
+     exists for `:park`; the parked record travels in the scheduler
+     slice under its own id and no wait is minted.  Stage 1 implements
+     this; the amendment publishes it.
+  3. The install-child completeness shape: an `:install` pending names
+     a module whose live child, phase and response travel as the
+     child's own handoff body; a name alone refuses before publication
+     (`:yin.k/non-portable`, kind `:incomplete-install`).  An
+     obligation a live install child will bind on completion is
+     discharged by that carried child, not refused as missing.
+  4. The dynamic-reason rule of section 8, executable since stage 1
+     through `:yin.safepoint/kinds`: the kinds gate pc eligibility
+     only; the wire reason and pending variant come from the observed
+     entry, and a variant the static kinds do not admit refuses (kind
+     `:reason-mismatch`), never invents `:call-effect`.
+  5. Cell identity discipline: cell ids are lift-local, minted once
+     across the whole reachable graph (frames, waits, stores, closures,
+     parked records); the lower allocates fresh resource keys per cell
+     and re-seals every reference under the receiver.
+  6. The cursor-profile claim: a body carrying cells must claim
+     `:dao.stream.remote/v1` in `:yin.k/requires`; omission refuses
+     `:yin.k/unsatisfied` before publication.
 - Contract-pinned AST and semantic identities. From the linker
   spec's open items: "Pinning `:yin.ast/code` and
   `:yin.semantic/code` identities to a contract hash, with explicit

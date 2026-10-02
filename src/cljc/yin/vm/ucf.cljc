@@ -270,15 +270,21 @@
    :call :parking})
 
 
-(def ^:private parking-reasons
-  "S7.4.1's safepoint kinds, by parking mnemonic. An `:ffi-call` parks
-   under two reasons -- sent, or retained while the request is in hand --
-   at one safepoint."
-  {:park [:park],
-   :stream-next [:next],
-   :stream-put [:put],
-   :ffi-call [:ffi :ffi-request],
-   :call [:call-effect]})
+(def parking-kinds
+  "S7.4.1's safepoint kinds, by parking mnemonic -- the static
+   possibilities of `:yin.safepoint/kinds`, per the owner ruling in
+   `yin.vm.ucf-revisions.md` section 8. A kind names where an
+   instruction MAY park, never why one activation did: the two FFI
+   values name possible outcomes, not two entries at a pc, and
+   `:effectful-call` selects no effect and no pending variant. The
+   dynamic half -- the observed reason and pending variant -- is read
+   off the parked record and wait entry by the lift driver
+   (`yin.vm.ucf.handoff`), never derived from this table."
+  {:park [:explicit-park],
+   :stream-next [:blocked-read],
+   :stream-put [:blocked-write],
+   :ffi-call [:ffi-sent :ffi-retained],
+   :call [:effectful-call]})
 
 
 (defn stack-effect
@@ -344,10 +350,10 @@
   "The static safepoint map of one canonical vector (S7.4.2): one entry per
    parking instruction, each carrying only what the vector alone fixes --
    the parking pc, the canonical resume pc (pc+1, always inside the segment
-   by S2.6), the reasons under which the machine parks there, the stack
-   effect across the instruction, and the lexically required names at the
-   resume pc. Absolute depth, activation bases, captured environments and
-   physical layouts are not here: they ride in the frame
+   by S2.6), the static kinds under which the machine may park there, the
+   stack effect across the instruction, and the lexically required names at
+   the resume pc. Absolute depth, activation bases, captured environments
+   and physical layouts are not here: they ride in the frame
    (`activation-state`)."
   [v]
   (into []
@@ -356,7 +362,7 @@
             (when (= :parking (get transitions (nth t 0)))
               {:yin.safepoint/at pc,
                :yin.safepoint/pc (inc pc),
-               :yin.safepoint/reasons (get parking-reasons (nth t 0)),
+               :yin.safepoint/kinds (get parking-kinds (nth t 0)),
                :yin.safepoint/stack-effect (stack-effect t),
                :yin.safepoint/lexically-required
                (lexically-required v (inc pc))})))

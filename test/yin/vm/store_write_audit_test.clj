@@ -336,6 +336,13 @@
    ;; a JVM demo moving one VM's whole store to another
    "src/clj/yin/demo.clj"
    {["run-demo" "assoc"] 1}
+   ;; the handoff lower's isolated-store install (UCF 7.6.2): every
+   ;; carried key goes through store-put -- a reserved key inside a
+   ;; tampered body refuses -- and the checked slice then lands on the
+   ;; fresh receiver in one write
+   "src/cljc/yin/vm/ucf/handoff.cljc"
+   {["resume-task" "assoc"] 1
+    ["resume-task" "engine/store-put"] 1}
    ;; display projections of a VM's store in the browser demos
    "src/cljs/datomworld/demo/compilation_pipeline.cljs"
    {["walker-cesk" :map] 1}

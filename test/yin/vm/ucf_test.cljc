@@ -427,23 +427,30 @@
     (testing "The two calls are the safepoints; resume is pc+1"
       (is (= [4 12] (mapv :yin.safepoint/at sps)))
       (is (= [5 13] (mapv :yin.safepoint/pc sps)))
-      (is (= [[:call-effect] [:call-effect]]
-             (mapv :yin.safepoint/reasons sps))))
+      (is (= [[:effectful-call] [:effectful-call]]
+             (mapv :yin.safepoint/kinds sps))))
     (testing "Stack effect pops operator and arguments"
       (is (= [-2 -3] (mapv :yin.safepoint/stack-effect sps))))
     (testing "Nothing is read from E after either call"
       (is (= [[] []] (mapv :yin.safepoint/lexically-required sps))))))
 
 
-(deftest safepoint-reasons-for-park-and-ffi-call-test
-  (testing "A :park safepoint's reason is :park alone"
-    (is (= [[:park]]
-           (mapv :yin.safepoint/reasons (ucf/safepoints [[:park] [:halt]])))))
-  (testing "An :ffi-call safepoint carries both its reasons at one point:
+(deftest safepoint-kinds-for-park-and-ffi-call-test
+  (testing "A :park safepoint's kind is :explicit-park alone"
+    (is (= [[:explicit-park]]
+           (mapv :yin.safepoint/kinds (ucf/safepoints [[:park] [:halt]])))))
+  (testing "An :ffi-call safepoint carries both its kinds at one point:
             sent, or retained while the request is in hand"
-    (is (= [[:ffi :ffi-request]]
-           (mapv :yin.safepoint/reasons
-                 (ucf/safepoints [[:ffi-call :op/add 0] [:halt]]))))))
+    (is (= [[:ffi-sent :ffi-retained]]
+           (mapv :yin.safepoint/kinds
+                 (ucf/safepoints [[:ffi-call :op/add 0] [:halt]])))))
+  (testing "The static kinds are the ruling's names, one row per mnemonic"
+    (is (= {:park [:explicit-park],
+            :stream-next [:blocked-read],
+            :stream-put [:blocked-write],
+            :ffi-call [:ffi-sent :ffi-retained],
+            :call [:effectful-call]}
+           ucf/parking-kinds))))
 
 
 (deftest stack-effect-per-parking-kind-test
@@ -467,7 +474,7 @@
              (:yin.safepoint/engine (ucf/safepoint-table v :wasm32/v1))))
       (is (= [{:yin.safepoint/at 2,
                :yin.safepoint/pc 3,
-               :yin.safepoint/reasons [:next],
+               :yin.safepoint/kinds [:blocked-read],
                :yin.safepoint/stack-effect 0,
                :yin.safepoint/lexically-required '[q]}]
              (:yin.safepoint/safepoints table))))
