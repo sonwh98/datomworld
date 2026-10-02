@@ -444,16 +444,13 @@
 
 
 (deftest duplicate-percent-keys-are-refused-where-the-reader-refuses-them
-  ;; The JVM and Node readers refuse duplicate set elements and map keys,
-  ;; `%` included. ClojureDart's reader refuses no duplicates at all; there
-  ;; `a-percent-reads-as-any-other-symbol-does` pins that `%` collapses as
-  ;; any symbol does.
+  ;; Every host's reader refuses duplicate set elements and map keys,
+  ;; `%` included.
   (doseq [[line fragment] [["(quote #{% %})" "uplicate key: %"]
                            ["(quote {% 1 % 2})" "uplicate key: %"]]]
     (let [[state result] (repl/eval-input (repl/create-state) line)]
-      #?@(:cljd [(is (not (str/starts-with? result "Error: ")) (str line " => " result))]
-          :default [(is (str/starts-with? result "Error: ") (str line " => " result))
-                    (is (str/includes? result fragment) (str line " => " result))])
+      (is (str/starts-with? result "Error: ") (str line " => " result))
+      (is (str/includes? result fragment) (str line " => " result))
       (is (true? (:running? state)) line))))
 
 
