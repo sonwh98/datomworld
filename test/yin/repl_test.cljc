@@ -338,9 +338,8 @@
 
 (deftest a-percent-reads-as-any-other-symbol-does
   ;; On each host, a line with `%` answers exactly what the same line with
-  ;; an ordinary symbol answers: the Dart workaround changes nothing but
-  ;; the `%` itself (map type and order, metadata, duplicate handling and
-  ;; tag refusals stay the host reader's own).
+  ;; an ordinary symbol answers (map type and order, metadata, duplicate
+  ;; handling and tag refusals included).
   (doseq [[line plain]
           [["(quote [% {:z %, :y 2, :x 3}])" "(quote [zz9 {:z zz9, :y 2, :x 3}])"]
            ["(quote [% {:c 1, :b 2, :a 3} #{%}])"
@@ -435,7 +434,7 @@
 (deftest regex-and-anonymous-fn-forms-read-as-on-the-jvm
   ;; A `%` after a regex or an anonymous fn literal. Node reads input as
   ;; EDN, which has neither form and refuses both; Dart must read them as
-  ;; the JVM does. (ClojureDart reads only `%1`, `%2`, ... inside `#(...)`.)
+  ;; the JVM does.
   (doseq [line ["(quote [#_#\"%\" %])" "(quote [#_#(+ %1 1) %])"]]
     (let [result (answer line)]
       #?(:cljd (is (= "['%]" result) line)
