@@ -125,13 +125,16 @@
   (testing "The stream module is pure effect constructors"
     (is (every? module/effect?
                 [(module/put! :s 1) (module/cursor :s) (module/next! :c)
-                 (module/close! :s) (module/make) (module/make 8)]))
+                 (module/poll! :c) (module/close! :s) (module/make)
+                 (module/make 8)]))
     (is (= {:effect :stream/put, :stream :s, :val 1}
            (effect/descriptor (module/put! :s 1))))
     (is (= {:effect :stream/cursor, :stream :s}
            (effect/descriptor (module/cursor :s))))
     (is (= {:effect :stream/next, :cursor :c}
            (effect/descriptor (module/next! :c))))
+    (is (= {:effect :stream/poll, :cursor :c}
+           (effect/descriptor (module/poll! :c))))
     (is (= {:effect :stream/close, :stream :s}
            (effect/descriptor (module/close! :s))))
     (is (= {:effect :stream/make, :capacity nil}
@@ -140,7 +143,7 @@
            (effect/descriptor (module/make 8)))))
   (testing "take! is deliberately absent"
     (is (nil? (get module/stream-module 'take!)))
-    (is (= #{'make 'put! 'cursor 'next! 'close!}
+    (is (= #{'make 'put! 'cursor 'next! 'poll! 'close!}
            (set (keys module/stream-module)))))
   (testing "Every stream binding carries a profile in the shape of
             yin.vm/primitive-profiles"
@@ -151,7 +154,7 @@
       (is (every? #(contains? shapes (set (keys %)))
                   (vals module/stream-profiles))))
     (is (= #{:stream/make :stream/put :stream/cursor :stream/next
-             :stream/close}
+             :stream/poll :stream/close}
            (set (mapcat :yin.k/effects (vals module/stream-profiles))))))
   (testing "Registering the stream module is a composition step"
     (let [r (module/register-stream-module (module/empty-registry))]

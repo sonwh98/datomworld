@@ -75,8 +75,8 @@
 (def host-names
   "Module exports the prelude calls."
   '#{cell/new cell/get cell/set! data/count data/into data/subvec
-     data/str-concat data/str-length data/str-index-of data/str->code-points
-     data/code-points->str})
+     data/number? data/dissoc data/str-concat data/str-length
+     data/str-index-of data/str->code-points data/code-points->str})
 
 
 (def ^:private core-definitions
@@ -696,6 +696,11 @@
     ;; exactly: a JVM long would throw past 2^63, a JS double rounds past
     ;; 2^53, a Dart int wraps. Each check runs before the host operation,
     ;; so an out-of-range result is a guest OverflowError on every host.
+    ;; The bound is written (* 2 4503599627370496), never as a literal:
+    ;; every literal here is hashed by dao.jing.cbor when the program is
+    ;; projected to rows, and on JS a hashed integer must be a safe integer
+    ;; (|n| <= 2^53 - 1). 2^52 is safe, and the product is exactly 2^53 on
+    ;; every host.
     [py/overflow
      (fn []
        (py/raise-new py.b/OverflowError
@@ -703,8 +708,12 @@
     [py/checked-add
      (fn [a b]
        (if (< 0 a)
-         (if (< 0 b) (if (< (- 9007199254740992 b) a) (py/overflow) (+ a b)) (+ a b))
-         (if (< b 0) (if (< a (- -9007199254740992 b)) (py/overflow) (+ a b)) (+ a b))))]
+         (if (< 0 b)
+           (if (< (- (* 2 4503599627370496) b) a) (py/overflow) (+ a b))
+           (+ a b))
+         (if (< b 0)
+           (if (< a (- (* -2 4503599627370496) b)) (py/overflow) (+ a b))
+           (+ a b))))]
     [py/checked-sub (fn [a b] (py/checked-add a (- 0 b)))]
     [py/checked-mul
      ;; |a * b| <= 2^53 exactly when |b| <= floor(2^53 / |a|)
@@ -715,7 +724,7 @@
            (* a b)
            (if (= x 0)
              0
-             (if (< (get (py/divmod-pos 9007199254740992 x) 0) y)
+             (if (< (get (py/divmod-pos (* 2 4503599627370496) x) 0) y)
                (py/overflow)
                (* a b))))))]
     [py/arith
@@ -832,7 +841,10 @@
            (if (= (< a 0) (< b 0))
              (if (< a 0) (- 0 r) r)
              (if (< b 0) (- r (py/abs b)) (- (py/abs b) r))))))]
-    [py/finite? (fn [x] (<= (py/abs x) 1.7976931348623157E308))]
+    ;; |x| < Inf, not |x| <= Double.MAX_VALUE: on JS that literal is an
+    ;; integral number past 2^53, which dao.jing.cbor refuses to hash (see
+    ;; py/overflow); NaN is false either way
+    [py/finite? (fn [x] (< (py/abs x) ##Inf))]
     [py/fmod-pos
      ;; fmod for doubles x >= 0, y > 0, exactly: each subtraction is of
      ;; values within a factor of two (Sterbenz), as in long division
@@ -889,9 +901,10 @@
            (py/floor-descend x (+ n p) (/ p 2))
            (py/floor-descend x n (/ p 2)))))]
     [py/floor
-     ;; floor of a finite real within 2^53, as an integer
+     ;; floor of a finite real within 2^53, as an integer (the bound is
+     ;; built, not written: see py/overflow)
      (fn [x]
-       (if (if (< x 9007199254740992) (> x -9007199254740992) false)
+       (if (if (< x (* 2 4503599627370496)) (> x (* -2 4503599627370496)) false)
          (if (< x 0)
            (let [y (- 0 x)
                  f (py/floor-descend y 0 (/ (py/pow2-above y 1) 2))]
@@ -1628,6 +1641,9 @@
   "Builtin class name -> [store key, base store key or nil]."
   [["object" 'py.b/object nil]
    ["BaseException" 'py.b/BaseException 'py.b/object]
+   ;; raised by the safepoint hook prelude's signal delivery; the class is a
+   ;; builtin like any other, so naive programs read and shadow it normally
+   ["KeyboardInterrupt" 'py.b/KeyboardInterrupt 'py.b/BaseException]
    ["Exception" 'py.b/Exception 'py.b/BaseException]
    ["ArithmeticError" 'py.b/ArithmeticError 'py.b/Exception]
    ["ZeroDivisionError" 'py.b/ZeroDivisionError 'py.b/ArithmeticError]

@@ -280,6 +280,14 @@
   (make-effect :stream/next {:cursor c}))
 
 
+(defn poll!
+  "`next!` that never parks: `blocked` is the value `:dao.stream/blocked`.
+   It is its own effect kind, so a callee whose profile omits it cannot
+   observe whether a read would have waited."
+  [c]
+  (make-effect :stream/poll {:cursor c}))
+
+
 (defn close!
   [s]
   (make-effect :stream/close {:stream s}))
@@ -287,7 +295,8 @@
 
 (def stream-module
   "The v2 `stream` module definition. Registering it is a composition step."
-  {'make make, 'put! put!, 'cursor cursor, 'next! next!, 'close! close!})
+  {'make make, 'put! put!, 'cursor cursor, 'next! next!, 'poll! poll!,
+   'close! close!})
 
 
 (def stream-profiles
@@ -301,6 +310,7 @@
    'cursor (vm/primitive-profile 'cursor :effectful [1] #{:stream/cursor}
                                  :none)
    'next! (vm/primitive-profile 'next! :effectful [1] #{:stream/next} :none)
+   'poll! (vm/primitive-profile 'poll! :effectful [1] #{:stream/poll} :none)
    'close! (vm/primitive-profile 'close! :effectful [1] #{:stream/close}
                                  :none)})
 

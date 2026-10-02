@@ -1,9 +1,15 @@
 (ns yang.python.antlr.e2e-test
   "End to end, as a stream topology: source events -> parser stage -> CST
-   stream -> lowering stage -> program stream -> an evaluator on each of the
-   four VMs (the AST walker observes the program stream itself; the
-   semantic, stack and register VMs are built from the same batch read back
-   from that stream).
+   stream -> lowering stage -> program stream (source envelopes) -> an
+   evaluator on each of the four VMs (the AST walker observes a program
+   medium carrying the envelope's run member; the semantic, stack and
+   register VMs are built from the same member).
+
+   With hooks, the topology is longer: program stream -> encoder projection
+   -> row stream -> `yang.safepoint` stage -> derived stream, and each VM
+   runs the hook prelude followed by the derived program. `every-vm=` runs
+   every program both ways: under no-op hooks the derived program must
+   print what the naive one prints (safepoint slice 1, transparency).
 
    The composition installs the real `cell` module (cell slice 1) and the
    real `data` module; nothing is stubbed. Printed output is compared as
@@ -13,8 +19,13 @@
     [dao.stream :as stream]
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.parser :as parser]
+    [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.render :as render]
+    [yang.python.antlr.safepoint :as hooks]
+    [yang.safepoint :as safepoint]
     [yin.vm :as vm]
+    [yin.vm.encoder :as encoder]
+    [yin.vm.engine :as engine]
     [yin.vm.debruijn-linearize :as dl]
     [yin.vm.debruijn-register-compile :as rc]
     [yin.vm.debruijn.register :as rvm]
@@ -68,43 +79,79 @@
     :yang.source/chunk-count 1}])
 
 
+(defn- run-member
+  "The run member of a source envelope: the map AST the lowering emitted."
+  [{:yin/keys [batch root]}]
+  (nth batch root))
+
+
+(defn derive-program
+  "The safepointed composition's stages after lowering: every envelope on
+   `program` is projected by the encoder onto a row stream, the
+   `yang.safepoint` stage rewrites it under `profile` onto a derived stream
+   and writes its record to a ledger stream. Returns
+   `{:envelope e' :record r}` for the one program."
+  [program profile]
+  (let [rows (tu/new-memory-log)
+        derived (tu/new-memory-log)
+        ledger (tu/new-memory-log)]
+    (doseq [envelope (tu/drain program)] (encoder/load rows envelope))
+    (safepoint/step-stage
+      (safepoint/open-stage rows derived ledger profile :e2e/derived))
+    {:envelope (first (tu/drain derived)), :record (first (tu/drain ledger))}))
+
+
 (defn run-python
   "Every VM's value for `source`, as `{vm-key value}`; a throw becomes
    `[:thrown message]`. `registry` is the module registry the composition
-   supplies."
-  [registry source]
-  (let [opts (assoc base-opts :modules registry)
-        session (tu/make-observer-session (tu/create-vm {:modules registry}))
-        program (:stream (:observer session))
-        src (tu/new-memory-log)
-        cst (tu/new-memory-log)
-        diagnostics (tu/new-memory-log)]
-    (doseq [e (source-events [:e2e 0] source)] (stream/append! src e))
-    (parser/step-stage (parser/open-stage src cst))
-    (lower/step-stage (lower/open-stage cst program diagnostics))
-    (let [batches (tu/drain program)
-          problems (tu/drain diagnostics)]
-      (if (seq problems)
-        {:diagnostics problems}
-        (let [datoms (first batches)
-              attempt (fn [f]
-                        (try (render/output (f))
-                             (catch Exception e [:thrown (ex-message e)])))]
-          {:ast-walker (attempt #(vm/value (:consumer (tu/run-session session)))),
-           :semantic (attempt #(vm/value (vm/run (load-semantic
-                                                   (semantic/create-vm opts)
-                                                   datoms)))),
-           :stack (attempt #(vm/value
-                              (vm/run (dvm/create-vm
-                                        (:image (dl/adapt datoms))
-                                        (assoc opts
-                                               :contract vm/stack-contract))))),
-           :register (attempt #(vm/value
-                                 (vm/run (rvm/create-vm
-                                           (:image (rc/adapt datoms))
-                                           (assoc opts
-                                                  :contract
-                                                  vm/register-contract)))))})))))
+   supplies.
+
+   Options: `:hooks`, a hook prelude: the program is safepointed under
+   `hooks/profile` and the VMs run the hook prelude, then the derived
+   program. `:prep`, applied to each VM before it runs (a composition
+   handing the task its streams)."
+  ([registry source] (run-python registry source {}))
+  ([registry source {:keys [hooks prep], :or {prep identity}}]
+   (let [opts (assoc base-opts :modules registry)
+         session (tu/make-observer-session
+                   (prep (tu/create-vm {:modules registry})))
+         program (tu/new-memory-log)
+         src (tu/new-memory-log)
+         cst (tu/new-memory-log)
+         diagnostics (tu/new-memory-log)]
+     (doseq [e (source-events [:e2e 0] source)] (stream/append! src e))
+     (parser/step-stage (parser/open-stage src cst))
+     (lower/step-stage (lower/open-stage cst program diagnostics))
+     (let [problems (tu/drain diagnostics)]
+       (if (seq problems)
+         {:diagnostics problems}
+         (let [ast (if hooks
+                     (hooks/program hooks
+                                    (vm/semantic-bytecode->ast
+                                      (run-member
+                                        (:envelope (derive-program program
+                                                                   hooks/profile)))))
+                     (run-member (first (tu/drain program))))
+               datoms (vec (vm/ast->datoms ast))
+               attempt (fn [f]
+                         (try (render/output (f))
+                              (catch Exception e [:thrown (ex-message e)])))]
+           (tu/queue-ast! session ast)
+           {:ast-walker (attempt #(vm/value (:consumer (tu/run-session session)))),
+            :semantic (attempt #(vm/value (vm/run (load-semantic
+                                                    (prep (semantic/create-vm opts))
+                                                    datoms)))),
+            :stack (attempt #(vm/value
+                               (vm/run (prep (dvm/create-vm
+                                               (:image (dl/adapt datoms))
+                                               (assoc opts
+                                                      :contract vm/stack-contract)))))),
+            :register (attempt #(vm/value
+                                  (vm/run (prep (rvm/create-vm
+                                                  (:image (rc/adapt datoms))
+                                                  (assoc opts
+                                                         :contract
+                                                         vm/register-contract))))))}))))))
 
 
 (defn- prints
@@ -113,12 +160,64 @@
   {:py/out (vec lines), :py/exception nil})
 
 
-(defn- every-vm=
+(defn- free-names
+  "The names `ast` reads that no enclosing lambda binds."
+  [ast]
+  (letfn [(walk
+            [n bound]
+            (case (:type n)
+              :variable (if (contains? bound (:name n)) #{} #{(:name n)})
+              :lambda (walk (:body n) (into bound (:params n)))
+              :application (reduce into
+                                   (walk (:operator n) bound)
+                                   (map #(walk % bound) (:operands n)))
+              :if (into (walk (:test n) bound)
+                        (into (walk (:consequent n) bound)
+                              (walk (:alternate n) bound)))
+              #{}))]
+    (walk ast #{})))
+
+
+(defn- definition-keys
+  [ast]
+  (set (keep (fn [n]
+               (when (and (= :application (:type n))
+                          (= 'yin/def (:name (:operator n))))
+                 (:value (first (:operands n)))))
+             (tree-seq map?
+                       (fn [n] (filter map? (mapcat #(if (vector? %) % [%]) (vals n))))
+                       ast))))
+
+
+(def ^:private closed-names
+  "What a canonical program may read: base-prelude definitions, the host
+   names the prelude declares, primitives, and the definition operator."
+  (into (conj (definition-keys prelude/uast) 'yin/def)
+        (concat prelude/host-names (keys vm/primitives))))
+
+
+(defn- canonical-is-closed
+  "The canonical program for `source` reads only `closed-names`, and no
+   `py.sp/` name (safepoint ruling: the naive program never needs the hook
+   prelude)."
+  [source]
+  (let [free (free-names (lower/lower-packet (parser/parse-source source)))
+        open (remove closed-names free)]
+    (is (empty? open) (pr-str open))
+    (is (not-any? #(= "py.sp" (namespace %)) free))))
+
+
+(defn every-vm=
+  "`expected` from `source` on every VM, run naive and run safepointed
+   under no-op hooks; the canonical program is closed over its base
+   prelude."
   [expected source]
-  (let [results (run-python (host-registry) source)]
-    (is (not (contains? results :diagnostics)) (pr-str results))
-    (doseq [k [:ast-walker :semantic :stack :register]]
-      (is (= expected (get results k)) (str k)))))
+  (canonical-is-closed source)
+  (doseq [[label opts] [["naive" {}] ["no-op hooks" {:hooks hooks/noop-uast}]]]
+    (let [results (run-python (host-registry) source opts)]
+      (is (not (contains? results :diagnostics)) (pr-str results))
+      (doseq [k [:ast-walker :semantic :stack :register]]
+        (is (= expected (get results k)) (str label " " k))))))
 
 
 ;; =============================================================================
@@ -441,3 +540,98 @@
                     "        continue\n"
                     "    n += 1\n"
                     "print(i, n)\n"))))
+
+
+(deftest keyboard-interrupt-is-a-builtin-test
+  (testing "with no hook prelude, KeyboardInterrupt is a BaseException that
+            except Exception does not catch (naive, and under no-op hooks)"
+    (every-vm= (prints "k True False")
+               (str "try:\n"
+                    "    raise KeyboardInterrupt\n"
+                    "except Exception:\n"
+                    "    print('e')\n"
+                    "except KeyboardInterrupt as e:\n"
+                    "    print('k', isinstance(e, BaseException),"
+                    " isinstance(e, Exception))\n")))
+  (testing "a module binding shadows it, as it does any builtin"
+    (every-vm= (prints "1") "KeyboardInterrupt = 1\nprint(KeyboardInterrupt)\n")))
+
+
+;; =============================================================================
+;; Safepoint slice 1: signals, from Python source
+;; =============================================================================
+
+(defn- signals
+  "A `prep` handing each VM its own signal stream holding `xs`."
+  [xs]
+  (fn [vm]
+    (let [handle (tu/new-stream 8)]
+      (doseq [x xs] (stream/append! handle x))
+      (let [[ref vm] (engine/attach-resource vm handle)]
+        (assoc-in vm [:store hooks/signals-key] ref)))))
+
+
+(defn- every-vm-signalled=
+  [expected source xs]
+  (let [results (run-python (module/register-stream-module (host-registry))
+                            source
+                            {:hooks hooks/uast, :prep (signals xs)})]
+    (is (not (contains? results :diagnostics)) (pr-str results))
+    (doseq [k [:ast-walker :semantic :stack :register]]
+      (is (= expected (get results k)) (str k)))))
+
+
+(deftest keyboard-interrupt-test
+  (testing "one pre-appended signal stops an endless loop with
+            KeyboardInterrupt"
+    (every-vm-signalled= {:py/out [], :py/exception {:type "KeyboardInterrupt", :args []}}
+                         "while True:\n    pass\n"
+                         [2]))
+  (testing "try/except KeyboardInterrupt runs the handler; except
+            BaseException catches it too, and it is not an Exception"
+    (every-vm-signalled= (prints "caught" "base True False")
+                         (str "try:\n"
+                              "    while True:\n"
+                              "        pass\n"
+                              "except KeyboardInterrupt:\n"
+                              "    print('caught')\n"
+                              "def spin():\n"
+                              "    while True:\n"
+                              "        pass\n"
+                              "try:\n"
+                              "    spin()\n"
+                              "except Exception:\n"
+                              "    print('exception')\n"
+                              "except BaseException as e:\n"
+                              "    print('base', isinstance(e, KeyboardInterrupt),"
+                              " isinstance(e, Exception))\n")
+                         [2 2]))
+  (testing "an except KeyboardInterrupt clause tested before any safepoint
+            ran still names the class"
+    (every-vm-signalled= (prints "zero")
+                         (str "try:\n"
+                              "    1 / 0\n"
+                              "except KeyboardInterrupt:\n"
+                              "    print('kbi')\n"
+                              "except ZeroDivisionError:\n"
+                              "    print('zero')\n")
+                         []))
+  (testing "a module binding shadows the builtin under the real hooks too"
+    (every-vm-signalled= (prints "1")
+                         "KeyboardInterrupt = 1\nprint(KeyboardInterrupt)\n"
+                         []))
+  (testing "with no signal pending the program never blocks and prints what
+            the naive run prints"
+    (every-vm-signalled= (prints "300 150")
+                         (str "i = 0\n"
+                              "while i < 300:\n"
+                              "    i += 1\n"
+                              "n = 0\n"
+                              "def bump(x):\n"
+                              "    return x + 1\n"
+                              "for k in range(300):\n"
+                              "    if k < 150:\n"
+                              "        continue\n"
+                              "    n = bump(n)\n"
+                              "print(i, n)\n")
+                         [])))

@@ -567,6 +567,18 @@
                  :cursor-id cursor-id}}))))
 
 
+(defn handle-poll
+  "Handle :stream/poll: `handle-next` with `blocked` as a value. A blocked
+   read answers `:dao.stream/blocked` and leaves the cursor where it was;
+   nothing parks and no wait entry is built. Every other outcome is
+   exactly `handle-next`'s."
+  [state effect]
+  (let [result (handle-next state effect)]
+    (if (:park result)
+      {:value :dao.stream/blocked, :state state}
+      result)))
+
+
 (defn handle-close
   "Handle :stream/close, once the reference verifies. `close!` is total
    over {ok} and wakes nothing: a reader parked on this stream learns of
@@ -2111,6 +2123,9 @@
               {:state (:state result),
                :value (:value result),
                :blocked? false}))
+          :stream/poll
+          (let [result (handle-poll state effect)]
+            {:state (:state result), :value (:value result), :blocked? false})
           :stream/close
           (let [close-result (handle-close state effect)]
             {:state (:state close-result), :value nil, :blocked? false})

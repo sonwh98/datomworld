@@ -1,6 +1,8 @@
-(ns yang.python.antlr.stage
+(ns yang.stage
   "One compiler stage: an interpreter that reads one dao.stream and writes
-   others (docs/design/yang.antlr.md §1.1, §5.4, §6.2).
+   others (docs/design/yang.antlr.md §1.1, §5.4, §6.2). Language-neutral:
+   the Python parser and lowering and the `yang.safepoint` stage all run on
+   it.
 
    A stage is a value:
 

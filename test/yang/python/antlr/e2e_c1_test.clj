@@ -4,7 +4,7 @@
    finally and with on every exit, tuples and unpacking, slices, the new
    operators, comprehensions, keyword arguments, and the r2 gate's P3s."
   (:require
-    [clojure.test :refer [deftest is testing]]
+    [clojure.test :refer [deftest testing]]
     [yang.python.antlr.e2e-test :as e2e]))
 
 
@@ -13,12 +13,9 @@
   {:py/out (vec lines), :py/exception nil})
 
 
-(defn- every-vm=
-  [expected source]
-  (let [results (e2e/run-python (e2e/host-registry) source)]
-    (is (not (contains? results :diagnostics)) (pr-str results))
-    (doseq [k [:ast-walker :semantic :stack :register]]
-      (is (= expected (get results k)) (str k)))))
+(def ^:private every-vm=
+  "Naive and under no-op safepoint hooks, as `e2e/every-vm=`."
+  e2e/every-vm=)
 
 
 (defn- lines

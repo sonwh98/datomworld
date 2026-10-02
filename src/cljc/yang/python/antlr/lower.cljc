@@ -49,9 +49,9 @@
     [yang.antlr.packet :as p]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.scope :as scope]
-    [yang.python.antlr.stage :as stage]
     [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]))
+    [yang.stage :as stage]
+    [yin.vm.encoder :as encoder]))
 
 
 ;; =============================================================================
@@ -195,6 +195,15 @@
   "The identifier text of a `name` node."
   [ctx n]
   (:text (first (kids ctx n))))
+
+
+(defn- site
+  "`node` marked as a safepoint site of `kind` (`:loop`, `:call`). The
+   mark is map metadata, so it never enters a canonical row: projection
+   puts it in the frontend-metadata side table, where `yang.safepoint`
+   finds it."
+  [kind node]
+  (vary-meta node assoc :yang/site kind))
 
 
 (defn- app*
@@ -1065,10 +1074,11 @@
           (build-vector (map (fn [[nm d]]
                                (build-vector [(u/lit nm) ((:lower ctx) ctx d)]))
                              kwdefaults))
-          (u/lam [args]
-                 (if (seq (:locals s))
-                   (apply u/app (u/lam (map symbol (:locals s)) body) cells)
-                   body)))))
+          (site :call
+                (u/lam [args]
+                       (if (seq (:locals s))
+                         (apply u/app (u/lam (map symbol (:locals s)) body) cells)
+                         body))))))
 
 
 (defn- lower-funcdef
@@ -1179,11 +1189,12 @@
         orelse (if else-block (u/seq-nodes (lower-block ctx else-block)) none)]
     (with-break ctx body-block brk
       (u/let1 w
-              (u/lam [w]
-                     (u/if-node (truthy ((:lower ctx) ctx
-                                                      (first (rules ctx n "test"))))
-                                (u/then body (u/app (u/v w) (u/v w)))
-                                orelse))
+              (site :loop
+                    (u/lam [w]
+                           (u/if-node (truthy ((:lower ctx) ctx
+                                                            (first (rules ctx n "test"))))
+                                      (u/then body (u/app (u/v w) (u/v w)))
+                                      orelse)))
               (u/app (u/v w) (u/v w))))))
 
 
@@ -1202,17 +1213,18 @@
       (u/let1 it
               (app* 'py/iterable (display ctx (first (rules ctx n "testlist"))))
               (u/let1 w
-                      (u/lam [w i]
-                             (u/let1 x
-                                     (app* 'py/iter-at (u/v it) (u/v i))
-                                     (u/if-node
-                                       (app* '= (u/v x) (u/lit :py/stop))
-                                       orelse
-                                       (u/then (assign-target ctx target (u/v x))
-                                               (u/then body
-                                                       (u/app (u/v w) (u/v w)
-                                                              (app* '+ (u/v i)
-                                                                    (u/lit 1))))))))
+                      (site :loop
+                            (u/lam [w i]
+                                   (u/let1 x
+                                           (app* 'py/iter-at (u/v it) (u/v i))
+                                           (u/if-node
+                                             (app* '= (u/v x) (u/lit :py/stop))
+                                             orelse
+                                             (u/then (assign-target ctx target (u/v x))
+                                                     (u/then body
+                                                             (u/app (u/v w) (u/v w)
+                                                                    (app* '+ (u/v i)
+                                                                          (u/lit 1)))))))))
                       (u/app (u/v w) (u/v w) (u/lit 0)))))))
 
 
@@ -1563,16 +1575,27 @@
                             :span :name])))
 
 
+(def program-medium
+  "The program medium's logical identity when the composition names none."
+  :yang.python.antlr/program)
+
+
 (defn lower-transform
-  "The lowering stage's transform: an ok packet becomes one program batch
-   (datoms) on port `:program`; a packet that is not ok, or a lowering
-   diagnostic, becomes one record on port `:diagnostics` and no program.
-   Stateless."
+  "The lowering stage's transform: an ok packet becomes one program batch on
+   port `:program`, a source envelope (`yin.vm.encoder/source-envelope`)
+   whose one member is the map AST, so its `:yang/site` marks reach the
+   frontend-metadata side table when the encoder projects it. The medium is
+   the state's `:medium` and the batch token is the packet's unit. A packet
+   that is not ok, or a lowering diagnostic, becomes one record on port
+   `:diagnostics` and no program. Stateless."
   [state packet]
   (let [unit (:yang.cst/unit packet)]
     (if (= :yang.cst/ok (:yang.cst/outcome packet))
       (try
-        [state [[:program (vec (vm/ast->datoms (lower-packet packet)))]]]
+        [state [[:program (encoder/source-envelope
+                            (get state :medium program-medium)
+                            unit
+                            [(lower-packet packet)])]]]
         ;; ClojureDart's ex-info type is not catchable by name portably;
         ;; anything without a diagnostic in its ex-data is rethrown below
         (catch #?(:cljd Object
@@ -1592,11 +1615,14 @@
 
 (defn open-stage
   "A lowering stage reading CST packets from `cst-stream`, writing program
-   batches to `program-stream` and diagnostics to `diagnostics-stream`."
-  [cst-stream program-stream diagnostics-stream]
-  (stage/open cst-stream
-              {:program program-stream, :diagnostics diagnostics-stream}
-              {}))
+   batches to `program-stream`, whose logical identity is `medium`, and
+   diagnostics to `diagnostics-stream`."
+  ([cst-stream program-stream diagnostics-stream]
+   (open-stage cst-stream program-stream diagnostics-stream program-medium))
+  ([cst-stream program-stream diagnostics-stream medium]
+   (stage/open cst-stream
+               {:program program-stream, :diagnostics diagnostics-stream}
+               {:medium medium})))
 
 
 (defn step-stage

@@ -16,7 +16,9 @@
      (%capture)        -> :vm/current-continuation
      (yin/def k v)     -> the definition application
      (f a ...)         -> :application
-     any other value   -> :literal")
+     any other value   -> :literal"
+  (:require
+    [yang.tails :as tails]))
 
 
 (defn lit
@@ -99,29 +101,7 @@
     :else (lit form)))
 
 
-(defn mark-tails
-  "Set `:tail? true` on every application in tail position of a lambda body,
-   through `if` branches. Definitions are never marked. Lowering relies on
-   this for loops, which are self-applied lambdas: the recursive call and the
-   sequencing lambda around it are both tail calls, so an iteration grows no
-   continuation on the VMs that honour the mark."
-  [node]
-  (letfn [(walk
-            [node tail?]
-            (case (:type node)
-              :lambda (assoc node :body (walk (:body node) true))
-              :if (assoc node
-                         :test (walk (:test node) false)
-                         :consequent (walk (:consequent node) tail?)
-                         :alternate (walk (:alternate node) tail?))
-              :application
-              (let [definition? (= 'yin/def (:name (:operator node)))
-                    node (assoc node
-                                :operator (walk (:operator node) false)
-                                :operands (mapv #(walk % false)
-                                                (:operands node)))]
-                (if (and tail? (not definition?))
-                  (assoc node :tail? true)
-                  node))
-              node))]
-    (walk node false)))
+(def mark-tails
+  "`yang.tails/mark-tails`: the lowering marks its tree with the same
+   function a rewriting stage recomputes the marks with."
+  tails/mark-tails)

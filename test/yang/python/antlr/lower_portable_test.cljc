@@ -8,10 +8,11 @@
     [yang.python.antlr.uast :as u]))
 
 
-(defn- packet
+(defn packet
   "A CST packet from a nested form: `[rule child ...]` for a rule and
    `[type text]` (type a string) for a token. Spans are zero-width: the
-   lowering reads them only for diagnostics."
+   lowering reads them only for diagnostics. Ids are preorder, as the
+   parser numbers them, so generated names match a parsed packet's."
   [form]
   (let [out (volatile! [])]
     (letfn [(walk
@@ -109,10 +110,14 @@
 
 
 (deftest transform-routes-programs-and-diagnostics-test
-  (let [[_ [[port batch]]] (lower/lower-transform {} x-equals-1)]
+  (let [[_ [[port envelope]]] (lower/lower-transform {} x-equals-1)]
     (is (= :program port))
-    (is (vector? batch))
-    (is (every? #(= 5 (count %)) batch) "a batch of datoms"))
+    (is (= {:yin/source-medium lower/program-medium,
+            :yin/batch-token [:hand 0],
+            :yin/batch [(lower/lower-packet x-equals-1)],
+            :yin/root 0}
+           envelope)
+        "a source envelope whose one member is the map AST"))
   (let [[_ out] (lower/lower-transform
                   {}
                   {:yang.cst/unit [:hand 1],

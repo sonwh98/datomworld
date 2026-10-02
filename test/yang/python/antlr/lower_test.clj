@@ -11,6 +11,7 @@
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.uast :as u]
     [yin.vm :as vm]
+    [yin.vm.encoder :as encoder]
     [yin.vm.test-utils :as tu])
   (:import
     (yang.python.antlr.gen
@@ -550,9 +551,11 @@
     (is (empty? (:diagnostics (first runs))))
     (is (apply = (map :program runs)))
     (is (= (:program (first runs))
-           [(vec (vm/ast->datoms (lower/lower-packet (parser/parse-source
-                                                       (parser/make-worker)
-                                                       [:u 1] src))))]))))
+           [(encoder/source-envelope lower/program-medium
+                                     [:u 1]
+                                     [(lower/lower-packet (parser/parse-source
+                                                            (parser/make-worker)
+                                                            [:u 1] src))])]))))
 
 
 (deftest stage-diagnostics-test

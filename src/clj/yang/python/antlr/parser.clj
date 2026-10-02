@@ -6,7 +6,7 @@
    namespace that names them."
   (:require
     [yang.antlr.cst :as cst]
-    [yang.python.antlr.stage :as stage])
+    [yang.stage :as stage])
   (:import
     (yang.python.antlr.gen
       Python3Lexer
