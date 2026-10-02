@@ -958,7 +958,7 @@ all three hosts:
 ```
 clj -M:test                                                          (JVM)
 clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
-clj -M:cljd test                                                     (Dart; requires flutter on PATH, e.g. via mise exec)
+clj -M:clojuredart:cljd test                                                     (Dart; requires flutter on PATH, e.g. via mise exec)
 ```
 
 ### Phase 1: Core tree, all platforms

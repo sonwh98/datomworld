@@ -340,7 +340,7 @@ clj -M:kondo --lint src/cljc/dao/stream/file.cljc src/cljc/yin/io/file.cljc
 clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js
 
 # ClojureDart
-clj -M:cljd compile
+clj -M:clojuredart:cljd compile
 ```
 
 Implementation follows TDD: write the test first (red), implement to pass

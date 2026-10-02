@@ -15,7 +15,7 @@ clj -M:clj-yin-repl --port 8080 --headless
 For ClojureDart (`cljd`), use the `cljd-yin-repl-build` alias to compile the Dart source, and then run the generated executable natively via `dart run`:
 
 ```bash
-clj -M:cljd-yin-repl-build compile
+clj -M:clojuredart:cljd-yin-repl-build compile
 dart run bin/yin_repl_main.dart --port 8080 --headless
 ```
 

@@ -358,7 +358,7 @@ Each phase is independently reviewable and leaves the tree green.
 - `clj -M:test` — math/raster/packing/lowering tests pass.
 - `clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js`
   — refactored web.gpu + new web.canvas tests pass.
-- `clj -M:cljd compile` — dispatcher + both Flutter components compile; cljd
+- `clj -M:clojuredart:cljd compile` — dispatcher + both Flutter components compile; cljd
   suite green.
 - `clj -M:kondo --lint` on each new/changed file (bracket balance per CLAUDE.md).
 - Manual: a 3D demo (`voxel` / `solar_system` / `earth_moon`) renders the

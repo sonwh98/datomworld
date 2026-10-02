@@ -153,7 +153,7 @@
             [:ul.bulleted
              [:li [:code "clj -M:test"] " runs the Clojure test suite."]
              [:li [:code "clj -M:cljs -m shadow.cljs.devtools.cli compile test && node target/node-tests.js"] " runs the ClojureScript suite."]
-             [:li [:code "clj -M:cljd compile"] " compiles the ClojureDart build."]
+             [:li [:code "clj -M:clojuredart:cljd compile"] " compiles the ClojureDart build."]
              [:li [:code "clj -M:kondo --lint <path>"] " lints a file."]
              [:li [:code "npx shadow-cljs watch demo"] " starts the browser demo in watch mode."]]]]
           [:details.faq

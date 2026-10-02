@@ -211,7 +211,7 @@ to the working directory: `slurp` plus `clojure.data.json` on the JVM
 Node, and `dart:io` plus `dart:convert` on Dart (`jsonDecode` output is
 converted to Clojure data as `dao.stream.transit.cljd` already does).
 
-CLJD finding: `clojure -M:cljd test` puts `test/` on the ClojureDart classpath
+CLJD finding: `clojure -M:clojuredart:cljd test` puts `test/` on the ClojureDart classpath
 (the `:cljd` alias's `:extra-paths`), compiles every `.cljc` namespace there,
 and runs the generated tests with `flutter test` from the package root, where
 `pubspec.yaml` lives. The existing Dart tests already use repository-relative

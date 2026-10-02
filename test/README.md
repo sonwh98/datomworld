@@ -4,8 +4,8 @@ ClojureDart tests are cross-compiled to Dart and executed using the Dart VM.
 
 ### Running ClojureDart Tests
 ```bash
-clj -M:cljd test            # all namespaces (sweeps the classpath)
-clj -M:cljd test some.ns    # a subset
+clj -M:clojuredart:cljd test            # all namespaces (sweeps the classpath)
+clj -M:clojuredart:cljd test some.ns    # a subset
 ```
 The native `cljd.build` test command compiles every `.cljc`/`.cljd` namespace on the classpath, generates a `*_test.dart` entrypoint under `test/cljd-out/` for each namespace containing deftests, and runs them via `flutter test`. There is no allowlist: JVM-only namespaces are excluded at the reader level with `#?(:cljd nil :clj ...)` guards (a plain `#?(:clj ...)` does NOT exclude code from the ClojureDart build, because the host pass also matches `:clj`).
 

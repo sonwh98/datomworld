@@ -28,12 +28,12 @@
    ;; `bb test:cljs` without it skips those tests with a printed notice
    ;; rather than failing.
    :task (do (shell "mkdir -p build")
-             (shell "clojure -M:cljd compile yin.repl.slice-peer")
+             (shell "clojure -M:clojuredart:cljd compile yin.repl.slice-peer")
              (shell "dart compile exe lib/cljd-out/yin/repl/slice-peer.dart -o build/yin-repl-peer"))}
 
-  test:cljd {:doc "Run Dart tests (via clojure -M:cljd)"
+  test:cljd {:doc "Run Dart tests (via clojure -M:clojuredart:cljd)"
              :depends [build:yin-repl-peer]
-             :task (shell "clojure -M:cljd test")}
+             :task (shell "clojure -M:clojuredart:cljd test")}
 
   test {:doc "Run all tests (cross-host R5 pairs need the Dart peer, and the DHT process test the Node REPL, so build them first)"
         :depends [build:yin-repl-peer build:yin-repl-node test:clj test:cljs test:cljd]}}}

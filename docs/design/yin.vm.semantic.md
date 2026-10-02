@@ -808,7 +808,7 @@ Measured on the host machine on 2026-09-14 with:
 clj -M:cljs -m shadow.cljs.devtools.cli compile vm-bench
 node target/vm-bench.js 500 5000
 
-clj -M:cljd compile yin.register-bench-cljd
+clj -M:clojuredart:cljd compile yin.register-bench-cljd
 dart run bin/register_bench_cljd.dart                   # both evaluators, n=50000
 ```
 

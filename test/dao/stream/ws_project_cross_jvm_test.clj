@@ -9,7 +9,7 @@
    in its dial role, compiled ahead of time to `build/ws-project-peer`
    (there is no bb task for it yet):
 
-     clojure -M:cljd compile dao.stream.ws-project-peer
+     clojure -M:clojuredart:cljd compile dao.stream.ws-project-peer
      dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart \\
        -o build/ws-project-peer
 
@@ -263,7 +263,7 @@
   (if-not (.exists (io/file dart-peer-exe))
     (println ";; SKIPPED a-dart-dialer-reads-a-jvm-server:"
              dart-peer-exe "is absent -- compile it first:"
-             "clojure -M:cljd compile dao.stream.ws-project-peer &&"
+             "clojure -M:clojuredart:cljd compile dao.stream.ws-project-peer &&"
              "dart compile exe"
              "lib/cljd-out/dao/stream/ws-project-peer.dart -o"
              dart-peer-exe)

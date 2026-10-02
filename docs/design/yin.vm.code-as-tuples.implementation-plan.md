@@ -685,7 +685,7 @@ of text the plan can draft; D4, D5 remain choices among stated options.
   free names come from a root-scoped occurrence query over an emitted
   relation. `Testing yin.vm-test`, `yin.vm.linearize-test`,
   `yin.vm.parity-test`, `dao.space.query-test` in the Node output;
-  `clj -M:test`, the shadow `:test` build and `clojure -M:cljd test` green
+  `clj -M:test`, the shadow `:test` build and `clojure -M:clojuredart:cljd test` green
   (the CLJD lane was blocked on an unrelated bench-file bug at `84f8eef`
   and must be confirmed open before U2 lands).
 - **Phase 2:** a derivation record verifies a real lowering and detects a

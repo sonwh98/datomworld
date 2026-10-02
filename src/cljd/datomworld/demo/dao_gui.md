@@ -38,7 +38,7 @@ The examples below use `mise exec --` so they work even if your shell is not act
 The Flutter app runs generated Dart from `lib/cljd-out`, so compile CLJD before starting the app:
 
 ```bash
-mise exec -- clj -M:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main
+mise exec -- clj -M:clojuredart:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main
 ```
 
 ## 2. Clean and run the app
@@ -178,7 +178,7 @@ If the desktop REPL says `Connected...` but evaluation times out:
    ```
 3. Recompile CLJD and fully restart the app:
    ```bash
-   mise exec -- clj -M:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main
+   mise exec -- clj -M:clojuredart:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main
    mise exec -- flutter clean
    mise exec -- flutter run
    ```

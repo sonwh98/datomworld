@@ -281,7 +281,7 @@ the two live VMs:
   needs (D1's two bespoke rules).
 
 Run across hosts: `clj -M:test` (JVM), the shadow `:test` node build (cljs), and
-`clojure -M:cljd test` (cljd), matching the repo's standard green gates.
+`clojure -M:clojuredart:cljd test` (cljd), matching the repo's standard green gates.
 
 **Criteria:** all new tests pass on all three hosts; the design's "disabled VMs
 emit nothing by default" test passes with no `:telemetry` key at all.

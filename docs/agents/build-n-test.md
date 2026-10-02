@@ -46,7 +46,7 @@ clj -M:cljs -m shadow.cljs.devtools.cli compile <build-id>  # e.g. compile demo
 clj -M:cljs -m shadow.cljs.devtools.cli release <build-id>  # production release
 
 # ClojureDart
-clj -M:cljd compile
+clj -M:clojuredart:cljd compile
 
 # Linting
 clj -M:kondo --lint <path>

@@ -450,7 +450,7 @@ npx shadow-cljs run yin.repl/-main [FLAGS]
 ### ClojureDart
 
 ```bash
-clj -M:cljd compile      # Compile to Dart
+clj -M:clojuredart:cljd compile      # Compile to Dart
 dart run bin/yin_repl_main.dart [FLAGS]
 
 (Same flags as JVM)

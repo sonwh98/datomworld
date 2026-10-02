@@ -6,7 +6,7 @@
   (:import [java.lang ProcessBuilder]))
 
 
-(def build-alias ":cljd-yin-repl-build")
+(def build-alias ":clojuredart:cljd-yin-repl-build")
 
 
 (def dart-entry "bin/yin_repl_main.dart")

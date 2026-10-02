@@ -14,7 +14,7 @@
    idiom for re-running one program (v2's `reset` preserves `:program`).
 
    Compile and run:
-     clj -M:cljd compile yin.register-bench-cljd
+     clj -M:clojuredart:cljd compile yin.register-bench-cljd
      dart run bin/register_bench_cljd.dart"
   (:require [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]

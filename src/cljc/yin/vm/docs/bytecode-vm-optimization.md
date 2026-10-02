@@ -316,7 +316,7 @@ Harness:
   (`src/cljd/yin/register_bench_cljd.cljd`)
 - Dart entrypoint: `bin/register_bench_cljd.dart`
 - Command:
-  - `clj -M:cljd compile yin.register-bench-cljd && dart run bin/register_bench_cljd.dart`
+  - `clj -M:clojuredart:cljd compile yin.register-bench-cljd && dart run bin/register_bench_cljd.dart`
 - Workload/config:
   - `:closure-call`
   - `iterations=20000`

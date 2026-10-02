@@ -18,7 +18,7 @@ echo "=== Redeploying to $DEVICE_ID ==="
 
 # 1. Compile ClojureDart
 echo "1. Compiling ClojureDart..."
-mise exec -- clj -M:cljd compile
+mise exec -- clj -M:clojuredart:cljd compile
 
 # 2. Build APK
 echo "2. Building APK (Target: $ENTRY_POINT)..."
