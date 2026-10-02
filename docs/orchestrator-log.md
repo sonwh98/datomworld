@@ -9345,3 +9345,140 @@ Done:
   (relaunching on codex), the fable mob ruling (recorded).
 Next: relaunch the CLJD edit round on codex; monitor the remaining
   rounds for quota effects and reroute as they occur.
+
+## 2026-10-02 03:10:00 +07 — C3-S1 landed and pushed 54536317 (exact-integer module + carrier recognition)
+Completed-GMT: 2026-10-01 20:10:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@54536317 pushed (fa32f02f..54536317; fa32f02f was the other seat's blog-docs commit, already on
+  origin, so nothing foreign published)
+Done: Python C3 slice S1 (engineer claude opus session aca6eb75-a02d-4556-b7e9-d69ccb513811, worktree
+  datomworld-py-c3int1, branch yang-python-c3-s1): the versioned :pure integer module (yin.vm.integer +
+  integer/host shim, 487+240 lines) per converged rulings 1/2/5/11 — exact kernels written once over the per-host
+  shim (add/sub/mul/quot-rem/floor-div-mod with Python sign rules/compare/bitwise/shifts/pow/parse/format),
+  promotion before every operation and mandatory canonical demotion (signed 64-bit JVM/Dart, +-2^53-1 JS, host
+  BigInt beyond), composition-supplied ::max-bits/::max-dimits limits with no default, early refusals
+  (:bit-limit/:digit-limit as ex-info data), and scalar carrier recognition in engine/scalar?, values/kind-of,
+  data/number? (encoder, heap trace, pin-refs) + a 6-line UCF scalar-arm clarification (ruling 4: no marker, no
+  cell-lift change). Engineer's first turn ended mid-work (background lane orphaned; "lane running in background"
+  is not a deliverable) — resumed with foreground-lane instructions; second turn delivered complete.
+Verification: MY OWN lanes on the exact tree: JVM 2857/226101/0, Node 2674/91509/0, CLJD +2629 all passed;
+  cljstyle clean, kondo 0/0 on the six code files. Gate glm-5.3 (session in prompt
+  collab/1790877900000-reviewer-c3-s1-static-gate.*): READY, zero P1/P2, two advisory P3s forwarded to S2
+  (module-version is inert data — address-bearing versioning needs an Architect ruling; pow's early-size gate is
+  a conservative bound). Committed in the worktree, rebased onto fa32f02f, ff master, pushed. (Mechanical note:
+  git checkout master inside the worktree fails — master is owned by the main tree; ff+push must run there.)
+Decisions: landed under the standing auto-push rule (independent non-same-family glm sign-off + green lanes);
+  ruling-14 sequencing respected (no prelude/lowering changes in S1).
+Next: C2-S1 fix round in flight (gpt-6.1-sol P2: scope-aware generator classification); safepoint-s1 fix round 1
+  in flight (fable ruling: KeyboardInterrupt as base-prelude builtin class, factory removed). After each: my
+  lanes -> gate re-check -> land. Then queue: C2-S2 (send/throw/close), safepoint s2 (recursion), C3-S2 (numeric
+  keys, hashing; after C2 lands).
+
+
+## 2026-10-02 04:20:00 +0700 — Transfer test landed-in-worktree; Stage 1 glm session hit the 5h quota wall; cljd-bug doc written
+Completed-GMT: 2026-10-01 21:20:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@111a9823+ (unstaged: hygiene-corrected DHT/linker files,
+  orchestrator log); worktrees active: linker-transfer (transfer test
+  COMPLETE, uncommitted), linker-hardening (stage 1 PARTIAL)
+Done:
+- Transfer test (codex, linker-transfer worktree): COMPLETE. New
+  test/yin/vm/linker/cross_host_transfer_test.clj +
+  transfer_peer.cljd — H and R transfer JVM-to-Dart starting from
+  identity and index only, over remote ring streams, with B0-equality
+  assertions and foreign-identity/corrupt-payload refusals. Lanes:
+  JVM 2,844/225,839/0; Node 2,660/91,289/0; Dart 2,615 passed. This
+  closes audit gap "linker-level transfer test" (criteria 5a/10)
+  pending its gate and commit.
+- Hardening stage 1 (glm-5.3 CLI session 4b857b1a): the r3 resume ran
+  ~4.5 hours then died on the provider's 5-hour usage cap (429; resets
+  08:42 +0700). The worktree state is PARTIAL and unassessed; the
+  agent's plan is preserved in its transcript. Options on resume:
+  resume the session after 08:42, or re-dispatch fresh on codex with
+  the plan from the transcript.
+- docs/cljd-bug.md written orchestrator-direct: the submission-ready
+  ClojureDart reader-bug report (five findings, HEAD-verified,
+  self-contained probe, both attribution variants), ASCII/80-col clean.
+  Commit and upstream submission await the owner.
+- The ide-blog REPL edits were committed by the peer seat (640b9610).
+Next: assess the stage-1 partial worktree; commit the transfer test
+  after its gate; land the hygiene batch commit (gate already passed);
+  the CLJD report edit round (codex) is still running.
+
+
+## 2026-10-02 04:35:00 +0700 — Stage 1 partial state assessed: substantial and loadable; resume after the 08:42 quota reset
+Completed-GMT: 2026-10-01 21:35:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Done:
+- Assessed the stage-1 partial worktree (linker-hardening): 4 files
+  modified + 2 new files — src/cljc/yin/vm/ucf/handoff.cljc (1,298
+  lines), test/yin/vm/ucf/handoff_test.cljc (1,049 lines), ucf.cljc
+  and ucf_test.cljc edits, the ucf-revisions doc edit, plus the
+  STAGE1-BRIEF.md copy (excluded from any commit). The namespace
+  LOADS clean on the JVM (orchestrator check).
+- Disposition: RESUME, do not restart. The glm session 4b857b1a
+  (resumes after the 5h cap at 08:42 +0700) holds the full design
+  context; its first task on resume is to state its own progress
+  against its plan (which of the 14.1.2/14.1.3 items are done, which
+  pending), then complete the remainder and run the three lanes.
+- The transfer test's gate and commit, and the hygiene batch commit,
+  are queued ahead of the stage-1 resume.
+Next: 08:42 — resume glm 4b857b1a (progress report + completion +
+lanes); before that — transfer-test gate + commit, hygiene commit.
+
+
+## 2026-10-02 04:50:00 +0700 — Handoff of the orchestrator seat to agy
+Completed-GMT: 2026-10-01 21:50:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@111a9823+ (unstaged: the gate-passed hygiene batch (12
+  DHT/linker files, added-line gate 0, JVM 2,839/225,791/0), the
+  orchestrator log, docs/cljd-bug.md; the transfer test and stage 1
+  sit in their own worktrees)
+Owner, verbatim: "i'm handing over this seat to agy"
+Landed during this seat's run (all committed and pushed through
+  df7cf1f4, plus 9b20b7fc..4a651b33 on master):
+- The linker-over-DHT epic (L0-L5), the UCF v2 revision history, the
+  acceptance matrix, section 14 hardening design, the B6 predecessor
+  retirement + criteria restoration, the hygiene batch, the
+  yin.repl.md DHT documentation, the divergence register entry, both
+  blog posts, and the coordination/correction records.
+- Incidents documented: the working-tree wipe (recovered
+  byte-faithfully), the concurrent-writer clobber (recovered), the
+  attribution corrections (the C1 landing = the peer ZCode
+  orchestrator, not the claude seat).
+In flight for the successor (agy):
+1. IMMEDIATE: commit the gate-passed hygiene batch (12 files; added-
+   line gate 0; JVM 2,839/225,791/0) and docs/cljd-bug.md.
+2. Transfer test (worktree /Users/sto/workspace/datomworld-linker-
+   transfer, branch linker-transfer): COMPLETE per the engineer (JVM
+   2,844/225,839/0, Node 2,660/91,289/0, Dart 2,615) — run its gate,
+   commit, merge/rebase to master, clean up.
+3. Hardening stage 1 (worktree /Users/sto/workspace/datomworld-linker-
+   hardening, branch linker-hardening): PARTIAL but loadable
+   (ucf/handoff.cljc 1,298 lines + handoff_test.cljc 1,049 lines).
+   Resume glm-5.3 session 4b857b1a after the provider's 5h cap resets
+   at 08:42 +0700 (resume = --resume 4b857b1a --permission-mode
+   acceptEdits; the STAGE1-BRIEF.md copy is in the worktree; exclude
+   it from commits). On completion: orchestrator tri-host lanes via
+   bb, gate, commit.
+4. Then stages 2-5 (section 14 sequencing), the :reasons Option B
+   implementation, and the audit-gap items per the F/G mob ruling
+   (astra + fable concur; A1-A6 obligations fold into stage B).
+5. The CLJD report edit round (codex) may still be running; the v2
+   report is complete and submission-ready at
+   collab/1790865064522-cljd-reader-bugs-upstream-report-v2.md and
+   docs/cljd-bug.md; submission and the variant choice are the
+   owner's.
+Standing constraints: the peer ZCode orchestrator owns yang.antlr
+  (yang paths excluded from this epic's rounds); collab/ and archive/
+  are shared append-only; never two writers on one document; lanes
+  via bb (bb test:clj chains the required build steps); fresh
+  worktrees need mise trust + clj -M:antlr-gen + bb
+  build:yin-repl-node; GLM pool state is volatile — check
+  docs/agents/routing-status.md before dispatching, and reroute to
+  codex/agy/claude CLIs on quota failures.
+Next: the agy seat takes over per the owner's instruction.
