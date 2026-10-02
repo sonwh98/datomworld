@@ -52,6 +52,16 @@ and on heap reclamation, both landed (`34c3986b`, `60b60898`). None of
 them has landed: each is recorded with its implementation pending in
 the slices it names.
 
+Updated 2026-10-03 with the float-address ruling, the converged ruling
+of the same architect pair: gpt-6-astra's ruling with fable-5.1's
+concurrence, whose three corrections bind:
+`collab/1790968830636-architect-float-address-mob.gpt-6-astra.findings.md`
+and
+`collab/1790968830647-architect-float-address-mob.claude-fable-5-1.findings.md`.
+It amends sections 8.5 and 8.5.1 and adds section 8.5.5. Its
+implementation is pending in one preparatory slice; none of it has
+landed.
+
 This document is subordinate to
 [`datom.world.md`](./datom.world.md) (axioms and invariants),
 [`dao.stream.md`](./dao.stream.md) (the passive stream substrate),
@@ -1244,7 +1254,10 @@ The Python value encoding tags floats on every host, since JavaScript
 cannot distinguish `2` from `2.0` and ints are the common case (Python
 mappability ruling, owner decision 3); `print(4/2)` belongs in the Node
 parity set. Integers stay untagged at every magnitude; section 8.5.4
-records the C3 integer rulings.
+records the C3 integer rulings. The tag is Python type semantics only:
+it does not fix the payload's numeric kind, which must be Jing float64
+content on every host for addresses to agree (float-address ruling,
+section 8.5.5).
 
 Generator support is incomplete until `send`, `throw`, `close`, cleanup,
 and suspension are tested. It is not established by parsing `yield`.
@@ -1359,7 +1372,8 @@ Owner decisions on the ruling:
    Line literals are embedded in frame records only under a profile that
    demands a guest-visible `tb_lineno`; embedding makes code addresses
    sensitive to whitespace changes.
-3. The Python value encoding tags floats (section 8.5).
+3. The Python value encoding tags floats (section 8.5), and the tagged
+   payload is Jing float64 content on every host (section 8.5.5).
 4. Safepoint insertion (signals, tracing, thread switches, recursion
    accounting) is a separately attached interpreter over the row stream,
    not part of the naive lowering. The safepoint design fixes its shape:
@@ -2151,6 +2165,156 @@ C3 is complete only with (ruling 14):
 The module slices S0 and S1 may run alongside C2; the prelude and
 lowering slices land after C2 and audit its arithmetic sites. The
 contracts strengthen laws 3 to 5, 7 to 9, 11, and 12 of section 13.1.
+
+#### 8.5.5 Float addresses
+
+This section records the float-address ruling. Its implementation is
+pending, in one preparatory slice that lands before any float-bearing
+cross-host pin; none of it has landed.
+
+The codec conforms; the producers are defective. On JavaScript,
+`dao.jing.cbor` classifies an integral Number other than negative zero
+as an integer, exactly as `dao.jing.cbor.md` (*Numeric identity*)
+requires: JavaScript callers must use the float64 carrier for integral
+floats. The Python producers lose the float kind before encoding:
+
+- Source literals. Lowering wraps a bare host number as
+  `{:py/float v}`. The wrapper carries Python type semantics only; Jing
+  classifies the nested number by host, so `2.0` is integer 2 on Node
+  and float64 on JVM and Dart.
+- Prelude constants. The quoted prelude holds integral float literals
+  such as `1.0`, which the ClojureScript reader collapses to `1` before
+  any code runs.
+- Runtime values. `py/float` builds `{:py/float (* 1.0 x)}`, so `4/2` is
+  `{:py/float 2}` on Node, and any addressed image holding it diverges.
+- The loud variant: an integral float at or above 2^53 hits Node's
+  unsafe-integer refusal.
+
+Both rejected alternatives fail for the same reason, that the kind is
+gone before the codec sees the number. Normalizing integral floats to
+integers already describes Node; extending it to JVM and Dart violates
+"`1` and `1.0` have different addresses". Tagging row inputs alone
+leaves runtime values diverging and gives Node two representations,
+since a JVM-minted float row already decodes to the carrier on Node.
+
+The normative rule, astra's text as widened by fable's correction 1 to
+runtime values:
+
+> Every floating-point value entering canonical rows or any addressed
+> image, including source literals, prelude constants, nested Python
+> float payloads, and runtime float values held by snapshots and
+> continuations, must preserve float64 kind before host representation
+> erases it. Addressed values use Jing's existing float64
+> representation. A Python float wrapper alone does not establish the
+> numeric kind of its payload. Row projection and transformation must
+> preserve that kind.
+
+The mechanism is Jing's existing `dao.jing/float64` carrier (tag 27),
+inserted at the producer, under these constraints:
+
+- One representation. Every `:py/float` payload is Jing float64 content,
+  `cbor/float64` of the value: the identity on JVM and Dart, the carrier
+  on JavaScript. On JavaScript every payload is a carrier, non-integral
+  values included, since a carrier equals only another carrier.
+- Kind is fixed where it is still known. Lowering constructs the carrier
+  while literal syntax still identifies a float; the prelude marks its
+  float constants explicitly before JavaScript collapses them. A later
+  scan of bare numbers cannot recover the distinction.
+- The prelude seam. `py/float` wraps and `py/num` unwraps through two
+  new pure functions in the `data` module's table (section 9.3);
+  arithmetic between them stays host-native on bare numbers. The quoted
+  prelude carries no integral float literal: `(* 1.0 x)` coercions and
+  constants such as `1.0` and `0.0` go through the data functions, while
+  a non-integral constant such as `0.5` stays. A JVM test fails on any
+  integral-valued double in a prelude literal row.
+- No capture inside the seam: no yield or safepoint sits between an
+  unwrap and its rewrap. Whether the safepoint stage marks sites inside
+  prelude bodies is unverified, so a test pins this.
+- No new tag, payload kind, or row shape. Tag 27, signed-zero
+  preservation, NaN normalization, and the refusals of equal-value,
+  different-kind collection collisions are unchanged. The generic codec
+  learns no Python map semantics; `cbor.cljc` and its fixtures are not
+  edited.
+
+Carrier insertion is not a drop-in runtime fix. An execution bridge
+admits the carrier at all three scalar gates, `plain-data?` and
+`machine-data?` in `yin.vm` (the row and machine-payload gates, which
+otherwise refuse to build a carrier-bearing row) and `scalar?` in
+`yin.vm.engine`, and audits the kind classifier in `yin.vm.values`.
+The exact-integer carrier is the precedent (section 8.5.4), and
+`yin.vm.debruijn` already sees through the float carrier. Values keep
+their float kind whenever they return to addressed data. Two boundary
+audits follow: `float-repr` in the renderer unwraps the carrier on
+JavaScript, and Node test expectations comparing bare numbers move to
+constructors or `content=`.
+
+Open: the ruling leaves undecided the numeric kind of the float that
+C1's dict-key normalization places in a map key. C3 ruling 6 replaces
+that normalization with reduced-rational keys (section 8.5.4, slice
+S5); until then the C1 key needs a decision.
+
+With identical float bits and hash algorithm, corrected rows have
+identical bytes and addresses on every host. Migration:
+
+```text
++----------------------------------+-------------------------------------------+
+| Artifact                         | Effect                                    |
++==================================+===========================================+
+| Python literal rows, JVM and     | Bytes unchanged                           |
+| Dart                             |                                           |
++----------------------------------+-------------------------------------------+
+| Python literal rows, Node        | Re-minted to match JVM and Dart           |
++----------------------------------+-------------------------------------------+
+| Prelude rows                     | Change on every host, so every bundled    |
+|                                  | unit's address changes; a prelude-profile |
+|                                  | bump (section 11)                         |
++----------------------------------+-------------------------------------------+
+| Parent rows, A and A' roots,     | Re-minted wherever a changed row is       |
+| address-bearing references       | reachable                                 |
++----------------------------------+-------------------------------------------+
+| Jing canonical fixtures          | Unchanged                                 |
++----------------------------------+-------------------------------------------+
+```
+
+Affected artifacts are rebuilt from source. An integer address is never
+aliased to a float address.
+
+"Float-free" describes the entire addressed payload, including the
+bundled prelude, not merely the user's Python source. Since the prelude
+itself carries the divergent literals, no bundled unit is float-free
+today. Host-specific goldens do not establish portability. Until the
+preparatory slice lands, none of the following is allowed:
+
+- a cross-host pin of a bundled-unit root, A or A', even for a
+  float-free user program;
+- a cross-host pin of a snapshot or continuation holding a runtime
+  float;
+- a Node-specific golden for such trees;
+- a C2-S5 cross-host golden on a float-bearing tree;
+- an edit to `cbor.cljc` or its fixtures.
+
+The gate on float-bearing address acceptance releases only when tests
+on JVM, Node, and Dart establish identical canonical bytes and A and A'
+roots for float-bearing inputs and the full prelude; preservation
+through projection and decoding; distinct integer and float
+identities; signed-zero behavior; and working execution across the
+required evaluators.
+
+What may proceed meanwhile:
+
+- Safepoint slice 1's float-free golden stands: its tree is hand-built
+  with no numeric literals and proves that restricted transformation's
+  parity.
+- C2-S5 (section 8.5.3): heap collection, lift refusal, user-defined
+  iterator classes, and snapshot rendering, with behavioral parity and
+  same-host determinism.
+- C3-S2 (section 8.5.4): integer-only literal rows, bytes, hashes, and
+  malformed-encoding refusals, with cross-host pins at the row or
+  subtree level.
+
+The float slice and C3's integer carrier both pass through the scalar
+gates in `yin.vm` and `yin.vm.engine`. If C3-S2 edits those gates, the
+two land serially, not concurrently.
 
 ### 8.6 Object-oriented and web: PHP, mixed text and ordered maps
 

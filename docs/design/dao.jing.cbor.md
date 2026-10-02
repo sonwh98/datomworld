@@ -389,6 +389,9 @@ three cases are independent of argument order and of which host runs them:
   JavaScript numbers remain integers, except native negative zero, which
   is floating-point content so its sign survives. Decoding floating-point content on
   JavaScript returns the carrier so re-encoding cannot lose its kind.
+  Carrying float kind is the producer's obligation; the codec never infers
+  it. The Python frontend's ruling on meeting it is `yang.antlr.md`
+  section 8.5.5.
 - Encode floating-point content on every host as tag 27,
   `dao.jing/float64`, with eight big-endian IEEE-754 bytes. This avoids
   Boring's native-number differences between JVM and JavaScript, verified
