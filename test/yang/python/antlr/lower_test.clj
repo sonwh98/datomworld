@@ -406,7 +406,7 @@
 (deftest unsupported-constructs-are-qualified-test
   (doseq [[src rule construct]
           [["import os\n" "import_stmt" "import"]
-           ["def g():\n    yield 1\n" "yield_stmt" "yield"]
+           ["def g():\n    yield from x\n" "yield_expr" "yield from"]
            ["x = (i for i in y)\n" "atom" "generator expression (phase C2)"]
            ["f(i for i in y)\n" "argument" "generator expression (phase C2)"]
            ["x = a @ b\n" "expr" "operator @"]
@@ -446,12 +446,50 @@
            ["def f(*, ): pass\n" "named arguments must follow bare *"]
            ["a, b += 1\n" "illegal expression for augmented assignment"]
            ["x = [*a for a in b]\n" "iterable unpacking cannot be used in comprehension"]
-           ["x = *a\n" "can't use starred expression here"]]]
+           ["x = *a\n" "can't use starred expression here"]
+           ["yield 1\n" "'yield' outside function"]
+           ["class C:\n    yield 1\n" "'yield' outside function"]
+           ["x = [(yield x) for x in y]\n" "'yield' inside list comprehension"]
+           ["def f():\n    return {(yield) for x in y}\n" "'yield' inside set comprehension"]
+           ["def f():\n    def h():\n        pass\n    class C:\n        x = yield\n"
+            "'yield' outside function"]]]
     (testing src
       (is (= message
              (try (body src)
                   nil
                   (catch clojure.lang.ExceptionInfo e (ex-message e))))))))
+
+
+(defn- generator-names
+  "The names of the generators `src`'s lowering makes."
+  [src]
+  (set (keep (fn [n]
+               (when (and (map? n)
+                          (= :application (:type n))
+                          (= 'py/make-generator (:name (:operator n))))
+                 (:value (first (:operands n)))))
+             (tree-seq coll? #(if (map? %) (vals %) (seq %)) (body src)))))
+
+
+(deftest generator-classification-test
+  (testing "a nested definition's header runs in the enclosing scope: a
+            yield in a default or a class base makes the enclosing function
+            a generator, even when it is the only yield"
+    (doseq [[src names]
+            [["def g():\n    def h(x=(yield 1)):\n        pass\n" #{"g"}]
+             ["def g():\n    f = lambda x=(yield 1): x\n" #{"g"}]
+             ["def g():\n    class C((yield 1)):\n        pass\n" #{"g"}]
+             ["def g():\n    def h(x=(yield 1)):\n        yield x\n" #{"g" "h"}]
+             ["def g():\n    yield 0\n    def h(x=(yield 1)):\n        pass\n" #{"g"}]
+             ["def g():\n    def h():\n        yield 1\n" #{"h"}]
+             ["def g():\n    f = lambda: (yield 1)\n" #{"<lambda>"}]]]
+      (testing src
+        (is (= names (generator-names src))))))
+  (testing "a yield only in a nested class body is still outside a function"
+    (is (= "'yield' outside function"
+           (try (body "def g():\n    class C:\n        x = yield 1\n")
+                nil
+                (catch clojure.lang.ExceptionInfo e (ex-message e)))))))
 
 
 (deftest leading-zero-decimal-is-rejected-test
@@ -533,4 +571,12 @@
               :construct "import",
               :span [0 9],
               :message "Unsupported Python construct: import"}
-             (first diagnostics))))))
+             (first diagnostics)))))
+  (testing "yield at module level, and yield in a comprehension's own scope,
+            is one syntax diagnostic and no program"
+    (doseq [src ["yield 1\n" "x = [(yield x) for x in y]\n"]]
+      (let [{:keys [program diagnostics]} (run-stages [src])]
+        (is (empty? program) src)
+        (is (= [:yang.python.antlr/syntax]
+               (mapv :yang.python.antlr/diagnostic diagnostics))
+            src)))))

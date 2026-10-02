@@ -206,6 +206,22 @@
                  (if (map? result) (render/output result) result))))))))
 
 
+(deftest generator-switch-on-every-host-test
+  (testing "a generator built from a literal body, switched three times:
+            two yields, then completion, never a raise from its side"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    '(let [g (py/make-generator
+                               "g"
+                               (fn [gen] (do (py/yield gen 1) (py/yield gen 2) :py/None)))]
+                       (py/conj (py/conj (py/conj [] (py/gen-switch g [:send :py/None]))
+                                         (py/gen-switch g [:send :py/None]))
+                                (py/gen-switch g [:send :py/None]))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [[:yield 1] [:yield 2] [:return :py/None]] result)))))))
+
+
 (deftest integer-bound-on-every-host-test
   (testing "over the real cell and data modules, results outside
             [-2^53, 2^53] are a guest OverflowError identically on every VM

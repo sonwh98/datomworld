@@ -30,6 +30,12 @@
      iterable evaluated outside it; a generator expression is accepted only
      as the sole argument of a consuming builtin (list, tuple, set, sum,
      any, all), where it is a list.
+   - A function whose body yields is a generator function: its code binds
+     the arguments and allocates the cells, then returns
+     `(py/make-generator name (fn [%gen] body))`; each `yield v` is
+     `(py/yield %gen v)`. The `:gen` binder is reset in every nested scope,
+     so a `yield` at module or class level, or in a comprehension's own
+     scope, is a syntax error.
    - Operators, truthiness, equality, objects and exceptions are prelude
      calls (`yang.python.antlr.prelude`).
 
@@ -80,9 +86,6 @@
    "async_stmt" "async statement",
    "annassign" "annotated assignment",
    "del_stmt" "del statement",
-   "yield_stmt" "yield",
-   "yield_expr" "yield",
-   "yield_arg" "yield",
    "import_stmt" "import",
    "import_name" "import",
    "import_from" "import",
@@ -138,7 +141,8 @@
   #{"parameters" "typedargslist" "tfpdef" "varargslist" "vfpdef"
     "augassign" "except_clause" "block" "comp_op" "trailer" "subscriptlist"
     "subscript_" "sliceop" "arglist" "argument" "testlist_comp"
-    "dictorsetmaker" "strings" "comp_for" "comp_iter" "comp_if" "with_item"})
+    "dictorsetmaker" "strings" "comp_for" "comp_iter" "comp_if" "with_item"
+    "yield_arg"})
 
 
 (def handled-rules
@@ -149,7 +153,7 @@
     "global_stmt" "nonlocal_stmt" "if_stmt" "while_stmt" "for_stmt"
     "try_stmt" "with_stmt" "funcdef" "classdef" "test" "test_nocond"
     "lambdef" "lambdef_nocond" "or_test" "and_test" "not_test" "comparison"
-    "expr" "star_expr" "atom_expr" "atom" "name"})
+    "expr" "star_expr" "atom_expr" "atom" "name" "yield_stmt" "yield_expr"})
 
 
 (defn- default-arm
@@ -518,7 +522,7 @@
       (let [inner (second ks)]
         (cond
           (p/token? inner ")") (app* 'py/tuple (u/lit []))
-          (p/rule? inner "yield_expr") (unsupported! n "yield")
+          (p/rule? inner "yield_expr") ((:lower ctx) ctx inner)
           (scope/comprehension? (:pk ctx) inner)
           (unsupported! n "generator expression (phase C2)")
           :else (display ctx inner)))
@@ -886,9 +890,7 @@
                (unsupported! aug (str "augmented " (:text (first (kids ctx aug))))))
         _ (when (target-elements ctx target)
             (syntax! target "illegal expression for augmented assignment"))
-        rhs (if (p/rule? rhs "yield_expr")
-              (unsupported! rhs "yield")
-              ((:lower ctx) ctx rhs))]
+        rhs ((:lower ctx) ctx rhs)]
     (if-let [nm (scope/simple-name (:pk ctx) target)]
       (assign-name ctx nm (app* op (read-name ctx target nm) rhs))
       (let [ae (target-atom-expr ctx target)
@@ -929,8 +931,6 @@
       (let [sides (filterv p/rule? ks)
             value-node (peek sides)
             targets (pop sides)
-            _ (when (p/rule? value-node "yield_expr")
-                (unsupported! value-node "yield"))
             value ((:lower ctx) ctx value-node)]
         (if (and (= 1 (count targets))
                  (scope/simple-name (:pk ctx) (first targets)))
@@ -991,13 +991,46 @@
       spec)))
 
 
+(defn- definition-body
+  "The body of a funcdef, classdef or lambda: the part its own scope runs."
+  [ctx n]
+  (if (contains? #{"lambdef" "lambdef_nocond"} (:rule n))
+    (peek (rule-kids ctx n))
+    (first (rules ctx n "block"))))
+
+
+(defn- yields?
+  "True when node `n`, evaluated in its scope, contains a `yield` of that
+   scope. A nested definition's header (parameter defaults and
+   annotations, class bases) runs in the enclosing scope and is scanned;
+   its body is its own scope and is not."
+  [ctx n]
+  (and (p/rule? n)
+       (or (= "yield_expr" (:rule n))
+           (boolean
+             (some #(yields? ctx %)
+                   (if (contains? scope-rules (:rule n))
+                     (let [body-id (:id (definition-body ctx n))]
+                       (remove #(= body-id (:id %)) (rule-kids ctx n)))
+                     (kids ctx n)))))))
+
+
+(defn- generator-body?
+  "True when the body of the funcdef or lambda `scope-node` yields."
+  [ctx scope-node]
+  (yields? ctx (definition-body ctx scope-node)))
+
+
 (defn- function-value
   "A guest function object: `py/make-function` over code taking one
    argument vector laid out as the parameters are written (positional,
    `*args` tuple, keyword-only, `**kwargs` dict). Parameters are rebound to
    cells, other locals are allocated unbound, then `body` (a node lowered
    with the function's context). Defaults are evaluated here, at
-   definition time, in the enclosing context."
+   definition time, in the enclosing context. A body that yields makes a
+   generator function: the call binds the arguments and allocates the
+   cells, and returns a generator whose body, a lambda of its `:gen`
+   binder, runs at the first resume."
   [ctx scope-node fname {:keys [params defaults star? kwonly kwdefaults kwstar?]}
    body-fn]
   (let [s (get-in (:analysis ctx) [:scopes (:id scope-node)])
@@ -1005,12 +1038,17 @@
         _ (when-not (= (count all-params) (count (distinct all-params)))
             (syntax! scope-node "duplicate argument in function definition"))
         args (gen "args" scope-node)
+        gen-sym (when (generator-body? ctx scope-node) (gen "gen" scope-node))
         others (drop (count all-params) (:locals s))
-        body (body-fn (assoc ctx
-                             :scope (:id scope-node)
-                             :loop nil
-                             :exc nil
-                             :class nil))
+        body (cond->> (body-fn (assoc ctx
+                                      :scope (:id scope-node)
+                                      :loop nil
+                                      :exc nil
+                                      :class nil
+                                      :gen gen-sym
+                                      :comp nil))
+               gen-sym (u/lam [gen-sym])
+               gen-sym (app* 'py/make-generator (u/lit fname)))
         cells (concat (map-indexed (fn [i _]
                                      (app* 'cell/new
                                            (app* 'py/arg (u/v args) (u/lit i))))
@@ -1084,7 +1122,9 @@
                                  :class cls
                                  :loop nil
                                  :ret nil
-                                 :exc nil)
+                                 :exc nil
+                                 :gen nil
+                                 :comp nil)
                           (first (rules ctx n "block")))]
     (u/let1 cls
             (app* 'py/make-class (u/lit nm) base)
@@ -1285,6 +1325,27 @@
                                     ((:lower ctx) ctx (first tests))))))))
 
 
+(def ^:private comprehension-names
+  {:list "list comprehension", :set "set comprehension", :dict "dict comprehension",
+   :sum "generator expression", :any "generator expression",
+   :all "generator expression"})
+
+
+(defn- lower-yield
+  "`yield v` in a generator body: `(py/yield %gen v)`, whose value is what
+   the next resume sends. Outside a function, or in a comprehension's own
+   scope, it is a syntax error, as in Python."
+  [ctx n]
+  (let [arg (first (rules ctx n "yield_arg"))]
+    (cond
+      (:comp ctx) (syntax! n (str "'yield' inside "
+                                  (get comprehension-names (:comp ctx))))
+      (nil? (:gen ctx)) (syntax! n "'yield' outside function")
+      (and arg (p/has-token? (:pk ctx) arg "from")) (unsupported! n "yield from")
+      :else (app* 'py/yield (u/v (:gen ctx))
+                  (if arg ((:lower ctx) ctx (first (rule-kids ctx arg))) none)))))
+
+
 ;; -----------------------------------------------------------------------------
 ;; Comprehensions
 ;; -----------------------------------------------------------------------------
@@ -1318,7 +1379,14 @@
    innermost clause adds to a fresh result object."
   [ctx comp-node kind]
   (let [s (get-in (:analysis ctx) [:scopes (:id comp-node)])
-        cctx (assoc ctx :scope (:id comp-node) :loop nil :ret nil :exc nil :class nil)
+        cctx (assoc ctx
+                    :scope (:id comp-node)
+                    :loop nil
+                    :ret nil
+                    :exc nil
+                    :class nil
+                    :gen nil
+                    :comp kind)
         clauses (comp-clauses ctx comp-node)
         elems (filterv #(not (p/rule? % "comp_for")) (rule-kids ctx comp-node))
         _ (when (some #(p/rule? % "star_expr") elems)
@@ -1396,6 +1464,8 @@
     "continue_stmt" (lower-flow ctx n)
     "return_stmt" (lower-flow ctx n)
     "raise_stmt" (lower-flow ctx n)
+    "yield_stmt" (lower ctx (first (kids ctx n)))
+    "yield_expr" (lower-yield ctx n)
     ;; declarations were consumed by scope analysis
     "global_stmt" none
     "nonlocal_stmt" none
@@ -1458,7 +1528,9 @@
      :loop nil,
      :ret nil,
      :exc nil,
-     :class nil}))
+     :class nil,
+     :gen nil,
+     :comp nil}))
 
 
 (defn lower-module-body

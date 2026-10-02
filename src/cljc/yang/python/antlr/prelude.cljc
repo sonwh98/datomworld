@@ -27,6 +27,8 @@
                      :attrs {name value}}
      instance        a cell holding {:py/type :instance :class cls
                      :attrs {name value}}
+     generator       a cell holding {:py/type :generator :name s :state st}
+                     and the slots of its state (see `py/gen-switch`)
      bound method    {:py/type :method :self obj :fn function}
      tuple           {:py/type :tuple :items [...]}: a value; hashable when
                      its elements are
@@ -48,7 +50,9 @@
                      a :handler frame holds the continuation `raise`
                      delivers to, a :finally frame a thunk every exit
                      through it runs (raise passes the exception, escapes
-                     and normal completion pass None); nil when empty
+                     and normal completion pass None), a :generator frame
+                     the bottom of a running generator's own stack (raise
+                     passes it the exception); nil when empty
      py.rt/out       the values `print` collected, one vector per call
 
    Escapes and handlers tell the first pass through a capture point from a
@@ -205,6 +209,144 @@
                :py/None
                (py/call exit (py/conj (py/conj (py/conj [] :py/None) :py/None)
                                       :py/None)))))))]
+
+    ;; ---------------------------------------------------------- generators
+    ;; A generator is a cell holding {:py/type :generator :name s :state st}
+    ;; and the slots of its state, nothing else (every transition rebuilds
+    ;; the content, so no slot outlives its state):
+    ;;   :created    :body      (fn [g] ...), the function body
+    ;;   :suspended  :resume    the continuation captured at the yield
+    ;;               :ctx       the generator's own handler stack
+    ;;   :running    :return    the active switch's continuation
+    ;;               :caller-ctx the switching caller's handler stack
+    ;;   :closed     nothing
+    ;; The generator owns its handler stack, so every snapshot the C1 forms
+    ;; take inside the body is of that stack and resumes from any caller
+    ;; depth. `py/gen-switch` sends [:send v] or [:throw e] and answers
+    ;; [:yield v], [:return v] or [:raise e]; it never raises from the
+    ;; generator's side. Each crossing restores the receiving side's handler
+    ;; stack, then invokes the receiving continuation once.
+    [py/gen-content
+     (fn [name state]
+       (assoc (assoc (assoc {} :py/type :generator) :name name) :state state))]
+    [py/make-generator
+     (fn [name body] (cell/new (assoc (py/gen-content name :created) :body body)))]
+    [py/outcome (fn [tag v] (py/conj (py/conj [] tag) v))]
+    [py/gen-switch
+     (fn [g msg]
+       (let [c (cell/get g)
+             st (get c :state)]
+         (if (= st :running)
+           (py/raise-new py.b/ValueError {:py/str "generator already executing"})
+           (if (= st :closed)
+             (if (= (get msg 0) :throw)
+               (py/outcome :raise (get msg 1))
+               (py/outcome :return :py/None))
+             (if (if (= st :created) (= (get msg 0) :throw) false)
+               ;; thrown into a generator that never ran: it closes, and
+               ;; the exception is the caller's
+               (do (cell/set! g (py/gen-content (get c :name) :closed))
+                   (py/outcome :raise (get msg 1)))
+               (let [flag (cell/new :first)]
+                 ((fn [r]
+                    (if (= (cell/get flag) :first)
+                      (do (cell/set! flag :re-entered)
+                          (cell/set! g (assoc (assoc (py/gen-content (get c :name) :running)
+                                                     :return r)
+                                              :caller-ctx (cell/get py.rt/handlers)))
+                          (if (= st :created)
+                            (py/gen-start g (get c :body))
+                            (do (cell/set! py.rt/handlers (get c :ctx))
+                                ((get c :resume) msg))))
+                      r))
+                  (%capture))))))))]
+    [py/gen-start
+     ;; a fresh handler stack whose only frame is the boundary: an exception
+     ;; no handler in the body catches reaches it and leaves the generator
+     (fn [g body]
+       (do (cell/set! py.rt/handlers
+                      (py/frame :generator (fn [e] (py/gen-fail g e)) nil))
+           (py/gen-exit g (py/outcome :return (body g)))))]
+    [py/gen-exit
+     ;; the single way out of a finishing generator: closed, the caller's
+     ;; handler stack back, the outcome delivered to the active switch
+     (fn [g outcome]
+       (let [c (cell/get g)]
+         (do (cell/set! g (py/gen-content (get c :name) :closed))
+             (cell/set! py.rt/handlers (get c :caller-ctx))
+             ((get c :return) outcome))))]
+    [py/gen-fail
+     ;; PEP 479: a StopIteration escaping the body is a RuntimeError
+     (fn [g e]
+       (py/gen-exit g (py/outcome :raise
+                                  (if (py/subclass? (py/type-of e) py.b/StopIteration)
+                                    (py/make-exc py.b/RuntimeError
+                                                 {:py/str "generator raised StopIteration"})
+                                    e))))]
+    [py/yield-raw
+     ;; suspend, answering the message the next switch sends
+     (fn [g v]
+       (let [flag (cell/new :first)]
+         ((fn [r]
+            (if (= (cell/get flag) :first)
+              (let [c (cell/get g)]
+                (do (cell/set! flag :re-entered)
+                    (cell/set! g (assoc (assoc (py/gen-content (get c :name) :suspended)
+                                               :resume r)
+                                        :ctx (cell/get py.rt/handlers)))
+                    (cell/set! py.rt/handlers (get c :caller-ctx))
+                    ((get c :return) (py/outcome :yield v))))
+              r))
+          (%capture))))]
+    [py/yield
+     ;; `yield v`: the value sent, or the exception thrown raised here, on
+     ;; the generator's own stack
+     (fn [g v]
+       (let [m (py/yield-raw g v)]
+         (if (= (get m 0) :throw) (py/raise (get m 1)) (get m 1))))]
+    [py/gen-result
+     ;; a switch's outcome at a protocol boundary, in the caller: the value
+     ;; yielded, the exception re-raised, completion as StopIteration(value)
+     ;; or, when one is given, `default`
+     (fn [o default]
+       (let [tag (get o 0)
+             v (get o 1)]
+         (if (= tag :yield)
+           v
+           (if (= tag :raise)
+             (py/raise v)
+             (if (= default :py/missing)
+               (py/raise (py/call py.b/StopIteration
+                                  (if (= v :py/None) [] (py/conj [] v))))
+               default)))))]
+    [py/gen-step
+     ;; one advancement for a loop: the value, or :py/stop at completion
+     (fn [g]
+       (let [o (py/gen-switch g (py/outcome :send :py/None))
+             tag (get o 0)]
+         (if (= tag :yield) (get o 1) (if (= tag :return) :py/stop (py/raise (get o 1))))))]
+    [py/gen-send
+     (fn [g v]
+       (if (if (= (get (cell/get g) :state) :created) (not (= v :py/None)) false)
+         (py/type-error {:py/str "can't send non-None value to a just-started generator"})
+         (py/gen-result (py/gen-switch g (py/outcome :send v)) :py/missing)))]
+    [py/next
+     (fn [it default]
+       (if (= (py/content-type it) :generator)
+         (py/gen-result (py/gen-switch it (py/outcome :send :py/None)) default)
+         (py/type-error {:py/str "object is not an iterator"})))]
+    [py/stop-iteration-class
+     ;; StopIteration(*args): args as given, value the first or None
+     (fn [cls]
+       (do (py/setattr cls "__init__"
+                       (py/make-function
+                         "__init__" {:params ["self"], :star? true, :no-kw true} [] []
+                         (fn [args]
+                           (let [e (py/arg args 0)
+                                 xs (py/arg args 1)]
+                             (do (py/setattr e "args" xs)
+                                 (py/setattr e "value" (get (get xs :items) 0 :py/None)))))))
+           cls))]
 
     ;; ---------------------------------------------------------- exceptions
     [py/make-class
@@ -532,7 +674,11 @@
                              (if (= name "get")
                                (py/method o py.b/dict-get)
                                (py/attr-error name)))))
-                       (py/attr-error name))))))))
+                       (if (= t :generator)
+                         (if (= name "send")
+                           (py/method o py.b/gen-send)
+                           (py/attr-error name))
+                         (py/attr-error name)))))))))
          (py/attr-error name)))]
     [py/setattr
      (fn [o name x]
@@ -1271,7 +1417,10 @@
              (get (get c :items) i :py/stop)
              (if (if (= t :dict) true (= t :set))
                (get (get c :keys) i :py/stop)
-               (py/type-error {:py/str "object is not iterable"}))))
+               ;; stateful: one advancement per call, the index unused
+               (if (= t :generator)
+                 (py/gen-step it)
+                 (py/type-error {:py/str "object is not iterable"})))))
          (if (= (get it :py/type) :range)
            (py/range-at it i)
            (if (= (get it :py/type) :tuple)
@@ -1296,7 +1445,8 @@
      ;; characters, decoded once; anything else is walked as it is
      ;; a dict or set is walked through its keys with the size it had when
      ;; the loop began, so growing or shrinking it during the loop is a
-     ;; RuntimeError, as in CPython; a list is walked live
+     ;; RuntimeError, as in CPython; a list is walked live; a generator is
+     ;; its own iterator, walked as it is
      (fn [x]
        (if (py/str? x)
          (py/tuple (py/chars (data/str->code-points (get x :py/str)) 0 []))
@@ -1491,7 +1641,8 @@
    ["UnboundLocalError" 'py.b/UnboundLocalError 'py.b/NameError]
    ["RuntimeError" 'py.b/RuntimeError 'py.b/Exception]
    ["NotImplementedError" 'py.b/NotImplementedError 'py.b/RuntimeError]
-   ["OverflowError" 'py.b/OverflowError 'py.b/ArithmeticError]])
+   ["OverflowError" 'py.b/OverflowError 'py.b/ArithmeticError]
+   ["StopIteration" 'py.b/StopIteration 'py.b/Exception]])
 
 
 (def ^:private builtin-function-definitions
@@ -1550,7 +1701,13 @@
                        (fn [args]
                          (if (py/dict-has? (py/arg args 0) (py/arg args 1))
                            (py/getitem (py/arg args 0) (py/arg args 1))
-                           (py/arg args 2))))]])
+                           (py/arg args 2))))]
+    [py.b/next
+     (py/make-function "next" {:params ["iterator" "default"], :no-kw true} [:py/missing] []
+                       (fn [args] (py/next (py/arg args 0) (py/arg args 1))))]
+    [py.b/gen-send
+     (py/make-function "send" {:params ["self" "value"], :no-kw true} [] []
+                       (fn [args] (py/gen-send (py/arg args 0) (py/arg args 1))))]])
 
 
 (def ^:private state-definitions
@@ -1560,7 +1717,8 @@
   (-> '[[py.rt/handlers (cell/new nil)]
         [py.rt/out (cell/new [])]]
       (into (map (fn [[nm key base]]
-                   [key (list 'py/make-class nm (or base :py/None))]))
+                   [key (cond->> (list 'py/make-class nm (or base :py/None))
+                          (= "StopIteration" nm) (list 'py/stop-iteration-class))]))
             builtin-classes)
       (into builtin-function-definitions)))
 
@@ -1597,6 +1755,7 @@
          "set" 'py.b/set,
          "sum" 'py.b/sum,
          "any" 'py.b/any,
-         "all" 'py.b/all}
+         "all" 'py.b/all,
+         "next" 'py.b/next}
         (map (fn [[nm key _]] [nm key]))
         builtin-classes))
