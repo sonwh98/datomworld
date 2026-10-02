@@ -222,6 +222,88 @@
           (is (= [[:yield 1] [:yield 2] [:return :py/None]] result)))))))
 
 
+(deftest generator-throw-and-close-on-every-host-test
+  (testing "a throw caught at the yield site yields again; close runs the
+            finally around the yield and leaves the generator closed; a
+            generator that yields after GeneratorExit makes close a
+            RuntimeError and stays suspended"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    (list
+                      'let
+                      '[log (cell/new [])
+                        g (py/make-generator
+                            "g"
+                            (fn [gen]
+                              (py/try-finally
+                                (fn []
+                                  (do (py/try (fn [] (py/yield gen 1))
+                                              (fn [e] (py/yield gen :caught))
+                                              (fn [] :py/None))
+                                      (py/yield gen 2)))
+                                (fn [x]
+                                  (cell/set! log
+                                             (py/conj (cell/get log) :fin))))))
+                        h (py/make-generator
+                            "h"
+                            (fn [gen]
+                              (py/try (fn [] (py/yield gen 1))
+                                      (fn [e] (py/yield gen :ignored))
+                                      (fn [] :py/None))))
+                        a (py/gen-send g :py/None)
+                        b (py/gen-throw g py.b/ValueError :py/None :py/None)
+                        c (py/gen-send g :py/None)
+                        d (py/gen-close g)
+                        e (cell/get log)
+                        f (py/gen-switch g [:send :py/None])
+                        i (py/gen-send h :py/None)
+                        j (py/try (fn [] (py/gen-close h))
+                                  (fn [x] (py/isinstance x py.b/RuntimeError))
+                                  (fn [] :no))
+                        k (get (cell/get h) :state)]
+                      (reduce (fn [acc s] (list 'py/conj acc s)) []
+                              '[a b c d e f i j k])))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [1 :caught 2 :py/None [:fin] [:return :py/None]
+                  1 true :suspended]
+                 result)))))))
+
+
+(deftest generator-throw-non-exception-class-on-every-host-test
+  (testing "throwing a class not deriving from BaseException is a TypeError
+            before the class is called: its __init__ never runs and the
+            generator stays suspended at its yield"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    '(let [log (cell/new [])
+                           c (py/make-class "C" py.b/object)
+                           s (py/setattr
+                               c "__init__"
+                               (py/make-function
+                                 "__init__" {:params ["self" "v"], :no-kw true}
+                                 [] []
+                                 (fn [args]
+                                   (cell/set! log (py/conj (cell/get log)
+                                                           (py/arg args 1))))))
+                           g (py/make-generator
+                               "g"
+                               (fn [gen]
+                                 (do (py/yield gen 1)
+                                     (py/yield gen 2)
+                                     :py/None)))
+                           a (py/gen-send g :py/None)
+                           b (py/try (fn [] (py/gen-throw g c 7 :py/None))
+                                     (fn [x] (py/isinstance x py.b/TypeError))
+                                     (fn [] :no))
+                           d (cell/get log)
+                           e (py/gen-send g :py/None)]
+                       (py/conj (py/conj (py/conj (py/conj [] a) b) d) e)))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [1 true [] 2] result)))))))
+
+
 (deftest integer-bound-on-every-host-test
   (testing "over the real cell and data modules, results outside
             [-2^53, 2^53] are a guest OverflowError identically on every VM

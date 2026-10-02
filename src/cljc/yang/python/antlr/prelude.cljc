@@ -330,6 +330,67 @@
        (if (if (= (get (cell/get g) :state) :created) (not (= v :py/None)) false)
          (py/type-error {:py/str "can't send non-None value to a just-started generator"})
          (py/gen-result (py/gen-switch g (py/outcome :send v)) :py/missing)))]
+    [py/gen-throw
+     ;; `throw(typ, val)`: raised at the yield site on the generator's own
+     ;; stack; a generator that never ran closes and the caller raises it
+     (fn [g typ val tb]
+       (if (= tb :py/None)
+         (py/gen-result
+           (py/gen-switch g (py/outcome :throw (py/throw-exc typ val)))
+           :py/missing)
+         (py/type-error
+           {:py/str "throw() third argument must be a traceback object"})))]
+    [py/throw-exc
+     ;; the exception `throw` raises: a class is called with val (a tuple
+     ;; spread, None no argument) unless val is already an instance of it;
+     ;; an instance takes no separate value. A class not deriving from
+     ;; BaseException is a TypeError before anything is called.
+     (fn [typ val]
+       (if (= (py/content-type typ) :class)
+         (if (py/subclass? typ py.b/BaseException)
+           (if (if (= val :py/None) true (py/subclass? (py/type-of val) typ))
+             (py/as-exception (if (= val :py/None) typ val))
+             (py/as-exception
+               (py/call typ (if (= (get val :py/type) :tuple)
+                              (get val :items)
+                              (py/conj [] val)))))
+           (py/type-error
+             (py/str (data/str-concat
+                       "exceptions must be classes or instances deriving "
+                       "from BaseException, not type"))))
+         (if (= val :py/None)
+           (py/as-exception typ)
+           (py/type-error
+             {:py/str "instance exception may not have a separate value"}))))]
+    [py/gen-close
+     ;; GeneratorExit thrown in: completion, or GeneratorExit raised back,
+     ;; is None; any other raise propagates; a yield is a RuntimeError and
+     ;; the generator stays suspended
+     (fn [g]
+       (let [o (py/gen-switch
+                 g (py/outcome :throw (py/call py.b/GeneratorExit [])))
+             tag (get o 0)]
+         (if (= tag :yield)
+           (py/raise-new py.b/RuntimeError
+                         {:py/str "generator ignored GeneratorExit"})
+           (if (= tag :raise)
+             (if (py/subclass? (py/type-of (get o 1)) py.b/GeneratorExit)
+               :py/None
+               (py/raise (get o 1)))
+             :py/None))))]
+    [py/gen-attr
+     (fn [g name]
+       (if (= name "send")
+         (py/method g py.b/gen-send)
+         (if (= name "__next__")
+           (py/method g py.b/gen-next)
+           (if (= name "throw")
+             (py/method g py.b/gen-throw)
+             (if (= name "close")
+               (py/method g py.b/gen-close)
+               (if (= name "__iter__")
+                 (py/method g py.b/gen-iter)
+                 (py/attr-error name)))))))]
     [py/next
      (fn [it default]
        (if (= (py/content-type it) :generator)
@@ -675,9 +736,7 @@
                                (py/method o py.b/dict-get)
                                (py/attr-error name)))))
                        (if (= t :generator)
-                         (if (= name "send")
-                           (py/method o py.b/gen-send)
-                           (py/attr-error name))
+                         (py/gen-attr o name)
                          (py/attr-error name)))))))))
          (py/attr-error name)))]
     [py/setattr
@@ -1644,6 +1703,8 @@
    ;; raised by the safepoint hook prelude's signal delivery; the class is a
    ;; builtin like any other, so naive programs read and shadow it normally
    ["KeyboardInterrupt" 'py.b/KeyboardInterrupt 'py.b/BaseException]
+   ;; thrown into a generator by close()
+   ["GeneratorExit" 'py.b/GeneratorExit 'py.b/BaseException]
    ["Exception" 'py.b/Exception 'py.b/BaseException]
    ["ArithmeticError" 'py.b/ArithmeticError 'py.b/Exception]
    ["ZeroDivisionError" 'py.b/ZeroDivisionError 'py.b/ArithmeticError]
@@ -1723,7 +1784,22 @@
                        (fn [args] (py/next (py/arg args 0) (py/arg args 1))))]
     [py.b/gen-send
      (py/make-function "send" {:params ["self" "value"], :no-kw true} [] []
-                       (fn [args] (py/gen-send (py/arg args 0) (py/arg args 1))))]])
+                       (fn [args] (py/gen-send (py/arg args 0) (py/arg args 1))))]
+    [py.b/gen-throw
+     (py/make-function "throw" {:params ["self" "typ" "val" "tb"], :no-kw true}
+                       [:py/None :py/None] []
+                       (fn [args]
+                         (py/gen-throw (py/arg args 0) (py/arg args 1)
+                                       (py/arg args 2) (py/arg args 3))))]
+    [py.b/gen-close
+     (py/make-function "close" {:params ["self"], :no-kw true} [] []
+                       (fn [args] (py/gen-close (py/arg args 0))))]
+    [py.b/gen-next
+     (py/make-function "__next__" {:params ["self"], :no-kw true} [] []
+                       (fn [args] (py/next (py/arg args 0) :py/missing)))]
+    [py.b/gen-iter
+     (py/make-function "__iter__" {:params ["self"], :no-kw true} [] []
+                       (fn [args] (py/arg args 0)))]])
 
 
 (def ^:private state-definitions
