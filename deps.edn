@@ -57,7 +57,7 @@
                                       #_{:git/url "https://github.com/sonwh98/ClojureDart.git"
                                        :sha "15fa5baf500dde74f5df5a4ef5bdcae18e56cf1b"}
                                       {:git/url "https://github.com/sonwh98/ClojureDart.git"
-                                       :sha "4275d105b14e7389510a74c6603cc11e58c2a269"}
+                                       :sha "23576fbe1b35fa2eb1a70f52c70627c447353bf6"}
                                       }}
            :cljd {:extra-paths ["test"]
                   :main-opts ["-m" "cljd.build"]
