@@ -505,6 +505,73 @@
     (is (= "d81e820102" (hex-of (cbor/encode r))))))
 
 
+(deftest float64-carrier-refuses-coercion-test
+  ;; The documented asymmetry. On JS a float64 carrier refuses numeric and
+  ;; default coercion, so a host operator over it throws
+  ;; :carrier-coercion (a Jing refusal, never :yin.k/non-portable) instead
+  ;; of answering a string or a bare Number that lost the float's kind. On
+  ;; the JVM and Dart float64 content is a plain double and the same
+  ;; operators compute. Generic arithmetic over carriers is therefore not
+  ;; portable; a profile computes on floats through an explicit accessor.
+  ;; `identity` hides the carrier's inferred type: the host operators below
+  ;; are applied to a non-number on purpose, and ClojureScript would warn
+  (let [c (identity (cbor/float64 2.0))
+        ;; [label thunk value-on-the-JVM-and-Dart]: the carrier first,
+        ;; second, and at a later variadic position, for all eight operators
+        cases [["+ first" #(+ c 1) 3.0]
+               ["+ second" #(+ 1 c) 3.0]
+               ["+ variadic" #(+ 1 2 c) 5.0]
+               ["- first" #(- c 1) 1.0]
+               ["- second" #(- 1 c) -1.0]
+               ["- variadic" #(- 9 1 c) 6.0]
+               ["* first" #(* c 3) 6.0]
+               ["* second" #(* 3 c) 6.0]
+               ["* variadic" #(* 1 3 c) 6.0]
+               ["/ first" #(/ c 4) 0.5]
+               ["/ second" #(/ 4 c) 2.0]
+               ["/ variadic" #(/ 8 2 c) 2.0]
+               ["< first" #(< c 3) true]
+               ["< second" #(< 1 c) true]
+               ["< variadic" #(< 0 1 c) true]
+               ["> first" #(> c 3) false]
+               ["> second" #(> 3 c) true]
+               ["> variadic" #(> 9 3 c) true]
+               ["<= first" #(<= c 2) true]
+               ["<= second" #(<= 2 c) true]
+               ["<= variadic" #(<= 0 1 c) true]
+               [">= first" #(>= c 2) true]
+               [">= second" #(>= 2 c) true]
+               [">= variadic" #(>= 9 3 c) true]]]
+    #?(:cljs
+       (do (doseq [[label f] cases]
+             (is (= :carrier-coercion (refusal-of f)) label))
+           (testing "the refusal is Jing's, not a lift outcome"
+             (let [data (try (+ c 1) (catch :default e (ex-data e)))]
+               (is (= :carrier-coercion (::cbor/refusal data)))
+               (is (nil? (:yin.k/status data)))))
+           (testing "\"\" + carrier and Number(carrier) refuse; explicit string
+                     conversion works"
+             ;; the raw JS concatenation, which uses default coercion
+             (is (= :carrier-coercion (refusal-of #(js* "('' + ~{})" c))))
+             (is (= :carrier-coercion (refusal-of #(js/Number c))))
+             (is (= "2" (js/String c) (.toString c))))
+           (is (= "#dao.jing/float64 2" (pr-str c))))
+       :default
+       (do (is #?(:cljd (dart/is? c double) :default (instance? Double c)))
+           (doseq [[label f expected] cases]
+             (is (= expected (f)) label))))
+    (testing "every host: printing, equality, hashing, keys and bytes hold"
+      (is (= (str 2.0) (str c)))
+      (is (= (str "a" 2.0) (str "a" c)))
+      (is (= c (cbor/float64 2.0)))
+      (is (= c (cbor/float64 c)))
+      (is (= (hash c) (hash (cbor/float64 2.0))))
+      (is (= :x (get {c :x} (cbor/float64 2.0))))
+      (is (contains? #{c} (cbor/float64 2.0)))
+      (is (= "d81b827064616f2e6a696e672f666c6f61743634484000000000000000"
+             (hex-of (cbor/encode c)))))))
+
+
 (deftest keywords-cannot-carry-metadata
   ;; Why encode has no metadata arm for keywords: no host allows it.
   (is (not= ::none (refusal-of #(with-meta :k {:doc "d"})))))

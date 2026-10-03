@@ -392,6 +392,22 @@ three cases are independent of argument order and of which host runs them:
   Carrying float kind is the producer's obligation; the codec never infers
   it. The Python frontend's ruling on meeting it is `yang.antlr.md`
   section 8.5.5.
+- The JavaScript float64 carrier refuses numeric and default coercion: its
+  `valueOf` throws the refusal `:carrier-coercion` (raised through the
+  codec's refusal helper, so `refusal` reads it; it is not a corpus
+  class and not a lift outcome). `carrier + 1`, `carrier - 1`,
+  `carrier < 3`, `Number(carrier)` and `"" + carrier` therefore throw
+  instead of answering a string or a bare Number that lost the float's
+  kind. String conversion is unchanged, since it asks `toString` first:
+  `str`, `String(carrier)`, `.toString()` and `pr-str` print as before.
+  So are equality, hashing, map and set keys, canonical bytes, NaN
+  normalization and signed zero, which read the payload directly; no
+  fixture changes. Only Float64 is hardened; the Decimal and Rational
+  carriers and the query arithmetic guards below are unchanged. Generic
+  arithmetic over a decoded carrier is still not portable: the JVM and
+  Dart compute on their native double, JavaScript refuses. A profile that
+  computes on floats portably reads the payload through an explicit
+  accessor (Python's `data/float-value`, `yang.antlr.md` 8.5.5).
 - Encode floating-point content on every host as tag 27,
   `dao.jing/float64`, with eight big-endian IEEE-754 bytes. This avoids
   Boring's native-number differences between JVM and JavaScript, verified

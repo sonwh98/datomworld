@@ -346,6 +346,17 @@
      (toString [_] (str v))
 
 
+     ;; numeric and default coercion refuses: `carrier + 1`, `carrier < 3`
+     ;; and `"" + carrier` would otherwise go through toString and answer
+     ;; a string or a bare Number that lost the float's kind. String
+     ;; conversion (`str`, `String`, `.toString`) asks toString first and is
+     ;; unaffected; read the value through an explicit accessor instead.
+     (valueOf
+       [_]
+       (refuse :carrier-coercion
+               "a float64 carrier has no implicit numeric value"))
+
+
      IEquiv
 
      (-equiv
