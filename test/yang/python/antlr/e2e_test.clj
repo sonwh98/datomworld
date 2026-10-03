@@ -23,6 +23,7 @@
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.render :as render]
     [yang.python.antlr.safepoint :as hooks]
+    [yang.python.antlr.safepoint-programs :as programs]
     [yang.safepoint :as safepoint]
     [yin.vm :as vm]
     [yin.vm.encoder :as encoder]
@@ -699,3 +700,58 @@
                               "    n = bump(n)\n"
                               "print(i, n)\n")
                          [])))
+
+
+;; =============================================================================
+;; Safepoint slice 2: recursion
+;; =============================================================================
+
+(deftest recursion-error-is-a-builtin-test
+  (testing "with no hook prelude, RecursionError is a RuntimeError, so an
+            Exception (naive, and under no-op hooks)"
+    (every-vm= (prints "rt True")
+               (str "try:\n"
+                    "    raise RecursionError('deep')\n"
+                    "except RuntimeError as e:\n"
+                    "    print('rt', isinstance(e, Exception))\n"))))
+
+
+(deftest recursion-under-real-hooks-test
+  (testing "a to-the-limit countdown from parsed source ends in RecursionError
+            on every VM; the corpus's ordinary calls are untouched"
+    (every-vm-signalled= {:py/out ["3"],
+                          :py/exception {:type "RecursionError",
+                                         :args ["maximum recursion depth exceeded"]}}
+                         (str "def f(n):\n"
+                              "    return n if n == 0 else f(n - 1)\n"
+                              "def g(x):\n"
+                              "    return x + 1\n"
+                              "print(g(g(g(0))))\n"
+                              "f(1000)\n")
+                         [])))
+
+
+(deftest sys-is-refused-test
+  (testing "sys.setrecursionlimit and sys.settrace are not reachable: the
+            lowering refuses `import`, so neither runs silently"
+    (doseq [source ["import sys\nsys.setrecursionlimit(50)\n"
+                    "import sys\nsys.settrace(None)\n"]]
+      (is (= ["Unsupported Python construct: import"]
+             (map :message (:diagnostics (run-python (host-registry) source))))))))
+
+
+(defn- node-shape
+  [node]
+  (select-keys node [:id :kind :type :text :rule :children]))
+
+
+(deftest portable-packets-are-the-parsers-test
+  (testing "each packet in safepoint-programs is what the parser makes of
+            the source its docstring holds"
+    (doseq [v [#'programs/recursion #'programs/unwind #'programs/generators
+               #'programs/probe #'programs/admission #'programs/rebase
+               #'programs/throwclose #'programs/nested-admission
+               #'programs/delegation]]
+      (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
+             (map node-shape (:yang.cst/nodes @v)))
+          (str v)))))

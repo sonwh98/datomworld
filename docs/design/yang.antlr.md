@@ -1602,11 +1602,48 @@ The stage places hooks; the semantics are prelude code:
 
 Depth, handlers, and the current frame form one dynamic-context record
 in one cell, generalizing `py.rt/handlers`. An exception can unwind many
-frames, so an escape restores the whole record saved at capture, as
+frames, so an escape restores the record saved at capture (slice 2
+keeps the current `:base`, below), as
 `py/try` and `py/call-ec` already do for the handler stack; a thread
 switch swaps the whole record. Without that, thread B's raise would
 invoke thread A's handler. Hooks never test the continuation
 representation, so mob D7 does not affect them.
+
+Slice 2 implements this as `py.rt/ctx`, `{:handlers :depth :base
+:frame}` (`:frame` stays nil until tracing). Depth measures the current
+continuation: the absolute depth is `:base` plus `:depth`. `:base` is 0
+outside generators. Every crossing into a generator sets its `:base` to
+the resumer's absolute depth plus one for the generator's own frame. A
+later resume from a shallower frame therefore rebases the generator, as
+CPython counts it. Every crossing back restores the caller's record.
+Escapes restore activation-relatively: the record saved at capture comes
+back with the current `:base` kept, so only crossings rebase. A thread
+scheduled out keeps its whole record. The stage wraps the `:return` hook
+around the body of each `:call` site, applying it to the body's value,
+so it runs on normal exit only. With limit n, n nested Python calls run
+and the next raises `RecursionError`; the module body is not counted. A
+`:finally` frame records the depth it was pushed at, and its thunk runs
+at that depth. A generator start or resume is admitted only when the
+generator's frame fits: the base prelude compares the resumer's absolute
+depth plus one with the limit before writing anything, so a refusal
+raises `RecursionError` on the caller's stack and leaves the generator
+created or suspended and the caller's record unchanged. This holds even
+for a body that calls nothing between yields. The base prelude owns the
+dynamic-context record, the limit cell `py.rt/limit` (1000 by default)
+and admission at generator crossings, because the crossing is prelude
+code that no site mark reaches, and it enforces admission in every
+execution mode. The hook prelude owns counting function frames. Without
+recursion hooks the effective depth counts nested active generator
+frames only, which CPython also bounds; the recursion profile
+additionally counts ordinary Python function frames. Naive mode is
+therefore not complete CPython recursion accounting. The limit lives
+outside the
+escape-restored record, so a valid change survives escapes. A limit at
+or below the current absolute depth raises `RecursionError` and keeps
+the old limit.
+`sys.setrecursionlimit` is not reachable while the lowering refuses
+`import`; the hook prelude exposes `py.sp/set-recursion-limit!` to the
+composition.
 
 Composition and cost:
 

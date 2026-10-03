@@ -56,22 +56,47 @@
    `*args` and `**kwargs` from the function's static spec; every binding
    failure is a Python TypeError.
 
-   Runtime state is two cells, reached through the store (`yin/def` is
+   Runtime state is three cells, reached through the store (`yin/def` is
    reserved for the prelude and builtins):
-     py.rt/handlers  the handler stack: frames [kind payload rest depth];
-                     a :handler frame holds the continuation `raise`
-                     delivers to, a :finally frame a thunk every exit
-                     through it runs (raise passes the exception, escapes
-                     and normal completion pass None), a :generator frame
-                     the bottom of a running generator's own stack (raise
-                     passes it the exception); nil when empty
+     py.rt/ctx       the dynamic context, one record
+                     {:handlers :depth :base :frame}:
+                     :handlers  the handler stack: frames
+                                [kind payload rest n depth]; a :handler
+                                frame holds the continuation `raise`
+                                delivers to, a :finally frame a thunk every
+                                exit through it runs (raise passes the
+                                exception, escapes and normal completion
+                                pass None), a :generator frame the bottom
+                                of a running generator's own stack (raise
+                                passes it the exception); nil when empty
+                     :depth     the call depth within the current
+                                activation: the safepoint hook prelude
+                                counts it (RecursionError); the base
+                                prelude only saves and restores it
+                     :base      the absolute depth the activation runs
+                                on: 0 outside generators; every crossing
+                                into a generator sets it to the
+                                resumer's absolute depth plus one (the
+                                generator's own frame), so depth always
+                                measures the current continuation
+                     :frame     the current frame; nil, reserved for
+                                tracing
+     py.rt/limit     the recursion limit, 1000 by default; outside the
+                     escape-restored record, so a change persists. A
+                     generator start or resume is admitted only while its
+                     frame fits; the hook prelude checks function entry
+                     against it and sets it
      py.rt/out       the values `print` collected, one vector per call
 
    Escapes and handlers tell the first pass through a capture point from a
    re-entry with a flag cell allocated before the capture (`:first`, then
    `:re-entered`): heap writes survive continuation invocation, so the flag
    answers without inspecting the continuation's representation. An escape
-   unwinds to the depth it captured, running finally thunks on the way.
+   unwinds the handler stack to the frame it captured, running finally
+   thunks on the way, and restores the dynamic context saved at capture
+   with the current `:base` left alone: an exception may unwind many
+   calls, so the call depth is restored, never decremented, and it is
+   restored relative to the activation it runs in. Only crossings rebase.
 
    Integer `//`, `%`, `**`, bitwise operators and float floor have no
    portable host primitive; they are exact algorithms here over + - * <
@@ -132,71 +157,97 @@
     [py/function? (fn [x] (= (py/content-type x) :function))]
 
     ;; ---------------------------------------------------------- escapes
-    ;; The handler stack is a chain of frames [kind payload rest depth]:
-    ;; :handler frames hold the continuation `raise` delivers to, :finally
-    ;; frames hold a thunk of one argument (the exception, or None) that
-    ;; every exit through them runs. Depth makes "unwind to here" an integer
-    ;; comparison.
+    ;; The dynamic context is one record in one cell, {:handlers :depth
+    ;; :base :frame}: every capture point saves it and every escape
+    ;; restores it with the current :base left alone (`py/restore!`), so
+    ;; an escape inside a generator restores its depth relative to the
+    ;; activation it runs in; only crossings set :base. The handler stack
+    ;; is a chain of frames [kind payload rest n depth]: :handler frames
+    ;; hold the continuation `raise` delivers to, :finally frames hold a
+    ;; thunk of one argument (the exception, or None) that every exit
+    ;; through them runs. n, the frame count, makes "unwind to here" an
+    ;; integer comparison; depth is the (activation-relative) call depth
+    ;; the frame was pushed at, which its thunk runs at.
+    [py/ctx
+     (fn [handlers depth base frame]
+       (assoc (assoc (assoc (assoc {} :handlers handlers) :depth depth)
+                     :base base)
+              :frame frame))]
+    [py/abs-depth (fn [c] (+ (get c :base) (get c :depth)))]
+    [py/restore!
+     (fn [saved]
+       (cell/set! py.rt/ctx
+                  (assoc saved :base (get (cell/get py.rt/ctx) :base))))]
+    [py/handlers (fn [] (get (cell/get py.rt/ctx) :handlers))]
+    [py/set-handlers!
+     (fn [hs] (cell/set! py.rt/ctx (assoc (cell/get py.rt/ctx) :handlers hs)))]
     [py/frame-depth (fn [hs] (if (nil? hs) 0 (get hs 3)))]
     [py/frame
      (fn [kind payload rest]
-       (py/conj (py/conj (py/conj (py/conj [] kind) payload) rest)
-                (+ 1 (py/frame-depth rest))))]
+       (py/conj (py/conj (py/conj (py/conj (py/conj [] kind) payload) rest)
+                         (+ 1 (py/frame-depth rest)))
+                (get (cell/get py.rt/ctx) :depth)))]
+    [py/pop-frame
+     ;; the handler stack below frame hs, at the call depth hs was pushed at
+     (fn [hs]
+       (cell/set! py.rt/ctx
+                  (assoc (assoc (cell/get py.rt/ctx) :handlers (get hs 2))
+                         :depth (get hs 4))))]
     [py/raise
      (fn [e]
-       (let [hs (cell/get py.rt/handlers)]
+       (let [hs (py/handlers)]
          (if (nil? hs)
            (:py/no-handler e)
            (if (= (get hs 0) :finally)
-             (do (cell/set! py.rt/handlers (get hs 2))
+             (do (py/pop-frame hs)
                  ((get hs 1) e)
                  (py/raise e))
              ((get hs 1) e)))))]
     [py/unwind-to
-     ;; pop frames above depth d, running each finally thunk with None
-     (fn [d]
-       (let [hs (cell/get py.rt/handlers)]
+     ;; pop frames above frame count n, running each finally thunk with None
+     (fn [n]
+       (let [hs (py/handlers)]
          (if (nil? hs)
            :py/None
-           (if (<= (get hs 3) d)
+           (if (<= (get hs 3) n)
              :py/None
-             (do (cell/set! py.rt/handlers (get hs 2))
+             (do (py/pop-frame hs)
                  (if (= (get hs 0) :finally) ((get hs 1) :py/None) :py/None)
-                 (py/unwind-to d))))))]
+                 (py/unwind-to n))))))]
     [py/try
      (fn [body handler orelse]
-       (let [saved (cell/get py.rt/handlers)
+       (let [saved (cell/get py.rt/ctx)
              flag (cell/new :first)]
          ((fn [r]
             (if (= (cell/get flag) :first)
               (do (cell/set! flag :re-entered)
-                  (cell/set! py.rt/handlers (py/frame :handler r saved))
+                  (py/set-handlers! (py/frame :handler r (get saved :handlers)))
                   (body)
-                  (cell/set! py.rt/handlers saved)
+                  (py/restore! saved)
                   (orelse))
-              (do (cell/set! py.rt/handlers saved)
+              (do (py/restore! saved)
                   (handler r))))
           (%capture))))]
     [py/try-finally
      ;; normal exit runs `fin` here; raise and escapes run it as they
      ;; unwind through the :finally frame
      (fn [body fin]
-       (let [saved (cell/get py.rt/handlers)]
-         (do (cell/set! py.rt/handlers (py/frame :finally fin saved))
+       (let [saved (cell/get py.rt/ctx)]
+         (do (py/set-handlers! (py/frame :finally fin (get saved :handlers)))
              (let [v (body)]
-               (do (cell/set! py.rt/handlers saved)
+               (do (py/restore! saved)
                    (fin :py/None)
                    v)))))]
     [py/call-ec
      (fn [f]
-       (let [saved (cell/get py.rt/handlers)
+       (let [saved (cell/get py.rt/ctx)
              flag (cell/new :first)]
          ((fn [r]
             (if (= (cell/get flag) :first)
               (do (cell/set! flag :re-entered)
                   (f (fn [x]
-                       (do (py/unwind-to (py/frame-depth saved))
-                           (cell/set! py.rt/handlers saved)
+                       (do (py/unwind-to (py/frame-depth (get saved :handlers)))
+                           (py/restore! saved)
                            (r x)))))
               r))
           (%capture))))]
@@ -245,16 +296,23 @@
     ;; the content, so no slot outlives its state):
     ;;   :created    :body      (fn [g] ...), the function body
     ;;   :suspended  :resume    the continuation captured at the yield
-    ;;               :ctx       the generator's own handler stack
+    ;;               :ctx       the generator's own dynamic context
     ;;   :running    :return    the active switch's continuation
-    ;;               :caller-ctx the switching caller's handler stack
+    ;;               :caller-ctx the switching caller's dynamic context
     ;;   :closed     nothing
-    ;; The generator owns its handler stack, so every snapshot the C1 forms
-    ;; take inside the body is of that stack and resumes from any caller
-    ;; depth. `py/gen-switch` sends [:send v] or [:throw e] and answers
-    ;; [:yield v], [:return v] or [:raise e]; it never raises from the
-    ;; generator's side. Each crossing restores the receiving side's handler
-    ;; stack, then invokes the receiving continuation once.
+    ;; The generator owns its dynamic context (handler stack and its
+    ;; depth relative to :base), so every snapshot the C1 forms take inside
+    ;; the body is of that record and resumes from any caller depth. Every
+    ;; crossing in sets :base to the resumer's absolute depth plus one, the
+    ;; generator's own frame, so depth measures the current continuation;
+    ;; every way back restores the caller's record whole, so no depth leaks
+    ;; across the crossing in either direction. A start or resume whose
+    ;; generator frame would exceed `py.rt/limit` is refused with
+    ;; RecursionError before anything is written. `py/gen-switch` sends
+    ;; [:send v] or [:throw e] and answers [:yield v], [:return v] or
+    ;; [:raise e]; it never raises from the generator's side. Each crossing
+    ;; restores the receiving side's dynamic context, then invokes the
+    ;; receiving continuation once.
     [py/gen-content
      (fn [name state]
        (assoc (assoc (assoc {} :py/type :generator) :name name) :state state))]
@@ -276,33 +334,49 @@
                ;; the exception is the caller's
                (do (cell/set! g (py/gen-content (get c :name) :closed))
                    (py/outcome :raise (get msg 1)))
-               (let [flag (cell/new :first)]
-                 ((fn [r]
-                    (if (= (cell/get flag) :first)
-                      (do (cell/set! flag :re-entered)
-                          (cell/set! g (assoc (assoc (py/gen-content (get c :name) :running)
-                                                     :return r)
-                                              :caller-ctx (cell/get py.rt/handlers)))
-                          (if (= st :created)
-                            (py/gen-start g (get c :body))
-                            (do (cell/set! py.rt/handlers (get c :ctx))
-                                ((get c :resume) msg))))
-                      r))
-                  (%capture))))))))]
+               ;; admission: the generator's frame must fit under the limit,
+               ;; checked before anything is written, so a refusal raises on
+               ;; the caller's stack and leaves the generator as it was
+               (if (< (cell/get py.rt/limit)
+                      (+ 1 (py/abs-depth (cell/get py.rt/ctx))))
+                 (py/raise-new py.b/RecursionError
+                               {:py/str "maximum recursion depth exceeded"})
+                 (py/gen-enter g c st msg)))))))]
+    [py/gen-enter
+     ;; the crossing into a generator that start or resume admitted
+     (fn [g c st msg]
+       (let [flag (cell/new :first)]
+         ((fn [r]
+            (if (= (cell/get flag) :first)
+              (do (cell/set! flag :re-entered)
+                  (cell/set! g (assoc (assoc (py/gen-content (get c :name) :running)
+                                             :return r)
+                                      :caller-ctx (cell/get py.rt/ctx)))
+                  (if (= st :created)
+                    (py/gen-start g (get c :body))
+                    (do (cell/set! py.rt/ctx
+                                   (assoc (get c :ctx) :base (py/crossing-base g)))
+                        ((get c :resume) msg))))
+              r))
+          (%capture))))]
+    [py/crossing-base
+     ;; a running generator's :base: its resumer's absolute depth, plus one
+     ;; for the generator's own frame
+     (fn [g] (+ 1 (py/abs-depth (get (cell/get g) :caller-ctx))))]
     [py/gen-start
      ;; a fresh handler stack whose only frame is the boundary: an exception
      ;; no handler in the body catches reaches it and leaves the generator
      (fn [g body]
-       (do (cell/set! py.rt/handlers
-                      (py/frame :generator (fn [e] (py/gen-fail g e)) nil))
+       (do (cell/set! py.rt/ctx (py/ctx nil 0 (py/crossing-base g) nil))
+           (py/set-handlers! (py/frame :generator (fn [e] (py/gen-fail g e)) nil))
            (py/gen-exit g (py/outcome :return (body g)))))]
     [py/gen-exit
      ;; the single way out of a finishing generator: closed, the caller's
-     ;; handler stack back, the outcome delivered to the active switch
+     ;; dynamic context back, the outcome delivered to the active switch
      (fn [g outcome]
        (let [c (cell/get g)]
          (do (cell/set! g (py/gen-content (get c :name) :closed))
-             (cell/set! py.rt/handlers (get c :caller-ctx))
+             (cell/set! py.rt/ctx (get c :caller-ctx))
              ((get c :return) outcome))))]
     [py/gen-fail
      ;; PEP 479: a StopIteration escaping the body is a RuntimeError
@@ -322,8 +396,8 @@
                 (do (cell/set! flag :re-entered)
                     (cell/set! g (assoc (assoc (py/gen-content (get c :name) :suspended)
                                                :resume r)
-                                        :ctx (cell/get py.rt/handlers)))
-                    (cell/set! py.rt/handlers (get c :caller-ctx))
+                                        :ctx (cell/get py.rt/ctx)))
+                    (cell/set! py.rt/ctx (get c :caller-ctx))
                     ((get c :return) (py/outcome :yield v))))
               r))
           (%capture))))]
@@ -1955,7 +2029,7 @@
      ;; `globals` builtin, a function object returning that dict
      (fn [body]
        (do (cell/set! py.rt/out [])
-           (cell/set! py.rt/handlers nil)
+           (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
            (let [g (py/dict-new)
                  gf (py/make-function "globals" {:params [], :no-kw true} [] []
                                       (fn [args] g))
@@ -1988,6 +2062,10 @@
    ["NameError" 'py.b/NameError 'py.b/Exception]
    ["UnboundLocalError" 'py.b/UnboundLocalError 'py.b/NameError]
    ["RuntimeError" 'py.b/RuntimeError 'py.b/Exception]
+   ;; raised at a generator start or resume the limit refuses (here, in
+   ;; every mode) and by the safepoint hook prelude's depth accounting; a
+   ;; builtin like KeyboardInterrupt, under RuntimeError as in CPython
+   ["RecursionError" 'py.b/RecursionError 'py.b/RuntimeError]
    ["NotImplementedError" 'py.b/NotImplementedError 'py.b/RuntimeError]
    ["OverflowError" 'py.b/OverflowError 'py.b/ArithmeticError]
    ["StopIteration" 'py.b/StopIteration 'py.b/Exception]])
@@ -2080,10 +2158,12 @@
 
 
 (def ^:private state-definitions
-  "Definitions that allocate: the two runtime cells, the builtin classes
+  "Definitions that allocate: the three runtime cells, the builtin classes
    and the builtin functions. These are the only prelude forms that run at
    load."
-  (-> '[[py.rt/handlers (cell/new nil)]
+  (-> '[[py.rt/ctx (cell/new (py/ctx nil 0 0 nil))]
+        ;; CPython's default sys.getrecursionlimit()
+        [py.rt/limit (cell/new 1000)]
         [py.rt/out (cell/new [])]]
       (into (map (fn [[nm key base]]
                    [key (cond->> (list 'py/make-class nm (or base :py/None))

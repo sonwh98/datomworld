@@ -95,6 +95,49 @@
              out)))))
 
 
+(deftest exit-hook-wraps-the-body-test
+  (let [{:keys [envelope record]} (derived {:call 'h/call, :return 'h/return})
+        out (vm/semantic-bytecode->ast (tree envelope))]
+    (testing "at a :call site the :return hook takes the body's value, after
+              the entry hook; the old body is no longer a tail call, the
+              exit hook is"
+      (is (= {:type :lambda, :params '[w],
+              :body {:type :application,
+                     :operator {:type :lambda, :params ['yang.safepoint/_],
+                                :body {:type :application,
+                                       :operator {:type :variable,
+                                                  :name 'h/return},
+                                       :operands [{:type :application,
+                                                   :operator {:type :variable,
+                                                              :name 'w},
+                                                   :operands [{:type :variable,
+                                                               :name 'w}],
+                                                   :tail? false}],
+                                       :tail? true}},
+                     :operands [{:type :application,
+                                 :operator {:type :variable, :name 'h/call},
+                                 :operands [],
+                                 :tail? false}],
+                     :tail? true}}
+             (:operator out))))
+    (testing "the :loop site, whose kind the profile omits, is untouched"
+      (is (= (tails/strip-tails (first (:operands ast)))
+             (tails/strip-tails (first (:operands out))))))
+    (is (= (jing/segment-key [[[2] :call]])
+           (get-in record [:yin.ledger/profile :yang.safepoint/sites]))))
+  (testing "an exit kind alone selects its entry kind's sites"
+    (let [out (vm/semantic-bytecode->ast
+                (tree (:envelope (derived {:return 'h/return}))))]
+      (is (= {:type :application,
+              :operator {:type :variable, :name 'h/return},
+              :operands [{:type :application,
+                          :operator {:type :variable, :name 'w},
+                          :operands [{:type :variable, :name 'w}],
+                          :tail? false}],
+              :tail? true}
+             (:body (:operator out)))))))
+
+
 (deftest profile-selects-kinds-test
   (let [{:keys [envelope record]} (derived {:loop 'h/loop})
         out (vm/semantic-bytecode->ast (tree envelope))]

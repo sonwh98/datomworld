@@ -13,7 +13,9 @@
      selects sites; a kind it omits is not inserted.
    - Insertion prefixes the site's body with an ordinary `:application` of
      the hook, sequenced through a lambda whose one binder is `binder`, in a
-     reserved namespace: no new tag, no gensym counter.
+     reserved namespace: no new tag, no gensym counter. An exit kind
+     (`exit-kinds`: `:return` at `:call` sites) wraps the body instead: its
+     hook is applied to the body's value, so it runs on normal exit only.
    - Every tail mark is stripped and recomputed over the whole derived tree
      (`yang.tails`): a wrapped body's old tail calls would otherwise skip
      its wrapper. With no site selected `A'` is `A`, row for row.
@@ -66,11 +68,29 @@
   (vec (sort-by pr-str (map vec selected))))
 
 
+(def exit-kinds
+  "Exit kind -> the entry kind whose sites it wraps. An exit hook is applied
+   to the value of the site's body, so it runs after a normal exit and its
+   answer is the body's value; an escape out of the body skips it."
+  {:return :call})
+
+
+(defn- site-hooks
+  "`{:enter hook :exit hook}` (either absent) for a site of `kind` under
+   `profile`."
+  [profile kind]
+  (let [exit (some (fn [[x entry]] (when (= entry kind) (get profile x)))
+                   exit-kinds)]
+    (cond-> {}
+      (get profile kind) (assoc :enter (get profile kind))
+      exit (assoc :exit exit))))
+
+
 (defn- hook-application
-  [hook]
+  [hook operands]
   {:type :application,
    :operator {:type :variable, :name hook},
-   :operands []})
+   :operands operands})
 
 
 (defn- prefix-hook
@@ -79,12 +99,19 @@
   (assoc node
          :body {:type :application,
                 :operator {:type :lambda, :params [binder], :body (:body node)},
-                :operands [(hook-application hook)]}))
+                :operands [(hook-application hook [])]}))
+
+
+(defn- wrap-hook
+  "Lambda `node` with `hook` applied to its body's value."
+  [node hook]
+  (assoc node :body (hook-application hook [(:body node)])))
 
 
 (defn- rewrite
-  "The map AST `ast` with `hook` prefixed at every `{path hook}` site.
-   Throws when a site names no node, or a node that is not a lambda."
+  "The map AST `ast` with each `{path {:enter h :exit h}}` site's exit hook
+   wrapped around its body and its entry hook prefixed. Throws when a site
+   names no node, or a node that is not a lambda."
   [ast hooks]
   (let [seen (volatile! #{})]
     (letfn [(walk
@@ -104,13 +131,15 @@
                                  n)))
                            node
                            (map-indexed vector slots))]
-                (if-let [hook (get hooks path)]
+                (if-let [{:keys [enter exit]} (get hooks path)]
                   (do (when-not (= :lambda (:type node))
                         (throw (ex-info "Safepoint site is not a lambda"
                                         {:rule :site-not-lambda, :path path,
                                          :type (:type node)})))
                       (vswap! seen conj path)
-                      (prefix-hook node hook))
+                      (cond-> node
+                        exit (wrap-hook exit)
+                        enter (prefix-hook enter)))
                   node)))]
       (let [out (walk ast [])
             missing (remove @seen (keys hooks))]
@@ -122,15 +151,20 @@
 
 (defn insert
   "Pure: the canonical row set `tree` (`{:root id :rows {id row}}`) with
-   each of `sites` (`{path kind}`) whose kind `profile` (`{kind hook}`) maps
-   prefixed by its hook. Returns `{:tree A' :sites selected}`. With nothing
-   selected `A'` is `tree` itself."
+   each of `sites` (`{path kind}`) that `profile` (`{kind hook}`) maps a
+   hook to, by its kind or by an exit kind of it, rewritten: the entry hook
+   prefixed, the exit hook wrapped around the body. Returns
+   `{:tree A' :sites selected}`. With nothing selected `A'` is `tree`
+   itself."
   [tree sites profile]
   (let [hooks (into {}
                     (keep (fn [[path kind]]
-                            (when-let [hook (get profile kind)] [path hook])))
+                            (let [h (site-hooks profile kind)]
+                              (when (seq h) [path h]))))
                     sites)
-        selected (into {} (filter (fn [[_ kind]] (contains? profile kind))) sites)]
+        selected (into {}
+                       (filter (fn [[path _]] (contains? hooks path)))
+                       sites)]
     {:tree (if (empty? hooks)
              tree
              (vm/ast->semantic-bytecode

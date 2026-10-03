@@ -13,8 +13,10 @@
             [yang.python.antlr.lower-portable-test :refer [packet]]
             [yang.python.antlr.render :as render]
             [yang.python.antlr.safepoint :as hooks]
+            [yang.python.antlr.safepoint-programs :as programs]
             [yang.python.antlr.uast :as u]
             [yang.safepoint :as safepoint]
+            [yang.tails :as tails]
             [yin.vm :as vm]
             [yin.vm.data :as data]
             [yin.vm.debruijn-linearize :as dl]
@@ -474,6 +476,7 @@
                   (do (cell/set! py.sp/count n)
                       (if (= n py.sp/park-at) (stream/next! py.sp/cursor) :py/None))))]
              [py.sp/call (fn [] :py/None)]
+             [py.sp/return (fn [v] v)]
              [py.sp/count (cell/new 0)]
              [py.sp/cursor (stream/cursor py.sp/signals)]]))))
 
@@ -506,3 +509,249 @@
                       (is (true? blocked?) (str k))
                       (is (pos? d) (str k)))
                     (is (= shallow deep)))))))
+
+
+;; =============================================================================
+;; Recursion (slice 2): depth accounting at :call and :return
+;; =============================================================================
+
+(defn- derived-ast
+  [pk]
+  (vm/semantic-bytecode->ast (tree-of (:derived (derive* pk hooks/profile)))))
+
+
+(defn- with-run
+  "`A'`, which is `(then prelude run)`, with its run replaced by `(f run)`."
+  [a' f]
+  (tails/remark-tails (update-in a' [:operator :body] f)))
+
+
+(defn- hooked
+  "Every VM's outcome for `ast` under the real hook prelude."
+  [ast]
+  (on-every-vm (hooks/program hooks/uast ast) (with-signals []) outcome))
+
+
+(deftest recursion-error-test
+  (testing "the default limit, exactly: f(999) is 1000 frames and completes;
+            f(1000) raises RecursionError, caught by except RecursionError;
+            probe(1) finds the limit at 1000 frames"
+    (every= [true false {:py/out ["0" "rec" "1000"], :py/exception nil}]
+            (hooked (derived-ast programs/recursion)))))
+
+
+(defn- limited
+  "`A'` for `pk` run under recursion limit `n`, set before the module runs."
+  [pk n]
+  (with-run (derived-ast pk)
+    #(u/then (u/sexp->uast (list 'py.sp/set-recursion-limit! n)) %)))
+
+
+(deftest escape-restores-depth-test
+  (testing "under limit 100: a raise through 50 frames with finally restores
+            the depth saved at the catching try, so probe finds 100 frames
+            again, neither fewer (depth left high) nor more (depth left
+            low), and 89 from 11 frames down. A finally thunk runs at its
+            frame's depth: while a RecursionError unwinds, the finally of
+            each of frames 1..99 calls h() within the limit; only frame
+            100's call exceeds it"
+    (every= [true false {:py/out ["unwound" "100" "89" "100" "99" "100"],
+                         :py/exception nil}]
+            (hooked (limited programs/unwind 100)))))
+
+
+(deftest generator-depth-test
+  (testing "under limit 100, depth measures the current continuation. A
+            generator resumed 20 frames down runs on top of its resumer
+            (its own frame is the 21st), so probe inside finds 79; resumed
+            again from the top it is rebased to its new resumer, so probe
+            finds 99. Every crossing back restores the caller's record, so
+            probe at the top finds 100. gen2 is rebased from 21 to 1 between
+            its yields and then raises and catches within one activation:
+            the escape restores its snapshot relative to the current base,
+            so probe finds 99, not 79"
+    (every= [true false {:py/out ["79" "99" "100" "79" "100" "79" "99"
+                                  "100"],
+                         :py/exception nil}]
+            (hooked (limited programs/generators 100)))))
+
+
+(deftest generator-admission-test
+  (testing "under limit 100, starting or resuming a generator is admitted
+            only when its frame fits: the call-free generator g, reached
+            100 frames down, is refused at its start and later at a resume,
+            even though its body calls nothing. A refusal leaves it as it
+            was (created, then suspended) and the caller's depth whole: it
+            starts from 11 frames down (2), resumes from 99 frames down,
+            its frame the 100th (3), then from the top (4), and probe at
+            the top still finds 100"
+    (every= [true false {:py/out ["start refused" "2" "resume refused" "3" "4"
+                                  "100"],
+                         :py/exception nil}]
+            (hooked (limited programs/admission 100)))))
+
+
+(defn- with-limit-cell
+  "`ast` (`(then prelude run)`) with the base prelude's limit cell set to
+   `n` before the module runs: the one way to lower it with no hook
+   prelude loaded."
+  [ast n]
+  (with-run ast #(u/then (u/sexp->uast (list 'cell/set! 'py.rt/limit n)) %)))
+
+
+(deftest admission-in-every-mode-test
+  (testing "under limit 3, admission at generator crossings is the base
+            prelude's, so a naive run, a run under no-op hooks and a run
+            under the real hooks refuse the same crossing. next(via(2))
+            nests via(2), via(1), via(0) as active generators, so starting
+            t would make a 4th frame: refused, and the caller's try catches
+            it. t stays created and installs nothing: next(via(1)) starts it
+            at exactly the 3rd frame (1). Suspended, it is refused again
+            the same way and keeps its state: resumed from the top it
+            yields 2"
+    (let [expected [true false {:py/out ["refused" "1" "refused" "2"],
+                                :py/exception nil}]
+          pk programs/nested-admission]
+      (every= expected
+              (on-every-vm (with-limit-cell (tree-of (envelope pk)) 3)
+                           identity
+                           outcome))
+      (every= expected
+              (on-every-vm (hooks/program hooks/noop-uast
+                                          (with-limit-cell (derived-ast pk) 3))
+                           identity
+                           outcome))
+      (every= expected (hooked (with-limit-cell (derived-ast pk) 3))))))
+
+
+(deftest delegation-admission-test
+  (testing "under limit 100, through top -> mid -> leaf joined by yield
+            from, each active generator is one frame: from the top, probe
+            in leaf finds 97 (leaf is the 3rd frame), and from 20 frames
+            down 77. Resumed 100 frames down the chain is refused at top's
+            own admission, so every generator stays suspended and the next
+            resume from 20 frames down finds 77 again. throw and close are
+            refused at the limit the same way; from the top, throw reaches
+            leaf, whose finally runs at the 3rd frame (97) before
+            ValueError reaches the caller, and close likewise (97); probe at
+            the top finds 100"
+    (every= [true false {:py/out ["97" "77" "refused" "77" "throw refused" "97"
+                                  "thrown" "97" "close refused" "97" "100"],
+                         :py/exception nil}]
+            (hooked (limited programs/delegation 100)))))
+
+
+(deftest generator-rebase-test
+  (testing "under limit 100: resumed first from the top (99), then 20
+            frames down (79), then from the top again (99); an outer
+            generator resuming an inner one counts both frames, from the
+            top (98) and 20 frames down (78); a try entered 20 frames down
+            and left normally after a resume from the top restores the
+            current base (99, not 79); probe at the top finds 100"
+    (every= [true false {:py/out ["99" "79" "99" "98" "78" "79" "99" "100"],
+                         :py/exception nil}]
+            (hooked (limited programs/rebase 100)))))
+
+
+(deftest generator-throw-close-depth-test
+  (testing "under limit 100: a generator suspended 20 frames down (79) and
+            thrown into from the top runs its finally at the current base
+            (99) before the exception reaches the caller; close from the
+            top likewise (99); probe at the top finds 100"
+    (every= [true false {:py/out ["79" "99" "thrown" "79" "99" "100"],
+                         :py/exception nil}]
+            (hooked (limited programs/throwclose 100)))))
+
+
+(defn- run-module-form
+  "`(py/run-module (fn [g gf] body))`."
+  [body]
+  (list 'py/run-module (list 'fn '[g gf] body)))
+
+
+(deftest set-recursion-limit-test
+  (testing "a lower limit takes effect"
+    (every= [true false {:py/out ["50"], :py/exception nil}]
+            (hooked (limited programs/probe 50))))
+  (testing "the limit reads back: the default, then the one set"
+    (every= [true false {:py/out ["1000" "50"], :py/exception nil}]
+            (hooked
+              (with-run (derived-ast programs/probe)
+                (fn [_]
+                  (u/sexp->uast
+                    (run-module-form
+                      '(do (py/print (py/conj [] (py.sp/recursion-limit)))
+                           (py.sp/set-recursion-limit! 50)
+                           (py/print
+                             (py/conj [] (py.sp/recursion-limit)))))))))))
+  (testing "an invalid argument raises the Python error and keeps the limit"
+    (doseq [[arg error message]
+            [[0 "ValueError"
+              "recursion limit must be greater or equal than 1"]
+             [-3 "ValueError"
+              "recursion limit must be greater or equal than 1"]
+             [{:py/str "50"} "TypeError" "an integer is required"]
+             [:py/None "TypeError" "an integer is required"]]]
+      (every= [true false {:py/out ["1000"],
+                           :py/exception {:type error, :args [message]}}]
+              (hooked
+                (with-run (derived-ast programs/probe)
+                  (fn [_]
+                    (u/sexp->uast
+                      (run-module-form
+                        (list 'py/try
+                              (list 'fn []
+                                    (list 'py.sp/set-recursion-limit! arg))
+                              '(fn [e]
+                                 (do (py/print
+                                       (py/conj [] (py.sp/recursion-limit)))
+                                     (py/raise e)))
+                              '(fn [] :py/None))))))))))
+  (testing "a valid change persists across an escape: the limit is outside
+            the escape-restored record"
+    (every= [true false {:py/out ["50"], :py/exception nil}]
+            (hooked
+              (with-run (derived-ast programs/probe)
+                (fn [_]
+                  (u/sexp->uast
+                    (run-module-form
+                      '(py/try
+                         (fn []
+                           (do (py.sp/set-recursion-limit! 50)
+                               (py/raise-new py.b/ValueError {:py/str "x"})))
+                         (fn [e]
+                           (py/print (py/conj [] (py.sp/recursion-limit))))
+                         (fn [] :py/None)))))))))
+  (testing "at depth 5, a limit of 5 or below raises RecursionError and keeps
+            the old limit; 6 is accepted"
+    (doseq [[n expected]
+            [[5 {:py/out ["1000"],
+                 :py/exception
+                 {:type "RecursionError",
+                  :args ["cannot set the recursion limit: the limit is too low"]}}]
+             [3 {:py/out ["1000"],
+                 :py/exception
+                 {:type "RecursionError",
+                  :args ["cannot set the recursion limit: the limit is too low"]}}]
+             [6 {:py/out ["6"], :py/exception nil}]]]
+      (every= [true false expected]
+              (hooked
+                (with-run (derived-ast programs/probe)
+                  (fn [_]
+                    (u/sexp->uast
+                      (run-module-form
+                        (list 'do
+                              '(py.sp/call) '(py.sp/call) '(py.sp/call)
+                              '(py.sp/call) '(py.sp/call)
+                              (list 'py/try
+                                    (list 'fn []
+                                          (list 'py.sp/set-recursion-limit! n))
+                                    '(fn [e]
+                                       (do (py/print
+                                             (py/conj []
+                                                      (py.sp/recursion-limit)))
+                                           (py/raise e)))
+                                    '(fn []
+                                       (py/print
+                                         (py/conj []
+                                                  (py.sp/recursion-limit)))))))))))))))
