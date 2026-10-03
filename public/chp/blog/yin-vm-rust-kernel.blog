@@ -1,0 +1,33 @@
+#:blog{:title "The Register Image as the LLVM Integration Point"
+       :date #inst "2026-10-03T14:51:24.000-00:00"
+       :abstract [:p "How the structural properties of Yin.VM's de Bruijn register image unlock a purely node-local, data-driven native LLVM lowering."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+                   
+                   [:h2 "Four Properties for Native Compilation"]
+                   
+                   [:p "A Rust port of the register kernel exists as a design, and its register image is where LLVM attaches. The " [:code ":yin.debruijn.register/*"] " image provides the structural properties required for static single assignment lowering, which are enforced by the validator before execution:"]
+                   
+                   [:ul
+                    [:li [:strong "Fixed-size activations:"] " Each body declares its register count, and every operand is bounds-checked at load. LLVM gets a fixed-size activation where every register access is statically in-bounds with no runtime checks to emit."]
+                    [:li [:strong "Scoped control flow:"] " Jumps strictly stay inside their body, and bodies partition the program counters. For LLVM, this means one body is exactly one function, and its PCs are its basic blocks. There is no cross-function control flow to model."]
+                    [:li [:strong "Three-address code:"] " Operands are named registers rather than implicit stack pushes, which maps directly to three-address code. The compiler does not need to reconstruct stack effects."]
+                    [:li [:strong "Exact live sets:"] " Every continuation boundary carries an exact live set. This answers the hardest question for a native compiler of what to materialize where, providing the exact spill map at the boundary: which registers must be written back to data, and that the rest are dead."]]
+                   
+                   [:h2 "The Equivalence Law and Data Continuations"]
+                   
+                   [:p "Under the proposed design, native execution and interpretation reach equal machine states from any boundary. This equivalence law ensures that the introduction of LLVM does not create a new bytecode, a new identity, or a second continuation vocabulary."]
+                   
+                   [:p "Continuations remain pure data at every observable point. A Yin call is never an LLVM call. Every call returns to the driver, ensuring the native stack never holds a continuation at all. This maintains portable continuations that pause, travel across streams, and resume anywhere."]
+                   
+                   [:h2 "The Node-Local Worker"]
+                   
+                   [:p "LLVM is proposed as a downstream worker on the local node's stream. A translator walks the validated tuples to write textual LLVM IR, and a separate LLVM worker process generates the native object. Because interpretation creates semantics, LLVM is just another interpreter downstream of the image."]
+                   
+                   [:p "The worker is node-local because a receiver cannot validate a native artifact short of rebuilding it. A node runs only artifacts its own worker built from images its own validator admitted, so native artifacts never cross between nodes. What crosses is unchanged: images and continuations as data."]
+                   
+                   [:p "The expected performance gain of this native compilation is bounded and will be measured in a dedicated benchmark phase before any LLVM code is written. A node with no toolchain remains a complete node that interprets, the kernel never waits on the worker, and a native artifact can be dropped at any boundary without changing the outcome."]
+                   ]]]}
