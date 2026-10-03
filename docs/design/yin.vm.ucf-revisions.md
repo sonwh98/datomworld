@@ -317,11 +317,61 @@ untouched, so no image validity changes.
 ## 6. Pending amendments named but not landed
 
 - The stage-2 amendment of the post-M5 hardening (M-next B,
-  linker-dht 14.3 item 2) must publish `:yin.k/version 1`, and stage 1
-  (M-next A, the kept-cursor handoff of linker-dht 14.1, carried by
-  `yin.vm.ucf.handoff`) records here what that amendment must carry
-  beside its own custody fields (sequence/pending operation state,
-  fenced-envelope grammar, grant epoch binding, admission outcomes):
+  linker-dht 14.3 item 2) is PUBLISHED DESIGN, not implemented
+  version-1 support. Record, 2026-10-04:
+  - r5 published `:yin.k/version 1` in the UCF document: 7.2.1 (the
+    handoff body, the version gate, the custody header), 7.4.3
+    (explicit park, the complete install child, operation ids on
+    retained writes, required keys per variant), 7.7.8 (sequence
+    state, the fenced envelope, the grant epoch binding, admission),
+    7.9 (the `:yin.k/admission` family), and a ten-clause block in
+    7.11.1; linker-dht 14.2.2 and 14.3 point to it. Its
+    reconciliation of the 14.2.2 proposal against the UCF text and
+    the landed wire is in collab
+    `1791055853000-architect-ucf-v1-amendment-m-next-b` (findings).
+  - The second architect reviewed r5 adversarially: accept with
+    changes (collab `1791056670000-architect-ucf-v1-amendment-review`).
+  - r6 reconciled that review into the same sections and 7.2, 7.7.6:
+    inherited ids scoped to the granted checkpoint's carried
+    pendings on a single acyclic successor chain; one dedup
+    namespace per admission resource; authenticated outcomes;
+    uncertainty separated from terminal refusal; epoch exhaustion
+    precedence; root-only custody header and context-sensitive child
+    validation; the defective-envelope diagnostic; quarantine after
+    an authoritative intent conflict; enrollment as an authority
+    fact; occurrence-id invariants.
+  - The second architect confirmed r6 with changes (collab
+    `1791057600000-architect-ucf-v1-amendment-r6-confirm`), and r7
+    applied them in 7.4.3, 7.7.8 and 7.11.1: checkpoint
+    unavailability suspends an inherited id after the tenure check
+    and mutates nothing; snapshot variants preserve the operation
+    baseline; a live install entry's phase (`:running` or `:parked`)
+    no longer constrains the child's kind; the diagnostic defect set
+    is defined in full and its stream is composition-supplied;
+    unknown transport acceptance is neither commitment nor its
+    absence, and the retry replays a result already held.
+  - Carrier: uncommitted at the time of writing; the seat records
+    the commit when it lands.
+  - Not changed: code stamps "v3", "b2", "r2", the vector grammar,
+    module manifest schema 1, and cursor bytes. The amendment raises
+    the handoff body's own top-level `:yin.k/version`; the key of
+    that name inside the stamp stays 0. No image validity changes.
+  - Still pending: all implementation. `handoff-version` is 0.
+    M-next C, D, and E and every piece of version-1 evidence in UCF
+    7.11.1 and linker-dht 14.2.4 remain owed.
+  - Recorded separately, as version-0 defects of the landed stage-1
+    reader and not as version-1 gaps: (a) lower assigns an empty
+    wait set for a `:parked` body that also carries frames
+    (`handoff.cljc`, about line 1386); (b) `validate-body` does not
+    require an install entry for every `:install` pending (about
+    line 996). Each is a post-A fix owed a version-0 test,
+    optionally delivered in D (linker-dht 14.3). Neither reopens
+    stage 1's kept-cursor evidence nor reassigns the M4 gate.
+
+  Stage 1 (M-next A, the kept-cursor handoff of linker-dht 14.1,
+  carried by `yin.vm.ucf.handoff`) recorded here what the amendment
+  had to carry beside its own custody fields; r5 to r7 publish each
+  item:
   1. The handoff body envelope as wire fact: tag `:yin.k/handoff`,
      version, kind (`:blocked`, `:parked`, `:halted`), contract stamp,
      ordered frames of registers plus pending, the parked-record slice

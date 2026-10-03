@@ -34,6 +34,26 @@ contract stamp moves to "v3" because the resolution order refuses the
 reserved name before env and a `:define` transition is added (S7.3.3);
 `yin/def` leaves the primitive registry (S7.5.2) and the free-name set
 (S7.6.1); S7.11 records the remaining definition-frame obligations.
+Amended 2026-10-04 (r5) for fenced custody (`yin.vm.linker.dht.md` 14.3,
+M-next B): the handoff body is published as wire grammar, and
+`:yin.k/version 1` adds the custody header, the operation-sequence state,
+the fenced envelope, the grant epoch binding, and the admission outcomes
+(7.2.1, 7.4.3, 7.7.8, 7.9, 7.11.1). The amendment is published design:
+no version-1 code is landed and it closes no blocker.
+Revised 2026-10-04 (r6) after the second architect's adversarial review
+(collab `1791056670000-architect-ucf-v1-amendment-review`): inherited
+operation ids are scoped to the granted checkpoint's carried pendings,
+dedup is one namespace per admission resource, admission outcomes are
+authenticated, uncertainty is separated from terminal refusal, epoch
+exhaustion has a stated precedence, install children validate in their
+root's context, and defective envelopes yield a structured diagnostic.
+Revised 2026-10-04 (r7) on that architect's confirmation (collab
+`1791057600000-architect-ucf-v1-amendment-r6-confirm`): checkpoint
+unavailability suspends after the tenure check and mutates nothing,
+snapshot variants preserve the operation baseline, the install phase
+no longer constrains the child's kind, the defect set is defined in
+full, and unknown transport acceptance is neither commitment nor its
+absence.
 Subordinate to [`datom.world.md`](./datom.world.md); builds on the Phase 0
 contract in [`yin.vm.semantic.md`](./yin.vm.semantic.md) (§1–§4), the storage
 contract in [`dao.jing.md`](./dao.jing.md), the stream contract in
@@ -135,11 +155,163 @@ A halted computation travels as the sibling value:
 Both envelope kinds take their identity by the same rule: `:yin.k/id` is the
 `dao.jing` segment address of the map with `:yin.k/id` removed (§7.3.4).
 
-Outcomes of every UCF operation are data: one map dispatching on
-`:yin.k/status`, in the DaoStream result convention. Where an underlying
-stream outcome is involved, it is preserved unchanged under its own dispatch
-key `:dao.stream/outcome` — UCF never renames or nests it under a private
-key. The full algebra is in §7.9.
+Outcomes of every UCF lift or lower operation are data: one map
+dispatching on `:yin.k/status`, in the DaoStream result convention. Where
+an underlying stream outcome is met by a lift or a lower, it is preserved
+unchanged under its own dispatch key `:dao.stream/outcome`: for those
+direct failures UCF never renames it or nests it under a private key.
+Admission outcomes are a second, disjoint family with their own dispatch
+key. The full algebra is in 7.9.
+
+### 7.2.1 The handoff body: the task wire grammar, versions 0 and 1
+
+(Amendment r5, 2026-10-04; `yin.vm.linker.dht.md` 14.3 item 2.) The
+envelope above is the design shape. The value a driver publishes is the
+**handoff body**: one task, the whole blocked machine of 7.6.3, as one
+map in canonical CBOR (`dao.jing.cbor.md`) under its content address.
+Where the envelope sketch and this grammar differ, this grammar is the
+wire contract. A task has an ordered wait set, so the body carries
+ordered `:yin.k/frames`, never one `:yin.k/frame`. The scheduler slice of
+7.6.3 is flattened into top-level keys. Code travels as an address-keyed
+map. The body carries no `:yin.k/id`: its address is the hash of the body
+(7.3.4). A halt is a body of kind `:halted`, the `:yin.k/result` sibling.
+
+```clojure
+{:yin.k/handoff       true      ; the tag
+ :yin.k/version       0         ; the BODY's version: 0 or 1
+ :yin.k/kind          :blocked  ; :blocked | :parked | :halted
+ :yin.k/contract      {:yin.code/contract "v3" :yin.k/version 0}
+ :yin.k/id-counter    n         ; 7.6.3 fresh-name state
+ :yin.k/parked        {pid registers}      ; 7.6.3 parked records
+ :yin.k/store         {encoded encoded}    ; 7.6.2 isolated slice
+ :yin.k/module-stores {module {encoded encoded}}
+ :yin.k/cells         {cell {:yin.k/stream marker
+                             :yin.k/position p}}   ; 7.5.3
+ :yin.k/requires      {:yin.k/cursor-profiles #{profile}
+                       :yin.k/segments #{address}}
+ :yin.k/code          {address vector}     ; 7.3.4, each verified
+ ;; by kind
+ :yin.k/frames        [{:yin.k/registers registers
+                        :yin.k/pending pending}]   ; in wait order
+ :yin.k/parked-id     pid       ; :parked only: the active record
+ :yin.k/result        encoded   ; :halted only
+ ;; when the task holds live install children (7.4.3)
+ :yin.k/installs      {module install}}
+```
+
+`registers` is `{:yin.k/segment address :yin.k/pc n :yin.k/env {name
+encoded} :yin.k/stack [encoded] :yin.k/k [frame]}`, every key required,
+the segment a key of `:yin.k/code` and the pc inside that vector.
+`pending` is one variant of 7.4.3. Every value is in the 7.5 grammar.
+
+Shape rules, each a `:yin.k/undecodable` refusal naming its path:
+
+- `:blocked` requires nonempty frames. `:halted` requires
+  `:yin.k/result` and forbids frames. `:parked` requires
+  `:yin.k/parked-id` naming a key of `:yin.k/parked`. A `:yin.k/result`
+  on any other kind is refused.
+- Frames restore in their carried order, for `:blocked` and for
+  `:parked` alike; a resumer never drops a carried frame (7.4.3).
+- A frame's resume pc is a static safepoint whose kinds admit the
+  pending's reason; a parked record's resume pc is an `:explicit-park`
+  safepoint (`yin.vm.ucf-revisions.md` section 8).
+- The cells the body carries are exactly the cells its roots name:
+  none missing, none extra. A body with cells claims
+  `:dao.stream.remote/v1`, else `:yin.k/unsatisfied`.
+- Each code vector hashes to its key (`:yin.k/hash-mismatch`) and is
+  well formed under the stamp.
+
+Lift adds these kinds to the `:yin.k/non-portable` set of 7.5.4:
+`:incomplete-install`, `:install-response`, `:incomplete-write`,
+`:reason-mismatch`, `:inconsistent-halt`, `:unaddressed-segment`,
+`:address-mismatch`, and, under version 1, `:unprotected-pending` and
+`:op-seq-exhausted` (7.4.3).
+
+**Two version keys.** `:yin.k/version` at the top of the body is the
+body's own version and is what this amendment raises. The key of the
+same name inside `:yin.k/contract` belongs to the code stamp of 7.3.3.
+That stamp is compared whole and stays `{:yin.code/contract "v3"
+:yin.k/version 0}`: the amendment changes handoff data and composition
+admission, not opcode semantics, so code stamps "v3", "b2" and "r2" and
+module manifest schema 1 are unchanged, and cursor vectors keep their
+bytes.
+
+**The version gate.** A resumer decodes the bytes, checks the tag, and
+then checks the body version before any other rule. A version it does
+not speak, an absent version, or a version that is not an integer is
+`:yin.k/profile-mismatch`, carrying `:yin.k/version` as found and
+`:yin.k/supported`, the set the resumer speaks. The gate runs before
+the remaining grammar, before any code hash is verified, before any
+stream is attached, before any proposal is made, and before anything
+is restored. An install child's body carries the version of the body
+that holds it. Validate every nested body's version and structural
+role before attachment, proposal, or restoration; a supported but
+mixed-version tree is `:yin.k/undecodable`. The integer check is on
+the canonical codec's integer kind, never on numeric equality: an
+integral float such as `1.0` must not validate as a version on any
+host, Node included, where both would compare equal to 1. A reader
+that speaks only version 0 refuses a version-1 body by this gate and
+never reads it as fork data.
+
+**Version 0** is the grammar above and nothing more. It is a fork: it
+names no occurrence, proposes nothing, and runs through no fenced
+writer. A version-0 body stays valid under this contract and is never
+upgraded to fenced custody, by a resumer or by a carrier. A version-0
+reader ignores keys it does not know, so a custody key inside a
+version-0 body establishes nothing. A reader that speaks version 1
+keeps these fork semantics for a version-0 body exactly, and refuses
+a version-0 body as `:yin.k/profile-mismatch` when exclusive custody
+is required. Version 0 is fork only and version 1 is exclusive only.
+
+**Version 1** is the fenced-custody grammar. A version-1 root body of
+kind `:blocked` or `:parked` adds a custody header:
+
+```clojure
+{:yin.k/version     1
+ :yin.k/policy      :yin.k/exclusive
+ :yin.k/occurrence  O           ; the lease subject, 7.3.4 and 7.7.2
+ :yin.k/arbitration {:dao.stream/identity i
+                     :dao.stream/descriptor d}     ; 7.7.3
+ :yin.k/origin      {:yin.k/occurrence P           ; the predecessor
+                     :dao.lease/lease L            ; the grant it ran in
+                     :yin.k/emitter a}             ; absent on first park
+ :yin.k/next-op-seq n}          ; 7.7.8
+```
+
+The header belongs to the **root** body alone. Validation is
+context-sensitive: the root is validated as a root, and each nested
+install child is validated as a child, with the root's occurrence,
+origin, and counter passed down to it. Header rules, each
+`:yin.k/undecodable` naming its path:
+
+- On a root of kind `:blocked` or `:parked`, `:yin.k/policy`,
+  `:yin.k/occurrence`, `:yin.k/arbitration` and `:yin.k/next-op-seq`
+  are required. The policy is exactly `:yin.k/exclusive`: version 1
+  has no fork form, and fork uses version 0.
+- `:yin.k/occurrence` is plain data in the canonical bytes domain,
+  never nil, compared by its canonical bytes. It is stable across
+  every publication retry and every restart of the emitter, distinct
+  for distinct parks, and collision-resistant or made unique by the
+  authority. The authority rejects a conflicting reuse: an offer of a
+  known occurrence for a different park establishes nothing. The
+  concrete form is fixed by M-next C, within these invariants.
+- `:yin.k/origin` is absent on a first export and required on every
+  successor root. Its occurrence differs from the body's own.
+- `:yin.k/next-op-seq` is an exact integer of 7.7.8. It is 0 on a
+  first export: that checkpoint is the recorded operation baseline.
+- A root of kind `:halted` carries `:yin.k/origin` and none of the
+  other header keys: a result is not a lease subject, and nothing
+  remains to admit.
+- An install child of any kind, halted included, carries none of the
+  header keys, the origin among them. A child is part of its root's
+  task, not a custody subject: its effects are admitted under the
+  root's occurrence and drawn from the root's sequence, and its
+  carried operation ids are checked against the root's origin and
+  counter (7.4.3).
+
+No body carries an epoch. A body is minted before any grant and its
+bytes do not change on reclaim; the epoch is learned only from the
+grant binding of 7.7.8.
 
 ## §7.3 Code identity — content-addressed semantic profiles (blocker 5)
 
@@ -692,6 +864,158 @@ is restored until the install reaches `linked` or `refused`: `linked`
 restores every waiter with the required module's symbol as its value,
 `refused` with the refusal as the effect's error. On `gap` the honest
 outcome is a `gap`, and the composition's policy decides.
+
+**Amendment r5: the shapes left open, and the keys on the wire.**
+(2026-10-04; `yin.vm.linker.dht.md` 14.3 item 2. The first two rules
+hold for both body versions of 7.2.1; operation ids are version 1.)
+
+*Explicit park is the no-wait shape.* `:park` raises no wait entry, so
+it has no frame and no pending. The parked record travels in
+`:yin.k/parked` under its own id as a `registers` map, a body of kind
+`:parked` names the active record by `:yin.k/parked-id`, and the
+resumer re-creates the record. That explicitly parked activation
+waits on nothing; the task may still hold other waits, and every
+frame the body carries beside the record is restored as an ordered
+wait (7.2.1). `:park` is therefore not a wire reason. Neither is
+`:call-effect`: an effectful
+call carries the variant of the effect it was observed to produce
+(`:next`, `:put`, `:ffi`, `:ffi-request`, a link variant, or
+`:install`), by the ruling in `yin.vm.ucf-revisions.md` section 8. A
+pending whose reason is `:park` or `:call-effect`, or any reason
+outside the variants here, is `:yin.k/undecodable`. This supersedes
+those two entries of the reason comment in 7.4.1.
+
+*The published `:install` variant is not complete alone.* The variant
+above names a module and nothing else. The install it waits on is a
+child task on the emitter's scheduler (`yin.vm.linker.md` 7.3): a
+verified image, a phase, a store, and waits of its own. None of that
+is in the name. A resumer handed only the name can do one of two
+things, and both are wrong: wait forever on a child nobody runs, or
+request the link again, which is a second effect the parked task
+never made. That is the **name-only install sketch**, and it must
+never be exported as task state. The complete shape is the pending
+together with the body's install entry for the same name:
+
+```clojure
+;; the waiter's pending: unchanged, never sufficient alone
+{:yin.k/reason :install
+ :yin.k/name   'foo}
+
+;; the body's entry for that name (7.2.1)
+:yin.k/installs
+{'foo {:yin.k/phase    :running   ; the child's phase (linker 7.3)
+       :yin.k/parent   [:t0 7]    ; the link id that spawned it
+       :yin.k/response {...}      ; the verified link response
+       :yin.k/child    {...}}}    ; the child's whole handoff body
+```
+
+- The response is what a foreign resumer spawns its own fresh child
+  from, and what the child's exports are validated against at halt.
+  It is carried verbatim and must be in the canonical bytes domain,
+  else lift refuses `:yin.k/non-portable`, kind `:install-response`.
+- A response is verified by the resumer, not trusted because it
+  decodes. Its manifest names the module the entry is keyed by, its
+  link id equals `:yin.k/parent`, and its image and manifest pass the
+  checks the linker applied at delivery (`yin.vm.linker.md` sections
+  5 and 9): the image is well formed, hashes to the address it is
+  delivered under, and is the image the manifest names. A failure is
+  `:yin.k/undecodable` naming the entry's response.
+- A live install entry carries phase `:running` or `:parked`. Its
+  child independently satisfies the handoff grammar and the
+  quiescence requirements, with kind `:blocked`, `:parked`, or
+  `:halted`. The phase records scheduler progress; it does not
+  substitute for validation of the child's actual machine state,
+  and no phase requires or forbids a kind: a `:running` phase with
+  a blocked child is valid. A runnable, non-quiescent child refuses
+  export. Lower preserves both fields, and the scheduler continues
+  from the restored child without rerunning initialization. Other
+  install phases are not exportable live-child entries, and any
+  other phase value is `:yin.k/undecodable`. No stricter relation
+  between phase and kind is introduced until a scheduler
+  normalization invariant is specified and proved; M-next D tests
+  every combination of the two phases and three kinds, explicit
+  park included.
+- The resumer restores the child's carried state into the fresh
+  child before the scheduler may step it. The fresh child is a
+  template for the receiver's coordinates only: it does not run the
+  module's initialization again, and nothing replays the link
+  request.
+- The child is a whole body of 7.2.1 in the version of its holder,
+  with its own frames, parked records, stores, cells, code, and
+  nested installs. It is validated by the same grammar in the child
+  role, recursively and with its root's context (7.2.1), before
+  anything of the parent is restored.
+- Every live child travels, waited on or not, and no child steps
+  while its task is exporting (7.7.4). A child that cannot be
+  exported refuses the parent's export with the child's own outcome;
+  a child that cannot be lowered refuses the parent's lower. No
+  parent is published or restored over a child that did not cross.
+- An `:install` pending whose name has no entry refuses the lift as
+  `:yin.k/non-portable`, kind `:incomplete-install`, before
+  publication; a body carrying such a pending is
+  `:yin.k/undecodable`. An obligation a carried child will bind on
+  completion is discharged by that child, not reported missing.
+- The waiter list is not carried. The waiters of a child are exactly
+  the frames whose `:install` pending names it, in frame order.
+- `:yin.k/phase` and `:yin.k/parent` are required under version 1.
+  A version-0 entry without a phase reads as `:running`.
+- The entry-for-every-pending rule and the frames-restore rule hold
+  for version 0 as well. The landed version-0 reader breaches both;
+  the fixes are recorded as defects in `yin.vm.linker.dht.md` 14.3.
+
+*Operation ids ride on retained writes (version 1).* Three variants
+retain a write that may already have been attempted: `:put`,
+`:ffi-request`, and `:link-request`. Each gains one optional key:
+
+```clojure
+:yin.k/op-id {:yin.k/occurrence P :yin.k/seq n}   ; 7.7.8
+```
+
+- The id is present exactly when the write was first attempted
+  through a fenced writer. It was assigned once, before that first
+  attempt, and is carried verbatim through park, lift, transfer,
+  lower, and every retry. Lift never assigns or renumbers an id, and
+  lower never mints one for a carried pending.
+- `P` is the occurrence whose grant the assigning holder ran under.
+  A body is minted at the park that ends that run, so `P` is never
+  the body's own occurrence: it is the origin's or an earlier link
+  of the same chain. A body with no `:yin.k/origin` carries no id.
+- Every carried `:yin.k/seq` is below the root's
+  `:yin.k/next-op-seq`, and no two pendings of one task, children
+  included, share an id.
+- An id on any other variant, a malformed id, or a breach of the two
+  rules above is `:yin.k/undecodable`.
+- The retry appends the retained value through the resumer's fenced
+  writer under the carried id, with the resumer's own lease and
+  epoch. It is never a bare append, and the wait advances only on
+  the admission outcome correlated to that id (7.9).
+- A retained write without an id is a write to a stream that was
+  not enrolled when it was attempted. Enrollment is read from the
+  arbitration medium (7.7.8), by both ends. If the resumer finds
+  that stream enrolled, or cannot fence a stream whose pending
+  carries an id, the lower refuses `:yin.k/unsatisfied` naming the
+  stream. Protection is neither added to an attempted write nor
+  dropped from one.
+- A first exclusive export of a task whose retained write targets
+  an enrolled stream refuses the lift as `:yin.k/non-portable`, kind
+  `:unprotected-pending`: an operation attempted without an id
+  cannot be made exactly-once afterwards.
+
+*Required keys per variant, as the handoff body carries them.* Where
+an example above differs, this list is the wire contract:
+
+- `:next`: `:yin.k/cell`.
+- `:ffi`: `:yin.k/cell`, `:yin.k/call-id`; `:yin.k/op` optional. The
+  response stream is the cell's own stream marker.
+- `:put`: `:yin.k/stream` (a stream marker), `:yin.k/value`.
+- `:ffi-request`: `:yin.k/call-id`, `:yin.k/request-envelope` (the
+  request, retried verbatim), `:yin.k/request`, `:yin.k/response`,
+  `:yin.k/response-cell`; `:yin.k/request-op` and
+  `:yin.k/request-args` are optional restatements of the envelope.
+- `:link-request` and `:link-response`: `:yin.k/link-id`,
+  `:yin.k/name`, `:yin.k/request`, `:yin.k/response`, `:yin.k/cell`;
+  `:link-request` also `:yin.k/envelope`.
+- `:install`: `:yin.k/name`, and the install entry above.
 
 ## §7.5 Recursive portable encoding (blocker 2)
 
@@ -1423,6 +1747,8 @@ wrong thing. Fencing is opt-in per stream; the resource enforces it.
 No callback tells a lapsed holder to stop; it stops at
 its own lease bound (`dao.lease.md`, *The holder*), and what it did past
 the bound is distinguishable after the fact by epoch and op-id.
+Section 7.7.8 publishes the envelope's grammar, which adds the epoch to
+the keys named here, and the sequence state behind the operation id.
 
 **Durable completion of a checkpoint.** Publication of a successor is not
 completion. The holder's exit sequence is: append the successor value to
@@ -1471,6 +1797,11 @@ re-offer of an earlier link; effects past that link need compensation, not
 recomputation (`streams-all-the-way-down.md` §6.4) — and §7.7.5's op-ids
 are what compensation reads to find what was done.
 
+(Amendment r6.) The rollback above is not an automatic transition. A
+closed occurrence never regains tenure and receives no further grant
+(7.7.8). Re-offering an earlier link, and compensating for effects
+past it, is a governance act outside automatic successor admission.
+
 ### 7.7.7 Restart
 
 A grantor that lost its ledger reclaims and re-grants (`dao.lease.md`,
@@ -1480,6 +1811,308 @@ occurrence ledgers it transacts; its recoverable holder for each is the
 `:dao.lease/holder` of the last grant, both of which are facts on (or the
 recoverable state of) the space it possesses. Both are queries, which is
 why custody lives on a `dao.space` and not on the carrier stream.
+
+### 7.7.8 Fenced custody, version 1: sequence, envelope, epoch binding
+
+(Amendment r5, 2026-10-04; `yin.vm.linker.dht.md` 14.3 item 2.) This
+section publishes the grammar that 7.7.5 argues for. The reasons stay
+in 7.7.5; the runtime, ledger, and step contract stay in
+`yin.vm.linker.dht.md` 14.2. Nothing here adds a key to the lease
+vocabulary or to a DaoStream outcome map. Every rule applies to
+version-1 bodies only (7.2.1).
+
+**Exact integers.** `:yin.k/epoch`, `:yin.k/seq` and
+`:yin.k/next-op-seq` are nonnegative exact integers no greater than
+2^52-1 (4503599627370495), the bound within which every host compares
+and increments exactly (`dao.lease.md`, *Keys*, uses the same one).
+The kind is the canonical codec's integer kind: a float is not an
+integer even when it is integral. A value outside the range or of
+another kind makes its carrier defective: a body is
+`:yin.k/undecodable`, an envelope or a binding establishes nothing.
+No counter wraps, saturates silently, or restarts.
+
+**Operation sequence state.** A task under a grant holds one counter,
+`:yin.k/next-op-seq`, on its root. Install children draw from it.
+
+1. *Assign.* Before the first attempt of a write to an enrolled
+   stream, the fenced writer takes `n`, the counter's value, forms
+   the id `{:yin.k/occurrence P :yin.k/seq n}` with `P` the
+   occurrence its grant names, stores the id on the wait entry, and
+   sets the counter to `n+1`. The three happen as one step over the
+   machine value, before any append.
+2. *Retain.* The id stays on the entry while the write is unfinished:
+   a `full` path, an append of unknown effect, an acceptance with no
+   admission outcome yet, or a `:suspended` outcome. A retry reuses
+   the id and never takes another.
+3. *Carry.* At a park the id travels in the pending (7.4.3) and the
+   counter in the header (7.2.1). The successor's counter is the
+   holder's counter at that park, so the sequence continues along
+   the chain and never restarts at a new occurrence.
+4. *Restore.* Lower sets the fresh task's counter to the carried
+   value exactly. There is no local value to take a maximum with:
+   the receiving task is new (contrast `:yin.k/id-counter`, 7.6.3).
+5. *Regrant.* A holder granted the same checkpoint again starts from
+   the same bytes, so from the same counter and the same carried
+   ids. Re-executed writes take the same sequence numbers in the
+   same order as long as its inputs replay; where they do not, the
+   intent comparison below catches the divergence.
+6. *Exhaust.* The largest assignable sequence is 2^52-2. A counter
+   equal to 2^52-1 is exhausted: the writer assigns nothing and
+   appends nothing, the write stays an undischarged wait, and a lift
+   of that task refuses `:yin.k/non-portable`, kind
+   `:op-seq-exhausted`. Recovery is outside this protocol.
+
+**The fenced envelope.** A fenced writer wraps each value it appends
+toward an enrolled consumer:
+
+```clojure
+{:yin.k/envelope    :yin.k/fenced-v1   ; dispatch key; closed
+ :yin.k/incarnation L                  ; the writer's :dao.lease/lease
+ :yin.k/epoch       e                  ; from L's grant binding
+ :yin.k/op-id       {:yin.k/occurrence P :yin.k/seq n}
+ :yin.k/value       v}                 ; the program value, verbatim
+```
+
+- All five keys are required. `:yin.k/op-id` has exactly its two
+  keys. A consumer ignores other qualified keys, and they are never
+  part of intent. An envelope that fails these rules, or dispatches
+  on a value other than `:yin.k/fenced-v1`, is defective (below).
+- **Inside program data: only `:yin.k/value`.** It is the value the
+  program wrote, unchanged and uninterpreted. A program value that
+  looks like an envelope is payload: it is wrapped like any other
+  and never read as one.
+- **Outside program data: everything else.** The envelope exists
+  between the fenced writer and the enrolled boundary and nowhere
+  else. It is never in a frame, an environment, a store, or a body;
+  a pending carries the retained value and the id beside it, and
+  the writer rebuilds the envelope at each retry from the id and
+  its current binding. What the consumer's commit makes visible
+  downstream is the consumer's contract; UCF requires only that the
+  payload it commits is `:yin.k/value`.
+- The envelope names no target, no effect kind, and no intent. The
+  consumer takes the target identity and the effect kind from the
+  boundary the envelope arrived at, and computes intent itself.
+- The envelope carries no credential. The holder is authenticated
+  by the attribution the composition supplies (`dao.lease.md`,
+  *Composition duties*). An envelope whose attributed author is not
+  the holder that the binding of `L` names is a fact about that
+  author: it is defective.
+
+**Defective envelopes.** A defective envelope commits no effect and
+creates no dedup record. It yields no admission outcome: an outcome
+would be attributed to the holder its fields claim, and those fields
+are exactly what cannot be trusted. The consumer instead appends one
+structured diagnostic to the diagnostic stream the composition
+supplies:
+
+```clojure
+{:yin.k/diagnostic :yin.k/defective-envelope
+ :yin.k/defect     :malformed       ; closed, below
+ :yin.k/target     i                ; the boundary's stream identity
+ :yin.k/author     a                ; resolved attribution, if any
+ :yin.k/claimed    {...}}           ; readable envelope fields
+```
+
+- The closed defect set is `:malformed` for invalid envelope
+  structure, unsupported envelope dispatch or version, invalid
+  numeric fields, or intent that cannot be canonically encoded;
+  `:unbound-lease` when no valid binding establishes the claimed
+  incarnation; `:wrong-author` when attribution is absent, invalid,
+  or does not identify the bound holder; and `:foreign-op-id` when
+  authoritative scope validation fails.
+- Enrollment belongs to the target boundary, while a writer's
+  authorization comes from attribution and binding. There is no
+  "unenrolled writer" defect: an unenrolled boundary cannot run
+  this admission protocol or claim its guarantee, so it produces
+  neither outcomes nor these diagnostics.
+- Readers dispatch on the `:yin.k/diagnostic` key, never on the
+  presence of an id. The diagnostic adds nothing to a lease fact or
+  to a DaoStream outcome map.
+- The composition supplies the diagnostic stream explicitly.
+  Failure or backpressure while publishing a diagnostic never
+  permits the rejected effect or creates an admission outcome;
+  diagnostic publication failure remains an explicit driver
+  outcome.
+- `:yin.k/claimed` holds whichever of `:yin.k/incarnation`,
+  `:yin.k/epoch` and `:yin.k/op-id` could be read, as claims. They
+  are nested so that no reader correlating on a top-level op id can
+  take the diagnostic for an answer. The payload is never echoed.
+- The map carries neither `:yin.k/admission` nor `:yin.k/status`. A
+  driver discharges nothing and ends nothing on a diagnostic.
+
+**Intent.** Intent is the vector `[effect-kind target-identity
+payload]`: the keyword naming the boundary's operation, the target's
+`:dao.stream/identity`, and the envelope's `:yin.k/value`. This
+amendment enrolls one effect kind, `:yin.k/append`, a stream append;
+every write the reference machine retains is one. Two intents are
+equal when their canonical bytes are equal. FFI and link correlation
+ids are inside the payload and are compared with it; they are not
+operation ids.
+
+**The grant epoch binding.** The grantor publishes one more custody
+fact (7.7.2), authored by itself:
+
+```clojure
+{:yin.k/custody    :yin.k/bound
+ :yin.k/occurrence O
+ :dao.lease/lease  L
+ :dao.lease/holder H
+ :yin.k/epoch      e}
+```
+
+- The lease fact is unchanged. The binding is a separate fact, so a
+  lease judge, which switches on the lease keys, ignores it.
+- Unlike the offer and the resumed report, the binding is authority,
+  because the grantor authors it. It is valid only when its
+  attributed author is the transactor of the space the body's
+  `:yin.k/arbitration` names; when it was admitted in the same
+  transaction as a `:dao.lease/accepted` fact with the same lease,
+  the same holder, and the subject `{:yin.k/occurrence O}`; and when
+  it is the only binding for `L`. Any other binding establishes
+  nothing, and a grant on an occurrence with no valid binding
+  confers no fenced tenure.
+- A reader needs authenticated evidence that the grant and the
+  binding share one transaction of that authority: a transaction
+  identity within the named authority's provenance domain,
+  attributed to it. Equal `t` values read off arbitrary media prove
+  nothing. M-next C supplies the evidence and shows that a remote
+  reflection preserves it; a medium that cannot supply it cannot
+  offer `:yin.k/exclusive`.
+- **How a reader learns the epoch.** Only from a valid binding. A
+  holder reads it beside its grant before it activates, and stamps
+  it into its envelopes. A consumer reads the authority's current
+  state inside its admission transition. An epoch a holder
+  advertises, in an envelope or anywhere else, is a claim to be
+  checked, never a source.
+- **The counter.** Each occurrence has one epoch in its ledger
+  (7.7.3). It is 0 when the occurrence is first admitted. Every
+  reclaim of a lease on the occurrence, whatever its cause, raises
+  it by exactly one in the transaction that records the
+  `:dao.lease/lapsed` fact, before any new grant. A grant binds the
+  epoch current at that grant, so the first grant binds 0 and the
+  grant after `k` reclaims binds `k`. A successor is a new
+  occurrence and starts at 0.
+- **Restart.** The epoch never decreases, is never reset, and is
+  never reused. A grantor that restarts recovers the epoch from its
+  durable ledger and reclaims, which raises it, before it grants
+  (7.7.7). A grantor that cannot recover the epoch grants nothing
+  for that occurrence: 7.7.7's reclaim-and-regrant presumes the
+  epoch survived. A new authority never starts an old occurrence at
+  0. Recovery from lost epoch or dedup state is governance, outside
+  this protocol (7.7.5).
+- **Exhaustion.** Epoch 2^52-1 is usable until a reclaim would
+  increment it: a grant bound at that value is valid, and its
+  holder's effects are admitted like any other's. That reclaim ends
+  the tenure, leaves the epoch unchanged, and permanently exhausts
+  the occurrence. Thereafter admission returns `:suspended` before
+  tenure checking, and no effect commits. Exhaustion is derived
+  from the ledger: a lapse recorded for the lease bound at 2^52-1.
+  An exhausted tenure cannot produce an eligible exclusive
+  successor: the authority accepts no completion and grants nothing
+  for the occurrence. Carrier bytes may remain as history, but a
+  publication cannot reopen custody.
+- **Why a binding.** A remote holder cannot infer authoritative
+  tenure from what it observes: `:dao.lease/lapsed` does not cross
+  to it (`dao.lease.md`, *Carriage*), and its view of the ledger is
+  partial. The binding publishes the grant's authoritative epoch.
+
+**Admission.** An enrolled consumer admits each well-formed envelope
+by one atomic transition against the authority's admission resource
+(7.7.5). The checks run in this order and the first to fail decides
+the outcome (7.9):
+
+1. *Authority.* The authority the consumer is enrolled with must be
+   readable. If it is unreachable, if its ledger for the occurrence
+   that `L` is bound to is not recoverable, or if that occurrence
+   is exhausted, the outcome is `:suspended`. An occurrence
+   quarantined after an intent conflict (below) answers the same.
+2. *Binding.* `L` has a valid binding, and the envelope's attributed
+   author is the holder it names. Otherwise the envelope is
+   defective: a diagnostic, and no outcome.
+3. *Tenure.* The bound occurrence is open, `L` is its active lease,
+   and `e` equals its current epoch, else `:stale`. Staleness is
+   decided before the dedup record is consulted: a stale envelope is
+   refused even when a record for its id exists.
+4. *Scope.* An operation assigned during the current occurrence
+   names that occurrence. An inherited operation must occur among
+   the retained pending operations of the authoritative checkpoint
+   granted to the holder, including its install children, and its
+   occurrence must be an ancestor through authoritative completion
+   records. Membership is derived from the accepted checkpoint, the
+   body the authority admitted for the granted occurrence; no
+   ancestry index and no pending-id index is stored. An id that
+   fails is defective, `:foreign-op-id`. For an inherited id, if
+   the authoritative checkpoint cannot be read and verified,
+   admission answers `:suspended` without changing tenure,
+   quarantine, or dedup state. Unavailable evidence is not evidence
+   of an invalid id, and this suspension comes after the tenure
+   check, so a stale holder is still answered `:stale`. The
+   checkpoint is selected by the authority's accepted record, never
+   by an envelope-supplied location. Current-occurrence ids require
+   no inherited-membership lookup. Keeping the accepted checkpoint
+   readable is a durability duty of the composition.
+5. *Dedup.* With a record for the id: equal intent answers
+   `:replayed` with the recorded result and commits nothing;
+   different intent answers `:intent-conflict` and commits nothing.
+   With no record: the effect, its result, and the record
+   `{op-id -> {intent result}}` commit together, and the outcome is
+   `:committed`.
+
+**Results and uncertainty.** The recorded result is the effect's
+definitive outcome, as plain data; for a stream append it is the
+target's DaoStream outcome map, unchanged. A terminal refusal is a
+result, recorded and replayed unchanged, but only when the atomic
+admission boundary itself establishes it. An outcome that leaves the
+effect unknown, such as a `:dao.stream/transport-error` from a
+transport whose failures are not declared clean, is not a result.
+Unknown transport acceptance establishes neither commitment nor
+absence of commitment. The writer retains the id and retries through
+the fenced admission boundary. The authority may already hold a
+committed result, which the retry must replay. An external effect
+whose uncertainty cannot be reconciled within that atomic boundary
+is outside this guarantee. Backpressure, by contrast, is no
+commitment: it is the writer path's own `:dao.stream/full`, and
+nothing was appended.
+
+**Snapshot variants.** Snapshot variants of one occurrence must
+preserve its operation baseline: the root next-operation sequence
+and the mapping of retained operation ids to canonical intents,
+including child operations. Equal id sets alone are not enough: a
+variant could keep an id and substitute its payload. The authority
+refuses a conflicting variant; an unavailable comparison suspends
+variant admission.
+
+**One dedup namespace.** The dedup records form one logical namespace
+per arbitration admission resource, across every enrolled target that
+takes part in the guarantee, keyed by the operation id alone. Target
+identity is part of the intent, never of the key. So a replay that
+diverges and sends an id to another target meets the first target's
+record and answers `:intent-conflict`. A consumer that cannot join
+that atomic resource keeps no private table in its place: it cannot
+claim the cross-target guarantee, and its stream is not enrolled.
+
+**Enrollment.** That a target stream is enrolled is an attributed
+fact of the authority on the arbitration medium, keyed by the target
+stream's identity. No body carries it. M-next C defines its schema
+and ensures that a change of enrollment cannot alter the protection
+of an operation already retained under an id.
+
+**Completion and the successor chain.** Completion (7.7.5) establishes
+a single acyclic chain. The authority accepts at most one successor
+per predecessor and one predecessor per successor. The successor's
+occurrence is fresh, its `:yin.k/origin` names the predecessor and
+the lease that ran it, and its `:yin.k/arbitration` identity is the
+predecessor's, unchanged. Only that accepted completion is an edge:
+a published successor or a resumed report the authority did not
+accept is an orphan, and no ancestry runs through it. A closed
+occurrence receives no further grant.
+
+**Quarantine.** An intent conflict that the authority itself
+established, in an authenticated admission, quarantines the
+occurrence: it stays open, is never regranted automatically, and its
+admissions answer `:suspended`. Recovery or compensation is a
+governance decision outside this protocol. An unauthenticated claim
+of a conflict quarantines nothing.
 
 ## §7.8 Lifecycle: lift on park, lower on resume
 
@@ -1545,8 +2178,10 @@ system.
 
 ## §7.9 Outcome algebra
 
-Every UCF operation returns one map dispatching on `:yin.k/status`; the set
-is closed and every non-`ok` outcome carries the data needed to act on it.
+Every UCF lift or lower operation returns one map dispatching on
+`:yin.k/status`; the set is closed and every non-`ok` outcome carries
+the data needed to act on it. Admission outcomes (below) are the second
+family, disjoint from this one.
 
 | `:yin.k/status` | Raised by | Carries |
 |---|---|---|
@@ -1571,6 +2206,80 @@ reference machine's versioned envelope, `dao.stream.apply` —
 deleted v1 `dao.stream.apply` vocabulary. Every lower failure names its
 cleanup obligation: before custody, none; after custody, release
 (§7.8 step 7).
+
+**Amendment r5: version-1 refusals use the statuses above.** The
+amendment adds no `:yin.k/status` value; the set stays closed.
+
+- An unsupported, absent, or non-integer body version is
+  `:yin.k/profile-mismatch`, carrying `:yin.k/version` as found and
+  `:yin.k/supported`; it is raised before restoration and before
+  every other check but the bytes and the tag (7.2.1).
+- A malformed custody header, operation id, or install entry is
+  `:yin.k/undecodable` with its path (7.2.1, 7.4.3).
+- Lift refuses `:yin.k/non-portable` with kind `:incomplete-install`,
+  `:unprotected-pending`, or `:op-seq-exhausted` (7.4.3, 7.7.8).
+- A stream whose protection the resumer cannot match is
+  `:yin.k/unsatisfied` naming the stream (7.4.3).
+- A grant observed without a valid epoch binding is
+  `:yin.k/not-holder`, carrying the lease state observed; the
+  resumer releases the lease, as after any failure past custody.
+
+**Amendment r5: admission outcomes.** The outcome of an enrolled
+consumer's admission (7.7.8) is data that the consumer appends to the
+composition stream the holder's driver reads. It is one map
+dispatching on a second key, `:yin.k/admission`. It is not a
+`:yin.k/status`, not a `:yin.k/kind`, and not a link refusal: it
+reports what a consumer did with one effect, where a status reports
+what a lift or a lower did with a value. The two families are
+disjoint and their keys never appear in one map. A DaoStream map
+inside `:yin.k/effect-result` is a recorded historical result, so
+the rule against nesting a stream outcome, which governs direct lift
+and lower failures, does not reach it. The set is closed, with
+exactly these five values:
+
+| `:yin.k/admission` | Meaning | Also carries |
+|---|---|---|
+| `:committed` | committed now, once | `:yin.k/effect-result` |
+| `:replayed` | committed before; nothing new | `:yin.k/effect-result` |
+| `:stale` | tenure is not current | `:yin.k/observed-epoch` |
+| `:intent-conflict` | same id, other intent | both intents |
+| `:suspended` | authority cannot decide | `:yin.k/arbitration` |
+
+- Every outcome carries `:yin.k/op-id`, the id of the envelope it
+  answers, and echoes that envelope's `:yin.k/incarnation`. A driver
+  correlates on the pair, so an outcome answering another holder's
+  retry of the same id is not mistaken for its own.
+- Correlation alone is insufficient. An outcome counts only when it
+  is authenticated: attributed, by the composition's resolver, to
+  the enrolled consumer or admission authority for that target. An
+  outcome from any other author is a fact about that author; the
+  driver discharges nothing and ends nothing on it.
+- `:yin.k/effect-result` is the recorded result of 7.7.8, the same
+  data on the first answer and on every replay. A DaoStream outcome
+  inside it is the map the target produced, with no key added,
+  removed, or renamed.
+- `:stale` carries `:yin.k/observed-epoch`, the occurrence's current
+  epoch; `:yin.k/observed-lease`, its active lease, when one exists;
+  and `:yin.k/closed true` when the occurrence is closed.
+- `:intent-conflict` carries `:yin.k/recorded-intent` and
+  `:yin.k/observed-intent`, each an intent vector of 7.7.8.
+- `:suspended` carries `:yin.k/arbitration`, naming the authority
+  that could not be read or could not decide, as a body names it
+  (7.2.1). It also answers for an exhausted or quarantined
+  occurrence, where retry cannot succeed without governance.
+- A defective envelope has no admission outcome; its structured
+  diagnostic is in 7.7.8.
+- Only `:committed` and `:replayed` discharge a wait, and the
+  effect's resume value comes from their recorded result as 7.4.1
+  states for the variant. `:suspended` leaves the wait undischarged
+  and the id retained; the driver retries the same envelope.
+  `:stale` and `:intent-conflict` leave the wait undischarged and
+  end the run: the driver emits nothing further through its fenced
+  writers and publishes no successor. After an intent conflict the
+  occurrence is quarantined (7.7.8).
+- A duplicate outcome for a wait already discharged is skipped, as
+  a duplicate link response is (7.4.3). Outcomes are compared as
+  data on every host, never as text.
 
 ## §7.10 Invariant compliance
 
@@ -1854,3 +2563,137 @@ claim that all five blockers have closed.
   parked records and fresh-name state, and all missing-dependency modes
   close in post-M5 hardening. M2 format records verify link payloads;
   they do not prove the task's transitive runtime closure.
+
+**Fenced custody, version 1 (7.2.1, 7.4.3, 7.7.8, 7.9; amendment r5).**
+
+This block adds obligations; it changes no row above. The safepoint
+and portable-encoding rows keep their M4 kept-cursor and reflection
+gate with its meaning and its evidence as written. The stage-1
+handoff tests that landed with M-next A (80b59233,
+`test/yin/vm/ucf/handoff_test.cljc`) are recorded by
+`yin.vm.linker.dht.md` 14.1.3 and by `yin.vm.ucf-revisions.md` I-5;
+they are not moved here and nothing below relies on them as custody
+evidence. The ownership row keeps its own contract; the rows below
+are the wire-level clauses that row's tests must also exercise.
+
+- Invariant: A version-1 body, envelope, binding, and admission
+  outcome mean the same on JVM, Node, and Dart, and every breach of
+  their grammar is a data outcome before a machine is restored or an
+  effect is committed.
+- What M-next B claims: the grammar is published. It lands no code,
+  passes no test, and closes no row. `handoff-version` is still 0.
+- How each clause is tested on three hosts: by canonical byte
+  fixtures decoded on each host, so a rule about integer kind or key
+  presence is checked on the bytes and not on a host number type;
+  and by the ordered host pairs of `yin.vm.linker.dht.md` 14.1.1
+  where a value crosses. Outcomes are compared as data.
+
+Clauses, with the stage that owes the evidence
+(`yin.vm.linker.dht.md` 14.3):
+
+1. Version gate (7.2.1). Fixtures: version 2, absent, a float `1.0`,
+   a version-0 child in a version-1 root. Assert
+   `:yin.k/profile-mismatch` with the found and supported versions,
+   or `:yin.k/undecodable` for the mixed tree, with zero attach
+   calls, zero proposals, and no machine: recursive validation has
+   no side effect. The integral float is refused on Node as on the
+   others. A version-0-only reader refuses a version-1 body. A
+   version-0 body still lowers as a fork on a reader that speaks
+   both; a composition requiring exclusive refuses it. Stage: D.
+2. Custody header (7.2.1). Fixtures omit each required key, give a
+   fork policy, a nil occurrence, an origin equal to the body's
+   occurrence, and header keys other than the origin on a halted
+   root. Root and embedded child are distinguished: any header key
+   on a child, a halted child with an origin included, is refused,
+   and a halted child without one validates. Assert
+   `:yin.k/undecodable` with the path. Stage: D.
+3. Sequence state (7.7.8). Assign-before-append, one increment,
+   retention across `full`, unknown effect, and `:suspended`; the
+   counter restored exactly; children drawing from the root.
+   Stage: D for assignment and restoration; C for durable input
+   replay; E for crash and regrant through the composition.
+4. Carried ids (7.4.3, 7.7.8). An id crosses park, bytes, and lower
+   unchanged on `:put`, `:ffi-request`, and `:link-request`, and the
+   retry is fenced. Fixtures: an id on `:next`, a sequence at or
+   above the counter, a duplicate id, an id in a body without an
+   origin, an id naming the body's own occurrence. Assert
+   `:yin.k/undecodable`. Protection mismatch in each direction is
+   `:yin.k/unsatisfied` naming the stream; a first exclusive export
+   over an attempted write is `:unprotected-pending`. Stage: D for
+   these structural checks. Stage: C for authoritative membership
+   and ancestry: an ancestor id the granted checkpoint never
+   carried is refused, a carried one is admitted, a child's carried
+   id counts, and an orphan successor gives no ancestry.
+5. Explicit park and install completeness (7.4.3), both versions.
+   A `:park` or `:call-effect` reason and an `:install` pending
+   without its entry refuse at decode; a `:parked` body's frames
+   restore in order; a response that fails verification and a phase
+   outside `:running` and `:parked` refuse; each of the two phases
+   crosses with each child kind `:blocked`, `:parked` and `:halted`,
+   a `:running` phase over a blocked child and an explicitly parked
+   child included, and lower preserves both fields; a runnable
+   child refuses export; a restored child continues from its saved
+   state without rerunning initialization or replaying the link
+   request. Version 1 adds: phase and parent required, and a
+   child's carried ids checked in the root's context. The two
+   version-0 defects of `yin.vm.linker.dht.md` 14.3 are fixed with
+   version-0 tests. Stage: D.
+6. Envelope (7.7.8). Fixtures drop each key, change the dispatch
+   value, give a wrong author, an unbound lease, and a foreign id,
+   and nest an envelope-shaped program value. Assert each defective
+   form commits nothing, records nothing, and yields the structured
+   diagnostic with its defect and provenance and no admission
+   outcome; absent attribution is `:wrong-author` and an intent
+   that cannot be canonically encoded is `:malformed`; a failed or
+   backpressured diagnostic append admits nothing and is itself a
+   driver outcome; the nested value arrives as payload; no envelope key
+   appears in any body. Stage: C for the consumer, D for the writer.
+7. Epoch binding (7.7.8). First grant binds 0; each reclaim raises
+   the epoch by one in the lapse's transaction; a successor starts
+   at 0. A binding by another author, without authenticated
+   common-transaction evidence, duplicated for one lease, or with a
+   float epoch establishes nothing. Reopen the ledger and assert
+   the epoch is recovered and raised, never reset. Stage: C for the
+   authority facts and their atomic provenance, including through a
+   remote reflection; D for the holder, which answers
+   `:yin.k/not-holder` and releases on an invalid binding.
+8. Admission order and outcomes (7.7.8, 7.9). One fixture per check
+   in order: unreadable authority, wrong author, stale epoch, stale
+   lease, closed occurrence, a foreign id, an inherited id from a
+   closed ancestor, equal intent, different intent, fresh commit.
+   Add a cross-target conflict: one id sent to a second enrolled
+   target answers `:intent-conflict` from the shared namespace and
+   quarantines the occurrence. Add forged outcomes: a `:committed`
+   and an `:intent-conflict` from an unattributed author discharge
+   nothing and quarantine nothing. Add an unknown-effect transport
+   error, cut both before and after the remote commit: the id is
+   retained, the retry goes through the fenced boundary, and it
+   commits once or replays the result already held. Add an
+   unreadable accepted checkpoint: an inherited id answers
+   `:suspended` with tenure, quarantine, and dedup state unchanged,
+   and a stale holder still answers `:stale`. Add a snapshot
+   variant that keeps an id and changes its intent or the root
+   counter: the authority refuses it. Assert the exact
+   outcome map of 7.9 for each and that stale wins over an existing
+   record. Stage: C for the consumer, D for the driver.
+9. Bounds (7.7.8). A counter at 2^52-1 assigns nothing and refuses
+   export. An epoch at 2^52-1 is tested twice: while valid, its
+   grant activates and its effects commit; after the reclaim that
+   would increment it, the lapse is recorded, nothing is granted,
+   no successor is eligible, and admission answers `:suspended`
+   before tenure. The values 2^52 and -1 are refused on the bytes.
+   Stage: C for the epoch, D for the sequence.
+10. Composition (linker 14.2.4). The crash, partition, reclaim, and
+    successor-completion contracts run through the wired handoff
+    composition on both host matrices, with crash cuts around
+    completion and around result delivery. Stage: E.
+
+Canonical fixtures prove grammar parity. They do not prove
+atomicity, attribution, or recovery; those need the durable
+transactional seam of `yin.vm.linker.dht.md` 14.2.4.
+
+Not claimed by this amendment, and still owed by the ownership row:
+exclusive custody itself, atomic admission, crash recovery, input
+replay, and the `yin.repl.core` handoff composition. Governance
+recovery, after quarantine, exhaustion, or lost authority state,
+stays outside the automatic protocol.

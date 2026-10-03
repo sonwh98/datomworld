@@ -3171,8 +3171,12 @@ monotone counter advanced atomically on reclaim, never reused after
 restart. Initial epoch is zero; grants bind to the current epoch. Regrant
 follows reclaim, and closed occurrences cannot receive another grant.
 
-An enrolled consumer owns durable records keyed by
-`{:yin.k/occurrence O :yin.k/seq n}` containing canonical intent and result.
+The arbitration admission resource owns durable dedup records keyed by
+`{:yin.k/occurrence O :yin.k/seq n}` containing canonical intent and result:
+one logical namespace across every enrolled target taking part in the
+guarantee, not a table per consumer (UCF 7.7.8). Target identity is in
+the intent, not the key. A consumer that cannot join that atomic
+resource cannot claim the cross-target guarantee.
 Intent is the canonical data vector `[effect-kind target-identity payload]`,
 computed from the actual operation, never accepted from a holder-supplied
 hash alone. Correlation ids in FFI/link envelopes are part of payload and
@@ -3184,31 +3188,46 @@ restarts from its carried sequence; a successor carries the next sequence.
 Durable input records preserve read outcomes, correlation results, gap
 successors, and their ordering for deterministic recovery of that interval.
 
-The following is a proposed UCF amendment for M-next, not an existing
-version-0 field. Publish it before implementation accepts it:
+The wire grammar for this contract is published as the UCF version-1
+amendment (M-next B) and is not restated here:
 
-```clojure
-;; in the continuation's :yin.k/scheduler
-:yin.k/next-op-seq 0
-;; in a retained effect's :yin.k/pending, when already assigned
-:yin.k/op-id {:yin.k/occurrence O :yin.k/seq n}
+- UCF 7.2.1: the handoff body, its `:yin.k/version`, the version gate,
+  and the custody header. `:yin.k/next-op-seq` is a top-level header
+  key beside `:yin.k/id-counter`, because the handoff body flattens
+  the scheduler slice.
+- UCF 7.4.3: `:yin.k/op-id {:yin.k/occurrence P :yin.k/seq n}` on a
+  retained write's pending, the explicit-park shape, and the complete
+  install child.
+- UCF 7.7.8: the sequence state, the `:yin.k/fenced-v1` envelope, the
+  grant epoch binding (`:yin.k/custody :yin.k/bound`), the admission
+  check order, and the 2^52-1 bound with its overflow behavior.
+- UCF 7.9: the closed `:yin.k/admission` outcomes.
 
-;; composition's protected writer envelope, outside program data
-{:yin.k/envelope :yin.k/fenced-v1
- :yin.k/incarnation lease-id
- :yin.k/epoch e
- :yin.k/op-id {:yin.k/occurrence O :yin.k/seq n}
- :yin.k/value payload}
+Implementation accepts only what those sections publish. These points
+were settled there (r5, revised r6 and r7) and bind this section:
 
-;; the enrolled consumer's admission outcome, appended to the
-;; composition stream; closed dispatch key, exactly these values,
-;; each carrying its op id (carries as 14.2.3 states):
-;;   :committed :replayed :stale :intent-conflict :suspended
-
-;; epoch and op-id sequence are nonnegative portable exact
-;; integers bounded by 2^52-1; overflow suspends admission and
-;; export and never wraps
-```
+- A carried id names the occurrence it was assigned under. Admission
+  checks tenure on the envelope's lease binding. An inherited id must
+  be among the retained pendings of the checkpoint granted to the
+  holder, children included, with its occurrence an ancestor through
+  authoritative completion records. Completion forms one acyclic
+  successor chain; an orphan report is not an edge.
+- An outcome echoes the envelope's incarnation beside its op id, and
+  counts only when attributed to the enrolled consumer or admission
+  authority for the target.
+- A defective envelope commits nothing and yields a structured
+  diagnostic, never an admission outcome.
+- A terminal refusal is recorded only when the atomic boundary
+  establishes it. Unknown transport acceptance establishes neither
+  commitment nor its absence: the writer retains the id and retries
+  through the fenced boundary, which replays a result already held.
+- Snapshot variants of one occurrence preserve its operation
+  baseline; an unreadable accepted checkpoint suspends an inherited
+  id's admission and changes no tenure, quarantine, or dedup state.
+- An authoritative intent conflict quarantines the occurrence: no
+  automatic regrant.
+- Enrollment is an attributed authority fact on the arbitration
+  medium, keyed by target stream identity; M-next C defines it.
 
 The authority publishes an attributed grant binding containing occurrence,
 lease, holder, and `:yin.k/epoch`, alongside the unchanged DaoLease fact.
@@ -3219,7 +3238,12 @@ effect kind come from the enrolled operation's boundary. Credentials are
 composition resources, never raw host objects inside UCF program values.
 
 Epoch and sequence are nonnegative portable exact integers bounded by
-2^52-1. Overflow suspends admission/export; neither wraps. A new authority
+2^52-1. Neither wraps, and the two exhaust differently (UCF 7.7.8). An
+exhausted sequence assigns no id, appends nothing, and refuses export.
+An epoch at the bound stays usable until a reclaim would increment it;
+that reclaim ends tenure and permanently exhausts the occurrence, after
+which admission answers `:suspended` and no successor is eligible.
+A new authority
 cannot restart an old occurrence at zero. Loss of recoverable epoch/dedup
 state requires fail-stop governance recovery, not automatic exclusive
 regrant. Input and dedup records stay durable while any replay is allowed;
@@ -3270,7 +3294,8 @@ collection requires authoritative closure and permanent replay rejection.
    cannot be repaired by reading carrier history.
 
 Consumer admission outcomes are composition stream data, not new UCF
-statuses or link refusals. For M-next their closed dispatch key is
+statuses or link refusals; UCF 7.9 publishes their grammar and the
+keys each carries. For M-next their closed dispatch key is
 `:yin.k/admission`, with values `:committed`, `:replayed`, `:stale`,
 `:intent-conflict`, and `:suspended`. Each carries op id; committed/replayed
 carry the recorded result. Stale carries observed epoch/lease state,
@@ -3340,6 +3365,11 @@ stubs. Also run the ordered cross-host candidate pairs of 14.1.1.
    is absent, amend UCF 7.4.3 first; never export the name-only install
    sketch as complete task state. Update 7.11's evidence pointers without
    reopening or silently reassigning the existing M4 kept-cursor gate.
+   Published 2026-10-04 as UCF amendment r5: 7.2.1, 7.4.3, 7.7.8, 7.9,
+   and the version-1 block of 7.11.1. Both 7.4.3 shapes were absent
+   from the UCF text and are amended there. This is a document
+   change: it lands no code and closes no gate. Revised as r6 after
+   the second architect's review and as r7 on its confirmation.
 3. M-next C implements durable authority transactions, attribution,
    reclaim epochs, op-id/intent/result records, input replay, and completion
    eligibility. Prove atomicity and reopen tests before enabling enrolled
@@ -3354,9 +3384,31 @@ stubs. Also run the ordered cross-host candidate pairs of 14.1.1.
    consumers pass their gates. Record per-host results and any unsupported
    composition; do not claim full UCF closure from milestone completion.
 
+Status: M-next A is landed (80b59233). M-next B is the published
+amendment above. M-next C, D, and E remain, and with them every test
+contract of 14.2.4; nothing here claims full UCF closure.
+
+Two version-0 defects in the landed handoff were found while writing
+the amendment. They are post-A defect fixes, each owed a version-0
+test, and may be delivered with M-next D. They are preservation and
+validation defects of the version-0 reader, not version-1 gaps. They
+do not reopen M-next A's kept-cursor evidence and do not move or
+reassign the M4 gate.
+
+- Lower assigns an empty wait set for a `:parked` body that also
+  carries frames, so those waits are lost (`handoff.cljc`,
+  `resume-task`, about line 1386). Required: restore them in order
+  (UCF 7.2.1).
+- `validate-body` validates the install entries present but does not
+  require an entry for every `:install` pending (about line 996), so
+  a foreign body bypasses the check that lift makes. Required:
+  refuse `:yin.k/undecodable` (UCF 7.4.3).
+
 Sequence/pending fields change the accepted UCF envelope grammar: publish
 `:yin.k/version 1` for this amendment and refuse unsupported versions with
-profile-mismatch before restoration. Version 0 remains usable under its
+profile-mismatch before restoration (published: UCF 7.2.1; the version
+raised is the handoff body's own top-level key, not the code stamp's).
+Version 0 remains usable under its
 published contract for fork; it is not silently upgraded to fenced custody.
 Code stamps v3/b2/r2 and module manifest schema 1 stay unchanged because
 this amendment changes handoff data and composition admission, not opcode
