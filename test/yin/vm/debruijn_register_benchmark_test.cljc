@@ -25,10 +25,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.parity-test :as parity]
             [yin.vm.test-utils :as tu])
-  #?(:cljd (:import ["dart:core" DateTime])
-     :clj (:import [java.io File]
-                   [jdk.jfr Configuration Recording]
-                   [jdk.jfr.consumer RecordingFile])))
+  #?(:cljd (:import ["dart:core" DateTime])))
 
 
 ;; =============================================================================
@@ -323,94 +320,3 @@
             (is (not (neg? (:lower-ms m))))
             (is (not (neg? (:load-ms m)))))))
       (report! result))))
-
-
-;; =============================================================================
-;; JFR Profiling (JVM only)
-;; =============================================================================
-
-#?(:clj
-   (defn run-with-jfr!
-     "Runs `f` inside an active Java Flight Recorder recording using the
-      specified configuration (defaulting to 'profile', falling back to
-      'default'). Dumps the recording to `target/jfr/<name>.jfr` and returns
-      the File."
-     ([recording-name f]
-      (run-with-jfr! recording-name "profile" f))
-     ([recording-name config-name f]
-      (let [config (try (Configuration/getConfiguration config-name)
-                        (catch Throwable _
-                          (Configuration/getConfiguration "default")))
-            rec (doto (Recording. config)
-                  (.setName (str "yin-vm-" recording-name))
-                  (.start))]
-        (let [file (File. (str "target/jfr/" recording-name ".jfr"))]
-          (try
-            (f)
-            (finally
-              (.stop rec)
-              (.. file getParentFile mkdirs)
-              (.dump rec (.toPath file))
-              (.close rec)))
-          file)))))
-
-
-#?(:clj
-   (defn summarize-jfr
-     "Reads a `.jfr` file and counts total events, CPU execution samples,
-      and object allocation events."
-     [^File jfr-file]
-     (with-open [rf (RecordingFile. (.toPath jfr-file))]
-       (loop [events 0, allocs 0, samples 0]
-         (if (.hasMoreEvents rf)
-           (let [event (.readEvent rf)
-                 name (.. event getEventType getName)]
-             (recur (inc events)
-                    (if (.contains name "Allocation") (inc allocs) allocs)
-                    (if (.contains name "ExecutionSample")
-                      (inc samples)
-                      samples)))
-           {:jfr-file (.getPath jfr-file),
-            :total-events events,
-            :execution-samples samples,
-            :allocation-events allocs})))))
-
-
-(deftest jfr-benchmark-profiling-test
-  #?(:cljd (is true "JFR is JVM-only")
-     :cljs (is true "JFR is JVM-only")
-     :clj
-     (testing "JFR captures execution profiles for Stack and Register VMs"
-       (let [countdown-ast (tail-countdown-ast 2000)
-             resolved (resolve/resolve (vm/ast->datoms countdown-ast))
-             stack-img (:image (linearize/lower-stack resolved))
-             reg-img (:image (register-compile/lower-register resolved))
-             run-stack (fn []
-                         (dotimes [_ 20]
-                           (vm/run (dvm/create-vm stack-img
-                                                  (assoc vm-opts :contract
-                                                         vm/stack-contract)))))
-             stack-file (run-with-jfr! "stack-vm-countdown" run-stack)
-             stack-sum (summarize-jfr stack-file)
-             run-reg (fn []
-                       (dotimes [_ 20]
-                         (vm/run (rvm/create-vm reg-img
-                                                (assoc vm-opts :contract
-                                                       vm/register-contract)))))
-             reg-file (run-with-jfr! "register-vm-countdown" run-reg)
-             reg-sum (summarize-jfr reg-file)]
-         (is (.exists stack-file))
-         (is (.exists reg-file))
-         (is (pos? (.length stack-file)))
-         (is (pos? (.length reg-file)))
-         (is (pos? (:total-events stack-sum)))
-         (is (pos? (:total-events reg-sum)))
-         (println "\n[R3 JFR Profiling Report]")
-         (println (str "  Stack VM JFR:    " (:jfr-file stack-sum)
-                       " (events=" (:total-events stack-sum)
-                       ", samples=" (:execution-samples stack-sum)
-                       ", allocs=" (:allocation-events stack-sum) ")"))
-         (println (str "  Register VM JFR: " (:jfr-file reg-sum)
-                       " (events=" (:total-events reg-sum)
-                       ", samples=" (:execution-samples reg-sum)
-                       ", allocs=" (:allocation-events reg-sum) ")"))))))
