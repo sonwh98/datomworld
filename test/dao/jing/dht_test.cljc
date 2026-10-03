@@ -1198,7 +1198,7 @@
                   (inject! c 9000 m)
                   (let [before (mesh/log-size net)
                         next (dht/step s 1)
-                        replies (drop before (mesh/sent net))]
+                        replies (mesh/sent net before)]
                     (recur (inc n) next (inc checked)
                            (and safe?
                                 (<= (count replies) 1)

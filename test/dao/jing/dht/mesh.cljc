@@ -221,16 +221,18 @@
 
 
 (defn sent
-  "Every datagram the net logged, decoded: [{:from :to :message :size}]."
-  [net]
-  (mapv (fn [{:keys [from to bytes]}]
-          (let [bs (jing/base64->bytes bytes)]
-            {:from from
-             :to to
-             :size (byte-count bs)
-             :bytes bs
-             :message (dht/decode-message bs)}))
-        (:log @net)))
+  "Every datagram the net logged, decoded: [{:from :to :message :size}].
+   With `start`, only the datagrams logged at index `start` onward."
+  ([net] (sent net 0))
+  ([net start]
+   (mapv (fn [{:keys [from to bytes]}]
+           (let [bs (jing/base64->bytes bytes)]
+             {:from from
+              :to to
+              :size (byte-count bs)
+              :bytes bs
+              :message (dht/decode-message bs)}))
+         (subvec (:log @net) start))))
 
 
 (defn log-size
