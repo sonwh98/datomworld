@@ -294,7 +294,7 @@
 
 
 (deftest
-  separate-jvm-processes-exchange-content-over-loopback
+  ^:slow separate-jvm-processes-exchange-content-over-loopback
   (let
     [anchor (start-anchor!)
      dirs (vec (repeatedly 6 temp-dir))
@@ -868,7 +868,7 @@
 
 
 (deftest
-  a-module-published-by-name-is-required-by-name-across-processes
+  ^:slow a-module-published-by-name-is-required-by-name-across-processes
   (let
     [storing {::jing.dht/publish? true
               ::jing.dht/max-inbound-bytes (* 64 1024 1024)}

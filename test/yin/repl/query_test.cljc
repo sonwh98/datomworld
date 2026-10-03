@@ -307,7 +307,7 @@
        "))))"))
 
 
-(deftest a-failed-round-of-more-calls-than-the-pair-holds-leaves-no-gap
+(deftest ^:slow a-failed-round-of-more-calls-than-the-pair-holds-leaves-no-gap
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [n (+ repl/query-pair-capacity 6)
@@ -324,7 +324,7 @@
             "the rolled-back VM reads past the abandoned answers, not into a gap")))))
 
 
-(deftest a-program-calling-q-without-end-is-stopped-at-the-drive-budget
+(deftest ^:slow a-program-calling-q-without-end-is-stopped-at-the-drive-budget
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[state [_ _ _ stopped answered]]
@@ -420,7 +420,7 @@
     (is (= #{} (apply2/response-ok response)))))
 
 
-(deftest results-over-a-limit-refuse-naming-it
+(deftest ^:slow results-over-a-limit-refuse-naming-it
   (testing "the shell's row limit, on every VM"
     (doseq [vm-type vm-types]
       (testing (str vm-type)
@@ -593,7 +593,7 @@
             "a datom-only query still answers, carrying the round's warning")))))
 
 
-(deftest ast-results-over-a-limit-refuse-naming-it
+(deftest ^:slow ast-results-over-a-limit-refuse-naming-it
   (testing "the shell's row limit, on every VM"
     (doseq [vm-type vm-types]
       (testing (str vm-type)

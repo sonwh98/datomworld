@@ -503,7 +503,7 @@
 ;; the same source (every value here is within +-2^53).
 ;; =============================================================================
 
-(deftest gate-round3-test
+(deftest ^:slow gate-round3-test
   (testing "range elements exact near +-2^53 (no oversized i*step); range
             len and membership from split quotient/remainder (only the
             result is bounded); any/all over a generator short-circuit, sum

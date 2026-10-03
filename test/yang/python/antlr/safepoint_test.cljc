@@ -485,7 +485,7 @@
       :else (count (take-while some? (iterate :next (:k entry)))))))
 
 
-(deftest tail-preservation-test
+(deftest ^:slow tail-preservation-test
   (testing "a safepointed loop grows no continuation: parked at its 10th and
             its 100,000th safepoint, every VM holds the same frames"
     (let [a' (vm/semantic-bytecode->ast

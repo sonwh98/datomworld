@@ -785,7 +785,7 @@
       (close-world! w))))
 
 
-(deftest rounds-beyond-the-backlog-bound-fail-at-once-then-repair
+(deftest ^:slow rounds-beyond-the-backlog-bound-fail-at-once-then-repair
   (let [w (world [15 16] {:repair-ticks 2000})
         _rounds (mapv (fn [r] (:manifest (round! (:node w) r 499))) (range 8))
         w (step-world w 10)

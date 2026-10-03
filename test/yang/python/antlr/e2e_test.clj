@@ -319,7 +319,7 @@
                     "print(outer())\n"))))
 
 
-(deftest recursion-test
+(deftest ^:slow recursion-test
   (every-vm= (prints "55")
              (str "def fib(n):\n"
                   "    if n < 2:\n"
@@ -525,7 +525,7 @@
              "print(0 or 'x', 1 and 0, not [], 1 < 2 < 3, 3 < 2 < 1, 1 + True)\n"))
 
 
-(deftest long-loops-test
+(deftest ^:slow long-loops-test
   (testing "loops are self-applied lambdas with tail-marked recursion; a few
             thousand iterations with continue and break stay bounded"
     (every-vm= (prints "3000 1500")
@@ -581,7 +581,7 @@
       (is (= expected (get results k)) (str k)))))
 
 
-(deftest keyboard-interrupt-test
+(deftest ^:slow keyboard-interrupt-test
   (testing "one pre-appended signal stops an endless loop with
             KeyboardInterrupt"
     (every-vm-signalled= {:py/out [], :py/exception {:type "KeyboardInterrupt", :args []}}

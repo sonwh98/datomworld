@@ -472,7 +472,7 @@
 ;; =============================================================================
 
 (deftest
-  vector-and-map-forms-arity-errors-and-result-limits
+  ^:slow vector-and-map-forms-arity-errors-and-result-limits
   ;; Requirement 7: Both query vector and map forms; caller input arity errors;
   ;; a result over the row limit.
   (doseq

@@ -131,7 +131,7 @@
                       "print(next(it), it.send('d'))"))))
 
 
-(deftest long-generator-with-break-test
+(deftest ^:slow long-generator-with-break-test
   (testing "3000 items from a while True generator, consumed by a for that
             breaks: no growth per item on any VM"
     (every-vm= (prints "2999 2999")
@@ -603,7 +603,7 @@
     (size (values/payload (:resume (first gens))))))
 
 
-(deftest resume-continuation-length-is-stable-test
+(deftest ^:slow resume-continuation-length-is-stable-test
   (testing "the suspended generator's :resume has the same size after 10 and
             after 1000 items: no per-yield growth, the stale base fixed"
     (doseq [k [:ast-walker :semantic :stack :register]]

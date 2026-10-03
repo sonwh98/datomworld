@@ -1806,7 +1806,8 @@
        "))"))
 
 
-(deftest rounds-larger-than-the-pending-write-bound-are-acknowledged-never-busy
+(deftest
+  ^:slow rounds-larger-than-the-pending-write-bound-are-acknowledged-never-busy
   (let [dir (temp-dir)
         net (mesh/mesh)]
     (try
@@ -2175,7 +2176,7 @@
 
 
 (deftest
-  a-two-principal-dependency-evaluates-or-raises-dependency-binding
+  ^:slow a-two-principal-dependency-evaluates-or-raises-dependency-binding
   (let
     [dirs (vec (repeatedly 3 temp-dir))
      net (mesh/mesh)

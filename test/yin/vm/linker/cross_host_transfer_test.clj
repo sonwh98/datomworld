@@ -118,7 +118,7 @@
   (:image (lower (second (vm/ast->datoms-with-root ast)))))
 
 
-(deftest jvm-images-transfer-to-an-identity-only-dart-receiver
+(deftest ^:slow jvm-images-transfer-to-an-identity-only-dart-receiver
   (build-peer!)
   (doseq [[kind format lower]
           [[:H linker/stack-format dl/adapt]

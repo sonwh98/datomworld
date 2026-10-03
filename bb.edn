@@ -3,9 +3,13 @@
   {:doc "Generate and compile the pinned grammars-v4 Python3 parser into build/antlr/python3/classes (antlr/python3/manifest.edn)"
    :task (shell "clojure -M:antlr-gen")}
 
-  test:clj {:doc "Run JVM tests (via clj); the DHT process test needs the Node REPL build"
+  test:clj {:doc "Run JVM tests (via clj), skipping ^:slow ones; the DHT process test needs the Node REPL build"
             :depends [build:yin-repl-node gen:python-antlr]
-            :task (shell "clojure -M:test")}
+            :task (shell "clojure -M:test -e :slow")}
+
+  test:slow {:doc "Run only the ^:slow JVM tests (about 14 minutes for long-loops-test); for unattended runs"
+             :depends [build:yin-repl-node gen:python-antlr]
+             :task (shell "clojure -M:test -i :slow")}
 
   build:yin-repl-node
   {:doc "Compile the Node yin.repl (shadow-cljs build :yin-repl) to target/yin-repl.js"

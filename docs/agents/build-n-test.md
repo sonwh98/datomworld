@@ -9,7 +9,8 @@ description: Build, lint, test commands, TDD guidelines, and bracket debugging f
 ```sh
 # Tests (Babashka runner)
 bb test              # Run all tests (JVM, Node/CLJS, Dart/CLJD)
-bb test:clj          # JVM tests only (or: clj -M:test)
+bb test:clj          # JVM tests only, skipping ^:slow (bare `clj -M:test` runs them too)
+bb test:slow         # Only the ^:slow JVM tests (long-loops-test, ~14 min); run unattended, check before big merges
 bb test:cljs         # ClojureScript / Node tests (via shadow-cljs :cljs alias)
 bb test:cljd         # ClojureDart tests (requires flutter on PATH)
 npm test             # Node.js tests

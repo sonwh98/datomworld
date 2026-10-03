@@ -832,7 +832,8 @@
      ;; The four facts
      ;; =========================================================================
 
-     (deftest evaluation-round-trips-and-two-clients-get-their-own-answers
+     (deftest
+       ^:slow evaluation-round-trips-and-two-clients-get-their-own-answers
        ;; Fact 1.
        (let [a @process-a
              peer-1 (attach-peer! a)
@@ -916,7 +917,7 @@
              (stop-peer! peer)))))
 
 
-     (deftest stopping-the-endpoint-ends-the-served-stream-not-closes-it
+     (deftest ^:slow stopping-the-endpoint-ends-the-served-stream-not-closes-it
        ;; Fact 4.  This fact stops its endpoint, so it composes its own.
        (let [a (start-process-a!)]
          (try

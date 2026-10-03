@@ -118,7 +118,7 @@
    ["(do 1 2 3)" "3"]])
 
 
-(deftest pure-expressions-and-let-bindings-evaluate-on-every-vm
+(deftest ^:slow pure-expressions-and-let-bindings-evaluate-on-every-vm
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[state results]
@@ -408,7 +408,7 @@
    "(repl-state)"])
 
 
-(deftest every-vm-answers-the-same-stream-script
+(deftest ^:slow every-vm-answers-the-same-stream-script
   (let [answers (into {}
                       (map (fn [vm-type]
                              [vm-type (texts vm-type parity-script)]))
