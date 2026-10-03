@@ -1,33 +1,55 @@
-#:blog{:title "The Register Image as the LLVM Integration Point"
-       :date #inst "2026-10-03T14:51:24.000-00:00"
-       :abstract [:p "How the structural properties of Yin.VM's de Bruijn register image unlock a purely node-local, data-driven native LLVM lowering."]
+#:blog{:title "From Types as Metadata to a Native LLVM Design"
+       :date #inst "2026-10-03T15:32:47.000-00:00"
+       :abstract [:p "How enforcing a strict separation between type theory and execution naturally led to a design for a purely node-local, data-driven native LLVM lowering."]
        :content [:section.blog-article
                  [:div.section-inner
                   [:article
                    :$blog-title
                    :$blog-date
-                   
-                   [:h2 "Four Properties for Native Compilation"]
-                   
-                   [:p "A Rust port of the register kernel exists as a design, and its register image is where LLVM attaches. The " [:code ":yin.debruijn.register/*"] " image provides the structural properties required for static single assignment lowering, which are enforced by the validator before execution:"]
-                   
+
+                   [:h2 "The Zero-Abstraction Execution Layer"]
+
+                   [:p "Recent architectural exploration began with a fundamental question: how can the Universal AST support statically typed languages like Java, when the execution layer refuses to acknowledge types?"]
+
+                   [:p "Virtual machines historically intertwine execution and typing. The JVM enforces type safety at runtime through instructions like " [:code "checkcast"] " and " [:code "instanceof"] ". Yin.VM avoids this by enforcing an architectural firewall: the execution loop is entirely type-erased. No evaluator has a type instruction, flag, or check. Under the proposed type check design, static type information is not destroyed. It is preserved as pure metadata (Datalog facts) in rows beside the code, which never enter a content address, while the semantic VM decodes content-addressed code into a flat instruction array for execution."]
+
+                   [:p "As detailed in " [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"] ", the industry treats static versus dynamic typing as a false dichotomy. Type information actually exists on a continuum of certainty, and in the proposed design that certainty is provenance: who asserted the fact, whether it was declared, inferred, or observed at runtime. By treating types as certainty metadata rather than fundamental language categories, this firewall unifies static and dynamic types at the execution level. A checker can verify a program against the metadata layer before it reaches an evaluator, and whether that checker is absent, advisory, or a gate is a choice of stream wiring. Either way, statically typed code and dynamically typed code reduce to the exact same tuples and run side by side."]
+
+                   [:h2 "Reflection and Content-Addressed Code"]
+
+                   [:p "If the execution engine is blind to types, how do programs achieve reflection? The architecture treats the codebase itself as an accessible, content-addressed store (" [:code "dao.jing"] "). This draws inspiration from Unison's pioneering codebase architecture, but scales it to a polyglot world. Programs can use Datalog (" [:code "dao.space.query"] ") to query the code and its metadata dynamically. Reflection is a query over data, and it adds nothing to the execution path."]
+
+                   [:h2 "The Mathematical Purity of Streams"]
+
+                   [:p "Type checking gets the same treatment as macros: it is a process on the syntax side of a stream boundary, never an evaluator concern. This keeps the compilation pipeline pure. Parsing, macro expansion, and semantic lowering are pure functional transformations over append-only streams (" [:code "dao.stream"] ")."]
+
+                   [:p "As detailed in " [:a {:href "/blog/yin-vm-macros.blog"} "The Macro System That Isn't There"] ", this allows the evaluator to remain completely macro-blind. Rather than interleaving expansion with evaluation or inventing complex compiler phases, macro expansion is modeled as a stream topology. The expander acts as a pure stream transducer that rewrites AST packets under deterministic fuel guards before appending canonical tuples for the evaluator."]
+
+                   [:p "This purity extends to side effects: when the state machine performs an I/O operation, it yields a plain-data effect descriptor onto a stream."]
+
+                   [:h2 "The Register Image as the LLVM Integration Point"]
+
+                   [:p "This adherence to immutable data and append-only streams led to a realization: LLVM does not have to be a competitor to the interpreter. It can simply be another interpreter downstream of the stream. A Rust port of the register kernel exists as a design, and its register image is where LLVM attaches. The " [:code ":yin.debruijn.register/*"] " image provides the structural properties required for static single assignment lowering, which are enforced by the validator before execution:"]
+
                    [:ul
                     [:li [:strong "Fixed-size activations:"] " Each body declares its register count, and every operand is bounds-checked at load. LLVM gets a fixed-size activation where every register access is statically in-bounds with no runtime checks to emit."]
                     [:li [:strong "Scoped control flow:"] " Jumps strictly stay inside their body, and bodies partition the program counters. For LLVM, this means one body is exactly one function, and its PCs are its basic blocks. There is no cross-function control flow to model."]
                     [:li [:strong "Three-address code:"] " Operands are named registers rather than implicit stack pushes, which maps directly to three-address code. The compiler does not need to reconstruct stack effects."]
                     [:li [:strong "Exact live sets:"] " Every continuation boundary carries an exact live set. This answers the hardest question for a native compiler, what to materialize where, by providing the exact spill map at the boundary: which registers must be written back to data, and that the rest are dead."]]
-                   
+
+                   [:p "The type firewall holds in native code too. The translator uses no type feedback and may not unbox arithmetic, so LLVM sees only the register image and never a type fact."]
+
                    [:h2 "The Equivalence Law and Data Continuations"]
-                   
+
                    [:p "Under the proposed design, native execution and interpretation reach equal machine states from any boundary. This equivalence law ensures that the introduction of LLVM does not create a new bytecode, a new identity, or a second continuation vocabulary."]
-                   
+
                    [:p "Continuations remain pure data at every observable point. A Yin call is never an LLVM call. Every call returns to the driver, ensuring the native stack never holds a continuation at all. This maintains portable continuations that pause, travel across streams, and resume anywhere."]
-                   
+
                    [:h2 "The Node-Local Worker"]
-                   
+
                    [:p "LLVM is proposed as a downstream worker on the local node's stream. A translator walks the validated tuples to write textual LLVM IR, and a separate LLVM worker process generates the native object. Because interpretation creates semantics, LLVM is just another interpreter downstream of the image."]
-                   
+
                    [:p "The worker is node-local because a receiver cannot validate a native artifact short of rebuilding it. A node runs only artifacts its own worker built from images its own validator admitted, so native artifacts never cross between nodes. What crosses is unchanged: images and continuations as data."]
-                   
+
                    [:p "The expected performance gain of this native compilation is bounded and will be measured in a dedicated benchmark phase before any LLVM code is written. A node with no toolchain remains a complete node that interprets, the kernel never waits on the worker, and a native artifact can be dropped at any boundary without changing the outcome."]
                    ]]]}
