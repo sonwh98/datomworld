@@ -227,12 +227,13 @@
     (cbor/float64? v) :double
     (not (number? v)) nil
     :else
-    #?(:clj (cond
+    ;; ClojureDart reads both :cljd and :clj, so its branch comes first
+    #?(:cljd (if (int? v) :int64 :double)
+       :clj (cond
               (int? v) :int64
               (float? v) :double
               :else nil)
-       :cljs (js-number-class v)
-       :cljd (if (int? v) :int64 :double))))
+       :cljs (js-number-class v))))
 
 
 (defn- code-unit-at
@@ -869,17 +870,21 @@
    payload a host happens to hold. :clj reads the bits through
    doubleToLongBits, :cljs through a DataView store with littleEndian
    explicitly true, :cljd through a big-endian ByteData store read in
-   reverse — the endianness is stated, never the platform's default."
-  [v]
-  (if (not= v v)
-    "000000000000f87f"
-    #?(:clj (int64-le-hex (Double/doubleToLongBits (double v)))
-       :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
-               (.setFloat64 view 0 v true)
-               (apply str (map #(to-hex (.getUint8 view %) 2) (range 8))))
-       :cljd (let [bd (ByteData. 8)]
-               (.setFloat64 bd 0 v)
-               (apply str (map #(to-hex (.getUint8 bd %) 2) (range 7 -1 -1)))))))
+   reverse — the endianness is stated, never the platform's default. On
+   :cljs the float64 carrier is unwrapped first: a DataView coerces an
+   object through its text, which loses -0.0's sign."
+  [x]
+  (let [v #?(:cljs (if (number? x) x (.-v ^not-native x)) :default x)]
+    (if (not= v v)
+      "000000000000f87f"
+      ;; ClojureDart reads both :cljd and :clj, so its branch comes first
+      #?(:cljd (let [bd (ByteData. 8)]
+                 (.setFloat64 bd 0 v)
+                 (apply str (map #(to-hex (.getUint8 bd %) 2) (range 7 -1 -1))))
+         :clj (int64-le-hex (Double/doubleToLongBits (double v)))
+         :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
+                 (.setFloat64 view 0 v true)
+                 (apply str (map #(to-hex (.getUint8 view %) 2) (range 8))))))))
 
 
 (defn- ident-content

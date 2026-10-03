@@ -2180,9 +2180,10 @@ contracts strengthen laws 3 to 5, 7 to 9, 11, and 12 of section 13.1.
 
 #### 8.5.5 Float addresses
 
-This section records the float-address ruling. Its implementation is
-pending, in one preparatory slice that lands before any float-bearing
-cross-host pin; none of it has landed.
+This section records the float-address ruling and the converged sign-off
+rulings that followed it. The float-fix slice implements them, as the one
+preparatory slice that lands before any float-bearing cross-host pin;
+"Implementation" below records what it does.
 
 The codec conforms; the producers are defective. On JavaScript,
 `dao.jing.cbor` classifies an integral Number other than negative zero
@@ -2245,8 +2246,9 @@ inserted at the producer, under these constraints:
 - No new tag, payload kind, or row shape. Tag 27, signed-zero
   preservation, NaN normalization, and the refusals of equal-value,
   different-kind collection collisions are unchanged. The generic codec
-  learns no Python map semantics; `cbor.cljc` and its fixtures are not
-  edited.
+  learns no Python map semantics; its canonical encoding contract and
+  frozen fixtures are not edited. The converged refusal ruling amends
+  this for the carrier's behavior only (below).
 
 Carrier insertion is not a drop-in runtime fix. An execution bridge
 admits the carrier at all three scalar gates, `plain-data?` and
@@ -2260,10 +2262,47 @@ audits follow: `float-repr` in the renderer unwraps the carrier on
 JavaScript, and Node test expectations comparing bare numbers move to
 constructors or `content=`.
 
-Open: the ruling leaves undecided the numeric kind of the float that
-C1's dict-key normalization places in a map key. C3 ruling 6 replaces
-that normalization with reduced-rational keys (section 8.5.4, slice
-S5); until then the C1 key needs a decision.
+Implementation. The lowering builds `{:py/float (float64 x)}` while the
+literal syntax still says float. Three pure exports join the `data`
+module: `float64` wraps a number as float64 content, `float-value`
+answers the host double of a number or carrier, and `numeric-key`
+normalizes a numeric dict or set key. The prelude's `py/float` wraps
+through `data/float64` and `py/num` unwraps through `data/float-value`,
+with host arithmetic on bare numbers in between. The quoted prelude holds
+no integral float literal, and every float constant, `0.5` and `##Inf`
+included, reaches arithmetic only as an operand of `data/float-value`,
+which is also the bridge back from a carrier decoded out of a row; a test
+walks the base and hook preludes for both rules. The carrier is a scalar
+at `plain-data?`, `machine-data?`, the engine's lift and pin `scalar?`,
+`values/kind-of`, and the de Bruijn executable-image encoders, whose
+double encoding reads the payload directly so -0.0 keeps its sign. The
+renderer's `float-repr` unwraps the carrier. No capture sits inside the
+seam: the safepoint stage marks no site under the bundled prelude (a
+test pins that its id is unchanged in `A'`), and the prelude bodies
+between an unwrap and its rewrap hold no yield; this reliance stands
+until C2 yields inside prelude bodies.
+
+The dict key. `numeric-key` is the interim key (converged sign-off,
+Q1): the integer when the value is integral within +/-(2^53 - 1), so
+`1`, `1.0`, `True` and `-0.0`/`0` key alike, and float64 content
+otherwise. C3-S2 replaces this numeric arm with ruling-6 decimal-string
+keys built by exact decomposition from unwrapped, exactly typed inputs,
+pins one NaN-key behavior, and deletes `numeric-key`.
+
+Generic arithmetic (converged refusal ruling). The standard primitive
+bindings are unchanged: `+ - * / < > <= >=` stay the host functions (`/`
+is `checked-divide`), `= == !=` stay host `=`, and nothing in `yin.vm`
+unwraps or refuses a carrier. Instead the JavaScript carrier itself
+refuses numeric and default coercion: its `valueOf` throws Jing's
+`:carrier-coercion` refusal (`dao.jing.cbor.md`), so a decoded float
+under a bare `+` throws on Node rather than concatenating text or
+returning a bare Number, and computes `3.0` from `2.0` on the JVM and
+Dart. Generic arithmetic over decoded carriers is therefore not
+portable, a disclosed limitation: only a profile with an explicit seam,
+Python's `data/float-value`, computes on floats portably.
+`decoded-float-under-bare-plus-test` pins the asymmetry, and
+`dao.jing.cbor-test/float64-carrier-refuses-coercion-test` pins every
+operator, operand position and the preserved printing.
 
 With identical float bits and hash algorithm, corrected rows have
 identical bytes and addresses on every host. Migration:
@@ -2292,10 +2331,11 @@ Affected artifacts are rebuilt from source. An integer address is never
 aliased to a float address.
 
 "Float-free" describes the entire addressed payload, including the
-bundled prelude, not merely the user's Python source. Since the prelude
-itself carries the divergent literals, no bundled unit is float-free
-today. Host-specific goldens do not establish portability. Until the
-preparatory slice lands, none of the following is allowed:
+bundled prelude, not merely the user's Python source. Before the slice,
+the prelude itself carried the divergent literals, so no bundled unit was
+float-free. Host-specific goldens do not establish portability. Until the
+preparatory slice lands, none of the following is allowed (the
+`cbor.cljc` item as amended above):
 
 - a cross-host pin of a bundled-unit root, A or A', even for a
   float-free user program;
@@ -2310,7 +2350,14 @@ on JVM, Node, and Dart establish identical canonical bytes and A and A'
 roots for float-bearing inputs and the full prelude; preservation
 through projection and decoding; distinct integer and float
 identities; signed-zero behavior; and working execution across the
-required evaluators.
+required evaluators. `test/yang/python/antlr/float_address_test.cljc`
+carries those tests: JVM goldens for the canonical bytes, the bundled
+and hook preludes, and a float-bearing program's `A`, `A'` and
+derivation record, asserted unchanged on Node and Dart; NaN repr, the
+one quiet NaN in canonical bytes and a NaN-computing program; and lift,
+pin, heap and closure round trips, and continuation admission and
+payload bytes (a captured continuation cannot be lifted), that keep
+integral floats, both zeros, NaN and both infinities byte for byte.
 
 What may proceed meanwhile:
 

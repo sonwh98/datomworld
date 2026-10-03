@@ -8,7 +8,16 @@
    Value encoding:
      int             host integer (untagged)
      float           {:py/float x}: tagged on every host, because JS cannot
-                     tell 2 from 2.0 (owner decision 3)
+                     tell 2 from 2.0 (owner decision 3); x is float64
+                     content (`data/float64`), never a bare host number,
+                     so 2.0 has one address on every host. Arithmetic
+                     unwraps with `data/float-value` and computes on bare
+                     host numbers. The prelude holds no integral float
+                     literal (JS reads 1.0 as 1), and no float literal
+                     reaches host arithmetic except through
+                     `data/float-value`, which also bridges a float64
+                     carrier decoded from a row back to a host number:
+                     1.0 is written (data/float-value 1)
      bool            host true / false (numeric as 1 / 0)
      None            :py/None
      str             {:py/str \"...\"}
@@ -76,7 +85,8 @@
   "Module exports the prelude calls."
   '#{cell/new cell/get cell/set! data/count data/into data/subvec
      data/number? data/dissoc data/str-concat data/str-length
-     data/str-index-of data/str->code-points data/code-points->str})
+     data/str-index-of data/str->code-points data/code-points->str
+     data/float64 data/float-value data/numeric-key})
 
 
 (def ^:private core-definitions
@@ -86,7 +96,7 @@
     [py/str? (fn [x] (not (nil? (get x :py/str))))]
     [py/str (fn [s] (assoc {} :py/str s))]
     [py/float? (fn [x] (not (nil? (get x :py/float))))]
-    [py/float (fn [x] (assoc {} :py/float (* 1.0 x)))]
+    [py/float (fn [x] (assoc {} :py/float (data/float64 x)))]
     [py/tuple (fn [items] (assoc (assoc {} :py/type :tuple) :items items))]
     [py/conj (fn [xs x] (conj xs x))]
     [py/arg (fn [args i] (get args i))]
@@ -97,8 +107,14 @@
          (if (= x false) true (if (py/float? x) true (data/number? x)))))]
     [py/num
      (fn [x]
-       (if (= x true) 1 (if (= x false) 0 (if (py/float? x) (get x :py/float) x))))]
-    [py/zero? (fn [x] (let [v (py/num x)] (if (= v 0) true (= v 0.0))))]
+       (if (= x true)
+         1
+         (if (= x false)
+           0
+           (if (py/float? x) (data/float-value (get x :py/float)) x))))]
+    [py/zero?
+     (fn [x]
+       (let [v (py/num x)] (if (= v 0) true (= v (data/float-value 0)))))]
     [py/content-type (fn [x] (if (py/cell? x) (get (cell/get x) :py/type) nil))]
     [py/function? (fn [x] (= (py/content-type x) :function))]
 
@@ -903,7 +919,7 @@
     ;; |x| < Inf, not |x| <= Double.MAX_VALUE: on JS that literal is an
     ;; integral number past 2^53, which dao.jing.cbor refuses to hash (see
     ;; py/overflow); NaN is false either way
-    [py/finite? (fn [x] (< (py/abs x) ##Inf))]
+    [py/finite? (fn [x] (< (py/abs x) (data/float-value ##Inf)))]
     [py/fmod-pos
      ;; fmod for doubles x >= 0, y > 0, exactly: each subtraction is of
      ;; values within a factor of two (Sterbenz), as in long division
@@ -921,7 +937,9 @@
      ;; -0.0 is built as (* -1.0 0.0): ClojureDart compiles one-argument
      ;; `-` to (0 - x), and 0 - 0.0 is +0.0; multiplying by -1.0 negates
      ;; exactly on every host
-     (fn [y] (if (< y 0) (* -1.0 0.0) 0.0))]
+     (fn [y]
+       (let [z (data/float-value 0)]
+         (if (< y 0) (* (data/float-value -1) z) z)))]
     [py/float-mod
      ;; x % y as CPython computes it: the exact fmod, sign-corrected toward
      ;; y. No quotient is formed, so a large finite quotient is fine.
@@ -943,12 +961,13 @@
                m (if (< x 0) (- 0 m0) m0)
                adjust (if (py/zero? m) false (not (= (< y 0) (< m 0))))
                mod (if (py/zero? m) (py/zero-like y) (if adjust (+ m y) m))
-               div (- (/ (- x m) y) (if adjust 1.0 0.0))
+               div (- (/ (- x m) y) (data/float-value (if adjust 1 0)))
                ;; a zero quotient is copysign(0.0, x / y); here |x| < |y|,
                ;; so x / y is finite and 0.0 * (x / y) carries its sign
                fd (if (py/zero? div)
-                    (* 0.0 (/ x y))
-                    (let [f (py/floor div)] (if (< 0.5 (- div f)) (+ f 1) f)))]
+                    (* (data/float-value 0) (/ x y))
+                    (let [f (py/floor div)]
+                      (if (< (data/float-value 0.5) (- div f)) (+ f 1) f)))]
            (py/conj (py/conj [] fd) mod))
          (py/conj (py/conj [] (- x x)) (- x x))))]
     [py/pow2-above (fn [x k] (if (> k x) k (py/pow2-above x (+ k k))))]
@@ -986,13 +1005,16 @@
        (do (py/division-check a b)
            (if (if (py/int? a) (py/int? b) false)
              (py/int-floordiv (py/num a) (py/num b))
-             (py/float (get (py/float-divmod (* 1.0 (py/num a)) (* 1.0 (py/num b))) 0)))))]
+             (py/float (get (py/float-divmod (data/float-value (py/num a))
+                                             (data/float-value (py/num b)))
+                            0)))))]
     [py/mod
      (fn [a b]
        (do (py/division-check a b)
            (if (if (py/int? a) (py/int? b) false)
              (py/int-mod (py/num a) (py/num b))
-             (py/float (py/float-mod (* 1.0 (py/num a)) (* 1.0 (py/num b)))))))]
+             (py/float (py/float-mod (data/float-value (py/num a))
+                                     (data/float-value (py/num b)))))))]
     [py/ipow
      ;; int base ** e for an integer e >= 0, by squaring, bound-checked
      (fn [base e]
@@ -1005,7 +1027,7 @@
      ;; float base ** e for an integer e >= 0
      (fn [base e]
        (if (= e 0)
-         1.0
+         (data/float-value 1)
          (let [h (py/fpow base (py/int-floordiv e 2))
                hh (* h h)]
            (if (= (py/int-mod e 2) 0) hh (* hh base)))))]
@@ -1023,8 +1045,11 @@
                  (if (py/zero? a)
                    (py/raise-new py.b/ZeroDivisionError
                                  {:py/str "0.0 cannot be raised to a negative power"})
-                   (py/float (/ 1.0 (py/fpow (* 1.0 x) (- 0 e)))))
-                 (if floaty (py/float (py/fpow (* 1.0 x) e)) (py/ipow x e))))))
+                   (py/float (/ (data/float-value 1)
+                                (py/fpow (data/float-value x) (- 0 e)))))
+                 (if floaty
+                   (py/float (py/fpow (data/float-value x) e))
+                   (py/ipow x e))))))
          (py/type-error {:py/str "unsupported operand type for **"})))]
     [py/bit1
      (fn [op x y]
@@ -1077,7 +1102,7 @@
          (if (py/numeric? b)
            (if (py/zero? b)
              (py/raise-new py.b/ZeroDivisionError {:py/str "division by zero"})
-             (py/float (/ (* 1.0 (py/num a)) (py/num b))))
+             (py/float (/ (data/float-value (py/num a)) (py/num b))))
            (py/type-error {:py/str "unsupported operand type"}))
          (py/type-error {:py/str "unsupported operand type"})))]
     ;; unary - and + on a float negate or keep it, so -0.0 and +(-0.0)
@@ -1085,7 +1110,10 @@
     [py/neg
      ;; a float is negated by (* -1.0 x), not one-argument `-`, which is
      ;; (0 - x) on ClojureDart and turns -(0.0) into +0.0 there
-     (fn [a] (if (py/float? a) (py/float (* -1.0 (get a :py/float))) (py/arith :sub 0 a)))]
+     (fn [a]
+       (if (py/float? a)
+         (py/float (* (data/float-value -1) (py/num a)))
+         (py/arith :sub 0 a)))]
     [py/pos (fn [a] (if (py/float? a) a (py/arith :add 0 a)))]
     [py/lt (fn [a b] (py/compare < a b))]
     [py/gt (fn [a b] (py/compare > a b))]
@@ -1232,7 +1260,7 @@
      ;; hashable when its elements are; lists, dicts and sets are not
      (fn [k]
        (if (py/numeric? k)
-         (* 1.0 (py/num k))
+         (data/numeric-key (py/num k))
          (if (= (get k :py/type) :tuple)
            (assoc {} :py/tuple-key (py/keys-of (get k :items) 0 []))
            (let [t (py/content-type k)]

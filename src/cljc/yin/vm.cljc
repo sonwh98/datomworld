@@ -25,6 +25,7 @@
   (:refer-clojure :exclude [eval])
   (:require [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.space.query :as query]
             [dao.stream :as stream]
             [yin.vm.effect :as effect]
@@ -955,12 +956,13 @@
 
 (defn plain-data?
   "True when `x` is data a row or code datom may carry (§2.2, §2.5): scalars
-   and collections of them, never a host function or object. Metadata
-   travels with the value, so it must be plain data too."
+   and collections of them, never a host function or object. Jing's float64
+   carrier is a scalar: on JS it is how a float keeps its kind in a row.
+   Metadata travels with the value, so it must be plain data too."
   [x]
   (or (nil? x)
-      (and (cond (or (boolean? x) (number? x) (string? x) (keyword? x)
-                     (symbol? x))
+      (and (cond (or (boolean? x) (number? x) (cbor/float64? x) (string? x)
+                     (keyword? x) (symbol? x))
                  true
                  (map? x) (and (every? plain-data? (keys x))
                                (every? plain-data? (vals x)))
@@ -978,8 +980,8 @@
   (or (nil? x)
       (if (values/host-typed? x)
         (machine-data? (values/payload x))
-        (and (cond (or (boolean? x) (number? x) (string? x) (keyword? x)
-                       (symbol? x))
+        (and (cond (or (boolean? x) (number? x) (cbor/float64? x) (string? x)
+                       (keyword? x) (symbol? x))
                    true
                    (map? x) (and (every? machine-data? (keys x))
                                  (every? machine-data? (vals x)))

@@ -35,10 +35,12 @@
    runtime profile normalizes guest keys before they reach these."
   (:require
     [clojure.string :as str]
+    [dao.jing.cbor :as cbor]
     [yin.vm :as vm]
     [yin.vm.integer.host :as integer-host]
     [yin.vm.module :as module]
-    [yin.vm.values :as values]))
+    [yin.vm.values :as values])
+  #?(:cljd (:import ["dart:core" BigInt])))
 
 
 (def module-name
@@ -418,6 +420,50 @@
   (or (number? x) (integer-host/big-carrier? x)))
 
 
+;; =============================================================================
+;; Floats: the seam between addressed float content and host arithmetic
+;; =============================================================================
+
+(defn float-value
+  "The host double of number or float64 content `x`, for host arithmetic:
+   what the literal `1.0` is on each host, a double on the JVM and Dart, a
+   Number on JS. A prelude unwraps a float with this, computes on bare
+   numbers, and wraps the result back with `float64`."
+  [x]
+  (when-not (or (data-number? x) (cbor/float64? x))
+    (wrong-type! 'float-value 0 :number))
+  #?(:cljd (if (dart/is? x BigInt) (.toDouble ^BigInt x) (.toDouble ^num x))
+     :clj (double x)
+     :cljs (cond (number? x) x
+                 (cbor/float64? x) (.-v ^not-native x)
+                 :else (js/Number x))))
+
+
+(defn float64
+  "Float content with the value of number `x`: Jing's float64, the form a
+   float keeps in any value that can reach an addressed row or image (a
+   double on the JVM and Dart, the float64 carrier on JS, where a bare
+   integral Number is an integer; dao.jing.cbor.md, Numeric identity). The
+   producer carries float kind; the codec never infers it."
+  [x]
+  (cbor/float64 (float-value x)))
+
+
+(defn- numeric-key
+  "The identity number `x` keys a guest index under: the integer when `x`
+   is integral within +/- 2^53 - 1, so 1, 1.0 and -0.0 key as 1, 1 and 0,
+   else its float64 content. The same Jing bytes on every host.
+
+   Interim, per the converged float-fix sign-off ruling: C3-S2 replaces
+   this numeric arm with ruling-6 decimal-string keys built by exact
+   decomposition from unwrapped, exactly typed inputs (never holding a
+   carrier or a double), pins one NaN-key behavior, and deletes this."
+  [x]
+  (let [i (integral (if (number? x) x (float-value x)))]
+    ;; (+ i 0) turns a JS -0 into 0
+    (if (some? i) (+ i 0) (float64 x))))
+
+
 (defn- callable?
   "True when `x` can be applied: a host function, a closure or a
    continuation. A map is never callable, whatever keys it carries."
@@ -453,6 +499,9 @@
    ['code-points->str [1] code-points->str]
    ['str-compare [2] str-compare]
    ['number? [1] data-number?]
+   ['float64 [1] float64]
+   ['float-value [1] float-value]
+   ['numeric-key [1] numeric-key]
    ['callable? [1] callable?]])
 
 

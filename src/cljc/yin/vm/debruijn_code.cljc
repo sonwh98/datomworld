@@ -40,6 +40,9 @@
    see the final report for why that is out of this file box."
   (:require [clojure.set :as set]
             [dao.jing :as jing]
+            ;; used by the CLJS branch of host-double? only
+            #_{:clj-kondo/ignore [:unused-namespace]}
+            [dao.jing.cbor :as cbor]
             [yin.vm :as vm]
             [yin.vm.code :as code])
   #?(:cljd (:import ["dart:typed_data" ByteData])))
@@ -231,17 +234,21 @@
   "IEEE-754 bits, little-endian, one quiet NaN encoding regardless of a
    host's NaN payload. :clj reads the bits through doubleToLongBits,
    :cljs through a DataView with littleEndian explicitly true, :cljd
-   through a big-endian ByteData store read in reverse."
-  [v]
-  (if (not= v v)
-    "000000000000f87f"
-    #?(:clj (int64-le-hex (Double/doubleToLongBits (double v)))
-       :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
-               (.setFloat64 view 0 v true)
-               (apply str (map #(to-hex (.getUint8 view %) 2) (range 8))))
-       :cljd (let [bd (ByteData. 8)]
-               (.setFloat64 bd 0 v)
-               (apply str (map #(to-hex (.getUint8 bd %) 2) (range 7 -1 -1)))))))
+   through a big-endian ByteData store read in reverse. On :cljs the
+   float64 carrier is unwrapped first: a DataView coerces an object
+   through its text, which loses -0.0's sign."
+  [x]
+  (let [v #?(:cljs (if (number? x) x (.-v ^not-native x)) :default x)]
+    (if (not= v v)
+      "000000000000f87f"
+      ;; ClojureDart reads both :cljd and :clj, so its branch comes first
+      #?(:cljd (let [bd (ByteData. 8)]
+                 (.setFloat64 bd 0 v)
+                 (apply str (map #(to-hex (.getUint8 bd %) 2) (range 7 -1 -1))))
+         :clj (int64-le-hex (Double/doubleToLongBits (double v)))
+         :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
+                 (.setFloat64 view 0 v true)
+                 (apply str (map #(to-hex (.getUint8 view %) 2) (range 8))))))))
 
 
 ;; =============================================================================
@@ -324,9 +331,10 @@
    wording); a Dart native int (`int?`), the same test `yin.vm.debruijn/
    numeric-class` already uses for this host."
   [v]
-  #?(:clj (or (instance? Long v) (instance? Integer v) (instance? Short v) (instance? Byte v))
-     :cljs (and (number? v) (js/Number.isSafeInteger v))
-     :cljd (int? v)))
+  #?(:cljd (int? v)
+     :clj (or (instance? Long v) (instance? Integer v) (instance? Short v)
+              (instance? Byte v))
+     :cljs (and (number? v) (js/Number.isSafeInteger v))))
 
 
 (defn- host-double?
@@ -338,10 +346,14 @@
    forbids. On CLJS and CLJD, every remaining number: not a ratio, not a
    bigint, not a long by this host's own rule -- CLJS has no BigDecimal/
    Float distinction from a plain number to lose, so the complement rule
-   stays correct there."
+   stays correct there. Jing's float64 carrier, how JS keeps an integral
+   float's kind, is :double too."
   [v]
-  #?(:clj (instance? Double v)
-     :default (and (number? v) (not (host-long? v)) (not (host-ratio? v)) (not (host-bigint? v)))))
+  #?(:cljd (and (number? v) (not (host-long? v)))
+     :clj (instance? Double v)
+     :cljs (or (and (cbor/float64? v) (not (number? v)))
+               (and (number? v) (not (host-long? v)) (not (host-ratio? v))
+                    (not (host-bigint? v))))))
 
 
 (defn scalar-class

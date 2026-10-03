@@ -6,6 +6,7 @@
    is rendered at the boundary."
   (:require
     [clojure.test :refer [deftest is testing]]
+    [clojure.walk :as walk]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.render :as render]
     [yang.python.antlr.uast :as u]
@@ -63,6 +64,18 @@
                          (catch #?(:cljd Object :clj Exception :cljs :default) e
                            [:thrown (ex-message e)]))]))
           runners)))
+
+
+(defn- with-float64
+  "`form` with every `{:py/float x}` payload as float64 content, as the
+   lowering and the prelude build it (on JS, Jing's carrier: a bare 1.0
+   there is the integer 1)."
+  [form]
+  (walk/postwalk (fn [x]
+                   (if (and (map? x) (contains? x :py/float))
+                     (update x :py/float data/float64)
+                     x))
+                 form))
 
 
 (def ^:private cases
@@ -161,8 +174,11 @@
 
 
 (deftest prelude-semantics-on-every-vm-test
-  (let [form (reduce (fn [acc [f _]] (list 'py/conj acc f)) [] cases)
-        expected (mapv second cases)
+  (let [form (reduce (fn [acc [f _]]
+                       (list 'py/conj acc (with-float64 f)))
+                     []
+                     cases)
+        expected (mapv (comp with-float64 second) cases)
         results (run-with-prelude prelude/functions-uast form)]
     (doseq [[k result] results]
       (testing (str k)
@@ -174,12 +190,14 @@
             renders 2 2.0 3.0 0.5 on every VM and host, JS included"
     (let [results (run-with-prelude
                     prelude/uast
-                    '(py/run-module
-                       (fn [g]
-                         (py/print (py/conj (py/conj (py/conj (py/conj [] 2)
-                                                              (py/truediv 4 2))
-                                                     (py/add 1 {:py/float 2.0}))
-                                            {:py/float 0.5})))))]
+                    (with-float64
+                      '(py/run-module
+                         (fn [g]
+                           (py/print
+                             (py/conj (py/conj (py/conj (py/conj [] 2)
+                                                        (py/truediv 4 2))
+                                               (py/add 1 {:py/float 2.0}))
+                                      {:py/float 0.5}))))))]
       (doseq [[k result] results]
         (testing (str k)
           (is (= {:py/out ["2 2.0 3.0 0.5"], :py/exception nil}
@@ -364,7 +382,10 @@
                     "0.0" "-0.0" "5.0" "inf" "-inf"
                     "-1.0" "-0.0" "0.0" "0.0" "-0.0"]
           results (run-with-prelude prelude/functions-uast
-                                    (reduce (fn [acc f] (list 'py/conj acc f)) [] forms))]
+                                    (reduce (fn [acc f]
+                                              (list 'py/conj acc (with-float64 f)))
+                                            []
+                                            forms))]
       (doseq [[k result] results]
         (testing (str k)
           (is (= expected

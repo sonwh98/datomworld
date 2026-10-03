@@ -46,6 +46,7 @@
    (`=`, `+`), so no guest name can shadow a primitive or prelude name."
   (:require
     [clojure.string :as str]
+    [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.scope :as scope]
@@ -275,10 +276,13 @@
       (str/starts-with? lower "0x") (parse-radix n (subs t 2) 16)
       (str/starts-with? lower "0o") (parse-radix n (subs t 2) 8)
       (str/starts-with? lower "0b") (parse-radix n (subs t 2) 2)
-      ;; floats are tagged on every host (owner decision 3)
-      (re-find #"[.eE]" t) {:py/float #?(:cljd (double/parse t)
-                                         :clj (Double/parseDouble t)
-                                         :cljs (js/parseFloat t))}
+      ;; floats are tagged on every host (owner decision 3), and the payload
+      ;; is float64 content built while the syntax still says float: on JS a
+      ;; bare 2.0 would be the integer 2 and change the row's address
+      (re-find #"[.eE]" t) {:py/float (cbor/float64
+                                        #?(:cljd (double/parse t)
+                                           :clj (Double/parseDouble t)
+                                           :cljs (js/parseFloat t)))}
       ;; Python 3 reads 0755 as an error, not as octal or decimal
       (and (str/starts-with? t "0") (re-find #"[1-9]" t))
       (syntax! n (str "leading zeros in decimal integer literals are not "

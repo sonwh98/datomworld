@@ -5,6 +5,8 @@
    four VMs -- the AST walker, the semantic VM, and the de Bruijn stack
    and register VMs."
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [yin.vm :as vm]
             [yin.vm.data :as data]
             [yin.vm.debruijn-linearize :as dl]
@@ -302,6 +304,30 @@
     (is (= (refused 'number? :arity {::data/argc 2}) (refusal 'number? 1 2)))))
 
 
+(deftest float-seam-test
+  (testing "float64 is Jing float64 content, kind kept for an integral
+            value on every host; float-value is the host double back"
+    (is (cbor/float64? (call 'float64 1)))
+    (is (= (jing/segment-key (cbor/float64 1))
+           (jing/segment-key (call 'float64 1))))
+    (is (not= (jing/segment-key 1) (jing/segment-key (call 'float64 1))))
+    (is (number? (call 'float-value (cbor/float64 2.5))))
+    (is (== 2.5 (call 'float-value (cbor/float64 2.5))))
+    (is (== 2 (call 'float-value 2)))
+    (is (= (wrong-type 'float-value 0 :number) (refusal 'float-value "2"))))
+  (testing "numeric-key: integral values within 2^53 - 1 key as the integer,
+            -0.0 as 0, anything else as float64 content"
+    (is (= 1 (call 'numeric-key (cbor/float64 1))))
+    (is (= 1 (call 'numeric-key 1)))
+    (is (= 0 (call 'numeric-key (cbor/float64 (* -1.0 0.0)))))
+    (is (= "AA==" (jing/bytes->base64
+                    (jing/canonical-bytes (call 'numeric-key (* -1.0 0.0))))))
+    (is (= (cbor/float64 0.5) (call 'numeric-key 0.5)))
+    (is (= (jing/segment-key (cbor/float64 9007199254740992))
+           (jing/segment-key
+             (call 'numeric-key (cbor/float64 9007199254740992)))))))
+
+
 (deftest arity-refusal-test
   (is (= (refused 'count :arity {::data/argc 0}) (refusal 'count)))
   (is (= (refused 'nth :arity {::data/argc 3}) (refusal 'nth [1] 0 :x)))
@@ -317,7 +343,8 @@
   (is (= #{'count 'nth 'contains? 'dissoc 'disj 'peek 'pop 'subvec 'hash-set
            'into 'str-concat 'str-length 'substring 'str-index-of 'str-split
            'str-join 'char-at 'str->code-points 'code-points->str
-           'str-compare 'number? 'callable?}
+           'str-compare 'number? 'float64 'float-value 'numeric-key
+           'callable?}
          (set (keys data/data-module))
          (set (keys data/data-profiles))))
   (doseq [[sym profile] data/data-profiles]

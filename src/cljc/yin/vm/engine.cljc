@@ -29,6 +29,7 @@
   (:refer-clojure :exclude [gensym])
   (:require [clojure.set]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [dao.stream.waitset :as waitset]
@@ -633,10 +634,11 @@
   "True for a value that holds nothing: UCF 7.5.1's scalar arm, also the
    leaf test of the heap trace and of pinning. An exact-integer carrier
    is a scalar on every host, including a JS or Dart big integer, which
-   answers false to `number?` (C3 ruling 4)."
+   answers false to `number?` (C3 ruling 4), and so is Jing's float64
+   carrier, how a float keeps its kind on JS."
   [x]
   (or (nil? x) (boolean? x) (number? x) (integer-host/big-carrier? x)
-      (string? x) (keyword? x) (symbol? x)))
+      (cbor/float64? x) (string? x) (keyword? x) (symbol? x)))
 
 
 (defn- encode-primitive

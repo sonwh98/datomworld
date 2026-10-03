@@ -738,7 +738,17 @@ The scalar arm's "number" includes every exact-integer carrier Jing
 supports, not only what a host's `number?` admits: a JS or Dart `BigInt`
 is a scalar like a `long`, encoded as itself and carried by Jing's major
 types 0/1 and tags 2/3 (C3 converged ruling 4). No marker is added, and a
-big integer inside a heap cell stays under the cell-lift refusal.
+big integer inside a heap cell stays under the cell-lift refusal. Likewise
+Jing's float64 carrier, how an integral float keeps its kind on JavaScript,
+is a scalar number (float-address mob ruling); `yin.vm/plain-data?` and
+`machine-data?` admit it for rows and machine payloads too, and rows,
+images and hashing keep its bytes. Admission and round-trip preservation
+of a numeric scalar do not imply that every primitive accepts it: on
+JavaScript the standard arithmetic and ordering primitives meet the
+carrier's coercion refusal (`dao.jing.cbor.md`), while the JVM and Dart
+compute on their native double. That error is Jing's `:carrier-coercion`,
+not a lift refusal (section 7.9). Only a profile with an explicit seam
+computes on floats portably.
 
 Map keys are values and are encoded as such — inside `:yin.k/entries`
 alternately with their values, and nowhere else; the frame's own `:yin.k/env`

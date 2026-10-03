@@ -26,6 +26,7 @@
    Cell, stream and cursor references stay sealed plain data: they name
    table entries, are already unforgeable, and must stay usable as keys."
   (:require [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [yin.vm.integer.host :as integer-host]))
 
 
@@ -192,7 +193,8 @@
   [x]
   (cond (nil? x) :nil
         (boolean? x) :boolean
-        (or (number? x) (integer-host/big-carrier? x)) :number
+        (or (number? x) (integer-host/big-carrier? x) (cbor/float64? x))
+        :number
         (string? x) :string
         (keyword? x) :keyword
         (symbol? x) :symbol

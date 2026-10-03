@@ -10,7 +10,8 @@
    host's shortest form is used, which differs from Python's exponent
    notation on the JVM."
   (:require
-    [clojure.string :as str]))
+    [clojure.string :as str]
+    [yin.vm.data :as data]))
 
 
 (defn- integral?
@@ -26,18 +27,21 @@
 
 
 (defn float-repr
-  [x]
-  (cond
-    #?(:cljd (.-isNaN ^num x)
-       :clj (Double/isNaN (double x))
-       :cljs (js/isNaN x))
-    "nan"
-    (= x ##Inf) "inf"
-    (= x ##-Inf) "-inf"
-    (negative-zero? x) "-0.0"
-    (and (integral? x) (< -1e16 x 1e16))
-    (str #?(:cljd (.toInt ^num x) :clj (long x) :cljs x) ".0")
-    :else (str x)))
+  "Python repr of float `f`, a host number or float64 content (on JS,
+   Jing's carrier)."
+  [f]
+  (let [x (data/float-value f)]
+    (cond
+      #?(:cljd (.-isNaN ^num x)
+         :clj (Double/isNaN x)
+         :cljs (js/isNaN x))
+      "nan"
+      (= x ##Inf) "inf"
+      (= x ##-Inf) "-inf"
+      (negative-zero? x) "-0.0"
+      (and (integral? x) (< -1e16 x 1e16))
+      (str #?(:cljd (.toInt ^num x) :clj (long x) :cljs x) ".0")
+      :else (str x))))
 
 
 (declare repr)
