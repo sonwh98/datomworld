@@ -166,6 +166,30 @@
     [(py/range-has? (py/range3 -9007199254740992 9007199254740992 9007199254740992) 1)
      false]
     [(py/range-elem -9007199254740992 6004799503160661 3) 9007199254740991]
+    ;; the O(1) path's guard, 0 <= i <= 2^26, |step| <= 2^26, |start| <=
+    ;; 2^52: each edge, and one past it through range-elem
+    [(py/range-at (py/range3 0 9007199254740992 67108864) 67108864) 4503599627370496]
+    [(py/range-at (py/range3 0 9007199254740992 67108864) 67108865) 4503599694479360]
+    [(py/range-at (py/range3 0 9007199254740992 67108865) 67108864) 4503599694479360]
+    [(py/range-at (py/range3 0 -9007199254740992 -67108864) 67108864) -4503599627370496]
+    [(py/range-at (py/range3 0 -9007199254740992 -67108864) 67108865) -4503599694479360]
+    [(py/range-at (py/range3 0 -9007199254740992 -67108865) 67108864) -4503599694479360]
+    [(py/range-at (py/range3 4503599627370496 9007199254740992 67108864) 67108863)
+     9007199187632128]
+    [(py/range-at (py/range3 4503599627370496 9007199254740992 67108864) 67108864) :py/stop]
+    [(py/range-at (py/range3 -4503599627370496 -9007199254740992 -67108864) 67108863)
+     -9007199187632128]
+    [(py/range-at (py/range3 -4503599627370496 -9007199254740992 -67108864) 67108864)
+     :py/stop]
+    [(py/range-at (py/range3 4503599627370497 9007199254740992 67108864) 67108863)
+     9007199187632129]
+    [(py/range-at (py/range3 4503599627370497 9007199254740992 67108864) 67108864) :py/stop]
+    [(py/range-at (py/range3 -4503599627370497 -9007199254740992 -67108864) 67108863)
+     -9007199187632129]
+    [(py/range-at (py/range3 -4503599627370497 -9007199254740992 -67108864) 67108864)
+     :py/stop]
+    [(py/to-vector (py/range3 -5 5 1)) [-5 -4 -3 -2 -1 0 1 2 3 4]]
+    [(py/to-vector (py/range3 5 -5 -3)) [5 2 -1 -4]]
     [(py/float-mod 1.0E20 3.0) 1.0]
     [(py/float-mod -1.0E20 3.0) 2.0]
     [(py/float-mod 1.0E300 7.0) 1.0]
@@ -183,6 +207,26 @@
     (doseq [[k result] results]
       (testing (str k)
         (is (= expected result))))))
+
+
+(deftest range-fast-path-on-every-host-test
+  (testing "iterating range(3000) never enters the recursive range-elem:
+            with it stubbed to a sentinel, every element is still exact"
+    (let [stubbed (u/seq-nodes
+                    (map (fn [[k form]]
+                           (u/def! k
+                                   (u/sexp->uast
+                                     (if (= k 'py/range-elem)
+                                       '(fn [start step i] :range-elem-entered)
+                                       form))))
+                         prelude/function-definitions))
+          results (run-with-prelude
+                    stubbed
+                    '(py/conj (py/conj [] (py/range-elem 0 1 5))
+                              (py/to-vector (py/range3 0 3000 1))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [:range-elem-entered (vec (range 3000))] result)))))))
 
 
 (deftest printed-floats-on-every-host-test

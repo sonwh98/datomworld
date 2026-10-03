@@ -218,7 +218,7 @@
 (deftest prelude-addresses-test
   (testing "the bundled prelude and the hook prelude: one address on every
             host (JVM goldens)"
-    (is (= :segment/blake3-38a0e750133afdd523975049d8227b79a5d4b96cf2eeed9a1e5b7320da6ca1c2
+    (is (= :segment/blake3-3d287776ee286f98912d2b4982d00ddf0fd7135c41f7cbfedaa9dfb326895ddd
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-76e1cfe8437915c3a64bb6a07eb9b20d7ae10e068494033f0f481fea581602e8
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
@@ -238,15 +238,15 @@
         prelude-id (fn [{:keys [root rows]}] (first (nth (get rows root) 3)))]
     (is (nil? (vm/validate-rows a')))
     (testing "A, A' and the record: one address on every host (JVM goldens)"
-      (is (= :segment/blake3-f941b99666d80d6dd60e428db8d52fab836f4fc0793f68de3db1a1995d0afe28
+      (is (= :segment/blake3-38e17ba2c9eb1ab2357ff44820b86a4499514a4b8540efd3e2b8c0ec07bef3ef
              (:root a)))
-      (is (= :segment/blake3-f05a91d4d2569332d2cf7443b8c4f8e2fa6322f6acaa4b7d79596b02a4c1e8ff
+      (is (= :segment/blake3-270bc0816a82eece379299e09e30d00282cc664032bd38fb3b94cff8eb6f35f8
              (:root a')))
-      (is (= :segment/blake3-39bfcf1e6a4d96099b4d69036deeb254a4394a3079aea6b7c1b12bf9b4ef3da5
+      (is (= :segment/blake3-88d5972b5d56c691e9669d95edd4de9261bc08b782cfa0dfb08b8de1bd1176de
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
-      (is (= :segment/blake3-f976da2ee9955478919eed7ad131ad02cdc04b9675377a183cc119e65d9c6fdd
+      (is (= :segment/blake3-9eb6ff939e458f4e47164fc49a04fa9a9f912bd5d28f35440d0389baae934121
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]

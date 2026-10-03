@@ -1496,17 +1496,32 @@
            (+ (py/range-elem start step (- i 1)) step)
            (py/range-elem start (+ step step) (py/int-floordiv i 2)))))]
     [py/range-at
-     ;; a valid element is exact (range-elem); the one-past element may
-     ;; exceed 2^53 on JS, but its true value is beyond stop and rounding is
+     ;; with 0 <= i <= 2^26, |step| <= 2^26 and |start| <= 2^52, |i * step|
+     ;; <= 2^52 and start + i * step is within +-2^53, exact on every host
+     ;; in O(1), the one-past element included; otherwise a valid element
+     ;; is exact through range-elem, and the one-past element may exceed
+     ;; 2^53 on JS, but its true value is beyond stop and rounding is
      ;; monotone, so the bound test still ends the range exactly there
      (fn [r i]
-       (let [x (py/range-elem (get r :start) (get r :step) i)]
-         (if (if (< 0 (get r :step)) (< x (get r :stop)) (> x (get r :stop)))
+       (let [start (get r :start)
+             step (get r :step)
+             x (if (if (<= 0 i)
+                     (if (<= i 67108864)
+                       (if (<= -67108864 step)
+                         (if (<= step 67108864)
+                           (if (<= -4503599627370496 start) (<= start 4503599627370496) false)
+                           false)
+                         false)
+                       false)
+                     false)
+                 (+ start (* i step))
+                 (py/range-elem start step i))]
+         (if (if (< 0 step) (< x (get r :stop)) (> x (get r :stop)))
            x
            :py/stop)))]
     [py/range-len
-     ;; O(1); a length beyond 2^53 is an OverflowError, as len() of such a
-     ;; range is in CPython
+     ;; O(1); a length beyond 2^53 is an OverflowError: CPython's limit is
+     ;; sys.maxsize, 2^53 is this profile's integer domain
      (fn [r _i] (py/range-count (get r :start) (get r :stop) (get r :step)))]
     [py/iter-at
      (fn [it i]
