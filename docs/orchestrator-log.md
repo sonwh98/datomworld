@@ -10044,3 +10044,74 @@ Standing orders unchanged (routing-status 2026-10-02 00:16 + the 03:20 glm-subag
   fable sessions per-artifact); architect sign-off + green lanes authorize commit+push; glm-5.3-flash
   delegation via ZCode subagents; cmd paused; codex = gpt-6.1-sol fresh threads.
 Next: land the three verified-ready units in order; resume C2-S3; then the C4 wave.
+
+
+## 2026-10-03 03:20:00 +0700 — Handoff of the orchestrator seat to claude (mid-blocker: long-loops-test hang)
+Completed-GMT: 2026-10-02 20:20:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@111a9823+ (uncommitted: docs/orchestrator-log.md only —
+  this entry; worktrees below)
+Owner directive: seat handoff to claude.
+Landed and committed this run (through 111a9823, all pushed unless
+  noted):
+- The hygiene batch over the DHT/linker files (added-line gate 0, JVM
+  lane green at commit time; see the c478935f entry).
+- The overnight records: the seat-takeover entries (agy -> claude ->
+  this seat), the C1 attribution correction, the GLM budget events,
+  the delegation ruling (GLM -> Agent-tool subagents, never terminal),
+  the lane-runner rule (bb test:clj chains build:yin-repl-node and
+  antlr-gen; bare clojure -M:test silently skips them), the float
+  mob's joint ruling, and the F/G mob ruling (astra + fable concur;
+  A1-A6 obligations).
+- docs/cljd-bug.md: the submission-ready ClojureDart reader-bug report
+  (five findings + the confirmed sixth, HEAD 0cbd540, self-contained
+  probe, named/unnamed variants). Submission is the owner's call.
+Landed in worktrees (verified, signed, NOT yet merged):
+- linker-hardening @ 81fe3c18 (rebased onto master this run, clean):
+  Hardening Stage 1 — kept-cursor proof (M-next A). Gate r5 found 4
+  P1s; R6 closed all; gate r2 READY/GRANTED. Post-rebase tri-host
+  lanes: BLOCKED (see below); pre-rebase lanes were green (JVM
+  2,861/225,994/0, Node 2,678/91,409/0, Dart 2,633).
+- linker-transfer: REMOVED this run — the transfer test was landed on
+  master by the peer chain (29968876); the codex re-implementation was
+  redundant.
+In flight at handoff:
+- C2-S2 fix round (worktree py-c2gen1, branch yang-python-c2-s2 @
+  cf6ed9ad): the claude-opus-5-5 session applying the gate's two
+  findings — P1 gen.throw must validate BaseException ancestry BEFORE
+  constructor normalization (reproduced: constructor side effects fire
+  on all four JVM evaluators; CPython checks first), P2 eleven >80-col
+  lines. Its fix plan is complete; it was last seen re-running lanes.
+- THE LIVE BLOCKER: long-loops-test HANGS on the post-rebase trees
+  (yang.python.antlr.e2e-test; 8+ minutes CPU, no completion; both
+  this seat's post-rebase JVM lane and the fix session's run stuck on
+  it). Pre-rebase trees were green, so the composition (master's
+  C2-S1 generators + safepoint s1 + the DHT machinery) regressed
+  something. The fix session was mid-diagnosis. This seat's stuck
+  lane and its orphaned JVMs were killed to free CPU.
+Next (for claude):
+1. Take over the fix session's diagnosis: long-loops-test on the
+   rebased trees. Suggested first moves: run the single test with a
+   stack dump (e.g. jstack on the stuck JVM) to see where it spins —
+   suspects: the C2-S1 generator crossing + the safepoint s1 marks +
+   the kept-cursor handoff state interacting; or the DHT process
+   peers from earlier runs holding ports.
+2. Kill the round: if the hang is in the kept-cursor handoff's
+   blocking wait, that is a stage-1 gate regression — reopen the
+   stage-1 gate thread
+   (collab/1790972690145-reviewer-linker-hardening-stage1-r6-gate.gpt-6.1-sol.stdout-r2.log)
+   instead of landing.
+3. Land in order: C2-S2 fixes -> lanes -> r2 gate -> commit; Stage 1
+   -> merge --no-ff -> push. The hygiene batch may already be
+   committed by a peer seat — check before staging.
+4. Route the float preparatory slice (the joint mob ruling is in the
+   log; the peer orchestrator's py-floatfix worktree may already be
+   executing it — coordinate, do not duplicate).
+5. The CLJD upstream report awaits the owner's submit decision
+   (docs/cljd-bug.md / collab/...-v2.md).
+Standing constraints: the peer ZCode orchestrator owns yang.antlr and
+  yang.python; collab/ and archive/ are shared append-only; never two
+  writers on one document; GLM delegation via the Agent tool only;
+  check docs/agents/routing-status.md before dispatching (GLM pool
+  volatile; codex/agy/claude CLIs per team.md).
