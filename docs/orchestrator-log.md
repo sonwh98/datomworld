@@ -9781,3 +9781,266 @@ Decisions: none; no dispatches, staging or commits.
 Verification: bb test:clj and bb test:cljs on datomworld-linker-hardening as above; nothing else run.
 Delegates: none new | prior: see the 01:50 takeover entry.
 Next: as in the brief: finish lanes, fresh gpt-6.1-sol gates for round 5 and C2-S2, land, mob the float-address question, then safepoint s2 / C3-S2.
+
+
+## 2026-10-03 02:30:00 +0700 — SEAT TAKEOVER: glm-5.3-flash (ZCode) resuming from claude per the owner's stop-and-hand
+Completed-GMT: 2026-10-02 19:30:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@cf6ed9ad == origin/master; uncommitted: worktrees
+  linker-hardening (Stage 1 R5: the 4 gate P1s fixed, tri-host lanes
+  green per the claude seat's script) and py-c2gen1 (C2-S2: generators
+  + GeneratorExit, targeted JVM/Node green, tri-host pending).
+Done: re-derived the full state (git, worktrees, log tail, routing,
+  the handoff brief collab/1790968304000, the lane script and its
+  status file). Verified: the r5 tri-host evidence is COMPLETE (the
+  Dart lane finished clean at 02:13 after the claude handoff — all
+  three lanes rc=0). The claude seat's log entries are committed
+  protectively.
+Routing honored: glm/codex/claude available; cmd/deepseek metered
+  (avoided); GLM pool reset confirmed (02:05 note) — subagents
+  available.
+Next: (1) dispatch the fresh gpt-6.1-sol Stage 1 R5 gate (concurrent);
+  (2) run C2-S2's tri-host lanes myself (solo CLJD discipline);
+  (3) route the float-literal address question to the architect mob
+  (gpt-6-astra + claude-fable-5-1, per the 22:50 addendum) — unrouted
+  since agy's session; (4) on gates+lanes: land Stage 1 R5 and C2-S2,
+  push; (5) then safepoint s2 / C3-S2 per the interim plan.
+
+
+## 2026-10-02 01:40:00 +0700 (Oct 2 02:40 ICT) — Float-address mob CONCLUDED: joint ruling (astra normative + fable mechanism)
+Completed-GMT: 2026-10-01 17:55:00 GMT (astra) | 2026-10-01 18:05:00 GMT (fable)
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+The mob CONCLUDED. Both halves concur on root cause and reject (a):
+the codec CONFORMS to its number contract (cbor.cljc:456-457,
+1003-1011; dao.jing.cbor.md:387-391) — the defect is upstream in the
+producers: lower.cljc:279-281 emits {:py/float <bare number>} (the tag
+does not reach the bytes), the quoted prelude carries integral float
+literals at 12 sites, and py/float at runtime builds {:py/float (* 1.0
+x)} whose JS snapshot diverges (semantic.cljc:996) — the
+runtime-values coverage astra's brief missed and fable added.
+
+JOINT RULING (astra's normative text + fable's mechanism — a third
+path, more precise than (a) or (b)):
+- The codec is untouched: no byte, fixture, or code change; one
+  sentence under Numeric identity (kind-carrying on JS is a producer
+  obligation; the codec never infers it).
+- One float representation on every host: Jing's float64 carrier
+  (cbor/float64). Lowering emits {:py/float (cbor/float64 v)} — the
+  identity on JVM/Dart, the carrier on JS. The prelude seam wraps in
+  py/float and unwraps in py/num via two new pure data-module
+  functions; NO capture point (yield or safepoint) may sit between an
+  unwrap and its rewrap (pinned by test). The quoted prelude carries
+  NO integral float literal — floats go through the constructor, with
+  a JVM-side guard test. The execution bridge: plain-data? and
+  machine-data? (vm.cljc:962, 981) admit the float64 carrier.
+- Contract amendments: dao.jing.cbor.md (the producer-obligation
+  sentence), yang.antlr.md section 8.5 (the :py/float payload is Jing
+  float64 content), and the yin.vm row/data domain doc (the carrier is
+  an admitted scalar).
+- Migration: a preparatory slice lands BEFORE any float-bearing pin.
+  JVM/Dart Python-literal addresses are unchanged; only Node moves.
+  Prelude rows change on all hosts. Node expectations comparing bare
+  numbers move to constructors or content=. Audit items: render.cljc
+  float repr, dict-key normalization (prelude.cljc:1176).
+- Gates meanwhile: C3-S2 proceeds in full (integer-only; cross-host
+  pins allowed for float-free rows). C2-S5 proceeds on float-free
+  programs (heap, lift refusal, iterators, snapshots, cross-host
+  goldens). NOT allowed until the preparatory slice: any cross-host
+  pin of a closure containing a float literal, runtime float value,
+  or the listed prelude definitions; any Node-specific golden for such
+  trees; any cbor.cljc edit. JVM-only Python-literal pins are safe
+  now.
+- Comparison note: astra's final ruling (normative text) and fable's
+  (mechanism + runtime-values coverage) are COMPATIBLE and jointly
+  complete; fable additionally covered runtime values in snapshots,
+  the decisive point for C2-S5.
+Implementation routing: the fix spans yang.python files (the peer
+  orchestrator's subsystem) plus yin/vm bridges — the ruling is
+  recorded here for the peer's pickup, or the owner directs the
+  routing; this seat does not dispatch into yang.antlr/yang.python
+  while the peer is active.
+Next: C2-S2 lanes (running) → gate → land; stage 1 R6 (running) →
+  gate → land; the preparatory float slice routes per the coordination
+  rules; then C2-S5/C3-S2 float-bearing gates release.
+
+## 2026-10-03 02:35:00 +07 — Seat resume (zcode glm-5.3-flash, taking over from claude per owner); yang.python track only
+Completed-GMT: 2026-10-02 19:35:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@69e58662 (pushed this entry: the agy/claude seats' log records, docs-only, includes this seat's own
+  2026-10-02 entries; origin was at cf6ed9ad)
+Done: OWNER, verbatim: "take over the orchestrator.md from claude and continue the yang.antlr.md"; mid-turn:
+  "there's another orchestrator working on yin.vm.linker". Division of labor: the OTHER seat owns the linker
+  hardening track (its glm-5.3 session 4b857b1a r6 fix round is LIVE in datomworld-linker-hardening as of 02:22;
+  artifacts collab/1790875163601-vm-engineer-hardening-stage1-kept-cursor.*, collab/1790968778707-reviewer-
+  linker-hardening-stage1-r5-gate.*; the claude seat's lanes.sh r5 legs all returned rc=0 for it). THIS seat
+  owns the yang.python track only.
+Re-derived state (per the 02:12 claude -> glm-5.3-flash handoff prompt, verified against the tree):
+- Safepoint slice 1 LANDED AND PUSHED cf6ed9ad by the claude seat (its 22:45 entry records it; agy was seated
+  first but ran out of credits -> claude took over at 01:50).
+- C2-S2 (send/throw/close/GeneratorExit) implemented uncommitted in datomworld-py-c2gen1 (branch
+  yang-python-c2-s2, engineer session aa90648c-54e8-47fa-8bc9-61f7ca34fac8, report
+  collab/1790958000000-compiler-engineer-python-c2-s2.claude-opus-5-5.stdout.log): GeneratorExit builtin class,
+  py/gen-attr dispatching send/throw/close/__next__/__iter__, throw semantics per CPython (class+val, tuple
+  spread, instance passthrough, tb->TypeError), close outcomes incl. the ignored-GeneratorExit RuntimeError,
+  9 new e2e tests + a portable parity test, CPython 3.9.6-verified expectations. Delegate-reported: targeted
+  JVM 16/103/0, Node 2703/91884/0, kondo/cljstyle clean on its 3 files. MY full-lane verification: the claude
+  seat's lanes.sh is running the c2s2 legs right now (clj started 02:13; logs in its scratchpad).
+- Float-address mob: astra returned (189KB log); fable's leg never ran (blank Session-ID in the prompt, no
+  process) — redispatching.
+Next: harvest lanes.sh c2s2 results -> glm static gate + gpt-6.1-sol final gate on C2-S2 -> land; redispatch
+  fable on the float-address question; then safepoint s2 and C3-S2 (both unblocked: C2-S1 and safepoint s1
+  are landed; C3-S2 waits on C2 landing — C2-S2 IS the C2 line, so C3-S2 follows its landing).
+
+## 2026-10-03 03:05:00 +07 — Float-address mob CONVERGED (astra + fable); safepoint s2 + C3-S2 engineers dispatched
+Completed-GMT: 2026-10-02 20:05:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@69e58662 == origin/master (log records pushed)
+Done:
+- FLOAT-ADDRESS MOB CONVERGED. Astra ruled (collab/1790968830636-architect-float-address-mob.gpt-6-astra.findings.md):
+  the codec conforms (JS integral-Number->integer classification is per dao.jing.cbor.md's number contract); the
+  defect is the PRODUCER losing float kind (bare 1.0 in the quoted prelude, and lower.cljc:279 wrapping a raw host
+  number in {:py/float ...} — the wrapper does not fix the nested payload's classification). Mechanism: preserve
+  float64 kind BEFORE row construction using Jing's EXISTING dao.jing/float64 carrier (tag 27) — no new CBOR tag,
+  no row shape change, codec + fixtures untouched; add an execution bridge (the VM scalar predicate does not admit
+  float64 carriers); re-mint misclassified Node rows (parents, A/A' roots, address-bearing refs); never alias
+  integer addresses to float addresses. Fable concurs per point with three corrections (collab/1790968830647-
+  architect-float-address-mob.claude-fable-5-1.findings.md): (1) the normative text must also bind RUNTIME float
+  values in addressed images (snapshots/continuations), not just literals; (2) the bridge must cover the row and
+  machine-payload gates at vm.cljc:962,:981, not only engine.cljc:632; (3) the gate: "float-free" covers the
+  ENTIRE addressed payload including the bundled prelude; C2-S5 must not pin cross-host goldens on float-bearing
+  trees; cbor.cljc and its fixtures are not to be edited. GATES meanwhile: slice 1's float-free golden stands;
+  C2-S5 heap/collection work and C3-S2 INTEGER-ONLY work may proceed; float-bearing address acceptance releases
+  only after cross-host identical canonical bytes + A/A' on float-bearing inputs incl. the full prelude.
+  CONSEQUENCE: a float-fix slice is queued (producer carrier insertion + the two-gate bridge + re-mint tests) —
+  dispatch after the mob record lands in the doc or with the next doc pass.
+- SAFEPONT S2 (recursion) engineer dispatched: worktree datomworld-py-safepoint2 (branch yang-python-safepoint-s2
+  from 69e58662; mise trusted, npm installed pre-dispatch), brief
+  collab/1790969285000-compiler-engineer-python-safepoint-s2.prompt.md: dynamic-context record (handlers, depth,
+  current frame) restored whole by escapes, :call/:return depth accounting, RecursionError as a base-prelude
+  builtin class per the KeyboardInterrupt pattern, setrecursionlimit if simple.
+- C3-S2 (numeric keys, guest hashing, integer is) engineer dispatched: worktree datomworld-py-c3key1 (branch
+  yang-python-c3-s2), brief collab/1790969350000-compiler-engineer-python-c3-s2.prompt.md, INTEGER-ONLY per the
+  mob gate; reduced-rational decimal-string keys, P=2^61-1 cross-host guest hashing over the integer module's
+  kernels, carrier-independent is; JS-safe literal construction required for any new prelude literal.
+- C2-S2 verification: the claude seat's lanes.sh finished its r5 legs (all rc=0 — the other seat's tree) and is
+  running the c2s2 legs in datomworld-py-c2gen1; harvest when done, then glm static + gpt-6.1-sol final gates.
+Note: archived findings restored from archive/ into the c3key1 worktree (the 21:26 housekeeping moved 625
+  artifacts; worktree briefs reference them).
+Next: C2-S2 lanes -> gates -> land; safepoint s2 + C3-S2 returns -> my lanes -> gates -> land (land C3-S2 after
+  C2-S2 to sequence prelude conflicts; fable's sequencing note: the float slice and anything touching
+  vm.cljc/engine.cljc scalar gates lands serially); float-fix engineer after C2-S2 lands.
+
+## 2026-10-03 04:30:00 +07 — Float ruling doc landed ad25a2bd (subagent gate READY); C4 mob converged (19 rulings)
+Completed-GMT: 2026-10-02 21:30:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@ad25a2bd == origin/master
+Done:
+- Float-ruling doc LANDED: writer claude opus (worktree datomworld-yang-doc, branch docs-yang-antlr-float, session
+  in prompt collab/1790975700000-writer-yang-antlr-float-ruling.prompt.md) recorded the converged mob ruling as
+  yang.antlr.md 8.5.5 (+169/-2 incl. a 3-line dao.jing.cbor.md cross-reference; codec contract untouched). Gate:
+  a ZCODE SUBAGENT (agent_bdd4bcee-402e-4e46-9d56-d8b16eaa4d7b, the owner's 03:20 glm-subagent directive applied
+  for the first time) — READY, source-verified every load-bearing claim, all three fable corrections confirmed
+  present, three informational P3s (header scope sentence; the yin.vm data-domain doc amendment fable asked for —
+  no such doc records the scalar gates today, the landing slice should confirm; untracked collab citations per
+  convention). Committed, rebased (no-op, up to date), ff, pushed ad25a2bd.
+- C4 MOB CONVERGED: fable authored the C4 design (collab/1790974400000-architect-python-c4-design.claude-fable-5-1
+  .findings.md; imports over the landed linker, the linked prelude, the REPL frontend catalog/SPI; 19 decisions);
+  astra cross-ruled on the standing mob thread (collab/1790975400000-architect-c4-crossruling.gpt-6-astra
+  .findings.md). Converged rulings 1-19 (headline): pure install + explicit instantiation in the consuming task;
+  one task-local builtin namespace with global fallback; py/pysp/pym reserved with injective mangling; hoisted
+  pinned delivery only under eager-dependency restriction, module bodies lazy; bundled mode retained until the
+  twelve-lane migration AND the float64 address gates pass; AST-walker linked support + cross-module store-context
+  restoration required before migration completes; host-export semantic profiles by address (settles the C3-S1
+  versioning P3); refusal-as-data linking before catchable missing imports; delivery cycles refused then SCC units;
+  static-literal import names only; literal import_module + same-image reload; relative imports static;
+  auto-import deferred; safepoint site sets published as datoms; frontend marks retained; immutable catalogs with
+  explicit parser services on every host; content-addressed lowering profiles; __main__ persists across REPL
+  submissions, (reset) is a new process; foreign-principal imports only after D7 slice B.
+  C4 implementation is unblocked once the current wave lands; I1 (the linked-prelude install slice) is first.
+Next: C2-S2 lanes (mine) -> subagent gate + codex gate -> land; safepoint s2 + C3-S2 + float-fix returns ->
+  verify -> gates -> land (C3-S2 and float-fix land serially per the fable sequencing note); then C4 I1 dispatch.
+
+## 2026-10-03 05:35:00 +07 — C2-S2 landed and pushed c3f2da8f (send/throw/close + GeneratorExit)
+Completed-GMT: 2026-10-02 22:35:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@c3f2da8f == origin/master
+Done: Python C2 slice S2 landed (engineer claude opus session aa90648c-54e8-47fa-8bc9-61f7ca34fac8 from the claude
+  seat's dispatch + my two resumes of session 65b24574? NO — correction: S2's engineer session was aa90648c
+  (claude seat); my role was verification + gates): GeneratorExit builtin class under BaseException, py/gen-attr
+  dispatching send/throw/close/__next__/__iter__, CPython-exact throw semantics (class+val, tuple spread,
+  instance passthrough, tb TypeError), close outcomes incl. ignored-GeneratorExit RuntimeError with the generator
+  staying suspended, already-executing guard on all four entry points, PEP 479, with/__exit__ on close, 9 new e2e
+  tests + portable parity tests, CPython 3.9.6-verified. Gates: the claude seat's gpt-6.1-sol r1 REQUEST CHANGES
+  (thread 01a0fe49-e42b-7e71-a0b8-67f39fe586ca: P1 throw executes invalid exception constructors — constructor
+  ran before BaseException validation; P2 eleven over-80 lines) -> engineer fix round (C2S2-FIX-BRIEF.md) ->
+  MY verification: JVM 2908/227045/0 (r1 lane died environmentally mid-e2e with no summary; r2 clean), Node
+  2704/91888/0, CLJD all-pass; subagent static gate (agent_f8c7d5cd..., the owner's glm-subagent directive)
+  READY with CPython ground truth; gpt-6.1-sol r2 (resumed thread) READY — both fixes verified closed. Committed
+  c3f2da8f, rebased onto ad25a2bd (docs-only delta since the lanes), ff, pushed.
+Decisions: the subagent's three P3s recorded, non-blocking (throw(5) message wording C1-style; the S2 table's
+  for/break/finally row deferred to S3's iterator work; brief files stay untracked — excluded from the commit).
+Verification: full protocol — my lanes + two independent gates (glm-family subagent + gpt-6.1-sol).
+Next: safepoint-s2 (my lanes after its leftover yin.repl group exits; mob question on generator depth vs CPython),
+  C3-S2 (engineer still running), float-fix (engineer still running) -> gates -> land serially where prelude
+  conflicts; then C2-S3 dispatch and the C4 doc pass + I1.
+
+## 2026-10-03 09:55:00 +07 — FINAL HANDOFF: zcode glm-5.3-flash seat -> claude; C4 doc landed 9b306019; three units verified-ready
+Completed-GMT: 2026-10-03 02:55:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@9b306019 == origin/master (this seat's last push: the C4 doc)
+LANDED THIS SEAT (02:35 takeover through now): 69e58662->pushed log records; ad25a2bd float-ruling doc (8.5.5);
+  c3f2da8f C2-S2 generators send/throw/close (full protocol: my lanes 2908/227045/0 JVM, 2704/91888/0 Node, CLJD
+  all-pass; glm-family subagent static gate READY; gpt-6.1-sol thread 01a0fe49 r1 REQUEST CHANGES -> fixes -> r2
+  READY); 9b306019 C4 rulings doc (8.5.6, +529/-3, subagent gate agent_e05054d6 READY, three P3 nits recorded:
+  "is filed" -> "is to be filed" wording; module-version anchor; P2 VM scope implicit).
+MOB CONVERGED THIS SEAT: float-address ruling (astra + fable; interim numeric-key approved with integer-domain
+  guard; Python-scoped bridge accepted, universal unwrapping rejected, ONE addition: the CLJS pure-wrapper
+  arithmetic/ordering refusal); generator-depth ruling (astra + fable concur: CURRENT-resumer depth via a
+  crossing-owned :base; escapes restore activation-relatively; the limit sits outside escape-restored context;
+  the setter refuses a too-low limit with RecursionError; 79/79 -> 79/99).
+THREE UNITS VERIFIED-READY-BY-THEIR-ENGINEERS, AWAITING MY-STYLE LANES + GATES + LANDING (all uncommitted in
+  their worktrees; do NOT re-dispatch):
+1. FLOAT-FIX r2 COMPLETE — /Users/sto/workspace/datomworld-py-floatfix (branch yang-python-floatfix):
+   engineer lane r2 JVM 2905/227049/0, Node 2711/91937/0 (after fixing 2 completion_test failures — read its
+   report note), CLJD 2666 passed; the carrier-refusing CLJS pure wrapper + generic-yin-refuses-the-carrier
+   Node test + numeric-key interim comment all in. NEXT: orchestrator lanes (fresh tree after r2 — the r1
+   orchestrator lanes were killed as moot), subagent static gate, gpt-6.1-sol gate, land FIRST.
+2. C3-S2 COMPLETE — /Users/sto/workspace/datomworld-py-c3key1 (branch yang-python-c3-s2): reduced-rational
+   decimal-string keys [:py.numeric/finite "num" "den"], P=2^61-1 hashing via the integer module (CPython-exact
+   pinned values), integer-is convention; engineer lanes JVM 2903/227043/0, Node 2705/91893/0, CLJD 2660;
+   kondo/cljstyle clean. NEXT: rebase onto post-floatfix master — RESOLVE THE py/key CONFLICT: ruling-6
+   decimal-string keys WIN per the converged float ruling; data/numeric-key (floatfix's interim) is DELETED;
+   the float-key helpers must unwrap carriers via data/float-value before exact decomposition; pin one
+   NaN-key behavior. Then lanes + gates + land.
+3. SAFEPOINT-S2 fix round COMPLETE — /Users/sto/workspace/datomworld-py-safepoint2 (branch
+   yang-python-safepoint-s2): the :base mechanism implemented (79/99 pinned via down(19,g)), the setter
+   current-depth check in, RecursionError/RuntimeError + limit rules confirmed, the 8.5.2 depth paragraph
+   rewritten; engineer lanes JVM chunked (25/386, 1412/211973, + e2e groups incl. the previously-unconfirmed
+   yin.repl group now CONFIRMED 224+89), Node 2707/91935/0, Dart 2662 all-pass; kondo/cljstyle clean.
+   NEXT: orchestrator lanes, subagent static gate, gpt-6.1-sol gate, land.
+4. C2-S3 IN FLIGHT — /Users/sto/workspace/datomworld-py-c2gen3 (branch yang-python-c2-s3, session
+   (uuid in collab/1790979864000-*-c2-s3.prompt.md)): yield-from/iter implemented, focused JVM 60/313/0
+   green; the engineer's first turn ENDED EARLY with the full JVM lane unfinished ("background; completion
+   notice") — RESUME IT with the strict single-turn foreground protocol (kill orphaned runners first).
+LANDING ORDER: float-fix -> C3-S2 (rebase) -> safepoint-s2 -> C2-S3; every unit: my lanes + subagent static
+  gate + gpt-6.1-sol gate -> commit in the worktree -> rebase -> ff master FROM THE MAIN TREE -> push.
+AFTER THE WAVE: C4 I1 dispatch (the linked-prelude install slice; 8.5.6 has the slice table; the C4 doc is
+  landed, so I1's design source is on master), C2-S4 (genexp de-inlining), safepoint s3 (tracing).
+Mechanics that bit this seat: (1) claude -p delegates end turns early; resumes must demand single-turn
+  foreground completion; (2) cp chains with && short-circuit silently — verify staging before dispatch;
+  (3) fable/astra sessions resume cleanly; codex resume needs -c sandbox_mode=, not -s; (4) the 10-min
+  foreground cap makes engineers background lanes — orchestrator lanes must be re-run post-fix; (5) master
+  ff+push ONLY from the main tree; (6) one CLJD runner at a time repo-wide; kill orphan cognitect JVM runners
+  before relaunching.
+Standing orders unchanged (routing-status 2026-10-02 00:16 + the 03:20 glm-subagent directive): autonomous
+  yang.antlr.md completion; mob = gpt-6-astra + fable-5.1 (astra thread 01a0f878-281b-7253-ac44-ff2402583d35,
+  fable sessions per-artifact); architect sign-off + green lanes authorize commit+push; glm-5.3-flash
+  delegation via ZCode subagents; cmd paused; codex = gpt-6.1-sol fresh threads.
+Next: land the three verified-ready units in order; resume C2-S3; then the C4 wave.
