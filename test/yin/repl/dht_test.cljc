@@ -14,7 +14,7 @@
    peers are plain DHT states on the same mesh.  Time is the `now` each
    step is handed.  Real processes over real loopback sockets are
    yin.repl.dht-process-test."
-  (:require #?@(:cljd [["dart:io" :as dart-io]])
+  (:require [dao.test-slow :as slow] #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
@@ -1808,28 +1808,30 @@
 
 (deftest
   ^:slow rounds-larger-than-the-pending-write-bound-are-acknowledged-never-busy
-  (let [dir (temp-dir)
-        net (mesh/mesh)]
-    (try
-      (let [w (assoc-in (world net [2 3]) [:shells :p]
-                        (shell-at dir (mesh-bind net 10 (atom 0)) [2 3] nil []))
-            [w ms] (reduce (fn [[w ms] r]
-                             (let [[w _] (eval-at w :p (big-program r 80))]
-                               [w (conj ms (head-of w :p))]))
-                           [w []]
-                           (range 1 9))
-            w (run-world w 10 60000
-                         (fn [w] (every? #(event-of w :p :published %) ms)))
-            reports (mapv #(event-of w :p :published %) ms)]
-        (is (= 8 (count (distinct ms))))
-        (is (every? #(< space.dht/max-pending-writes (:blobs %)) reports)
-            (pr-str (map :blobs reports)))
-        (is (= (repeat 8 :acknowledged) (mapv :result reports)))
-        (is (not-any? #(= ::dht/busy (:reason %)) (mapcat :failed (:events w)))
-            "no write ever drew /busy")
-        (close-all! w))
-      (finally
-        (cleanup-dir! dir)))))
+  (slow/guard "rounds-larger-than-the-pending-write-bound-are-acknowledged-never-busy"
+              (fn []
+                (let [dir (temp-dir)
+                      net (mesh/mesh)]
+                  (try
+                    (let [w (assoc-in (world net [2 3]) [:shells :p]
+                                      (shell-at dir (mesh-bind net 10 (atom 0)) [2 3] nil []))
+                          [w ms] (reduce (fn [[w ms] r]
+                                           (let [[w _] (eval-at w :p (big-program r 80))]
+                                             [w (conj ms (head-of w :p))]))
+                                         [w []]
+                                         (range 1 9))
+                          w (run-world w 10 60000
+                                       (fn [w] (every? #(event-of w :p :published %) ms)))
+                          reports (mapv #(event-of w :p :published %) ms)]
+                      (is (= 8 (count (distinct ms))))
+                      (is (every? #(< space.dht/max-pending-writes (:blobs %)) reports)
+                          (pr-str (map :blobs reports)))
+                      (is (= (repeat 8 :acknowledged) (mapv :result reports)))
+                      (is (not-any? #(= ::dht/busy (:reason %)) (mapcat :failed (:events w)))
+                          "no write ever drew /busy")
+                      (close-all! w))
+                    (finally
+                      (cleanup-dir! dir)))))))
 
 
 ;; -----------------------------------------------------------------------------
@@ -2177,140 +2179,142 @@
 
 (deftest
   ^:slow a-two-principal-dependency-evaluates-or-raises-dependency-binding
-  (let
-    [dirs (vec (repeatedly 3 temp-dir))
-     net (mesh/mesh)
-     k1 (sign/generate)
-     k2 (sign/generate)]
-    (try
-      (let
-        [w (->
-             (world net [2 3])
-             (assoc-in
-               [:shells :p1] (shell-at
-                               (dirs 0) (mesh-bind
-                                          net 10
-                                          (atom 0))
-                               [2 3 11 12] k1 []))
-             (assoc-in
-               [:shells :p2] (shell-at
-                               (dirs 1) (mesh-bind
-                                          net 11
-                                          (atom 0))
-                               [2 3 10 12] k2 [(:public
-                                                 k1)]))
-             (assoc-in [:shells :r] (shell-at (dirs 2) (mesh-bind net 12
-                                                                  (atom 0))
-                                              [2 3 10 11] nil
-                                              [(:public k1) (:public
-                                                              k2)])))
-         ;; P1 publishes base
-         [w _] (eval-at w :p1 "(def f (fn [] 42))")
-         [w _] (eval-at w :p1 "(require (quote yin.link))")
-         [w _ base] (eval-at w :p1
-                             "(yin.link/publish (quote base) (quote [f]))")
-         m1 (head-of w :p1)
-         w (until-settled w)
-         ;; P2 loads P1's index, links base, and publishes app against it
-         [w _] (eval-at w :p2 "(require (quote dao.space.dht))")
-         [w _] (eval-at w :p2 (str "(dao.space.dht/load-index " m1 ")"))
-         w (run-world w 10 (+ (:now w) 60000) #(event-of % :p2 :loaded m1))
-         [w _] (require-at w :p2 'base)
-         ;; the require above is its own program: 5.3's closure by
-         ;; linked requirements collects it into app's tree
-         [w _] (eval-at w :p2 "(def g (fn [] (+ (base/f) 1)))")
-         [w _] (eval-at w :p2 "(require (quote yin.link))")
-         [w _ app] (eval-at w :p2
-                            "(yin.link/publish (quote app) (quote [g]))")
-         m2 (head-of w :p2)
-         w (until-settled w)
-         ;; a (reset) drops host modules: require the DHT one each time
-         load-at (fn [w m]
-                   (let
-                     [[w _] (eval-at w :r
-                                     "(require (quote dao.space.dht))")
-                      [w _] (eval-at
-                              w :r (str
-                                     "(dao.space.dht/load-index " m ")"))]
-                     (run-world
-                       w 10 (+ (:now w) 60000) #(event-of
-                                                  % :r
-                                                  :loaded m))))]
-        (is
-          (=
-            {'base (:address base)}
-            (:yin.module/requires
-              (jing/get
-                (space.dht/local
-                  (get-in
-                    w
-                    [:shells :p2 :dht]))
-                (:address app) nil)))
-          "app pins the base P2 linked")
-        (testing
-          "absent: the reader has not loaded P1's index"
-          (let
-            [w (load-at w m2)
-             [w _] (require-at w :r 'app)]
-            (is (= {:status :refused :reason :yin.link.dht/dependency-binding
-                    :module (:address app) :name 'base :pinned (:address base)
-                    :binding :absent :diagnostics []}
-                   (last-response w :r)))
-            (testing
-              "matching: both indexes loaded, both principals declared"
-              (let
-                [w (load-at w m1)
-                 [w _] (require-at w :r 'app)
-                 _ (is
-                     (= 'app (get-in w [:shells :r :last-value]))
-                     (pr-str
-                       (last-response w :r)))
-                 [w answer] (eval-at w :r "(app/g)")]
-                (is (= "43" answer))
-                (testing
-                  "mismatch: P1 republished base at another address"
-                  (let
-                    [[w _] (eval-at w :p1 "(def f (fn [] 7))")
-                     [w _ base2] (eval-at
-                                   w :p1
-                                   (str
-                                     "(yin.link/publish (quote "
-                                     "base) (quote [f]))"))
-                     w (until-settled w)
-                     w (load-at w (head-of w :p1))
-                     [w _] (eval-at w :r "(reset)")
-                     [w _] (require-at w :r 'app)]
-                    (is (= {:status :refused :reason
-                            :yin.link.dht/dependency-binding
-                            :module (:address app) :name 'base :pinned
-                            (:address base)
-                            :binding :mismatch :resolved (:address base2)
-                            :asserters [(sign/principal (:public k1))]}
-                           (last-response w :r)))
-                    (testing
-                      "ambiguous: P2 also asserts base at another address"
-                      (let
-                        [[w _] (eval-at w :p2 "(def f (fn [] 9))")
-                         [w _ own] (eval-at
-                                     w :p2
-                                     (str
-                                       "(yin.link/publish (quote "
-                                       "base) (quote [f]))"))
-                         w (until-settled w)
-                         w (load-at w (head-of w :p2))
-                         [w _] (eval-at w :r "(reset)")
-                         [w _] (require-at w :r 'app)
-                         body (last-response w :r)]
-                        (is (= [:yin.link.dht/dependency-binding :ambiguous]
-                               [(:reason body) (:binding body)]))
-                        (is
-                          (=
-                            (set [(:address base2) (:address own)])
-                            (set
-                              (:addresses body))))
-                        (is (= #{(sign/principal (:public k1)) (sign/principal
-                                                                 (:public k2))}
-                               (set (:asserters body))))
-                        (close-all! w))))))))))
-      (finally
-        (run! cleanup-dir! dirs)))))
+  (slow/guard "a-two-principal-dependency-evaluates-or-raises-dependency-binding"
+              (fn []
+                (let
+                  [dirs (vec (repeatedly 3 temp-dir))
+                   net (mesh/mesh)
+                   k1 (sign/generate)
+                   k2 (sign/generate)]
+                  (try
+                    (let
+                      [w (->
+                           (world net [2 3])
+                           (assoc-in
+                             [:shells :p1] (shell-at
+                                             (dirs 0) (mesh-bind
+                                                        net 10
+                                                        (atom 0))
+                                             [2 3 11 12] k1 []))
+                           (assoc-in
+                             [:shells :p2] (shell-at
+                                             (dirs 1) (mesh-bind
+                                                        net 11
+                                                        (atom 0))
+                                             [2 3 10 12] k2 [(:public
+                                                               k1)]))
+                           (assoc-in [:shells :r] (shell-at (dirs 2) (mesh-bind net 12
+                                                                                (atom 0))
+                                                            [2 3 10 11] nil
+                                                            [(:public k1) (:public
+                                                                            k2)])))
+                       ;; P1 publishes base
+                       [w _] (eval-at w :p1 "(def f (fn [] 42))")
+                       [w _] (eval-at w :p1 "(require (quote yin.link))")
+                       [w _ base] (eval-at w :p1
+                                           "(yin.link/publish (quote base) (quote [f]))")
+                       m1 (head-of w :p1)
+                       w (until-settled w)
+                       ;; P2 loads P1's index, links base, and publishes app against it
+                       [w _] (eval-at w :p2 "(require (quote dao.space.dht))")
+                       [w _] (eval-at w :p2 (str "(dao.space.dht/load-index " m1 ")"))
+                       w (run-world w 10 (+ (:now w) 60000) #(event-of % :p2 :loaded m1))
+                       [w _] (require-at w :p2 'base)
+                       ;; the require above is its own program: 5.3's closure by
+                       ;; linked requirements collects it into app's tree
+                       [w _] (eval-at w :p2 "(def g (fn [] (+ (base/f) 1)))")
+                       [w _] (eval-at w :p2 "(require (quote yin.link))")
+                       [w _ app] (eval-at w :p2
+                                          "(yin.link/publish (quote app) (quote [g]))")
+                       m2 (head-of w :p2)
+                       w (until-settled w)
+                       ;; a (reset) drops host modules: require the DHT one each time
+                       load-at (fn [w m]
+                                 (let
+                                   [[w _] (eval-at w :r
+                                                   "(require (quote dao.space.dht))")
+                                    [w _] (eval-at
+                                            w :r (str
+                                                   "(dao.space.dht/load-index " m ")"))]
+                                   (run-world
+                                     w 10 (+ (:now w) 60000) #(event-of
+                                                                % :r
+                                                                :loaded m))))]
+                      (is
+                        (=
+                          {'base (:address base)}
+                          (:yin.module/requires
+                            (jing/get
+                              (space.dht/local
+                                (get-in
+                                  w
+                                  [:shells :p2 :dht]))
+                              (:address app) nil)))
+                        "app pins the base P2 linked")
+                      (testing
+                        "absent: the reader has not loaded P1's index"
+                        (let
+                          [w (load-at w m2)
+                           [w _] (require-at w :r 'app)]
+                          (is (= {:status :refused :reason :yin.link.dht/dependency-binding
+                                  :module (:address app) :name 'base :pinned (:address base)
+                                  :binding :absent :diagnostics []}
+                                 (last-response w :r)))
+                          (testing
+                            "matching: both indexes loaded, both principals declared"
+                            (let
+                              [w (load-at w m1)
+                               [w _] (require-at w :r 'app)
+                               _ (is
+                                   (= 'app (get-in w [:shells :r :last-value]))
+                                   (pr-str
+                                     (last-response w :r)))
+                               [w answer] (eval-at w :r "(app/g)")]
+                              (is (= "43" answer))
+                              (testing
+                                "mismatch: P1 republished base at another address"
+                                (let
+                                  [[w _] (eval-at w :p1 "(def f (fn [] 7))")
+                                   [w _ base2] (eval-at
+                                                 w :p1
+                                                 (str
+                                                   "(yin.link/publish (quote "
+                                                   "base) (quote [f]))"))
+                                   w (until-settled w)
+                                   w (load-at w (head-of w :p1))
+                                   [w _] (eval-at w :r "(reset)")
+                                   [w _] (require-at w :r 'app)]
+                                  (is (= {:status :refused :reason
+                                          :yin.link.dht/dependency-binding
+                                          :module (:address app) :name 'base :pinned
+                                          (:address base)
+                                          :binding :mismatch :resolved (:address base2)
+                                          :asserters [(sign/principal (:public k1))]}
+                                         (last-response w :r)))
+                                  (testing
+                                    "ambiguous: P2 also asserts base at another address"
+                                    (let
+                                      [[w _] (eval-at w :p2 "(def f (fn [] 9))")
+                                       [w _ own] (eval-at
+                                                   w :p2
+                                                   (str
+                                                     "(yin.link/publish (quote "
+                                                     "base) (quote [f]))"))
+                                       w (until-settled w)
+                                       w (load-at w (head-of w :p2))
+                                       [w _] (eval-at w :r "(reset)")
+                                       [w _] (require-at w :r 'app)
+                                       body (last-response w :r)]
+                                      (is (= [:yin.link.dht/dependency-binding :ambiguous]
+                                             [(:reason body) (:binding body)]))
+                                      (is
+                                        (=
+                                          (set [(:address base2) (:address own)])
+                                          (set
+                                            (:addresses body))))
+                                      (is (= #{(sign/principal (:public k1)) (sign/principal
+                                                                               (:public k2))}
+                                             (set (:asserters body))))
+                                      (close-all! w))))))))))
+                    (finally
+                      (run! cleanup-dir! dirs)))))))

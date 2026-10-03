@@ -4,7 +4,7 @@
    surface\"; yin.repl.query).  Every shell-level case runs on every VM the
    shell supports.  Input lines stay readable by every host's
    non-evaluating reader, so quoted forms are spelled `(quote ...)`."
-  (:require [clojure.string :as str]
+  (:require [dao.test-slow :as slow] [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
@@ -308,38 +308,42 @@
 
 
 (deftest ^:slow a-failed-round-of-more-calls-than-the-pair-holds-leaves-no-gap
-  (doseq [vm-type vm-types]
-    (testing (str vm-type)
-      (let [n (+ repl/query-pair-capacity 6)
-            [_ [_ _ _ failed answered]]
-            (evaluate (repl/create-state {:vm-type vm-type})
-                      [require-line
-                       "(def answer 42)"
-                       (spin-line "(nope)")
-                       (str "(spin " n ")")
-                       (q-line '[:find ?v . :where [?e :yin/value 42]
-                                 [?e :yin/value ?v]])])]
-        (is (str/starts-with? failed "Error: Unable to resolve symbol: nope"))
-        (is (= "42" answered)
-            "the rolled-back VM reads past the abandoned answers, not into a gap")))))
+  (slow/guard "a-failed-round-of-more-calls-than-the-pair-holds-leaves-no-gap"
+              (fn []
+                (doseq [vm-type vm-types]
+                  (testing (str vm-type)
+                    (let [n (+ repl/query-pair-capacity 6)
+                          [_ [_ _ _ failed answered]]
+                          (evaluate (repl/create-state {:vm-type vm-type})
+                                    [require-line
+                                     "(def answer 42)"
+                                     (spin-line "(nope)")
+                                     (str "(spin " n ")")
+                                     (q-line '[:find ?v . :where [?e :yin/value 42]
+                                               [?e :yin/value ?v]])])]
+                      (is (str/starts-with? failed "Error: Unable to resolve symbol: nope"))
+                      (is (= "42" answered)
+                          "the rolled-back VM reads past the abandoned answers, not into a gap")))))))
 
 
 (deftest ^:slow a-program-calling-q-without-end-is-stopped-at-the-drive-budget
-  (doseq [vm-type vm-types]
-    (testing (str vm-type)
-      (let [[state [_ _ _ stopped answered]]
-            (evaluate (repl/create-state {:vm-type vm-type})
-                      [require-line
-                       "(def answer 42)"
-                       (spin-line ":done")
-                       (str "(spin " (inc (* 2 repl/query-drive-budget)) ")")
-                       (q-line '[:find ?v . :where [?e :yin/value 42]
-                                 [?e :yin/value ?v]])])
-            requests (stream-values (get-in state [:query-pair :call-in]))]
-        (is (= (str "Error: " repl/query-call-limit-text) stopped))
-        (is (= "42" answered) "the session answers the next call")
-        (is (= (count requests) (count (distinct (map apply2/request-id requests))))
-            "every call id is unique across the stopped run and the next")))))
+  (slow/guard "a-program-calling-q-without-end-is-stopped-at-the-drive-budget"
+              (fn []
+                (doseq [vm-type vm-types]
+                  (testing (str vm-type)
+                    (let [[state [_ _ _ stopped answered]]
+                          (evaluate (repl/create-state {:vm-type vm-type})
+                                    [require-line
+                                     "(def answer 42)"
+                                     (spin-line ":done")
+                                     (str "(spin " (inc (* 2 repl/query-drive-budget)) ")")
+                                     (q-line '[:find ?v . :where [?e :yin/value 42]
+                                               [?e :yin/value ?v]])])
+                          requests (stream-values (get-in state [:query-pair :call-in]))]
+                      (is (= (str "Error: " repl/query-call-limit-text) stopped))
+                      (is (= "42" answered) "the session answers the next call")
+                      (is (= (count requests) (count (distinct (map apply2/request-id requests))))
+                          "every call id is unique across the stopped run and the next")))))))
 
 
 ;; =============================================================================
@@ -421,39 +425,41 @@
 
 
 (deftest ^:slow results-over-a-limit-refuse-naming-it
-  (testing "the shell's row limit, on every VM"
-    (doseq [vm-type vm-types]
-      (testing (str vm-type)
-        (let [[_ [_ _ text]]
-              (evaluate (repl/create-state {:vm-type vm-type})
-                        [require-line
-                         (str "(+ " (str/join " " (range 1100)) ")")
-                         (q-line '[:find ?v :where [?e :yin/value ?v]])])]
-          (is (str/includes? text "(:yin.repl.query/result-limit)"))
-          (is (str/includes? text (str "over the limit of " repl/query-row-limit)))))))
-  (let [[state _] (evaluate (repl/create-state)
-                            ["(def answer \"a long string literal\")"])
-        ask (fn [limits query & inputs]
-              (apply2/response-error
-                (query/answer (:indexer state) limits
-                              (apply2/request 1 query/op
-                                              (into [query] inputs)))))
-        by-value '[:find ?v . :in $ ?v :where [?e :yin/value ?v]]]
-    (testing "the row limit is checked on the collected rows"
-      (let [error (ask {:row-limit 2, :byte-limit 100000}
-                       '[:find ?e ?a ?v :where [?e ?a ?v]])]
-        (is (= :yin.repl.query/result-limit (:dao.stream.apply/code error)))
-        (is (= {:rows 2} (:yin.repl.query/limit error)))))
-    (testing "the byte limit is checked on the encoded answer"
-      (let [error (ask {:row-limit 1000, :byte-limit 8}
-                       by-value "a long string literal")]
-        (is (= :yin.repl.query/result-limit (:dao.stream.apply/code error)))
-        (is (= {:bytes 8} (:yin.repl.query/limit error)))
-        (is (str/includes? (:dao.stream.apply/message error)
-                           "over the limit of 8"))))
-    (testing "an answer within both limits is returned"
-      (is (nil? (ask {:row-limit 1000, :byte-limit 100000}
-                     by-value "a long string literal"))))))
+  (slow/guard "results-over-a-limit-refuse-naming-it"
+              (fn []
+                (testing "the shell's row limit, on every VM"
+                  (doseq [vm-type vm-types]
+                    (testing (str vm-type)
+                      (let [[_ [_ _ text]]
+                            (evaluate (repl/create-state {:vm-type vm-type})
+                                      [require-line
+                                       (str "(+ " (str/join " " (range 1100)) ")")
+                                       (q-line '[:find ?v :where [?e :yin/value ?v]])])]
+                        (is (str/includes? text "(:yin.repl.query/result-limit)"))
+                        (is (str/includes? text (str "over the limit of " repl/query-row-limit)))))))
+                (let [[state _] (evaluate (repl/create-state)
+                                          ["(def answer \"a long string literal\")"])
+                      ask (fn [limits query & inputs]
+                            (apply2/response-error
+                              (query/answer (:indexer state) limits
+                                            (apply2/request 1 query/op
+                                                            (into [query] inputs)))))
+                      by-value '[:find ?v . :in $ ?v :where [?e :yin/value ?v]]]
+                  (testing "the row limit is checked on the collected rows"
+                    (let [error (ask {:row-limit 2, :byte-limit 100000}
+                                     '[:find ?e ?a ?v :where [?e ?a ?v]])]
+                      (is (= :yin.repl.query/result-limit (:dao.stream.apply/code error)))
+                      (is (= {:rows 2} (:yin.repl.query/limit error)))))
+                  (testing "the byte limit is checked on the encoded answer"
+                    (let [error (ask {:row-limit 1000, :byte-limit 8}
+                                     by-value "a long string literal")]
+                      (is (= :yin.repl.query/result-limit (:dao.stream.apply/code error)))
+                      (is (= {:bytes 8} (:yin.repl.query/limit error)))
+                      (is (str/includes? (:dao.stream.apply/message error)
+                                         "over the limit of 8"))))
+                  (testing "an answer within both limits is returned"
+                    (is (nil? (ask {:row-limit 1000, :byte-limit 100000}
+                                   by-value "a long string literal"))))))))
 
 
 (deftest unsupported-input-is-refused
@@ -594,32 +600,34 @@
 
 
 (deftest ^:slow ast-results-over-a-limit-refuse-naming-it
-  (testing "the shell's row limit, on every VM"
-    (doseq [vm-type vm-types]
-      (testing (str vm-type)
-        (let [[_ [_ _ text]]
-              (evaluate (repl/create-state {:vm-type vm-type})
-                        [require-line
-                         (str "(+ " (str/join " " (range 1100)) ")")
-                         (q-line '[:find ?v :in $ast
-                                   :where [$ast ?id :literal ?v]])])]
-          (is (str/includes? text "(:yin.repl.query/result-limit)"))
-          (is (str/includes? text (str "over the limit of " repl/query-row-limit)))))))
-  (let [[state _] (evaluate (repl/create-state) ["(defn inc [i] (+ i 1))"])
-        ask (fn [limits query]
-              (apply2/response-error
-                (query/answer (:indexer state) (:ast-indexer state) limits
-                              (apply2/request 1 query/op [query]))))
-        mixed '[:find ?n ?path :in $ $ast $occ
-                :where [?e :yin/name ?n] [$ast ?node :variable ?n]
-                [$occ ?root ?path ?node]]]
-    (is (= {:rows 2}
-           (:yin.repl.query/limit (ask {:row-limit 2, :byte-limit 100000} mixed)))
-        "a mixed-source result is bound by the row limit")
-    (is (= {:bytes 8}
-           (:yin.repl.query/limit (ask {:row-limit 1000, :byte-limit 8} mixed)))
-        "and by the byte limit")
-    (is (nil? (ask {:row-limit 1000, :byte-limit 100000} mixed)))))
+  (slow/guard "ast-results-over-a-limit-refuse-naming-it"
+              (fn []
+                (testing "the shell's row limit, on every VM"
+                  (doseq [vm-type vm-types]
+                    (testing (str vm-type)
+                      (let [[_ [_ _ text]]
+                            (evaluate (repl/create-state {:vm-type vm-type})
+                                      [require-line
+                                       (str "(+ " (str/join " " (range 1100)) ")")
+                                       (q-line '[:find ?v :in $ast
+                                                 :where [$ast ?id :literal ?v]])])]
+                        (is (str/includes? text "(:yin.repl.query/result-limit)"))
+                        (is (str/includes? text (str "over the limit of " repl/query-row-limit)))))))
+                (let [[state _] (evaluate (repl/create-state) ["(defn inc [i] (+ i 1))"])
+                      ask (fn [limits query]
+                            (apply2/response-error
+                              (query/answer (:indexer state) (:ast-indexer state) limits
+                                            (apply2/request 1 query/op [query]))))
+                      mixed '[:find ?n ?path :in $ $ast $occ
+                              :where [?e :yin/name ?n] [$ast ?node :variable ?n]
+                              [$occ ?root ?path ?node]]]
+                  (is (= {:rows 2}
+                         (:yin.repl.query/limit (ask {:row-limit 2, :byte-limit 100000} mixed)))
+                      "a mixed-source result is bound by the row limit")
+                  (is (= {:bytes 8}
+                         (:yin.repl.query/limit (ask {:row-limit 1000, :byte-limit 8} mixed)))
+                      "and by the byte limit")
+                  (is (nil? (ask {:row-limit 1000, :byte-limit 100000} mixed)))))))
 
 
 (deftest ast-sources-are-read-when-the-call-is-answered

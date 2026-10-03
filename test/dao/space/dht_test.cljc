@@ -11,7 +11,7 @@
    the staged load over any walk with reasons as data, the bounded
    replicate backlog, the publication ledger and its result, automatic
    repair, `retry!` and `cancel!`."
-  (:require #?@(:cljd [["dart:io" :as dart-io]])
+  (:require [dao.test-slow :as slow] #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
@@ -786,31 +786,33 @@
 
 
 (deftest ^:slow rounds-beyond-the-backlog-bound-fail-at-once-then-repair
-  (let [w (world [15 16] {:repair-ticks 2000})
-        _rounds (mapv (fn [r] (:manifest (round! (:node w) r 499))) (range 8))
-        w (step-world w 10)
-        late (mapv (fn [r] (:manifest (round! (:node w) r 499))) [8 9])
-        w (run-world w 10 400000
-                     #(every? (fn [m] (event (:events %) :published m)) late))
-        firsts (mapv #(event (:events w) :published %) late)]
-    (doseq [published firsts]
-      (is (not= :acknowledged (:result published)))
-      (is (some #(= ::dht/backlog-full (:reason %)) (:failed published)))
-      (is (true? (:repairing? published))))
-    (let [w (run-world w 50 1000000
-                       #(every? (fn [m]
-                                  (some (fn [e] (= :acknowledged (:result e)))
-                                        (events-of (:events %) :republished m)))
-                                late)
-                       bounded-outstanding)]
-      (doseq [m late
-              :let [results (mapv :result (events-of (:events w) :republished
-                                                     m))]]
-        (is (= :acknowledged (last results)) (pr-str results))
-        (is (= results (distinct results)) "each result change reported once")
-        (is (every? #{:partial :acknowledged} results)))
-      (is (zero? (:busy-facts w)))
-      (close-world! w))))
+  (slow/guard "rounds-beyond-the-backlog-bound-fail-at-once-then-repair"
+              (fn []
+                (let [w (world [15 16] {:repair-ticks 2000})
+                      _rounds (mapv (fn [r] (:manifest (round! (:node w) r 499))) (range 8))
+                      w (step-world w 10)
+                      late (mapv (fn [r] (:manifest (round! (:node w) r 499))) [8 9])
+                      w (run-world w 10 400000
+                                   #(every? (fn [m] (event (:events %) :published m)) late))
+                      firsts (mapv #(event (:events w) :published %) late)]
+                  (doseq [published firsts]
+                    (is (not= :acknowledged (:result published)))
+                    (is (some #(= ::dht/backlog-full (:reason %)) (:failed published)))
+                    (is (true? (:repairing? published))))
+                  (let [w (run-world w 50 1000000
+                                     #(every? (fn [m]
+                                                (some (fn [e] (= :acknowledged (:result e)))
+                                                      (events-of (:events %) :republished m)))
+                                              late)
+                                     bounded-outstanding)]
+                    (doseq [m late
+                            :let [results (mapv :result (events-of (:events w) :republished
+                                                                   m))]]
+                      (is (= :acknowledged (last results)) (pr-str results))
+                      (is (= results (distinct results)) "each result change reported once")
+                      (is (every? #{:partial :acknowledged} results)))
+                    (is (zero? (:busy-facts w)))
+                    (close-world! w))))))
 
 
 ;; =============================================================================

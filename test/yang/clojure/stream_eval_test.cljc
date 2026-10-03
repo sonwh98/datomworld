@@ -11,7 +11,7 @@
 
    Every case runs on the four evaluators the shell composes, with the
    value texts pinned, so the cases double as a cross-VM parity corpus."
-  (:require [clojure.string :as str]
+  (:require [dao.test-slow :as slow] [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
@@ -119,14 +119,16 @@
 
 
 (deftest ^:slow pure-expressions-and-let-bindings-evaluate-on-every-vm
-  (doseq [vm-type vm-types]
-    (testing (str vm-type)
-      (let [[state results]
-            (evaluate (session vm-type) (map first pure-corpus))]
-        (doseq [[[source expected] result] (map vector pure-corpus results)]
-          (is (= expected result) source))
-        (is (= 3 (:last-value state))
-            "the last value is the last program's, not a stream token")))))
+  (slow/guard "pure-expressions-and-let-bindings-evaluate-on-every-vm"
+              (fn []
+                (doseq [vm-type vm-types]
+                  (testing (str vm-type)
+                    (let [[state results]
+                          (evaluate (session vm-type) (map first pure-corpus))]
+                      (doseq [[[source expected] result] (map vector pure-corpus results)]
+                        (is (= expected result) source))
+                      (is (= 3 (:last-value state))
+                          "the last value is the last program's, not a stream token")))))))
 
 
 ;; =============================================================================
@@ -409,29 +411,31 @@
 
 
 (deftest ^:slow every-vm-answers-the-same-stream-script
-  (let [answers (into {}
-                      (map (fn [vm-type]
-                             [vm-type (texts vm-type parity-script)]))
-                      vm-types)
-        summaries (map #(str/replace (peek (get answers %))
-                                     (str %)
-                                     ":<vm>")
-                       vm-types)
-        strip (fn [text] (str/replace text #"\"[0-9a-f-]{36}\"" "<id>"))
-        ;; a reference's seal is its task's (yin.vm.linker.md 7.3, r10):
-        ;; each shell mints its own secret, so seals differ by design
-        unseal (fn [texts]
-                 (mapv #(str/replace % #":seal\s+\"[0-9a-f]{64}\""
-                                     ":seal <seal>")
-                       texts))]
-    (is (= ["[10 20 30]" "done [10 20 30]\nnil"]
-           (subvec (get answers :semantic) 10 12)))
-    (is (error? (get-in answers [:semantic 12])))
-    (is (= "3" (get-in answers [:semantic 13])))
-    (is (error? (get-in answers [:semantic 14])))
-    (doseq [vm-type vm-types]
-      (is (= (unseal (pop (get answers :semantic)))
-             (unseal (pop (get answers vm-type))))
-          (str vm-type " answers what the semantic VM answers")))
-    (is (apply = (map strip summaries))
-        "repl-state agrees up to the VM's name and the medium's identity")))
+  (slow/guard "every-vm-answers-the-same-stream-script"
+              (fn []
+                (let [answers (into {}
+                                    (map (fn [vm-type]
+                                           [vm-type (texts vm-type parity-script)]))
+                                    vm-types)
+                      summaries (map #(str/replace (peek (get answers %))
+                                                   (str %)
+                                                   ":<vm>")
+                                     vm-types)
+                      strip (fn [text] (str/replace text #"\"[0-9a-f-]{36}\"" "<id>"))
+                      ;; a reference's seal is its task's (yin.vm.linker.md 7.3, r10):
+                      ;; each shell mints its own secret, so seals differ by design
+                      unseal (fn [texts]
+                               (mapv #(str/replace % #":seal\s+\"[0-9a-f]{64}\""
+                                                   ":seal <seal>")
+                                     texts))]
+                  (is (= ["[10 20 30]" "done [10 20 30]\nnil"]
+                         (subvec (get answers :semantic) 10 12)))
+                  (is (error? (get-in answers [:semantic 12])))
+                  (is (= "3" (get-in answers [:semantic 13])))
+                  (is (error? (get-in answers [:semantic 14])))
+                  (doseq [vm-type vm-types]
+                    (is (= (unseal (pop (get answers :semantic)))
+                           (unseal (pop (get answers vm-type))))
+                        (str vm-type " answers what the semantic VM answers")))
+                  (is (apply = (map strip summaries))
+                      "repl-state agrees up to the VM's name and the medium's identity")))))

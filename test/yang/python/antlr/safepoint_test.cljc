@@ -6,27 +6,27 @@
    parser is JVM-only); their node ids are the parser's, so this is the
    real lowering's output. Topology: lowering envelope -> encoder projection
    -> safepoint stage -> the VM runs the hook prelude, then `A'`."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as stream]
-    [yang.python.antlr.lower :as lower]
-    [yang.python.antlr.lower-portable-test :refer [packet]]
-    [yang.python.antlr.render :as render]
-    [yang.python.antlr.safepoint :as hooks]
-    [yang.python.antlr.uast :as u]
-    [yang.safepoint :as safepoint]
-    [yin.vm :as vm]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.encoder :as encoder]
-    [yin.vm.engine :as engine]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]))
+  (:require [dao.test-slow :as slow]
+            [clojure.test :refer [deftest is testing]]
+            [dao.stream :as stream]
+            [yang.python.antlr.lower :as lower]
+            [yang.python.antlr.lower-portable-test :refer [packet]]
+            [yang.python.antlr.render :as render]
+            [yang.python.antlr.safepoint :as hooks]
+            [yang.python.antlr.uast :as u]
+            [yang.safepoint :as safepoint]
+            [yin.vm :as vm]
+            [yin.vm.data :as data]
+            [yin.vm.debruijn-linearize :as dl]
+            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.encoder :as encoder]
+            [yin.vm.engine :as engine]
+            [yin.vm.linearize :as linearize]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]))
 
 
 ;; =============================================================================
@@ -486,18 +486,20 @@
 
 
 (deftest ^:slow tail-preservation-test
-  (testing "a safepointed loop grows no continuation: parked at its 10th and
+  (slow/guard "tail-preservation-test"
+              (fn []
+                (testing "a safepointed loop grows no continuation: parked at its 10th and
             its 100,000th safepoint, every VM holds the same frames"
-    (let [a' (vm/semantic-bytecode->ast
-               (tree-of (:derived (derive* while-true-pass hooks/profile))))
-          at (fn [n]
-               (on-every-vm (hooks/program parking-hooks a')
-                            (fn [vm]
-                              (assoc-in ((with-signals []) vm) [:store 'py.sp/park-at] n))
-                            (fn [vm] [(vm/blocked? vm) (depth vm)])))
-          shallow (at 10)
-          deep (at 100000)]
-      (doseq [[k [blocked? d]] shallow]
-        (is (true? blocked?) (str k))
-        (is (pos? d) (str k)))
-      (is (= shallow deep)))))
+                  (let [a' (vm/semantic-bytecode->ast
+                             (tree-of (:derived (derive* while-true-pass hooks/profile))))
+                        at (fn [n]
+                             (on-every-vm (hooks/program parking-hooks a')
+                                          (fn [vm]
+                                            (assoc-in ((with-signals []) vm) [:store 'py.sp/park-at] n))
+                                          (fn [vm] [(vm/blocked? vm) (depth vm)])))
+                        shallow (at 10)
+                        deep (at 100000)]
+                    (doseq [[k [blocked? d]] shallow]
+                      (is (true? blocked?) (str k))
+                      (is (pos? d) (str k)))
+                    (is (= shallow deep)))))))

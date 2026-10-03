@@ -2,7 +2,7 @@
   "End-to-end acceptance tests for the REPL AST indexer and query bridge
    ($ast and $occ) across all four supported VM models (ast-walker, semantic,
    stack, register)."
-  (:require [clojure.string :as str]
+  (:require [dao.test-slow :as slow] [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.observer :as observer]
@@ -473,57 +473,59 @@
 
 (deftest
   ^:slow vector-and-map-forms-arity-errors-and-result-limits
-  ;; Requirement 7: Both query vector and map forms; caller input arity errors;
-  ;; a result over the row limit.
-  (doseq
-    [vm-type vm-types]
-    (testing
-      (str vm-type)
-      (let
-        [[_ [_ _ vec-res map-res arity-few arity-many]]
-         (evaluate
-           (repl/create-state {:vm-type vm-type})
-           [require-line
-            "(+ 1 2)"
-            (q-line '[:find ?name :in $ast :where [$ast ?id
-                                                   :variable ?name]])
-            (q-line
-              '{:find [?name] :in [$ast] :where [[$ast ?id
-                                                  :variable ?name]]})
-            (q-line '[:find ?t . :in $ast ?n :where [$ast ?id ?t
-                                                     ?n]])
-            (q-line '[:find ?t . :in $ast ?n :where [$ast ?id ?t
-                                                     ?n]] "1" "2")])
-         [_ [_ _ limit-res]]
-         (evaluate (repl/create-state {:vm-type vm-type})
-                   [require-line
-                    (str "(+ " (str/join " " (range 1100)) ")")
-                    (q-line '[:find ?v :in $ast :where [$ast ?id :literal
-                                                        ?v]])])]
-        (is (= vec-res map-res)
-            "vector and map query forms produce identical answers over $ast")
-        (is (str/includes? vec-res "[+]")
-            "the variable + is returned in the answer")
-        (is (str/includes? arity-few "(:yin.repl.query/query-failed)")
-            arity-few)
-        (is
-          (str/includes?
-            arity-few (str
-                        "query input arity must match :in, 1 :in input"
-                        "s and an optional options map expected, got 0"
-                        " arguments"))
-          arity-few)
-        (is (str/includes? arity-many "(:yin.repl.query/query-failed)")
-            arity-many)
-        (is
-          (str/includes?
-            arity-many (str
-                         "query input arity must match :in, 1 :in input"
-                         "s and an optional options map expected, got 2"
-                         " arguments"))
-          arity-many)
-        (is (str/includes? limit-res "(:yin.repl.query/result-limit)")
-            limit-res)
-        (is (str/includes? limit-res (str "over the limit of "
-                                          repl/query-row-limit))
-            limit-res)))))
+  (slow/guard "vector-and-map-forms-arity-errors-and-result-limits"
+              (fn []
+                ;; Requirement 7: Both query vector and map forms; caller input arity errors;
+                ;; a result over the row limit.
+                (doseq
+                  [vm-type vm-types]
+                  (testing
+                    (str vm-type)
+                    (let
+                      [[_ [_ _ vec-res map-res arity-few arity-many]]
+                       (evaluate
+                         (repl/create-state {:vm-type vm-type})
+                         [require-line
+                          "(+ 1 2)"
+                          (q-line '[:find ?name :in $ast :where [$ast ?id
+                                                                 :variable ?name]])
+                          (q-line
+                            '{:find [?name] :in [$ast] :where [[$ast ?id
+                                                                :variable ?name]]})
+                          (q-line '[:find ?t . :in $ast ?n :where [$ast ?id ?t
+                                                                   ?n]])
+                          (q-line '[:find ?t . :in $ast ?n :where [$ast ?id ?t
+                                                                   ?n]] "1" "2")])
+                       [_ [_ _ limit-res]]
+                       (evaluate (repl/create-state {:vm-type vm-type})
+                                 [require-line
+                                  (str "(+ " (str/join " " (range 1100)) ")")
+                                  (q-line '[:find ?v :in $ast :where [$ast ?id :literal
+                                                                      ?v]])])]
+                      (is (= vec-res map-res)
+                          "vector and map query forms produce identical answers over $ast")
+                      (is (str/includes? vec-res "[+]")
+                          "the variable + is returned in the answer")
+                      (is (str/includes? arity-few "(:yin.repl.query/query-failed)")
+                          arity-few)
+                      (is
+                        (str/includes?
+                          arity-few (str
+                                      "query input arity must match :in, 1 :in input"
+                                      "s and an optional options map expected, got 0"
+                                      " arguments"))
+                        arity-few)
+                      (is (str/includes? arity-many "(:yin.repl.query/query-failed)")
+                          arity-many)
+                      (is
+                        (str/includes?
+                          arity-many (str
+                                       "query input arity must match :in, 1 :in input"
+                                       "s and an optional options map expected, got 2"
+                                       " arguments"))
+                        arity-many)
+                      (is (str/includes? limit-res "(:yin.repl.query/result-limit)")
+                          limit-res)
+                      (is (str/includes? limit-res (str "over the limit of "
+                                                        repl/query-row-limit))
+                          limit-res)))))))
