@@ -3,22 +3,11 @@
   {:doc "Generate and compile the pinned grammars-v4 Python3 parser into build/antlr/python3/classes (antlr/python3/manifest.edn)"
    :task (shell "clojure -M:antlr-gen")}
 
-  test:clj {:doc "Run JVM tests (via clj), skipping ^:slow ones; the DHT process test needs the Node REPL build"
-            :depends [build:yin-repl-node gen:python-antlr]
-            :task (shell "clojure -M:test -e :slow")}
-
-  test:slow {:doc "Run only the ^:slow JVM tests (about 14 minutes for long-loops-test); for unattended runs"
-             :depends [build:yin-repl-node gen:python-antlr]
-             :task (shell "clojure -M:test -i :slow")}
-
   build:yin-repl-node
   {:doc "Compile the Node yin.repl (shadow-cljs build :yin-repl) to target/yin-repl.js"
    ;; yin.repl.dht-process-test spawns it as the JVM-to-Node reader of
    ;; DHT epic S5, a required leg: a missing build fails that test.
    :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile yin-repl")}
-
-  test:cljs {:doc "Run Node tests (via shadow-cljs with :cljs alias)"
-             :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile test")}
 
   build:yin-repl-peer
   {:doc "Compile the yin.repl R5 cross-host peer (client role and --serve server role) as a Dart exe"
@@ -35,9 +24,61 @@
              (shell "clojure -M:clojuredart:cljd compile yin.repl.slice-peer")
              (shell "dart compile exe lib/cljd-out/yin/repl/slice-peer.dart -o build/yin-repl-peer"))}
 
-  test:cljd {:doc "Run Dart tests (via clojure -M:clojuredart:cljd)"
-             :depends [build:yin-repl-peer]
-             :task (shell "clojure -M:clojuredart:cljd test")}
+  ;; Fast default lanes: no ^:slow test, no dao.test-slow/guard body.
+  test:clj {:doc "JVM tests, fast: skips ^:slow ones; the DHT process test needs the Node REPL build"
+            :depends [build:yin-repl-node gen:python-antlr]
+            :task (shell "clojure -M:test -e :slow")}
 
-  test {:doc "Run all tests (cross-host R5 pairs need the Dart peer, and the DHT process test the Node REPL, so build them first)"
+  test:cljs {:doc "Node tests, fast: dao.test-slow guarded bodies print SKIP; needs the Node REPL build"
+             :depends [build:yin-repl-node]
+             :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile test")}
+
+  test:cljd {:doc "Dart tests, fast: aggregated shards via src/dev/cljd_agg.clj; guarded bodies print SKIP"
+             :depends [build:yin-repl-peer]
+             :task (shell "bb src/dev/cljd_agg.clj")}
+
+  ;; Every test, slow ones included (about 20+ minutes on the JVM).
+  test:all:clj {:doc "Every JVM test, ^:slow included (20+ minutes); for unattended runs"
+                :depends [build:yin-repl-node gen:python-antlr]
+                :task (shell "clojure -M:test")}
+
+  test:all:cljs {:doc "Every Node test, guarded slow bodies included (sets DATOM_SLOW_TESTS=1)"
+                 :depends [build:yin-repl-node]
+                 :task (shell {:extra-env {"DATOM_SLOW_TESTS" "1"}}
+                              "clj -M:cljs -m shadow.cljs.devtools.cli compile test")}
+
+  test:all:cljd {:doc "Every Dart test, guarded slow bodies included (sets DATOM_SLOW_TESTS=1)"
+                 :depends [build:yin-repl-peer]
+                 :task (shell {:extra-env {"DATOM_SLOW_TESTS" "1"}}
+                              "bb src/dev/cljd_agg.clj")}
+
+  ;; Only the slow tests. Node and Dart select by namespace, so the other
+  ;; tests inside the six namespaces that use dao.test-slow/guard also run.
+  test:slow:clj {:doc "Only the ^:slow JVM tests (about 14 minutes for long-loops-test); for unattended runs"
+                 :depends [build:yin-repl-node gen:python-antlr]
+                 :task (shell "clojure -M:test -i :slow")}
+
+  test:slow:cljs {:doc "Node: only namespaces with dao.test-slow/guard, bodies enabled (DATOM_SLOW_TESTS=1)"
+                  :depends [build:yin-repl-node]
+                  :task (let [re (-> (shell {:out :string}
+                                            "bb src/dev/cljd_agg.clj --slow-regex")
+                                     :out
+                                     clojure.string/trim)]
+                          (shell {:extra-env {"DATOM_SLOW_TESTS" "1"}}
+                                 "clj" "-M:cljs" "-m" "shadow.cljs.devtools.cli"
+                                 "compile" "test" "--config-merge"
+                                 (str "{:ns-regexp \"" re "\"}")))}
+
+  test:slow:cljd {:doc "Dart: only generated tests of namespaces with dao.test-slow/guard, bodies enabled (DATOM_SLOW_TESTS=1)"
+                  :depends [build:yin-repl-peer]
+                  :task (shell {:extra-env {"DATOM_SLOW_TESTS" "1"}}
+                               "bb src/dev/cljd_agg.clj --slow-only")}
+
+  test:slow {:doc "Only the slow tests on every lane: JVM by tag, Node and Dart by namespace"
+             :depends [test:slow:clj test:slow:cljs test:slow:cljd]}
+
+  test:all {:doc "Every test on every lane, slow ones included (JVM, Node, Dart)"
+            :depends [test:all:clj test:all:cljs test:all:cljd]}
+
+  test {:doc "All three lanes in their fast default form (JVM, Node, Dart)"
         :depends [build:yin-repl-peer build:yin-repl-node test:clj test:cljs test:cljd]}}}

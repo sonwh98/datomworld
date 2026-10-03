@@ -8,14 +8,44 @@ description: Build, lint, test commands, TDD guidelines, and bracket debugging f
 
 ```sh
 # Tests (Babashka runner)
-bb test              # Run all tests (JVM, Node/CLJS, Dart/CLJD)
-bb test:clj          # JVM tests only, skipping ^:slow (bare `clj -M:test` runs them too)
-bb test:slow         # Only the ^:slow JVM tests (long-loops-test, ~14 min); run unattended, check before big merges
-bb test:cljs         # ClojureScript / Node tests (via shadow-cljs :cljs alias)
-bb test:cljd         # ClojureDart tests (requires flutter on PATH)
+bb test              # All three lanes (JVM, Node, Dart), fast default form: no slow tests
+bb test:all          # Every test on every lane, slow ones included (JVM takes 20+ min)
+bb test:slow         # Only the slow tests, on every lane
+# One lane alone: <task>:clj, <task>:cljs, <task>:cljd
+bb test:clj          # JVM, fast: skips ^:slow (bare `clj -M:test` runs them too)
+bb test:cljs         # Node (shadow-cljs :cljs alias), fast: guarded slow bodies print SKIP
+bb test:cljd         # Dart (needs flutter on PATH), fast: guarded slow bodies print SKIP
+bb test:all:clj      # JVM, no filter: `clojure -M:test`
+bb test:all:cljs     # Node with DATOM_SLOW_TESTS=1
+bb test:all:cljd     # Dart with DATOM_SLOW_TESTS=1
+bb test:slow:clj     # JVM: `-i :slow` (long-loops-test, ~14 min)
+bb test:slow:cljs    # Node: only the namespaces that use dao.test-slow/guard, DATOM_SLOW_TESTS=1
+bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_TESTS=1
+# Slow tests: tag a deftest ^:slow. The JVM runner then excludes it from `bb test:clj`.
+# Node and Dart have no tag filter, so a .cljc slow test also wraps its body in
+# (dao.test-slow/guard "name" (fn [] ...)); it prints SKIP unless DATOM_SLOW_TESTS=1.
+# Node and Dart select slow tests by NAMESPACE (derived by grepping `slow/guard`
+# under test/), so the non-slow tests inside those namespaces also run there.
+# On Node, shadow also runs the test namespaces those six require (about seven
+# more, e.g. lower-portable-test); on Dart only the six namespaces run.
+# Run test:slow / test:all before a big merge or a commit that touches many parts.
+# Run one Dart lane at a time repo-wide.
+#
+# When to tag a test slow: when it takes more than about 5 s on any lane. The
+# default lanes must stay in minutes; 22 JVM tests (0.75% of the suite) were
+# 81% of its test time. Tag it ^:slow on the JVM; if it is a .cljc test, also
+# wrap its body in dao.test-slow/guard so Node and Dart skip it by default. A
+# test that is slow only on Dart (dao.jing.dht-test/unproven-chunks-... takes
+# 72 s there, 3.6 s on the JVM) is a candidate for a speed investigation first.
+# Measured fast-lane times (2026-10-03): bb test about 14 min = JVM 5.5 + Node
+# 3.8 + Dart 4.3, plus builds. test:slow: Node and Dart about 5 min each (mostly
+# compile); the JVM half is estimated at 17 min (long-loops-test alone is 14),
+# not yet run end to end. test:all: JVM 20+ min, also an estimate.
 npm test             # Node.js tests
 
-# Cross-host peers the JVM lane spawns (bb test and bb test:clj build them)
+# Cross-host peers the JVM lane spawns. `bb test` builds both. A bare
+# `bb test:clj` builds only the Node REPL (it depends on build:yin-repl-node);
+# without build:yin-repl-peer first, the Dart-peer tests skip with a printed notice.
 bb build:yin-repl-peer   # Dart exe build/yin-repl-peer (yin.repl R5 pairs)
 bb build:yin-repl-node   # Node REPL target/yin-repl.js; REQUIRED by
                          # yin.repl.dht-process-test (JVM-to-Node DHT reader,
@@ -53,12 +83,27 @@ clj -M:clojuredart:cljd compile
 clj -M:kondo --lint <path>
 ```
 
-`bb test:cljd`'s `dart test` globs everything under `test/cljd-out/`,
-which the cljd compile does not prune when a source file is deleted or
-renamed. A stale compiled `.dart` test for an already-deleted namespace
-can silently pass, giving a false-clean run. Run `rm -rf test/cljd-out`
-before any `bb test:cljd` you're relying on to prove a deletion (or
-similar rename/removal) actually took effect.
+The Dart `bb` lanes run `src/dev/cljd_agg.clj` (`bb src/dev/cljd_agg.clj
+[--slow-only | --slow-regex]`), not `cljd test`. `--slow-only` runs only the
+namespaces that use `dao.test-slow/guard` and fails if one has no generated
+Dart file. `--slow-regex` prints those namespaces as an anchored alternation
+with its dots already escaped for an EDN string (bb.edn feeds it to shadow-cljs
+`--config-merge` for `test:slow:cljs`); it is not a ready-to-use regex, and it
+exits 1 when no namespace uses the guard. `flutter test` spends about 7.5 s loading
+each of the ~166 generated `test/cljd-out/**/*_test.dart` files, so the
+script compiles every test namespace via `clojure -M:clojuredart:cljd compile
+<namespaces>`, writes up to min(8, cores) shard files under `build/cljd-agg/`
+(greedy by file size; each imports its files and calls their `main`), runs
+`flutter test --concurrency N` on the shards, and deletes them. Shards never sit
+under `test/`, so plain `clojure -M:clojuredart:cljd test` still works. Tests of
+different namespaces share an isolate per shard. Failures stay attributable:
+package:test names are ns-qualified (`dao.foo-test/bar-test`).
+
+`flutter test`/`cljd test` globs everything under `test/cljd-out/`, and the
+compile does not prune it when a source file is deleted or renamed. The
+aggregated lanes only run namespaces that still exist under `test/`, but a
+stale file can silently pass a plain `cljd test`. Run `rm -rf test/cljd-out`
+before relying on that to prove a deletion or rename took effect.
 
 ## Testing Philosophy & TDD
 
