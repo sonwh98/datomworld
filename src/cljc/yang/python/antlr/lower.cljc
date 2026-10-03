@@ -33,7 +33,8 @@
    - A function whose body yields is a generator function: its code binds
      the arguments and allocates the cells, then returns
      `(py/make-generator name (fn [%gen] body))`; each `yield v` is
-     `(py/yield %gen v)`. The `:gen` binder is reset in every nested scope,
+     `(py/yield %gen v)`, each `yield from x` `(py/yield-from %gen x)`.
+     The `:gen` binder is reset in every nested scope,
      so a `yield` at module or class level, or in a comprehension's own
      scope, is a syntax error.
    - Operators, truthiness, equality, objects and exceptions are prelude
@@ -1349,16 +1350,19 @@
 
 (defn- lower-yield
   "`yield v` in a generator body: `(py/yield %gen v)`, whose value is what
-   the next resume sends. Outside a function, or in a comprehension's own
-   scope, it is a syntax error, as in Python."
+   the next resume sends; `yield from x` is `(py/yield-from %gen x)`, whose
+   value is the delegate's return value. Outside a function, or in a
+   comprehension's own scope, it is a syntax error, as in Python."
   [ctx n]
   (let [arg (first (rules ctx n "yield_arg"))]
     (cond
       (:comp ctx) (syntax! n (str "'yield' inside "
                                   (get comprehension-names (:comp ctx))))
       (nil? (:gen ctx)) (syntax! n "'yield' outside function")
-      (and arg (p/has-token? (:pk ctx) arg "from")) (unsupported! n "yield from")
-      :else (app* 'py/yield (u/v (:gen ctx))
+      :else (app* (if (and arg (p/has-token? (:pk ctx) arg "from"))
+                    'py/yield-from
+                    'py/yield)
+                  (u/v (:gen ctx))
                   (if arg ((:lower ctx) ctx (first (rule-kids ctx arg))) none)))))
 
 

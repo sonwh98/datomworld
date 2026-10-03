@@ -380,6 +380,222 @@
           (is (= [1 true [] 2] result)))))))
 
 
+(deftest yield-from-and-iter-on-every-host-test
+  (testing "yield from sends through to the inner generator, a throw reaches
+            the inner's handler, the inner's return value is the
+            expression's value and a list delegates through a sequence
+            iterator; close runs the inner's finally before the outer's;
+            iter of a list is a stateful iterator that is its own iter"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    '(let [note (fn [log x] (cell/set! log (py/conj (cell/get log) x)))
+                           inner (fn [log]
+                                   (py/make-generator
+                                     "inner"
+                                     (fn [gen]
+                                       (py/try-finally
+                                         (fn []
+                                           (do (note log (py/yield gen 1))
+                                               (py/try (fn [] (py/yield gen 2))
+                                                       (fn [e] (py/yield gen :caught))
+                                                       (fn [] :py/None))
+                                               :r))
+                                         (fn [x] (note log :inner-fin))))))
+                           outer (fn [log]
+                                   (py/make-generator
+                                     "outer"
+                                     (fn [gen]
+                                       (py/try-finally
+                                         (fn []
+                                           (do (note log (py/yield-from gen (inner log)))
+                                               (py/yield-from gen (py/list [10 20]))))
+                                         (fn [x] (note log :outer-fin))))))
+                           log (cell/new [])
+                           o (outer log)
+                           a (py/gen-send o :py/None)
+                           b (py/gen-send o :s)
+                           c (py/gen-throw o py.b/ValueError :py/None :py/None)
+                           d (py/gen-send o :py/None)
+                           e (py/gen-send o :py/None)
+                           f (py/gen-close o)
+                           log2 (cell/new [])
+                           o2 (outer log2)
+                           h (py/gen-send o2 :py/None)
+                           i (py/gen-close o2)
+                           it (py/iter (py/list [1 2]))
+                           j (py/next it :py/missing)
+                           k (py/next it :py/missing)
+                           l (py/next it :d)
+                           m (py/is (py/iter it) it)]
+                       (py/conj
+                         (py/conj
+                           (py/conj
+                             (py/conj
+                               (py/conj
+                                 (py/conj
+                                   (py/conj
+                                     (py/conj
+                                       (py/conj
+                                         (py/conj
+                                           (py/conj
+                                             (py/conj (py/conj (py/conj [] a) b) c)
+                                             d)
+                                           e)
+                                         f)
+                                       (cell/get log))
+                                     h)
+                                   i)
+                                 (cell/get log2))
+                               j)
+                             k)
+                           l)
+                         m)))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [1 2 :caught 10 20 :py/None [:s :inner-fin :r :outer-fin]
+                  1 :py/None [:inner-fin :outer-fin]
+                  1 2 :d true]
+                 result)))))))
+
+
+(deftest delegation-stop-and-sticky-dict-iterator-on-every-host-test
+  (testing "a StopIteration(7) thrown through a closed generator delegate
+            completes the delegation with 7, while one escaping the
+            delegate's body is still PEP 479's RuntimeError; a dict iterator
+            invalidated by a size change keeps raising after the size is
+            restored (CPython 3.9.6)"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    (list
+                      'let
+                      '[outer (fn [i]
+                                (py/make-generator
+                                  "outer"
+                                  (fn [gen] (py/yield gen (py/yield-from gen i)))))
+                        i (py/make-generator
+                            "inner"
+                            (fn [gen] (do (py/yield gen 1) (py/yield gen 2) :py/None)))
+                        o (outer i)
+                        a (py/gen-send o :py/None)
+                        b (py/gen-close i)
+                        c (py/gen-throw o py.b/StopIteration 7 :py/None)
+                        j (py/make-generator
+                            "j"
+                            (fn [gen]
+                              (do (py/yield gen 1)
+                                  (py/raise (py/call py.b/StopIteration [5])))))
+                        o2 (outer j)
+                        e (py/gen-send o2 :py/None)
+                        f (py/try (fn [] (py/gen-send o2 :py/None))
+                                  (fn [x] (py/isinstance x py.b/RuntimeError))
+                                  (fn [] :no))
+                        dct (py/dict-new)
+                        s1 (py/dict-set dct {:py/str "a"} 1)
+                        s2 (py/dict-set dct {:py/str "b"} 2)
+                        before (cell/get dct)
+                        it (py/iter dct)
+                        g (py/next it :py/missing)
+                        s3 (py/dict-set dct {:py/str "c"} 3)
+                        h (py/try (fn [] (py/next it :py/missing))
+                                  (fn [x] (py/isinstance x py.b/RuntimeError))
+                                  (fn [] :no))
+                        r (cell/set! dct before)
+                        k (py/try (fn [] (py/next it :py/missing))
+                                  (fn [x] (py/isinstance x py.b/RuntimeError))
+                                  (fn [] :no))]
+                      (reduce (fn [acc s] (list 'py/conj acc s)) []
+                              '[a b c e f g h k])))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [1 :py/None 7 1 true {:py/str "a"} true true] result)))))))
+
+
+(deftest delegation-chain-callers-and-unwinding-on-every-host-test
+  (testing "a three-deep yield from chain resumed by a changing caller: the
+            top level, a caller with its own handler frame, another
+            generator, and a delegating generator; then a yield in the
+            finally of an inner and an outer generator while a thrown
+            exception unwinds through them (CPython 3.9.6)"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    (list
+                      'let
+                      '[log (cell/new [])
+                        note (fn [x] (cell/set! log (py/conj (cell/get log) x)))
+                        c (fn []
+                            (py/make-generator
+                              "c"
+                              (fn [gen]
+                                (do (note (py/yield gen :c1))
+                                    (py/try-finally (fn [] (py/yield gen :c2))
+                                                    (fn [x] (note :c-fin)))
+                                    :c-ret))))
+                        b (fn []
+                            (py/make-generator
+                              "b"
+                              (fn [gen]
+                                (do (note (py/yield-from gen (c)))
+                                    (py/yield-from gen (py/list [:b-list]))
+                                    :b-ret))))
+                        a (py/make-generator
+                            "a"
+                            (fn [gen]
+                              (do (note (py/yield-from gen (b)))
+                                  (py/yield gen :a-end)
+                                  :py/None)))
+                        r1 (py/gen-send a :py/None)
+                        r2 (py/try-finally (fn [] (py/gen-send a :sent)) (fn [x] :py/None))
+                        w (py/make-generator
+                            "w"
+                            (fn [gen] (py/yield gen (py/next a :py/missing))))
+                        r3 (py/gen-send w :py/None)
+                        d (py/make-generator "d" (fn [gen] (py/yield-from gen a)))
+                        r4 (py/gen-send d :py/None)
+                        r5 (py/next d :done)
+                        r6 (cell/get log)
+                        inner (fn []
+                                (py/make-generator
+                                  "inner"
+                                  (fn [gen]
+                                    (py/try-finally
+                                      (fn [] (py/yield gen 1))
+                                      (fn [x] (py/yield gen :inner-cleanup))))))
+                        outer (py/make-generator
+                                "outer"
+                                (fn [gen]
+                                  (py/try-finally
+                                    (fn []
+                                      (py/try (fn [] (py/yield-from gen (inner)))
+                                              (fn [e] (py/yield gen :outer-handler))
+                                              (fn [] :py/None)))
+                                    (fn [x] (py/yield gen :outer-cleanup)))))
+                        u1 (py/gen-send outer :py/None)
+                        u2 (py/gen-throw outer py.b/KeyError :py/None :py/None)
+                        u3 (py/gen-send outer :py/None)
+                        u4 (py/gen-send outer :py/None)
+                        u5 (py/next outer :end)
+                        outer2 (py/make-generator
+                                 "outer2"
+                                 (fn [gen]
+                                   (py/try-finally
+                                     (fn [] (py/yield-from gen (inner)))
+                                     (fn [x] (py/yield gen :outer2-cleanup)))))
+                        v1 (py/gen-send outer2 :py/None)
+                        v2 (py/gen-throw outer2 py.b/ValueError :py/None :py/None)
+                        v3 (py/gen-send outer2 :py/None)
+                        v4 (py/try (fn [] (py/gen-send outer2 :py/None))
+                                   (fn [e] (py/isinstance e py.b/ValueError))
+                                   (fn [] :no))]
+                      (reduce (fn [acc s] (list 'py/conj acc s)) []
+                              '[r1 r2 r3 r4 r5 r6 u1 u2 u3 u4 u5 v1 v2 v3 v4])))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [:c1 :c2 :b-list :a-end :done [:sent :c-fin :c-ret :b-ret]
+                  1 :inner-cleanup :outer-handler :outer-cleanup :end
+                  1 :inner-cleanup :outer2-cleanup true]
+                 result)))))))
+
+
 (deftest integer-bound-on-every-host-test
   (testing "over the real cell and data modules, results outside
             [-2^53, 2^53] are a guest OverflowError identically on every VM

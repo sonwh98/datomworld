@@ -1,6 +1,7 @@
 (ns yang.python.antlr.e2e-c2-test
-  "Phase C2 slices S1, generators core, and S2, send, throw, close and the
-   dynamic context, end to end on all four VMs over the
+  "Phase C2 slices S1, generators core, S2, send, throw, close and the
+   dynamic context, and S3, yield from, iter and sequence iterators, end to
+   end on all four VMs over the
    real cell and data modules, through the same stream topology as
    `yang.python.antlr.e2e-test`. Expected output is CPython 3.9.6's for the
    same source. The continuation-length check reads the final VM's heap,
@@ -16,6 +17,7 @@
     [yin.vm.debruijn-register-compile :as rc]
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
+    [yin.vm.engine :as engine]
     [yin.vm.integer :as integer]
     [yin.vm.linearize :as linearize]
     [yin.vm.module :as module]
@@ -538,6 +540,332 @@
 
 
 ;; =============================================================================
+;; S3 acceptance: yield from, iter and sequence iterators
+;; =============================================================================
+
+(deftest yield-from-send-through-test
+  (testing "yield from passes sends to the inner generator, its return value
+            is the expression's value, and a list delegates through a
+            sequence iterator"
+    (every-vm= (prints "1" "got s" "v r" "10" "20" "end")
+               (lines "def inner():"
+                      "    x = yield 1"
+                      "    print('got', x)"
+                      "    return 'r'"
+                      "def outer():"
+                      "    v = yield from inner()"
+                      "    print('v', v)"
+                      "    yield from [10, 20]"
+                      "o = outer()"
+                      "print(next(o))"
+                      "print(o.send('s'))"
+                      "print(next(o))"
+                      "print(next(o, 'end'))"))))
+
+
+(deftest yield-from-throw-through-test
+  (testing "a throw at the outer reaches the inner's handler and its next
+            yield is throw's value; uncaught by the inner, it closes both and
+            raises in the caller; a sequence delegate has no throw, so it is
+            raised in the outer, and no send"
+    (every-vm= (prints "1" "inner caught ('x',)" "handled" "v ret" "after"
+                       "caller ('k',)" "closed"
+                       "1" "outer got it" "k" "no send")
+               (lines "def inner():"
+                      "    try:"
+                      "        yield 1"
+                      "    except ValueError as e:"
+                      "        print('inner caught', e.args)"
+                      "        yield 'handled'"
+                      "    return 'ret'"
+                      "def outer():"
+                      "    v = yield from inner()"
+                      "    print('v', v)"
+                      "    yield 'after'"
+                      "o = outer()"
+                      "print(next(o))"
+                      "print(o.throw(ValueError('x')))"
+                      "print(next(o))"
+                      "def bare():"
+                      "    yield 1"
+                      "def through():"
+                      "    yield from bare()"
+                      "t = through()"
+                      "next(t)"
+                      "try:"
+                      "    t.throw(KeyError('k'))"
+                      "except KeyError as e:"
+                      "    print('caller', e.args)"
+                      "print(next(t, 'closed'))"
+                      "def seq():"
+                      "    try:"
+                      "        yield from [1, 2]"
+                      "    except KeyError:"
+                      "        print('outer got it')"
+                      "        yield 'k'"
+                      "s = seq()"
+                      "print(next(s))"
+                      "print(s.throw(KeyError))"
+                      "s = seq()"
+                      "next(s)"
+                      "try:"
+                      "    s.send('x')"
+                      "except AttributeError:"
+                      "    print('no send')"))))
+
+
+(deftest yield-from-close-order-test
+  (testing "closing the outer closes the inner first, so the inner's finally
+            runs before the outer's; an inner that ignores GeneratorExit
+            makes the outer's close a RuntimeError after the outer's finally"
+    (every-vm= (prints "1" "inner fin" "outer fin" "None" "closed"
+                       "wrap fin" "('generator ignored GeneratorExit',)")
+               (lines "def inner():"
+                      "    try:"
+                      "        yield 1"
+                      "    finally:"
+                      "        print('inner fin')"
+                      "def outer():"
+                      "    try:"
+                      "        yield from inner()"
+                      "    finally:"
+                      "        print('outer fin')"
+                      "o = outer()"
+                      "print(next(o))"
+                      "print(o.close())"
+                      "print(next(o, 'closed'))"
+                      "def stubborn():"
+                      "    try:"
+                      "        yield 1"
+                      "    except GeneratorExit:"
+                      "        yield 2"
+                      "def wrap():"
+                      "    try:"
+                      "        yield from stubborn()"
+                      "    finally:"
+                      "        print('wrap fin')"
+                      "w = wrap()"
+                      "next(w)"
+                      "try:"
+                      "    w.close()"
+                      "except RuntimeError as e:"
+                      "    print(e.args)"))))
+
+
+(deftest yield-from-thrown-stop-iteration-test
+  (testing "StopIteration thrown through a closed generator delegate completes
+            the delegation with its value (a subclass's first argument, a
+            class None), as CPython's _gen_throw does; one raised in the
+            delegate's body, or thrown at a sequence delegate, is PEP 479's
+            RuntimeError"
+    (every-vm= (prints "v 7" "after" "v 8" "after" "v None" "after"
+                       "pep479 ('generator raised StopIteration',)"
+                       "seq ('generator raised StopIteration',)")
+               (lines "def inner():"
+                      "    yield 1"
+                      "    yield 2"
+                      "def outer(i):"
+                      "    v = yield from i"
+                      "    print('v', v)"
+                      "    yield 'after'"
+                      "class MyStop(StopIteration):"
+                      "    pass"
+                      "for exc in [StopIteration(7), MyStop(8, 9), StopIteration]:"
+                      "    i = inner()"
+                      "    o = outer(i)"
+                      "    next(o)"
+                      "    i.close()"
+                      "    print(o.throw(exc))"
+                      "def body():"
+                      "    yield 1"
+                      "    raise StopIteration(5)"
+                      "o = outer(body())"
+                      "next(o)"
+                      "try:"
+                      "    next(o)"
+                      "except RuntimeError as e:"
+                      "    print('pep479', e.args)"
+                      "def lst():"
+                      "    v = yield from [1, 2]"
+                      "    yield v"
+                      "o = lst()"
+                      "next(o)"
+                      "try:"
+                      "    o.throw(StopIteration(3))"
+                      "except RuntimeError as e:"
+                      "    print('seq', e.args)"))))
+
+
+(deftest yield-from-chain-with-changing-callers-test
+  (testing "a three-deep chain resumed from the top level, a function, another
+            generator and a delegating generator; a throw through three
+            levels from a function caller"
+    (every-vm= (prints "c1" "c2" "b-list" "a-end" "done"
+                       (str "[('c got', 'sent'), 'c fin', ('b got', 'c-ret'),"
+                            " ('a got', 'b-ret')]")
+                       "c caught" "end")
+               (lines "log = []"
+                      "def c():"
+                      "    x = yield 'c1'"
+                      "    log.append(('c got', x))"
+                      "    try:"
+                      "        yield 'c2'"
+                      "    finally:"
+                      "        log.append('c fin')"
+                      "    return 'c-ret'"
+                      "def b():"
+                      "    r = yield from c()"
+                      "    log.append(('b got', r))"
+                      "    yield from ['b-list']"
+                      "    return 'b-ret'"
+                      "def a():"
+                      "    r = yield from b()"
+                      "    log.append(('a got', r))"
+                      "    yield 'a-end'"
+                      "g = a()"
+                      "print(next(g))"
+                      "def via_function(it, v):"
+                      "    return it.send(v)"
+                      "print(via_function(g, 'sent'))"
+                      "def via_generator(it):"
+                      "    yield next(it)"
+                      "w = via_generator(g)"
+                      "print(next(w))"
+                      "def deleg():"
+                      "    yield from g"
+                      "d = deleg()"
+                      "print(next(d))"
+                      "print(next(d, 'done'))"
+                      "print(log)"
+                      "def c3():"
+                      "    try:"
+                      "        yield 1"
+                      "    except KeyError:"
+                      "        yield 'c caught'"
+                      "def b3():"
+                      "    yield from c3()"
+                      "def a3():"
+                      "    yield from b3()"
+                      "g = a3()"
+                      "next(g)"
+                      "def thrower(it):"
+                      "    return it.throw(KeyError)"
+                      "print(thrower(g))"
+                      "print(next(g, 'end'))"))))
+
+
+(deftest yield-from-suspension-during-unwinding-test
+  (testing "a yield in the inner's finally while a thrown exception unwinds
+            it, then in the outer's except and finally; an exception that
+            unwinds through both finallys suspends at each and reaches the
+            caller after them"
+    (every-vm= (prints "1" "inner cleanup" "outer handler" "outer cleanup" "end"
+                       "inner cleanup" "outer2 cleanup" "caller ('v',)")
+               (lines "def inner():"
+                      "    try:"
+                      "        yield 1"
+                      "    finally:"
+                      "        yield 'inner cleanup'"
+                      "def outer():"
+                      "    try:"
+                      "        yield from inner()"
+                      "    except KeyError:"
+                      "        yield 'outer handler'"
+                      "    finally:"
+                      "        yield 'outer cleanup'"
+                      "o = outer()"
+                      "print(next(o))"
+                      "print(o.throw(KeyError))"
+                      "print(next(o))"
+                      "print(next(o))"
+                      "print(next(o, 'end'))"
+                      "def outer2():"
+                      "    try:"
+                      "        yield from inner()"
+                      "    finally:"
+                      "        yield 'outer2 cleanup'"
+                      "o = outer2()"
+                      "next(o)"
+                      "print(o.throw(ValueError('v')))"
+                      "print(next(o))"
+                      "try:"
+                      "    next(o)"
+                      "except ValueError as e:"
+                      "    print('caller', e.args)"))))
+
+
+(deftest ^:slow yield-from-long-range-test
+  (testing "yield from range(3000), directly and through a second level of
+            delegation, summed by a for; the range's return value is None"
+    (every-vm= (prints "v None" "4498500" "v None" "4498500")
+               (lines "def g():"
+                      "    v = yield from range(3000)"
+                      "    print('v', v)"
+                      "def h():"
+                      "    yield from g()"
+                      "s = 0"
+                      "for x in g():"
+                      "    s += x"
+                      "print(s)"
+                      "n = 0"
+                      "for x in h():"
+                      "    n += x"
+                      "print(n)"))))
+
+
+(deftest iter-protocol-test
+  (testing "iter of a sequence is a stateful iterator, its own iter; a
+            generator is its own iter; a list iterator walks the list live
+            and stays exhausted; a dict iterator sees the size change; a
+            non-iterable is a TypeError at iter, a non-iterator at next"
+    (every-vm= (prints "1 2 d" "True" "True" "not iterable" "not an iterator"
+                       "0 True" "1" "2" "['a', 'b'] []" "1 2" "1 2 d"
+                       "stays exhausted"
+                       "('dictionary changed size during iteration',)"
+                       "stop ()")
+               (lines "it = iter([1, 2])"
+                      "print(next(it), next(it), next(it, 'd'))"
+                      "print(iter(it) is it)"
+                      "def gen():"
+                      "    yield 1"
+                      "x = gen()"
+                      "print(iter(x) is x)"
+                      "try:"
+                      "    iter(5)"
+                      "except TypeError:"
+                      "    print('not iterable')"
+                      "try:"
+                      "    next([1])"
+                      "except TypeError:"
+                      "    print('not an iterator')"
+                      "it = iter(range(3))"
+                      "print(it.__next__(), it.__iter__() is it)"
+                      "for y in it:"
+                      "    print(y)"
+                      "it = iter('ab')"
+                      "print(list(it), list(it))"
+                      "a, b = iter((1, 2))"
+                      "print(a, b)"
+                      "l = [1]"
+                      "it = iter(l)"
+                      "l.append(2)"
+                      "print(next(it), next(it), next(it, 'd'))"
+                      "l.append(3)"
+                      "print(next(it, 'stays exhausted'))"
+                      "d = {'a': 1}"
+                      "it = iter(d)"
+                      "d['b'] = 2"
+                      "try:"
+                      "    next(it)"
+                      "except RuntimeError as e:"
+                      "    print(e.args)"
+                      "try:"
+                      "    next(iter([]))"
+                      "except StopIteration as e:"
+                      "    print('stop', e.args)"))))
+
+
+;; =============================================================================
 ;; Continuation length (JVM-only: reads the final VM's heap)
 ;; =============================================================================
 
@@ -580,30 +908,39 @@
     :else 1))
 
 
-(defn- suspended-resume-size
-  "The size of the one suspended generator's `:resume` after the module
-   consumed `n` items from a global generator, on VM `k`."
-  [k n]
+(defn- suspended-resume-sizes
+  "Generator name -> the size of its `:resume`, for the `m` generators
+   suspended after `source` ran on VM `k`."
+  [k m source]
   (let [ast (lower/lower-packet
-              (parser/parse-source (parser/make-worker) [:u 1]
-                                   (lines "def g():"
-                                          "    i = 0"
-                                          "    while True:"
-                                          "        yield i"
-                                          "        i += 1"
-                                          "it = g()"
-                                          "for x in it:"
-                                          (str "    if x == " n ":")
-                                          "        break")))
+              (parser/parse-source (parser/make-worker) [:u 1] source))
         final ((get final-vms k) ast (vm/ast->datoms ast))
         gens (keep (fn [[_ {:keys [value]}]]
                      (when (= :generator (:py/type value)) value))
                    (:heap final))]
-    (is (= 1 (count gens)) (str k " holds one generator"))
-    (is (= :suspended (:state (first gens))) (str k))
-    (is (= #{:py/type :name :state :resume :ctx} (set (keys (first gens))))
-        (str k " a suspended generator holds only its resume and context"))
-    (size (values/payload (:resume (first gens))))))
+    (is (= m (count gens)) (str k " holds " m " generators"))
+    (doseq [g gens]
+      (is (= :suspended (:state g)) (str k))
+      (is (= #{:py/type :name :state :resume :ctx} (set (keys g)))
+          (str k " a suspended generator holds only its resume and context")))
+    (into {} (map (fn [g] [(:name g) (size (values/payload (:resume g)))])) gens)))
+
+
+(defn- counter-source
+  "A global generator consumed for `n` items; `delegate?` puts a
+   `yield from` level between the loop and the counting generator."
+  [n delegate?]
+  (lines "def g():"
+         "    i = 0"
+         "    while True:"
+         "        yield i"
+         "        i += 1"
+         "def h():"
+         "    yield from g()"
+         (if delegate? "it = h()" "it = g()")
+         "for x in it:"
+         (str "    if x == " n ":")
+         "        break"))
 
 
 (deftest ^:slow resume-continuation-length-is-stable-test
@@ -611,4 +948,81 @@
             after 1000 items: no per-yield growth, the stale base fixed"
     (doseq [k [:ast-walker :semantic :stack :register]]
       (testing (str k)
-        (is (= (suspended-resume-size k 10) (suspended-resume-size k 1000)))))))
+        (is (= (suspended-resume-sizes k 1 (counter-source 10 false))
+               (suspended-resume-sizes k 1 (counter-source 1000 false)))))))
+  (testing "under yield from, neither the delegating nor the inner
+            generator's :resume grows per item"
+    (doseq [k [:ast-walker :semantic :stack :register]]
+      (testing (str k)
+        (is (= (suspended-resume-sizes k 2 (counter-source 10 true))
+               (suspended-resume-sizes k 2 (counter-source 1000 true))))))))
+
+
+(defn- deep-size
+  "Node count of `x` with continuation and closure payloads followed; a
+   cell ref counts as itself (its cell is counted once, as a heap entry)."
+  [x]
+  (cond
+    (values/host-typed? x) (+ 1 (deep-size (values/payload x)))
+    (map? x) (reduce + 1 (map deep-size (concat (keys x) (vals x))))
+    (coll? x) (reduce + 1 (map deep-size x))
+    :else 1))
+
+
+(defn- live-after-collection
+  "[live cell count, deep size of all live cell content] once VM `k` ran
+   `source` and its final state was collected with the suspended
+   generator named `root` as the only extra root: everything that
+   generator reaches, continuations followed, not one `:resume` alone.
+   The module's own globals are garbage once it completes, so without the
+   root nothing of the program would be live."
+  [k source root]
+  (let [ast (lower/lower-packet
+              (parser/parse-source (parser/make-worker) [:u 1] source))
+        final ((get final-vms k) ast (vm/ast->datoms ast))
+        roots (into []
+                    (keep (fn [[id {:keys [value seal]}]]
+                            (when (and (= :generator (:py/type value))
+                                       (= :suspended (:state value))
+                                       (= root (:name value)))
+                              {:type :cell-ref, :id id, :seal seal})))
+                    (:heap final))
+        heap (:heap (engine/collect final roots))]
+    (is (= 1 (count roots)) (str k " one suspended " root))
+    [(count heap) (reduce + (map (fn [[_ {:keys [value]}]] (deep-size value)) heap))]))
+
+
+(defn- changing-caller-source
+  "`n` items through a `yield from` level, resumed alternately by a
+   function and by a fresh generator dropped after one step."
+  [n]
+  (lines "def g():"
+         "    i = 0"
+         "    while True:"
+         "        yield i"
+         "        i += 1"
+         "def h():"
+         "    yield from g()"
+         "it = h()"
+         "def by_function(x):"
+         "    return next(x)"
+         "def by_generator(x):"
+         "    yield next(x)"
+         "k = 0"
+         (str "while k < " n ":")
+         "    if k % 2 == 0:"
+         "        by_function(it)"
+         "    else:"
+         "        next(by_generator(it))"
+         "    k += 1"))
+
+
+(deftest ^:slow reachable-heap-is-stable-under-delegation-test
+  (testing "after a forced collection, the live heap (cells and their content,
+            continuations followed) is the same after 10 and after 1000 items
+            resumed through yield from by changing callers: no retention
+            grows per item or per caller"
+    (doseq [k [:ast-walker :semantic :stack :register]]
+      (testing (str k)
+        (is (= (live-after-collection k (changing-caller-source 10) "h")
+               (live-after-collection k (changing-caller-source 1000) "h")))))))

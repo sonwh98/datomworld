@@ -407,7 +407,6 @@
 (deftest unsupported-constructs-are-qualified-test
   (doseq [[src rule construct]
           [["import os\n" "import_stmt" "import"]
-           ["def g():\n    yield from x\n" "yield_expr" "yield from"]
            ["x = (i for i in y)\n" "atom" "generator expression (phase C2)"]
            ["f(i for i in y)\n" "argument" "generator expression (phase C2)"]
            ["x = a @ b\n" "expr" "operator @"]
@@ -449,6 +448,8 @@
            ["x = [*a for a in b]\n" "iterable unpacking cannot be used in comprehension"]
            ["x = *a\n" "can't use starred expression here"]
            ["yield 1\n" "'yield' outside function"]
+           ["yield from x\n" "'yield' outside function"]
+           ["x = [(yield from y) for x in z]\n" "'yield' inside list comprehension"]
            ["class C:\n    yield 1\n" "'yield' outside function"]
            ["x = [(yield x) for x in y]\n" "'yield' inside list comprehension"]
            ["def f():\n    return {(yield) for x in y}\n" "'yield' inside set comprehension"]
@@ -483,7 +484,8 @@
              ["def g():\n    def h(x=(yield 1)):\n        yield x\n" #{"g" "h"}]
              ["def g():\n    yield 0\n    def h(x=(yield 1)):\n        pass\n" #{"g"}]
              ["def g():\n    def h():\n        yield 1\n" #{"h"}]
-             ["def g():\n    f = lambda: (yield 1)\n" #{"<lambda>"}]]]
+             ["def g():\n    f = lambda: (yield 1)\n" #{"<lambda>"}]
+             ["def g():\n    yield from h()\n" #{"g"}]]]
       (testing src
         (is (= names (generator-names src))))))
   (testing "a yield only in a nested class body is still outside a function"

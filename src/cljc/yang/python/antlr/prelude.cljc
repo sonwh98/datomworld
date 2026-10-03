@@ -38,6 +38,9 @@
                      :attrs {name value}}
      generator       a cell holding {:py/type :generator :name s :state st}
                      and the slots of its state (see `py/gen-switch`)
+     iterator        a cell holding {:py/type :iterator :src s :i n}: what
+                     iter() makes of a sequence, advancing `py/iter-at` over
+                     src once per next; src None once exhausted
      bound method    {:py/type :method :self obj :fn function}
      tuple           {:py/type :tuple :items [...]}: a value; hashable when
                      its elements are
@@ -419,9 +422,55 @@
                  (py/attr-error name)))))))]
     [py/next
      (fn [it default]
-       (if (= (py/content-type it) :generator)
-         (py/gen-result (py/gen-switch it (py/outcome :send :py/None)) default)
-         (py/type-error {:py/str "object is not an iterator"})))]
+       (let [t (py/content-type it)]
+         (if (= t :generator)
+           (py/gen-result (py/gen-switch it (py/outcome :send :py/None)) default)
+           (if (= t :iterator)
+             (py/gen-result (py/iter-outcome it) default)
+             (py/type-error {:py/str "object is not an iterator"})))))]
+    [py/yield-from
+     ;; `yield from x` (PEP 380): each message the outer generator receives
+     ;; goes to the delegate, each value the delegate yields is the outer's;
+     ;; the delegate's return value is the expression's value and its raise
+     ;; is raised here, on the outer generator's stack
+     (fn [g x] (py/delegate g (py/iter x) (py/outcome :send :py/None)))]
+    [py/delegate
+     ;; the delegation loop, a tail call per item
+     (fn [g d msg]
+       (let [o (py/delegate-step d msg)
+             tag (get o 0)]
+         (if (= tag :yield)
+           (py/delegate g d (py/yield-raw g (get o 1)))
+           (if (= tag :return) (get o 1) (py/raise (get o 1))))))]
+    [py/delegate-step
+     ;; one message to the delegate, answered as an outcome. GeneratorExit
+     ;; closes a generator delegate and is then raised in the outer; any
+     ;; other throw is the delegate's throw. A sequence iterator has no
+     ;; send, throw or close: None advances it, another value sent is an
+     ;; AttributeError and a throw is raised in the outer as is.
+     (fn [d msg]
+       (let [gen? (= (py/content-type d) :generator)
+             v (get msg 1)]
+         (if (= (get msg 0) :throw)
+           (if (py/subclass? (py/type-of v) py.b/GeneratorExit)
+             (do (if gen? (py/gen-close d) :py/None)
+                 (py/outcome :raise v))
+             (if gen? (py/stop-as-return (py/gen-switch d msg)) (py/outcome :raise v)))
+           (if gen?
+             (py/gen-switch d msg)
+             (if (= v :py/None) (py/iter-outcome d) (py/attr-error "send"))))))]
+    [py/stop-as-return
+     ;; a StopIteration a generator delegate raises back from a throw is the
+     ;; delegation's completion with its value, as CPython's _gen_throw
+     ;; takes it. Only the thrown exception itself comes back this way (a
+     ;; closed delegate passes it through); one escaping the delegate's body
+     ;; is already PEP 479's RuntimeError.
+     (fn [o]
+       (if (if (= (get o 0) :raise)
+             (py/subclass? (py/type-of (get o 1)) py.b/StopIteration)
+             false)
+         (py/outcome :return (get (get (cell/get (get o 1)) :attrs) "value" :py/None))
+         o))]
     [py/stop-iteration-class
      ;; StopIteration(*args): args as given, value the first or None
      (fn [cls]
@@ -763,7 +812,13 @@
                                (py/attr-error name)))))
                        (if (= t :generator)
                          (py/gen-attr o name)
-                         (py/attr-error name)))))))))
+                         (if (= t :iterator)
+                           (if (= name "__next__")
+                             (py/method o py.b/gen-next)
+                             (if (= name "__iter__")
+                               (py/method o py.b/gen-iter)
+                               (py/attr-error name)))
+                           (py/attr-error name))))))))))
          (py/attr-error name)))]
     [py/setattr
      (fn [o name x]
@@ -1662,7 +1717,9 @@
                ;; stateful: one advancement per call, the index unused
                (if (= t :generator)
                  (py/gen-step it)
-                 (py/type-error {:py/str "object is not iterable"})))))
+                 (if (= t :iterator)
+                   (py/iter-step it)
+                   (py/type-error {:py/str "object is not iterable"}))))))
          (if (= (get it :py/type) :range)
            (py/range-at it i)
            (if (= (get it :py/type) :tuple)
@@ -1687,8 +1744,8 @@
      ;; characters, decoded once; anything else is walked as it is
      ;; a dict or set is walked through its keys with the size it had when
      ;; the loop began, so growing or shrinking it during the loop is a
-     ;; RuntimeError, as in CPython; a list is walked live; a generator is
-     ;; its own iterator, walked as it is
+     ;; RuntimeError, as in CPython; a list is walked live; a generator or
+     ;; sequence iterator is its own iterator, walked as it is
      (fn [x]
        (if (py/str? x)
          (py/tuple (py/chars (data/str->code-points (get x :py/str)) 0 []))
@@ -1698,6 +1755,50 @@
                            :size (data/count (get (cell/get x) :keys)))
                     :what (if (= t :dict) "dictionary" "Set"))
              x))))]
+    [py/iter
+     ;; iter(x): a generator or iterator is its own iterator; anything else
+     ;; a loop walks gets a sequence iterator over what the loop would walk
+     (fn [x]
+       (let [k (py/kind x)]
+         (if (if (= k :generator) true (= k :iterator))
+           x
+           (if (if (py/str? x)
+                 true
+                 (if (= k :list)
+                   true
+                   (if (= k :dict)
+                     true
+                     (if (= k :set) true (if (= k :tuple) true (= k :range))))))
+             (cell/new (assoc (assoc (assoc {} :py/type :iterator) :src (py/iterable x))
+                              :i 0))
+             (py/type-error {:py/str "object is not iterable"})))))]
+    [py/iter-step
+     ;; one advancement of a sequence iterator: the next element, or
+     ;; :py/stop, after which it stays exhausted (its source dropped). A
+     ;; dict or set whose size changed invalidates its iterator for good, as
+     ;; in CPython: the size it expects becomes -1 before the error is
+     ;; raised, so restoring the size does not resume it.
+     (fn [it]
+       (let [c (cell/get it)
+             src (get c :src)]
+         (if (= src :py/None)
+           :py/stop
+           (do (if (if (= (get src :py/type) :keys-iter)
+                     (not (= (data/count (get (cell/get (get src :obj)) :keys))
+                             (get src :size)))
+                     false)
+                 (cell/set! it (assoc c :src (assoc src :size -1)))
+                 :py/None)
+               (let [x (py/iter-at src (get c :i))]
+                 (do (cell/set! it (if (= x :py/stop)
+                                     (assoc c :src :py/None)
+                                     (assoc c :i (+ (get c :i) 1))))
+                     x))))))]
+    [py/iter-outcome
+     ;; a sequence iterator's advancement as a switch outcome
+     (fn [it]
+       (let [x (py/iter-step it)]
+         (if (= x :py/stop) (py/outcome :return :py/None) (py/outcome :yield x))))]
     [py/collect
      (fn [it i acc]
        (let [x (py/iter-at it i)]
@@ -1955,6 +2056,9 @@
     [py.b/next
      (py/make-function "next" {:params ["iterator" "default"], :no-kw true} [:py/missing] []
                        (fn [args] (py/next (py/arg args 0) (py/arg args 1))))]
+    [py.b/iter
+     (py/make-function "iter" {:params ["object"], :no-kw true} [] []
+                       (fn [args] (py/iter (py/arg args 0))))]
     [py.b/gen-send
      (py/make-function "send" {:params ["self" "value"], :no-kw true} [] []
                        (fn [args] (py/gen-send (py/arg args 0) (py/arg args 1))))]
@@ -2022,6 +2126,7 @@
          "sum" 'py.b/sum,
          "any" 'py.b/any,
          "all" 'py.b/all,
-         "next" 'py.b/next}
+         "next" 'py.b/next,
+         "iter" 'py.b/iter}
         (map (fn [[nm key _]] [nm key]))
         builtin-classes))
