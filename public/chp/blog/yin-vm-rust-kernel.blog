@@ -15,7 +15,7 @@
                     [:li [:strong "Fixed-size activations:"] " Each body declares its register count, and every operand is bounds-checked at load. LLVM gets a fixed-size activation where every register access is statically in-bounds with no runtime checks to emit."]
                     [:li [:strong "Scoped control flow:"] " Jumps strictly stay inside their body, and bodies partition the program counters. For LLVM, this means one body is exactly one function, and its PCs are its basic blocks. There is no cross-function control flow to model."]
                     [:li [:strong "Three-address code:"] " Operands are named registers rather than implicit stack pushes, which maps directly to three-address code. The compiler does not need to reconstruct stack effects."]
-                    [:li [:strong "Exact live sets:"] " Every continuation boundary carries an exact live set. This answers the hardest question for a native compiler of what to materialize where, providing the exact spill map at the boundary: which registers must be written back to data, and that the rest are dead."]]
+                    [:li [:strong "Exact live sets:"] " Every continuation boundary carries an exact live set. This answers the hardest question for a native compiler, what to materialize where, by providing the exact spill map at the boundary: which registers must be written back to data, and that the rest are dead."]]
                    
                    [:h2 "The Equivalence Law and Data Continuations"]
                    
