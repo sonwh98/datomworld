@@ -62,6 +62,15 @@ It amends sections 8.5 and 8.5.1 and adds section 8.5.5. Its
 implementation is pending in one preparatory slice; none of it has
 landed.
 
+Updated 2026-10-03 with the C4 design (fable-5.1) and gpt-6-astra's C4
+cross-ruling, whose nineteen converged rulings govern where they differ
+from the design:
+`collab/1790974400000-architect-python-c4-design.claude-fable-5-1.findings.md`
+and
+`collab/1790975400000-architect-c4-crossruling.gpt-6-astra.findings.md`.
+They amend section 8.5.1 and add section 8.5.6. None of them has landed:
+each is recorded with its implementation pending in the slices it names.
+
 This document is subordinate to
 [`datom.world.md`](./datom.world.md) (axioms and invariants),
 [`dao.stream.md`](./dao.stream.md) (the passive stream substrate),
@@ -1391,7 +1400,8 @@ This document numbers them 5 to 11, continuing the list above:
    It exposes `blocked` to guest code. A dedicated safepoint effect,
    which would put safepoint knowledge in the engine, is rejected.
 6. Sites come from frontend marks, not structural derivation. Revisit
-   when the prelude becomes a linked module.
+   when the prelude becomes a linked module. C4 ruling 15 (section 8.5.6)
+   settles the revisit: marks stay.
 7. Identity: names, the ledger, and publication refer to the canonical
    tree; the evaluator runs the derived tree; any guest-visible code
    identity reports the canonical address through the derivation.
@@ -1427,8 +1437,10 @@ Further interactions stated by the ruling:
   priority of heap reclamation.
 - Until the prelude is a linked module, each unit bundles its own prelude
   and so its own builtin class identities, and `isinstance` across units
-  fails. A linked prelude's class objects are copied per receiving task
-  (mob D1), which is fine within one Python task.
+  fails. A linked prelude copies no class objects: install delivers only
+  code, and each task allocates its own through `py/init!` (C4 ruling 1,
+  section 8.5.6). This supersedes the per-receiving-task copy (mob D1)
+  stated here before.
 
 #### 8.5.2 Safepoint insertion
 
@@ -2315,6 +2327,520 @@ What may proceed meanwhile:
 The float slice and C3's integer carrier both pass through the scalar
 gates in `yin.vm` and `yin.vm.engine`. If C3-S2 edits those gates, the
 two land serially, not concurrently.
+
+#### 8.5.6 Imports, the linked prelude, and the frontend catalog (phase C4)
+
+This section records the C4 design as amended by the C4 cross-ruling's
+nineteen converged rulings; where they differ from the design's own
+recommendations, the converged rulings govern. Its implementation is
+pending, in slices F1 to F3, P1 to P3, and I1 to I7 below; none of it
+has landed.
+
+Install delivers code; instantiation is the importing task's own
+evaluation (ruling 1). A linked Python-side module (the base prelude,
+the hook prelude, any Python module) exports only closures and immutable
+specification data. Its install child defines lambdas and halts. Python
+namespaces, class objects, hook state, and runtime cells are allocated
+later by an explicit initialization in the consuming task. This is
+section 8.5.1's "the linker delivers content-addressed code images,
+never Python namespaces" taken literally. Running a module body inside
+the install child fails four ways against the landed linker:
+
+- The lift refuses. A heap cell ref is non-portable, and every Python
+  function, class, dict, and module is a cell, so no body-executed
+  module could reach `linked`.
+- Output vanishes. Import-time `print` writes the child's output, which
+  is never published.
+- Identities duplicate. The child lowers its own copy of each
+  dependency, so builtin classes in the export slice would be fresh cells
+  and `isinstance` would fail.
+- First link wins. The parent discards the child's writes to a
+  dependency's store.
+
+So C4 needs no heap-slice lift, and nothing is copied per receiving task
+(section 8.5.1, amended). `py/init!` initializes the prelude's own
+active module store once, idempotently, with defined failure behavior;
+entry wrappers call it and install children never do. An imported body
+runs under the importing task's declared effects and may itself suspend:
+"no code-delivery wait inside `py/import`" is not a promise that body
+execution cannot park.
+
+Module shape. A Python unit compiled as module `a.b` becomes one linker
+module:
+
+```clojure
+(do (require 'py)              ; hoisted: code delivery only
+    (require 'pym.c)           ; one per static import in the unit
+    (yin/def spec {:name "a.b" :package? false})
+    (yin/def body (fn [%globals %globals-fn] <lowered module body>)))
+;; :yin.module/exports #{spec body}
+```
+
+- Hoisted, pinned requires are an explicit eager-dependency restriction,
+  not an invisible transformation (ruling 4). `if False: import
+  missing`, a caught failed import, and a pre-populated `sys.modules`
+  all tell it apart from Python's statement-time import, and the support
+  profile says so. The required module names are derivable from rows;
+  their manifest addresses additionally need the pinned resolution
+  snapshot.
+- Body execution stays lazy. `import c` lowers at the statement to
+  `(py/import "c" pym.c/spec pym.c/body)` plus the binding, and the body
+  runs in the importing task, in statement order.
+- `__package__` comes from `spec`: package-ness is source layout, not
+  derivable from rows.
+
+Names (ruling 3). The registry nests dotted names, so a module `a`
+presumably shadows `a.b` (inferred by the design, untested). Until the
+linker seat fixes that, no linker module name is a dotted prefix of
+another:
+
+```text
++---------------------+--------------------------------------------------------+
+| Module              | Linker module name                                     |
++=====================+========================================================+
+| Base prelude        | `py` (reserved)                                        |
++---------------------+--------------------------------------------------------+
+| Hook prelude        | `pysp` (reserved)                                      |
++---------------------+--------------------------------------------------------+
+| Python module       | `pym.a$b$c`; `$` is valid EDN and never in a Python    |
+| `a.b.c`             | identifier, so the mapping is injective. The original  |
+|                     | Python name stays in module metadata. Nothing is ever  |
+|                     | installed at the `pym` root.                           |
++---------------------+--------------------------------------------------------+
+```
+
+The registry-prefix defect is filed with the linker seat, with tests for
+both installation orders.
+
+Resolution, in order:
+
+1. `sys.modules`, a heap dict in prelude state; a hit returns the module
+   object.
+2. Runtime-synthesized modules, `sys` and `builtins`, pre-seeded by
+   `py/init!`.
+3. The linker: a task registry hit, else name environment, manifest,
+   verify, pure install, receive.
+4. Refusal (see catchable imports below).
+
+There is no `sys.path` and there are no finders; the search path is the
+reader's snapshot set and declared principals, and a dependency edge
+names a content address (section 9.6).
+
+`py/import`, prelude code, on a miss creates the module object, sets
+`__name__` and `__package__`, inserts it into `sys.modules` before
+running the body, and runs the body; on an exception it removes the entry
+and re-raises. `py/run-main` instantiates the same code image as
+`"__main__"`, so the code address does not depend on the role and
+`if __name__ == '__main__'` needs nothing else. `__file__` is absent;
+`__spec__` and `__loader__` are `None`.
+
+The module store does not back the namespace:
+
+- The module store holds `spec` and `body`, immutable after install.
+- The module object is a heap cell `{:py/type :module :name s :dict d}`,
+  where `d` is the dict the body receives as `%globals`.
+- `setattr`, `del`, and `globals()` writes are heap dict operations; the
+  linker's store model (literal keys, no delete, first link wins) is
+  untouched.
+- Two tasks importing one module get independent namespaces, one Python
+  process being one task. The linker's open cross-task module-store
+  decision is not needed, and module state migrates only when heap lift
+  lands.
+
+Builtins (ruling 2). `py/init!` builds one builtin namespace dict per
+Python task, shared by that task's modules. A global lookup checks the
+module namespace, then falls back to the builtins, Python's own model, at
+the cost of a second lookup on a global miss. Interpreter-generated
+exceptions keep canonical builtin class references even when guest code
+rebinds the name. Tests cover initialization twice, builtin mutation,
+global shadow and delete, and cross-module exception identity.
+
+Import forms:
+
+```text
++---------------------------+--------------------------------------------------+
+| Form                      | C4 treatment                                     |
++===========================+==================================================+
+| `import a.b.c`            | Imports `a`, `a.b`, `a.b.c` in order, each body  |
+|                           | once, and sets each as an attribute of its       |
+|                           | parent (ruling 13).                              |
++---------------------------+--------------------------------------------------+
+| `from pkg import name`    | Succeeds when `pkg` already exposes the          |
+|                           | attribute. Raises only when lookup fails and the |
+|                           | unsupported submodule auto-import would be       |
+|                           | needed (ruling 13).                              |
++---------------------------+--------------------------------------------------+
+| `from m import *`         | Respects `__all__`; without it, excludes         |
+|                           | underscore-prefixed names. Copying every key is  |
+|                           | insufficient (ruling 13).                        |
++---------------------------+--------------------------------------------------+
+| Relative imports          | Resolved statically at lowering from the         |
+|                           | declared module name and package status:         |
+|                           | package `a.b` and module `a.b` have different    |
+|                           | bases. A packageless or beyond-top-level case    |
+|                           | raises `ImportError` at the executed statement.  |
+|                           | Rebinding `__package__` or a different runtime   |
+|                           | package does not retarget them, a disclosed      |
+|                           | restriction (ruling 12).                         |
++---------------------------+--------------------------------------------------+
+| `importlib.import_module` | Only statically recognized calls with a literal  |
+|                           | name; dynamic forms get an explicit diagnostic.  |
+|                           | Rebinding or aliasing `import_module` must not   |
+|                           | make the compiler recognize the wrong callable   |
+|                           | (ruling 10).                                     |
++---------------------------+--------------------------------------------------+
+| `importlib.reload`        | Re-runs the same image against the same dict;    |
+|                           | the module object and dict are retained, names   |
+|                           | not overwritten survive, external bindings are   |
+|                           | unchanged, and a failure propagates without      |
+|                           | being treated as a failed first import (ruling   |
+|                           | 11).                                             |
++---------------------------+--------------------------------------------------+
+| Finders, loaders,         | Refused with an explicit unsupported error       |
+| `meta_path`,              | (ruling 11).                                     |
+| `path_hooks`, `sys.path`, |                                                  |
+| `__import__` override     |                                                  |
++---------------------------+--------------------------------------------------+
+```
+
+The literal-name restriction is a C4 scope restriction, not a proof that
+a computed name must be an unpinned dependency; a future resolver could
+interpret computed names against an immutable catalog. Reload cannot
+replace a live task's cached image, since the registry hit answers for
+the task's lifetime and switching a name snapshot is insufficient; a code
+upgrade needs a fresh process or a separately designed replacement
+protocol (ruling 11).
+
+Catchable imports (ruling 8). A link refusal is raised as the effect's
+error, which the VM has no guest-catchable form of. Refusal-as-data
+linking (`module/try-require`, following the `stream/poll!` precedent of
+decision 5) is adopted, but alone it does not make
+`try: import x / except ImportError` work: a hoisted eager dependency
+can fail before the body reaches the `try`. The claim also needs
+deferred dependency admission with statement-time resolution: check
+`sys.modules` first, attempt delivery at the import statement under the
+pinned resolution environment, and read exports only after success. I4
+stays gated until publication and free-name validation can represent
+such deferred dependencies, absent names included, without weakening
+address verification or admission. Until then an absent dependency
+refuses the dependent's link before any Python runs, and the support
+profile records it.
+
+Cycles (ruling 9). Python-level cycle semantics follow from
+insert-before-execute, including "cannot import name" on a partially
+initialized module. A code-delivery cycle cannot be pinned by content,
+and the linker refuses `:require-cycle`:
+
+- First, the publisher refuses a delivery cycle with a diagnostic naming
+  it.
+- Later (I5), it publishes one deterministic unit per strongly connected
+  component. Intra-SCC `require` edges are eliminated in favor of
+  internal body references; one thin alias module per member re-exports
+  its body and depends on the SCC unit, never the reverse. Member order
+  is deterministic, export names are collision-free, and outgoing pins
+  are explicit. Members keep separate Python module objects and lazy
+  initialization. No SCC identity primitive is needed, but the canonical
+  construction needs a published contract with byte and address
+  fixtures.
+
+The linked prelude:
+
+- One source, two emitters. The definition list in `prelude.cljc` stays
+  the single source; the bundled emitter is today's, and the module
+  emitter strips the module's own namespace from keys and internal
+  references, because export keys are bare.
+- Runtime state moves from module-level definitions into `py/init!`,
+  which writes one state slot.
+- The linked entry wrapper is
+  `(do (require 'py) (py/init!) (py/run-main (fn [%globals %globals-fn]
+  ...)))`.
+- The lowering drops `builtin-names` and direct `py.b/*` reads, so a new
+  builtin class no longer touches the lowering, and the hand-kept host
+  name sets become derivable from the tree.
+- Imports require the linked prelude. A module closure's free reads never
+  see the ambient store, so a bundled importer's `py/*` definitions are
+  invisible to an imported body.
+
+Addresses. Every golden moves once, since the wrapper and builtin reads
+change. Afterward a linked user program's code root stays stable across
+prelude revisions only while its emitted rows and ABI references stay
+unchanged. Its published module manifest does not: `:yin.module/requires`
+is part of the addressed manifest, so a changed prelude pin changes the
+package identity. Code-root stability and executable package identity
+are distinct, and both the float carrier correction and the linked
+migration preserve the distinction. The note in section 8.5.3 that each
+prelude change moves every bundled unit's address stays true of the
+bundled profile.
+
+Host-export profiles (ruling 7). Publish refuses the prelude today: a
+free name bound by a host module is refused, and the prelude calls the
+`cell`, `data`, and later `integer` modules. Linker prerequisite L-a has
+the prelude manifest declare its host modules (cell, data, integer, and
+stream poll) by semantic profile address, and covers publication,
+requirement discovery, installation matching, effect declarations, and
+qualified host-export resolution, not merely a manifest field. Integer
+limits and semantic versions are part of the matched profile identity;
+the descriptive `module-version` (section 8.5.4) is insufficient. The
+ability to execute and re-encode float64 carriers is checked without
+changing Jing's numeric bytes or adding Python-aware codec logic.
+
+The AST walker (ruling 6). A module whose exported lambda reads a sibling
+definition is refused `:undeclared-free` in the tree format, so the
+walker cannot link the prelude today. L-b admits the linked prelude's
+declared sibling reads through the same verification and store-isolation
+contract as the other evaluators. Three-VM intermediate development is
+acceptable; three-VM completion is not. Python raises across module
+boundaries by continuation invoke, so I1's cross-module raise test probes
+store-context restoration, and D7 slice C is a prerequisite wherever that
+test exposes incorrect restoration on any VM.
+
+Safepoints. Linked, `pysp` requires `py`, inverting today's load order.
+Its cursor cannot be created at install and a module closure cannot read
+an ambient signal stream, so the wrapper passes the stream to
+`(pysp/attach! signals)`.
+
+- Frontend marks stay (ruling 15; decision 6 settled). Occurrence-scoped
+  marks are preserved through publication and transformation, and loop
+  or function meaning is never inferred from generic lambda structure.
+  Imported Python bodies are marked; runtime internals are excluded under
+  the selected policy.
+- Atomicity: prelude internals stay unmarked, so section 8.11's
+  runtime-internal atomicity holds, but an import runs guest code that
+  can contain effects and safepoints. The import operation as a whole is
+  not atomic.
+- Site marks live in the frontend-metadata side table, not rows, so a
+  published tree carries none. Ruling 14: keep sites outside canonical
+  rows, but publish a content-addressed site set with a pinned
+  association to the exact source root, frontend revision, and
+  transformation profile, with retrieval and verification obligations,
+  as datoms. A separate publication record may avoid a module manifest
+  schema change, conditional on complete discovery; a schema change is
+  not ruled out in advance.
+- Until site sets are published, an imported `while True` is not
+  interruptible. Uninstrumented imports are permitted only under an
+  explicitly noninterruptible profile; a profile requiring hooks refuses
+  a missing site set.
+
+Bundled mode (ruling 5). The bundled profile stays selectable until two
+gates pass, then it is deleted, with no compatibility shim:
+
+- The migration gate: the linked corpus on all four evaluators on JVM,
+  Node, and Dart, twelve lanes, covering publication, parserless
+  consumption, runtime initialization, and exception parity, not merely
+  local evaluation; the AST walker is included (ruling 6).
+- The float64 address gate of section 8.5.5. Carrier preservation and
+  the execution bridge complete first; affected rows, derived images,
+  manifests, and references are then rebuilt. The linked migration
+  changes bundled roots separately, and neither transition aliases old
+  integer-misclassified content to corrected float content.
+
+The float fix is also a hard prerequisite for P2: the prelude manifest
+must have one address on every host.
+
+The REPL frontend catalog (ruling 16). `yin/repl.cljc` today has a
+closed `case` over three languages, language special cases, and static
+requires of all three frontends; its `:python` is the legacy
+`yang.python`, and the ANTLR parser exists only on the JVM. The design
+realizes sections 3.3 and 3.6 for the REPL:
+
+- `yang.frontend`, new and pure cljc: manifest validation,
+  `install catalog manifest binding => catalog'`, and selection by
+  `[id revision]`. The catalog is a value; a manifest carrying a
+  function or handle is rejected.
+- The REPL takes the catalog from its composition as a `create-state`
+  option; each host's `main` builds it and `yin.repl` requires no
+  frontend. A session pins an immutable catalog snapshot, and each
+  request pins the selected revision and installed binding. Shell
+  commands stay the shell's own syntax.
+- The installed binding is a pair of stages over supplied streams, parse
+  and lower, plus an optional completeness probe; the REPL steps them to
+  an outcome. Language-specific parsing and completeness logic stay out
+  of REPL core. An explicit parser service, worker or remote, has the
+  same shape; a slow one needs a pending-compile state like the existing
+  pending-require.
+- No fallback between frontends: `:yang.python/antlr` and
+  `:yang.python/legacy` are distinct ids, and legacy retires at its own
+  migration gate. Selecting a frontend answers unavailable-parser only
+  when neither a local parser nor an explicitly configured service is
+  available, on any host (section 4.1).
+- Support claims derive from explicit semantic and runtime declarations
+  and tests, not solely from the syntactic `unsupported-rules` list.
+- A second language (JavaScript, parked) installs as parser artifacts,
+  a lowering namespace, a published prelude module, a manifest, and one
+  `install` call in the composition, with no edit to `yin.repl`, Yang
+  core, or the evaluator.
+
+Python's frontend profile pins:
+
+```text
++-----------+------------------------------------------------------------------+
+| Part      | Pin                                                              |
++===========+==================================================================+
+| Grammar   | `grammar-id`, entry rules, export profile `:yang.cst/v1`         |
++-----------+------------------------------------------------------------------+
+| Lowering  | An immutable implementation revision tied to source or           |
+|           | build-artifact digests, its dependencies and options, and a      |
+|           | content-addressed lowering-profile descriptor (ruling 17). A     |
+|           | golden-corpus digest is supplementary evidence, not identity;    |
+|           | host code needs no executable UAST to have artifact identity.    |
++-----------+------------------------------------------------------------------+
+| Runtime   | `py` and `pysp` manifest addresses, the safepoint profile map,   |
+|           | host-module profile addresses (cell, data, integer with limits,  |
+|           | stream poll), and permitted effects                              |
++-----------+------------------------------------------------------------------+
+| Support   | Explicit declarations and tests (ruling 16); reference runtime   |
+|           | CPython 3.9.6                                                    |
++-----------+------------------------------------------------------------------+
+```
+
+The REPL `__main__` persists across submissions (ruling 18): its module
+object, globals dict, builtin namespace, and import cache. `(reset)` is a
+new Python process: fresh task-owned runtime state, handler stacks and
+hook attachments included, while immutable verified code may be reused.
+Runtime state never merges across frontend revisions, and late results
+from the old process cannot mutate the new one.
+
+Foreign-principal imports are not claimed until D7 slice B lands with
+its tests (ruling 19), verifying closure origin and store ownership
+recursively through exports, re-exports, and transitive dependency
+slices before any executable value is exposed. B is necessary, not
+sufficient: the claim also needs authenticated publication,
+dependency-pin checks, primitive and effect admission, and working
+store-context transitions on all four VMs. Until B lands, a forged
+`:store-of` could reach the prelude's state. Corrected float publication
+rebuilds affected derivations, manifests, and dependency pins before any
+cross-principal address is accepted.
+
+Linker prerequisites, the linker seat's to build:
+
+```text
++------+-----------------------------------------------------+-----------------+
+| Item | Scope                                               | Blocks          |
++======+=====================================================+=================+
+| L-a  | Host-export profile requirements in published       | P2              |
+|      | manifests, enforced end to end (ruling 7)           |                 |
++------+-----------------------------------------------------+-----------------+
+| L-b  | Module-level sibling reads in the tree format       | The walker      |
+|      | (ruling 6)                                          | under the       |
+|      |                                                     | linked profile  |
++------+-----------------------------------------------------+-----------------+
+| L-c  | Registry nesting fix                                | Optional;       |
+|      |                                                     | mangling covers |
+|      |                                                     | it              |
++------+-----------------------------------------------------+-----------------+
+| L-d  | `module/try-require` plus deferred dependency       | I4              |
+|      | admission (ruling 8)                                |                 |
++------+-----------------------------------------------------+-----------------+
+| L-e  | D7 slice B, the origin and store check (ruling 19)  | Foreign-        |
+|      |                                                     | principal       |
+|      |                                                     | imports         |
++------+-----------------------------------------------------+-----------------+
+```
+
+```text
++-------+----------------------------------------------------------------------+
+| Slice | Scope                                                                |
++=======+======================================================================+
+| F1    | `yang.frontend` catalog and manifest validation                      |
++-------+----------------------------------------------------------------------+
+| F2    | The REPL selects through the catalog; `yin.repl` drops its frontend  |
+|       | requires                                                             |
++-------+----------------------------------------------------------------------+
+| P1    | Single-source prelude, `py/init!`, builtins dict; still bundled      |
++-------+----------------------------------------------------------------------+
+| P2    | Module emitter, publication, linked profile; needs L-a and the       |
+|       | float fix                                                            |
++-------+----------------------------------------------------------------------+
+| P3    | `pysp` linked, `attach!`                                             |
++-------+----------------------------------------------------------------------+
+| F3    | The Python ANTLR frontend in the catalog (JVM); persistent           |
+|       | `__main__`; needs P2                                                 |
++-------+----------------------------------------------------------------------+
+| I1    | Static absolute imports of single modules, `py/import`, module       |
+|       | objects, `sys.modules`, `__name__`                                   |
++-------+----------------------------------------------------------------------+
+| I2    | Packages, mangling, relative imports, `as`, `*`, `__package__`       |
++-------+----------------------------------------------------------------------+
+| I3    | Publication and DHT import; needs L-e for foreign principals         |
++-------+----------------------------------------------------------------------+
+| I4    | Catchable `ImportError`; needs L-d                                   |
++-------+----------------------------------------------------------------------+
+| I5    | SCC units and alias modules                                          |
++-------+----------------------------------------------------------------------+
+| I6    | Literal `import_module`, same-image `reload`; hooks refused          |
++-------+----------------------------------------------------------------------+
+| I7    | Published site sets for imported modules                             |
++-------+----------------------------------------------------------------------+
+```
+
+Acceptance, each on all three hosts unless stated (Node and Dart consume
+precompiled CST packets or rows, since the parser is JVM-only):
+
+- F1: two revisions of one id installed into an empty catalog are both
+  selectable and the original catalog is unchanged; a manifest holding a
+  function is rejected with a qualified outcome.
+- F2: a toy frontend defined in a test namespace installs, is selected,
+  and evaluates on every VM with no `src` edit; a newer revision
+  installed under a live session leaves it unchanged; on Node and Dart
+  with no parser or configured service, the ANTLR id answers
+  unavailable-parser with no legacy fallback.
+- P1: the full corpus output is unchanged on every VM and host; a
+  composition with no cell module halts ok on `functions-uast`;
+  `py/init!` twice yields one set of class cells; shadowing then
+  deleting a builtin name makes the builtin visible again.
+- P2: `py` publishes to one pinned manifest address on each host; the
+  linked corpus output equals bundled; one source under two prelude
+  revisions keeps one program root; an exception raised in one unit is
+  `isinstance` of `Exception` read in another unit of the same task; an
+  install child at `validated` has an empty heap and no `:cell` lift
+  refusal; a wrong host-module profile is refused by name; a missing
+  name-environment entry is refused with no bundled fallback.
+- P3: safepoint slice 1's acceptance re-runs under the linked profile on
+  every VM; stage input contains no prelude row; a derived program with
+  no `pysp` binding reports the unresolved hook name.
+- F3: at the REPL, `x = 1` then `print(x)` prints `1`; the probe answers
+  incomplete until a multi-line `def` closes.
+- I1: `print("a"); import m; print("b")` orders `a`, `m`'s output, `b`;
+  a second import does not re-execute; `m.x = 5; del m.y` is visible
+  through `m.__dict__` and to `m`'s functions; a raising body removes
+  its entry and propagates; a handler in the importer catches an
+  exception from a function in `m` on every VM; one image as main and as
+  import sees different `__name__` values.
+- I2: `import a.b.c` runs three bodies once, in order, with attributes
+  set; a relative import in a packageless unit raises an `ImportError`
+  caught by `except`; `from pkg import sub` with no explicit import and
+  no attribute raises the documented error.
+- I3: a JVM-published `pym.m` imports parserless on Node and Dart with
+  the same output; a republished dependency is refused as a dependency
+  binding with no install; a cyclic pair is refused at publication by
+  name.
+- I4: an absent module inside `try` runs the `except
+  ModuleNotFoundError` branch; an ambiguous name raises `ImportError`
+  carrying the refusal.
+- I5: mutually importing `a` and `b` both import; `from b import x`
+  during partial initialization gives CPython's error text.
+- I6: `reload(m)` re-runs the body against the same dict with `m`'s
+  identity unchanged; registering a finder raises the explicit
+  unsupported error.
+- I7: an imported `while True` with one signal ends with
+  `KeyboardInterrupt`.
+
+Order: F1 and F2 now. The float fix and the prelude slices in flight at
+design time (C2-S2, safepoint slice 2, C3-S2) land before P1, serially,
+since each reshapes `prelude.cljc`; later slices add definitions to the
+single source and are profile-agnostic. Then P2 after L-a; then P3, F3,
+and I1; then I2; then I3; then I4 to I7 as their gates allow. C2-S3 to S5, C3-S3
+onward, safepoint slices 3 and 4, and linker hardening are independent
+of the I-track.
+
+Open:
+
+- The legacy frontend id's naming is the owner's (F2).
+- The registry-prefix shadowing is inferred and needs a failing test
+  first; it affects Clojure-named modules too.
+- `yang.antlr.packet`, which is language-neutral, emits a Python-named
+  malformed-CST diagnostic, so a second ANTLR language would report
+  Python-named diagnostics.
 
 ### 8.6 Object-oriented and web: PHP, mixed text and ordered maps
 
