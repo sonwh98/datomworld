@@ -449,21 +449,6 @@
   (cbor/float64 (float-value x)))
 
 
-(defn- numeric-key
-  "The identity number `x` keys a guest index under: the integer when `x`
-   is integral within +/- 2^53 - 1, so 1, 1.0 and -0.0 key as 1, 1 and 0,
-   else its float64 content. The same Jing bytes on every host.
-
-   Interim, per the converged float-fix sign-off ruling: C3-S2 replaces
-   this numeric arm with ruling-6 decimal-string keys built by exact
-   decomposition from unwrapped, exactly typed inputs (never holding a
-   carrier or a double), pins one NaN-key behavior, and deletes this."
-  [x]
-  (let [i (integral (if (number? x) x (float-value x)))]
-    ;; (+ i 0) turns a JS -0 into 0
-    (if (some? i) (+ i 0) (float64 x))))
-
-
 (defn- callable?
   "True when `x` can be applied: a host function, a closure or a
    continuation. A map is never callable, whatever keys it carries."
@@ -501,7 +486,6 @@
    ['number? [1] data-number?]
    ['float64 [1] float64]
    ['float-value [1] float-value]
-   ['numeric-key [1] numeric-key]
    ['callable? [1] callable?]])
 
 

@@ -1,12 +1,15 @@
 (ns yang.python.antlr.prelude-parity-test
   "The prelude's Python semantics on all four VMs and every host this runs
    on (JVM and Node): arithmetic with bools, float tagging, truthiness,
-   cross-type equality, dict key normalization, ranges, and a run through
+   cross-type equality, dict key normalization, numeric hash and integer
+   `is` (C3 slice S2), ranges, and a run through
    `py/run-module` over the real cell and data modules whose printed output
    is rendered at the boundary."
   (:require
     [clojure.test :refer [deftest is testing]]
     [clojure.walk :as walk]
+    [dao.jing :as jing]
+    [dao.jing.cbor :as cbor]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.render :as render]
     [yang.python.antlr.uast :as u]
@@ -16,6 +19,7 @@
     [yin.vm.debruijn-register-compile :as rc]
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
+    [yin.vm.integer :as integer]
     [yin.vm.linearize :as linearize]
     [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]
@@ -28,7 +32,9 @@
    :primitives vm/primitives,
    :modules (-> (module/empty-registry)
                 module/register-cell-module
-                data/register-data-module)})
+                data/register-data-module
+                (integer/register-integer-module
+                  {::integer/max-bits 100000, ::integer/max-digits 4300}))})
 
 
 (def ^:private load-semantic-ast
@@ -211,22 +217,30 @@
 
 (deftest range-fast-path-on-every-host-test
   (testing "iterating range(3000) never enters the recursive range-elem:
-            with it stubbed to a sentinel, every element is still exact"
+            with it stubbed to a sentinel, every element is still exact. The
+            guard's edge is pinned too: index 2^26 takes the O(1) path,
+            2^26 + 1 enters range-elem, so a guard widened past the ruled
+            bound fails here. The sentinel is a number no element of these
+            ranges equals, so range-at's bound test reads it on every host"
     (let [stubbed (u/seq-nodes
                     (map (fn [[k form]]
                            (u/def! k
                                    (u/sexp->uast
                                      (if (= k 'py/range-elem)
-                                       '(fn [start step i] :range-elem-entered)
+                                       '(fn [start step i] -12345)
                                        form))))
                          prelude/function-definitions))
           results (run-with-prelude
                     stubbed
-                    '(py/conj (py/conj [] (py/range-elem 0 1 5))
-                              (py/to-vector (py/range3 0 3000 1))))]
+                    '(py/conj
+                       (py/conj
+                         (py/conj (py/conj [] (py/range-elem 0 1 5))
+                                  (py/to-vector (py/range3 0 3000 1)))
+                         (py/range-at (py/range3 0 67108865 1) 67108864))
+                       (py/range-at (py/range3 0 67108866 1) 67108865)))]
       (doseq [[k result] results]
         (testing (str k)
-          (is (= [:range-elem-entered (vec (range 3000))] result)))))))
+          (is (= [-12345 (vec (range 3000)) 67108864 -12345] result)))))))
 
 
 (deftest printed-floats-on-every-host-test
@@ -397,6 +411,345 @@
       (doseq [[k result] results]
         (testing (str k)
           (is (= {:py/out ["9007199254740992 overflow overflow overflow overflow overflow"],
+                  :py/exception nil}
+                 (if (map? result) (render/output result) result))))))))
+
+
+;; =============================================================================
+;; C3 slice S2: numeric keys, guest hash, integer `is`
+;; =============================================================================
+;;
+;; Big integers come from `integer/parse` over decimal text, never a
+;; literal: on JS an integer literal past 2^53 - 1 cannot be hashed into
+;; rows, and neither can an integral float literal there, so big floats are
+;; built by multiplication. Hashes are compared as `integer/format` text,
+;; so one expectation holds whatever carrier each host uses; the values are
+;; CPython's on a 64-bit build.
+
+(def ^:private two-53 '(integer/parse "9007199254740992"))
+(def ^:private two-53+1 '(integer/parse "9007199254740993"))
+(def ^:private two-70 '(integer/parse "1180591620717411303424"))
+(def ^:private two-80 '(integer/parse "1208925819614629174706176"))
+
+
+(def ^:private two-1074
+  "2^1074, the denominator of the smallest subnormal."
+  (str "2024022533073106183524953467189173070495566497641421183569013580274303"
+       "3956799534689196038370143712449518707786431681191138980873738579347686"
+       "7013399940738509921517424276566361364466907742093216341239767678472745"
+       "0685620074834246926986181033556491595563408100565123587695523334146152"
+       "30502532186327508646006263307707741093494784"))
+
+
+(def ^:private max-finite
+  "The numerator of the largest finite binary64, (2^53 - 1) * 2^971."
+  (str "179769313486231570814527423731704356798070567525844996598917476803"
+       "157260780028538760589558632766878171540458953514382464234321326889"
+       "464182768467546703537516986049910576551282076245490090389328944075"
+       "868508455133942304583236903222948165808559332123348274797826204144"
+       "723168738177180919299881250404026184124858368"))
+
+
+(def ^:private two-1022
+  "2^1022, the denominator of the smallest normal binary64."
+  (str "449423283715578976932326297697256183404494244735576643183575202894"
+       "331689513752407831771193306018840052800284699678483394146974422036"
+       "041556232118576598685310944419733562163713190755549003115235298632"
+       "707380212514422095376705856157203684782776352068092908376276711465"
+       "74559986811484619929076208839082406056034304"))
+
+
+(defn- hash-text
+  [x]
+  (list 'integer/format (list 'py/hash x)))
+
+
+(def ^:private key-hash-is-cases
+  "[form expected], evaluated as one vector on each VM."
+  [;; ruling 6: one exact key form; bools key as their integers
+   ['(py/key 1) [:py.numeric/finite "1" "1"]]
+   ['(py/key true) [:py.numeric/finite "1" "1"]]
+   ['(py/key {:py/float 1.0}) [:py.numeric/finite "1" "1"]]
+   ['(py/key false) [:py.numeric/finite "0" "1"]]
+   ['(py/key (py/float (* (data/float-value -1) (data/float-value 0)))) [:py.numeric/finite "0" "1"]]
+   ['(py/key -7) [:py.numeric/finite "-7" "1"]]
+   ['(py/key {:py/float 1.5}) [:py.numeric/finite "3" "2"]]
+   ['(py/key {:py/float -0.75}) [:py.numeric/finite "-3" "4"]]
+   ['(py/key {:py/float 0.1})
+    [:py.numeric/finite "3602879701896397" "36028797018963968"]]
+   ['(py/key {:py/float 5.0E-324}) [:py.numeric/finite "1" two-1074]]
+   ['(py/key (py/float (* (data/float-value 1.5) 4503599627370496 4503599627370496)))
+    [:py.numeric/finite "30423614405477505635920876929024" "1"]]
+   [(list 'py/key two-53+1) [:py.numeric/finite "9007199254740993" "1"]]
+   [(list '= (list 'py/key two-53) (list 'py/key two-53+1)) false]
+   [(list '= (list 'py/key two-53) '(py/key (py/float (* (data/float-value 2) 4503599627370496)))) true]
+   [(list '= (list 'py/key two-80) '(py/key (py/float (* (data/float-value 1) 4503599627370496 268435456))))
+    true]
+   ;; binary64 boundaries: the largest finite, the negative smallest
+   ;; subnormal, and both sides of the normal/subnormal transition
+   ['(py/key {:py/float 1.7976931348623157E308}) [:py.numeric/finite max-finite "1"]]
+   ['(py/key {:py/float -4.9E-324}) [:py.numeric/finite "-1" two-1074]]
+   ['(py/key {:py/float 2.2250738585072014E-308}) [:py.numeric/finite "1" two-1022]]
+   ['(py/key {:py/float 2.225073858507201E-308})
+    [:py.numeric/finite "4503599627370495" two-1074]]
+   ;; an integer -0 (on JS, (* -1 0)) keys and hashes as the integer 0
+   ['(py/key (* -1 0)) [:py.numeric/finite "0" "1"]]
+   ['(py/key {:py/float ##Inf}) [:py.numeric/infinite "+"]]
+   ['(py/key {:py/float ##-Inf}) [:py.numeric/infinite "-"]]
+   ;; every NaN is one key (yang.antlr.md 8.5.4), never an infinity's
+   ['(py/key (py/float (- (data/float-value ##Inf) (data/float-value ##Inf)))) [:py.numeric/nan]]
+   ['(= (py/key (py/float (- (data/float-value ##Inf) (data/float-value ##Inf)))) (py/key (py/float (* (data/float-value 0) (data/float-value ##Inf))))) true]
+   ['(= (py/key (py/float (- (data/float-value ##Inf) (data/float-value ##Inf)))) (py/key {:py/float ##Inf})) false]
+   [(list '= (list 'py/key (list 'py/tuple (list 'py/conj [1] two-53+1)))
+          (list 'py/key (list 'py/tuple (list 'py/conj [{:py/float 1.0}] two-53+1))))
+    true]
+   ['(py/key {:py/str "k"}) {:py/str "k"}]
+   ['(= (py/key -1) (py/key -2)) false]
+   ;; ruling 7: P = 2^61 - 1, equal numbers hash equal, -1 is -2
+   [(hash-text 0) "0"]
+   [(hash-text false) "0"]
+   [(hash-text {:py/float 0.0}) "0"]
+   [(hash-text '(py/float (* (data/float-value -1) (data/float-value 0)))) "0"]
+   [(hash-text 1) "1"]
+   [(hash-text true) "1"]
+   [(hash-text {:py/float 1.0}) "1"]
+   [(hash-text 12345) "12345"]
+   [(hash-text -1) "-2"]
+   [(hash-text -2) "-2"]
+   [(hash-text two-70) "512"]
+   [(hash-text two-80) "524288"]
+   [(hash-text (list 'integer/neg two-80)) "-524288"]
+   [(hash-text '(py/float (* (data/float-value 1) 4503599627370496 268435456))) "524288"]
+   [(hash-text '(integer/sub (integer/shift-left 1 61) 1)) "0"]
+   [(hash-text '(integer/shift-left 1 61)) "1"]
+   [(hash-text '(integer/neg (integer/shift-left 1 61))) "-2"]
+   [(hash-text {:py/float 1.5}) "1152921504606846977"]
+   [(hash-text {:py/float -0.5}) "-1152921504606846976"]
+   [(hash-text {:py/float 0.1}) "230584300921369408"]
+   [(hash-text {:py/float 5.0E-324}) "16777216"]
+   [(hash-text {:py/float -2.5E-300}) "-52920977297143526"]
+   [(hash-text '(py/float (* (data/float-value 1.5) 4503599627370496 4503599627370496))) "13194139533312"]
+   [(hash-text '(integer/parse "30423614405477505635920876929024")) "13194139533312"]
+   [(hash-text {:py/float 1.7976931348623157E308}) "2234066890152476671"]
+   [(hash-text {:py/float -4.9E-324}) "-16777216"]
+   [(hash-text {:py/float 2.2250738585072014E-308}) "32768"]
+   [(hash-text {:py/float 2.225073858507201E-308}) "2305843009196949503"]
+   [(hash-text '(* -1 0)) "0"]
+   ;; ruling 8: value-based `is`, whatever carrier a value arrived in
+   [(list 'py/is two-70 two-70) true]
+   [(list 'py/is two-70 '(integer/pow 2 70)) true]
+   [(list 'py/is-not two-70 '(integer/pow 2 70)) false]
+   [(list 'py/is (list 'integer/sub (list 'integer/add two-70 5) two-70) 5) true]
+   [(list 'py/is (list 'integer/sub two-53+1 1) two-53) true]
+   [(list 'py/is (list 'integer/sub two-53 1) 9007199254740991) true]
+   [(list 'py/is (list 'py/hash two-80) 524288) true]
+   [(list 'py/is two-53 two-53+1) false]
+   ['(py/is true 1) false]
+   ['(py/is 1 {:py/float 1.0}) false]])
+
+
+(deftest numeric-keys-hash-and-is-on-every-host-test
+  (let [form (reduce (fn [acc [f _]] (list 'py/conj acc (with-float64 f)))
+                     []
+                     key-hash-is-cases)
+        expected (mapv second key-hash-is-cases)
+        results (run-with-prelude prelude/functions-uast form)]
+    (doseq [[k result] results]
+      (testing (str k)
+        (is (= expected result))))))
+
+
+(deftest numeric-dict-keys-on-every-host-test
+  (testing "one slot per numeric value, the first inserted key kept, the
+            latest value stored: {1: 'a', 1.0: 'b', True: 'c'}; 0.0, -0.0,
+            0 and False; 2^53 and 2^53 + 1 apart, 2^53 and float(2^53)
+            together; 2^80 and float(2^80) together; inf and -inf apart;
+            two NaNs together"
+    (let [fill (fn [pairs]
+                 (list 'let ['d '(py/dict-new)]
+                       (list 'do
+                             (cons 'do (map (fn [[k v]] (list 'py/dict-set 'd k {:py/str v}))
+                                            pairs))
+                             '(let [c (cell/get d)]
+                                (py/conj (py/conj [] (get c :keys)) (get c :vals))))))
+          f2-53 '(py/float (* (data/float-value 2) 4503599627370496))
+          f2-80 '(py/float (* (data/float-value 1) 4503599627370496 268435456))
+          forms [(fill [[1 "a"] [{:py/float 1.0} "b"] [true "c"]])
+                 (fill [[{:py/float 0.0} "a"] ['(py/float (* (data/float-value -1) (data/float-value 0))) "b"]
+                        [0 "c"] [false "d"]])
+                 (fill [[two-53 "a"] [two-53+1 "b"] [f2-53 "c"]])
+                 (fill [[two-80 "a"] [f2-80 "b"]])
+                 (fill [[{:py/float ##Inf} "a"] [{:py/float ##-Inf} "b"]
+                        [{:py/float ##Inf} "c"]])
+                 (fill [[-1 "a"] [-2 "b"]])
+                 (fill [['(py/float (- (data/float-value ##Inf) (data/float-value ##Inf))) "a"] ['(py/float (* (data/float-value 0) (data/float-value ##Inf))) "b"]])]
+          results (run-with-prelude
+                    prelude/functions-uast
+                    (with-float64
+                      (list 'let ['shown '(fn [kv]
+                                            (py/conj (py/conj [] (data/count (get kv 0)))
+                                                     (get kv 1)))
+                                  'first-key '(fn [kv] (get (get kv 0) 0))]
+                            (list 'py/conj
+                                  (list 'py/conj
+                                        (reduce (fn [acc f]
+                                                  (list 'py/conj acc
+                                                        (list 'shown f)))
+                                                []
+                                                forms)
+                                        (list 'first-key (nth forms 0)))
+                                  (list 'integer/format
+                                        (list 'first-key (nth forms 3)))))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [[1 [{:py/str "c"}]]
+                  [1 [{:py/str "d"}]]
+                  [2 [{:py/str "c"} {:py/str "b"}]]
+                  [1 [{:py/str "b"}]]
+                  [2 [{:py/str "c"} {:py/str "b"}]]
+                  [2 [{:py/str "a"} {:py/str "b"}]]
+                  [1 [{:py/str "b"}]]
+                  1
+                  "1208925819614629174706176"]
+                 result)))))))
+
+
+(def ^:private class-name-of
+  "Prelude notation: the guest class name of what `thunk` raises."
+  '(fn [thunk]
+     (py/try thunk
+             (fn [e] (get (cell/get (get (cell/get e) :class)) :name))
+             (fn [] :py/None))))
+
+
+(deftest preserved-key-arms-on-every-host-test
+  (testing "through py/key, by dict and set insertion: identity objects
+            (cells) key by identity and stay distinct; lists, dicts, sets
+            and tuples holding one are unhashable; numeric set dedup keeps
+            the first original key (True before 1 stays True)"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    (with-float64
+                      (list
+                        'let
+                        ['err class-name-of
+                         'a '(py/make-class "A" py.b/object)
+                         'b '(py/make-class "B" py.b/object)
+                         'g '(py/make-generator "g" (fn [gen] :py/None))
+                         'd '(py/dict-new)
+                         '_1 '(py/dict-set d a 1)
+                         '_2 '(py/dict-set d b 2)
+                         '_3 '(py/dict-set d g 3)
+                         '_4 '(py/dict-set d py.b/len 4)
+                         '_5 '(py/dict-set d a 5)
+                         's1 '(py/set-from [1 {:py/float 1.0} true 2])
+                         's2 '(py/set-from [true 1 {:py/float 1.0}])]
+                        '(py/conj
+                           (py/conj
+                             (py/conj
+                               (py/conj
+                                 (py/conj
+                                   (py/conj
+                                     (py/conj
+                                       (py/conj
+                                         (py/conj
+                                           (py/conj [] (data/count (get (cell/get d) :keys)))
+                                           (py/getitem d a))
+                                         (py/getitem d g))
+                                       (get (cell/get s1) :keys))
+                                     (get (cell/get s2) :keys))
+                                   (err (fn [] (py/dict-set d (py/list []) 1))))
+                                 (err (fn [] (py/dict-set d (py/dict-new) 1))))
+                               (err (fn [] (py/set-add (py/set-new) (py/set-new)))))
+                             (err (fn [] (py/dict-set d (py/tuple (py/conj [1] (py/list []))) 1))))
+                           (err (fn []
+                                  (py/set-add (py/set-new)
+                                              (py/tuple (py/conj [] (py/tuple (py/conj [] (py/dict-new))))))))))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [4 5 3 [1 2] [true]
+                  "TypeError" "TypeError" "TypeError" "TypeError" "TypeError"]
+                 result)))))))
+
+
+(deftest nan-keys-on-every-host-test
+  (testing "every NaN is one dict/set key, recursively inside tuple keys
+            (the architects' NaN ruling, yang.antlr.md 8.5.4). A \"same
+            object\" case is not testable: a float here is a value with no
+            object identity, so lookup through x is lookup through an equal
+            value. y and z are NaNs produced independently of x: by 0 * inf,
+            and by decoding Jing's canonical float64 NaN"
+    (let [decoded (cbor/decode (jing/canonical-bytes (cbor/float64 ##NaN)))
+          results (run-with-prelude
+                    prelude/uast
+                    (with-float64
+                      (list
+                        'let
+                        ['x '(py/float (- (data/float-value ##Inf)
+                                          (data/float-value ##Inf)))
+                         'y '(py/float (* (data/float-value 0)
+                                          (data/float-value ##Inf)))
+                         'z {:py/float decoded}
+                         'd '(py/dict-new)
+                         '_1 '(py/dict-set d x 1)
+                         'a '(py/getitem d x)
+                         'b '(py/getitem d y)
+                         'c '(py/getitem d z)
+                         '_2 '(py/dict-set d y 2)
+                         'n '(data/count (get (cell/get d) :keys))
+                         'v '(py/getitem d x)
+                         's '(py/set-from (py/conj (py/conj [] x) y))
+                         't '(py/dict-new)
+                         '_3 '(py/dict-set t (py/tuple (py/conj [1] x)) :found)]
+                        '(py/conj
+                           (py/conj
+                             (py/conj
+                               (py/conj
+                                 (py/conj
+                                   (py/conj
+                                     (py/conj
+                                       (py/conj
+                                         (py/conj (py/conj (py/conj [] a) b) c)
+                                         n)
+                                       v)
+                                     (data/count (get (cell/get s) :keys)))
+                                   (py/contains s x))
+                                 (py/contains s y))
+                               (py/contains s z))
+                             (py/getitem t (py/tuple (py/conj [1] y))))
+                           (py/getitem t (py/tuple (py/conj [{:py/float 1.0}] z)))))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [1 1 1 1 2 1 true true true :found :found] result)))))))
+
+
+(deftest unhashable-on-every-host-test
+  (testing "hash() of a list or any other cell is a guest TypeError; of a
+            non-numeric value it is not yet supported"
+    (let [caught '(fn [thunk]
+                    (let [r (cell/new :py/None)]
+                      (do (py/try (fn [] (cell/set! r (thunk)))
+                                  (fn [e]
+                                    (cell/set! r (get (cell/get (get (cell/get e) :class))
+                                                      :name)))
+                                  (fn [] :py/None))
+                          (cell/get r))))
+          results (run-with-prelude
+                    prelude/uast
+                    (list 'py/run-module
+                          (list 'fn '[g gf]
+                                (list 'let ['caught caught]
+                                      '(py/print
+                                         (py/conj
+                                           (py/conj
+                                             (py/conj
+                                               (py/conj [] (caught (fn [] (py/hash (py/list [])))))
+                                               (caught (fn [] (py/hash (py/dict-new)))))
+                                             (caught (fn [] (py/hash py.b/len))))
+                                           (caught (fn [] (py/hash {:py/str "s"})))))))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= {:py/out ["TypeError TypeError TypeError NotImplementedError"],
                   :py/exception nil}
                  (if (map? result) (render/output result) result))))))))
 

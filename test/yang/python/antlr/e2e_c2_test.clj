@@ -16,6 +16,7 @@
     [yin.vm.debruijn-register-compile :as rc]
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
+    [yin.vm.integer :as integer]
     [yin.vm.linearize :as linearize]
     [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]
@@ -546,7 +547,9 @@
    :primitives vm/primitives,
    :modules (-> (module/empty-registry)
                 module/register-cell-module
-                data/register-data-module)})
+                data/register-data-module
+                (integer/register-integer-module
+                  {::integer/max-bits 100000, ::integer/max-digits 4300}))})
 
 
 (def ^:private load-semantic

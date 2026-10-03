@@ -2086,13 +2086,38 @@ normalization:
 
 - `True`, `1`, and `1.0` share the key 1/1; `False`, `0`, and `+/-0.0`
   share 0/1; `1.5` is 3/2; 2^53 and 2^53+1 stay distinct.
-- Infinities get their own signed keys; NaN keeps today's behavior.
-  Jing's private `exact-key` has this shape but collapses NaN and is not
-  reused.
+- Infinities get their own signed keys. Every NaN shares one key,
+  `[:py.numeric/nan]` (pinned in C3-S2). A float here has no object
+  identity to tell two NaNs apart, and Jing float64 content already makes
+  every NaN one value, so a per-object NaN key cannot survive addressing;
+  keying by the host double is not deterministic either (on the JVM host
+  `=` answers true for one boxed NaN and false for two). This departs from
+  CPython, where distinct NaN objects are distinct keys. For dict/set
+  key normalization, all NaNs belong to one equivalence class,
+  recursively inside tuple keys; this does not change numeric comparison
+  semantics. Reinsertion retains the first stored key and updates its
+  value. In Python terms: `d[x]` after `d[x] = 1` works as in CPython;
+  `d[float('nan')]` returns that entry where CPython raises `KeyError`;
+  and `len({nan, nan2})` is 1 where CPython gives 2. This is the
+  float-identity departure, the same family as ruling 8's value-based
+  `is`, and a tuple containing a NaN inherits it through `:py/tuple-key`.
+  Jing's private `exact-key` is a storage-layer helper, not the guest key
+  contract, and is not reused.
 - Tuple elements normalize recursively under the existing tuple-key
   convention; the non-numeric arm (generators and other identity
   objects by ref) and the unhashable arm are preserved. The
   insertion-order vector keeps the first inserted original key.
+- Known limits, recorded and not fixed in C3-S2. An integer key is
+  formatted in base 10 through the `integer` module, so an integer past
+  the composition's `::max-digits` cannot be a dict or set key; CPython
+  applies its digit limit to `str()`, not to hashing or keying. And the
+  smallest subnormal keys with a 1075-bit denominator of 324 digits, so
+  a composition's `integer` limits must admit at least 1075 bits and 324
+  digits for float keys. Under smaller limits the key is refused, never
+  approximated: the refusal must surface as the documented guest
+  failure (ruling 11: `MemoryError` for bits, `ValueError` for digits).
+  The prelude does not map `integer` refusals to guest exceptions yet,
+  so today such a refusal fails the run instead.
 
 Guest numeric `hash()` uses P = 2^61-1 on every host (ruling 7):
 `h(n) = sign(n) * (abs(n) mod P)`, with -1 replaced by -2. A finite
@@ -2122,8 +2147,10 @@ The stream codec is not widened and C3 builds no new adapter (ruling
 12). A raw remote put of a bignum refuses with a qualified outcome;
 canonical Jing bytes through the existing `dao.jing.stream` adapter are
 the only remote form, and printing and re-reading EDN is not a bignum
-transport. NaN key identity and full float rendering parity remain
-separately tracked limitations, not claimed by C3 (ruling 13).
+transport. CPython NaN object-identity fidelity remains unsupported;
+deterministic NaN key behavior is now specified. Full float rendering
+parity remains a separately tracked limitation, not claimed by C3
+(ruling 13).
 
 ```text
 +--------+---------------------------------------------------------------------+
@@ -2263,10 +2290,9 @@ JavaScript, and Node test expectations comparing bare numbers move to
 constructors or `content=`.
 
 Implementation. The lowering builds `{:py/float (float64 x)}` while the
-literal syntax still says float. Three pure exports join the `data`
-module: `float64` wraps a number as float64 content, `float-value`
-answers the host double of a number or carrier, and `numeric-key`
-normalizes a numeric dict or set key. The prelude's `py/float` wraps
+literal syntax still says float. Two pure exports join the `data`
+module: `float64` wraps a number as float64 content, and `float-value`
+answers the host double of a number or carrier. The prelude's `py/float` wraps
 through `data/float64` and `py/num` unwraps through `data/float-value`,
 with host arithmetic on bare numbers in between. The quoted prelude holds
 no integral float literal, and every float constant, `0.5` and `##Inf`
@@ -2285,9 +2311,10 @@ until C2 yields inside prelude bodies.
 The dict key. `numeric-key` is the interim key (converged sign-off,
 Q1): the integer when the value is integral within +/-(2^53 - 1), so
 `1`, `1.0`, `True` and `-0.0`/`0` key alike, and float64 content
-otherwise. C3-S2 replaces this numeric arm with ruling-6 decimal-string
-keys built by exact decomposition from unwrapped, exactly typed inputs,
-pins one NaN-key behavior, and deletes `numeric-key`.
+otherwise. C3-S2 has replaced this numeric arm with ruling-6
+decimal-string keys built by exact decomposition from inputs unwrapped
+through `data/float-value`, pinned one NaN key (section 8.5.4), and
+deleted `numeric-key`.
 
 Generic arithmetic (converged refusal ruling). The standard primitive
 bindings are unchanged: `+ - * / < > <= >=` stay the host functions (`/`
@@ -3482,9 +3509,15 @@ Python's milestones within this phase are named C1, C2, and C3:
   comprehensions, keyword arguments) landed in `34c3986b`.
 - C2, generators (section 8.5.3), is decided and recorded, with
   implementation pending in its slices S1 to S5.
-- C3, exact integers (section 8.5.4), is decided and recorded, with
-  implementation pending in its slices S0 to S7. S0 and S1 may run
-  alongside C2; the prelude and lowering slices land after C2.
+- C3, exact integers (section 8.5.4), is decided and recorded. S1 (the
+  `integer` module and carrier recognition) has landed. The numeric-key,
+  guest `hash()` and integer `is` work of rulings 6 to 8 (orchestrated
+  as C3-S2; the table's S5 scope) is implemented: exact keys, `hash()`
+  for int, bool and finite float, and value-based `is`, tested at
+  prelude level on all four VMs on every host and from source on the
+  JVM. Big integers do not yet reach guests from source, since literals
+  past 2^53 and operator promotion are later slices; the remaining
+  slices are pending.
 - Safepoint insertion (section 8.5.2) is decided and recorded, with
   implementation pending in four slices, in order: signals, recursion,
   tracing, threads.

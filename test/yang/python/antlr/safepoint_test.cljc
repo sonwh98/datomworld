@@ -21,6 +21,7 @@
             [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.integer :as integer]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
@@ -165,6 +166,8 @@
    :modules (-> (module/empty-registry)
                 module/register-cell-module
                 data/register-data-module
+                (integer/register-integer-module
+                  {::integer/max-bits 100000, ::integer/max-digits 4300})
                 module/register-stream-module)})
 
 

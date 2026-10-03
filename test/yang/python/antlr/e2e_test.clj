@@ -11,9 +11,10 @@
    every program both ways: under no-op hooks the derived program must
    print what the naive one prints (safepoint slice 1, transparency).
 
-   The composition installs the real `cell` module (cell slice 1) and the
-   real `data` module; nothing is stubbed. Printed output is compared as
-   Python text rendered at the boundary (`yang.python.antlr.render`)."
+   The composition installs the real `cell` module (cell slice 1), the
+   real `data` module and the real `integer` module; nothing is stubbed.
+   Printed output is compared as Python text rendered at the boundary
+   (`yang.python.antlr.render`)."
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as stream]
@@ -26,6 +27,7 @@
     [yin.vm :as vm]
     [yin.vm.encoder :as encoder]
     [yin.vm.engine :as engine]
+    [yin.vm.integer :as integer]
     [yin.vm.debruijn-linearize :as dl]
     [yin.vm.debruijn-register-compile :as rc]
     [yin.vm.debruijn.register :as rvm]
@@ -40,9 +42,22 @@
 ;; The host modules the lowering targets
 ;; =============================================================================
 
+(def integer-limits
+  "The `integer` limits the Python compositions here install: a float key
+   or hash needs 1075 bits and 324 digits (see the prelude)."
+  {::integer/max-bits 100000, ::integer/max-digits 4300})
+
+
+(defn register-integer-module
+  "Install the `integer` module under `integer-limits`."
+  [registry]
+  (integer/register-integer-module registry integer-limits))
+
+
 (def host-registrars
   "Registry steps the lowered programs need."
-  '[yin.vm.module/register-cell-module yin.vm.data/register-data-module])
+  '[yin.vm.module/register-cell-module yin.vm.data/register-data-module
+    yang.python.antlr.e2e-test/register-integer-module])
 
 
 (defn host-registry
@@ -513,6 +528,55 @@
                     "d[1.0] = 'b'\n"
                     "d[True] = 'c'\n"
                     "print(d, len(d), d[1])\n"))))
+
+
+(deftest exact-numeric-keys-test
+  (testing "C3 ruling 6: one slot per numeric value, the first inserted key
+            kept; signed zeros together; -1 and -2 apart; a function keys by
+            its identity"
+    (every-vm= (prints "{1: 'c'} 1" "{0.0: 'd'}" "{-1: 'a', -2: 'b'} 1")
+               (str "print({1: 'a', 1.0: 'b', True: 'c'}, len({1: 'a', 1.0: 'b'}))\n"
+                    "d = {0.0: 'a'}\n"
+                    "d[-0.0] = 'b'\n"
+                    "d[0] = 'c'\n"
+                    "d[False] = 'd'\n"
+                    "print(d)\n"
+                    "def f():\n"
+                    "    pass\n"
+                    "e = {f: 1}\n"
+                    "print({-1: 'a', -2: 'b'}, e[f])\n"))))
+
+
+(deftest numeric-hash-test
+  (testing "C3 ruling 7: P = 2^61 - 1; equal numbers hash equal; -1 is -2"
+    (every-vm= (prints "True True True" "-2 -2 1 12345"
+                       "1152921504606846977 230584300921369408 1224995262755759164")
+               (str "print(hash(0) == hash(False), hash(False) == hash(0.0),"
+                    " hash(1) == hash(1.0))\n"
+                    "print(hash(-1), hash(-2), hash(True), hash(12345))\n"
+                    "print(hash(1.5), hash(0.1), hash(1e300))\n"))))
+
+
+(deftest unhashable-test
+  (testing "hash() of a list, a function or a generator is a TypeError"
+    (every-vm= (prints "3")
+               (str "def g():\n"
+                    "    yield 1\n"
+                    "n = 0\n"
+                    "for x in [[], g, g()]:\n"
+                    "    try:\n"
+                    "        hash(x)\n"
+                    "    except TypeError:\n"
+                    "        n += 1\n"
+                    "print(n)\n"))))
+
+
+(deftest integer-is-test
+  (testing "C3 ruling 8: `is` on integers is value-based; True is not 1"
+    (every-vm= (prints "True True False")
+               (str "x = 2 ** 52\n"
+                    "y = 2 ** 52\n"
+                    "print(x is y, x + 1 is y + 1, True is 1)\n"))))
 
 
 (deftest strings-test

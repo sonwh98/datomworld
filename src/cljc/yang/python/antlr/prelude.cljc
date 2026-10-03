@@ -25,7 +25,7 @@
      dict            a cell holding {:py/type :dict :index {nkey slot}
                      :keys [...] :vals [...]}: insertion order is the keys
                      vector, never a host map's order; keys are normalized
-                     so 1, 1.0 and True are one key
+                     so 1, 1.0 and True are one key (see `py/key`)
      set             a cell holding {:py/type :set :index {nkey slot}
                      :keys [...]}: insertion order, keys normalized as for
                      dicts
@@ -75,8 +75,16 @@
    (doubling division, binary-descent floor, two's-complement recursion),
    valid within 2^53.
 
+   Numeric dict and set keys and `hash()` are exact (C3 rulings 6 and 7):
+   a finite number keys as its reduced rational in decimal text, and
+   hashes modulo P = 2^61 - 1 on every host, both computed through the
+   `integer` module's kernels. A float key or hash can need integers of
+   1075 bits and 324 decimal digits (2^-1074), so the composition's
+   `integer` limits must admit at least that.
+
    Host names the prelude depends on and does not define: `host-names`
-   (the cell module from yin.vm.module, the rest from yin.vm.data)."
+   (the cell module from yin.vm.module, the integer module from
+   yin.vm.integer, the rest from yin.vm.data)."
   (:require
     [yang.python.antlr.uast :as u]))
 
@@ -86,7 +94,9 @@
   '#{cell/new cell/get cell/set! data/count data/into data/subvec
      data/number? data/dissoc data/str-concat data/str-length
      data/str-index-of data/str->code-points data/code-points->str
-     data/float64 data/float-value data/numeric-key})
+     data/float64 data/float-value
+     integer/sub integer/neg integer/mul integer/compare
+     integer/floor-div-mod integer/shift-left integer/format})
 
 
 (def ^:private core-definitions
@@ -1205,6 +1215,9 @@
              false
              (if (py/eq x y) (py/eq-items xs ys (+ i 1)) false)))))]
     [py/ne (fn [a b] (not (py/eq a b)))]
+    ;; `is` is value-based for every non-cell value (C3 ruling 8): equal
+    ;; integers are `is`-equal at any magnitude, since each value has one
+    ;; carrier per host; True is not 1, since bools are host booleans
     [py/is (fn [a b] (= a b))]
     [py/is-not (fn [a b] (not (= a b)))]
 
@@ -1254,13 +1267,75 @@
                              {:py/str "list index out of range"}))))
          (py/type-error {:py/str "list indices must be integers"})))]
 
+    ;; ---------------------------------------------------------- exact numbers
+    ;; Numeric keys and hashes need a float's exact value as integers. The
+    ;; decomposition uses only steps that are exact on binary64 (halving
+    ;; above 2^53, doubling below it) and builds its integers from integer
+    ;; additions, so the result is a canonical integer carrier on every
+    ;; host, never a double. Bounds are built, not written (see
+    ;; py/overflow).
+    [py/int-of
+     ;; the exact integer of an integral double 0 <= a < 2^53: the quotient
+     ;; py/divmod-pos builds from 0, doubling and + 1
+     (fn [a] (get (py/divmod-pos a 1) 0))]
+    [py/float-parts-up
+     ;; a >= 2^53 is integral: halve it exactly to below 2^53
+     (fn [a e]
+       (if (< a (* 2 4503599627370496))
+         (py/conj (py/conj [] (py/int-of a)) e)
+         (py/float-parts-up (/ a 2) (+ e 1))))]
+    [py/float-parts-down
+     ;; 0 < a < 2^53: double it exactly until integral; the integer is then
+     ;; odd whenever e < 0
+     (fn [a e]
+       (let [qr (py/divmod-pos a 1)]
+         (if (py/zero? (get qr 1))
+           (py/conj (py/conj [] (get qr 0)) e)
+           (py/float-parts-down (+ a a) (- e 1)))))]
+    [py/float-parts
+     ;; [m e] with x = m * 2^e exactly, for a finite nonzero double x
+     (fn [x]
+       (let [a (py/abs x)
+             p (if (< a (* 2 4503599627370496))
+                 (py/float-parts-down a 0)
+                 (py/float-parts-up a 0))]
+         (if (< x 0) (py/conj (py/conj [] (integer/neg (get p 0))) (get p 1)) p)))]
+
     ;; ---------------------------------------------------------- dicts
+    [py/finite-key
+     (fn [n d] (py/conj (py/conj (py/conj [] :py.numeric/finite) n) d))]
+    [py/float-key
+     ;; host double x: a finite float as its reduced rational, +-0.0 as
+     ;; 0/1; an infinity by its sign; every NaN as one key (yang.antlr.md
+     ;; 8.5.4: a float has no object identity here, and Jing float64
+     ;; content already makes every NaN one value)
+     (fn [x]
+       (if (py/finite? x)
+         (if (py/zero? x)
+           (py/finite-key "0" "1")
+           (let [p (py/float-parts x)
+                 m (get p 0)
+                 e (get p 1)]
+             (if (< e 0)
+               (py/finite-key (integer/format m)
+                              (integer/format (integer/shift-left 1 (- 0 e))))
+               (py/finite-key (integer/format (integer/shift-left m e)) "1"))))
+         ;; NaN fails <=; host = can answer true for one boxed NaN
+         (if (<= x x)
+           (py/conj (py/conj [] :py.numeric/infinite) (if (< x 0) "-" "+"))
+           (py/conj [] :py.numeric/nan))))]
     [py/key
-     ;; the normalized index key: 1, 1.0 and True are one key; a tuple is
-     ;; hashable when its elements are; lists, dicts and sets are not
+     ;; the normalized index key: a number is its exact value, so 1, 1.0
+     ;; and True are one key and 2^53 and 2^53 + 1 are two (C3 ruling 6);
+     ;; a tuple is hashable when its elements are; lists, dicts and sets
+     ;; are not
      (fn [k]
        (if (py/numeric? k)
-         (data/numeric-key (py/num k))
+         ;; py/num reads a float's payload through data/float-value: a
+         ;; float64 carrier never meets host arithmetic
+         (if (py/float? k)
+           (py/float-key (py/num k))
+           (py/finite-key (integer/format (py/int-canon (py/num k))) "1"))
          (if (= (get k :py/type) :tuple)
            (assoc {} :py/tuple-key (py/keys-of (get k :items) 0 []))
            (let [t (py/content-type k)]
@@ -1271,6 +1346,58 @@
      (fn [xs i acc]
        (let [x (get xs i :py/stop)]
          (if (= x :py/stop) acc (py/keys-of xs (+ i 1) (conj acc (py/key x))))))]
+
+    ;; ---------------------------------------------------------- hash
+    ;; Python's numeric hash (C3 ruling 7) modulo P = 2^61 - 1 on every
+    ;; host, through the integer module, never a host or Jing hash: equal
+    ;; numbers hash equal, and since 2^61 = 1 (mod P), 2^e is 2^(e mod 61)
+    ;; modulo P. P is built, not written (see py/overflow). Only int, bool
+    ;; and finite float hash. An identity object (any cell) is unhashable,
+    ;; since its only identity is a cell id, which is never exposed. A
+    ;; tuple is a valid dict key through py/key, but hash() of it, of a
+    ;; string and of +-inf is not yet supported (NotImplementedError).
+    [py/hash-modulus (fn [] (integer/sub (integer/shift-left 1 61) 1))]
+    [py/mod-p (fn [n] (get (integer/floor-div-mod n (py/hash-modulus)) 1))]
+    [py/hash-signed
+     ;; the hash of a number of sign s whose magnitude hashes to h; -1 is
+     ;; reserved, so it answers -2
+     (fn [s h]
+       (if (< s 0)
+         (let [v (integer/neg h)] (if (= v -1) -2 v))
+         h))]
+    [py/hash-int
+     (fn [n]
+       (let [s (integer/compare n 0)]
+         (py/hash-signed s (py/mod-p (if (< s 0) (integer/neg n) n)))))]
+    [py/int-canon
+     ;; the canonical carrier of a guest integer: a JS -0 from integer
+     ;; arithmetic, such as (* -1 0), is the integer 0, which the integer
+     ;; module requires; host = holds -0 equal to 0 and never a big carrier
+     (fn [n] (if (= n 0) 0 n))]
+    [py/hash-float
+     ;; a finite nonzero x = m * 2^e: |m| * 2^(e mod 61) modulo P
+     (fn [x]
+       (let [p (py/float-parts x)
+             m (get p 0)
+             s (integer/compare m 0)
+             k (get (integer/floor-div-mod (get p 1) 61) 1)]
+         (py/hash-signed s
+                         (py/mod-p (integer/mul (if (< s 0) (integer/neg m) m)
+                                                (integer/shift-left 1 k))))))]
+    [py/hash
+     (fn [x]
+       (if (py/numeric? x)
+         (if (py/float? x)
+           (let [f (py/num x)]
+             (if (py/finite? f)
+               (if (py/zero? f) 0 (py/hash-float f))
+               (py/raise-new py.b/NotImplementedError
+                             {:py/str "hash() of a non-finite float is not supported"})))
+           (py/hash-int (py/int-canon (py/num x))))
+         (if (py/cell? x)
+           (py/type-error {:py/str "unhashable type"})
+           (py/raise-new py.b/NotImplementedError
+                         {:py/str "hash() of this type is not supported"}))))]
     [py/dict-has?
      (fn [d k] (not (= (get (get (cell/get d) :index) (py/key k) :py/missing) :py/missing)))]
     [py/dict-new (fn [] (cell/new {:py/type :dict, :index {}, :keys [], :vals []}))]
@@ -1775,6 +1902,9 @@
     [py.b/isinstance
      (py/make-function "isinstance" {:params ["obj" "cls"], :no-kw true} [] []
                        (fn [args] (py/isinstance (py/arg args 0) (py/arg args 1))))]
+    [py.b/hash
+     (py/make-function "hash" {:params ["obj"], :no-kw true} [] []
+                       (fn [args] (py/hash (py/arg args 0))))]
     [py.b/print
      (py/make-function "print" {:params [], :star? true, :no-kw true} [] []
                        (fn [args] (py/print (get (py/arg args 0) :items))))]
@@ -1883,6 +2013,7 @@
   "Python builtin name -> the prelude store key holding it."
   (into {"len" 'py.b/len,
          "isinstance" 'py.b/isinstance,
+         "hash" 'py.b/hash,
          "print" 'py.b/print,
          "range" 'py.b/range,
          "list" 'py.b/list,

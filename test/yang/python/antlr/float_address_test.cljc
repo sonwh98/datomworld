@@ -29,6 +29,7 @@
     [yin.vm.debruijn.stack :as dvm]
     [yin.vm.encoder :as encoder]
     [yin.vm.engine :as engine]
+    [yin.vm.integer :as integer]
     [yin.vm.linearize :as linearize]
     [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]
@@ -218,7 +219,7 @@
 (deftest prelude-addresses-test
   (testing "the bundled prelude and the hook prelude: one address on every
             host (JVM goldens)"
-    (is (= :segment/blake3-3d287776ee286f98912d2b4982d00ddf0fd7135c41f7cbfedaa9dfb326895ddd
+    (is (= :segment/blake3-d99d4805e2f9ca83367176890b2b084b1b79da8024368c3db1f58ee664b35d1d
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-76e1cfe8437915c3a64bb6a07eb9b20d7ae10e068494033f0f481fea581602e8
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
@@ -238,15 +239,15 @@
         prelude-id (fn [{:keys [root rows]}] (first (nth (get rows root) 3)))]
     (is (nil? (vm/validate-rows a')))
     (testing "A, A' and the record: one address on every host (JVM goldens)"
-      (is (= :segment/blake3-38e17ba2c9eb1ab2357ff44820b86a4499514a4b8540efd3e2b8c0ec07bef3ef
+      (is (= :segment/blake3-d9185a98b7ea85f1c21b757127cbc0f50acf3019d655a22e03e5dd2b829fe2fc
              (:root a)))
-      (is (= :segment/blake3-270bc0816a82eece379299e09e30d00282cc664032bd38fb3b94cff8eb6f35f8
+      (is (= :segment/blake3-b3a62d04067505d5b11702e4074ec1cf67a65262fe54cc128045fd1a74a6f422
              (:root a')))
-      (is (= :segment/blake3-88d5972b5d56c691e9669d95edd4de9261bc08b782cfa0dfb08b8de1bd1176de
+      (is (= :segment/blake3-48586d14f8f19c5e4ff58795e17202133e3a953a72d688f67fe929c045f9d00f
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
-      (is (= :segment/blake3-9eb6ff939e458f4e47164fc49a04fa9a9f912bd5d28f35440d0389baae934121
+      (is (= :segment/blake3-306f688f8249931e9950c7fe36c0a141e191b766b0e1c70956fabbeb462a4ac2
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]
@@ -269,7 +270,9 @@
    :primitives vm/primitives,
    :modules (-> (module/empty-registry)
                 module/register-cell-module
-                data/register-data-module)})
+                data/register-data-module
+                (integer/register-integer-module
+                  {::integer/max-bits 100000, ::integer/max-digits 4300}))})
 
 
 (def ^:private load-semantic-ast
@@ -350,8 +353,8 @@
 
 
 (deftest dict-keys-test
-  (testing "1, 1.0 and True key one entry, -0.0 keys as 0, and a float key
-            is float64 content: the same bytes on every host"
+  (testing "1, 1.0 and True key one entry, -0.0 keys as 0, and 0.5 keys as
+            1/2: ruling-6 decimal-string keys, the same bytes on every host"
     (let [run (fn [form]
                 (into {}
                       (map (fn [[k r]]
@@ -370,8 +373,16 @@
                            (list 'py/key {:py/float (cbor/float64 (neg-zero))}))
                      (list 'py/key {:py/float (cbor/float64 0.5)}))]
       (doseq [[k result] (run form)]
-        (is (= [1 1 0 (cbor/float64 0.5)] result) (str k))
-        (is (= "hAEBANgbgnBkYW8uamluZy9mbG9hdDY0SD/gAAAAAAAA" (b64 result))
+        (is (= [[:py.numeric/finite "1" "1"] [:py.numeric/finite "1" "1"]
+                [:py.numeric/finite "0" "1"] [:py.numeric/finite "1" "2"]]
+               result)
+            (str k))
+        (is (= (str "hIPYG4JwZGFvLmppbmcva2V5d29yZIJqcHkubnVtZXJpY2ZmaW5pdGVh"
+                    "MWExg9gbgnBkYW8uamluZy9rZXl3b3JkgmpweS5udW1lcmljZmZpbml0"
+                    "ZWExYTGD2BuCcGRhby5qaW5nL2tleXdvcmSCanB5Lm51bWVyaWNmZmlu"
+                    "aXRlYTBhMYPYG4JwZGFvLmppbmcva2V5d29yZIJqcHkubnVtZXJpY2Zm"
+                    "aW5pdGVhMWEy")
+               (b64 result))
             (str k))))))
 
 
