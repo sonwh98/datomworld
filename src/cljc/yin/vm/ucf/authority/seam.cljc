@@ -3,9 +3,10 @@
    point: `commit-effect!` commits an effect, its result and its dedup
    record in one authority transition with no binding, tenure or scope
    check.  It exists so the substrate (dedup, poison, crash cuts, the
-   target reader) is testable before admission lands in slice C7.  It is
-   a public var only because ClojureDart cannot reach private vars;
-   nothing outside tests may call it, and there is no `admit!`."
+   target reader) is testable apart from admission.  It is a public var
+   only because ClojureDart cannot reach private vars; nothing outside
+   tests may call it.  The one admission entry point is
+   yin.vm.ucf.authority.admission/admit! (slice C7)."
   (:require [dao.jing.cbor :as cbor]
             [yin.vm.ucf.authority :as authority]
             [yin.vm.ucf.ledger :as ledger]))

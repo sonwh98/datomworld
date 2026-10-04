@@ -27,8 +27,8 @@
    Enrollment mints a target whose identity derives from the ledger's
    identity and the enrolling t.  `target-reader` is the reader-only
    stream of a target's committed appends (`ledger-projection`); the
-   only append is an admission, reached in this slice through
-   yin.vm.ucf.authority.seam alone."
+   only append is an admission, yin.vm.ucf.authority.admission/admit!
+   (yin.vm.ucf.authority.seam is a substrate test seam)."
   (:require [dao.space.transactor :as transactor]
             [dao.stream :as stream]
             [dao.stream.journal :as journal]

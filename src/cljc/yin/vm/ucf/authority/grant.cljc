@@ -163,6 +163,7 @@
         (or recorded
             (nil? known)
             (:yin.k/exhausted known)
+            (:yin.k/quarantined known)
             (some? (:dao.lease/lease known))
             (contains? (:answered p) [h (:dao.lease/proposal g)]))
         {::authority/reply invalid}
@@ -244,9 +245,10 @@
 (defn writer
   "The judge's `:writer` over authority `a`.  Each lease fact it can
    record commits as one transaction and answers ok:
-     a `:dao.lease/accepted` fact on an offered, unexhausted occurrence
-     with no live lease, answering no answered proposal, with its
-     `:yin.k/bound` binding at the occurrence's current epoch;
+     a `:dao.lease/accepted` fact on an offered, unexhausted,
+     unquarantined occurrence with no live lease, answering no
+     answered proposal, with its `:yin.k/bound` binding at the
+     occurrence's current epoch;
      a `:dao.lease/lapsed` fact of a live lease, with its occurrence's
      `:yin.k/reclaimed` epoch change;
      a `:dao.lease/rejected` fact the hook hands over with its
@@ -277,9 +279,9 @@
   "The judge's `:answer` hook: grant the first drained proposal for each
    offered occurrence with no live lease, to its proposer, for
    `duration`, and refuse the proposals for an occurrence that is held,
-   exhausted or granted in this pass.  A proposal its proposer already
-   had answered, one with no author, and one for an occurrence never
-   offered get no answer."
+   exhausted, quarantined or granted in this pass.  A proposal its
+   proposer already had answered, one with no author, and one for an
+   occurrence never offered get no answer."
   [a duration]
   (fn [judge drained]
     (let [p (authority/projection a)]
@@ -296,6 +298,7 @@
                     (contains? (:answered judge) [author pid]))
                 acc
                 (or (:yin.k/exhausted known)
+                    (:yin.k/quarantined known)
                     (some? (:dao.lease/lease known))
                     (contains? (:taken acc) o))
                 (update acc :refusals conj

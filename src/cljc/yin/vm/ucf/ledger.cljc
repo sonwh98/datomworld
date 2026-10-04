@@ -34,6 +34,11 @@
      :dao.lease/rejected   a refusal, the lease fact unchanged
      :yin.k/refused        the proposer it refused, in the refusal's
                            transaction
+   and of slice C7 (yin.vm.ucf.authority.admission):
+     :yin.k/fenced         the fenced admission of the op id admitted in
+                           the same transaction: its lease and epoch
+     :yin.k/quarantined    an occurrence quarantined by an intent
+                           conflict on a recorded op id
 
    The projection is plain data:
 
@@ -54,6 +59,10 @@
                        :dao.lease/max m
                        :dao.lease/cause c}}      ; once lapsed
       :answered    {[proposer proposal-id] status}}
+
+   Slice C7 adds, once present: `:yin.k/incarnation` on a fenced
+   `:admitted` entry, `:yin.k/quarantined true` on an occurrence, and
+   `:outcomes [op-id ...]`, the fenced admissions in ledger order.
 
    `:answered` holds every recorded grant (keyed by its holder) and
    refusal (by the proposer its `:yin.k/refused` fact names) that
@@ -97,7 +106,11 @@
    :yin.k/reclaimed [:yin.k/custody :yin.k/occurrence :dao.lease/lease
                      :yin.k/epoch]
    :dao.lease/rejected [:dao.lease/status :dao.lease/proposal]
-   :yin.k/refused [:yin.k/custody :yin.k/proposer :dao.lease/proposal]})
+   :yin.k/refused [:yin.k/custody :yin.k/proposer :dao.lease/proposal]
+   ;; slice C7, admission (yin.vm.ucf.authority.admission)
+   :yin.k/fenced [:yin.k/custody :yin.k/op-id :yin.k/incarnation
+                  :yin.k/epoch]
+   :yin.k/quarantined [:yin.k/custody :yin.k/occurrence :yin.k/op-id]})
 
 
 (def effect-kinds
@@ -254,6 +267,7 @@
       (contains? (:leases projection) (:dao.lease/lease fact))
       :duplicate-lease
       (:yin.k/exhausted known) :exhausted-occurrence
+      (:yin.k/quarantined known) :quarantined-occurrence
       (some? (:dao.lease/lease known)) :held-occurrence
       (contains? (:answered projection)
                  [(:dao.lease/holder fact) (:dao.lease/proposal fact)])
@@ -333,6 +347,53 @@
 
 (def ^:private grant-terms
   [:dao.lease/duration :dao.lease/proposal :dao.lease/max])
+
+
+;; Slice C7, admission: the defects of the fenced and quarantine arms.
+
+(defn op-id?
+  "True for an operation id: exactly `{:yin.k/occurrence o :yin.k/seq n}`
+   with o an occurrence and n an exact integer."
+  [x]
+  (and (map? x)
+       (= #{:yin.k/occurrence :yin.k/seq} (set (keys x)))
+       (custody/occurrence? (get x :yin.k/occurrence))
+       (custody/exact? (get x :yin.k/seq))))
+
+
+(defn- fenced-defect
+  "Why `fact` is not the fenced admission of a recorded, unfenced op id
+   under a bound lease at its epoch, or nil."
+  [projection fact]
+  (let [k (cbor/content-key (:yin.k/op-id fact))
+        recorded (get-in projection [:admitted k])
+        granted (get-in projection [:leases (:yin.k/incarnation fact)])]
+    (cond
+      (not (and (op-id? (:yin.k/op-id fact))
+                (custody/exact? (:yin.k/epoch fact))))
+      :malformed-fact
+      (nil? recorded) :unpaired-fenced
+      (contains? recorded :yin.k/incarnation) :duplicate-fenced
+      (nil? (:yin.k/epoch granted)) :unknown-lease
+      (not= (:yin.k/epoch granted) (:yin.k/epoch fact)) :epoch-mismatch
+      :else nil)))
+
+
+(defn- quarantine-defect
+  "Why `fact` is not the quarantine of a known, unquarantined occurrence
+   on a recorded op id, or nil."
+  [projection fact]
+  (let [o (:yin.k/occurrence fact)
+        known (get-in projection [:occurrences o])]
+    (cond
+      (not (and (custody/occurrence? o) (op-id? (:yin.k/op-id fact))))
+      :malformed-fact
+      (nil? known) :unknown-occurrence
+      (not (contains? (:admitted projection)
+                      (cbor/content-key (:yin.k/op-id fact))))
+      :unrecorded-op
+      (:yin.k/quarantined known) :duplicate-quarantine
+      :else nil)))
 
 
 (defn- fold-fact
@@ -455,7 +516,26 @@
       (-> projection
           (assoc-in [:answered [(:yin.k/proposer fact) pid]]
                     :dao.lease/rejected)
-          (update ::unrefused disj pid)))))
+          (update ::unrefused disj pid)))
+
+    ;; Slice C7: a fenced admission stamps its dedup record with the
+    ;; lease that admitted it and joins the outcome projection.
+    :yin.k/fenced
+    (let [op (:yin.k/op-id fact)]
+      (when-let [d (fenced-defect projection fact)]
+        (defect! d {:fact fact}))
+      (-> projection
+          (assoc-in [:admitted (cbor/content-key op) :yin.k/incarnation]
+                    (:yin.k/incarnation fact))
+          (update :outcomes (fnil conj []) op)))
+
+    ;; Slice C7: an intent conflict quarantines its occurrence.
+    :yin.k/quarantined
+    (do (when-let [d (quarantine-defect projection fact)]
+          (defect! d {:fact fact}))
+        (assoc-in projection
+                  [:occurrences (:yin.k/occurrence fact) :yin.k/quarantined]
+                  true))))
 
 
 (defn- fold-record*
