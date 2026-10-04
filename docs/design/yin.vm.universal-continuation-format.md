@@ -295,6 +295,12 @@ origin, and counter passed down to it. Header rules, each
   authority. The authority rejects a conflicting reuse: an offer of a
   known occurrence for a different park establishes nothing. The
   concrete form is fixed by M-next C, within these invariants.
+  The concrete form (M-next C, slice C5): a UUID string in lowercase
+  hex, one spelling, so canonical-byte equality is string equality.
+  Any other form is `:malformed-occurrence`, in the root, its origin
+  and every carried operation id. A reuse indistinguishable from a
+  snapshot variant (equal occurrence, origin and baseline) is
+  admitted as one.
 - `:yin.k/origin` is absent on a first export and required on every
   successor root. Its occurrence differs from the body's own.
 - `:yin.k/next-op-seq` is an exact integer of 7.7.8. It is 0 on a
@@ -1595,6 +1601,21 @@ facts are **evidence, not authority**: an offer creates no claim, and a
 transition, not the report (§7.7.6). Authority is exactly `dao.lease.md`'s:
 **only grantor-authored facts establish terms.**
 
+The grantor's own facts on that ledger (M-next C, slice C5), each
+written in the published attribute order of `yin.vm.ucf.ledger`:
+
+| Fact | Dispatch | Author | Keys, in order |
+|---|---|---|---|
+| admitted offer | `:yin.k/custody :yin.k/offered` | authority | `:yin.k/custody`, `:yin.k/occurrence`, `:yin.k/id`, `:yin.k/policy`, `:yin.k/medium`, `:yin.k/baseline` (the operation baseline the inspector derived from the variant's bytes) |
+| grant | `:dao.lease/status :dao.lease/accepted` | authority | `:dao.lease/status`, `:dao.lease/lease`, `:dao.lease/proposal`, `:dao.lease/subject`, `:dao.lease/holder`, `:dao.lease/duration`, `:dao.lease/max` (optional) |
+| grant binding | `:yin.k/custody :yin.k/bound` | authority | `:yin.k/custody`, `:yin.k/occurrence`, `:dao.lease/lease`, `:dao.lease/holder`, `:yin.k/epoch` (7.7.8) |
+
+The admitted offer is not the emitter's offer: it shares the
+dispatch value but is authored by the authority and carries
+`:yin.k/baseline`, and it records one admitted snapshot variant. The
+emitter's offer stays evidence. A grant and its binding are one
+transaction.
+
 The subject of every grant is the **occurrence**, never `:yin.k/id`:
 snapshot variants and retries of one park share one occurrence, so no pair
 of encodings can hold independent grants, and an equal-content copy minted
@@ -1971,6 +1992,17 @@ fact (7.7.2), authored by itself:
   it is the only binding for `L`. Any other binding establishes
   nothing, and a grant on an occurrence with no valid binding
   confers no fenced tenure.
+- (M-next C, slice C5.) *The only binding for `L`* means the only one
+  in the named authority's transaction history. A reader holding a
+  partial view can refute it, by finding a second binding, but never
+  establish it. In this composition the reader's records are the
+  authority's complete-retention journal read from its
+  `:dao.stream/oldest` anchor, so the check is completeness-backed,
+  and the authority's fold, which refuses a second binding, enforces
+  it. The author of records read from a stream whose
+  `:dao.stream/identity` equals the body's arbitration identity is
+  that identity. Descriptors are transport-relative and are never
+  compared.
 - A reader needs authenticated evidence that the grant and the
   binding share one transaction of that authority: a transaction
   identity within the named authority's provenance domain,
@@ -2080,7 +2112,12 @@ and the mapping of retained operation ids to canonical intents,
 including child operations. Equal id sets alone are not enough: a
 variant could keep an id and substitute its payload. The authority
 refuses a conflicting variant; an unavailable comparison suspends
-variant admission.
+variant admission. (M-next C, slice C5.) The authority admits an
+offer in this order: inspect the bytes; under the authority lock,
+decide purely; store the body only when the decision will commit;
+commit. A refused, replayed or uninspectable offer stores nothing. A
+store that fails answers `:suspended` and commits nothing; a body
+stored before a commit that then fails is a harmless orphan.
 
 **One dedup namespace.** The dedup records form one logical namespace
 per arbitration admission resource, across every enrolled target that

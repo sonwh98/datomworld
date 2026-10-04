@@ -159,8 +159,9 @@ The backend owns only bytes, order and durability.
 vector the caller owns and passes again to reopen. It is never durable
 beyond that atom, and its `:dao.stream.journal/durability` declaration
 says so in the file backend's shape: backend `:memory`, failure model
-`:none`, lock kind `:none`, `persisted` `#{}`. `cut`, when not nil, is a crash the first frame write
-through that backend value suffers, followed by a throw:
+`:none`, lock kind `:none`, `persisted` `#{}`. `cut`, when not nil, is
+a crash the first frame write through that backend value suffers,
+followed by a throw:
 
 | Cut                           | Persisted        | After reopen          |
 |-------------------------------|------------------|-----------------------|

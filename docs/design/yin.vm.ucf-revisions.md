@@ -359,6 +359,12 @@ untouched, so no image validity changes.
   - Still pending: all implementation. `handoff-version` is 0.
     M-next C, D, and E and every piece of version-1 evidence in UCF
     7.11.1 and linker-dht 14.2.4 remain owed.
+    Status, 2026-10-05: M-next C slices C1 to C5 are implemented
+    (C1 dc7d493e, C2 bec1e3af, C3 3608a791, C4 d3d4a188, C5
+    05140677), and the amendments C5 forced landed: UCF 7.2.1 (the
+    occurrence form), 7.7.2 (the grantor's facts) and 7.7.8 (the
+    view and author behind a binding, the offer order). C6 to C12,
+    D and E remain; `handoff-version` is still 0.
   - Recorded separately, as version-0 defects of the landed stage-1
     reader and not as version-1 gaps: (a) lower assigns an empty
     wait set for a `:parked` body that also carries frames
