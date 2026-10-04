@@ -234,10 +234,11 @@
 
 (defn- spawn!
   "Start one REPL process (`command`, a `yin.repl.main` JVM by default),
-   then `args`."
+   then `args`.  `--no-state` keeps it from reading or writing the user's
+   saved node state."
   ([label args] (spawn! label (jvm-command) args))
   ([label command args]
-   (spawn-command! label (into (vec command) args))))
+   (spawn-command! label (into (conj (vec command) "--no-state") args))))
 
 
 (defn- type!

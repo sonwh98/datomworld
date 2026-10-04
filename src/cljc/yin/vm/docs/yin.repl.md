@@ -44,6 +44,58 @@ Connected to daostream:ws://localhost:8080/repl
 
 An absent URL path means `/repl`; an explicit `/` remains `/`.
 
+## Saved state
+
+A node remembers how it was started. The flags it starts with are saved to
+`state.edn` in its node directory, `~/.yin/<name>` (`--name`, default `node`;
+`--dir` names the directory instead), and a bare `yin-repl` starts that node
+again:
+
+```bash
+yin-repl dht serve --name b --listen 4002 --peer localhost:4001   # saved
+yin-repl --name b                                                  # resumes it
+yin-repl --name b --dht-peer 127.0.0.1:4003                        # changes the peer
+```
+
+The banner says what happened: `state: saved to ...` on a first run,
+`state: resumed from ... (--index-store dht:..., ...)` on a restart, and
+`; the command line changed --dht-peer; saved` when flags overrode it. The
+file is plain EDN and may be edited by hand:
+
+```clojure
+{:version 1
+ :config {:index-store "dht:/home/me/.yin/b"
+          :dht-peer ["127.0.0.1:4003"]
+          :dht-port "4002"}}
+```
+
+- **What is saved:** `--index-store`, `--vm`, `--port`, `--headless`,
+  `--dht-peer`, `--dht-publish`, `--dht-bind`, `--dht-port`,
+  `--dht-max-inbound-bytes`, `--dht-key` and `--dht-principal`, which is
+  what the `dht` subcommands expand to. The one-shot `--dht-manifest` and
+  `--dht-keygen` are never saved. Definitions are not saved here: a durable
+  index store (`file:` or `dht:`) already keeps what was evaluated. The
+  evaluator chosen at the prompt with `(vm :type)` is not saved; start with
+  `--vm` to save one.
+- **Changing it:** a flag overrides the saved value for that setting, and the
+  result is saved. A repeated flag (`--dht-peer`, `--dht-principal`)
+  replaces all of its saved values rather than adding to them. `dht init`
+  saves publishing; `dht serve` and `dht join` clear it. A bare switch
+  (`--headless`, `--dht-publish`) cannot be turned off by a flag, so use
+  `--reset`.
+- **`--reset`** forgets the saved state and starts from the command line
+  alone; the result is saved. **`--no-state`** neither reads nor writes it,
+  for a one-off run.
+- **Refusals:** a state file that cannot be read, or saved flags that clash
+  with the command line (saved `--dht-*` flags with `--index-store mem`), refuse
+  startup, naming the file and `--reset`. A state file that cannot be written
+  is a warning, and the node still starts.
+- **Hosts:** ClojureDart has no home directory, so a bare `yin-repl` there
+  saves nothing unless `--dir` names the node directory.
+- **One node per directory:** a `file:` or `dht:` store's lock already keeps
+  one process per directory. A node on the in-memory store has no lock, so
+  two such processes with the same name would overwrite each other's file.
+
 ## Protocol and Architecture
 
 **`connect` returns immediately and reports its outcome when known.**
