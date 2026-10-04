@@ -10115,3 +10115,100 @@ Standing constraints: the peer ZCode orchestrator owns yang.antlr and
   writers on one document; GLM delegation via the Agent tool only;
   check docs/agents/routing-status.md before dispatching (GLM pool
   volatile; codex/agy/claude CLIs per team.md).
+
+
+## 2026-10-03 10:05:00 +07 — Seat takeover (claude, from the two zcode glm-5.3-flash orchestrations)
+Completed-GMT: 2026-10-03 03:05:00 GMT
+Coding-Agent: claude
+Session-ID: pending (provider-generated; interactive seat, claude.ai/code session_01XeFP6aU24GptBEgjTuLLtM)
+Tree: master@fb690ae6 (ahead of origin by 1), uncommitted: docs/orchestrator-log.md (this entry); collab/ untracked
+Done: Took both orchestrations per owner instruction: (A) the yang.python/antlr pipeline (float-fix ->
+  C3-S2 -> safepoint-s2 -> C2-S3) and (B) linker-hardening Stage 1 (b4bf9df0, unmerged). Re-derived state
+  from git log/status/worktrees; all four py units are uncommitted in their worktrees as the handoff said.
+  `git merge-tree master linker-hardening` is conflict-free. Started the float-fix JVM lane
+  (bb gen:python-antlr, bb test:clj in datomworld-py-floatfix); at 10:03 it has been in
+  yang.python.antlr.e2e-test ~7 min (10+ CPU-min), main thread in the ast_walker CESK loop. Owner: let it
+  finish unless it hangs; do not kill.
+Decisions: Float-fix lands first (handoff order). Hang rule per owner: kill only if truly hung (no
+  completion well past ~15 min); otherwise wait. Static gate = glm-5.3-flash ZCode subagent; sol gate fresh thread.
+Verification: float-fix JVM lane IN PROGRESS, no result yet. Node, CLJD, kondo, cljstyle UNRUN. Added-line
+  scan of the float-fix diff counts 12 lines over 80 cols (unverified whether Clojure violations).
+Delegates: none dispatched yet. Prepared collab/1790996620000-reviewer-python-floatfix-static-gate.prompt.md
+  (dispatch pending lanes). C2-S3 engineer session 8a064c70-5a78-4fc8-a2d8-1bcd34e27a0f (resume foreground-only).
+Next: finish float-fix lanes; gates; commit/rebase/ff from main tree/push; then C3-S2 (py/key ruling-6 wins,
+  delete data/numeric-key), safepoint-s2, C2-S3, then Stage 1 rebase + lanes (reopen the stage-1 gate if
+  long-loops-test hangs on the rebased tree).
+
+## 2026-10-04 02:06:00 +07 — Seat record (claude): the 2026-10-03/04 landing wave, test lanes, and a correction to the takeover entry
+Completed-GMT: 2026-10-03 19:06:00 GMT
+Coding-Agent: claude
+Session-ID: pending (provider-generated; interactive seat, claude.ai/code session_01XeFP6aU24GptBEgjTuLLtM)
+Tree: master@a4efc99a (== origin), uncommitted: docs/orchestrator-log.md and docs/design/yin.vm.linker.md (this seat's) plus another session's
+  rust-kernel files; worktrees in flight: datomworld-py-safepoint2 (safepoint-s2 round 5), datomworld-dart-dht (Dart dht investigation)
+Corrects: the 2026-10-03 10:05 takeover entry above. It said the float-fix gate was a glm-5.3-flash ZCode subagent and attributed
+  "the long-loops-test hang" to a rebase regression. Both are wrong: ZCode subagents are unavailable (routing-status 2026-10-03: codex, glm, agy available;
+  delegation is by CLI), and long-loops-test was never hung: it ran 14 minutes by design plus a real slowdown (below).
+Done (all on origin/master, every unit: independent gpt-6.1-sol and glm gates, my own JVM/Node/Dart lanes on the exact tree, then commit and ff push):
+- 1f8b7e37 float-fix: Python floats keep float64 kind in rows and addressed images. ac9ecb8b: the JS Float64 carrier's valueOf throws :carrier-coercion
+  (replaces yin.vm arithmetic wrappers after the fable/astra mob converged; toString/pr-str/=/hash/bytes unchanged).
+- 8d338571, a6b62b7f, 663f6647, eaf7d6f0 test lanes: 22 tests (0.75% of 2922, 81% of test time) are ^:slow; bb test = fast lanes on all three hosts (about 14 min,
+  was about 41), bb test:all = everything, bb test:slow = only slow; Node/Dart skip guarded bodies unless DATOM_SLOW_TESTS=1 (dao.test-slow/guard); src/dev/cljd_agg.clj
+  aggregates the 166 generated Dart test files into 8 shards (Dart test phase 379 s -> about 140 s). The JFR profiling test was removed (it could not fail).
+- a932bb55 range fast path: commit 93e83213 (C1 gate r4) had replaced start+i*step with a recursive py/range-elem (halve i, double step) for JS exactness; each loop iteration then paid
+  log2(i) interpreted calls: long-loops-test 65 s -> 403 s in that commit, 834 s on master. Bisected (45 s bf6c5544, 65 s 34c3986b, 403 s 93e83213), confirmed by restoring the one-liner
+  (66 s old tree, 132 s master). Fix per the converged fable/astra ruling: guarded O(1) path (0<=i<=2^26, |step|<=2^26, |start|<=2^52), recursion kept for the huge case; long-loops-test now about 130 s.
+- be1f8d06 C3-S2: ruling-6 reduced-rational dict/set keys; ONE shared NaN key [:py.numeric/nan] (fable and astra approved and withdrew "NaN keeps today's behavior"); data/numeric-key deleted;
+  py/int-canon fixes an integer -0 on JS; the engineer's own round-3 test had compared quoted vector literals and was fixed.
+- 80b59233 linker hardening Stage 1 (M-next A, kept-cursor proof), rebased clean; the old "hang" blocker was the slow test.
+- a4efc99a C2-S3: yield from (PEP 380 incl. thrown StopIteration through a closed delegate, sol P2 verified against CPython 3.9.6 _gen_throw), iter, sticky dict/set iterator invalidation,
+  reachable-heap retention test (JVM, ^:slow).
+Decisions: (1) goldens re-minted once per landing on the final base; units land serially because each moves the prelude hashes. (2) acceptEdits engineer sessions cannot run git stash/rebase/
+  checkout/add or write a patch outside the worktree; the orchestrator does backup, stash -u, rebase, pop (and git add to clear unmerged flags) before every engineer round.
+  (3) Never run `clojure -A:test -M -e ...` (the :test alias's runner launches the whole suite). (4) Slow-test rule: tag ^:slow above about 5 s on any lane; .cljc tests also guard.
+  (5) Reviewer-vs-reviewer conflict (C2-S3: glm ready, sol not ready) is adjudicated against the reference (CPython source), not by seniority. (6) Rejected: shrinking slow tests without a
+  mutation check (fable's audit was static); deferred by the owner. (7) The Dart per-file load (about 7.5 s x 166 files) was the largest Dart cost, not the tests.
+Verification (exact, my own runs): float-fix JVM 2922/227208/0, Node 2718/92053/0, Dart 2673; range fix JVM 2900/226552/0, Node 2718/91632/0, Dart +2673; C3-S2 JVM 2909/226632/0, Node
+  2723/91660/0, Dart +2678; Stage 1 JVM 2931/226835/0, Node 2745/91804/0, Dart +2700 (167 files); C2-S3 JVM 2919/226681/0, Node 2726/91677/0, Dart +2681. Not run by anyone: the unfiltered JVM
+  lane (bb test:all:clj) and the 14-minute half of bb test:slow:clj end to end.
+Delegates: fable-5.1 sessions per question (refusal ruling 1379a095-..., range-elem c0ef9c80-..., C3-S2 NaN b01ce68c-..., safepoint limit cell 655c00a9-..., test-suite audit 40e7eefa-...);
+  gpt-6-astra thread 01a0f878-281b-7253-ac44-ff2402583d35 (resumed for every ruling); gates: glm-5.3-flash sessions 56ac4a83 (float-fix), 3b092157 (range), c5a79e9a (C3-S2), 6b1675cd (C2-S3),
+  gpt-6.1-sol threads 01a0ffcd (float-fix), 01a102bf (range), 01a102c7 (C3-S2), 01a102d7 (C2-S3); engineers (claude-opus-5-5): float-fix 5face18f, C3-S2 65b24574, C2-S3 8a064c70, range af1f9774,
+  safepoint-s2 a80b326f; lanes engineer (claude-sonnet-5-5) a5deb099; Dart dht investigation 6eacd026. Briefs, reports: collab/179*.
+Next: (1) safepoint-s2 round 5 (limit cell in the base prelude py.rt/limit approved by fable and astra; naive-vs-no-op-hook admission test, nested yield-from boundary tests, one golden
+  re-mint), then my lanes, gates, land. (2) Dart dao.jing.dht-test/unproven-chunks-never-amplify-or-allocate: 72 s on Dart vs 3.6 s JVM (investigation running). (3) Follow-ups recorded, not
+  started: py/is on floats is host-dependent for NaN and signed zero; py/range-count and range membership interpreted cost; py/fmod-pos termination on extreme exponent ratios; the stale
+  py/genexp-unsupported refusals; integer dict keys past ::max-digits are refused; two-argument iter(callable, sentinel); an unexplained 2x between the old and new long-loops-test (probably every-vm=
+  double mode and a larger test, not isolated). (4) Roadmap: C2-S4/S5, C3-S3 to S7, C4 I1+, safepoint s3/s4, linker M-next B to E. (5) Owner: the unattended slow-lane schedule needs hours and a go-ahead;
+  the ClojureDart upstream bug report (docs/cljd-bug.md) awaits the submit decision.
+
+
+## 2026-10-04 13:33:00 +07 — Seat record (claude): safepoint-s2, the Dart dht fix, M-next B, cleanup, docs batch
+Completed-GMT: 2026-10-04 06:33:00 GMT
+Coding-Agent: claude
+Session-ID: pending (provider-generated; interactive seat, claude.ai/code session_01XeFP6aU24GptBEgjTuLLtM)
+Tree: master@0c7ee4ee (== origin); main worktree only; uncommitted: this entry's docs batch until committed
+Supersedes: the "Next" list of the 02:06 entry above (safepoint-s2 and the Dart investigation were then in flight).
+Done (on origin/master; same protocol as before: independent gates, my own lanes on the exact tree, commit, ff push):
+- 42472621 test(dao.jing): dao.jing.dht-test/unproven-chunks-never-amplify-or-allocate took 62-72 s on Dart against 3.6 s on the JVM; cause was the test, not the codec:
+  (drop before (mesh/sent net)) decoded the WHOLE datagram log every step (about 547,000 decodes for about 1,046 new datagrams; a decode is about 19x slower on Dart). mesh/sent gained a
+  (sent net start) arity; the test now runs in about 1 s, the whole dht-test file in about 4 s on Dart. The other slow Dart dht tests were measured or read and are linear (real protocol work).
+- e2a80eef safepoint slice 2: py/gen-switch compares 1 + abs-depth with the limit before any write (red-then-green proof by the engineer), :base rebasing, the setter check; the limit cell is
+  py.rt/limit in the BASE prelude because naive programs load no hook prelude (fable and astra approved the placement independently; naive runs now bound nested active generators only, documented
+  in 8.5.2). Delegation (yield from) is covered because every generator entry funnels through py/gen-switch. My lanes: JVM 2955/227017/0, Node 2758/91918/0, Dart +2713; the final width wrap
+  was verified whitespace-only by token-multiset equality (git diff -w does not ignore line breaks, so it is not a valid test for a wrap).
+- 0c7ee4ee linker hardening M-next B: the UCF version-1 amendment for fenced custody is PUBLISHED DESIGN (UCF 7.2.1, 7.4.3, 7.7.8, 7.9, 7.11.1; DHT 14.2.2/14.3; ucf-revisions 6), authored by fable-5.1 (r5), reviewed
+  adversarially by gpt-6-astra (accept with changes), reconciled (r6), confirmed on fable's own choices (r7; astra replaced fable's unsupported install phase/kind pairing after reading engine/advance-install).
+  Not implemented: M-next C to E remain; code stamps unchanged; no claim of full UCF closure. Two version-0 defects in handoff.cljc are recorded as post-A fixes, not part of the amendment: lower assigns an
+  empty wait set for a :parked body that also carries waits (~1386); validate-body does not require an install entry for every install pending (~996).
+Decisions: (1) a reviewer-vs-reviewer or author-vs-reviewer disagreement is settled against the reference or the source, and normative text an architect chose alone goes back to the peer (r7 did exactly that).
+  (2) docs-only changes (M-next B) need no lane runs; the commit protocol still needs sign-off. (3) Cleanup authorized by the owner: nine merged worktrees, then the last three, 16 merged local branches
+  and 5 stashes were removed after copying every unique collab/ report into the main collab/ (never overwrite; differing same-name files kept as *-copy); worktrees whose branch merely sat at master's
+  head were not "merged" and were excluded until their work landed.
+Verification: docs batch (this commit): added lines all ASCII and <= 80 columns; yang.antlr.md stale not-landed statements replaced by the commit hashes above; no lanes (docs only).
+Unrun: the unfiltered JVM lane (bb test:all:clj) and the 14-minute half of bb test:slow:clj end to end.
+Delegates (new this entry): fable-5.1 a22aafbc-6499-4a8f-be89-f6ebe80ae496 (M-next B author, r5 to r7); gpt-6-astra thread 01a0f878-281b-7253-ac44-ff2402583d35 (reviews); glm-5.3-flash 12d766dc (mesh/sent gate),
+  0f8f417d (safepoint-s2); gpt-6.1-sol 01a10060 (safepoint-s2); engineers claude-opus-5-5: Dart dht 6eacd026, safepoint-s2 a80b326f; briefs and reports: collab/1791*.
+Next: (1) linker M-next C to E (durable authority transactions; handoff integration; crash/partition suite), and the two version-0 defect fixes (with D). (2) Python: C4 I1, C2-S4/S5, C3 S2-S7 (rows other than the
+  S5-scope work), safepoint slices 3 and 4, then the recorded prelude follow-ups (py/is float behavior across hosts, range-count and membership cost, fmod-pos termination, stale genexp refusals, integer-key digit
+  limit, iter(callable, sentinel), the unexplained 2x in long-loops-test). (3) Owner: the unattended bb test:slow schedule needs hours and a go-ahead; the ClojureDart upstream report awaits a decision; the older
+  local branches (linker-l0..l5, dht-s5, linker-dht, linker-transfer, agent.tzu.postgraphics, chore-license-gpl2, dao.stream-redesign, dao.stream.whatsapp) were not touched.

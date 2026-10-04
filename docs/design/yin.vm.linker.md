@@ -1,6 +1,9 @@
 # yin.vm.linker: the universal code linker over dao.stream
 
-Status: design, proposed (2026-09-24, revision r11). Supersedes the
+Status: design, revision r11 (2026-09-24); implemented: milestones M1
+to M5 of section 9 are landed on master, confirmed by the 2026-10-01
+completion audit. Post-M5 hardening is specified in
+`yin.vm.linker.dht.md` section 14. Supersedes the
 namespace placement and the two-backend scope of the Phase B6
 predecessor `yin.vm.debruijn.linker.md`; that document's fetch
 pipeline, format records, refusal vocabulary, and same-root pairing

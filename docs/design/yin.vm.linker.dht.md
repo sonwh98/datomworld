@@ -2963,6 +2963,9 @@ Status: design contract for M-next; implementation and acceptance evidence
 remain required. This section hardens the landed M5 linker and the
 linker-over-DHT epic; it does not declare full UCF acceptance. Sections
 14.1 and 14.2 close different gates and have independent test evidence.
+Stage state (14.3): M-next A, the kept-cursor proof, landed in `80b59233`;
+M-next B, the UCF version-1 amendment, is published in the UCF (`0c7ee4ee`);
+M-next C to E are not started.
 
 The current UCF 7.11.1 safepoint and portable-encoding rows assign the
 string-backed reflection and kept-cursor proof to M4, explicitly removing

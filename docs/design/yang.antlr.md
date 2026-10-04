@@ -1,10 +1,28 @@
 # yang.antlr: compiling languages with ANTLR and Yang into the Universal AST
 
-Status: Proposed architecture and implementation roadmap. Drafted
+Status: Architecture and implementation roadmap, implementation under way
+(the Python line; see "Implementation status" below). Drafted
 2026-09-24 from the Lead System Architect's plan of 2026-09-23
 (`collab/1790185837428-architect-yang-antlr-plan.gpt-6-astra.plan.md`)
-and the orchestrator's standard-library discussion. No repository code was
-changed by this document.
+and the orchestrator's standard-library discussion.
+
+Implementation status, 2026-10-04 (commits on master). Landed: the Python
+pilot pipeline (parser stage, scope analysis, lowering, prelude;
+`bf6c5544`); Python phase C1 (`34c3986b`); the float-address slice of
+section 8.5.5 (`1f8b7e37`, with the JavaScript carrier's coercion refusal in
+`ac9ecb8b`) and the guarded O(1) range element path (`a932bb55`); C2
+generators S1 (`7654c2d0`), S2 (`c3f2da8f`) and S3, `yield from` and `iter`
+(`a4efc99a`); C3 S1, the exact-integer module (`54536317`), and the
+numeric-key, `hash()` and `is` work of rulings 6 to 8 (`be1f8d06`,
+orchestrated as C3-S2, the S5 row's scope); safepoint insertion slices 1
+and 2, signals and recursion with generator admission (`cf6ed9ad`,
+`e2a80eef`). Not started: C2 S4 and S5, the remaining C3 slices, safepoint
+slices 3 and 4 (tracing, threads), C4 (section 8.5.6 records the design
+only), and every phase after Phase 1 (the JavaScript pilot, Java, PHP, the
+language SDK, multi-host benchmarks). The "none of it has landed" and
+"implementation pending" statements in the dated paragraphs below were
+true when written; sections 8.5.2 to 8.5.6 and section 12 carry the
+per-slice state.
 
 Updated 2026-10-01 with the Architect rulings of 2026-09-30 and
 2026-10-01, each accepted by the owner. Later sections cite them by the
@@ -48,9 +66,10 @@ The two cross-rulings are the converged rulings of the architect pair
 authority. Where a design and its cross-ruling differ, the converged
 ruling governs. These rulings amend sections 8.5, 8.5.1, 8.11, 9.3, 11,
 and 12 and add sections 8.5.2 to 8.5.4. They build on Python phase C1
-and on heap reclamation, both landed (`34c3986b`, `60b60898`). None of
-them has landed: each is recorded with its implementation pending in
-the slices it names.
+and on heap reclamation, both landed (`34c3986b`, `60b60898`). When
+written, none of them had landed; each was recorded with its
+implementation pending in the slices it names. The implementation
+status above gives what has landed since.
 
 Updated 2026-10-03 with the float-address ruling, the converged ruling
 of the same architect pair: gpt-6-astra's ruling with fable-5.1's
@@ -1719,8 +1738,8 @@ different streams need an any-of park.
 #### 8.5.3 Generators (phase C2)
 
 This section records the C2 generator design as amended by the C2
-cross-ruling's nine converged rulings. Its implementation is pending, in
-slices S1 to S5 below; none of it has landed.
+cross-ruling's nine converged rulings. Slices S1 to S3 below have landed
+(S1 `7654c2d0`, S2 `c3f2da8f`, S3 `a4efc99a`); S4 and S5 are pending.
 
 A generator is one heap cell holding a suspended continuation plus its
 own handler stack. `yield` and resume are two explicit continuation
@@ -1950,10 +1969,12 @@ three-argument `throw`.
 #### 8.5.4 Integers (phase C3)
 
 This section records the C3 integer design as amended by the C3
-cross-ruling's fourteen converged rulings. Its implementation is
-pending, in slices S0 to S7 below; none of it has landed. C1 restricts
-integers to [-2^53, 2^53], an intentional limitation C3 replaces with
-exact promotion.
+cross-ruling's fourteen converged rulings. Of its slices S0 to S7 below,
+S1 (the exact-integer module, `54536317`) has landed, and so has the
+numeric-key, `hash()` and `is` work of rulings 6 to 8 (`be1f8d06`,
+orchestrated as C3-S2, the S5 row's scope); the rest are pending. C1
+restricts integers to [-2^53, 2^53], an intentional limitation C3 replaces
+with exact promotion.
 
 Python integers are untagged exact scalars of any magnitude (ruling 1).
 A bignum is an immutable value, possibly the payload of an existing
@@ -3301,7 +3322,7 @@ export iterates a host map.
 Python's exact integers follow the same pattern with a second module: a
 versioned `:pure` integer module that the Python runtime profile
 requires and the composition installs explicitly (C3 ruling 5, section
-8.5.4). It is recorded, with implementation pending in C3 slice S1.
+8.5.4). It has landed in C3 slice S1 (`54536317`).
 
 ### 9.4 Layer 3: object system desugaring
 
@@ -3544,8 +3565,9 @@ Python's milestones within this phase are named C1, C2, and C3:
 
 - C1 (`finally` and `with`, tuples and slices, full operators,
   comprehensions, keyword arguments) landed in `34c3986b`.
-- C2, generators (section 8.5.3), is decided and recorded, with
-  implementation pending in its slices S1 to S5.
+- C2, generators (section 8.5.3), is decided and recorded. S1 (`7654c2d0`),
+  S2 (`c3f2da8f`) and S3, `yield from` and `iter` (`a4efc99a`), have
+  landed; S4 and S5 are pending.
 - C3, exact integers (section 8.5.4), is decided and recorded. S1 (the
   `integer` module and carrier recognition) has landed. The numeric-key,
   guest `hash()` and integer `is` work of rulings 6 to 8 (orchestrated
@@ -3555,9 +3577,10 @@ Python's milestones within this phase are named C1, C2, and C3:
   JVM. Big integers do not yet reach guests from source, since literals
   past 2^53 and operator promotion are later slices; the remaining
   slices are pending.
-- Safepoint insertion (section 8.5.2) is decided and recorded, with
-  implementation pending in four slices, in order: signals, recursion,
-  tracing, threads.
+- Safepoint insertion (section 8.5.2) is decided and recorded, in four
+  slices, in order: signals, recursion, tracing, threads. The first two
+  have landed (`cf6ed9ad`, and `e2a80eef` with generator admission against
+  the limit); tracing and threads are pending.
 
 Exit criteria:
 
