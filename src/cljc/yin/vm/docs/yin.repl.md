@@ -1,8 +1,12 @@
-# Yin REPL Usage Guide
+# yin.repl: the Interface to datom.world
 
-The DaoStream Yin REPL: a local shell, a `connect` that reaches a remote
-one over WebSockets, a `serve!` that answers, and nothing else. It runs on
-`yin.vm` and requires no legacy namespaces.
+`yin.repl` is the primary user interface into datom.world. It started as a
+REPL and still opens with a prompt, but it is more than a REPL: one program
+that is a shell evaluating code on `yin.vm`, an endpoint (`serve!` answers
+other shells, `connect` reaches a remote one over WebSockets), and a node
+that publishes code by signed name and loads other nodes' code over the
+DHT. It runs on `yin.vm`, requires no legacy namespaces, and runs on the
+JVM, Node and Dart.
 
 ## Starting and connecting
 
