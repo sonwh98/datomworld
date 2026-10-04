@@ -28,6 +28,8 @@
    `:suspended`, a lease with no binding on the occurrence or a request
    not attributed to its bound holder is refused, and a lapsed lease or
    a wrong epoch is `:stale`, even for a k already recorded.
+   A quarantined occurrence still records inputs: UCF 7.7.8 suspends
+   admissions on a quarantine, and an input is evidence, not an effect.
 
    Frontier.  A lease's frontier is the count of input records of its
    occurrence at the lease's grant transaction.  A regranted holder
