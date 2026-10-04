@@ -171,13 +171,16 @@ Any other flag (`--port`, `--headless`, `--dht-max-inbound-bytes`) passes
 through after the subcommand.
 State lives in `~/.yin/<name>` (`--name`, default `node`; `--dir` and
 `--key` override), and `--listen [ip:]port` is the node's own socket.
-`--peer` takes `localhost:port` as well as an IP literal. Every node still
-needs one `--peer` to open a socket, so a DHT starts as two nodes naming
-each other, as in the walk-through below.
+`--peer` takes `localhost:port` as well as an IP literal. Every node needs
+at least one `--peer` to open a socket, and a publication is acknowledged
+only once two peers hold it, so a DHT that acknowledges is a publisher and
+two storing peers, as in the walk-through below.
 
 ```bash
-clj -M:clj-yin-repl dht serve --name b --listen 4002 --peer localhost:4001
-clj -M:clj-yin-repl dht init  --name a --listen 4001 --peer localhost:4002
+clj -M:clj-yin-repl dht serve --name b  --listen 4002 --peer localhost:4001
+clj -M:clj-yin-repl dht serve --name b2 --listen 4003 --peer localhost:4001
+clj -M:clj-yin-repl dht init  --name a  --listen 4001 \
+    --peer localhost:4002 --peer localhost:4003
 ```
 
 `init` publishes and makes `~/.yin/a.key` on first use (directories
@@ -194,30 +197,36 @@ clj -M:clj-yin-repl dht join --name c yin:127.0.0.1:4001/<principal>/segment/...
 The token carries the bound address, so give `--listen` a routable `ip`
 when readers are on other machines.
 
-**Starting a DHT from scratch.** A DHT begins as two nodes that name each
-other. A node with no peer is solo and opens no socket, so the first node
-to listen is given a fixed `--listen` port and one peer that need not be up
-yet: a contact that does not answer does not stop the node from binding
-and listening. Nothing needs to exist beforehand, not the directories,
-which are created, and not a third node. This walk-through puts a storing
-peer **B** on port 4002 and a publisher **A** on port 4001, all on one
-machine.
+**Starting a DHT from scratch.** A node with no peer is solo and opens no
+socket, so each node is given a fixed `--listen` port and the peers it
+should contact, which need not be up yet: a contact that does not answer
+does not stop the node from binding and listening. Nothing needs to exist
+beforehand, not the directories, which are created. A publication is
+acknowledged when two peers hold it (`ack-peers`, at least 2), so this
+walk-through puts two storing peers **B** and **B2** on ports 4002 and
+4003 and a publisher **A** on port 4001, all on one machine. With a single
+storing peer everything below still works, but A reports `NOT
+acknowledged: too few peers, sent to 1 of 2`; readers can still fetch from
+A, whose own copy is durable.
 
-1. Start **B**, the storing peer, in its own terminal. It holds other
-   nodes' blobs while A publishes, and needs no key. It names A's port as
-   its contact although A is not up yet.
+1. Start **B** and **B2**, the storing peers, each in its own terminal.
+   They hold other nodes' blobs while A publishes, and need no key. Each
+   names A's port as its contact although A is not up yet.
 
    ```bash
-   clj -M:clj-yin-repl dht serve --name b --listen 4002 --peer localhost:4001
+   clj -M:clj-yin-repl dht serve --name b  --listen 4002 --peer localhost:4001
+   clj -M:clj-yin-repl dht serve --name b2 --listen 4003 --peer localhost:4001
    ```
 
    Wait for `dht: node ... listening on 127.0.0.1:4002; peers:
-   127.0.0.1:4001; fetch-only`. B keeps its state in `~/.yin/b`.
+   127.0.0.1:4001; fetch-only` (and 4003). They keep their state in
+   `~/.yin/b` and `~/.yin/b2`.
 
-2. Start **A**, the publisher, in another terminal, naming B.
+2. Start **A**, the publisher, in another terminal, naming both.
 
    ```bash
-   clj -M:clj-yin-repl dht init --name a --listen 4001 --peer localhost:4002
+   clj -M:clj-yin-repl dht init --name a --listen 4001 \
+       --peer localhost:4002 --peer localhost:4003
    ```
 
    The first run writes `~/.yin/a.key`, owner-only, and prints `dht: wrote
@@ -230,15 +239,15 @@ machine.
    and is never printed. To make a key without starting a node, run
    `yin-repl keygen --name a`.
 
-   The same two commands in flags, for reference:
+   The same commands in flags, for reference (B2 is B on port 4003):
 
    ```bash
    clj -M:clj-yin-repl --index-store dht:$HOME/.yin/b \
        --dht-peer 127.0.0.1:4001 --dht-port 4002
    clj -M:clj-yin-repl --dht-keygen ~/.yin/a.key
    clj -M:clj-yin-repl --index-store dht:$HOME/.yin/a \
-       --dht-peer 127.0.0.1:4002 --dht-port 4001 \
-       --dht-publish --dht-key ~/.yin/a.key
+       --dht-peer 127.0.0.1:4002 --dht-peer 127.0.0.1:4003 \
+       --dht-port 4001 --dht-publish --dht-key ~/.yin/a.key
    ```
 
 3. At A's prompt, define and publish a module:
@@ -249,17 +258,20 @@ machine.
    yin> (yin.link/publish (quote my.lib) (quote [f]))
    ```
 
-   Wait for `acknowledged: sent to N peers` with N at least 1. A line that
-   says PARTIAL or NOT acknowledged is not durable yet; if it says it is
+   Wait for `acknowledged: sent to 2 peers`; the publisher's prompt answers
+   at once, but the `dht: published` lines follow only after the
+   acknowledgement deadline, up to about a minute. A line that says
+   PARTIAL or NOT acknowledged is not replicated yet; if it says it is
    retrying, leave A open. A's own copy is durable in its directory
    either way.
 
 4. Take the join token A prints after publishing: its last `dht: join
-   token: yin:127.0.0.1:4001/<principal>/segment/...` line. It bundles A's
-   address, the principal and the index manifest, so nothing is copied
-   separately. A prints one after each publication, so use the latest. Its
-   manifest is the address in A's `dht: published :segment/...` line,
-   which is also what A's directory records in `~/.yin/a/HEAD`.
+   token: yin:127.0.0.1:4001/<principal>/segment/...` line, printed with
+   the `dht: published` lines. It bundles A's address, the principal and
+   the index manifest, so nothing is copied separately. Its manifest is
+   what A's directory records in `~/.yin/a/HEAD`. A publication prints a
+   token only once its `dht: published` lines do, and the latest token is
+   the one to use.
 
 5. Start **C**, a reader with an empty directory, with the token:
 
@@ -341,6 +353,10 @@ yin> 'my.lib
 yin> (my.lib/f 1)
 4201
 ```
+
+A fetch-only reader also prints `dht: published ... NOT acknowledged:
+publication is off ... not retrying` lines as it records what it loads in
+its own directory. They are expected: the reader shares nothing.
 
 A require whose closure the node does not hold prints the
 `;; require pending: ...` line and parks: the node fetches the module's
