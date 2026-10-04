@@ -367,6 +367,8 @@ untouched, so no image validity changes.
     line 996). Each is a post-A fix owed a version-0 test,
     optionally delivered in D (linker-dht 14.3). Neither reopens
     stage 1's kept-cursor evidence nor reassigns the M4 gate.
+    Status: both fixed in version 0, each with its own red-then-green
+    test in `yin.vm.ucf.handoff-test`; the wire is unchanged.
 
   Stage 1 (M-next A, the kept-cursor handoff of linker-dht 14.1,
   carried by `yin.vm.ucf.handoff`) recorded here what the amendment

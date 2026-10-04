@@ -1003,6 +1003,17 @@
       ;; before anything of the parent is restored.  Decoded bytes
       ;; are trees, so the recursion terminates.
       (validate-body (:yin.k/child inst)))
+    ;; every install waiter travels beside its whole child: the lift's
+    ;; check, re-proved on the bytes, so a foreign body naming an
+    ;; install it does not carry never restores
+    (doseq [[i frame] (map-indexed vector (or (:yin.k/frames body) []))]
+      (let [pending (:yin.k/pending frame)]
+        (when (and (= :install (:yin.k/reason pending))
+                   (not (contains? (:yin.k/installs body)
+                                   (:yin.k/name pending))))
+          (undecodable! {:yin.k/name (:yin.k/name pending)
+                         :yin.k/kind :incomplete-install
+                         :yin.k/path [:yin.k/frames i :yin.k/pending]}))))
     (let [referenced (referenced-cells body)
           missing (remove #(contains? cells %) referenced)
           extra (remove #(contains? referenced %) (keys cells))]
@@ -1383,11 +1394,13 @@
                        :value (decode (:yin.k/result body))
                        :wait-set [])
 
+                ;; the parked activation waits on nothing; every other
+                ;; carried frame is still an ordered wait (UCF 7.4.3)
                 :parked
                 (assoc machine
                        :halted? true :blocked? false
                        :value (get parked (:yin.k/parked-id body))
-                       :wait-set [])
+                       :wait-set entries)
 
                 (assoc machine
                        :halted? false :blocked? true

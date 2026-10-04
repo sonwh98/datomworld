@@ -1301,3 +1301,85 @@
                (resume #(assoc-in % [:yin.k/frames 0
                                      :yin.k/registers :yin.k/stack]
                                   {}))))))))
+
+
+;; =============================================================================
+;; Version-0 handoff defects (yin.vm.ucf-revisions.md section 6)
+;; =============================================================================
+
+(defn- parked-with-a-wait
+  "A real machine blocked on a read, A consumed, that then reaches an
+   explicit park: the parked activation waits on nothing, but the
+   reader's ordered wait is still carried.  Answers [parked src]."
+  []
+  (let [[blocked src] (parked-reader 1 false)]
+    [(vm/run (load-ast blocked {:type :vm/park})) src]))
+
+
+(deftest a-park-beside-ordered-waits-keeps-the-waits
+  (let [t (toy)
+        peer (served-peer t)
+        serve! (server peer (:channel t))
+        [parked src] (parked-with-a-wait)
+        pid (:id (:value parked))
+        export (handoff/export-task parked serve!)
+        resumed (handoff/resume-task (new-machine) (:bytes export)
+                                     (attacher t))
+        recv (:vm resumed)
+        resume-prog {:type :vm/resume, :parked-id pid,
+                     :val (lit "back")}]
+    (is (= 1 (count (:wait-set parked))) (pr-str (:wait-set parked)))
+    (is (= :ok (:status export)) (pr-str export))
+    (is (= :parked (:yin.k/kind (:body export))))
+    (is (= :next (:yin.k/reason (parked-frame export)))
+        "the carried reader's wait is serialized beside the park")
+    (is (= :ok (:status resumed)) (pr-str resumed))
+    (testing "the lower restores the ordered waits, not only the park"
+      (is (= (:value recv) (get (:parked recv) pid)))
+      (is (= [:next] (mapv :reason (:wait-set recv)))
+          (pr-str (:wait-set recv))))
+    (testing "the restored waiter reads on, in parity with the source"
+      (stream/append! src "B")
+      (let [reference (drive-local (vm/run (load-ast parked resume-prog)))
+            done (drive (vm/run (load-ast recv resume-prog)) peer)]
+        (is (= (select-keys reference [:halted? :blocked? :value])
+               (select-keys done [:halted? :blocked? :value]))
+            (pr-str {:reference (select-keys reference
+                                             [:halted? :blocked? :value])
+                     :done (select-keys done
+                                        [:halted? :blocked? :value])}))
+        (is (= (count (:wait-set reference))
+               (count (:wait-set done))))))))
+
+
+(deftest an-install-pending-without-its-entry-refuses-before-restoration
+  (let [t (toy)
+        serve! (server (served-peer t) (:channel t))
+        [parked _child] (parked-installer)
+        export (handoff/export-task parked serve!)
+        stripped (tamper export #(dissoc % :yin.k/installs))
+        renamed (tamper export
+                        #(update % :yin.k/installs
+                                 (fn [insts]
+                                   {'host.other (get insts 'host.mod)})))
+        attached (atom 0)
+        counting (let [a (attacher t)]
+                   (fn [d] (swap! attached inc) (a d)))
+        resume (fn [bytes]
+                 (handoff/resume-task (new-machine) bytes counting))]
+    (is (= :ok (:status export)) (pr-str export))
+    (is (= :install (:yin.k/reason (parked-frame export))))
+    (testing "a body whose install waiter has no install entry at all"
+      (let [refused (resume stripped)]
+        (is (= :yin.k/undecodable (:yin.k/status refused))
+            (pr-str refused))
+        (is (= 'host.mod (:yin.k/name refused)))
+        (is (= :incomplete-install (:yin.k/kind refused)))))
+    (testing "an entry under some other name is no entry for the waiter"
+      (let [refused (resume renamed)]
+        (is (= :yin.k/undecodable (:yin.k/status refused))
+            (pr-str refused))
+        (is (= 'host.mod (:yin.k/name refused)))
+        (is (= :incomplete-install (:yin.k/kind refused)))))
+    (is (zero? @attached)
+        "refused by the grammar before any stream was attached")))
