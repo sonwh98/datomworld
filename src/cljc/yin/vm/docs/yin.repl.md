@@ -166,7 +166,9 @@ node's first ticks print where the socket bound (`dht: node ...
 listening on 127.0.0.1:53812; peers: ...; publishing`, or `fetch-only`).
 
 **The short way: `dht init|serve|join`.** Three subcommands expand to the
-flags below (`yin.repl.main/expand-args`), which remain the full surface.
+flags above (`yin.repl.main/expand-args`), which remain the full surface.
+Any other flag (`--port`, `--headless`, `--dht-max-inbound-bytes`) passes
+through after the subcommand.
 State lives in `~/.yin/<name>` (`--name`, default `node`; `--dir` and
 `--key` override), and `--listen [ip:]port` is the node's own socket.
 `--peer` takes `localhost:port` as well as an IP literal. Every node still
@@ -193,56 +195,53 @@ The token carries the bound address, so give `--listen` a routable `ip`
 when readers are on other machines.
 
 **Starting a DHT from scratch.** A DHT begins as two nodes that name each
-other. A node with no `--dht-peer` is solo and opens no socket, so the
-first node to listen is given a fixed `--dht-port` and one peer that need
-not be up yet: a contact that does not answer does not stop the node from
-binding and listening. Nothing
-needs to exist beforehand, not the directories, which are created, and not
-a third node. This walk-through puts a storing peer **B** on port 4002 and
-a publisher **A** on port 4001, all on one machine.
+other. A node with no peer is solo and opens no socket, so the first node
+to listen is given a fixed `--listen` port and one peer that need not be up
+yet: a contact that does not answer does not stop the node from binding
+and listening. Nothing needs to exist beforehand, not the directories,
+which are created, and not a third node. This walk-through puts a storing
+peer **B** on port 4002 and a publisher **A** on port 4001, all on one
+machine.
 
-1. Make the publisher's key once, and keep it somewhere that lasts (not
-   `/tmp`, which a reboot clears). The command writes the file, owner-only,
-   prints the principal, and exits; it refuses to overwrite an existing
-   file.
-
-   ```bash
-   mkdir -p ~/.yin
-   clj -M:clj-yin-repl --dht-keygen ~/.yin/publisher.key
-   # dht: wrote a new Ed25519 key to ...; its principal is ed25519:9d61b19d...
-   ```
-
-   The principal is `ed25519:` followed by the key's public half. Copy
-   only the 64 hex digits after the prefix, which are the `:public` value
-   in the key file (the prefix is added only when the principal is
-   printed, never stored): readers pass those digits, without the prefix,
-   to `--dht-principal`. The same file's `:seed` is the private half and is
-   never printed.
-
-2. Start **B**, the storing peer, in its own terminal. It holds other
+1. Start **B**, the storing peer, in its own terminal. It holds other
    nodes' blobs while A publishes, and needs no key. It names A's port as
    its contact although A is not up yet.
 
    ```bash
-   clj -M:clj-yin-repl --index-store dht:$HOME/.yin/b \
-       --dht-peer 127.0.0.1:4001 --dht-port 4002
+   clj -M:clj-yin-repl dht serve --name b --listen 4002 --peer localhost:4001
    ```
 
    Wait for `dht: node ... listening on 127.0.0.1:4002; peers:
-   127.0.0.1:4001; fetch-only`.
+   127.0.0.1:4001; fetch-only`. B keeps its state in `~/.yin/b`.
 
-3. Start **A**, the publisher, in another terminal, naming B.
+2. Start **A**, the publisher, in another terminal, naming B.
 
    ```bash
-   clj -M:clj-yin-repl --index-store dht:$HOME/.yin/a \
-       --dht-peer 127.0.0.1:4002 --dht-port 4001 \
-       --dht-publish --dht-key ~/.yin/publisher.key
+   clj -M:clj-yin-repl dht init --name a --listen 4001 --peer localhost:4002
    ```
 
-   The banner must say that publishing is ON and name the principal from
-   step 1.
+   The first run writes `~/.yin/a.key`, owner-only, and prints `dht: wrote
+   a new Ed25519 key to ...; its principal is ed25519:9d61b19d...`. Keep
+   that file somewhere that lasts: it is the only way to publish under the
+   same principal again, and an existing file is never overwritten. The
+   banner must then say that publishing is ON and name the same principal.
+   The principal is `ed25519:` followed by the key's public half, the
+   `:public` value in the key file; the file's `:seed` is the private half
+   and is never printed. To make a key without starting a node, run
+   `yin-repl keygen --name a`.
 
-4. At A's prompt, define and publish a module:
+   The same two commands in flags, for reference:
+
+   ```bash
+   clj -M:clj-yin-repl --index-store dht:$HOME/.yin/b \
+       --dht-peer 127.0.0.1:4001 --dht-port 4002
+   clj -M:clj-yin-repl --dht-keygen ~/.yin/a.key
+   clj -M:clj-yin-repl --index-store dht:$HOME/.yin/a \
+       --dht-peer 127.0.0.1:4002 --dht-port 4001 \
+       --dht-publish --dht-key ~/.yin/a.key
+   ```
+
+3. At A's prompt, define and publish a module:
 
    ```clojure
    yin> (def f (fn [x] (+ x 4200)))
@@ -255,18 +254,21 @@ a publisher **A** on port 4001, all on one machine.
    retrying, leave A open. A's own copy is durable in its directory
    either way.
 
-5. Find the index manifest to hand a reader: the address in A's last
-   `dht: published :segment/...` line, which is also what A's directory
-   records in `~/.yin/a/HEAD`.
+4. Take the join token A prints after publishing: its last `dht: join
+   token: yin:127.0.0.1:4001/<principal>/segment/...` line. It bundles A's
+   address, the principal and the index manifest, so nothing is copied
+   separately. A prints one after each publication, so use the latest. Its
+   manifest is the address in A's `dht: published :segment/...` line,
+   which is also what A's directory records in `~/.yin/a/HEAD`.
 
-6. Start **C**, a reader with an empty directory, against either node,
-   with that manifest and the principal from step 1:
+5. Start **C**, a reader with an empty directory, with the token:
 
    ```bash
-   clj -M:clj-yin-repl --index-store dht:$HOME/.yin/c \
-       --dht-peer 127.0.0.1:4001 \
-       --dht-manifest :segment/... --dht-principal 9d61b19d...
+   clj -M:clj-yin-repl dht join --name c yin:127.0.0.1:4001/9d61b19d.../segment/...
    ```
+
+   The same in flags: `--index-store dht:$HOME/.yin/c --dht-peer
+   127.0.0.1:4001 --dht-manifest :segment/... --dht-principal 9d61b19d...`.
 
    After `dht: hydrated ...` and `evaluation admitted`, `(require (quote
    my.lib))` followed by `(my.lib/f 1)` answers `4201`.
@@ -311,16 +313,23 @@ and a format it refused at publish time (an export reading a module-level
 definition from inside a lambda refuses the tree format) refuses at
 require time too.
 
-**Loading it in another yin.repl.** Start the reader against a peer, with
-the publisher's index manifest and its principal:
+**Loading it in another yin.repl.** Start the reader with the publisher's
+join token, which names a peer, the publisher's principal and the index
+manifest:
+
+```bash
+clj -M:clj-yin-repl dht join --name b yin:127.0.0.1:53812/9d61b19d.../segment/...
+```
+
+Or with the flags the token stands for:
 
 ```bash
 clj -M:clj-yin-repl --index-store dht:/tmp/yin-b --dht-peer 127.0.0.1:53812 \
     --dht-manifest :segment/... --dht-principal 9d61b19d...
 ```
 
-The principal on the command line is the publisher's 64 hex digits
-alone, without the banner's `ed25519:` prefix. Hydration runs before the
+The principal in the flags is the publisher's 64 hex digits alone, without
+the banner's `ed25519:` prefix (the token accepts either). Hydration runs before the
 first evaluation: typed lines wait in the input
 medium until the reader prints `dht: hydrated :<manifest>`, with the
 datom and blob counts, and `evaluation admitted`. Then require by name:
