@@ -102,11 +102,27 @@
 
 
 (deftest arguments-behave-as-they-do-in-v1-except-telemetry
-  (let [opts (repl/parse-args ["--port" "8080" "--host" "0.0.0.0" "--headless"])]
+  (let [opts (repl/parse-args ["--port" "8080" "--headless"])]
     (is (= 8080 (:port opts)))
-    (is (= "0.0.0.0" (:host opts)))
     (is (true? (:headless? opts)))
     (is (empty? (:rejected opts))))
+  (testing "--host is refused, not silently ignored"
+    (is (str/includes? (ex-message (refusal-of #(repl/parse-args
+                                                  ["--port" "8080" "--host"
+                                                   "127.0.0.1"])))
+                       "--host is gone")))
+  (testing "the advertised address prefers the LAN over a tunnel interface"
+    (is (= "192.168.1.2" (repl/pick-ip ["198.18.0.1" "192.168.1.2"])))
+    (is (= "10.0.0.5" (repl/pick-ip ["198.18.0.1" "10.0.0.5"])))
+    (is (= "172.20.1.1" (repl/pick-ip ["172.32.0.1" "172.20.1.1"])))
+    (is (= "198.18.0.1" (repl/pick-ip ["198.18.0.1"])))
+    (is (= "127.0.0.1" (repl/pick-ip []))))
+  (testing "--port serves on all interfaces and the banner says so"
+    (is (= "0.0.0.0" repl/bind-all-host))
+    (let [banner (str/join "\n" (repl/banner (repl/parse-args ["--port" "8080"])))]
+      (is (str/includes? banner "ws://127.0.0.1:8080"))
+      (is (str/includes? banner (str "ws://" (repl/local-ip) ":8080")))
+      (is (str/includes? banner "no authentication"))))
   (testing "telemetry is rejected rather than ignored"
     (let [opts (repl/parse-args ["--telemetry-stream" "daostream:ws://x" "--telemetry"])]
       (is (= ["--telemetry-stream" "--telemetry"] (:rejected opts)))
@@ -1360,7 +1376,7 @@
 
 (deftest help-documents-every-flag-and-subcommand
   (let [text (str/join "\n" repl/help-lines)]
-    (doseq [word ["--port" "--host" "--headless" "--index-store" "--help"
+    (doseq [word ["--port" "--headless" "--index-store" "--help"
                   "--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
                   "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key"
                   "--dht-principal" "--dht-keygen" "--name" "--dir" "--key"
