@@ -578,7 +578,8 @@
 ;; The whole judge-step holds the authority lock (JVM threads)
 ;; =============================================================================
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest step-holds-the-lock-across-the-whole-pass
      (let [[frames a] (offered)
            entered (promise)
