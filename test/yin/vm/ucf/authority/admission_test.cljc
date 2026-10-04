@@ -425,10 +425,14 @@
     (grant/step! a j)
     (is (= 1 (count (facts frames :dao.lease/accepted))))
     (is (= [{:dao.lease/status :dao.lease/rejected
-             :dao.lease/proposal "p-b"
-             :yin.k/proposer "holder-b"}]
+             :dao.lease/proposal "p-b"}]
            (facts frames :dao.lease/rejected))
-        "the proposal is refused, not left unanswered")))
+        "the proposal is refused, not left unanswered")
+    (is (= [{:yin.k/custody :yin.k/refused
+             :yin.k/proposer "holder-b"
+             :dao.lease/proposal "p-b"}]
+           (facts frames :yin.k/refused))
+        "and the refusal names its proposer in the paired custody fact")))
 
 
 (deftest an-unauthenticated-conflict-quarantines-nothing
@@ -569,6 +573,8 @@
 (deftest the-five-outcomes-are-closed
   (is (= #{:committed :replayed :stale :intent-conflict :suspended}
          admission/admissions))
+  (is (= #{:malformed :unbound-lease :wrong-author :foreign-op-id}
+         admission/defects))
   (let [scripted (let [w (world)]
                    (mapv #(admit! w %)
                          [(env 0 :v) (env 0 :v) (env "lease-1" 1 0 :v)
@@ -671,7 +677,7 @@
           "the reply is lost: the authority poisons"))
     (let [r (grant/reopen! (backend frames) nil)
           a2 (::authority/authority r)]
-      (is (= ["lease-1"] (:yin.k/reclaimed r)))
+      (is (= ["lease-1"] (:yin.k/reclaimed-leases r)))
       (is (= {:values [(committed 0)] :terminal :dao.stream/blocked}
              (read-all (admission/outcome-reader a2) kept))
           "the driver's kept cursor reads the committed outcome")
