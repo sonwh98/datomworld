@@ -2,7 +2,8 @@
   "The node's saved configuration (yin.repl.state): the flags a node was last
    started with, kept in `<node dir>/state.edn` and resumed by a bare
    `yin-repl`, changed by the command line."
-  (:require [clojure.string :as str]
+  (:require #?@(:cljd [["dart:io" :as dart-io]])
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.space.store.fs :as fs]
             [yin.repl.main :as repl]
@@ -101,6 +102,30 @@
     (let [started (repl/startup ["--dir" dir] {:persist? true})]
       (is (str/includes? (:refusal started) "cannot be read")
           "a bare start is refused too, not started without its state"))))
+
+
+(defn- dangling-link!
+  "A symlink at `path` whose target does not exist."
+  [path]
+  #?(:cljd (.createSync (dart-io/Link. path) (str path ".missing"))
+     :clj (java.nio.file.Files/createSymbolicLink
+            (java.nio.file.Paths/get path (make-array String 0))
+            (java.nio.file.Paths/get (str path ".missing")
+                                     (make-array String 0))
+            (make-array java.nio.file.attribute.FileAttribute 0))
+     :cljs (.symlinkSync (js/require "fs") (str path ".missing") path)))
+
+
+(deftest a-dangling-symlink-is-an-entry-so-it-is-refused-not-skipped
+  (let [dir (temp-dir)]
+    ;; saving under dir/x creates dir without a state file of its own
+    (state/save! (str dir "/x") {})
+    (is (nil? (state/load-flags dir)) "no entry at all is absence")
+    (dangling-link! (state/path dir))
+    (let [e (refusal-of #(state/load-flags dir))]
+      (is (some? (ex-data e)) "a designed refusal, not nil and not a raw error")
+      (is (str/includes? (ex-message e) "cannot be read"))
+      (is (str/includes? (ex-message e) "--reset")))))
 
 
 (deftest a-value-that-begins-with-two-dashes-is-a-missing-value

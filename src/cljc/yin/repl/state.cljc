@@ -190,24 +190,30 @@
 
 
 (defn- read-text
-  "The file at `path` as text, or nil only when it is truly absent.  Unlike
-   `fs/read-file-text`, which answers nil for anything it cannot stat, a
-   directory or an unreadable file throws here, so a state file is never
-   skipped for being unreadable.  (ClojureDart can only ask whether a file,
-   directory or link exists, so a path it cannot stat reads as absent.)"
+  "The file at `path` as text, or nil only when no directory entry exists
+   there.  Unlike `fs/read-file-text`, which answers nil for anything it
+   cannot stat, a directory, an unreadable file and a dangling symlink all
+   throw here, so a state file is never skipped for being unreadable.  Each
+   host tells absence from an access failure by the error it gets on a
+   direct read, not by an existence test."
   [path]
-  #?(:cljd (when (or (.existsSync (dart-io/File. path))
-                     (.existsSync (dart-io/Directory. path))
-                     (.existsSync (dart-io/Link. path)))
-             (.readAsStringSync (dart-io/File. path)))
+  #?(:cljd (try (.readAsStringSync (dart-io/File. path))
+                (catch dart-io/PathNotFoundException e
+                  ;; a link whose target is missing is an entry, not absence
+                  (when (.existsSync (dart-io/Link. path)) (throw e))))
      :clj (when-not (java.nio.file.Files/notExists
                       (java.nio.file.Paths/get path (make-array String 0))
-                      (make-array java.nio.file.LinkOption 0))
+                      (into-array java.nio.file.LinkOption
+                                  [java.nio.file.LinkOption/NOFOLLOW_LINKS]))
             (slurp path))
-     :cljs (let [fs (js/require "fs")]
+     :cljs (let [fs (js/require "fs")
+                 entry? (fn []
+                          (try (.lstatSync ^js fs path) true
+                               (catch :default _ false)))]
              (try (.readFileSync ^js fs path "utf8")
                   (catch :default e
-                    (when-not (= "ENOENT" (.-code e)) (throw e)))))))
+                    (when-not (and (= "ENOENT" (.-code e)) (not (entry?)))
+                      (throw e)))))))
 
 
 (defn load-flags
