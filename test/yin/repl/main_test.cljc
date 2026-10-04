@@ -11,6 +11,7 @@
             [dao.stream.ws :as ws]
             [dao.stream.ws-project :as ws-project]
             [yin.repl.main :as repl]
+            [yin.repl.dht :as repl.dht]
             [yin.repl :as shell]
             [yin.repl.driver :as driver]
             [yin.repl.host.common :as host-common]
@@ -1276,3 +1277,73 @@
         (is (str/includes? (nth texts 7) (str ":type " vm-type)))
         (is (= (str (get shell/vm-labels vm-type) " reset") (nth texts 8)))
         (is (= "nil" (nth texts 9)) "(reset) clears the value history")))))
+
+
+;; =============================================================================
+;; The subcommand surface: keygen and dht init|serve|join expand to the
+;; legacy flags.
+;; =============================================================================
+
+(def ^:private hex64 (apply str (repeat 64 "a")))
+
+
+(deftest dht-join-expands-a-token-to-peer-principal-and-manifest
+  (let [token (str "yin:127.0.0.1:4001/" hex64 "/segment/blake3-" hex64)
+        opts (repl/parse-args (first (repl/expand-args
+                                       ["dht" "join" token "--dir" "d"
+                                        "--listen" "4003"])))
+        spec (:index-store-spec opts)]
+    (is (= [{:host "127.0.0.1" :port 4001}] (:peers spec)))
+    (is (= (keyword (str "segment/blake3-" hex64)) (:manifest spec)))
+    (is (= 4003 (:bind-port spec)))
+    (is (= [hex64] (:principals opts)))
+    (is (not (:publish? spec)))))
+
+
+(deftest a-printed-join-token-is-what-join-parses
+  (let [manifest (keyword (str "segment/blake3-" hex64))
+        token (repl.dht/join-token "127.0.0.1" 4001 hex64 manifest)]
+    (is (= (str "yin:127.0.0.1:4001/" hex64 "/segment/blake3-" hex64) token))
+    (is (= ["127.0.0.1:4001" hex64 (str "segment/blake3-" hex64)]
+           (repl/parse-token token)))
+    (is (= (:index-store-spec
+             (repl/parse-args ["--index-store" "dht:d" "--dht-peer"
+                               "127.0.0.1:4001" "--dht-manifest"
+                               (str manifest)]))
+           (:index-store-spec
+             (repl/parse-args (first (repl/expand-args
+                                       ["dht" "join" token "--dir" "d"]))))))))
+
+
+(deftest dht-init-publishes-with-a-key-and-localhost-peer
+  (let [[args extra] (repl/expand-args ["dht" "init" "--dir" "d" "--key" "k"
+                                        "--peer" "localhost:4002"
+                                        "--listen" "4001"])
+        opts (repl/parse-args args)]
+    (is (= {:new-key "k"} extra))
+    (is (= "k" (:dht-key-file opts)))
+    (is (true? (get-in opts [:index-store-spec :publish?])))
+    (is (= [{:host "127.0.0.1" :port 4002}]
+           (get-in opts [:index-store-spec :peers])))))
+
+
+(deftest dht-serve-fetches-only
+  (let [[args extra] (repl/expand-args ["dht" "serve" "--dir" "d" "--peer"
+                                        "127.0.0.1:4001" "--listen" "4002"])
+        spec (:index-store-spec (repl/parse-args args))]
+    (is (nil? extra))
+    (is (false? (:publish? spec)))
+    (is (= 4002 (:bind-port spec)))))
+
+
+(deftest bad-token-and-verb-are-refused-with-usage
+  (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs js/Error)
+                        #"join token looks like"
+        (repl/expand-args ["dht" "join" "nonsense" "--dir" "d"])))
+  (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs js/Error)
+                        #"usage: yin-repl dht"
+        (repl/expand-args ["dht" "frob"]))))
+
+
+(deftest keygen-subcommand-takes-a-file
+  (is (= ["--dht-keygen" "k.key"] (first (repl/expand-args ["keygen" "k.key"])))))

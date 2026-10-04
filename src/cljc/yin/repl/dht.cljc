@@ -212,6 +212,28 @@
                :dht (dissoc node ::hydrating)))))
 
 
+(defn join-token
+  "The one string a reader hands `yin-repl dht join`: the publishing
+   node's address, its principal's 64 hex digits and the manifest address
+   (without its leading colon), as `yin:host:port/principal/segment/...`."
+  [host port principal manifest]
+  (str "yin:" (address-text host port) "/" principal "/"
+       (str/replace-first (str manifest) ":" "")))
+
+
+(defn- token-lines
+  "The join token line for the latest publication this tick, when the node
+   listens and its shell holds a publisher key."
+  [shell node events]
+  (let [principal (some-> shell :dht-key :public)
+        [host port] (::listen node)
+        published (filter #(#{:published :republished} (::dht/event %))
+                          events)]
+    (when (and principal host (:publish? node) (seq published))
+      [(str "dht: join token: "
+            (join-token host port principal (:manifest (last published))))])))
+
+
 (defn step
   "Advance the shell's node once at the host's clock reading `now`
    (dao.space.dht/step) and answer `[shell' lines events]`: its events as
@@ -224,7 +246,14 @@
     [node (:dht shell)]
     (let
       [[node events] (dht/step node now)
-       lines (mapv #(event-line node %) events)
+       node (reduce (fn [node {:keys [host port], :as event}]
+                      (cond-> node
+                        (= :bound (::dht/event event))
+                        (assoc ::listen [host port])))
+                    node
+                    events)
+       lines (into (mapv #(event-line node %) events)
+                   (token-lines shell node events))
        hydrating (::hydrating node)
        status (when hydrating (:status (dht/load-status node hydrating)))
        node (cond->

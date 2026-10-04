@@ -165,6 +165,33 @@ refused while names are still read, resolved, loaded and linked. The
 node's first ticks print where the socket bound (`dht: node ...
 listening on 127.0.0.1:53812; peers: ...; publishing`, or `fetch-only`).
 
+**The short way: `dht init|serve|join`.** Three subcommands expand to the
+flags below (`yin.repl.main/expand-args`), which remain the full surface.
+State lives in `~/.yin/<name>` (`--name`, default `node`; `--dir` and
+`--key` override), and `--listen [ip:]port` is the node's own socket.
+`--peer` takes `localhost:port` as well as an IP literal. Every node still
+needs one `--peer` to open a socket, so a DHT starts as two nodes naming
+each other, as in the walk-through below.
+
+```bash
+clj -M:clj-yin-repl dht serve --name b --listen 4002 --peer localhost:4001
+clj -M:clj-yin-repl dht init  --name a --listen 4001 --peer localhost:4002
+```
+
+`init` publishes and makes `~/.yin/a.key` on first use (directories
+included), printing its principal. After each publication it prints one
+line, `dht: join token: yin:127.0.0.1:4001/<principal>/segment/...`:
+the address, the publisher's principal and the manifest in one string. A
+reader takes it whole:
+
+```bash
+clj -M:clj-yin-repl dht join --name c yin:127.0.0.1:4001/<principal>/segment/...
+```
+
+`yin-repl keygen [--name n | file]` writes a key without starting a node.
+The token carries the bound address, so give `--listen` a routable `ip`
+when readers are on other machines.
+
 **Starting a DHT from scratch.** A DHT begins as two nodes that name each
 other. A node with no `--dht-peer` is solo and opens no socket, so the
 first node to listen is given a fixed `--dht-port` and one peer that need

@@ -146,11 +146,21 @@
       :else key)))
 
 
+(defn- ensure-parent!
+  "Create the missing directories above `path`."
+  [path]
+  (let [[dir _] (split-path path)]
+    #?(:cljd (.createSync (io/Directory. dir) .recursive true)
+       :clj (.mkdirs (java.io.File. ^String dir))
+       :cljs (.mkdirSync (js/require "fs") dir #js {:recursive true}))))
+
+
 (defn- write-new-file!
   "Create `path` holding `text`, readable by its owner only where the host
    can set that, refusing an existing file: a key file is never
-   overwritten."
+   overwritten.  The directories above it are created."
   [path text]
+  (ensure-parent! path)
   (let [exists (fn []
                  (ex-info (str "--dht-keygen " path ": the file exists; "
                                "a key file is never overwritten")
@@ -250,6 +260,110 @@
   (or (parse-int text)
       (throw (ex-info (str flag " takes an integer, not " (pr-str text))
                       {:value text}))))
+
+
+;; =============================================================================
+;; The subcommands: `keygen` and `dht init|serve|join`
+;; =============================================================================
+
+(defn- home-dir
+  []
+  (or #?(:cljd nil
+         :clj (System/getProperty "user.home")
+         :cljs (some-> js/process .-env .-HOME))
+      (throw (ex-info (str "no home directory on this host: give --dir and "
+                           "--key explicitly")
+                      {}))))
+
+
+(defn- state-path
+  "`~/.yin/<name><suffix>`."
+  [name suffix]
+  (str (home-dir) "/.yin/" name suffix))
+
+
+(defn- peer-text
+  "A peer as the DHT takes it: `localhost` is the loopback IP literal."
+  [text]
+  (str/replace-first (str text) #"^localhost:" "127.0.0.1:"))
+
+
+(defn parse-token
+  "A join token `yin:host:port/principal/segment/...` as `[peer principal
+   manifest]` flag values; the principal accepts an `ed25519:` prefix."
+  [text]
+  (let [[_ peer principal manifest]
+        (re-matches #"yin:([^/]+)/(?:ed25519:)?([^/]+)/(.+)" (str text))]
+    (when-not peer
+      (throw (ex-info (str "a join token looks like yin:host:port/principal/"
+                           "segment/..., as `dht: join token:` prints it, "
+                           "not " (pr-str text))
+                      {:value text})))
+    [peer principal manifest]))
+
+
+(defn- keygen-args
+  [args]
+  (loop [args (seq args) name nil file nil]
+    (if-let [arg (first args)]
+      (if (= "--name" arg)
+        (recur (nnext args) (second args) file)
+        (recur (next args) name arg))
+      ["--dht-keygen" (or file (state-path (or name "publisher") ".key"))])))
+
+
+(defn- dht-args
+  "The legacy flags of `dht init|serve|join`.  `init` publishes (its key is
+   made on first use); `serve` stores for others; `join <token>` reads.
+   Every node needs a `--peer` to open a socket (the two-node start in
+   yin.repl.md); `--listen [ip:]port` is the node's own address.  Returns
+   `[args {:new-key path}]`."
+  [[verb & args]]
+  (when-not (#{"init" "serve" "join"} verb)
+    (throw (ex-info "usage: yin-repl dht init|serve|join [token] [options]"
+                    {})))
+  (loop [args (seq args)
+         o {:name "node" :peers [] :rest []}]
+    (if-let [arg (first args)]
+      (let [v (second args)]
+        (case arg
+          "--name" (recur (nnext args) (assoc o :name v))
+          "--dir" (recur (nnext args) (assoc o :dir v))
+          "--key" (recur (nnext args) (assoc o :key v))
+          "--peer" (recur (nnext args) (update o :peers conj (peer-text v)))
+          "--listen" (recur (nnext args) (assoc o :listen v))
+          (if (and (= "join" verb) (not (:token o))
+                   (not (str/starts-with? arg "-")))
+            (recur (next args) (assoc o :token arg))
+            (recur (next args) (update o :rest conj arg)))))
+      (let [{:keys [name dir key peers listen token rest]} o
+            [tpeer principal manifest] (when (= "join" verb)
+                                         (parse-token token))
+            peers (cond-> peers tpeer (conj tpeer))
+            [_ lhost lport] (when listen
+                              (re-matches #"(?:(.+):)?(\d+)" listen))
+            key (or key (when (= "init" verb) (state-path name ".key")))]
+        [(cond-> ["--index-store" (str "dht:" (or dir (state-path name "")))]
+           (= "init" verb) (conj "--dht-publish")
+           key (into ["--dht-key" key])
+           lhost (into ["--dht-bind" lhost])
+           lport (into ["--dht-port" lport])
+           principal (into ["--dht-principal" principal])
+           manifest (into ["--dht-manifest" manifest])
+           true (into (mapcat #(vector "--dht-peer" %)) peers)
+           true (into rest))
+         (when (= "init" verb) {:new-key key})]))))
+
+
+(defn expand-args
+  "Turn the subcommand surface into the flags `parse-args` reads:
+   `keygen [--name n | file]` and `dht init|serve|join`.  Anything else
+   passes through unchanged.  Answers `[args extra]`."
+  [args]
+  (case (first args)
+    "keygen" [(keygen-args (rest args)) nil]
+    "dht" (dht-args (rest args))
+    [args nil]))
 
 
 (defn parse-args
@@ -374,7 +488,13 @@
    shell, and only its principal reaches the options the banner reads."
   [args]
   (try
-    (let [opts (parse-args args)]
+    (let [[args {:keys [new-key]}] (expand-args args)
+          made (when (and new-key (nil? (fs/read-file-text
+                                          (first (split-path new-key))
+                                          (second (split-path new-key)))))
+                 (:lines (keygen! new-key)))
+          opts (cond-> (parse-args args)
+                 made (assoc :startup-lines made))]
       (if-some [path (:dht-keygen opts)]
         (keygen! path)
         (let [key (some-> (:dht-key-file opts) load-key)
@@ -424,7 +544,7 @@
   [opts]
   (let [spec (:index-store-spec opts)
         dht? (= :dht (:type spec))]
-    (cond-> []
+    (cond-> (vec (:startup-lines opts))
       (seq (:rejected opts)) (conj telemetry-text)
       (and (:headless? opts) (not (:port opts)))
       (conj "--headless has nothing to attend without a served endpoint")
