@@ -3140,6 +3140,16 @@ commits at most once across all grants of O. Equal ids with different
 intent commit nothing. This is an admission guarantee, not a promise that
 unprotected external IO becomes transactional.
 
+> Exactly-once commitment applies to insertion into the enrolled
+> ledger-projection stream. It does not extend automatically to effects
+> performed by downstream readers.
+
+Forwarding from that stream to an existing FFI or link service is
+at-least-once or fail-stop unless that service supplies its own
+transactional admission. This is the first realization of an enrolled
+boundary, not a rule: a future target that joins the same atomic resource
+may conform without being newly minted.
+
 Exclusive requires a durable transactable arbitration space, attributed
 grantor/holder events, an authority that possesses the grounded resource
 it arbitrates (UCF 7.7.3), and declared consumer enrollment. Signed module

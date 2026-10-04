@@ -113,6 +113,9 @@ is pinned by a writer double rather than left untested.
 > `dao.stream.memory-log/create!`. Its declared complete retention makes
 > fresh `:oldest` cursors true origin cursors for `derive-next-t` and
 > `publish-index!`; supplying an evicting transport is a host-assembly defect.
+> An arbitration ledger supplies a `dao.stream.journal` handle instead,
+> which declares the same complete retention (*The arbitration ledger
+> exception*, below).
 
 A **declaration, not a check**. `create!` does not and must not verify
 retention, although the misassembly is detectable at least twice over:
@@ -161,7 +164,23 @@ disk-index, and a memory index is not durable either. A durable *stream*
 transport is not the answer and should not be proposed as the fix: it would
 put a second durable record beside the content store, which is exactly the
 `dao.stream`/`dao.jing` unification `dao.space.query.md`'s *Decisions*
-already ruled out.
+already ruled out. Arbitration ledgers are the one exception, below.
+
+### The arbitration ledger exception
+
+> An arbitration ledger may use a durable local stream as its sole
+> authoritative transaction history. Its memory projection and any
+> published indexes are derived views, not separately committed
+> authorities. This exception applies to arbitration ledgers only; it does
+> not change the ordinary publication pipeline's durability contract,
+> where the durable record remains what publication puts in `dao.jing`.
+
+The accepted-checkpoint content file is not a second authority. Immutable
+content is written before the ledger references it. An orphan blob is
+harmless; a ledger reference to missing content is a defect the authority
+reports as `:suspended`. The ledger is a transactor over a
+`dao.stream.journal` handle (`yin.vm.ucf.authority`), so each decision is
+one `transact!` and one journal frame.
 
 ## Open items
 
