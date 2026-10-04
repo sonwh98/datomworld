@@ -219,7 +219,7 @@
 (deftest prelude-addresses-test
   (testing "the bundled prelude and the hook prelude: one address on every
             host (JVM goldens)"
-    (is (= :segment/blake3-583cb25028f56f2c4f22881641c847287b35abffce0824f97fb445e1f030c473
+    (is (= :segment/blake3-204fac906dcfbab9f41f37e78e1c59f0c5b728e8ec5ddd66a6aa912e23df114b
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-2d60190887dc1ca388d7a7b75467757c3f0e6c4b2d909603735c9a9852b0e3e3
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
@@ -239,15 +239,15 @@
         prelude-id (fn [{:keys [root rows]}] (first (nth (get rows root) 3)))]
     (is (nil? (vm/validate-rows a')))
     (testing "A, A' and the record: one address on every host (JVM goldens)"
-      (is (= :segment/blake3-a9678aef1f8b7d6638195cdad9579ef7cc4a6a2f4d05c12554fa082698ba47ee
+      (is (= :segment/blake3-496c1a60ecb9ed6352d95271463c504b9122b3088c5745046fdf663658443dfa
              (:root a)))
-      (is (= :segment/blake3-aff24c9fce6b4e5657f17432d0da99149fea0b17fd9a976439005bd135c28955
+      (is (= :segment/blake3-594b9905929ed2895c2ac320601b013708fdd50eadd48d3abb71650252f214d0
              (:root a')))
-      (is (= :segment/blake3-6d96d27e7f17e8968b3643b80fa31484a48251a9ce3499b5e7888e21f5c6a270
+      (is (= :segment/blake3-630c95b59d83832c712bb5c221f2acb8ba8cfddbafd0093350121f7b4017fa08
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
-      (is (= :segment/blake3-535f1cbe009fcfa62067baa2e1be6a4031d86e15b3a4d7e222760557b7f0d535
+      (is (= :segment/blake3-9197b080c07899ae6fb8bd69557dc420fac9be126f0f2fd06320c9b756186dd2
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]
@@ -353,8 +353,9 @@
 
 
 (deftest dict-keys-test
-  (testing "1, 1.0 and True key one entry, -0.0 keys as 0, and 0.5 keys as
-            1/2: ruling-6 decimal-string keys, the same bytes on every host"
+  (testing "1, 1.0 and True key one entry, -0.0 keys as 0, 0.5 keys as 1/2,
+            and 0.1 as its exact rational: ruling-6 hex-string keys, the
+            same bytes on every host"
     (let [run (fn [form]
                 (into {}
                       (map (fn [[k r]]
@@ -368,20 +369,26 @@
           form (list 'py/conj
                      (list 'py/conj
                            (list 'py/conj
-                                 (list 'py/conj [] '(py/key true))
-                                 (list 'py/key {:py/float (cbor/float64 1)}))
-                           (list 'py/key {:py/float (cbor/float64 (neg-zero))}))
-                     (list 'py/key {:py/float (cbor/float64 0.5)}))]
+                                 (list 'py/conj
+                                       (list 'py/conj [] '(py/key true))
+                                       (list 'py/key
+                                             {:py/float (cbor/float64 1)}))
+                                 (list 'py/key
+                                       {:py/float (cbor/float64 (neg-zero))}))
+                           (list 'py/key {:py/float (cbor/float64 0.5)}))
+                     (list 'py/key {:py/float (cbor/float64 0.1)}))]
       (doseq [[k result] (run form)]
         (is (= [[:py.numeric/finite "1" "1"] [:py.numeric/finite "1" "1"]
-                [:py.numeric/finite "0" "1"] [:py.numeric/finite "1" "2"]]
+                [:py.numeric/finite "0" "1"] [:py.numeric/finite "1" "2"]
+                [:py.numeric/finite "ccccccccccccd" "80000000000000"]]
                result)
             (str k))
-        (is (= (str "hIPYG4JwZGFvLmppbmcva2V5d29yZIJqcHkubnVtZXJpY2ZmaW5pdGVh"
+        (is (= (str "hYPYG4JwZGFvLmppbmcva2V5d29yZIJqcHkubnVtZXJpY2ZmaW5pdGVh"
                     "MWExg9gbgnBkYW8uamluZy9rZXl3b3JkgmpweS5udW1lcmljZmZpbml0"
                     "ZWExYTGD2BuCcGRhby5qaW5nL2tleXdvcmSCanB5Lm51bWVyaWNmZmlu"
                     "aXRlYTBhMYPYG4JwZGFvLmppbmcva2V5d29yZIJqcHkubnVtZXJpY2Zm"
-                    "aW5pdGVhMWEy")
+                    "aW5pdGVhMWEyg9gbgnBkYW8uamluZy9rZXl3b3JkgmpweS5udW1lcmlj"
+                    "ZmZpbml0ZW1jY2NjY2NjY2NjY2NkbjgwMDAwMDAwMDAwMDAw")
                (b64 result))
             (str k))))))
 

@@ -104,11 +104,11 @@
    valid within 2^53.
 
    Numeric dict and set keys and `hash()` are exact (C3 rulings 6 and 7):
-   a finite number keys as its reduced rational in decimal text, and
-   hashes modulo P = 2^61 - 1 on every host, both computed through the
-   `integer` module's kernels. A float key or hash can need integers of
-   1075 bits and 324 decimal digits (2^-1074), so the composition's
-   `integer` limits must admit at least that.
+   a finite number keys as its reduced rational in lowercase hex text,
+   to which no digit limit applies, and hashes modulo P = 2^61 - 1 on
+   every host, both computed through the `integer` module's kernels. A
+   float key or hash can need integers of 1075 bits (2^-1074), so the
+   composition's `integer` limits must admit at least that.
 
    Host names the prelude depends on and does not define: `host-names`
    (the cell module from yin.vm.module, the integer module from
@@ -122,7 +122,7 @@
   '#{cell/new cell/get cell/set! data/count data/into data/subvec
      data/number? data/dissoc data/str-concat data/str-length
      data/str-index-of data/str->code-points data/code-points->str
-     data/float64 data/float-value
+     data/float64 data/float-value data/content=
      integer/sub integer/neg integer/mul integer/compare
      integer/floor-div-mod integer/shift-left integer/format})
 
@@ -1338,11 +1338,12 @@
              false
              (if (py/eq x y) (py/eq-items xs ys (+ i 1)) false)))))]
     [py/ne (fn [a b] (not (py/eq a b)))]
-    ;; `is` is value-based for every non-cell value (C3 ruling 8): equal
-    ;; integers are `is`-equal at any magnitude, since each value has one
-    ;; carrier per host; True is not 1, since bools are host booleans
-    [py/is (fn [a b] (= a b))]
-    [py/is-not (fn [a b] (not (= a b)))]
+    ;; `is` is content identity for every non-cell value (C3 ruling 8,
+    ;; yang.antlr.md 8.5.4): equal integers are `is`-equal at any
+    ;; magnitude, every NaN is one value, 0.0 is not -0.0, True is not 1;
+    ;; a cell is `is` only itself
+    [py/is (fn [a b] (data/content= a b))]
+    [py/is-not (fn [a b] (not (data/content= a b)))]
 
     ;; ---------------------------------------------------------- truthiness
     [py/truthy
@@ -1440,9 +1441,11 @@
                  m (get p 0)
                  e (get p 1)]
              (if (< e 0)
-               (py/finite-key (integer/format m)
-                              (integer/format (integer/shift-left 1 (- 0 e))))
-               (py/finite-key (integer/format (integer/shift-left m e)) "1"))))
+               (py/finite-key (integer/format m 16)
+                              (integer/format (integer/shift-left 1 (- 0 e))
+                                              16))
+               (py/finite-key (integer/format (integer/shift-left m e) 16)
+                              "1"))))
          ;; NaN fails <=; host = can answer true for one boxed NaN
          (if (<= x x)
            (py/conj (py/conj [] :py.numeric/infinite) (if (< x 0) "-" "+"))
@@ -1458,7 +1461,7 @@
          ;; float64 carrier never meets host arithmetic
          (if (py/float? k)
            (py/float-key (py/num k))
-           (py/finite-key (integer/format (py/int-canon (py/num k))) "1"))
+           (py/finite-key (integer/format (py/int-canon (py/num k)) 16) "1"))
          (if (= (get k :py/type) :tuple)
            (assoc {} :py/tuple-key (py/keys-of (get k :items) 0 []))
            (let [t (py/content-type k)]

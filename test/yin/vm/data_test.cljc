@@ -317,6 +317,30 @@
     (is (= (wrong-type 'float-value 0 :number) (refusal 'float-value "2")))))
 
 
+(deftest content=-test
+  (testing "content identity: every NaN is one value, signed zeros and 1
+            against 1.0 differ, collections recurse; a callable or a
+            reference compares by host `=`"
+    (let [nan (call 'float64 (- ##Inf ##Inf))
+          decoded (cbor/decode (jing/canonical-bytes (cbor/float64 ##NaN)))
+          zero (call 'float64 0)
+          neg-zero (call 'float64 (* -1.0 0.0))
+          closure #(values/closure nil {:type :closure, :params [], :env {}})
+          ref {:type :cell-ref, :id 1, :seal "s"}]
+      (is (true? (call 'content= nan decoded)))
+      (is (true? (call 'content= {:items [nan]} {:items [decoded]})))
+      (is (false? (call 'content= zero neg-zero)))
+      (is (false? (call 'content= [zero] [neg-zero])))
+      (is (false? (call 'content= 1 (call 'float64 1))))
+      (is (false? (call 'content= true 1)))
+      (is (true? (call 'content= (closure) (closure))))
+      (is (false? (call 'content= (closure) 1)))
+      (is (true? (call 'content= ref (assoc ref :id 1))))
+      (is (false? (call 'content= ref (assoc ref :id 2))))
+      (is (= (refused 'content= :arity {::data/argc 1})
+             (refusal 'content= 1))))))
+
+
 (deftest arity-refusal-test
   (is (= (refused 'count :arity {::data/argc 0}) (refusal 'count)))
   (is (= (refused 'nth :arity {::data/argc 3}) (refusal 'nth [1] 0 :x)))
@@ -332,7 +356,7 @@
   (is (= #{'count 'nth 'contains? 'dissoc 'disj 'peek 'pop 'subvec 'hash-set
            'into 'str-concat 'str-length 'substring 'str-index-of 'str-split
            'str-join 'char-at 'str->code-points 'code-points->str
-           'str-compare 'number? 'float64 'float-value 'callable?}
+           'str-compare 'number? 'float64 'float-value 'content= 'callable?}
          (set (keys data/data-module))
          (set (keys data/data-profiles))))
   (doseq [[sym profile] data/data-profiles]

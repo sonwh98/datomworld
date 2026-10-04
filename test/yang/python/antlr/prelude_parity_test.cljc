@@ -746,30 +746,19 @@
 
 
 (def ^:private two-1074
-  "2^1074, the denominator of the smallest subnormal."
-  (str "2024022533073106183524953467189173070495566497641421183569013580274303"
-       "3956799534689196038370143712449518707786431681191138980873738579347686"
-       "7013399940738509921517424276566361364466907742093216341239767678472745"
-       "0685620074834246926986181033556491595563408100565123587695523334146152"
-       "30502532186327508646006263307707741093494784"))
+  "2^1074 in hex, the denominator of the smallest subnormal."
+  (apply str "4" (repeat 268 "0")))
 
 
 (def ^:private max-finite
-  "The numerator of the largest finite binary64, (2^53 - 1) * 2^971."
-  (str "179769313486231570814527423731704356798070567525844996598917476803"
-       "157260780028538760589558632766878171540458953514382464234321326889"
-       "464182768467546703537516986049910576551282076245490090389328944075"
-       "868508455133942304583236903222948165808559332123348274797826204144"
-       "723168738177180919299881250404026184124858368"))
+  "The numerator of the largest finite binary64, (2^53 - 1) * 2^971, in
+   hex."
+  (apply str "fffffffffffff8" (repeat 242 "0")))
 
 
 (def ^:private two-1022
-  "2^1022, the denominator of the smallest normal binary64."
-  (str "449423283715578976932326297697256183404494244735576643183575202894"
-       "331689513752407831771193306018840052800284699678483394146974422036"
-       "041556232118576598685310944419733562163713190755549003115235298632"
-       "707380212514422095376705856157203684782776352068092908376276711465"
-       "74559986811484619929076208839082406056034304"))
+  "2^1022 in hex, the denominator of the smallest normal binary64."
+  (apply str "4" (repeat 255 "0")))
 
 
 (defn- hash-text
@@ -786,14 +775,16 @@
    ['(py/key false) [:py.numeric/finite "0" "1"]]
    ['(py/key (py/float (* (data/float-value -1) (data/float-value 0)))) [:py.numeric/finite "0" "1"]]
    ['(py/key -7) [:py.numeric/finite "-7" "1"]]
+   ['(py/key 10) [:py.numeric/finite "a" "1"]]
+   [(list 'py/key two-53) [:py.numeric/finite "20000000000000" "1"]]
    ['(py/key {:py/float 1.5}) [:py.numeric/finite "3" "2"]]
    ['(py/key {:py/float -0.75}) [:py.numeric/finite "-3" "4"]]
    ['(py/key {:py/float 0.1})
-    [:py.numeric/finite "3602879701896397" "36028797018963968"]]
+    [:py.numeric/finite "ccccccccccccd" "80000000000000"]]
    ['(py/key {:py/float 5.0E-324}) [:py.numeric/finite "1" two-1074]]
    ['(py/key (py/float (* (data/float-value 1.5) 4503599627370496 4503599627370496)))
-    [:py.numeric/finite "30423614405477505635920876929024" "1"]]
-   [(list 'py/key two-53+1) [:py.numeric/finite "9007199254740993" "1"]]
+    [:py.numeric/finite "180000000000000000000000000" "1"]]
+   [(list 'py/key two-53+1) [:py.numeric/finite "20000000000001" "1"]]
    [(list '= (list 'py/key two-53) (list 'py/key two-53+1)) false]
    [(list '= (list 'py/key two-53) '(py/key (py/float (* (data/float-value 2) 4503599627370496)))) true]
    [(list '= (list 'py/key two-80) '(py/key (py/float (* (data/float-value 1) 4503599627370496 268435456))))
@@ -804,7 +795,7 @@
    ['(py/key {:py/float -4.9E-324}) [:py.numeric/finite "-1" two-1074]]
    ['(py/key {:py/float 2.2250738585072014E-308}) [:py.numeric/finite "1" two-1022]]
    ['(py/key {:py/float 2.225073858507201E-308})
-    [:py.numeric/finite "4503599627370495" two-1074]]
+    [:py.numeric/finite "fffffffffffff" two-1074]]
    ;; an integer -0 (on JS, (* -1 0)) keys and hashes as the integer 0
    ['(py/key (* -1 0)) [:py.numeric/finite "0" "1"]]
    ['(py/key {:py/float ##Inf}) [:py.numeric/infinite "+"]]
@@ -870,6 +861,147 @@
     (doseq [[k result] results]
       (testing (str k)
         (is (= expected result))))))
+
+
+(def ^:private is-table
+  "`[name form]` of the values `float-is-on-every-host-test` compares:
+   a zero of each sign, NaNs by two computations and by decoding Jing's
+   canonical NaN, equal floats, integers and bools, infinities, 2^53+1 by
+   two computations, and tuples holding them."
+  (let [decoded (cbor/decode (jing/canonical-bytes (cbor/float64 ##NaN)))]
+    [['zero {:py/float 0.0}]
+     ['neg-zero '(py/float (* (data/float-value -1) (data/float-value 0)))]
+     ['nan '(py/float (- (data/float-value ##Inf) (data/float-value ##Inf)))]
+     ['nan2 '(py/float (* (data/float-value 0) (data/float-value ##Inf)))]
+     ['nan3 {:py/float decoded}]
+     ['one-f {:py/float 1.0}]
+     ['one-f2 '(py/float (/ (data/float-value 3) (data/float-value 3)))]
+     ['one 1]
+     ['yes true]
+     ['inf {:py/float ##Inf}]
+     ['ninf {:py/float ##-Inf}]
+     ['big two-53+1]
+     ['big2 (list 'integer/add two-53 1)]
+     ['t-nan '(py/tuple (py/conj [] nan))]
+     ['t-nan2 '(py/tuple (py/conj [] nan2))]
+     ['t-zero '(py/tuple (py/conj [] zero))]
+     ['t-neg-zero '(py/tuple (py/conj [] neg-zero))]]))
+
+
+(deftest float-is-on-every-host-test
+  (testing "`is` is Jing content identity (yang.antlr.md 8.5.4): every NaN
+            is one value, 0.0 is not -0.0 while == holds, 1 is not 1.0,
+            True is not 1, tuples recurse; is-not negates; and over every
+            pair of the table, is answers exactly whether the canonical
+            bytes agree, computed on each host"
+    (let [names (mapv first is-table)
+          pairs (for [a names, b names] [a b])
+          conj-all (fn [xs]
+                     (reduce (fn [acc x] (list 'py/conj acc x)) [] xs))
+          form (with-float64
+                 (list 'let (vec (mapcat identity is-table))
+                       (conj-all
+                         [(conj-all names)
+                          (conj-all (map (fn [[a b]] (list 'py/is a b))
+                                         pairs))
+                          (conj-all (map (fn [[a b]] (list 'py/is-not a b))
+                                         pairs))
+                          '(py/eq zero neg-zero)
+                          '(let [x nan] (py/is x x))])))
+          at (fn [m a b] (get m [a b]))
+          bytes-of (fn [v] (jing/bytes->base64 (jing/canonical-bytes v)))]
+      (doseq [[k result] (run-with-prelude prelude/functions-uast form)]
+        (testing (str k)
+          (is (and (vector? result) (not= :thrown (first result)))
+              (pr-str result))
+          (when (vector? result)
+            (let [[values is-row is-not-row eq-zero same-binding] result
+                  is? (zipmap pairs is-row)
+                  value (zipmap names values)]
+              (is (= false (at is? 'zero 'neg-zero)))
+              (is (= true eq-zero))
+              (is (= true (at is? 'nan 'nan2)))
+              (is (= true (at is? 'nan 'nan3)))
+              (is (= true same-binding))
+              (is (= true (at is? 'one-f 'one-f2)))
+              (is (= false (at is? 'one 'one-f)))
+              (is (= false (at is? 'yes 'one)))
+              (is (= true (at is? 'inf 'inf)))
+              (is (= false (at is? 'inf 'ninf)))
+              (is (= true (at is? 'big 'big2)))
+              (is (= true (at is? 't-nan 't-nan2)))
+              (is (= false (at is? 't-zero 't-neg-zero)))
+              (is (= (map not is-row) is-not-row))
+              (is (= (map (fn [[a b]]
+                            (= (bytes-of (value a)) (bytes-of (value b))))
+                          pairs)
+                     is-row)))))))))
+
+
+(deftest big-integer-keys-past-the-digit-limit-on-every-host-test
+  (testing "2^20000 has 6021 decimal digits, past max-digits 4300, yet keys
+            in hex: it differs from 2^20000 + 1, and dict insertion,
+            lookup, replacement and deletion, set membership and tuple keys
+            all work with it"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    '(let [big (integer/shift-left 1 20000)
+                           big1 (integer/add big 1)
+                           k (py/key big)
+                           d (py/dict-new)
+                           _1 (py/dict-set d big {:py/str "a"})
+                           _2 (py/dict-set d big1 {:py/str "b"})
+                           _3 (py/dict-set d (integer/shift-left 1 20000)
+                                           {:py/str "c"})
+                           n1 (data/count (get (cell/get d) :keys))
+                           v (py/getitem d big)
+                           _4 (py/dict-del-quiet d big)
+                           n2 (data/count (get (cell/get d) :keys))
+                           s (py/set-from (py/conj (py/conj [] big) big1))
+                           t (py/dict-new)
+                           _5 (py/dict-set t (py/tuple (py/conj [1] big)) 7)]
+                       (py/conj
+                         (py/conj
+                           (py/conj
+                             (py/conj
+                               (py/conj
+                                 (py/conj
+                                   (py/conj
+                                     (py/conj
+                                       (py/conj (py/conj [] k)
+                                                (= k (py/key big1)))
+                                       n1)
+                                     v)
+                                   n2)
+                                 (py/contains d big))
+                               (py/getitem d big1))
+                             (data/count (get (cell/get s) :keys)))
+                           (py/contains s big))
+                         (py/getitem t (py/tuple
+                                         (py/conj [1]
+                                                  (integer/shift-left
+                                                    1 20000)))))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [[:py.numeric/finite (apply str "1" (repeat 5000 "0")) "1"]
+                  false 2 {:py/str "c"} 1 false {:py/str "b"} 2 true 7]
+                 result))))))
+  (testing "its decimal text still refuses at the digit limit"
+    (let [reason (fn [e]
+                   (loop [e e]
+                     (when e
+                       (or (::integer/reason (ex-data e))
+                           (recur (ex-cause e))))))]
+      (doseq [[k run] runners]
+        (is (= :digit-limit
+               (try (run (u/mark-tails
+                           (u/then prelude/functions-uast
+                                   (u/sexp->uast
+                                     '(integer/format
+                                        (integer/shift-left 1 20000))))))
+                    (catch #?(:cljd Object :clj Exception :cljs :default) e
+                      (reason e))))
+            (str k))))))
 
 
 (deftest numeric-dict-keys-on-every-host-test

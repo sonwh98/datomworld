@@ -456,6 +456,24 @@
   (or (fn? x) (values/closure? x) (values/continuation? x)))
 
 
+(defn- ref?
+  "True when `x` is a stream, cursor or cell reference."
+  [x]
+  (and (map? x) (contains? #{:stream-ref :cursor-ref :cell-ref} (:type x))))
+
+
+(defn- data-content=
+  "True when `a` and `b` have one identity under content addressing:
+   Jing's kind-strict content equality, so every NaN is one value, 0.0 is
+   not -0.0, 1 is not 1.0, and collections recurse. A callable or a
+   reference compares by host `=`, so content addressing never walks it."
+  [a b]
+  (or (identical? a b)
+      (if (or (callable? a) (callable? b) (ref? a) (ref? b))
+        (= a b)
+        (cbor/content= a b))))
+
+
 ;; =============================================================================
 ;; The module
 ;; =============================================================================
@@ -486,6 +504,7 @@
    ['number? [1] data-number?]
    ['float64 [1] float64]
    ['float-value [1] float-value]
+   ['content= [2] data-content=]
    ['callable? [1] callable?]])
 
 

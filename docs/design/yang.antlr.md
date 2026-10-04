@@ -1973,7 +1973,8 @@ This section records the C3 integer design as amended by the C3
 cross-ruling's fourteen converged rulings. Of its slices S0 to S7 below,
 S1 (the exact-integer module, `54536317`) has landed, and so has the
 numeric-key, `hash()` and `is` work of rulings 6 to 8 (`be1f8d06`,
-orchestrated as C3-S2, the S5 row's scope); the rest are pending. C1
+orchestrated as C3-S2, the S5 row's scope), with its S2b follow-up
+(content `is` and hex keys); the rest are pending. C1
 restricts integers to [-2^53, 2^53], an intentional limitation C3 replaces
 with exact promotion.
 
@@ -2140,8 +2141,11 @@ Conversions are acceptance conditions (ruling 9):
 Python numeric equality, dict-key normalization, and canonical storage
 identity stay three distinct contracts. Numeric dict and set keys are
 reduced-rational keys in one form (ruling 6), `[:py.numeric/finite
-numerator-decimal denominator-decimal]`, replacing C1's double
-normalization:
+numerator-hex denominator-hex]`, replacing C1's double normalization.
+Both components are lowercase hex through `(integer/format n 16)`, with
+no prefix and no leading zeros, `-` only on a negative numerator, and
+`"0"` for zero; the denominator is positive, `"1"` for integers. A
+power-of-two radix is exempt from `::max-digits`.
 
 - `True`, `1`, and `1.0` share the key 1/1; `False`, `0`, and `+/-0.0`
   share 0/1; `1.5` is 3/2; 2^53 and 2^53+1 stay distinct.
@@ -2166,17 +2170,16 @@ normalization:
   convention; the non-numeric arm (generators and other identity
   objects by ref) and the unhashable arm are preserved. The
   insertion-order vector keeps the first inserted original key.
-- Known limits, recorded and not fixed in C3-S2. An integer key is
-  formatted in base 10 through the `integer` module, so an integer past
-  the composition's `::max-digits` cannot be a dict or set key; CPython
-  applies its digit limit to `str()`, not to hashing or keying. And the
-  smallest subnormal keys with a 1075-bit denominator of 324 digits, so
-  a composition's `integer` limits must admit at least 1075 bits and 324
-  digits for float keys. Under smaller limits the key is refused, never
+- Known limits. Keys are hex, so the digit limit never applies to
+  keying, as CPython applies it to `str()` and not to hashing or keying:
+  an integer past `::max-digits` is a valid dict or set key. The
+  smallest subnormal keys with a 1075-bit denominator, so a
+  composition's `integer` limits must admit at least 1075 bits for float
+  keys. Under a smaller bit limit the key is refused, never
   approximated: the refusal must surface as the documented guest
-  failure (ruling 11: `MemoryError` for bits, `ValueError` for digits).
-  The prelude does not map `integer` refusals to guest exceptions yet,
-  so today such a refusal fails the run instead.
+  failure (ruling 11: `MemoryError`). The prelude does not map `integer`
+  refusals to guest exceptions yet, so today such a refusal fails the
+  run instead.
 
 Guest numeric `hash()` uses P = 2^61-1 on every host (ruling 7):
 `h(n) = sign(n) * (abs(n) mod P)`, with -1 replaced by -2. A finite
@@ -2188,10 +2191,18 @@ object (generator, instance, function) is unsupported in C3, since the
 only available identity is the cell id, which is not exposed and not
 stable across lift.
 
-Integer `is` is value-based through the unchanged `py/is`, which stays
-`(= a b)` and is carrier-independent by ruling 2; this matches section
-8.11's "same type and value" rule (ruling 8). `True is 1` stays false.
-No CPython allocation or interning fidelity is promised.
+`is` on non-cell values is content identity: `py/is` is
+`data/content=`, Jing's kind-strict content equality, so two values are
+`is`-equal exactly when content addressing gives them one identity, on
+every host (ruling 8, section 8.11 "same type and value"). Integers are
+`is`-equal at any magnitude regardless of carrier; `True is 1` and
+`1 is 1.0` are false. For floats the value is the binary64 content:
+`0.0 is -0.0` is false, as in CPython, and every NaN is one value, so
+`float('nan') is float('nan')` is true where CPython answers false. This
+is the float-identity departure, the same family as the one-NaN key.
+Host `=` is not used: it merges signed zeros on the JVM and splits NaNs
+by box. `==` is unaffected. No CPython allocation or interning fidelity
+is promised.
 
 Numeric limits are explicit Python-profile data in bits and digits, with
 no implicit default and nothing inherited from environment variables or
@@ -2231,7 +2242,8 @@ parity remains a separately tracked limitation, not claimed by C3
 | S4     | Conversions and comparisons: float bits, exact text, tagged float   |
 |        | results, exceptions; no double rounding.                            |
 +--------+---------------------------------------------------------------------+
-| S5     | Numeric dict and set keys and guest hashes.                         |
+| S5     | Numeric dict and set keys and guest hashes. Landed, with its S2b    |
+|        | follow-up: content `is` and hex keys.                               |
 +--------+---------------------------------------------------------------------+
 | S6     | Heap and portability: collection, pinning, scalar UCF round trips,  |
 |        | honest refusal of cell lift and raw transport.                      |
@@ -2371,7 +2383,7 @@ The dict key. `numeric-key` is the interim key (converged sign-off,
 Q1): the integer when the value is integral within +/-(2^53 - 1), so
 `1`, `1.0`, `True` and `-0.0`/`0` key alike, and float64 content
 otherwise. C3-S2 has replaced this numeric arm with ruling-6
-decimal-string keys built by exact decomposition from inputs unwrapped
+hex-string keys built by exact decomposition from inputs unwrapped
 through `data/float-value`, pinned one NaN key (section 8.5.4), and
 deleted `numeric-key`.
 
@@ -3144,7 +3156,9 @@ Aliasing and identity:
 - `is` on immutable values is same type and value, confirmed per
   language profile (owner decision 1). Python's reference permits it. A
   Java profile cannot use it: boxed objects and `new String` require
-  distinct identity, so a Java profile gives them cells.
+  distinct identity, so a Java profile gives them cells. For Python,
+  value means content identity, so floats compare by binary64 content
+  (section 8.5.4).
 - The ref itself is a valid host map key, so default instance hashing
   needs no id extraction.
 - A guest-visible `id()` is not stable across a lift, because cell ids are
