@@ -444,7 +444,9 @@
    same validate-then-truncate pass as create-content-file, reads and
    closes. This is the file backend's test-facing view (D4): what the
    in-memory map holds is observable through the handle; what the file
-   holds is observable here."
+   holds is observable here. It is also the replay view of the journal's
+   file backend (dao.stream.journal.file), whose frame order this order
+   is."
   [path]
   (let [f (open-file! path)]
     (try (mapv (fn [[address payload]]

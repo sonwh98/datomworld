@@ -1,6 +1,6 @@
 # DaoStream Journal: The Durable Complete-Retention Log
 
-Status: C1 implemented (memory backend); the file backend is slice C2 of
+Status: C1 (memory backend) and C2 (file backend) implemented, slices of
 the linker M-next C plan. Subordinate to [`dao.stream.md`](./dao.stream.md),
 which is the contract and wins on any disagreement. Implementation:
 `src/cljc/dao/stream/journal.cljc`.
@@ -168,6 +168,46 @@ through that backend value suffers, followed by a throw:
 
 ### File backend
 
-Slice C2: each frame is one `dao.jing.file` content frame, replayed in
-`dao.jing.file/records` order, under the directory lock of
-`dao.space.store.fs`. It also delivers the durability declaration.
+`dao.stream.journal.file` (slice C2). `(backend! dir)` creates `dir` when
+absent, takes its lock (`dao.space.store.fs/lock!`), and opens
+`<dir>/journal.jing` with `dao.jing.file`. It answers `ok` with
+`:dao.stream.journal.file/backend`, or `transport-error` with defect
+`:locked` (another owner holds `dir`) or `:open-failed` (the content file
+refuses to open). `(close! backend)` closes the content file and releases
+the lock.
+
+- **Frames.** Each frame is one content frame, put at the address of its
+  bytes. The content file owns framing, the fsync before a put answers,
+  and dropping a torn tail at open; the journal sees only whole frames.
+- **Replay.** `dao.jing.file/records` order. Each record's value is
+  re-encoded and checked against its address, so decode then encode is
+  the identity on every accepted frame.
+- **`:present`.** A put that answers `:present` found a frame with the
+  same bytes already stored. Frames embed a dense position, so equal
+  values never make equal frames; `:present` is a defect, and the
+  journal poisons.
+- **Truncate.** Always a failure: the content file already dropped any
+  tear, so the journal never asks.
+- **Durability.** The backend carries
+  `:dao.stream.journal/durability`, a function answering data, its keys
+  under `:dao.stream.journal/`:
+
+| Key              | JVM           | Node          | Dart             |
+|------------------|---------------|---------------|------------------|
+| `backend`        | `:file`       | `:file`       | `:file`          |
+| `failure-model`  | `:process-crash` | `:process-crash` | `:process-crash` |
+| `lock-kind`      | `:os-lock`    | `:claim-file` | `:os-lock`       |
+
+`persisted` is `#{:identity :content-references}` on every host. Every
+host declares only a process crash: `dao.jing.file` syncs each frame but
+never the directory holding the new file (Dart cannot sync a directory at
+all), so a power cut right after the first open can lose the file and its
+identity. A directory sync at creation would let the JVM and Node declare
+`:power-loss`. Node's claim file refuses on pid reuse (see
+`dao.space.store.fs`).
+
+A medium whose only frame is a torn header does not open: `dao.jing.file`
+refuses it, so the journal answers `transport-error` and the directory
+needs clearing by hand. The memory backend instead starts a fresh empty
+journal; the file backend is stricter because it cannot tell a crash in
+the first write from damage.
