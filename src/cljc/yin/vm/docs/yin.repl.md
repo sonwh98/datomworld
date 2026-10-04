@@ -122,7 +122,11 @@ one step owner threads the same value through both, so a definition typed at
 the server's `yin>` prompt answers a remote request in the same tick, and a
 definition a remote client makes is visible at the local prompt on the next
 tick. The endpoint evaluates locally or reports that it does not proxy.
-`--host 127.0.0.1` remains the default boundary.
+`--port` listens on all interfaces, so the server answers on `localhost`
+and on the machine's own IP, and its startup banner names both. There is
+no authentication: anyone who can reach the port can evaluate code in the
+shared shell, so run it on a network you trust. There is no `--host`; it is
+refused rather than ignored.
 
 ## Publishing and loading code over the DHT
 

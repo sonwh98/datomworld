@@ -401,7 +401,10 @@
                                                  :cljs (js/parseInt p 10)
                                                  :clj (Long/parseLong p))))
                           dht)
-          "--host" (recur (nnext args) (assoc opts :host (second args)) dht)
+          "--host" (throw (ex-info (str "--host is gone: --port serves on all "
+                                        "interfaces, so it answers on "
+                                        "localhost and on this machine's IP")
+                                   {}))
           "--headless" (recur (next args) (assoc opts :headless? true) dht)
           "--index-store" (recur (nnext args)
                                  (assoc opts
@@ -459,6 +462,52 @@
                                         :principals (:principals opts)})})))
 
 
+(def bind-all-host
+  "`--port` listens on every interface: loopback and the machine's own IP."
+  "0.0.0.0")
+
+
+(defn pick-ip
+  "The address to advertise among a machine's non-loopback IPv4 addresses:
+   the first private-network one (10/8, 172.16/12, 192.168/16), since a
+   tunnel or VPN interface can list ahead of the LAN's; else the first;
+   else loopback."
+  [ips]
+  (or (first (filter #(re-matches #"10\..*|192\.168\..*|172\.(1[6-9]|2\d|3[01])\..*"
+                                  %)
+                     ips))
+      (first ips)
+      "127.0.0.1"))
+
+
+(defn local-ip
+  "This machine's address for `--port`'s banner and advertised host.
+   ClojureDart can only list interfaces asynchronously, so it advertises
+   loopback."
+  []
+  (pick-ip
+    #?(:cljd nil
+       :clj (try (doall
+                   (for [^java.net.NetworkInterface ni
+                         (enumeration-seq
+                           (java.net.NetworkInterface/getNetworkInterfaces))
+                         :when (and (.isUp ni) (not (.isLoopback ni)))
+                         ^java.net.InetAddress a (enumeration-seq
+                                                   (.getInetAddresses ni))
+                         :when (instance? java.net.Inet4Address a)]
+                     (.getHostAddress a)))
+                 (catch Exception _ nil))
+       :cljs (try (doall
+                    (for [addrs (array-seq (js/Object.values
+                                             (.networkInterfaces
+                                               (js/require "os"))))
+                          ^js a (array-seq addrs)
+                          :when (and (contains? #{"IPv4" 4} (.-family a))
+                                     (not (.-internal a)))]
+                      (.-address a)))
+                  (catch :default _ nil)))))
+
+
 (defn boot-server
   "Compose the served endpoint for `--port`, or nil when no port was asked for.
 
@@ -467,7 +516,8 @@
   [opts]
   (when (:port opts)
     (serve/serve! {:bind-port (:port opts)
-                   :bind-host (or (:host opts) serve/default-bind-host)
+                   :bind-host bind-all-host
+                   :advertised-host (local-ip)
                    :host (or (:adapter opts) (host/websocket))})))
 
 
@@ -494,8 +544,8 @@
    "  --peer host:port  a peer to contact; repeatable; localhost or an IP"
    ""
    "flags:"
-   "  --port n          serve this shell to other shells over WebSockets"
-   "  --host ip         bind address for --port (default 127.0.0.1)"
+   "  --port n          serve this shell to other shells over WebSockets, on"
+   "                    all interfaces: localhost and this machine's IP"
    "  --headless        no prompt, endpoint only; needs --port"
    "  --index-store s   mem (default), file:<dir> or dht:<dir>"
    "  --help, -h        print this and exit"
@@ -593,6 +643,15 @@
         dht? (= :dht (:type spec))]
     (cond-> (vec (:startup-lines opts))
       (seq (:rejected opts)) (conj telemetry-text)
+      (:port opts)
+      (conj (str "serving on all interfaces: ws://127.0.0.1:" (:port opts)
+                 (let [ip (local-ip)]
+                   (if (= "127.0.0.1" ip)
+                     " and ws://<this machine's IP>:"
+                     (str " and ws://" ip ":")))
+                 (:port opts)
+                 ". Anyone who can reach this port can evaluate code in this"
+                 " shell; there is no authentication."))
       (and (:headless? opts) (not (:port opts)))
       (conj "--headless has nothing to attend without a served endpoint")
       dht? (into (repl.dht/banner spec))

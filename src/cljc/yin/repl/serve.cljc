@@ -251,7 +251,7 @@
       (inert base :bind-failed
              {:code :yin.repl.endpoint/advertised-host-required
               :message "a wildcard bind requires an explicit advertised host"}
-             (str "--host " bind-host " needs an explicit advertised host"))
+             (str "binding " bind-host " needs an explicit advertised host"))
 
       ;; Known limit of this slice, stated rather than hidden behind the
       ;; descriptor gate: the advertised descriptor is fixed at `serve!`, so a
