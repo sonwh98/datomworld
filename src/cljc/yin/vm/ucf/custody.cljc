@@ -83,6 +83,17 @@
    :yin.k/epoch e})
 
 
+(defn reclaimed
+  "The epoch change of the reclaim of lease `l` on occurrence `o`: the
+   occurrence's epoch `e` after it, committed in the transaction of
+   l's `:dao.lease/lapsed` fact (7.7.8)."
+  [o l e]
+  {:yin.k/custody :yin.k/reclaimed
+   :yin.k/occurrence o
+   :dao.lease/lease l
+   :yin.k/epoch e})
+
+
 (defn subject
   "The lease subject of occurrence `o`."
   [o]

@@ -285,10 +285,11 @@
                                         fx/predecessor))))
           "an occurrence never offered")
       (is (= {:dao.stream/outcome :dao.stream/invalid-value}
-             (stream/append! w (lease/lapsed "lease-1" :policy)))
-          "a lapse is slice C6's")
+             (stream/append! w (lease/lapsed "lease-9" :policy)))
+          "a lapse of a lease never granted")
       (is (= {:dao.stream/outcome :dao.stream/invalid-value}
-             (stream/append! w (lease/refusal "p-2"))))
+             (stream/append! w (lease/refusal "p-2")))
+          "a refusal that names no proposer")
       (is (= {:dao.stream/outcome :dao.stream/invalid-value}
              (stream/append! w (assoc (a-grant "lease-4" "holder-b")
                                       :yin.k/extra 1)))

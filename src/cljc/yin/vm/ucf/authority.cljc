@@ -91,7 +91,9 @@
 
 (defn open!
   "Open the authority over a journal `backend`.  `opts` may carry
-   ::max-exact, a lower counter bound for tests.  Answers
+   ::max-exact, a lower counter bound for tests, and ::max-epoch, a
+   lower epoch bound for tests; a ledger must be reopened with the
+   epoch bound it was written under.  Answers
    `{:yin.k/status :open ::authority a :dao.stream/identity i}`, or
    `{:yin.k/status :refused :yin.k/defect d}` having written nothing
    beyond what dao.stream.journal/open! writes."
@@ -101,7 +103,8 @@
          h (:dao.stream/handle j)
          arb (:dao.stream/identity j)
          folded (when (ok? j)
-                  (fold-from h (ledger/empty-projection arb)
+                  (fold-from h (ledger/empty-projection
+                                 arb (get opts ::max-epoch ledger/max-exact))
                              (:dao.stream/cursor
                                (stream/cursor h :dao.stream/oldest))))
          tx (when (:projection folded)

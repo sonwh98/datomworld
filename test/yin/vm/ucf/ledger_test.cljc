@@ -215,10 +215,15 @@
     (is (= {"lease-1" {:yin.k/occurrence occ
                        :dao.lease/holder "holder-a"
                        :yin.k/epoch 0
-                       :dao.space/t 2}}
-           (:leases p)))
-    (is (= #{:arbitration :next-t :next-e :targets :admitted :occurrences
-             :leases}
+                       :dao.space/t 2
+                       :dao.lease/duration {:s 30}
+                       :dao.lease/proposal "p-1"}}
+           (:leases p))
+        "a lease keeps its grant's terms")
+    (is (= {["holder-a" "p-1"] :dao.lease/accepted} (:answered p))
+        "the grant answers its holder's proposal")
+    (is (= #{:arbitration :max-epoch :next-t :next-e :targets :admitted
+             :occurrences :leases :answered}
            (set (keys p)))
         "no transient fold state stays in a projection")))
 
@@ -296,3 +301,180 @@
              (raw [[(offered)]]
                   [[20 :yin.k/custody :yin.k/bound]
                    [20 :dao.lease/status :dao.lease/accepted]]))))))
+
+
+;; =============================================================================
+;; Lapses, epochs and refusals (slice C6)
+;; =============================================================================
+
+(defn- lapse
+  ([] (lapse "lease-1"))
+  ([l] {:dao.lease/status :dao.lease/lapsed
+        :dao.lease/lease l
+        :dao.lease/cause :policy}))
+
+
+(defn- reclaimed
+  ([e] (reclaimed "lease-1" e))
+  ([l e] (custody/reclaimed occ l e)))
+
+
+(defn- refusal
+  [proposer pid]
+  {:dao.lease/status :dao.lease/rejected
+   :dao.lease/proposal pid
+   :yin.k/proposer proposer})
+
+
+(defn- granted
+  "A grant of lease l to holder h answering proposal pid, with its
+   binding at epoch e."
+  [l h pid e]
+  [(assoc (grant l h) :dao.lease/proposal pid) (bound l h e)])
+
+
+(deftest a-lapse-and-its-epoch-commit-together
+  (let [p (fold [(offered)] [(grant) (bound)] [(lapse) (reclaimed 1)])]
+    (is (nil? (::ledger/defect p)))
+    (is (= 1 (get-in p [:occurrences occ :yin.k/epoch]))
+        "the reclaim raises the epoch by one")
+    (is (nil? (get-in p [:occurrences occ :dao.lease/lease]))
+        "and leaves the occurrence with no live lease")
+    (is (= :policy (get-in p [:leases "lease-1" :dao.lease/cause]))))
+  (let [p (fold [(offered)] [(grant) (bound)] [(lapse) (reclaimed 1)]
+                (granted "lease-2" "holder-b" "p-2" 1)
+                [(lapse "lease-2") (reclaimed "lease-2" 2)]
+                (granted "lease-3" "holder-a" "p-3" 2))]
+    (is (nil? (::ledger/defect p)))
+    (is (= [0 1 2] (mapv #(get-in p [:leases % :yin.k/epoch])
+                         ["lease-1" "lease-2" "lease-3"]))
+        "the grant after k reclaims binds k")))
+
+
+(deftest no-reader-sees-a-lapse-without-its-epoch
+  (let [defect (fn [& txs] (::ledger/defect (apply fold txs)))
+        base [[(offered)] [(grant) (bound)]]]
+    (is (= :lapse-without-epoch (apply defect (conj base [(lapse)]))))
+    (is (= :lapse-without-epoch
+           (apply defect (conj base [(lapse)] [(reclaimed 1)])))
+        "the epoch fact in a later record is too late")
+    (is (= :unpaired-epoch (apply defect (conj base [(reclaimed 1)])))
+        "an epoch change without its lapse")
+    (is (= :unpaired-epoch
+           (apply defect (conj base [(reclaimed 1) (lapse)])))
+        "the epoch fact follows its lapse")
+    (is (= :epoch-mismatch
+           (apply defect (conj base [(lapse) (reclaimed 2)])))
+        "exactly one")
+    (is (= :epoch-mismatch
+           (apply defect (conj base [(lapse) (reclaimed 0)])))
+        "never unchanged below the bound")
+    (is (= :malformed-fact
+           (apply defect (conj base [(lapse) (reclaimed (cbor/float64 1))]))))
+    (is (= :unpaired-epoch
+           (apply defect (conj base [(lapse) (reclaimed 1) (reclaimed 1)]))))
+    (is (= :binding-mismatch
+           (apply defect
+                  (conj base
+                        [(lapse)
+                         (assoc (reclaimed 1) :yin.k/occurrence
+                                "1d3e5b7a-0c2f-4a69-8b11-7e6d5c4b3a02")]))))
+    (is (= :unknown-lease (defect [(offered)] [(lapse) (reclaimed 1)])))
+    (is (= :duplicate-lapse
+           (apply defect (conj base [(lapse) (reclaimed 1)]
+                               [(lapse) (reclaimed 2)]))))
+    (is (= :malformed-fact
+           (apply defect (conj base [(dissoc (lapse) :dao.lease/cause)
+                                     (reclaimed 1)]))))))
+
+
+(deftest a-successor-occurrence-starts-at-epoch-zero
+  (let [other "1d3e5b7a-0c2f-4a69-8b11-7e6d5c4b3a02"
+        p (fold [(offered)] [(grant) (bound)] [(lapse) (reclaimed 1)]
+                [(custody/offer other addr-2 "carrier"
+                                (assoc baseline :yin.k/occurrence other))])]
+    (is (= 1 (get-in p [:occurrences occ :yin.k/epoch])))
+    (is (= 0 (get-in p [:occurrences other :yin.k/epoch])))))
+
+
+(defn- at-epoch
+  "The projection after offering occ, its epoch set to `e` as if e
+   reclaims had passed."
+  [e]
+  (assoc-in (fold [(offered)]) [:occurrences occ :yin.k/epoch] e))
+
+
+(defn- fold-on
+  [p & txs]
+  (reduce (fn [p facts]
+            (if (::ledger/defect p)
+              p
+              (ledger/fold-record
+                p
+                (record (:next-t p)
+                        (stamp (:next-t p)
+                               (ledger/facts->datoms (:next-e p) facts))))))
+          p
+          txs))
+
+
+(deftest the-epoch-exhausts-at-the-bound
+  (let [top ledger/max-exact
+        p (fold-on (at-epoch top) [(grant) (bound "lease-1" "holder-a" top)])]
+    (is (nil? (::ledger/defect p)) "a grant at 2^52-1 is valid")
+    (is (= top (get-in p [:leases "lease-1" :yin.k/epoch])))
+    (let [p' (fold-on p [(lapse) (reclaimed top)])]
+      (is (nil? (::ledger/defect p'))
+          "the reclaim records the lapse and leaves the epoch")
+      (is (= top (get-in p' [:occurrences occ :yin.k/epoch])))
+      (is (true? (get-in p' [:occurrences occ :yin.k/exhausted])))
+      (is (= :exhausted-occurrence
+             (::ledger/defect
+               (fold-on p' (granted "lease-2" "holder-b" "p-2" top))))
+          "no further grant"))
+    (is (= :malformed-fact
+           (::ledger/defect (fold-on p [(lapse) (reclaimed (inc top))])))
+        "2^52 is refused on the bytes"))
+  (is (= :malformed-fact
+         (::ledger/defect
+           (fold-on (at-epoch 0) [(grant) (bound "lease-1" "holder-a"
+                                                 (inc ledger/max-exact))]))))
+  (is (= :malformed-fact
+         (::ledger/defect
+           (fold-on (at-epoch 0) [(grant) (bound "lease-1" "holder-a" -1)]))))
+  (is (= :malformed-fact
+         (::ledger/defect
+           (fold [(offered)] [(grant) (bound)] [(lapse) (reclaimed -1)])))))
+
+
+(deftest a-lower-epoch-bound-exhausts-earlier
+  (let [p (fold-on (ledger/empty-projection arb 1)
+                   [(offered)] [(grant) (bound)] [(lapse) (reclaimed 1)]
+                   (granted "lease-2" "holder-b" "p-2" 1)
+                   [(lapse "lease-2") (reclaimed "lease-2" 1)])]
+    (is (nil? (::ledger/defect p)))
+    (is (true? (get-in p [:occurrences occ :yin.k/exhausted])))))
+
+
+(deftest refusals-answer-their-proposer
+  (let [p (fold [(offered)] [(refusal "holder-b" "p-1")])]
+    (is (nil? (::ledger/defect p)))
+    (is (= {["holder-b" "p-1"] :dao.lease/rejected} (:answered p))))
+  (let [defect (fn [& txs] (::ledger/defect (apply fold txs)))]
+    (is (= :malformed-fact
+           (defect [(dissoc (refusal "holder-b" "p-1") :yin.k/proposer)]))
+        "a refusal names its proposer")
+    (is (= :malformed-fact
+           (defect [(dissoc (refusal "holder-b" "p-1") :dao.lease/proposal)])))
+    (is (= :answered-proposal
+           (defect [(refusal "holder-b" "p-1")] [(refusal "holder-b" "p-1")])))
+    (is (= :answered-proposal
+           (defect [(offered)] [(grant) (bound)]
+             [(refusal "holder-a" "p-1")]))
+        "a granted proposal is answered")
+    (is (= :answered-proposal
+           (defect [(offered)] [(refusal "holder-a" "p-1")] [(grant) (bound)]))
+        "a refused proposal gets no grant")
+    (is (nil? (defect [(offered)] [(refusal "holder-b" "p-1")]
+                [(grant) (bound)]))
+        "another proposer's id is another answer")))

@@ -25,19 +25,37 @@
      :yin.k/offered        an admitted offer of one snapshot variant
      :dao.lease/accepted   a lease grant on one offered occurrence
      :yin.k/bound          its epoch binding, in the grant's transaction
+   and of slice C6:
+     :dao.lease/lapsed     the reclaim of a live lease
+     :yin.k/reclaimed      its epoch change, in the lapse's transaction:
+                           one above the binding's epoch, or the same
+                           epoch at the bound, which exhausts the
+                           occurrence (UCF 7.7.8)
+     :dao.lease/rejected   a refusal, naming its `:yin.k/proposer`
 
    The projection is plain data:
 
      {:arbitration a      ; the ledger's stream identity
+      :max-epoch   m      ; the epoch bound, 2^52-1 unless lowered
       :next-t      t      ; the next transaction time, the record count
       :next-e      e      ; the next entity id
       :targets     {i {:closed? b :values [v ...]}}
       :admitted    {(cbor/content-key op-id)
                     {:yin.k/target i :yin.k/intent h :yin.k/result r}}
       :occurrences {o {:yin.k/baseline b :yin.k/variants #{address}
-                       :yin.k/epoch e :dao.lease/lease l-or-nil}}
+                       :yin.k/epoch e :dao.lease/lease l-or-nil
+                       :yin.k/exhausted true}}     ; once exhausted
       :leases      {l {:yin.k/occurrence o :dao.lease/holder h
-                       :yin.k/epoch e :dao.space/t t}}}
+                       :yin.k/epoch e :dao.space/t t
+                       :dao.lease/duration d     ; the grant's terms:
+                       :dao.lease/proposal p     ; each when it has one
+                       :dao.lease/max m
+                       :dao.lease/cause c}}      ; once lapsed
+      :answered    {[proposer proposal-id] status}}
+
+   `:answered` holds every recorded grant (keyed by its holder) and
+   refusal (by its proposer) that answers a proposal, so a dao.lease
+   judge can be rebuilt from the ledger.
 
    An occurrence id is a UUID string in one spelling, so it keys the
    map directly and compares by its canonical bytes.
@@ -71,7 +89,12 @@
                         :dao.lease/subject :dao.lease/holder
                         :dao.lease/duration :dao.lease/max]
    :yin.k/bound [:yin.k/custody :yin.k/occurrence :dao.lease/lease
-                 :dao.lease/holder :yin.k/epoch]})
+                 :dao.lease/holder :yin.k/epoch]
+   :dao.lease/lapsed [:dao.lease/status :dao.lease/lease :dao.lease/cause]
+   :yin.k/reclaimed [:yin.k/custody :yin.k/occurrence :dao.lease/lease
+                     :yin.k/epoch]
+   :dao.lease/rejected [:dao.lease/status :dao.lease/proposal
+                        :yin.k/proposer]})
 
 
 (def effect-kinds
@@ -99,14 +122,19 @@
 
 
 (defn empty-projection
-  [arbitration]
-  {:arbitration arbitration
-   :next-t 0
-   :next-e datom/first-user-id
-   :targets {}
-   :admitted {}
-   :occurrences {}
-   :leases {}})
+  "The projection of an empty ledger.  `max-epoch`, a lower epoch bound
+   for tests, defaults to `max-exact`."
+  ([arbitration] (empty-projection arbitration max-exact))
+  ([arbitration max-epoch]
+   {:arbitration arbitration
+    :max-epoch max-epoch
+    :next-t 0
+    :next-e datom/first-user-id
+    :targets {}
+    :admitted {}
+    :occurrences {}
+    :leases {}
+    :answered {}}))
 
 
 (defn fact-kind
@@ -222,7 +250,11 @@
       (nil? known) :unknown-occurrence
       (contains? (:leases projection) (:dao.lease/lease fact))
       :duplicate-lease
+      (:yin.k/exhausted known) :exhausted-occurrence
       (some? (:dao.lease/lease known)) :held-occurrence
+      (contains? (:answered projection)
+                 [(:dao.lease/holder fact) (:dao.lease/proposal fact)])
+      :answered-proposal
       :else nil)))
 
 
@@ -243,6 +275,60 @@
             (:yin.k/epoch fact))
       :epoch-mismatch
       :else nil)))
+
+
+(defn- lapse-defect
+  "Why `fact` is not the lapse of a live lease, or nil."
+  [projection fact]
+  (let [granted (get-in projection [:leases (:dao.lease/lease fact)])]
+    (cond
+      (lease/defective? fact) :malformed-fact
+      (nil? granted) :unknown-lease
+      (contains? granted :dao.lease/cause) :duplicate-lapse
+      (nil? (:yin.k/epoch granted)) :unbound-grant
+      :else nil)))
+
+
+(defn next-epoch
+  "The epoch a reclaim of a lease bound at `e` leaves: e + 1, or e at
+   the bound `max-epoch`, where the reclaim exhausts the occurrence."
+  [max-epoch e]
+  (if (< e max-epoch) (inc e) e))
+
+
+(defn- reclaimed-defect
+  "Why `fact` is not the epoch change of a lapse in this transaction,
+   or nil."
+  [projection fact]
+  (let [l (:dao.lease/lease fact)
+        granted (get-in projection [:leases l])]
+    (cond
+      (not (and (custody/occurrence? (:yin.k/occurrence fact))
+                (custody/exact? (:yin.k/epoch fact))))
+      :malformed-fact
+      (not (contains? (::unepoched projection) l)) :unpaired-epoch
+      (not= (:yin.k/occurrence granted) (:yin.k/occurrence fact))
+      :binding-mismatch
+      (not= (next-epoch (:max-epoch projection) (:yin.k/epoch granted))
+            (:yin.k/epoch fact))
+      :epoch-mismatch
+      :else nil)))
+
+
+(defn- refusal-defect
+  "Why `fact` is not a refusal this ledger can hold, or nil."
+  [projection fact]
+  (cond
+    (or (lease/defective? fact) (nil? (:yin.k/proposer fact)))
+    :malformed-fact
+    (contains? (:answered projection)
+               [(:yin.k/proposer fact) (:dao.lease/proposal fact)])
+    :answered-proposal
+    :else nil))
+
+
+(def ^:private grant-terms
+  [:dao.lease/duration :dao.lease/proposal :dao.lease/max])
 
 
 (defn- fold-fact
@@ -302,13 +388,19 @@
           o (custody/subject-occurrence (:dao.lease/subject fact))]
       (when-let [d (grant-defect projection fact)]
         (defect! d {:fact fact}))
-      (-> projection
-          (assoc-in [:occurrences o :dao.lease/lease] l)
-          (assoc-in [:leases l] {:yin.k/occurrence o
-                                 :dao.lease/holder (:dao.lease/holder fact)
-                                 :yin.k/epoch nil
-                                 :dao.space/t t})
-          (update ::unbound (fnil conj #{}) l)))
+      (cond-> (-> projection
+                  (assoc-in [:occurrences o :dao.lease/lease] l)
+                  (assoc-in [:leases l]
+                            (merge {:yin.k/occurrence o
+                                    :dao.lease/holder (:dao.lease/holder fact)
+                                    :yin.k/epoch nil
+                                    :dao.space/t t}
+                                   (select-keys fact grant-terms)))
+                  (update ::unbound (fnil conj #{}) l))
+        (contains? fact :dao.lease/proposal)
+        (assoc-in [:answered [(:dao.lease/holder fact)
+                              (:dao.lease/proposal fact)]]
+                  :dao.lease/accepted)))
 
     :yin.k/bound
     (let [l (:dao.lease/lease fact)]
@@ -316,7 +408,39 @@
         (defect! d {:fact fact}))
       (-> projection
           (assoc-in [:leases l :yin.k/epoch] (:yin.k/epoch fact))
-          (update ::unbound disj l)))))
+          (update ::unbound disj l)))
+
+    ;; A lapse ends a live lease; the same transaction must change its
+    ;; occurrence's epoch, or the record's fold fails.
+    :dao.lease/lapsed
+    (let [l (:dao.lease/lease fact)
+          o (get-in projection [:leases l :yin.k/occurrence])]
+      (when-let [d (lapse-defect projection fact)]
+        (defect! d {:fact fact}))
+      (-> projection
+          (assoc-in [:leases l :dao.lease/cause] (:dao.lease/cause fact))
+          (assoc-in [:occurrences o :dao.lease/lease] nil)
+          (update ::unepoched (fnil conj #{}) l)))
+
+    :yin.k/reclaimed
+    (let [l (:dao.lease/lease fact)
+          o (:yin.k/occurrence fact)
+          e (:yin.k/epoch fact)]
+      (when-let [d (reclaimed-defect projection fact)]
+        (defect! d {:fact fact}))
+      (cond-> (-> projection
+                  (assoc-in [:occurrences o :yin.k/epoch] e)
+                  (update ::unepoched disj l))
+        (= e (get-in projection [:leases l :yin.k/epoch]))
+        (assoc-in [:occurrences o :yin.k/exhausted] true)))
+
+    :dao.lease/rejected
+    (do (when-let [d (refusal-defect projection fact)]
+          (defect! d {:fact fact}))
+        (assoc-in projection
+                  [:answered [(:yin.k/proposer fact)
+                              (:dao.lease/proposal fact)]]
+                  :dao.lease/rejected))))
 
 
 (defn- fold-record*
@@ -340,7 +464,10 @@
     (let [p (reduce #(fold-fact %1 t %2) projection (entities datoms))]
       (when (seq (::unbound p))
         (defect! :unbound-grant {:dao.lease/lease (first (::unbound p))}))
-      (-> (dissoc p ::unbound)
+      (when (seq (::unepoched p))
+        (defect! :lapse-without-epoch
+          {:dao.lease/lease (first (::unepoched p))}))
+      (-> (dissoc p ::unbound ::unepoched)
           (assoc :next-t (inc t)
                  :next-e (inc (reduce max (map first datoms))))))))
 

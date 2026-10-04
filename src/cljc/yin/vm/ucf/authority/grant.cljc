@@ -1,6 +1,7 @@
 (ns yin.vm.ucf.authority.grant
-  "Offers, grants and epoch bindings of M-next C slice C5 (UCF 7.7.2,
-   7.7.8; docs/design/yin.vm.linker.dht.md 14.2.2 and 14.2.3).
+  "Offers, grants and epoch bindings of M-next C slice C5, and the
+   reclaims, epochs and reopen of slice C6 (UCF 7.7.2, 7.7.7, 7.7.8;
+   docs/design/yin.vm.linker.dht.md 14.2.2 and 14.2.3).
 
    `offer!` admits one snapshot variant of an occurrence: it inspects
    the bytes (yin.vm.ucf.checkpoint), stores the accepted body in a
@@ -15,12 +16,26 @@
    records an appended `:dao.lease/accepted` fact and its `:yin.k/bound`
    binding as one transaction; its `:reclaim`, a readiness check that
    revokes nothing; and its `:answer` hook, which grants one proposal per
-   offered, unheld occurrence.  `step!` runs a whole judge-step under
-   the authority's lock, so the hook and the writer see one projection.
-   The writer, not the hook, enforces one live lease per occurrence.
-   Lapses, epoch increments and reopen reconstruction are slice C6's;
-   until then the writer refuses every fact but a grant, so a due
-   reclaim stays pending in the judge."
+   offered, unheld occurrence and refuses the losing candidates.
+   `step!` runs a whole judge-step under the authority's lock, so the
+   hook and the writer see one projection.  The writer, not the hook,
+   enforces one live lease per occurrence.
+
+   The reclaim adapter contract (plan 1.3).  The judge marks a due lease
+   pending and calls `:reclaim`, which only reports readiness; the
+   revocation is the writer's lapse transaction, which holds the
+   `:dao.lease/lapsed` fact and its occurrence's epoch change
+   (`:yin.k/reclaimed`) together.  Nothing claiming the revocation
+   leaves the authority before that transaction commits: until then the
+   projection shows the lease live at its epoch.  A non-ok writer answer
+   leaves the lease pending in the judge and the projection unchanged,
+   and the ledger fold refuses a lapse without its epoch change.
+
+   `reopen!` is plan 1.5 steps 1 to 4 and 6: it opens the authority and
+   reclaims every tenure the ledger shows live, cause :policy, each as
+   one transaction, before it hands the authority out; nothing is
+   regranted.  `rebuild-judge` is step 5: the judge's `:seen` and
+   `:answered` from the ledger, its `:ledger` and `:queue` empty."
   (:require [dao.lease :as lease]
             [dao.stream :as stream]
             [yin.vm.ucf.authority :as authority]
@@ -114,7 +129,7 @@
 
 
 ;; =============================================================================
-;; The judge's writer: a grant and its binding in one transaction
+;; The judge's writer: grants, lapses and refusals, each one transaction
 ;; =============================================================================
 
 (def ^:private ok {:dao.stream/outcome :dao.stream/ok})
@@ -126,8 +141,14 @@
   {:dao.stream/outcome :dao.stream/transport-error})
 
 
+(def ^:private grant-terms
+  [:dao.lease/duration :dao.lease/proposal :dao.lease/max])
+
+
 (defn- grant-decision
-  "Decide grant fact `g` of lease l on occurrence o to holder h."
+  "Decide grant fact `g` of lease l on occurrence o to holder h.  The
+   grant recorded for l is a replay only when its occurrence, holder and
+   terms are g's."
   [g l o h]
   (fn [p]
     (let [known (get-in p [:occurrences o])
@@ -135,54 +156,111 @@
       (cond
         (and recorded
              (= o (:yin.k/occurrence recorded))
-             (= h (:dao.lease/holder recorded)))
+             (= h (:dao.lease/holder recorded))
+             (= (select-keys g grant-terms)
+                (select-keys recorded grant-terms)))
         {::authority/reply ok}
-        (or recorded (nil? known) (some? (:dao.lease/lease known)))
+        (or recorded
+            (nil? known)
+            (:yin.k/exhausted known)
+            (some? (:dao.lease/lease known))
+            (contains? (:answered p) [h (:dao.lease/proposal g)]))
         {::authority/reply invalid}
         :else
         {::authority/facts [g (custody/bound o l h (:yin.k/epoch known))]
          ::authority/reply ok}))))
 
 
-(defn- append-grant!
-  [a g]
-  (let [l (:dao.lease/lease g)
-        o (custody/subject-occurrence (:dao.lease/subject g))
-        h (:dao.lease/holder g)]
-    (if-not (and (= :dao.lease/accepted (:dao.lease/status g))
-                 (not (lease/defective? g))
-                 (some? o)
-                 (every? (set (get ledger/attribute-order
-                                   :dao.lease/accepted))
-                         (keys g)))
+(defn- lapse-decision
+  "Decide lapse fact `f` of lease l: the lapse and its occurrence's epoch
+   change in one transaction.  The lapse recorded for l with the same
+   cause is a replay."
+  [f l]
+  (fn [p]
+    (let [recorded (get-in p [:leases l])
+          o (:yin.k/occurrence recorded)]
+      (cond
+        (and recorded
+             (= (:dao.lease/cause f) (:dao.lease/cause recorded)))
+        {::authority/reply ok}
+        (or (nil? recorded)
+            (contains? recorded :dao.lease/cause)
+            (not= l (get-in p [:occurrences o :dao.lease/lease])))
+        {::authority/reply invalid}
+        :else
+        {::authority/facts
+         [f (custody/reclaimed o l (ledger/next-epoch
+                                     (:max-epoch p)
+                                     (:yin.k/epoch recorded)))]
+         ::authority/reply ok}))))
+
+
+(defn- refusal-decision
+  "Decide refusal fact `f` of proposal pid from `proposer`."
+  [f proposer pid]
+  (fn [p]
+    (case (get-in p [:answered [proposer pid]])
+      nil {::authority/facts [f] ::authority/reply ok}
+      :dao.lease/rejected {::authority/reply ok}
+      {::authority/reply invalid})))
+
+
+(defn- decision
+  "The decision for appended lease fact `f`, or nil when the authority
+   cannot record it."
+  [f]
+  (case (:dao.lease/status f)
+    :dao.lease/accepted
+    (when-let [o (custody/subject-occurrence (:dao.lease/subject f))]
+      (grant-decision f (:dao.lease/lease f) o (:dao.lease/holder f)))
+    :dao.lease/lapsed (lapse-decision f (:dao.lease/lease f))
+    :dao.lease/rejected
+    (when (some? (:yin.k/proposer f))
+      (refusal-decision f (:yin.k/proposer f) (:dao.lease/proposal f)))
+    nil))
+
+
+(defn- append-fact!
+  [a f]
+  (let [order (get ledger/attribute-order (:dao.lease/status f))
+        decide (when (and order
+                          (not (lease/defective? f))
+                          (every? (set order) (keys f)))
+                 (decision f))]
+    (if-not decide
       invalid
-      (let [r (authority/transition! a (grant-decision g l o h))]
+      (let [r (authority/transition! a decide)]
         (if (contains? r :dao.stream/outcome)
           (select-keys r [:dao.stream/outcome])
           transport-error)))))
 
 
 (defn writer
-  "The judge's `:writer` over authority `a`.  An appended
-   `:dao.lease/accepted` fact on an offered occurrence with no live
-   lease commits with its `:yin.k/bound` binding, at the occurrence's
-   current epoch, in one transaction and answers ok.  The grant already
-   recorded for that lease and holder answers ok and commits nothing.
-   Any other fact, a grant on a held or never-offered occurrence, or a
-   fact outside the published attribute order answers invalid-value; a
-   poisoned or closed authority answers transport-error.  No outcome
+  "The judge's `:writer` over authority `a`.  Each lease fact it can
+   record commits as one transaction and answers ok:
+     a `:dao.lease/accepted` fact on an offered, unexhausted occurrence
+     with no live lease, answering no answered proposal, with its
+     `:yin.k/bound` binding at the occurrence's current epoch;
+     a `:dao.lease/lapsed` fact of a live lease, with its occurrence's
+     `:yin.k/reclaimed` epoch change;
+     a `:dao.lease/rejected` fact naming its `:yin.k/proposer`, for a
+     proposal that proposer has not had answered.
+   A fact already recorded with the same terms answers ok and commits
+   nothing.  Any other fact, or one outside the published attribute
+   order, answers invalid-value; a poisoned or closed authority, or a
+   transaction past a bound, answers transport-error.  No outcome
    carries a key beyond `:dao.stream/outcome`."
   [a]
   (reify stream/IDaoStreamWriter
     (append!
       [_ fact]
-      (if (map? fact) (append-grant! a fact) invalid))))
+      (if (map? fact) (append-fact! a fact) invalid))))
 
 
 (defn ready?
   "The judge's `:reclaim` readiness: true only while the authority is
    open and unpoisoned.  It revokes nothing; the lapse transaction is
-   the revocation (plan 1.3, slice C6)."
+   the revocation (plan 1.3)."
   [a]
   (some? (authority/projection a)))
 
@@ -190,32 +268,42 @@
 (defn- answer
   "The judge's `:answer` hook: grant the first drained proposal for each
    offered occurrence with no live lease, to its proposer, for
-   `duration`.  It owes no refusal; a losing candidate learns from the
-   ledger that another holder is bound."
+   `duration`, and refuse the proposals for an occurrence that is held,
+   exhausted or granted in this pass.  A proposal its proposer already
+   had answered, one with no author, and one for an occurrence never
+   offered get no answer."
   [a duration]
-  (fn [_judge drained]
+  (fn [judge drained]
     (let [p (authority/projection a)]
-      {:grants
-       (:grants
-         (reduce
-           (fn [acc {:keys [fact author]}]
-             (let [s (:dao.lease/subject fact)
-                   o (custody/subject-occurrence s)
-                   known (get-in p [:occurrences o])]
-               (if (and known
-                        (nil? (:dao.lease/lease known))
-                        (some? author)
-                        (not (contains? (:taken acc) o)))
-                 (-> acc
-                     (update :taken conj o)
-                     (update :grants conj
-                             (lease/grant (lease/mint-lease-id) s author
-                                          duration
-                                          {:dao.lease/proposal
-                                           (:dao.lease/proposal fact)})))
-                 acc)))
-           {:taken #{} :grants []}
-           drained))})))
+      (dissoc
+        (reduce
+          (fn [acc {:keys [fact author]}]
+            (let [s (:dao.lease/subject fact)
+                  pid (:dao.lease/proposal fact)
+                  o (custody/subject-occurrence s)
+                  known (get-in p [:occurrences o])]
+              (cond
+                (or (nil? known)
+                    (nil? author)
+                    (contains? (:answered judge) [author pid]))
+                acc
+                (or (:yin.k/exhausted known)
+                    (some? (:dao.lease/lease known))
+                    (contains? (:taken acc) o))
+                (update acc :refusals conj
+                        {:proposer author
+                         :refusal (assoc (lease/refusal pid)
+                                         :yin.k/proposer author)})
+                :else
+                (-> acc
+                    (update :taken conj o)
+                    (update :grants conj
+                            (lease/grant (lease/mint-lease-id) s author
+                                         duration
+                                         {:dao.lease/proposal pid}))))))
+          {:taken #{} :grants [] :refusals []}
+          drained)
+        :taken))))
 
 
 (defn judge-config
@@ -238,3 +326,62 @@
    next judge."
   [a judge]
   (authority/locked a #(lease/judge-step judge)))
+
+
+;; =============================================================================
+;; Reopen (plan 1.5)
+;; =============================================================================
+
+(defn- live-leases
+  "The leases the projection shows live, in the order they were granted."
+  [p]
+  (->> (vals (:occurrences p))
+       (keep :dao.lease/lease)
+       (sort-by #(get-in p [:leases % :dao.space/t]))
+       vec))
+
+
+(defn reopen!
+  "Open the authority over journal `backend` (authority/open! with
+   `opts`) and reclaim every tenure its ledger shows live, cause
+   :policy, each as one lapse transaction that raises the epoch, before
+   the authority is handed out.  Nothing is regranted, and
+   dao.lease/restart is not used.  Answers authority/open!'s answer
+   with `:yin.k/reclaimed`, the leases reclaimed in order; or, with the
+   authority closed, `{:yin.k/status :refused :yin.k/defect :unreclaimed
+   :dao.lease/lease l}` for the first reclaim that did not commit."
+  [backend opts]
+  (let [r (authority/open! backend opts)
+        a (::authority/authority r)]
+    (if-not a
+      r
+      (let [w (writer a)
+            live (live-leases (authority/projection a))
+            failed (some #(when-not (= ok (stream/append!
+                                            w (lease/lapsed % :policy)))
+                            %)
+                         live)]
+        (if failed
+          (do (authority/close! a)
+              {:yin.k/status :refused :yin.k/defect :unreclaimed
+               :dao.lease/lease failed})
+          (assoc r :yin.k/reclaimed live))))))
+
+
+(defn rebuild-judge
+  "Plan 1.5 step 5: `judge` with `:seen` from every grant and lapse
+   authority `a`'s ledger records, `:answered` from every recorded grant
+   and refusal keyed `[proposer proposal-id]`, and an empty `:ledger`
+   and `:queue`.  Call it after reopen!, which leaves no tenure live."
+  [a judge]
+  (let [p (authority/projection a)]
+    (assoc judge
+           :seen (into {}
+                       (map (fn [[l entry]]
+                              [l (cond-> #{:dao.lease/accepted}
+                                   (contains? entry :dao.lease/cause)
+                                   (conj :dao.lease/lapsed))]))
+                       (:leases p))
+           :answered (:answered p)
+           :ledger {}
+           :queue [])))
