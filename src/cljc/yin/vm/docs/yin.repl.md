@@ -98,7 +98,10 @@ file is plain EDN and may be edited by hand:
   elsewhere (`--index-store file:/tmp/a`, or the in-memory default) is not
   covered: two such processes with the same `--name` or `--dir` overwrite each
   other's file, last writer wins, and no process notices. Give each its own
-  `--name`.
+  node directory: a distinct `--name`, or a distinct `--dir` when you pass one.
+- **Values:** a flag's value that begins with `--` is taken as a missing
+  value and refused (`--dht-peer --dht-publish`), so a path that really
+  begins with `--` is written `./--name`.
 
 ## Protocol and Architecture
 

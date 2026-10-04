@@ -189,12 +189,33 @@
   (str dir "/" file-name))
 
 
+(defn- read-text
+  "The file at `path` as text, or nil only when it is truly absent.  Unlike
+   `fs/read-file-text`, which answers nil for anything it cannot stat, a
+   directory or an unreadable file throws here, so a state file is never
+   skipped for being unreadable.  (ClojureDart can only ask whether a file,
+   directory or link exists, so a path it cannot stat reads as absent.)"
+  [path]
+  #?(:cljd (when (or (.existsSync (dart-io/File. path))
+                     (.existsSync (dart-io/Directory. path))
+                     (.existsSync (dart-io/Link. path)))
+             (.readAsStringSync (dart-io/File. path)))
+     :clj (when-not (java.nio.file.Files/notExists
+                      (java.nio.file.Paths/get path (make-array String 0))
+                      (make-array java.nio.file.LinkOption 0))
+            (slurp path))
+     :cljs (let [fs (js/require "fs")]
+             (try (.readFileSync ^js fs path "utf8")
+                  (catch :default e
+                    (when-not (= "ENOENT" (.-code e)) (throw e)))))))
+
+
 (defn load-flags
   "The saved flags in the node directory `dir`, or nil when there is no
-   state file.  A file that cannot be understood is refused, never
+   state file.  A file that cannot be understood or read is refused, never
    skipped."
   [dir]
-  (when-some [text (try (fs/read-file-text dir file-name)
+  (when-some [text (try (read-text (path dir))
                         (catch #?(:cljd Object
                                   :clj Throwable
                                   :cljs :default)

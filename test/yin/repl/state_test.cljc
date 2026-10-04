@@ -90,20 +90,25 @@
         (is (str/includes? (ex-message e) "--reset") text)))))
 
 
-;; Dart's File.existsSync is false for a directory, so the path reads as
-;; absent there: this scenario is a JVM and Node one.
 (deftest a-state-path-that-cannot-be-read-is-refused-naming-the-file
-  #?(:cljd nil
-     :default
-     (let [dir (temp-dir)]
-       ;; a directory where the file should be: existing, but not readable text
-       (state/save! (str dir "/" state/file-name) {})
-       (let [e (refusal-of #(state/load-flags dir))]
-         (is (some? (ex-data e)) "a designed refusal, not a raw I/O exception")
-         (is (str/includes? (ex-message e) "cannot be read"))
-         (is (str/includes? (ex-message e) "--reset")))
-       (let [started (repl/startup ["--dir" dir] {:persist? true})]
-         (is (str/includes? (:refusal started) "cannot be read"))))))
+  (let [dir (temp-dir)]
+    ;; a directory where the file should be: existing, but not readable text
+    (state/save! (str dir "/" state/file-name) {})
+    (let [e (refusal-of #(state/load-flags dir))]
+      (is (some? (ex-data e)) "a designed refusal, not a raw I/O exception")
+      (is (str/includes? (ex-message e) "cannot be read"))
+      (is (str/includes? (ex-message e) "--reset")))
+    (let [started (repl/startup ["--dir" dir] {:persist? true})]
+      (is (str/includes? (:refusal started) "cannot be read")
+          "a bare start is refused too, not started without its state"))))
+
+
+(deftest a-value-that-begins-with-two-dashes-is-a-missing-value
+  (is (= {"--dht-key" "./--x.key"}
+         (:flags (state/split-args ["--dht-key" "./--x.key"])))
+      "a path that really begins with -- is written ./--name")
+  (is (some? (ex-data (refusal-of #(state/split-args
+                                     ["--dht-key" "--x.key"]))))))
 
 
 (deftest a-missing-value-never-starts-with-the-saved-one
