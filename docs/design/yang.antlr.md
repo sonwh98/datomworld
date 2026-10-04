@@ -2465,8 +2465,7 @@ two land serially, not concurrently.
 This section records the C4 design as amended by the C4 cross-ruling's
 nineteen converged rulings; where they differ from the design's own
 recommendations, the converged rulings govern. Its implementation is
-pending, in slices F1 to F3, P1 to P3, and I1 to I7 below; none of it
-has landed.
+pending, in slices F2, F3, P1 to P3, and I1 to I7 below; F1 has landed.
 
 Install delivers code; instantiation is the importing task's own
 evaluation (ruling 1). A linked Python-side module (the base prelude,
@@ -2873,7 +2872,8 @@ Linker prerequisites, the linker seat's to build:
 +-------+----------------------------------------------------------------------+
 | Slice | Scope                                                                |
 +=======+======================================================================+
-| F1    | `yang.frontend` catalog and manifest validation                      |
+| F1    | `yang.frontend` catalog and manifest validation; landed in           |
+|       | `src/cljc/yang/frontend.cljc`                                        |
 +-------+----------------------------------------------------------------------+
 | F2    | The REPL selects through the catalog; `yin.repl` drops its frontend  |
 |       | requires                                                             |
