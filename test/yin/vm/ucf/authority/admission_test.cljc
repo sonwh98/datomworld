@@ -55,7 +55,7 @@
 
 (defn- offer!
   [a]
-  (let [bs (cbor/encode (body "successor"))]
+  (let [bs (cbor/encode (body "first-park"))]
     (grant/offer! a (mem/create-content-mem) (fx/segment-address bs) bs
                   "carrier")))
 

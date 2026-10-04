@@ -55,7 +55,7 @@
 
 (defn- offer!
   [a]
-  (let [bs (cbor/encode (body "successor"))]
+  (let [bs (cbor/encode (body "first-park"))]
     (grant/offer! a (mem/create-content-mem) (fx/segment-address bs) bs
                   "carrier")))
 
@@ -105,7 +105,7 @@
 
 
 (defn- offered
-  "Fresh frames with the successor fixture offered, and its authority."
+  "Fresh frames with the first-park fixture offered, and its authority."
   ([] (offered nil))
   ([opts]
    (let [frames (fresh-frames)

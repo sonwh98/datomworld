@@ -10,6 +10,7 @@
             [dao.stream.remote :as remote]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm.ucf.authority :as authority]
+            [yin.vm.ucf.authority.completion :as completion]
             [yin.vm.ucf.authority.grant :as grant]
             [yin.vm.ucf.checkpoint :as checkpoint]
             [yin.vm.ucf.checkpoint-fixtures :as fx]
@@ -106,12 +107,35 @@
 
 
 (defn- offered
-  "A fresh authority with the successor fixture offered: the frames,
+  "A fresh authority with the first-park fixture offered: the frames,
    the authority and the store."
   []
   (let [frames (fresh-frames)
         a (auth frames)
         store (mem/create-content-mem)]
+    (offer! a store (body "first-park"))
+    [frames a store]))
+
+
+(defn- succeeded
+  "A fresh authority where the successor fixture's predecessor completed
+   into it under lease-7 (slice C8), and the successor is offered: the
+   frames, the authority and the store."
+  []
+  (let [frames (fresh-frames)
+        a (auth frames)
+        store (mem/create-content-mem)
+        w (grant/writer a)
+        {:keys [address bytes]} (bytes-of (body "successor"))]
+    (offer! a store (body "first-park"
+                          #(assoc % :yin.k/occurrence fx/predecessor)))
+    (stream/append! w (lease/grant "lease-7" (custody/subject fx/predecessor)
+                                   "holder-p" duration
+                                   {:dao.lease/proposal "p-7"}))
+    (completion/report! a "holder-p"
+                        (completion/resumed fx/predecessor "lease-7" address)
+                        bytes)
+    (stream/append! w (lease/lapsed "lease-7" :release))
     (offer! a store (body "successor"))
     [frames a store]))
 
@@ -124,10 +148,10 @@
   (let [frames (fresh-frames)
         a (auth frames)
         store (mem/create-content-mem)
-        {:keys [address bytes]} (bytes-of (body "successor"))]
+        {:keys [address bytes]} (bytes-of (body "first-park"))]
     (is (= {:yin.k/status :committed :yin.k/occurrence occ :dao.space/t 0}
            (grant/offer! a store address bytes "carrier")))
-    (is (= (body "successor") (jing/get store address ::absent))
+    (is (= (body "first-park") (jing/get store address ::absent))
         "the accepted body is in the content store")
     (is (= [(custody/offer occ address "carrier"
                            (checkpoint/inspect address bytes))]
@@ -144,21 +168,22 @@
   (let [[frames a store] (offered)
         before @frames]
     (is (= {:yin.k/status :replayed :yin.k/occurrence occ}
-           (offer! a store (body "successor"))))
+           (offer! a store (body "first-park"))))
     (is (= {:yin.k/status :replayed :yin.k/occurrence occ}
-           (offer! a store (body "successor") "another-carrier"))
+           (offer! a store (body "first-park") "another-carrier"))
         "by occurrence and snapshot address, whatever the carrier")
     (is (= {:yin.k/status :replayed :yin.k/occurrence occ}
-           (offer! (auth frames) store (body "successor")))
+           (offer! (auth frames) store (body "first-park")))
         "after reopen too")
     (is (= before @frames) "nothing was written")))
 
 
 (deftest an-equal-baseline-variant-joins-its-occurrence
-  (let [[frames a store] (offered)
+  (let [[frames a store] (succeeded)
         {:keys [address]} (bytes-of (body "variant-equal"))]
     (is (= :committed (status (offer! a store (body "variant-equal")))))
-    (is (= 2 (count (facts frames :yin.k/offered))))
+    (is (= 2 (count (filter #(= occ (:yin.k/occurrence %))
+                            (facts frames :yin.k/offered)))))
     (is (contains? (get-in (authority/projection a)
                            [:occurrences occ :yin.k/variants])
                    address))
@@ -169,7 +194,7 @@
   (doseq [[n reason] [["variant-different-intent" :variant-conflict]
                       ["variant-counter" :variant-conflict]]]
     (testing n
-      (let [[frames a store] (offered)
+      (let [[frames a store] (succeeded)
             before @frames
             {:keys [address]} (bytes-of (body n))]
         (is (= {:yin.k/status :refused :yin.k/reason reason
@@ -236,7 +261,7 @@
         store {:put-bytes-fn (fn [_ _] (throw (ex-info "disk full" {})))
                :get-bytes-fn (fn [_ nf] nf)}]
     (is (= {:yin.k/status :suspended :yin.k/reason :content-unavailable}
-           (offer! a store (body "successor"))))
+           (offer! a store (body "first-park"))))
     (is (= 1 (count @frames)) "the ledger never references missing content")
     (is (some? (authority/projection a)) "nothing was poisoned")))
 

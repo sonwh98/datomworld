@@ -43,6 +43,18 @@
      :yin.k/input          one durable input of an occurrence, recorded
                            under its live lease, dense in
                            `:yin.k/input-seq` from 0
+   and of slice C8 (yin.vm.ucf.authority.completion):
+     :yin.k/resumed        the holder's report of a verified successor:
+                           a continuation or a halted result
+     :yin.k/completed      the closure of an occurrence, in the
+                           transaction of its lease's release lapse
+     :yin.k/succeeded      the closure's one edge, in the same
+                           transaction: to its successor occurrence, or
+                           a terminal edge to its result's address
+   A report adds `:yin.k/result` (and for a continuation
+   `:yin.k/successor`) to its lease's entry; a closure adds
+   `:yin.k/closed {:dao.lease/lease l :yin.k/successor s}` (or
+   `:yin.k/result r` for a terminal edge) to its occurrence's.
 
    The projection is plain data:
 
@@ -120,7 +132,13 @@
    :yin.k/quarantined [:yin.k/custody :yin.k/occurrence :yin.k/op-id]
    ;; slice C10: input records
    :yin.k/input [:yin.k/custody :yin.k/occurrence :dao.lease/lease
-                 :yin.k/input-seq :yin.k/source :yin.k/observed]})
+                 :yin.k/input-seq :yin.k/source :yin.k/observed]
+   ;; slice C8, completion
+   :yin.k/resumed [:yin.k/custody :yin.k/occurrence :dao.lease/lease
+                   :yin.k/result :yin.k/successor]
+   :yin.k/completed [:yin.k/custody :yin.k/occurrence :dao.lease/lease]
+   :yin.k/succeeded [:yin.k/custody :yin.k/occurrence :yin.k/successor
+                     :yin.k/result]})
 
 
 (def effect-kinds
@@ -278,6 +296,7 @@
       :duplicate-lease
       (:yin.k/exhausted known) :exhausted-occurrence
       (:yin.k/quarantined known) :quarantined-occurrence
+      (:yin.k/closed known) :closed-occurrence
       (some? (:dao.lease/lease known)) :held-occurrence
       (contains? (:answered projection)
                  [(:dao.lease/holder fact) (:dao.lease/proposal fact)])
@@ -426,6 +445,91 @@
       :inactive-lease
       (not= (:yin.k/input-seq fact) (count (:yin.k/inputs known)))
       :non-dense-input
+      :else nil)))
+
+
+;; -----------------------------------------------------------------------------
+;; Slice C8: completion (yin.vm.ucf.authority.completion)
+;; -----------------------------------------------------------------------------
+
+(defn successor-seen?
+  "True when the ledger has seen occurrence `s`: offered, or the
+   recorded successor of a closed occurrence."
+  [projection s]
+  (boolean
+    (or (contains? (:occurrences projection) s)
+        (some #(= s (get-in % [:yin.k/closed :yin.k/successor]))
+              (vals (:occurrences projection))))))
+
+
+(defn- report-defect
+  "Why `fact` is not a report this ledger can hold, or nil.  A report of
+   a continuation carries its successor occurrence; one of a halted
+   result carries none."
+  [projection fact]
+  (let [o (:yin.k/occurrence fact)
+        s (:yin.k/successor fact)
+        granted (get-in projection [:leases (:dao.lease/lease fact)])]
+    (cond
+      (not (and (custody/occurrence? o)
+                (or (not (contains? fact :yin.k/successor))
+                    (and (custody/occurrence? s) (not= o s)))
+                (jing/segment-address? (:yin.k/result fact))))
+      :malformed-fact
+      (nil? granted) :unknown-lease
+      (not= o (:yin.k/occurrence granted)) :wrong-occurrence
+      (contains? granted :yin.k/result) :duplicate-report
+      (contains? granted :dao.lease/cause) :ended-lease
+      (and (some? s) (successor-seen? projection s)) :seen-occurrence
+      :else nil)))
+
+
+(defn- closure-defect
+  "Why `fact` is not the closure of an occurrence by the release lapse
+   of a reported lease earlier in this transaction, or nil."
+  [projection fact]
+  (let [l (:dao.lease/lease fact)
+        o (:yin.k/occurrence fact)
+        granted (get-in projection [:leases l])]
+    (cond
+      (not (custody/occurrence? o)) :malformed-fact
+      (nil? granted) :unknown-lease
+      (not= o (:yin.k/occurrence granted)) :wrong-occurrence
+      (not (and (= :release (:dao.lease/cause granted))
+                (contains? (::unepoched projection) l)))
+      :unreleased
+      (not (contains? granted :yin.k/result)) :unreported
+      (= (:max-epoch projection) (:yin.k/epoch granted)) :exhausted-occurrence
+      (get-in projection [:occurrences o :yin.k/closed]) :closed-occurrence
+      (get-in projection [:occurrences o :yin.k/quarantined])
+      :quarantined-occurrence
+      :else nil)))
+
+
+(defn- edge-defect
+  "Why `fact` is not the one edge of a closure earlier in this
+   transaction, or nil: to the reported successor occurrence, or, for a
+   halted result, a terminal edge to the reported result address."
+  [projection fact]
+  (let [o (:yin.k/occurrence fact)
+        s (:yin.k/successor fact)
+        r (:yin.k/result fact)
+        l (get (::unedged projection) o)
+        reported (get-in projection [:leases l])]
+    (cond
+      (not (and (custody/occurrence? o)
+                (if (contains? fact :yin.k/successor)
+                  (and (custody/occurrence? s)
+                       (not (contains? fact :yin.k/result)))
+                  (jing/segment-address? r))))
+      :malformed-fact
+      (nil? l) :unpaired-edge
+      (not (if (some? s)
+             (= s (:yin.k/successor reported))
+             (and (= r (:yin.k/result reported))
+                  (not (contains? reported :yin.k/successor)))))
+      :successor-mismatch
+      (and (some? s) (successor-seen? projection s)) :seen-occurrence
       :else nil)))
 
 
@@ -580,7 +684,35 @@
                    {:yin.k/source (:yin.k/source fact)
                     :yin.k/observed (:yin.k/observed fact)
                     :dao.lease/lease (:dao.lease/lease fact)
-                    :dao.space/t t}))))
+                    :dao.space/t t}))
+
+    ;; Slice C8.  A report keeps its verified result, and for a
+    ;; continuation its successor, on its lease.  A closure opens an edge
+    ;; that the same transaction must record; the record's fold fails
+    ;; when one is left in ::unedged.
+    :yin.k/resumed
+    (do (when-let [d (report-defect projection fact)]
+          (defect! d {:fact fact}))
+        (update-in projection [:leases (:dao.lease/lease fact)]
+                   merge (select-keys fact [:yin.k/result :yin.k/successor])))
+
+    :yin.k/completed
+    (let [o (:yin.k/occurrence fact)
+          l (:dao.lease/lease fact)]
+      (when-let [d (closure-defect projection fact)]
+        (defect! d {:fact fact}))
+      (-> projection
+          (assoc-in [:occurrences o :yin.k/closed] {:dao.lease/lease l})
+          (update ::unedged (fnil assoc {}) o l)))
+
+    :yin.k/succeeded
+    (let [o (:yin.k/occurrence fact)]
+      (when-let [d (edge-defect projection fact)]
+        (defect! d {:fact fact}))
+      (-> projection
+          (update-in [:occurrences o :yin.k/closed]
+                     merge (select-keys fact [:yin.k/successor :yin.k/result]))
+          (update ::unedged dissoc o)))))
 
 
 (defn- fold-record*
@@ -610,7 +742,10 @@
       (when (seq (::unrefused p))
         (defect! :rejection-without-refusal
           {:dao.lease/proposal (first (::unrefused p))}))
-      (-> (dissoc p ::unbound ::unepoched ::unrefused)
+      (when (seq (::unedged p))
+        (defect! :closure-without-edge
+          {:yin.k/occurrence (key (first (::unedged p)))}))
+      (-> (dissoc p ::unbound ::unepoched ::unrefused ::unedged)
           (assoc :next-t (inc t)
                  :next-e (inc (reduce max (map first datoms))))))))
 

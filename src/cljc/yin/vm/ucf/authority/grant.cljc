@@ -35,10 +35,16 @@
    reclaims every tenure the ledger shows live, cause :policy, each as
    one transaction, before it hands the authority out; nothing is
    regranted.  `rebuild-judge` is step 5: the judge's `:seen` and
-   `:answered` from the ledger, its `:ledger` and `:queue` empty."
+   `:answered` from the ledger, its `:ledger` and `:queue` empty.
+
+   Slice C8 (yin.vm.ucf.authority.completion) hooks in three places: a
+   release lapse of a reported lease carries the closure and its edge,
+   a closed occurrence is never granted, and a successor's offer waits
+   for its predecessor's completion."
   (:require [dao.lease :as lease]
             [dao.stream :as stream]
             [yin.vm.ucf.authority :as authority]
+            [yin.vm.ucf.authority.completion :as completion]
             [yin.vm.ucf.checkpoint :as checkpoint]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.ledger :as ledger]))
@@ -61,7 +67,8 @@
   [address medium b]
   (fn [p]
     (let [o (:yin.k/occurrence b)
-          known (get-in p [:occurrences o])]
+          known (get-in p [:occurrences o])
+          succession (when-not known (completion/offer-refusal p address b))]
       (cond
         (not (contains? #{:blocked :parked} (:yin.k/kind b)))
         (reply :refused :not-offerable nil)
@@ -78,6 +85,7 @@
         (reply :refused :occurrence-conflict o)
         (and known (not= b (:yin.k/baseline known)))
         (reply :refused :variant-conflict o)
+        succession (reply :refused succession o)
         :else
         {::authority/facts [(custody/offer o address medium b)]
          ::authority/reply {:yin.k/status :committed :yin.k/occurrence o}}))))
@@ -164,6 +172,7 @@
             (nil? known)
             (:yin.k/exhausted known)
             (:yin.k/quarantined known)
+            (:yin.k/closed known)
             (some? (:dao.lease/lease known))
             (contains? (:answered p) [h (:dao.lease/proposal g)]))
         {::authority/reply invalid}
@@ -190,9 +199,11 @@
         {::authority/reply invalid}
         :else
         {::authority/facts
-         [f (custody/reclaimed o l (ledger/next-epoch
-                                     (:max-epoch p)
-                                     (:yin.k/epoch recorded)))]
+         (-> [f]
+             (into (completion/closure p f))
+             (conj (custody/reclaimed o l (ledger/next-epoch
+                                            (:max-epoch p)
+                                            (:yin.k/epoch recorded)))))
          ::authority/reply ok}))))
 
 
@@ -299,6 +310,7 @@
                 acc
                 (or (:yin.k/exhausted known)
                     (:yin.k/quarantined known)
+                    (:yin.k/closed known)
                     (some? (:dao.lease/lease known))
                     (contains? (:taken acc) o))
                 (update acc :refusals conj
@@ -380,12 +392,13 @@
 
 
 (defn rebuild-judge
-  "Plan 1.5 step 5: `judge` with `:seen` from every grant and lapse
-   authority `a`'s ledger records, `:answered` from every recorded grant
-   and refusal keyed `[proposer proposal-id]` (a refusal's proposer
-   from its `:yin.k/refused` fact), and an empty `:ledger` and `:queue`.
-   Call it after reopen!, which leaves no tenure live.  Queued grants
-   are discarded and not reported (contrast dao.lease/restart's
+  "Plan 1.5 step 5: `judge` with `:seen` from every grant, release and
+   lapse authority `a`'s ledger records (a lapse of cause :release
+   records the release), `:answered` from every recorded grant and
+   refusal keyed `[proposer proposal-id]` (a refusal's proposer from its
+   `:yin.k/refused` fact), and an empty `:ledger` and `:queue`.  Call it
+   after reopen!, which leaves no tenure live.  Queued grants are
+   discarded and not reported (contrast dao.lease/restart's
    `:discarded-queue`): they were authored against a projection that
    reopen has replaced, a grant that never committed established
    nothing, and the hook re-decides from the re-drained proposals."
@@ -396,7 +409,9 @@
                        (map (fn [[l entry]]
                               [l (cond-> #{:dao.lease/accepted}
                                    (contains? entry :dao.lease/cause)
-                                   (conj :dao.lease/lapsed))]))
+                                   (conj :dao.lease/lapsed)
+                                   (= :release (:dao.lease/cause entry))
+                                   (conj :dao.lease/released))]))
                        (:leases p))
            :answered (:answered p)
            :ledger {}
