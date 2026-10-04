@@ -16,7 +16,7 @@ generators S1 (`7654c2d0`), S2 (`c3f2da8f`) and S3, `yield from` and `iter`
 numeric-key, `hash()` and `is` work of rulings 6 to 8 (`be1f8d06`,
 orchestrated as C3-S2, the S5 row's scope); safepoint insertion slices 1
 and 2, signals and recursion with generator admission (`cf6ed9ad`,
-`e2a80eef`). Not started: C2 S4 and S5, the remaining C3 slices, safepoint
+`e2a80eef`). Not started: C2 S5, the remaining C3 slices, safepoint
 slices 3 and 4 (tracing, threads), C4 (section 8.5.6 records the design
 only), and every phase after Phase 1 (the JavaScript pilot, Java, PHP, the
 language SDK, multi-host benchmarks). The "none of it has landed" and
@@ -1738,8 +1738,9 @@ different streams need an any-of park.
 #### 8.5.3 Generators (phase C2)
 
 This section records the C2 generator design as amended by the C2
-cross-ruling's nine converged rulings. Slices S1 to S3 below have landed
-(S1 `7654c2d0`, S2 `c3f2da8f`, S3 `a4efc99a`); S4 and S5 are pending.
+cross-ruling's nine converged rulings. Slices S1 to S4 below have landed
+(S1 `7654c2d0`, S2 `c3f2da8f`, S3 `a4efc99a`, S4 generator expressions);
+S5 is pending.
 
 A generator is one heap cell holding a suspended continuation plus its
 own handler stack. `yield` and resume are two explicit continuation
@@ -1935,7 +1936,7 @@ per-thread dynamic state (the frame-record stack, the recursion counter,
 | S3     | `yield from`, `iter`, and stateful sequence iterators.              |
 +--------+---------------------------------------------------------------------+
 | S4     | Generator expressions, with removal of the C1 consuming-builtin     |
-|        | inlining.                                                           |
+|        | inlining. Landed.                                                   |
 +--------+---------------------------------------------------------------------+
 | S5     | Heap, wire, and hosts: collection of suspended and dropped          |
 |        | generators, lift refusal, determinism, snapshot rendering;          |
@@ -3566,8 +3567,8 @@ Python's milestones within this phase are named C1, C2, and C3:
 - C1 (`finally` and `with`, tuples and slices, full operators,
   comprehensions, keyword arguments) landed in `34c3986b`.
 - C2, generators (section 8.5.3), is decided and recorded. S1 (`7654c2d0`),
-  S2 (`c3f2da8f`) and S3, `yield from` and `iter` (`a4efc99a`), have
-  landed; S4 and S5 are pending.
+  S2 (`c3f2da8f`) and S3, `yield from` and `iter` (`a4efc99a`), and
+  S4, generator expressions, have landed; S5 is pending.
 - C3, exact integers (section 8.5.4), is decided and recorded. S1 (the
   `integer` module and carrier recognition) has landed. The numeric-key,
   guest `hash()` and integer `is` work of rulings 6 to 8 (orchestrated

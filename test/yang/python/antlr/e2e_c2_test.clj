@@ -1,7 +1,7 @@
 (ns yang.python.antlr.e2e-c2-test
   "Phase C2 slices S1, generators core, S2, send, throw, close and the
-   dynamic context, and S3, yield from, iter and sequence iterators, end to
-   end on all four VMs over the
+   dynamic context, S3, yield from, iter and sequence iterators, and S4,
+   generator expressions, end to end on all four VMs over the
    real cell and data modules, through the same stream topology as
    `yang.python.antlr.e2e-test`. Expected output is CPython 3.9.6's for the
    same source. The continuation-length check reads the final VM's heap,
@@ -863,6 +863,260 @@
                       "    next(iter([]))"
                       "except StopIteration as e:"
                       "    print('stop', e.args)"))))
+
+
+;; =============================================================================
+;; S4 acceptance: generator expressions are anonymous generators
+;; =============================================================================
+
+(deftest genexp-laziness-test
+  (testing "any and all stop at the first decisive element and never
+            produce later ones; sum and set stop at the element that fails;
+            next on a generator expression runs one element at a time"
+    (every-vm= (prints "True [1, 2, 3]" "False [1, 2]" "6 [1, 2, 3]" "[]"
+                       "10 [1]" "20 [1, 2]" "[30] [1, 2, 3]" "done"
+                       "sum stopped [1, 'a']" "set stopped [1, [2]]"
+                       "True False [0, 1, 3, 0]")
+               (lines "log = []"
+                      "def gen():"
+                      "    for i in [1, 2, 3, 4, 5]:"
+                      "        log.append(i)"
+                      "        yield i"
+                      "print(any(x > 2 for x in gen()), log)"
+                      "log = []"
+                      "print(all(x < 2 for x in gen()), log)"
+                      "log = []"
+                      "def f(x):"
+                      "    log.append(x)"
+                      "    return x"
+                      "print(sum(f(x) for x in [1, 2, 3]), log)"
+                      "log = []"
+                      "g = (f(x) * 10 for x in [1, 2, 3])"
+                      "print(log)"
+                      "print(next(g), log)"
+                      "print(next(g), log)"
+                      "print(list(g), log)"
+                      "print(next(g, 'done'))"
+                      "log = []"
+                      "try:"
+                      "    sum(f(x) for x in [1, 'a', 3])"
+                      "except TypeError:"
+                      "    print('sum stopped', log)"
+                      "log = []"
+                      "try:"
+                      "    set(f(x) for x in [1, [2], 3])"
+                      "except TypeError:"
+                      "    print('set stopped', log)"
+                      "log = []"
+                      "print(any(f(x) for x in [0, 1, 2]), all(f(x) for x in [3, 0, 4]), log)"))))
+
+
+(deftest genexp-outermost-iterable-at-creation-test
+  (testing "the outermost iterable is evaluated and iter()-checked when the
+            generator expression is created; every later for and if clause
+            runs lazily, as the generator is resumed"
+    (every-vm= (prints "['src']" "1 ['src', ('if', 1), ('inner', 1)]"
+                       (str "[10, 2, 20] ['src', ('if', 1), ('inner', 1), "
+                            "('if', 2), ('inner', 2)]")
+                       "created TypeError" "created" "next TypeError"
+                       "created" "next AttributeError")
+               (lines "log = []"
+                      "def src():"
+                      "    log.append('src')"
+                      "    return [1, 2]"
+                      "def inner(x):"
+                      "    log.append(('inner', x))"
+                      "    return [x, x * 10]"
+                      "g = (y for x in src() if log.append(('if', x)) is None for y in inner(x))"
+                      "print(log)"
+                      "print(next(g), log)"
+                      "print(list(g), log)"
+                      "try:"
+                      "    g2 = (x for x in 5)"
+                      "except TypeError:"
+                      "    print('created TypeError')"
+                      "g3 = (x for x in [1] for y in 5)"
+                      "print('created')"
+                      "try:"
+                      "    next(g3)"
+                      "except TypeError:"
+                      "    print('next TypeError')"
+                      "g4 = (x for x in [1] if x.missing)"
+                      "print('created')"
+                      "try:"
+                      "    next(g4)"
+                      "except AttributeError:"
+                      "    print('next AttributeError')"))))
+
+
+(deftest genexp-scopes-test
+  (testing "the outermost iterable is read in the enclosing scope at
+            creation; free variables of the other clauses bind late, in the
+            generator expression's own scope; a class body's names are not
+            visible inside; the target does not leak"
+    (every-vm= (prints "[21, 22]" "[0, 5, 10]" "[1, 2]" "[1, 2]" "NameError"
+                       "[1, 2] outer")
+               (lines "xs = [1, 2]"
+                      "n = 10"
+                      "g = (x + n for x in xs)"
+                      "xs = [100]"
+                      "n = 20"
+                      "print(list(g))"
+                      "def make():"
+                      "    k = 1"
+                      "    g = (k * x for x in range(3))"
+                      "    k = 5"
+                      "    return g"
+                      "print(list(make()))"
+                      "def outer():"
+                      "    ys = [1, 2]"
+                      "    g = (y for y in ys)"
+                      "    ys = [3]"
+                      "    return list(g)"
+                      "print(outer())"
+                      "class C:"
+                      "    items = [1, 2]"
+                      "    gen = (i for i in items)"
+                      "print(list(C.gen))"
+                      "class D:"
+                      "    v = 3"
+                      "    try:"
+                      "        r = list(v * i for i in [1])"
+                      "    except NameError:"
+                      "        r = 'NameError'"
+                      "print(D.r)"
+                      "x = 'outer'"
+                      "g = (x for x in [1, 2])"
+                      "print(list(g), x)"))))
+
+
+(deftest genexp-nesting-and-call-arguments-test
+  (testing "nested generator expressions; a generator expression as the
+            sole call argument; a consumer name rebound locally, at module
+            level and through globals() receives the generator: nothing is
+            inlined"
+    (every-vm= (prints "[(1, 0), (2, 0), (2, 2), (3, 0), (3, 3), (3, 6)]"
+                       "[0, 0, 1, 3, 6]" "4 [6]" "[2, 4, 'f']"
+                       "['a', 'b'] (1, 2) {1}" "7" "[1, 2, 'mine']"
+                       "[0, 1, 'rebound']")
+               (lines "g = ((x, y) for x in range(4) for y in (x * k for k in range(x)))"
+                      "print(list(g))"
+                      "nested = (sum(y for y in range(x)) for x in range(5))"
+                      "print(list(nested))"
+                      "gg = (x for x in (y * 2 for y in [1, 2, 3]) if x > 2)"
+                      "print(next(gg), list(gg))"
+                      "def f(it):"
+                      "    return list(it) + ['f']"
+                      "print(f(x * 2 for x in [1, 2]))"
+                      "print(list(x for x in 'ab'), tuple(x for x in [1, 2]), set(x for x in [1, 1]))"
+                      "def h():"
+                      "    any = lambda g: next(g)"
+                      "    return any(x for x in [7, 8])"
+                      "print(h())"
+                      "sum = lambda g: list(g) + ['mine']"
+                      "print(sum(x for x in [1, 2]))"
+                      "globals()['all'] = lambda g: list(g) + ['rebound']"
+                      "print(all(x for x in [0, 1]))"))))
+
+
+(deftest genexp-pep-479-test
+  (testing "a StopIteration escaping a generator expression's body, from an
+            inner next, an exhausted iterator, a call, or thrown in, is
+            RuntimeError, and the generator expression is then closed"
+    (every-vm= (prints "('generator raised StopIteration',)" "closed"
+                       "iter ('generator raised StopIteration',)"
+                       "any ('generator raised StopIteration',)"
+                       "thrown ('generator raised StopIteration',)")
+               (lines "def empty():"
+                      "    return"
+                      "    yield"
+                      "g = (next(empty()) for x in [1])"
+                      "try:"
+                      "    list(g)"
+                      "except RuntimeError as e:"
+                      "    print(e.args)"
+                      "print(next(g, 'closed'))"
+                      "it = iter([])"
+                      "g = (next(it) for x in [1, 2])"
+                      "try:"
+                      "    next(g)"
+                      "except RuntimeError as e:"
+                      "    print('iter', e.args)"
+                      "def stop():"
+                      "    raise StopIteration(4)"
+                      "try:"
+                      "    print(any(stop() for x in [1]))"
+                      "except RuntimeError as e:"
+                      "    print('any', e.args)"
+                      "g = (x for x in [1, 2])"
+                      "next(g)"
+                      "try:"
+                      "    g.throw(StopIteration)"
+                      "except RuntimeError as e:"
+                      "    print('thrown', e.args)"))))
+
+
+(deftest genexp-generator-protocol-test
+  (testing "send, throw, close, __next__ and __iter__ on a generator
+            expression behave as on any generator (S2): a sent value is
+            ignored, a non-None first send is a TypeError, a throw is raised
+            at the yield and is not forwarded to the iterated generator, a
+            throw into an unstarted one closes it, close is idempotent; a
+            generator expression delegates under yield from"
+    (every-vm= (prints "10" "20" "30" "stop ()"
+                       "(\"can't send non-None value to a just-started generator\",)"
+                       "1" "thrown" "closed" "unstarted thrown" "closed" "1"
+                       "None closed None" "closed" "True 1 True" "1"
+                       "genexp does not forward throw" "[1, 2]")
+               (lines "g = (x * 10 for x in [1, 2, 3])"
+                      "print(next(g))"
+                      "print(g.send(None))"
+                      "print(g.send(5))"
+                      "try:"
+                      "    g.send(1)"
+                      "except StopIteration as e:"
+                      "    print('stop', e.args)"
+                      "g = (x for x in [1, 2])"
+                      "try:"
+                      "    g.send(3)"
+                      "except TypeError as e:"
+                      "    print(e.args)"
+                      "print(next(g))"
+                      "try:"
+                      "    g.throw(ValueError)"
+                      "except ValueError:"
+                      "    print('thrown')"
+                      "print(next(g, 'closed'))"
+                      "g = (x for x in [1, 2])"
+                      "try:"
+                      "    g.throw(KeyError)"
+                      "except KeyError:"
+                      "    print('unstarted thrown')"
+                      "print(next(g, 'closed'))"
+                      "g = (x for x in [1, 2])"
+                      "print(next(g))"
+                      "print(g.close(), next(g, 'closed'), g.close())"
+                      "g = (x for x in [1])"
+                      "g.close()"
+                      "print(next(g, 'closed'))"
+                      "g = (x for x in [1, 2])"
+                      "print(iter(g) is g, g.__next__(), g.__iter__() is g)"
+                      "def inner():"
+                      "    try:"
+                      "        yield 1"
+                      "    except ValueError:"
+                      "        yield 'caught'"
+                      "g = (x for x in inner())"
+                      "print(next(g))"
+                      "try:"
+                      "    g.throw(ValueError)"
+                      "except ValueError:"
+                      "    print('genexp does not forward throw')"
+                      "def user():"
+                      "    g = (x for x in [1, 2])"
+                      "    yield next(g)"
+                      "    yield from g"
+                      "print(list(user()))"))))
 
 
 ;; =============================================================================

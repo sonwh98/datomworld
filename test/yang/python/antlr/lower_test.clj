@@ -332,6 +332,34 @@
              (body src))))))
 
 
+(deftest generator-expression-golden-test
+  (testing "a generator expression, even as a consumer's sole argument, is
+            an anonymous generator passed as an ordinary argument: the
+            first iterable goes through py/iter at creation, the target is
+            a cell local to its body and each element is yielded"
+    (let [src "sum(x for x in y)\n"
+          fst (sym "first" src "argument")
+          g (sym "gen" src "argument")
+          x (sym "x" src "exprlist")]
+      (is (= (u/then
+               (py 'py/call
+                   (py 'py/global-or (u/v '%globals) (u/lit {:py/str "sum"})
+                       (u/v 'py.b/sum))
+                   (py 'py/conj (u/lit [])
+                       (u/let1 fst (py 'py/iter (gget "y"))
+                               (py 'py/make-generator (u/lit "<genexpr>")
+                                   (u/lam [g]
+                                          (u/app (u/lam '[x]
+                                                        (py 'py/for-each (u/v fst)
+                                                            (u/lam [x]
+                                                                   (u/then (py 'cell/set! (u/v 'x) (u/v x))
+                                                                           (py 'py/yield (u/v g)
+                                                                               (local "x"))))))
+                                                 (py 'cell/new (u/lit :py/unbound))))))))
+               none)
+             (body src))))))
+
+
 (deftest keyword-call-golden-test
   (testing "positional values and *splices build the argument vector in
             order; keywords and **splices build the keyword pairs"
@@ -407,8 +435,6 @@
 (deftest unsupported-constructs-are-qualified-test
   (doseq [[src rule construct]
           [["import os\n" "import_stmt" "import"]
-           ["x = (i for i in y)\n" "atom" "generator expression (phase C2)"]
-           ["f(i for i in y)\n" "argument" "generator expression (phase C2)"]
            ["x = a @ b\n" "expr" "operator @"]
            ["x @= b\n" "augassign" "augmented @="]
            ["def f(a: int): pass\n" "tfpdef" "parameter annotation"]
@@ -453,6 +479,13 @@
            ["class C:\n    yield 1\n" "'yield' outside function"]
            ["x = [(yield x) for x in y]\n" "'yield' inside list comprehension"]
            ["def f():\n    return {(yield) for x in y}\n" "'yield' inside set comprehension"]
+           ["x = ((yield) for x in y)\n" "'yield' inside generator expression"]
+           ["def f():\n    return list((yield x) for x in y)\n"
+            "'yield' inside generator expression"]
+           ["def f():\n    return ((yield from z) for x in y)\n"
+            "'yield' inside generator expression"]
+           ["def f():\n    return (x for x in y if (yield))\n"
+            "'yield' inside generator expression"]
            ["def f():\n    def h():\n        pass\n    class C:\n        x = yield\n"
             "'yield' outside function"]]]
     (testing src
@@ -485,7 +518,12 @@
              ["def g():\n    yield 0\n    def h(x=(yield 1)):\n        pass\n" #{"g"}]
              ["def g():\n    def h():\n        yield 1\n" #{"h"}]
              ["def g():\n    f = lambda: (yield 1)\n" #{"<lambda>"}]
-             ["def g():\n    yield from h()\n" #{"g"}]]]
+             ["def g():\n    yield from h()\n" #{"g"}]
+             ;; a generator expression is its own anonymous generator; the
+             ;; outermost iterable runs in the enclosing scope, so a yield
+             ;; there is the enclosing function's
+             ["def g():\n    return (x for x in y)\n" #{"<genexpr>"}]
+             ["def g():\n    return (x for x in (yield))\n" #{"g" "<genexpr>"}]]]
       (testing src
         (is (= names (generator-names src))))))
   (testing "a yield only in a nested class body is still outside a function"

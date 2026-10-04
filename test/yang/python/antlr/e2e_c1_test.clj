@@ -586,15 +586,11 @@
 
 
 (deftest generator-consumer-rebound-test
-  (testing "the inline consumer is used only while the name denotes the
-            builtin; rebound through globals(), a generator argument is a
-            C2 NotImplementedError rather than a wrong answer"
-    (every-vm= (prints "c2")
-               (lines "globals()['any'] = lambda it: 'mine'"
-                      "try:"
-                      "    any(x for x in [1])"
-                      "except NotImplementedError:"
-                      "    print('c2')"))))
+  (testing "a consumer name rebound through globals() receives the
+            generator expression itself (C2 S4: nothing is inlined)"
+    (every-vm= (prints "[1, 'mine']")
+               (lines "globals()['any'] = lambda it: list(it) + ['mine']"
+                      "print(any(x for x in [1]))"))))
 
 
 ;; =============================================================================

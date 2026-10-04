@@ -1326,12 +1326,6 @@
            ;; needs no (possibly out-of-range) difference x - start
            (= (py/int-mod x step) (py/int-mod start step))
            false)))]
-    [py/genexp-unsupported
-     ;; a generator expression passed to a consumer name that no longer
-     ;; denotes the builtin: a real generator is phase C2
-     (fn []
-       (py/raise-new py.b/NotImplementedError
-                     {:py/str "generator expressions are phase C2"}))]
     [py/in (fn [x c] (py/contains c x))]
     [py/not-in (fn [x c] (not (py/contains c x)))]
     [py/eq-items
@@ -1920,18 +1914,31 @@
              (if (= (get o :py/type) :tuple)
                (data/count (get o :items))
                (py/type-error {:py/str "object has no len()"}))))))]
+    ;; sum, any, all and set consume their iterable one element at a time,
+    ;; as CPython's do: any and all stop at the first decisive element, and
+    ;; an element that fails stops the fold before later ones are produced
     [py/sum-from
-     (fn [xs i acc]
-       (let [x (get xs i :py/stop)]
-         (if (= x :py/stop) acc (py/sum-from xs (+ i 1) (py/add acc x)))))]
+     (fn [it i acc]
+       (let [x (py/iter-at it i)]
+         (if (= x :py/stop) acc (py/sum-from it (+ i 1) (py/add acc x)))))]
     [py/any-of
-     (fn [xs i]
-       (let [x (get xs i :py/stop)]
-         (if (= x :py/stop) false (if (py/truthy x) true (py/any-of xs (+ i 1))))))]
+     (fn [it i]
+       (let [x (py/iter-at it i)]
+         (if (= x :py/stop)
+           false
+           (if (py/truthy x) true (py/any-of it (+ i 1))))))]
     [py/all-of
-     (fn [xs i]
-       (let [x (get xs i :py/stop)]
-         (if (= x :py/stop) true (if (py/truthy x) (py/all-of xs (+ i 1)) false))))]
+     (fn [it i]
+       (let [x (py/iter-at it i)]
+         (if (= x :py/stop)
+           true
+           (if (py/truthy x) (py/all-of it (+ i 1)) false))))]
+    [py/set-fill-at
+     (fn [s it i]
+       (let [x (py/iter-at it i)]
+         (if (= x :py/stop)
+           s
+           (do (py/set-add s x) (py/set-fill-at s it (+ i 1))))))]
     [py/dict-items
      ;; a list of (key, value) tuples, a snapshot rather than a live view
      (fn [d]
@@ -2098,18 +2105,20 @@
                        (fn [args] (py/tuple (py/to-vector (py/arg args 0)))))]
     [py.b/set
      (py/make-function "set" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
-                       (fn [args] (py/set-from (py/to-vector (py/arg args 0)))))]
+                       (fn [args]
+                         (py/set-fill-at (py/set-new) (py/iterable (py/arg args 0))
+                                         0)))]
     [py.b/sum
      (py/make-function "sum" {:params ["iterable" "start"]} [0] []
                        (fn [args]
-                         (py/sum-from (py/to-vector (py/arg args 0)) 0
+                         (py/sum-from (py/iterable (py/arg args 0)) 0
                                       (py/arg args 1))))]
     [py.b/any
      (py/make-function "any" {:params ["iterable"], :no-kw true} [] []
-                       (fn [args] (py/any-of (py/to-vector (py/arg args 0)) 0)))]
+                       (fn [args] (py/any-of (py/iterable (py/arg args 0)) 0)))]
     [py.b/all
      (py/make-function "all" {:params ["iterable"], :no-kw true} [] []
-                       (fn [args] (py/all-of (py/to-vector (py/arg args 0)) 0)))]
+                       (fn [args] (py/all-of (py/iterable (py/arg args 0)) 0)))]
     [py.b/list-append
      (py/make-function "append" {:params ["self" "x"], :no-kw true} [] []
                        (fn [args] (py/list-append (py/arg args 0) (py/arg args 1))))]

@@ -596,6 +596,103 @@
                  result)))))))
 
 
+(def ^:private genexp-form
+  "A generator expression in the lowering's shape: the source through
+   `py/iter` at creation, then an anonymous generator yielding `(f x)` for
+   each element, so `f` runs only as the generator is resumed."
+  '(fn [src f]
+     (let [fst (py/iter src)]
+       (py/make-generator "<genexpr>"
+                          (fn [gen]
+                            (py/for-each fst (fn [x] (py/yield gen (f x)))))))))
+
+
+(defn- conj-all
+  [syms]
+  (reduce (fn [acc s] (list 'py/conj acc s)) [] syms))
+
+
+(deftest generator-expression-on-every-host-test
+  (testing "any, all and sum consume a generator expression lazily: any and
+            all stop at the first decisive element; a non-iterable source
+            fails at creation, a non-iterable inner clause only when
+            resumed; a StopIteration escaping the element is PEP 479's
+            RuntimeError and closes it; send ignores the value and close
+            closes it (CPython 3.9.6)"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    (list
+                      'let
+                      ['genexp genexp-form
+                       'log '(cell/new [])
+                       'note '(fn [x] (do (cell/set! log (py/conj (cell/get log) x)) x))
+                       'a '(py/call py.b/any
+                                    (py/conj [] (genexp (py/list [1 2 3 4])
+                                                        (fn [x] (py/lt 2 (note x))))))
+                       'la '(cell/get log)
+                       'r1 '(cell/set! log [])
+                       'b '(py/call py.b/all
+                                    (py/conj [] (genexp (py/list [1 2 3])
+                                                        (fn [x] (py/lt (note x) 2)))))
+                       'lb '(cell/get log)
+                       'c '(py/call py.b/sum
+                                    (py/conj [] (genexp (py/range3 1 4 1) (fn [x] x))))
+                       'd '(py/try (fn [] (genexp 5 (fn [x] x)))
+                                   (fn [e] (py/isinstance e py.b/TypeError))
+                                   (fn [] :no))
+                       'e '(genexp (py/list [1]) (fn [x] (py/iter 5)))
+                       'f '(py/try (fn [] (py/next e :py/missing))
+                                   (fn [x] (py/isinstance x py.b/TypeError))
+                                   (fn [] :no))
+                       'h '(genexp (py/list [1])
+                                   (fn [x] (py/next (py/iter (py/list [])) :py/missing)))
+                       'i '(py/try (fn [] (py/next h :py/missing))
+                                   (fn [x] (py/isinstance x py.b/RuntimeError))
+                                   (fn [] :no))
+                       'j '(py/next h :closed)
+                       'k '(genexp (py/list [1 2 3]) (fn [x] x))
+                       'k1 '(py/gen-send k :py/None)
+                       'k2 '(py/gen-send k 9)
+                       'k3 '(py/gen-close k)
+                       'k4 '(get (cell/get k) :state)]
+                      (conj-all '[a la b lb c d f i j k1 k2 k3 k4])))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [true [1 2 3] false [1 2] 6 true true true :closed
+                  1 2 :py/None :closed]
+                 result)))))))
+
+
+(deftest generator-expression-admission-on-every-host-test
+  (testing "nested generator expressions cross through py/gen-switch, so
+            the recursion-limit admission counts each active one: under
+            limit 2 two nested ones run, a third is refused with
+            RecursionError and stays created; limit 3 admits it"
+    (let [results (run-with-prelude
+                    prelude/uast
+                    (list
+                      'let
+                      ['genexp genexp-form
+                       'ident '(fn [x] x)
+                       's1 '(cell/set! py.rt/limit 2)
+                       'a '(genexp (genexp (py/list [1 2]) ident) ident)
+                       'x1 '(py/next a :py/missing)
+                       'inner '(genexp (py/list [7]) ident)
+                       'c '(genexp (genexp inner ident) ident)
+                       'x2 '(py/try (fn [] (py/next c :py/missing))
+                                    (fn [e] (py/isinstance e py.b/RecursionError))
+                                    (fn [] :no))
+                       'x3 '(get (cell/get inner) :state)
+                       'x4 '(py/next a :py/missing)
+                       's2 '(cell/set! py.rt/limit 3)
+                       'd '(genexp (genexp (genexp (py/list [5]) ident) ident) ident)
+                       'x5 '(py/next d :py/missing)]
+                      (conj-all '[x1 x2 x3 x4 x5])))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [1 true :created 2 5] result)))))))
+
+
 (deftest integer-bound-on-every-host-test
   (testing "over the real cell and data modules, results outside
             [-2^53, 2^53] are a guest OverflowError identically on every VM

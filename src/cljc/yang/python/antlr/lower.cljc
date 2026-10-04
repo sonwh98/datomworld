@@ -27,16 +27,17 @@
      language reference's expansion over the same two forms.
    - Tuple, list and starred targets unpack with `py/unpack` /
      `py/unpack-star`; comprehensions run in their own scope with the first
-     iterable evaluated outside it; a generator expression is accepted only
-     as the sole argument of a consuming builtin (list, tuple, set, sum,
-     any, all), where it is a list.
+     iterable evaluated outside it. List, set and dict comprehensions are
+     eager; a generator expression is an anonymous generator whose first
+     iterable is evaluated and `iter()`-checked at creation, every other
+     clause lazily, at each resume.
    - A function whose body yields is a generator function: its code binds
      the arguments and allocates the cells, then returns
      `(py/make-generator name (fn [%gen] body))`; each `yield v` is
      `(py/yield %gen v)`, each `yield from x` `(py/yield-from %gen x)`.
      The `:gen` binder is reset in every nested scope,
-     so a `yield` at module or class level, or in a comprehension's own
-     scope, is a syntax error.
+     so a `yield` at module or class level, or in a comprehension's or
+     generator expression's own scope, is a syntax error.
    - Operators, truthiness, equality, objects and exceptions are prelude
      calls (`yang.python.antlr.prelude`).
 
@@ -414,21 +415,6 @@
       :global (read-global n name))))
 
 
-(defn- builtin?
-  "True when `name` in this scope is the builtin, not a guest binding."
-  [ctx name]
-  (let [r (resolve-name ctx name)]
-    (and (= :global (:kind r)) (not (:declared? r)))))
-
-
-(def ^:private consuming-builtins
-  "Builtins that consume an iterable argument eagerly: a generator
-   expression passed as their sole argument is indistinguishable from a
-   list, so it is lowered as one. Any other generator expression waits for
-   C2."
-  #{"list" "tuple" "set" "sum" "any" "all"})
-
-
 (defn- assign-name
   [ctx name value]
   (let [r (resolve-name ctx name)]
@@ -538,7 +524,7 @@
           (p/token? inner ")") (app* 'py/tuple (u/lit []))
           (p/rule? inner "yield_expr") ((:lower ctx) ctx inner)
           (scope/comprehension? (:pk ctx) inner)
-          (unsupported! n "generator expression (phase C2)")
+          (lower-comprehension ctx inner :genexp)
           :else (display ctx inner)))
       (p/token? head "[")
       (let [inner (second ks)]
@@ -602,9 +588,9 @@
    `**mapping` splices in order. CPython evaluates every positional and
    `*` argument before any keyword value, and so does this. As in the
    language reference, `*iterable` may follow `name=value` but not
-   `**mapping`, and a plain positional argument may follow neither. A
-   generator expression is allowed only as the sole argument of a consuming
-   builtin (`:genexp` is then its node)."
+   `**mapping`, and a plain positional argument may follow neither. An
+   unparenthesized generator expression is allowed only as the sole
+   argument."
   [ctx trailer]
   (let [al (first (rules ctx trailer "arglist"))
         args (if al (rules ctx al "argument") [])
@@ -619,7 +605,8 @@
           (cond
             (scope/comprehension? (:pk ctx) a)
             (if (= 1 (count args))
-              {:genexp a}
+              {:args (app* 'py/conj pos (lower-comprehension ctx a :genexp)),
+               :kwargs nil}
               (syntax! a "Generator expression must be parenthesized"))
             (p/token? (first ak) "*")
             (do (when dstar?
@@ -649,41 +636,13 @@
         {:args pos, :kwargs kw}))))
 
 
-(defn- callee-builtin
-  "The builtin name `receiver-atom` reads, when it reads one."
-  [ctx atom-node]
-  (let [head (first (kids ctx atom-node))]
-    (when (p/rule? head "name")
-      (let [nm (name-of ctx head)]
-        (when (builtin? ctx nm) nm)))))
-
-
 (defn- apply-trailer
-  [ctx receiver trailer & [callee]]
+  [ctx receiver trailer]
   (let [head (first (kids ctx trailer))]
     (cond
       (p/token? head "(")
-      (let [{:keys [args kwargs genexp]} (call-parts ctx trailer)]
-        (if genexp
-          (if (contains? consuming-builtins callee)
-            ;; The consumer's own semantics, inline and lazy: elements are
-            ;; produced one at a time, any/all stop at the first decisive
-            ;; one, sum and set fold as they go. This is the builtin's
-            ;; behaviour only while the name still denotes the builtin
-            ;; (globals() may rebind it), which is checked at run time.
-            (u/if-node (app* 'py/is receiver (u/v (get prelude/builtin-names callee)))
-                       (case callee
-                         "list" (lower-comprehension ctx genexp :list)
-                         "set" (lower-comprehension ctx genexp :set)
-                         "tuple" (app* 'py/tuple
-                                       (app* 'py/to-vector
-                                             (lower-comprehension ctx genexp :list)))
-                         "sum" (lower-comprehension ctx genexp :sum)
-                         "any" (lower-comprehension ctx genexp :any)
-                         "all" (lower-comprehension ctx genexp :all))
-                       (app* 'py/genexp-unsupported))
-            (unsupported! genexp "generator expression (phase C2)"))
-          (lower-call receiver args kwargs)))
+      (let [{:keys [args kwargs]} (call-parts ctx trailer)]
+        (lower-call receiver args kwargs))
       (p/token? head "[") (app* 'py/getitem receiver (subscript-key ctx trailer))
       (p/token? head ".") (app* 'py/getattr receiver
                                 (u/lit (name-of ctx (second (kids ctx trailer))))))))
@@ -702,13 +661,9 @@
   [ctx n]
   (let [ks (kids ctx n)]
     (when (p/token? (first ks) "await") (unsupported! n "await"))
-    (let [atom-node (first ks)
-          trailers (rest ks)
-          callee (callee-builtin ctx atom-node)]
-      (reduce (fn [acc [i t]]
-                (apply-trailer ctx acc t (when (zero? i) callee)))
-              ((:lower ctx) ctx atom-node)
-              (map-indexed vector trailers)))))
+    (reduce (fn [acc t] (apply-trailer ctx acc t))
+            ((:lower ctx) ctx (first ks))
+            (rest ks))))
 
 
 (defn- power-operands
@@ -1344,8 +1299,7 @@
 
 (def ^:private comprehension-names
   {:list "list comprehension", :set "set comprehension", :dict "dict comprehension",
-   :sum "generator expression", :any "generator expression",
-   :all "generator expression"})
+   :genexp "generator expression"})
 
 
 (defn- lower-yield
@@ -1392,11 +1346,14 @@
 
 
 (defn- lower-comprehension
-  "A list, set or dict comprehension (or a generator expression consumed
-   eagerly, as a list) in its own scope: the first iterable is evaluated in
-   the enclosing scope; the targets are cells local to the comprehension;
-   each `for` walks with `py/for-each`, each `if` filters, and the
-   innermost clause adds to a fresh result object."
+  "A comprehension in its own scope: the first iterable is evaluated in the
+   enclosing scope; the targets are cells local to the comprehension; each
+   `for` walks with `py/for-each` and each `if` filters. A list, set or
+   dict comprehension is eager: the innermost clause adds to a fresh result
+   object. A generator expression (`kind` `:genexp`) is an anonymous
+   generator: its first iterable goes through `py/iter` at creation, so a
+   non-iterable fails there, and the clauses run as it is resumed, the
+   innermost one yielding."
   [ctx comp-node kind]
   (let [s (get-in (:analysis ctx) [:scopes (:id comp-node)])
         cctx (assoc ctx
@@ -1413,23 +1370,14 @@
             (syntax! comp-node "iterable unpacking cannot be used in comprehension"))
         fst (gen "first" comp-node)
         acc (gen "acc" comp-node)
+        g (gen "gen" comp-node)
         lower (:lower ctx)
         emit (case kind
                :list (app* 'py/list-append (u/v acc) (lower cctx (first elems)))
                :set (app* 'py/set-add (u/v acc) (lower cctx (first elems)))
                :dict (app* 'py/dict-set (u/v acc) (lower cctx (first elems))
                            (lower cctx (second elems)))
-               ;; generator expressions consumed by sum/any/all: a running
-               ;; fold, or an escape at the first decisive element
-               :sum (app* 'cell/set! (u/v acc)
-                          (app* 'py/add (app* 'cell/get (u/v acc))
-                                (lower cctx (first elems))))
-               :any (u/if-node (truthy (lower cctx (first elems)))
-                               (u/app (u/v acc) (u/lit true))
-                               none)
-               :all (u/if-node (truthy (lower cctx (first elems)))
-                               none
-                               (u/app (u/v acc) (u/lit false))))
+               :genexp (app* 'py/yield (u/v g) (lower cctx (first elems))))
         body (reduce (fn [inner [i [tag a b]]]
                        (if (= tag :for)
                          (let [x (gen "x" a)]
@@ -1440,25 +1388,28 @@
                          (u/if-node (truthy (lower cctx a)) inner none)))
                      emit
                      (reverse (map-indexed vector clauses)))
-        result (case kind
-                 ;; acc is the escape: (acc true) / (acc false) ends early
-                 :any (app* 'py/call-ec (u/lam [acc] (u/then body (u/lit false))))
-                 :all (app* 'py/call-ec (u/lam [acc] (u/then body (u/lit true))))
-                 :sum (u/let1 acc (app* 'cell/new (u/lit 0))
-                              (u/then body (app* 'cell/get (u/v acc))))
-                 (u/let1 acc
-                         (case kind
-                           :list (app* 'py/list (u/lit []))
-                           :set (app* 'py/set-new)
-                           :dict (app* 'py/dict-new))
-                         (u/then body (u/v acc))))]
-    (u/let1 fst
-            (lower ctx (nth (first clauses) 2))
-            (if (seq (:locals s))
-              (apply u/app
-                     (u/lam (map symbol (:locals s)) result)
-                     (map (fn [_] (app* 'cell/new (u/lit :py/unbound))) (:locals s)))
-              result))))
+        with-locals (fn [node]
+                      (if (seq (:locals s))
+                        (apply u/app
+                               (u/lam (map symbol (:locals s)) node)
+                               (map (fn [_] (app* 'cell/new (u/lit :py/unbound)))
+                                    (:locals s)))
+                        node))
+        outer (lower ctx (nth (first clauses) 2))]
+    (if (= kind :genexp)
+      (u/let1 fst
+              (app* 'py/iter outer)
+              (app* 'py/make-generator (u/lit "<genexpr>")
+                    (u/lam [g] (with-locals body))))
+      (u/let1 fst
+              outer
+              (with-locals
+                (u/let1 acc
+                        (case kind
+                          :list (app* 'py/list (u/lit []))
+                          :set (app* 'py/set-new)
+                          :dict (app* 'py/dict-new))
+                        (u/then body (u/v acc))))))))
 
 
 ;; -----------------------------------------------------------------------------
