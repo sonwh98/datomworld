@@ -31,7 +31,9 @@
                            one above the binding's epoch, or the same
                            epoch at the bound, which exhausts the
                            occurrence (UCF 7.7.8)
-     :dao.lease/rejected   a refusal, naming its `:yin.k/proposer`
+     :dao.lease/rejected   a refusal, the lease fact unchanged
+     :yin.k/refused        the proposer it refused, in the refusal's
+                           transaction
 
    The projection is plain data:
 
@@ -54,8 +56,9 @@
       :answered    {[proposer proposal-id] status}}
 
    `:answered` holds every recorded grant (keyed by its holder) and
-   refusal (by its proposer) that answers a proposal, so a dao.lease
-   judge can be rebuilt from the ledger.
+   refusal (by the proposer its `:yin.k/refused` fact names) that
+   answers a proposal, so a dao.lease judge can be rebuilt from the
+   ledger.
 
    An occurrence id is a UUID string in one spelling, so it keys the
    map directly and compares by its canonical bytes.
@@ -93,8 +96,8 @@
    :dao.lease/lapsed [:dao.lease/status :dao.lease/lease :dao.lease/cause]
    :yin.k/reclaimed [:yin.k/custody :yin.k/occurrence :dao.lease/lease
                      :yin.k/epoch]
-   :dao.lease/rejected [:dao.lease/status :dao.lease/proposal
-                        :yin.k/proposer]})
+   :dao.lease/rejected [:dao.lease/status :dao.lease/proposal]
+   :yin.k/refused [:yin.k/custody :yin.k/proposer :dao.lease/proposal]})
 
 
 (def effect-kinds
@@ -315,16 +318,17 @@
       :else nil)))
 
 
-(defn- refusal-defect
-  "Why `fact` is not a refusal this ledger can hold, or nil."
+(defn- refused-defect
+  "Why `fact` is not the proposer of a refusal in this transaction, or
+   nil."
   [projection fact]
-  (cond
-    (or (lease/defective? fact) (nil? (:yin.k/proposer fact)))
-    :malformed-fact
-    (contains? (:answered projection)
-               [(:yin.k/proposer fact) (:dao.lease/proposal fact)])
-    :answered-proposal
-    :else nil))
+  (let [pid (:dao.lease/proposal fact)]
+    (cond
+      (or (nil? (:yin.k/proposer fact)) (nil? pid)) :malformed-fact
+      (not (contains? (::unrefused projection) pid)) :unpaired-refusal
+      (contains? (:answered projection) [(:yin.k/proposer fact) pid])
+      :answered-proposal
+      :else nil)))
 
 
 (def ^:private grant-terms
@@ -397,7 +401,7 @@
                                     :dao.space/t t}
                                    (select-keys fact grant-terms)))
                   (update ::unbound (fnil conj #{}) l))
-        (contains? fact :dao.lease/proposal)
+        (some? (:dao.lease/proposal fact))
         (assoc-in [:answered [(:dao.lease/holder fact)
                               (:dao.lease/proposal fact)]]
                   :dao.lease/accepted)))
@@ -434,13 +438,24 @@
         (= e (get-in projection [:leases l :yin.k/epoch]))
         (assoc-in [:occurrences o :yin.k/exhausted] true)))
 
+    ;; A rejection names no proposer; the same transaction must name it
+    ;; in a :yin.k/refused fact, or the record's fold fails.
     :dao.lease/rejected
-    (do (when-let [d (refusal-defect projection fact)]
-          (defect! d {:fact fact}))
-        (assoc-in projection
-                  [:answered [(:yin.k/proposer fact)
-                              (:dao.lease/proposal fact)]]
-                  :dao.lease/rejected))))
+    (let [pid (:dao.lease/proposal fact)]
+      (when (lease/defective? fact)
+        (defect! :malformed-fact {:fact fact}))
+      (when (contains? (::unrefused projection) pid)
+        (defect! :duplicate-rejection {:fact fact}))
+      (update projection ::unrefused (fnil conj #{}) pid))
+
+    :yin.k/refused
+    (let [pid (:dao.lease/proposal fact)]
+      (when-let [d (refused-defect projection fact)]
+        (defect! d {:fact fact}))
+      (-> projection
+          (assoc-in [:answered [(:yin.k/proposer fact) pid]]
+                    :dao.lease/rejected)
+          (update ::unrefused disj pid)))))
 
 
 (defn- fold-record*
@@ -467,7 +482,10 @@
       (when (seq (::unepoched p))
         (defect! :lapse-without-epoch
           {:dao.lease/lease (first (::unepoched p))}))
-      (-> (dissoc p ::unbound ::unepoched)
+      (when (seq (::unrefused p))
+        (defect! :rejection-without-refusal
+          {:dao.lease/proposal (first (::unrefused p))}))
+      (-> (dissoc p ::unbound ::unepoched ::unrefused)
           (assoc :next-t (inc t)
                  :next-e (inc (reduce max (map first datoms))))))))
 

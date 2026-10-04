@@ -196,11 +196,13 @@
 
 
 (defn- refusal-decision
-  "Decide refusal fact `f` of proposal pid from `proposer`."
+  "Decide the refusal of `proposer`'s proposal pid: the plain lease fact
+   `f` and its `:yin.k/refused` fact in one transaction."
   [f proposer pid]
   (fn [p]
     (case (get-in p [:answered [proposer pid]])
-      nil {::authority/facts [f] ::authority/reply ok}
+      nil {::authority/facts [f (custody/refused proposer pid)]
+           ::authority/reply ok}
       :dao.lease/rejected {::authority/reply ok}
       {::authority/reply invalid})))
 
@@ -216,16 +218,20 @@
     :dao.lease/lapsed (lapse-decision f (:dao.lease/lease f))
     :dao.lease/rejected
     (when (some? (:yin.k/proposer f))
-      (refusal-decision f (:yin.k/proposer f) (:dao.lease/proposal f)))
+      (refusal-decision (dissoc f :yin.k/proposer) (:yin.k/proposer f)
+                        (:dao.lease/proposal f)))
     nil))
 
 
 (defn- append-fact!
   [a f]
-  (let [order (get ledger/attribute-order (:dao.lease/status f))
+  (let [status (:dao.lease/status f)
+        order (get ledger/attribute-order status)
+        ;; The hook's refusal names its proposer outside the lease fact.
+        lf (if (= :dao.lease/rejected status) (dissoc f :yin.k/proposer) f)
         decide (when (and order
-                          (not (lease/defective? f))
-                          (every? (set order) (keys f)))
+                          (not (lease/defective? lf))
+                          (every? (set order) (keys lf)))
                  (decision f))]
     (if-not decide
       invalid
@@ -243,8 +249,10 @@
      `:yin.k/bound` binding at the occurrence's current epoch;
      a `:dao.lease/lapsed` fact of a live lease, with its occurrence's
      `:yin.k/reclaimed` epoch change;
-     a `:dao.lease/rejected` fact naming its `:yin.k/proposer`, for a
-     proposal that proposer has not had answered.
+     a `:dao.lease/rejected` fact the hook hands over with its
+     `:yin.k/proposer`, for a proposal that proposer has not had
+     answered: the key is stripped, and the plain lease fact commits
+     with a `:yin.k/refused` fact naming the proposer.
    A fact already recorded with the same terms answers ok and commits
    nothing.  Any other fact, or one outside the published attribute
    order, answers invalid-value; a poisoned or closed authority, or a
@@ -347,7 +355,7 @@
    :policy, each as one lapse transaction that raises the epoch, before
    the authority is handed out.  Nothing is regranted, and
    dao.lease/restart is not used.  Answers authority/open!'s answer
-   with `:yin.k/reclaimed`, the leases reclaimed in order; or, with the
+   with `:yin.k/reclaimed-leases`, the leases reclaimed in order; or, with the
    authority closed, `{:yin.k/status :refused :yin.k/defect :unreclaimed
    :dao.lease/lease l}` for the first reclaim that did not commit."
   [backend opts]
@@ -365,14 +373,19 @@
           (do (authority/close! a)
               {:yin.k/status :refused :yin.k/defect :unreclaimed
                :dao.lease/lease failed})
-          (assoc r :yin.k/reclaimed live))))))
+          (assoc r :yin.k/reclaimed-leases live))))))
 
 
 (defn rebuild-judge
   "Plan 1.5 step 5: `judge` with `:seen` from every grant and lapse
    authority `a`'s ledger records, `:answered` from every recorded grant
-   and refusal keyed `[proposer proposal-id]`, and an empty `:ledger`
-   and `:queue`.  Call it after reopen!, which leaves no tenure live."
+   and refusal keyed `[proposer proposal-id]` (a refusal's proposer
+   from its `:yin.k/refused` fact), and an empty `:ledger` and `:queue`.
+   Call it after reopen!, which leaves no tenure live.  Queued grants
+   are discarded and not reported (contrast dao.lease/restart's
+   `:discarded-queue`): they were authored against a projection that
+   reopen has replaced, a grant that never committed established
+   nothing, and the hook re-decides from the re-drained proposals."
   [a judge]
   (let [p (authority/projection a)]
     (assoc judge

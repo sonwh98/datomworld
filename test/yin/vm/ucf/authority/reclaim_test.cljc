@@ -309,10 +309,8 @@
                             "holder-b")]
     (grant/step! a j)
     (is (= 1 (count (facts frames :dao.lease/accepted))))
-    (is (= [{:dao.lease/status :dao.lease/rejected
-             :dao.lease/proposal "p-b"
-             :yin.k/proposer "holder-b"}]
-           (facts frames :dao.lease/rejected))
+    (is (= [(lease/refusal "p-b") (custody/refused "holder-b" "p-b")]
+           (vec (record-facts (last (records frames)))))
         "the proposal is refused")))
 
 
@@ -350,11 +348,9 @@
                                ["holder-a" (proposals "p-a")]
                                ["holder-b" (proposals "p-b")]))]
     (is (= 1 (count (facts frames :dao.lease/accepted))))
-    (is (= [{:dao.lease/status :dao.lease/rejected
-             :dao.lease/proposal "p-b"
-             :yin.k/proposer "holder-b"}]
-           (facts frames :dao.lease/rejected))
-        "the refusal carries its proposer")
+    (is (= [(lease/refusal "p-b") (custody/refused "holder-b" "p-b")]
+           (vec (record-facts (last (records frames)))))
+        "one record: the plain lease refusal, then the proposer's fact")
     (is (= {["holder-a" "p-a"] :dao.lease/accepted
             ["holder-b" "p-b"] :dao.lease/rejected}
            (:answered j)
@@ -369,6 +365,9 @@
            :dao.lease/proposal "p-b"
            :yin.k/proposer "holder-b"}]
     (is (= :dao.stream/ok (outcome (stream/append! w r))))
+    (is (= [(lease/refusal "p-b") (custody/refused "holder-b" "p-b")]
+           (vec (record-facts (last (records frames)))))
+        "the writer strips the proposer into its own fact")
     (let [before @frames]
       (is (= :dao.stream/ok (outcome (stream/append! w r))) "a replay")
       (is (= :dao.stream/invalid-value
@@ -409,7 +408,7 @@
         r (grant/reopen! (backend frames) nil)
         a2 (::authority/authority r)]
     (is (= :open (:yin.k/status r)))
-    (is (= ["lease-1"] (:yin.k/reclaimed r)))
+    (is (= ["lease-1"] (:yin.k/reclaimed-leases r)))
     (is (= [(lease/lapsed "lease-1" :policy)
             (custody/reclaimed occ "lease-1" 1)]
            (vec (record-facts (last (records frames)))))
@@ -421,7 +420,7 @@
     (authority/close! a2)
     (let [before @frames
           r2 (grant/reopen! (backend frames) nil)]
-      (is (= [] (:yin.k/reclaimed r2)))
+      (is (= [] (:yin.k/reclaimed-leases r2)))
       (is (= before @frames) "a reopen with nothing live writes nothing"))))
 
 
@@ -556,7 +555,8 @@
                               (lease/lapsed "lease-1" :silence))
             r (grant/reopen! (backend frames) nil)]
         (is (= :open (:yin.k/status r)))
-        (is (= (if (zero? persisted) ["lease-1"] []) (:yin.k/reclaimed r)))
+        (is (= (if (zero? persisted) ["lease-1"] [])
+               (:yin.k/reclaimed-leases r)))
         (is (= 1 (count (facts frames :dao.lease/lapsed))) "exactly once")
         (is (= 1 (epoch-of (::authority/authority r))))))))
 
@@ -569,7 +569,8 @@
             :dao.lease/lease "lease-1"}
            r)
         "no authority is served with a tenure it could not reclaim")
-    (is (= ["lease-1"] (:yin.k/reclaimed (grant/reopen! (backend frames) nil)))
+    (is (= ["lease-1"]
+           (:yin.k/reclaimed-leases (grant/reopen! (backend frames) nil)))
         "the next reopen reclaims it")
     (is (= 1 (count (facts frames :dao.lease/lapsed))))))
 

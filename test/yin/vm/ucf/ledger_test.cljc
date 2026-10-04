@@ -319,11 +319,16 @@
   ([l e] (custody/reclaimed occ l e)))
 
 
+(defn- rejected
+  [pid]
+  {:dao.lease/status :dao.lease/rejected :dao.lease/proposal pid})
+
+
 (defn- refusal
+  "The refusal of `proposer`'s proposal pid: the plain lease fact and
+   the authority's custody fact naming the proposer, one transaction."
   [proposer pid]
-  {:dao.lease/status :dao.lease/rejected
-   :dao.lease/proposal pid
-   :yin.k/proposer proposer})
+  [(rejected pid) (custody/refused proposer pid)])
 
 
 (defn- granted
@@ -457,24 +462,68 @@
 
 
 (deftest refusals-answer-their-proposer
-  (let [p (fold [(offered)] [(refusal "holder-b" "p-1")])]
+  (let [p (fold [(offered)] (refusal "holder-b" "p-1"))]
     (is (nil? (::ledger/defect p)))
     (is (= {["holder-b" "p-1"] :dao.lease/rejected} (:answered p))))
   (let [defect (fn [& txs] (::ledger/defect (apply fold txs)))]
-    (is (= :malformed-fact
-           (defect [(dissoc (refusal "holder-b" "p-1") :yin.k/proposer)]))
-        "a refusal names its proposer")
-    (is (= :malformed-fact
-           (defect [(dissoc (refusal "holder-b" "p-1") :dao.lease/proposal)])))
     (is (= :answered-proposal
-           (defect [(refusal "holder-b" "p-1")] [(refusal "holder-b" "p-1")])))
+           (defect (refusal "holder-b" "p-1") (refusal "holder-b" "p-1"))))
     (is (= :answered-proposal
            (defect [(offered)] [(grant) (bound)]
-             [(refusal "holder-a" "p-1")]))
+             (refusal "holder-a" "p-1")))
         "a granted proposal is answered")
     (is (= :answered-proposal
-           (defect [(offered)] [(refusal "holder-a" "p-1")] [(grant) (bound)]))
+           (defect [(offered)] (refusal "holder-a" "p-1") [(grant) (bound)]))
         "a refused proposal gets no grant")
-    (is (nil? (defect [(offered)] [(refusal "holder-b" "p-1")]
+    (is (nil? (defect [(offered)] (refusal "holder-b" "p-1")
                 [(grant) (bound)]))
         "another proposer's id is another answer")))
+
+
+(deftest a-rejection-and-its-refused-fact-commit-together
+  (let [defect (fn [& txs] (::ledger/defect (apply fold txs)))]
+    (is (= :unpaired-refusal (defect [(custody/refused "holder-b" "p-1")]))
+        "a refused fact without its rejection")
+    (is (= :rejection-without-refusal (defect [(rejected "p-1")]))
+        "a rejection without its refused fact")
+    (is (= :rejection-without-refusal
+           (defect [(rejected "p-1")] [(custody/refused "holder-b" "p-1")]))
+        "the refused fact in a later record is too late")
+    (is (= :unpaired-refusal
+           (defect [(custody/refused "holder-b" "p-1") (rejected "p-1")]))
+        "the refused fact follows its rejection")
+    (is (= :unpaired-refusal
+           (defect (conj (refusal "holder-b" "p-1")
+                         (custody/refused "holder-c" "p-1"))))
+        "a doubled refused fact")
+    (is (= :duplicate-rejection
+           (defect [(rejected "p-1") (rejected "p-1")
+                    (custody/refused "holder-b" "p-1")]))
+        "a doubled rejection")
+    (is (= :unpaired-refusal
+           (defect [(rejected "p-1") (custody/refused "holder-b" "p-2")]))
+        "another proposal's refused fact")
+    (is (= :malformed-fact
+           (defect [(rejected "p-1") (custody/refused nil "p-1")]))
+        "a nil proposer")
+    (is (= :malformed-fact
+           (defect [(rejected "p-1") (custody/refused "holder-b" nil)])))
+    (is (= :malformed-fact
+           (defect [(dissoc (rejected "p-1") :dao.lease/proposal)
+                    (custody/refused "holder-b" "p-1")])))
+    (is (= :malformed-fact
+           (raw [] [[100 :dao.lease/status :dao.lease/rejected]
+                    [100 :dao.lease/proposal "p-1"]
+                    [100 :yin.k/proposer "holder-b"]
+                    [101 :yin.k/custody :yin.k/refused]
+                    [101 :yin.k/proposer "holder-b"]
+                    [101 :dao.lease/proposal "p-1"]]))
+        "the lease fact carries no proposer")))
+
+
+(deftest a-grant-with-a-nil-proposal-answers-nothing
+  (let [p (fold [(offered)]
+                [(assoc (grant) :dao.lease/proposal nil) (bound)])]
+    (is (nil? (::ledger/defect p)))
+    (is (= {} (:answered p))
+        "as dao.lease's judge records no answer for it")))

@@ -94,6 +94,16 @@
    :yin.k/epoch e})
 
 
+(defn refused
+  "The authority's record that it refused `proposer`'s proposal `pid`,
+   committed in the transaction of the plain `:dao.lease/rejected`
+   fact, which names no proposer."
+  [proposer pid]
+  {:yin.k/custody :yin.k/refused
+   :yin.k/proposer proposer
+   :dao.lease/proposal pid})
+
+
 (defn subject
   "The lease subject of occurrence `o`."
   [o]
