@@ -199,8 +199,15 @@
   [path]
   #?(:cljd (try (.readAsStringSync (dart-io/File. path))
                 (catch dart-io/PathNotFoundException e
-                  ;; a link whose target is missing is an entry, not absence
-                  (when (.existsSync (dart-io/Link. path)) (throw e))))
+                  ;; Dart also raises this class for Windows errors that are
+                  ;; not absence (bad drive, bad name, name too long): only
+                  ;; OS error 2 (ENOENT, file not found) and 3 (path not
+                  ;; found) are.  A link whose target is missing is an entry,
+                  ;; not absence.
+                  (let [code (some-> (.-osError e) .-errorCode)]
+                    (when (or (not (contains? #{2 3} code))
+                              (.existsSync (dart-io/Link. path)))
+                      (throw e)))))
      :clj (when-not (java.nio.file.Files/notExists
                       (java.nio.file.Paths/get path (make-array String 0))
                       (into-array java.nio.file.LinkOption
@@ -209,7 +216,10 @@
      :cljs (let [fs (js/require "fs")
                  entry? (fn []
                           (try (.lstatSync ^js fs path) true
-                               (catch :default _ false)))]
+                               (catch :default e
+                                 ;; only "no such entry" means no entry; an
+                                 ;; access or I/O failure must not read as one
+                                 (if (= "ENOENT" (.-code e)) false (throw e)))))]
              (try (.readFileSync ^js fs path "utf8")
                   (catch :default e
                     (when-not (and (= "ENOENT" (.-code e)) (not (entry?)))
