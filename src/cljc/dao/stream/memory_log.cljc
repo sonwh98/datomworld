@@ -2,7 +2,9 @@
   "In-memory, unbounded, append-only DaoStream v2 transport: the
    complete-retention local log.  Process-lifetime, not durable across
    restart — a restarted process sees a new, empty logical stream with a
-   new identity.  Durability is dao.jing's job, not this transport's.
+   new identity, except through `restore`, which `dao.stream.journal`
+   uses to keep a persisted identity.  Durability is dao.jing's job, not
+   this transport's.
 
    Retention is complete, and the absence of eviction is structural:
    state is one vector dense from position 0, and this namespace contains
@@ -184,3 +186,14 @@
       {:dao.stream/outcome :dao.stream/ok
        :dao.stream/handle (MemoryLogHandle. state)
        :dao.stream/identity (:identity @state)})))
+
+
+(defn restore
+  "A handle on an open memory log whose identity and history, dense from
+   position 0, a durable owner persisted and now supplies: the visible
+   log under dao.stream.journal.  Not a creation: nothing is validated,
+   and the owner is answerable for both values."
+  [identity values]
+  (MemoryLogHandle. (atom {:identity identity
+                           :values (vec values)
+                           :closed? false})))
