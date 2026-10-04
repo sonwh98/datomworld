@@ -23,14 +23,23 @@
   (let [{:keys [flags rest]}
         (state/split-args ["--port" "8080" "--headless" "--dht-peer" "a:1"
                            "--dht-peer" "b:2" "--dht-manifest" ":segment/x"
-                           "--telemetry" "--vm"])]
+                           "--telemetry"])]
     (is (= {"--port" "8080" "--headless" true "--dht-peer" ["a:1" "b:2"]}
            flags))
     (testing "one-shot flags and unknown arguments pass through, in order"
-      (is (= ["--dht-manifest" ":segment/x" "--telemetry" "--vm"] rest)))
+      (is (= ["--dht-manifest" ":segment/x" "--telemetry"] rest)))
     (is (= ["--port" "8080" "--headless" "--dht-peer" "a:1" "--dht-peer" "b:2"]
            (state/flags->args flags))
         "a fixed order, a repeated flag once per value")))
+
+
+(deftest a-flag-with-no-value-is-refused-not-resolved-to-the-saved-one
+  (doseq [args [["--port"] ["--port" "--headless"] ["--vm"] ["--dht-peer"]
+                ["--dht-peer" "a:1" "--dht-peer"] ["--dht-manifest"]
+                ["--dht-keygen" "--help"]]]
+    (let [e (refusal-of #(state/split-args args))]
+      (is (some? (ex-data e)) (pr-str args))
+      (is (str/includes? (ex-message e) "needs a value") (pr-str args)))))
 
 
 (deftest the-command-line-replaces-saved-values-whole
@@ -66,6 +75,8 @@
                       ["{:version 2 :config {}}" "version-1"]
                       ["{:version 1}" ":config"]
                       ["{:version 1 :config {:nonsense \"x\"}}" "unknown setting"]
+                      ["{:version 1 :config {42 \"x\"}}" "unknown setting"]
+                      ["{:version 1 :config {\"--port\" \"1\"}}" "unknown setting"]
                       ["{:version 1 :config {:port 8080}}" "must be a string"]
                       ["{:version 1 :config {:dht-peer \"a:1\"}}"
                        "vector of strings"]
@@ -77,6 +88,34 @@
         (is (some? (ex-data e)) text)
         (is (str/includes? (ex-message e) why) text)
         (is (str/includes? (ex-message e) "--reset") text)))))
+
+
+;; Dart's File.existsSync is false for a directory, so the path reads as
+;; absent there: this scenario is a JVM and Node one.
+(deftest a-state-path-that-cannot-be-read-is-refused-naming-the-file
+  #?(:cljd nil
+     :default
+     (let [dir (temp-dir)]
+       ;; a directory where the file should be: existing, but not readable text
+       (state/save! (str dir "/" state/file-name) {})
+       (let [e (refusal-of #(state/load-flags dir))]
+         (is (some? (ex-data e)) "a designed refusal, not a raw I/O exception")
+         (is (str/includes? (ex-message e) "cannot be read"))
+         (is (str/includes? (ex-message e) "--reset")))
+       (let [started (repl/startup ["--dir" dir] {:persist? true})]
+         (is (str/includes? (:refusal started) "cannot be read"))))))
+
+
+(deftest a-missing-value-never-starts-with-the-saved-one
+  (let [dir (temp-dir)]
+    (state/save! dir {"--port" "8080"})
+    (doseq [args [["--port"] ["--port" "9000" "--port"]]]
+      (let [started (repl/startup (into ["--dir" dir] args) {:persist? true})]
+        (is (str/includes? (:refusal started) "--port needs a value")
+            (pr-str args))
+        (is (nil? (:state started)))))
+    (is (= {"--port" "8080"} (state/load-flags dir))
+        "a refused start saves nothing")))
 
 
 (defn- vm-of

@@ -46,11 +46,22 @@
   #{"--dht-manifest" "--dht-keygen"})
 
 
+(defn- value-of
+  "The value after `flag`, or a refusal: a missing value (or another flag
+   in its place) must never fall back to the saved one."
+  [flag more]
+  (let [value (first more)]
+    (if (and (some? value) (not (str/starts-with? value "--")))
+      value
+      (throw (ex-info (str flag " needs a value") {:flag flag})))))
+
+
 (defn split-args
   "Split `args` into `{:flags {flag value} :rest [arg ...]}`: the flags a
    state file keeps (a switch is `true`, a repeated flag a vector) and
-   everything else, in order, for the arguments parser.  A valued flag with
-   no value stays in `:rest` so the parser refuses it as it always has."
+   everything else, in order, for the arguments parser.  A saved flag or a
+   one-shot flag with no value is refused here, before it can be resolved
+   against the saved value."
   [args]
   (loop [args (seq args) flags {} rest []]
     (if-let [arg (first args)]
@@ -59,16 +70,16 @@
         (cond
           (= :switch kind) (recur more (assoc flags arg true) rest)
 
-          (and (#{:value :many} kind) (seq more))
-          (let [value (first more)]
+          (#{:value :many} kind)
+          (let [value (value-of arg more)]
             (recur (next more)
                    (if (= :many kind)
                      (update flags arg (fnil conj []) value)
                      (assoc flags arg value))
                    rest))
 
-          (and (one-shot-flags arg) (seq more))
-          (recur (next more) flags (conj rest arg (first more)))
+          (one-shot-flags arg)
+          (recur (next more) flags (conj rest arg (value-of arg more)))
 
           :else (recur more flags (conj rest arg))))
       {:flags flags :rest rest})))
@@ -150,8 +161,8 @@
 
       :else
       (reduce (fn [flags [k v]]
-                (let [flag (str "--" (name k))
-                      kind (kinds flag)]
+                (let [kind (when (keyword? k) (kinds (str "--" (name k))))
+                      flag (when kind (str "--" (name k)))]
                   (cond
                     (nil? kind)
                     (throw (refuse path (str "unknown setting " (pr-str k))))
@@ -183,7 +194,15 @@
    state file.  A file that cannot be understood is refused, never
    skipped."
   [dir]
-  (when-some [text (fs/read-file-text dir file-name)]
+  (when-some [text (try (fs/read-file-text dir file-name)
+                        (catch #?(:cljd Object
+                                  :clj Throwable
+                                  :cljs :default)
+                               e
+                          (throw (refuse (path dir)
+                                         (str "it cannot be read ("
+                                              (or (ex-message e) (str e))
+                                              ")")))))]
     (text->config (path dir) text)))
 
 

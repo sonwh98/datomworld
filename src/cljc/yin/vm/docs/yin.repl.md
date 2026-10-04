@@ -92,9 +92,13 @@ file is plain EDN and may be edited by hand:
   is a warning, and the node still starts.
 - **Hosts:** ClojureDart has no home directory, so a bare `yin-repl` there
   saves nothing unless `--dir` names the node directory.
-- **One node per directory:** a `file:` or `dht:` store's lock already keeps
-  one process per directory. A node on the in-memory store has no lock, so
-  two such processes with the same name would overwrite each other's file.
+- **One node per name:** the state file is only as protected as its
+  directory. `dht init|serve|join` put the store in the node directory, so the
+  store's lock also keeps one process per state file. A node whose store lives
+  elsewhere (`--index-store file:/tmp/a`, or the in-memory default) is not
+  covered: two such processes with the same `--name` or `--dir` overwrite each
+  other's file, last writer wins, and no process notices. Give each its own
+  `--name`.
 
 ## Protocol and Architecture
 
