@@ -471,6 +471,51 @@
                    :host (or (:adapter opts) (host/websocket))})))
 
 
+(def help-lines
+  "What `--help` prints: every subcommand and flag `parse-args` and
+   `expand-args` read."
+  ["yin-repl: the interface to datom.world"
+   ""
+   "usage: yin-repl [flags]"
+   "       yin-repl dht init|serve|join [token] [options]"
+   "       yin-repl keygen [--name n | file]"
+   ""
+   "subcommands:"
+   "  dht init          publish: share the store, make the key on first run"
+   "  dht serve         storing peer: fetch only, no key"
+   "  dht join <token>  reader: peer, principal and manifest from a join token"
+   "  keygen            write a new Ed25519 key file and exit"
+   ""
+   "dht options:"
+   "  --name n          state under ~/.yin/<n> (default: node)"
+   "  --dir d           state directory, instead of ~/.yin/<name>"
+   "  --key file        key file (init: default ~/.yin/<name>.key)"
+   "  --listen [ip:]port  this node's DHT socket"
+   "  --peer host:port  a peer to contact; repeatable; localhost or an IP"
+   ""
+   "flags:"
+   "  --port n          serve this shell to other shells over WebSockets"
+   "  --host ip         bind address for --port (default 127.0.0.1)"
+   "  --headless        no prompt, endpoint only; needs --port"
+   "  --index-store s   mem (default), file:<dir> or dht:<dir>"
+   "  --help, -h        print this and exit"
+   ""
+   "dht flags (need --index-store dht:<dir>, except --dht-keygen):"
+   "  --dht-peer host:port        bootstrap contact (IP literal); repeatable"
+   "  --dht-publish               share the store's content with peers"
+   "  --dht-bind ip               socket address; needs a peer"
+   "  --dht-port p                socket port; needs a peer"
+   "  --dht-max-inbound-bytes n   inbound payload bound (default 64 MiB)"
+   "  --dht-manifest :segment/... remote index to hydrate first; needs a peer"
+   "  --dht-key file              the publisher's key file"
+   "  --dht-principal hex         a publisher to trust; repeatable"
+   "  --dht-keygen file           write a new key file and exit"
+   ""
+   "--telemetry and --telemetry-stream are rejected."
+   "Unrecognized arguments are ignored."
+   "See src/cljc/yin/vm/docs/yin.repl.md for the walk-through."])
+
+
 (defn startup
   "Parse the arguments and compose the whole shell (the store the parsed
    `:index-store-spec` names included), or answer the refusal text.  This
@@ -488,21 +533,23 @@
    shell, and only its principal reaches the options the banner reads."
   [args]
   (try
-    (let [[args {:keys [new-key]}] (expand-args args)
-          made (when (and new-key (nil? (fs/read-file-text
-                                          (first (split-path new-key))
-                                          (second (split-path new-key)))))
-                 (:lines (keygen! new-key)))
-          opts (cond-> (parse-args args)
-                 made (assoc :startup-lines made))]
-      (if-some [path (:dht-keygen opts)]
-        (keygen! path)
-        (let [key (some-> (:dht-key-file opts) load-key)
-              opts (cond-> opts
-                     key (assoc :publisher (sign/principal (:public key))))]
-          {:opts opts
-           :state (boot (assoc opts :dht-key key))
-           :server (boot-server opts)})))
+    (if (some #{"--help" "-h"} args)
+      {:lines help-lines :exit 0}
+      (let [[args {:keys [new-key]}] (expand-args args)
+            made (when (and new-key (nil? (fs/read-file-text
+                                            (first (split-path new-key))
+                                            (second (split-path new-key)))))
+                   (:lines (keygen! new-key)))
+            opts (cond-> (parse-args args)
+                   made (assoc :startup-lines made))]
+        (if-some [path (:dht-keygen opts)]
+          (keygen! path)
+          (let [key (some-> (:dht-key-file opts) load-key)
+                opts (cond-> opts
+                       key (assoc :publisher (sign/principal (:public key))))]
+            {:opts opts
+             :state (boot (assoc opts :dht-key key))
+             :server (boot-server opts)}))))
     (catch #?(:cljd Object
               :clj Throwable
               :cljs :default)

@@ -1347,3 +1347,23 @@
 
 (deftest keygen-subcommand-takes-a-file
   (is (= ["--dht-keygen" "k.key"] (first (repl/expand-args ["keygen" "k.key"])))))
+
+
+(deftest help-answers-the-usage-and-exits-zero-without-composing
+  (doseq [args [["--help"] ["-h"] ["dht" "init" "--help"]
+                ["--port" "8080" "-h"]]]
+    (let [started (repl/startup args)]
+      (is (= 0 (:exit started)) (pr-str args))
+      (is (= repl/help-lines (:lines started)))
+      (is (not (contains? started :state))))))
+
+
+(deftest help-documents-every-flag-and-subcommand
+  (let [text (str/join "\n" repl/help-lines)]
+    (doseq [word ["--port" "--host" "--headless" "--index-store" "--help"
+                  "--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
+                  "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key"
+                  "--dht-principal" "--dht-keygen" "--name" "--dir" "--key"
+                  "--listen" "--peer" "--telemetry" "dht init" "dht serve"
+                  "dht join" "keygen"]]
+      (is (str/includes? text word) word))))

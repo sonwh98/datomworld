@@ -212,7 +212,8 @@ port and list any live node with `--peer`; a node may list several.
 
 ### The flags
 
-The subcommands map onto these. `dht serve` is `--index-store dht:<dir>`
+`yin-repl --help` (or `-h`) prints every subcommand and flag and exits
+with status 0, on every host. The subcommands map onto these. `dht serve` is `--index-store dht:<dir>`
 with `--dht-peer` and `--dht-port`; `dht init` adds `--dht-publish` and
 `--dht-key`, making the key first as `--dht-keygen` does; `dht join` adds
 the token's peer, `--dht-manifest` and `--dht-principal` (the token
