@@ -96,16 +96,28 @@
   (ex-info "dao.stream.journal crash cut" {::cut cut}))
 
 
+(def memory-durability
+  "What a memory journal survives: nothing beyond the caller's atom.  The
+   file backend's declaration shape (dao.stream.journal.file/durability),
+   so every backend answers one shape."
+  {::backend :memory
+   ::failure-model :none
+   ::lock-kind :none
+   ::persisted #{}})
+
+
 (defn memory-backend
   "A backend over `frames`, an atom holding a vector of byte arrays that
    the caller keeps and reopens.  `cut`, when not nil, is a crash cut the
    first frame write through this backend suffers, then a throw:
      :before-frame               nothing is persisted
      :after-frame-before-visible the whole frame is persisted
-     :torn-frame                 the first half of the frame is persisted"
+     :torn-frame                 the first half of the frame is persisted
+   It carries `memory-durability` under ::durability."
   [frames cut]
   (let [armed (atom cut)]
-    {::frames (fn [] (assoc (result :dao.stream/ok) ::frames @frames))
+    {::durability (fn [] memory-durability)
+     ::frames (fn [] (assoc (result :dao.stream/ok) ::frames @frames))
      ::write-frame!
      (fn [bs]
        (let [c @armed]

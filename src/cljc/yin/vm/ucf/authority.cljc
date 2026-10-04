@@ -52,6 +52,15 @@
      :default (f)))
 
 
+(defn locked
+  "Call `f` under the authority's transition lock, so a composite
+   decision (a whole dao.lease judge-step, an offer that stores content
+   before it commits) sees one projection throughout.  `transition!`
+   inside `f` re-enters the same lock."
+  [authority f]
+  (with-lock (:lock authority) f))
+
+
 (defn- status
   ([s] {:yin.k/status s})
   ([s reason] {:yin.k/status s :yin.k/reason reason}))
@@ -188,7 +197,9 @@
    ::reply r}`: the facts are committed as one transaction, ids drawn in
    order from the projection's `:next-e`, and r is answered with
    `:dao.space/t`.  A poisoned value answers `{:yin.k/status :suspended
-   :yin.k/reason :poisoned}`, a closed one `{:yin.k/status :closed}`."
+   :yin.k/reason :poisoned}`, a closed one `{:yin.k/status :closed}`.  A
+   fact outside its kind's published attribute order is an argument
+   defect: ledger/facts->datoms throws before anything is written."
   [authority decide]
   (with-lock
     (:lock authority)

@@ -80,6 +80,17 @@
              (stream/descriptor (:dao.stream/handle r)))))))
 
 
+(deftest the-memory-backend-declares-its-durability
+  (let [d ((::journal/durability (journal/memory-backend (atom []) nil)))]
+    (is (= journal/memory-durability d))
+    (is (= {:dao.stream.journal/backend :memory
+            :dao.stream.journal/failure-model :none
+            :dao.stream.journal/lock-kind :none
+            :dao.stream.journal/persisted #{}}
+           d)
+        "the file backend's shape: survives nothing, persists nothing")))
+
+
 (deftest repeated-equal-appends-keep-separate-positions
   (let [frames (atom [])
         h (handle frames)]

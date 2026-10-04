@@ -265,6 +265,9 @@
    ["missing-next-op-seq" "successor" #(dissoc % :yin.k/next-op-seq)]
    ["fork-policy" "successor" (set-in [:yin.k/policy] :yin.k/fork)]
    ["nil-occurrence" "successor" (set-in [:yin.k/occurrence] nil)]
+   ["occurrence-not-uuid" "successor" (set-in [:yin.k/occurrence] "O")]
+   ["origin-occurrence-not-uuid" "successor"
+    (set-in [:yin.k/origin :yin.k/occurrence] "O")]
    ["malformed-arbitration" "successor"
     #(update % :yin.k/arbitration dissoc :dao.stream/descriptor)]
    ["origin-is-self" "successor"
@@ -302,6 +305,7 @@
             (op-id 0))]
    ["op-id-without-origin" "first-park" (set-in put-id (op-id 0))]
    ["op-id-own-occurrence" "successor" (set-in put-id (op-id occurrence 0))]
+   ["op-id-occurrence-not-uuid" "successor" (set-in put-id (op-id "O" 0))]
    ["op-id-malformed" "successor"
     (set-in put-id (assoc (op-id 0) :yin.k/epoch 0))]
    ["op-id-seq-float" "successor" (set-in put-id (op-id (cbor/float64 0)))]

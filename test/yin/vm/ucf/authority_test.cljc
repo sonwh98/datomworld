@@ -224,6 +224,22 @@
                                     :dao.stream.journal/value :x})])))))
 
 
+(deftest a-fact-outside-the-published-order-is-an-argument-defect
+  (let [[frames i] (enrolled)
+        a (auth frames)
+        before @frames]
+    (is (thrown? #?(:cljd Object :clj Throwable :cljs :default)
+          (authority/transition!
+            a (fn [_]
+                {::authority/facts [{:yin.k/custody :yin.k/target-closed
+                                     :yin.k/target i
+                                     :yin.k/extra 1}]
+                 ::authority/reply {}}))))
+    (is (= before @frames) "nothing was written")
+    (is (= :committed (status (authority/close-target! a i)))
+        "the authority is not poisoned")))
+
+
 (deftest a-transition-past-a-bound-commits-nothing
   (let [frames (atom [])
         opts {::authority/max-exact 18}

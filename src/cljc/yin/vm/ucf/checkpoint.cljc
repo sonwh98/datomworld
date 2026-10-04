@@ -12,7 +12,9 @@
    ids on `:put`, `:ffi-request` and `:link-request`, recursing into
    every install child with the root's occurrence, origin and counter.
    An integer is checked on the canonical codec's integer kind, never
-   on numeric equality, so an integral float never passes.
+   on numeric equality, so an integral float never passes.  An occurrence
+   id is a lowercase UUID string (`yin.vm.ucf.custody/occurrence?`), in
+   the root, its origin and every carried id.
 
    Every `:install` pending must name an entry of `:yin.k/installs`
    (7.4.3), because the baseline includes the children's ids.  Not
@@ -40,7 +42,8 @@
    intent.  Every refusal is a data outcome carrying `:yin.k/status`;
    nothing here throws on any input."
   (:require [dao.jing :as jing]
-            [dao.jing.cbor :as cbor]))
+            [dao.jing.cbor :as cbor]
+            [yin.vm.ucf.custody :as custody]))
 
 
 (def supported-versions
@@ -159,7 +162,7 @@
   (let [origin (get body :yin.k/origin)
         p (conj path :yin.k/origin)]
     (when-not (and (map? origin)
-                   (some? (get origin :yin.k/occurrence))
+                   (custody/occurrence? (get origin :yin.k/occurrence))
                    (some? (get origin :dao.lease/lease))
                    (some? (get origin :yin.k/emitter)))
       (undecodable! p {:yin.k/kind :malformed-origin}))
@@ -191,6 +194,9 @@
         (when (nil? (get body :yin.k/occurrence))
           (undecodable! (conj path :yin.k/occurrence)
                         {:yin.k/kind :nil-occurrence}))
+        (when-not (custody/occurrence? (get body :yin.k/occurrence))
+          (undecodable! (conj path :yin.k/occurrence)
+                        {:yin.k/kind :malformed-occurrence}))
         (let [arb (get body :yin.k/arbitration)]
           (when-not (and (map? arb)
                          (some? (get arb :dao.stream/identity))
@@ -252,7 +258,7 @@
   [ctx op-id path]
   (let [p (conj path :yin.k/op-id)]
     (when-not (and (map? op-id) (= 2 (count op-id))
-                   (some? (get op-id :yin.k/occurrence))
+                   (custody/occurrence? (get op-id :yin.k/occurrence))
                    (contains? op-id :yin.k/seq))
       (undecodable! p {:yin.k/kind :malformed-op-id}))
     (when-not (exact? (get op-id :yin.k/seq))

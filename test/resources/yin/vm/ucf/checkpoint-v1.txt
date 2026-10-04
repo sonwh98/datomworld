@@ -590,6 +590,12 @@ segment/blake3-adab83fc7041427509ce056afb59c1977059fa5a9c724065fc7562fd54a1da4b
 nil-occurrence
 segment/blake3-b5811c7e58f81e112152b10a3d79b3011ec75aa513a72fa35422410b78d50b85
 
+occurrence-not-uuid
+segment/blake3-4b38174a8eaa6e5ffdcc135948a0d968e2cff7b1913bdb39069015edbdabed4d
+
+origin-occurrence-not-uuid
+segment/blake3-ef9f7fae65aa9eac7968df6429fd27b6a26433d9b9a1b11d3060785ae30da91b
+
 malformed-arbitration
 segment/blake3-9cb233fe859d48c251bc12a98004a957bc5846f26b998e21ca4fc37f8518dc05
 
@@ -646,6 +652,9 @@ segment/blake3-164cf6c87eee14fd7d57a90b8e942f97830376cb90195db61157a231f5f328be
 
 op-id-own-occurrence
 segment/blake3-48c2e63a517c940d54adcf6f9abd8b8c70bf0130ffe7aa4374dd3e9f32cce0db
+
+op-id-occurrence-not-uuid
+segment/blake3-e20a1243ab8ae4a6aef41cb05865a6bb4405aa62639ed7bb3dac07201e11c4e9
 
 op-id-malformed
 segment/blake3-9ce980f1b918820bb6cf110c70477612682f4378375015b858f90059c13a2618

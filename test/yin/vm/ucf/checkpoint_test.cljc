@@ -142,6 +142,8 @@
    "missing-next-op-seq" [[:yin.k/next-op-seq] :missing-header]
    "fork-policy" [[:yin.k/policy] nil]
    "nil-occurrence" [[:yin.k/occurrence] :nil-occurrence]
+   "occurrence-not-uuid" [[:yin.k/occurrence] :malformed-occurrence]
+   "origin-occurrence-not-uuid" [[:yin.k/origin] :malformed-origin]
    "malformed-arbitration" [[:yin.k/arbitration] :malformed-arbitration]
    "origin-is-self" [[:yin.k/origin :yin.k/occurrence] :origin-is-self]
    "malformed-origin" [[:yin.k/origin] :malformed-origin]
@@ -169,6 +171,7 @@
    "op-id-without-origin" [put-id :op-id-without-origin]
    "op-id-own-occurrence" [put-id :op-id-own-occurrence]
    "op-id-malformed" [put-id :malformed-op-id]
+   "op-id-occurrence-not-uuid" [put-id :malformed-op-id]
    "op-id-seq-float" [(conj put-id :yin.k/seq) :inexact]
    "op-id-seq-negative" [(conj put-id :yin.k/seq) :inexact]
    "park-reason" [[:yin.k/frames 1 :yin.k/pending] nil]})

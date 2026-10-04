@@ -157,7 +157,9 @@ The backend owns only bytes, order and durability.
 
 `(memory-backend frames cut)` keeps frames in `frames`, an atom holding a
 vector the caller owns and passes again to reopen. It is never durable
-beyond that atom. `cut`, when not nil, is a crash the first frame write
+beyond that atom, and its `:dao.stream.journal/durability` declaration
+says so in the file backend's shape: backend `:memory`, failure model
+`:none`, lock kind `:none`, `persisted` `#{}`. `cut`, when not nil, is a crash the first frame write
 through that backend value suffers, followed by a throw:
 
 | Cut                           | Persisted        | After reopen          |

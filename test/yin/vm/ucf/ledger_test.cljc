@@ -1,6 +1,7 @@
 (ns yin.vm.ucf.ledger-test
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing.cbor :as cbor]
+            [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.ledger :as ledger]))
 
 
@@ -69,6 +70,23 @@
   (is (= 4503599627370495 ledger/max-exact)))
 
 
+(deftest authoring-refuses-a-fact-outside-the-published-order
+  (let [defect (fn [facts]
+                 (try (ledger/facts->datoms 16 facts)
+                      nil
+                      (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                        (::ledger/defect (ex-data e)))))]
+    (is (= :unknown-kind (defect [{:yin.k/custody :yin.k/other}])))
+    (is (= :unknown-kind (defect [{:yin.k/target target}]))
+        "a fact with no dispatch key")
+    (is (= :unpublished-attribute
+           (defect [(assoc enrolled :yin.k/extra 1)]))
+        "an attribute outside the kind's order is never silently dropped")
+    (is (= :unknown-kind
+           (defect [(assoc enrolled :dao.lease/status :dao.lease/accepted)]))
+        "both dispatch keys")))
+
+
 (deftest the-fold-builds-the-projection
   (let [p (fold [enrolled] [(admitted 0 :a) (admitted 1 :a)]
                 [{:yin.k/custody :yin.k/target-closed :yin.k/target target}])]
@@ -135,3 +153,146 @@
     (is (= :malformed-record
            (::ledger/defect
              (ledger/fold-record (ledger/empty-projection arb) :x))))))
+
+
+;; =============================================================================
+;; Custody facts (slice C5)
+;; =============================================================================
+
+(def ^:private occ "8f0c6a52-6a1e-4e43-9d55-3f0a4c1b2e01")
+
+
+(defn- address
+  [digit]
+  (keyword "segment" (str "blake3-" (apply str (repeat 64 digit)))))
+
+
+(def ^:private addr-1 (address "1"))
+
+(def ^:private addr-2 (address "2"))
+
+
+(def ^:private baseline
+  {:yin.k/kind :blocked
+   :yin.k/occurrence occ
+   :yin.k/arbitration {:dao.stream/identity arb :dao.stream/descriptor {}}
+   :yin.k/next-op-seq 0
+   :yin.k/ops {}})
+
+
+(defn- offered
+  ([] (offered addr-1))
+  ([address] (offered address baseline))
+  ([address b] (custody/offer occ address "carrier" b)))
+
+
+(defn- grant
+  ([] (grant "lease-1" "holder-a"))
+  ([l h]
+   {:dao.lease/status :dao.lease/accepted
+    :dao.lease/lease l
+    :dao.lease/proposal "p-1"
+    :dao.lease/subject {:yin.k/occurrence occ}
+    :dao.lease/holder h
+    :dao.lease/duration {:s 30}}))
+
+
+(defn- bound
+  ([] (bound "lease-1" "holder-a" 0))
+  ([l h e] (custody/bound occ l h e)))
+
+
+(deftest the-fold-records-offers-grants-and-bindings
+  (let [p (fold [(offered)]
+                [(offered addr-2)]
+                [(grant) (bound)])]
+    (is (= {occ {:yin.k/baseline baseline
+                 :yin.k/variants #{addr-1 addr-2}
+                 :yin.k/epoch 0
+                 :dao.lease/lease "lease-1"}}
+           (:occurrences p))
+        "an equal-baseline variant joins its occurrence")
+    (is (= {"lease-1" {:yin.k/occurrence occ
+                       :dao.lease/holder "holder-a"
+                       :yin.k/epoch 0
+                       :dao.space/t 2}}
+           (:leases p)))
+    (is (= #{:arbitration :next-t :next-e :targets :admitted :occurrences
+             :leases}
+           (set (keys p)))
+        "no transient fold state stays in a projection")))
+
+
+(defn- raw
+  "The defect of folding one record of `[e a v]` datoms after `txs`."
+  [txs datoms]
+  (let [p (apply fold txs)]
+    (::ledger/defect
+      (ledger/fold-record p (record (:next-t p) (stamp (:next-t p) datoms))))))
+
+
+(deftest the-fold-refuses-malformed-custody-facts
+  (let [defect (fn [& txs] (::ledger/defect (apply fold txs)))
+        other "1d3e5b7a-0c2f-4a69-8b11-7e6d5c4b3a02"]
+    (testing "offers"
+      (is (= :malformed-fact
+             (defect [(assoc (offered) :yin.k/occurrence "O")])))
+      (is (= :malformed-fact (defect [(assoc (offered) :yin.k/id "addr")])))
+      (is (= :malformed-fact
+             (defect [(assoc (offered) :yin.k/policy :yin.k/fork)])))
+      (is (= :malformed-fact (defect [(dissoc (offered) :yin.k/medium)])))
+      (is (= :malformed-fact
+             (defect [(offered addr-1
+                               (assoc baseline :yin.k/occurrence other))]))
+          "a baseline of another occurrence")
+      (is (= :malformed-fact
+             (defect [(offered addr-1
+                               (assoc baseline :yin.k/kind :halted))])))
+      (is (= :foreign-arbitration
+             (defect [(offered addr-1
+                               (assoc-in baseline
+                                         [:yin.k/arbitration
+                                          :dao.stream/identity]
+                                         "other"))])))
+      (is (= :duplicate-offer (defect [(offered)] [(offered)])))
+      (is (= :variant-conflict
+             (defect [(offered)]
+               [(offered addr-2
+                         (assoc baseline :yin.k/next-op-seq 1))]))))
+    (testing "grants"
+      (is (= :unknown-occurrence (defect [(grant) (bound)])))
+      (is (= :malformed-fact
+             (defect [(offered)]
+               [(dissoc (grant) :dao.lease/duration) (bound)])))
+      (is (= :malformed-fact
+             (defect [(offered)]
+               [(assoc (grant) :dao.lease/subject
+                       {:yin.k/occurrence occ :x 1})
+                (bound)])))
+      (is (= :unbound-grant (defect [(offered)] [(grant)]))
+          "a grant without its binding in one record")
+      (is (= :unbound-grant (defect [(offered)] [(grant)] [(bound)])))
+      (is (= :held-occurrence
+             (defect [(offered)] [(grant) (bound)]
+               [(grant "lease-2" "holder-b")
+                (bound "lease-2" "holder-b" 0)])))
+      (is (= :duplicate-lease
+             (defect [(offered)] [(grant) (bound)] [(grant) (bound)]))))
+    (testing "bindings"
+      (is (= :unknown-lease (defect [(offered)] [(bound)])))
+      (is (= :malformed-fact
+             (defect [(offered)]
+               [(grant) (bound "lease-1" "holder-a" (cbor/float64 0))]))
+          "a float epoch")
+      (is (= :epoch-mismatch
+             (defect [(offered)] [(grant) (bound "lease-1" "holder-a" 1)]))
+          "the first grant binds 0")
+      (is (= :binding-mismatch
+             (defect [(offered)] [(grant) (bound "lease-1" "holder-b" 0)])))
+      (is (= :duplicate-binding
+             (defect [(offered)] [(grant) (bound) (bound)]))))
+    (testing "a fact carrying both dispatch keys"
+      (is (= :malformed-fact
+             (raw [[(offered)]]
+                  [[20 :yin.k/custody :yin.k/bound]
+                   [20 :dao.lease/status :dao.lease/accepted]]))))))
