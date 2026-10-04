@@ -39,6 +39,10 @@
                            the same transaction: its lease and epoch
      :yin.k/quarantined    an occurrence quarantined by an intent
                            conflict on a recorded op id
+   and of slice C10 (yin.vm.ucf.authority.input):
+     :yin.k/input          one durable input of an occurrence, recorded
+                           under its live lease, dense in
+                           `:yin.k/input-seq` from 0
 
    The projection is plain data:
 
@@ -51,7 +55,10 @@
                     {:yin.k/target i :yin.k/intent h :yin.k/result r}}
       :occurrences {o {:yin.k/baseline b :yin.k/variants #{address}
                        :yin.k/epoch e :dao.lease/lease l-or-nil
-                       :yin.k/exhausted true}}     ; once exhausted
+                       :yin.k/exhausted true      ; once exhausted
+                       :yin.k/inputs [{:yin.k/source s :yin.k/observed v
+                                       :dao.lease/lease l
+                                       :dao.space/t t} ...]}} ; once recorded
       :leases      {l {:yin.k/occurrence o :dao.lease/holder h
                        :yin.k/epoch e :dao.space/t t
                        :dao.lease/duration d     ; the grant's terms:
@@ -110,7 +117,10 @@
    ;; slice C7, admission (yin.vm.ucf.authority.admission)
    :yin.k/fenced [:yin.k/custody :yin.k/op-id :yin.k/incarnation
                   :yin.k/epoch]
-   :yin.k/quarantined [:yin.k/custody :yin.k/occurrence :yin.k/op-id]})
+   :yin.k/quarantined [:yin.k/custody :yin.k/occurrence :yin.k/op-id]
+   ;; slice C10: input records
+   :yin.k/input [:yin.k/custody :yin.k/occurrence :dao.lease/lease
+                 :yin.k/input-seq :yin.k/source :yin.k/observed]})
 
 
 (def effect-kinds
@@ -396,6 +406,29 @@
       :else nil)))
 
 
+;; slice C10: input records
+(defn- input-defect
+  "Why `fact` is not the next input of its occurrence under the
+   occurrence's live, bound lease, or nil."
+  [projection fact]
+  (let [l (:dao.lease/lease fact)
+        known (get-in projection [:occurrences (:yin.k/occurrence fact)])]
+    (cond
+      (not (and (custody/occurrence? (:yin.k/occurrence fact))
+                (some? l)
+                (custody/exact? (:yin.k/input-seq fact))
+                (map? (:yin.k/source fact))
+                (some? (:yin.k/observed fact))))
+      :malformed-fact
+      (nil? known) :unknown-occurrence
+      (not (and (= l (:dao.lease/lease known))
+                (some? (get-in projection [:leases l :yin.k/epoch]))))
+      :inactive-lease
+      (not= (:yin.k/input-seq fact) (count (:yin.k/inputs known)))
+      :non-dense-input
+      :else nil)))
+
+
 (defn- fold-fact
   [projection t fact]
   (case (fact-kind fact)
@@ -535,7 +568,19 @@
           (defect! d {:fact fact}))
         (assoc-in projection
                   [:occurrences (:yin.k/occurrence fact) :yin.k/quarantined]
-                  true))))
+                  true))
+
+    ;; slice C10: an input record extends its occurrence's one sequence.
+    :yin.k/input
+    (do (when-let [d (input-defect projection fact)]
+          (defect! d {:fact fact}))
+        (update-in projection
+                   [:occurrences (:yin.k/occurrence fact) :yin.k/inputs]
+                   (fnil conj [])
+                   {:yin.k/source (:yin.k/source fact)
+                    :yin.k/observed (:yin.k/observed fact)
+                    :dao.lease/lease (:dao.lease/lease fact)
+                    :dao.space/t t}))))
 
 
 (defn- fold-record*
