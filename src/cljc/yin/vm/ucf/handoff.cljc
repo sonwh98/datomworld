@@ -15,8 +15,17 @@
    requirements, validates the whole body, and answers it as canonical
    CBOR bytes under their content address.
 
-   `resume-task` is the lower: decode the bytes, check stamp, version,
-   grammar, references and code hashes before anything is installed;
+   `resume-task` is the lower, and its reader is version-aware (M-next
+   D7): the version-1 decode is tried first -- `dao.jing.cbor` canonical
+   bytes, whose decoder refuses the stream codec's tag-39 identifiers --
+   then the stage-1 `dao.stream.cbor` decode; the codec that accepted
+   the bytes decides which body version they may carry (version 1 in
+   jing bytes, version 0 in stream bytes, enforced as
+   `:yin.k/profile-mismatch` before the address check), a version-1
+   body then runs the custody inspector (`yin.vm.ucf.checkpoint`) over
+   its claimed address, and a failure at any step is never
+   reinterpreted through the other codec.  It checks stamp, grammar,
+   references and code hashes before anything is installed;
    attach each stream identity once through its carried descriptor;
    allocate one fresh private resource per logical cell and stream;
    re-seal every reference under the receiving task; restore the store
@@ -39,6 +48,7 @@
    or the export refuses; an install name alone reconstructs nothing."
   (:require [clojure.set :as set]
             [dao.jing :as jing]
+            [dao.jing.cbor :as jing.cbor]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [dao.stream.cbor :as cbor]
@@ -48,6 +58,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.ucf :as ucf]
+            [yin.vm.ucf.checkpoint :as checkpoint]
             [yin.vm.ucf.remote :as ucf.remote]
             [yin.vm.values :as values]))
 
@@ -58,10 +69,15 @@
 
 
 (def handoff-version
-  "The wire version this namespace speaks; stage 2's amendment raises
-   it to 1 (section 14.3), and a body of any other version is refused
-   with :yin.k/profile-mismatch before restoration."
-  0)
+  "The body versions this namespace's reader speaks: version 0, the
+   frozen stage-1 wire the lower still emits, and version 1, the custody
+   amendment (section 14.3) whose canonical bytes are dao.jing.cbor's.
+   Which of the two a body may carry is decided by the codec that
+   accepted its bytes -- the version-aware reader's gate, before the tag
+   grammar and before any address or restoration check -- and a body of
+   any other version, absent or not of the integer kind, is refused with
+   :yin.k/profile-mismatch."
+  #{0 1})
 
 
 ;; =============================================================================
@@ -137,18 +153,31 @@
   "The UCF stream marker for the stream resource `id` of `vm`, minted
    through the exporter's own table (`serve!`) once per resource: the
    descriptor serve! answers, never a handle.  A resource id the
-   private table does not hold is a forged reference; a stream the
+   private table does not hold is a forged reference; `serve!` here is
+   the keyed form `(serve! id handle)` of `export-task`, so the answer
+   is retained under the resource id, never under the handle.  A stream the
    table cannot serve is unsatisfied, naming the identity where one is
    known.  Two resources of one identity mint two markers that name
-   the one identity -- the lower attaches per identity, once."
+   the one identity -- the lower attaches per identity, once.  Under
+   the ordering scratch the marker is seeded by the resource id and
+   nothing is asked: a sort comparison serves no stream and mints no
+   identity, exactly as it mints no cell number."
   [vm serve! found id]
-  (let [handle (get (:resources vm) id)]
-    (if (nil? handle)
-      (non-portable! :forged-resource-reference {:yin.k/hint id})
-      (or (get-in @found [:markers id])
-          (if-let [marker (ucf.remote/lift-marker serve! handle)]
-            (do (swap! found assoc-in [:markers id] marker) marker)
-            (unsatisfied! (local-identity handle)))))))
+  (if (:ordering @found)
+    (or (get-in @found [:markers id])
+        (let [m {:yin.k/tag :yin.k/stream
+                 :dao.stream/identity id
+                 :dao.stream/descriptor {:yin.k/hint :ordering}}]
+          (swap! found assoc-in [:markers id] m)
+          m))
+    (let [handle (get (:resources vm) id)]
+      (if (nil? handle)
+        (non-portable! :forged-resource-reference {:yin.k/hint id})
+        (or (get-in @found [:markers id])
+            (if-let [marker (ucf.remote/lift-marker (partial serve! id)
+                                                    handle)]
+              (do (swap! found assoc-in [:markers id] marker) marker)
+              (unsatisfied! (local-identity handle))))))))
 
 
 (defn- portable-cursor
@@ -168,12 +197,18 @@
    resource `stream-id` (UCF 7.5.3), minted once per `key` across the
    WHOLE export: two references through one key share one cell id.
    Cell ids are lift-local identities, never content or position
-   hashes."
+   hashes.  Under the ordering scratch (`:ordering`) the id IS the key
+   -- the resource id, or the position pair, the very identity the cell
+   table itself keys by -- so a sort comparison never mints a number
+   and no traversal order can change which distinct cursor sorts
+   first."
   [vm serve! found key stream-id kept]
   (or (get-in @found [:cell-of key])
       (let [marker (marker-for! vm serve! found stream-id)]
         (if (some? (portable-cursor kept))
-          (let [cid (keyword "yin.k" (str "c-" (count (:cells @found))))]
+          (let [cid (if (:ordering @found)
+                      key
+                      (keyword "yin.k" (str "c-" (count (:cells @found)))))]
             (swap! found
                    (fn [acc]
                      (-> acc
@@ -194,6 +229,51 @@
     (if (nil? cell)
       (non-portable! :forged-resource-reference {:yin.k/hint id})
       (cell-at! vm serve! found id (:stream-id cell) (:cursor cell)))))
+
+
+;; =============================================================================
+;; The found map and the canonical order of a version-1 export
+;; =============================================================================
+
+(defn- new-found
+  []
+  {:cells {} :cell-of {} :markers {} :stores #{} :segments #{}})
+
+
+(defn- ordered
+  "`coll` in the order the export walks it: by the canonical bytes of
+   `(keyfn x)`'s encoding under a version-1 export, so cell numbering
+   never depends on a host's map or set iteration; as given under
+   version 0, whose wire is frozen."
+  [found keyfn coll]
+  (if-some [order (:order @found)]
+    (order keyfn coll)
+    coll))
+
+
+(declare value-encoder)
+
+
+(defn- canonical-order
+  "The ordering function of a version-1 export: `(order keyfn coll)`
+   sorts `coll` by the canonical bytes of the scratch encoding of each
+   `(keyfn x)`.  The scratch encoder owns a found map of its own, so it
+   mints nothing the export keeps; it runs under `:ordering`, so every
+   cell its keys meet is seeded by the identity the cell table keys by,
+   never by a number a comparison could shift, and it orders its own
+   nested maps the same way.  Ties keep the walk order given: wait
+   order and alias identity are never reordered."
+  [vm serve!]
+  (let [self (volatile! nil)
+        order (fn [keyfn coll]
+                (sort-by (comp @self keyfn) jing.cbor/encoded-compare coll))
+        encode (value-encoder vm serve!
+                              (atom (assoc (new-found)
+                                           :order order
+                                           :v1 true
+                                           :ordering true)))]
+    (vreset! self encode)
+    order))
 
 
 ;; =============================================================================
@@ -232,6 +312,18 @@
             [x]
             (cond
               (scalar? x) x
+              ;; the canonical codec's numeric carriers (Float64, Decimal,
+              ;; Rational and the like, none of them `number?` on every
+              ;; host) are version-1 content: the jing body carries them
+              ;; as-is, and the stream codec's frozen version-0 domain --
+              ;; `portable-value?` -- does not admit them
+              (jing.cbor/numeric? x)
+              (if (:v1 @found)
+                x
+                (non-portable! :host-object
+                               {:yin.k/hint
+                                #?(:cljd (str (.-runtimeType x))
+                                   :default (str (type x)))}))
               (values/host-typed? x)
               (cond
                 (not (values/owned-by? x (:owner vm)))
@@ -270,9 +362,11 @@
                 (non-portable! :cell {:yin.k/hint (:id x)})
                 {:yin.k/tag :yin.k/literal
                  :yin.k/entries
-                 (into [] (mapcat (fn [[k v]] [(encode k) (encode v)])) x)})
+                 (into []
+                       (mapcat (fn [[k v]] [(encode k) (encode v)]))
+                       (ordered found key x))})
               (vector? x) (mapv encode x)
-              (set? x) (into #{} (map encode) x)
+              (set? x) (into #{} (map encode) (ordered found identity x))
               (seq? x) (apply list (map encode x))
               (fn? x) (encode-primitive vm x)
               :else (non-portable! :host-object
@@ -303,7 +397,7 @@
   [found encode env]
   (when-some [m (get env engine/store-of-key)]
     (swap! found update :stores conj m))
-  (into {} (map (fn [[k v]] [k (encode v)])) env))
+  (into {} (map (fn [[k v]] [k (encode v)])) (ordered found key env)))
 
 
 (defn- encode-frame
@@ -316,7 +410,7 @@
                     (= :segment k) (seg-address! found vm v)
                     (= :env k) (encode-env found encode v)
                     :else (encode v))]))
-        frame))
+        (ordered found key frame)))
 
 
 (defn- encode-registers
@@ -412,6 +506,84 @@
         (if (contains? at :yin.k/status)
           (not-at-safepoint! pc)
           (:yin.safepoint/kinds at))))))
+
+
+;; =============================================================================
+;; What cannot lift at all (UCF 7.4.1, 7.4.3): holds with no wire form
+;; =============================================================================
+
+(defn- held?
+  [x]
+  (and (map? x) (contains? x :yin.k/held)))
+
+
+(defn- unliftable-hold
+  "The first thing `vm` holds that has no wire pending variant at any
+   version, as the data the refusal carries, or nil: a held observation
+   -- an `:observe` entry, or an entry or cursor cell carrying
+   `:yin.k/held` --, a reachable unminted cursor cell, a pending close,
+   or a `:link-request` entry whose response cursor is not installed.
+   Entering exporting refuses the same holds over the whole task (D8);
+   the lift refuses them here, before `lift-pending!`, so its
+   undecodable fall-through is never reached for these, in the root and
+   in every install child through the recursive export."
+  [vm]
+  (let [waits (:wait-set vm)
+        cells (filter map? (vals (:resources vm)))]
+    (cond
+      (some #(= :observe (:reason %)) waits)
+      {:yin.k/hold :observe}
+
+      (or (some held? waits) (some held? cells))
+      {:yin.k/hold :held}
+
+      (some :yin.k/unminted cells)
+      {:yin.k/hold :unminted-cursor}
+
+      (seq (:yin.k/closes vm))
+      {:yin.k/hold :pending-close}
+
+      (some #(and (= :link-request (:reason %)) (not (contains? % :cursor)))
+            waits)
+      {:yin.k/hold :link-cursor-not-installed})))
+
+
+;; =============================================================================
+;; Protection (UCF 7.4.3, 7.7.8): the operation id against the enrolled set
+;; =============================================================================
+
+(defn- protected!
+  "`pending` under a version-1 export's protection rules.  A retained
+   `:put`, `:ffi-request` or `:link-request` entry whose target is in
+   the header's enrolled set must carry an operation id -- one attempted
+   without it cannot be made exactly-once afterwards, so the lift
+   refuses `:unprotected-pending` -- and an entry carrying an id whose
+   target is not enrolled is unsatisfied, naming the stream: protection
+   is neither added to an attempted write nor dropped from one.  The id
+   is the entry's `:op-id`, copied to `:yin.k/op-id`.  Version 0 names
+   no custody and returns `pending` as it was."
+  [found entry pending]
+  (let [reason (:yin.k/reason pending)]
+    (if-not (and (:v1 @found)
+                 (contains? #{:put :ffi-request :link-request} reason))
+      pending
+      (let [target (:dao.stream/identity
+                     (get pending (if (= :put reason)
+                                    :yin.k/stream
+                                    :yin.k/request)))
+            enrolled? (contains? (:enrolled @found) target)
+            carried? (some? (:op-id entry))]
+        (cond
+          (and enrolled? (not carried?))
+          (non-portable! :unprotected-pending {:dao.stream/identity target})
+
+          (and carried? (not enrolled?))
+          (unsatisfied! target)
+
+          carried?
+          (assoc pending :yin.k/op-id (:op-id entry))
+
+          :else pending)))))
 
 
 ;; =============================================================================
@@ -520,7 +692,9 @@
                       :yin.k/reason wire
                       :yin.safepoint/kinds (vec kinds)}))
     {:yin.k/registers (encode-registers found encode vm entry)
-     :yin.k/pending (lift-pending! vm serve! found encode entry)}))
+     :yin.k/pending (protected! found entry
+                                (lift-pending! vm serve! found encode
+                                               entry))}))
 
 
 ;; =============================================================================
@@ -530,25 +704,44 @@
 (declare export-task validate-body resume-task)
 
 
+(defn- portable-response?
+  "True when install `response` survives the body's own codec."
+  [v1? response]
+  (if v1?
+    (try (jing.cbor/encode response) true
+         (catch #?(:cljd Object :clj Throwable :cljs :default) _ false))
+    (cbor/portable-value? response)))
+
+
 (defn- export-installs
   "Each live install child of `vm` as its own handoff body beside the
    response that spawned it, preserving the child's phase and waits
    (14.1.1's :install row).  A child that cannot export itself refuses
    the parent's export -- a refusal is thrown, never embedded -- and a
-   response outside the canonical bytes domain refuses it too."
-  [vm serve!]
-  (into {}
-        (map (fn [[m {:keys [vm phase parent response]}]]
-               (when-not (cbor/portable-value? response)
-                 (non-portable! :install-response {:yin.k/name m}))
-               (let [r (export-task vm serve!)]
-                 (when (not= :ok (:status r))
-                   (refuse! (:yin.k/status r) (dissoc r :status)))
-                 [m {:yin.k/phase phase
-                     :yin.k/parent parent
-                     :yin.k/response response
-                     :yin.k/child (:body r)}])))
-        (:installs vm)))
+   response outside the canonical bytes domain refuses it too.  Under
+   version 1 the child is a part of its root's task: it carries the
+   root's version and enrolled set, no header, and its phase, a wire
+   phase (`:running` or `:parked`), and parent always travel."
+  [vm serve! opts]
+  (let [v1? (::v1 opts)]
+    (into {}
+          (map (fn [[m {:keys [vm phase parent response]}]]
+                 (when-not (portable-response? v1? response)
+                   (non-portable! :install-response {:yin.k/name m}))
+                 (when (and v1? (not (contains? #{:running :parked} phase)))
+                   (non-portable! :incomplete-install
+                                  {:yin.k/name m :yin.k/phase phase}))
+                 (let [r (export-task vm serve!
+                                      (assoc opts
+                                             :path (conj (:path opts) m)
+                                             ::child true))]
+                   (when (not= :ok (:status r))
+                     (refuse! (:yin.k/status r) (dissoc r :status)))
+                   [m {:yin.k/phase phase
+                       :yin.k/parent parent
+                       :yin.k/response response
+                       :yin.k/child (:body r)}])))
+          (:installs vm))))
 
 
 ;; =============================================================================
@@ -577,7 +770,8 @@
 
 (defn- snapshot-module-stores
   "The encoded store snapshot of every module the encoding reached,
-   exactly as it stands in the task at export, mutations included."
+   exactly as it stands in the task at export, mutations included,
+   walked in the same canonical order the task store is."
   [vm encode found]
   (when-some [m (first (remove #(contains? (:module-stores vm) %)
                                (sort-by str (:stores @found))))]
@@ -586,7 +780,7 @@
         (map (fn [m]
                [m (into {}
                         (map (fn [[k v]] [(encode k) (encode v)]))
-                        (get (:module-stores vm) m))]))
+                        (ordered found key (get (:module-stores vm) m)))]))
         (sort-by str (:stores @found))))
 
 
@@ -598,6 +792,22 @@
     (keyword "segment"
              (str (get-in jing/registry [algo :address-id]) "-"
                   (jing/digest-bytes algo bytes)))))
+
+
+(defn- header-of
+  "The custody header keys the root body of `kind` carries, from the
+   caller's `header`: a blocked or parked root takes the occurrence,
+   arbitration, counter and the exclusive policy, and the origin when
+   the header names one; a halted root takes the origin alone, its other
+   values ignored.  A nil value is an absent key."
+  [header kind]
+  (into {}
+        (filter (comp some? val))
+        (if (= :halted kind)
+          (select-keys header [:yin.k/origin])
+          (assoc (select-keys header [:yin.k/occurrence :yin.k/arbitration
+                                      :yin.k/next-op-seq :yin.k/origin])
+                 :yin.k/policy :yin.k/exclusive))))
 
 
 (defn export-task
@@ -612,7 +822,30 @@
    the canonical codec, or -- when `opts` names cursor profiles that
    do not cover the cells -- a claim the body cannot make.
    `serve!` is the exporter's remote-table entry, exactly
-   `yin.vm.ucf.remote`'s."
+   `yin.vm.ucf.remote`'s.  A task that holds an `:observe` entry, an
+   entry or cell carrying `:yin.k/held`, an unminted cursor cell, a
+   pending close, or a cursorless `:link-request` entry -- itself or any
+   install child -- refuses `:yin.k/non-portable` of kind
+   `:reason-mismatch` before anything is lifted, the same holds
+   `yin.vm.ucf.holder.export/enter` refuses (UCF 7.4.1, 7.4.3).
+
+   `opts` may name `:header`, the version-1 custody header
+   (`yin.vm.ucf.holder.export/prepare` validates its shape): occurrence,
+   arbitration, next-op-seq, origin when the task has a predecessor, and
+   `:yin.k/enrolled`, the set of enrolled stream identities, which is a
+   lift input and never travels.  No header is the version-0 fork lift,
+   byte for byte as before; a header is the version-1 exclusive lift in
+   `dao.jing.cbor`, with `:yin.k/policy :yin.k/exclusive` added here.
+   The root carries the header by its kind (blocked or parked: all of
+   it; halted: the origin alone; an install child: none), refuses
+   `:op-seq-exhausted` at 2^52-1, `:unprotected-pending` and a stream
+   `:yin.k/unsatisfied` by the enrolled set, orders every map and set
+   by canonical key bytes, and before answering runs the version-1
+   inspector over its own bytes and address and then `validate-body`:
+   whatever either refuses is the lift's refusal, and nothing is
+   answered.  `:serve-keyed`, `(f [path resource-id] handle)`, replaces
+   `serve!` and retains each answer under the task path and the
+   resource id."
   ([vm serve!]
    (export-task vm serve! nil))
   ([vm serve! opts]
@@ -621,7 +854,27 @@
        (when (seq (:ready-queue vm))
          (refuse! :yin.k/not-quiescent
                   {:yin.k/ready (count (:ready-queue vm))}))
-       (let [walked (completion/complete
+       (when-some [h (unliftable-hold vm)]
+         (non-portable! :reason-mismatch h))
+       (let [header (:header opts)
+             child? (::child opts)
+             v1? (boolean (or (some? header) (::v1 opts)))
+             keyed (or (:serve-keyed opts) (fn [_ h] (serve! h)))
+             ;; grounded: ClojureDart compiles a many-key assoc onto nil
+             ;; as a conj, whose answer is a list no dissoc accepts
+             opts (assoc (or opts {})
+                         :path (or (:path opts) [])
+                         ::v1 v1?
+                         ::enrolled (or (:yin.k/enrolled header)
+                                        (::enrolled opts)
+                                        #{})
+                         :serve-keyed keyed)
+             serve! (fn [id h] (keyed [(:path opts) id] h))
+             {:keys [encode-bytes decode-bytes]}
+             (if v1?
+               {:encode-bytes jing.cbor/encode :decode-bytes jing.cbor/decode}
+               {:encode-bytes cbor/encode :decode-bytes cbor/decode})
+             walked (completion/complete
                       {:vm vm
                        :cursor-profile (constantly :dao.stream.remote/v1)
                        :modules (module-decls vm)})
@@ -663,6 +916,13 @@
                               (get-in vm [:control :pc])))
                _ (when (and (= :halted kind) (seq (:wait-set vm)))
                    (non-portable! :inconsistent-halt {}))
+               _ (when (and v1? (not child?) (not= :halted kind)
+                            (let [n (:yin.k/next-op-seq header)]
+                              (and (jing.cbor/numeric? n)
+                                   (jing.cbor/num= n checkpoint/max-exact))))
+                   (non-portable! :op-seq-exhausted
+                                  {:yin.k/next-op-seq
+                                   (:yin.k/next-op-seq header)}))
                _ (when (and active
                             (not (some #(= :explicit-park %)
                                        (safepoint-kinds-at
@@ -670,8 +930,11 @@
                                          (:pc active-rec)))))
                    (non-portable! :reason-mismatch
                                   {:yin.k/pc (:pc active-rec)}))
-               found (atom {:cells {} :cell-of {} :markers {}
-                            :stores #{} :segments #{}})
+               found (atom (cond-> (assoc (new-found)
+                                          :v1 v1?
+                                          :enrolled (::enrolled opts))
+                             v1? (assoc :order
+                                        (canonical-order vm serve!))))
                encode (value-encoder vm serve! found)
                frames (mapv (partial lift-frame! vm serve! found encode)
                             (:wait-set vm))
@@ -681,12 +944,19 @@
                                                        (:pc rec))
                                    [pid (encode-registers found encode
                                                           vm rec)]))
-                            (:yin.k/parked (:yin.k/scheduler walked)))
+                            (ordered found key
+                                     (:yin.k/parked
+                                       (:yin.k/scheduler walked))))
                store (into {}
                            (map (fn [[k v]] [(encode k) (encode v)]))
-                           (:yin.k/store walked))
+                           (ordered found key (:yin.k/store walked)))
+               ;; the halted result is encoded before any dependency is
+               ;; finalized: it can reach cells, module closures and code
+               ;; the halted result is encoded before any dependency is
+               ;; finalized: it can reach cells, module closures and code
+               result (when (= :halted kind) (encode (:value vm)))
                module-stores (snapshot-module-stores vm encode found)
-               installs (export-installs vm serve!)
+               installs (export-installs vm nil (dissoc opts :header))
                cells (:cells @found)
                profiles (or (:cursor-profiles opts)
                             (if (seq cells)
@@ -706,7 +976,7 @@
                                             {:yin.k/segment a}))))
                           (sort-by str segments))
                body (cond-> {handoff-tag true
-                             :yin.k/version handoff-version
+                             :yin.k/version (if v1? 1 0)
                              :yin.k/kind kind
                              :yin.k/contract ucf/contract-stamp
                              :yin.k/id-counter (or (:id-counter vm) 0)
@@ -725,14 +995,31 @@
                       (= :parked kind)
                       (assoc :yin.k/parked-id (:id value))
                       (= :halted kind)
-                      (assoc :yin.k/result (encode (:value vm))))
-               bytes (cbor/encode body)
-               _ (validate-body (cbor/decode bytes))]
+                      (assoc :yin.k/result result)
+                      (and v1? (not child?) header)
+                      (merge (header-of header kind)))
+               bytes (if v1?
+                       (try (encode-bytes body)
+                            (catch #?(:cljd Object
+                                      :clj Throwable
+                                      :cljs :default) e
+                              (if (outcome e)
+                                (throw e)
+                                (non-portable! :non-canonicalizable
+                                               {:yin.k/hint
+                                                (jing.cbor/refusal e)}))))
+                       (encode-bytes body))
+               address (bytes-address bytes)
+               _ (when (and v1? (not child?))
+                   (let [r (checkpoint/inspect address bytes)]
+                     (when (contains? r :yin.k/status)
+                       (refuse! (:yin.k/status r) (dissoc r :yin.k/status)))))
+               _ (validate-body (decode-bytes bytes))]
            {:status :ok
             :kind kind
             :body body
             :bytes bytes
-            :address (bytes-address bytes)}))))))
+            :address address}))))))
 
 
 ;; =============================================================================
@@ -939,19 +1226,24 @@
 
 
 (defn validate-body
-  "The body grammar both ends run (S7.5.4): the tag, the version, the
+  "The body grammar both ends and both versions run (S7.5.4 over 0 and
+   1): the tag, the version among those this namespace speaks, the
    kind's own shape, every cell reference resolved to exactly the
    cells the body carries -- none missing, none extra -- every pending
    a known variant with the keys that variant requires, every frame's
-   segment among the code the body names, and each code vector still
-   hashing to its own address and admissible as a vector.  A malformed
-   body is refused whole, before any attachment or restoration."
+   segment among the code the body names, each code vector still
+   hashing to its own address and admissible as a vector, and each
+   install entry carrying a phase the wire admits, with phase and
+   parent required outright at version 1.  A malformed body is refused
+   whole, before any attachment or restoration."
   [body]
   (when-not (and (map? body) (true? (get body handoff-tag)))
     (undecodable! {:yin.k/kind :body}))
-  (when-not (= handoff-version (:yin.k/version body))
-    (refuse! :yin.k/profile-mismatch
-             {:yin.k/version (:yin.k/version body)}))
+  (let [version (:yin.k/version body)]
+    (when-not (contains? handoff-version version)
+      (refuse! :yin.k/profile-mismatch
+               {:yin.k/version version
+                :yin.k/supported handoff-version})))
   (let [kind (:yin.k/kind body)
         cells (or (:yin.k/cells body) {})
         code (or (:yin.k/code body) {})]
@@ -1009,6 +1301,20 @@
                      (true? (get (:yin.k/child inst) handoff-tag)))
         (undecodable! {:yin.k/name m
                        :yin.k/path [:yin.k/installs m]}))
+      ;; the phase travels beside the child on both versions' grammar:
+      ;; the wire carries a running or a parked child, never one of the
+      ;; engine's transient phases; version 1 requires phase and parent
+      ;; outright, the child being part of a custody subject's task
+      (when (contains? inst :yin.k/phase)
+        (when-not (contains? #{:running :parked} (:yin.k/phase inst))
+          (undecodable! {:yin.k/phase (:yin.k/phase inst)
+                         :yin.k/path [:yin.k/installs m :yin.k/phase]})))
+      (when (= 1 (:yin.k/version body))
+        (doseq [k [:yin.k/phase :yin.k/parent]]
+          (when-not (contains? inst k)
+            (undecodable! {:yin.k/name m
+                           :yin.k/kind :install-header
+                           :yin.k/path [:yin.k/installs m k]}))))
       ;; a child is a whole body: validated with the same grammar
       ;; before anything of the parent is restored.  Decoded bytes
       ;; are trees, so the recursion terminates.
@@ -1162,6 +1468,16 @@
     (assoc child :origins (inc n))))
 
 
+(defn- child-bytes
+  "A child body re-encoded for its own recursive resume under the codec
+   its version rides: version 1 in jing canonical bytes, version 0 in
+   the stream codec, exactly as it arrived inside its parent."
+  [child-body]
+  (if (= 1 (:yin.k/version child-body))
+    (jing.cbor/encode child-body)
+    (cbor/encode child-body)))
+
+
 (defn- resume-installs
   "Each install child resumed into a fresh child of the receiver's
    composition, its phase and response carried: the receiver's own
@@ -1169,7 +1485,9 @@
    refuses -- its bytes undecodable, a stream it names unattachable
    -- aborts the parent's restoration: the refusal is thrown here,
    before any machine value is assembled, so the parent never answers
-   :ok over a child that did not lower."
+   :ok over a child that did not lower.  The child is resumed as an
+   install child, not a custody root: its own reader pass skips the
+   custody step the root already ran over it."
   [recv body attach! opts]
   (into {}
         (map (fn [[m inst]]
@@ -1179,9 +1497,9 @@
                                (if-some [spawn (:child-of opts)]
                                  (spawn recv response m)
                                  (spawn-child-template recv response m))
-                               (cbor/encode child-body)
+                               (child-bytes child-body)
                                attach!
-                               opts)]
+                               (assoc opts ::install-child true))]
                  (when (not= :ok (:status resumed))
                    (refuse! (:yin.k/status resumed)
                             (dissoc resumed :yin.k/status)))
@@ -1282,28 +1600,120 @@
       (undecodable! {:yin.k/reason (:yin.k/reason pending)}))))
 
 
+;; =============================================================================
+;; The version-aware reader (M-next D7): two codecs, one grammar each
+;; =============================================================================
+
+(def ^:private codec-versions
+  "The body-version contract of each accepting codec, the two-codec
+   split of the D plan's residual 3: stage-1 `dao.stream.cbor` bytes are
+   version 0 only -- that wire is frozen -- and `dao.jing.cbor` canonical
+   bytes are version 1 only, the stream codec's tag-39 identifiers being
+   refused by jing's decoder.  Scalar overlap between the codecs
+   establishes no body compatibility; which codec accepted decides."
+  {:stream #{0} :jing #{1}})
+
+
+(defn- decode-two
+  "Reader step 1: the version-1 decode first (jing), then the version-0
+   decode (the stream codec).  Answers `{:codec c :body b}` for the
+   first codec that accepted the bytes; bytes neither decodes are
+   `:yin.k/undecodable`."
+  [bytes]
+  (letfn [(attempt
+            [decode]
+            (try {:body (decode bytes)}
+                 (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                   nil)))]
+    (or (when-some [r (attempt jing.cbor/decode)]
+          (assoc r :codec :jing))
+        (when-some [r (attempt cbor/decode)]
+          (assoc r :codec :stream))
+        (undecodable! {:yin.k/kind :bytes}))))
+
+
+(defn- require-tag!
+  "Reader step 2: the S7.5.1 tag, before any version or address rule."
+  [body]
+  (when-not (and (map? body) (true? (get body handoff-tag)))
+    (undecodable! {:yin.k/kind :body})))
+
+
+(defn- version-gate!
+  "Reader step 3, before the address check (UCF 7.2.1): the version
+   contract of the codec that accepted the bytes.  A version the codec
+   does not speak, an absent version, or one not of the integer kind is
+   `:yin.k/profile-mismatch`, carrying the version as found and the
+   supported set.  Under `opts`' `:exclusive` a version-0 body is the
+   same refusal: a reader that requires exclusive custody never
+   downgrades a fork into it."
+  [codec body opts]
+  (let [supported (get codec-versions codec)
+        v (get body :yin.k/version)]
+    (when-not (and (jing.cbor/numeric? v)
+                   (= :integer (jing.cbor/numeric-kind v))
+                   (contains? supported v))
+      (refuse! :yin.k/profile-mismatch
+               {:yin.k/version v :yin.k/supported supported}))
+    (when (and (:exclusive opts) (not= 1 v))
+      (refuse! :yin.k/profile-mismatch
+               {:yin.k/version v
+                :yin.k/supported #{1}
+                :yin.k/policy :yin.k/exclusive}))))
+
+
+(defn- custody-inspect!
+  "Reader step 4, version 1 only: `checkpoint/inspect` over the claimed
+   address and the exact bytes -- the address (`:yin.k/hash-mismatch`)
+   first, then the custody grammar, including an entry for every install
+   pending.  The address is the one `opts` names, the address the bytes
+   were fetched under; unnamed, it is the address of the bytes
+   themselves.  A structural failure here is never reinterpreted as
+   version 0: the accepting codec is already fixed.  Answers the
+   operation baseline D10's lower will consume."
+  [bytes opts]
+  (let [address (or (:address opts) (bytes-address bytes))
+        r (checkpoint/inspect address bytes)]
+    (when (contains? r :yin.k/status)
+      (refuse! (:yin.k/status r) (dissoc r :yin.k/status)))
+    r))
+
+
 (defn resume-task
-  "The lower of 14.1.2: `bytes`, a handoff body this namespace minted,
-   resumed into a fresh task over `recv` -- a machine of the receiver's
-   own composition.  Answers `{:status :ok :kind k :vm resumed}` or the
-   first data refusal: `:yin.k/undecodable` bytes or grammar,
-   `:yin.k/profile-mismatch` stamp or version, `:yin.k/hash-mismatch`
-   code, `:yin.k/unsatisfied` a stream that cannot be attached or a
-   primitive the receiver cannot answer.  Nothing partially runnable
-   is ever exposed: the machine value is assembled only after every
-   restoration step passes.  `attach!` is the receiver's own
-   `:dao.stream/attach` dispatch, exactly `yin.vm.ucf.remote`'s; the
-   resumed task is a fork until stage 2."
+  "The lower of 14.1.2 behind the version-aware reader of M-next D7:
+   `bytes`, a handoff body this namespace minted, resumed into a fresh
+   task over `recv` -- a machine of the receiver's own composition.
+   Before any attachment or restoration, in this order: the two-codec
+   decode (jing first, then the stream codec; neither accepting is
+   `:yin.k/undecodable`), the tag, the version gate of the accepting
+   codec (`:yin.k/profile-mismatch`, before the address check), and --
+   version 1 only -- `checkpoint/inspect` over the address `opts` names
+   (`:yin.k/hash-mismatch`, then the custody grammar); then the full
+   recursive grammar of `validate-body`, the contract stamp and the
+   restoration itself.  `opts` may name `:exclusive` (a version-0 body
+   is then refused; without it such a body still lowers as a fork) and
+   `:address`; install children are resumed as children, their pass
+   skipping the custody step their root already ran.  Answers
+   `{:status :ok :kind k :vm resumed}` or the first data refusal:
+   `:yin.k/undecodable` bytes or grammar, `:yin.k/profile-mismatch`
+   stamp or version, `:yin.k/hash-mismatch` address or code,
+   `:yin.k/unsatisfied` a stream that cannot be attached or a primitive
+   the receiver cannot answer.  Nothing partially runnable is ever
+   exposed: the machine value is assembled only after every restoration
+   step passes.  `attach!` is the receiver's own `:dao.stream/attach`
+   dispatch, exactly `yin.vm.ucf.remote`'s; a version-0 resume is a
+   fork."
   ([recv bytes attach!]
    (resume-task recv bytes attach! nil))
   ([recv bytes attach! opts]
    (call!
      (fn []
-       (let [body (try (cbor/decode bytes)
-                       (catch #?(:cljd Object :clj Throwable
-                                 :cljs :default)
-                              _
-                         (undecodable! {:yin.k/kind :bytes})))
+       (let [{:keys [codec body]} (decode-two bytes)
+             _ (require-tag! body)
+             _ (version-gate! codec body opts)
+             _ (when (and (= 1 (:yin.k/version body))
+                          (not (::install-child opts)))
+                 (custody-inspect! bytes opts))
              _ (validate-body body)
              _ (when-not (= ucf/contract-stamp
                             (:yin.k/contract body))

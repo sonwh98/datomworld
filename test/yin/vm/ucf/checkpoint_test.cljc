@@ -10,6 +10,7 @@
             [dao.jing.cbor :as cbor]
             [dao.jing.cbor-fixtures :as fx]
             [yin.vm.ucf.checkpoint :as checkpoint]
+            [yin.vm.ucf.handoff :as handoff]
             [yin.vm.ucf.checkpoint-fixtures :as f]))
 
 
@@ -25,9 +26,16 @@
   (jing/digest-bytes :blake3 (cbor/encode [:yin.k/append target payload])))
 
 
-(defn- literal
-  [& entries]
-  {:yin.k/tag :yin.k/literal :yin.k/entries (vec entries)})
+(defn- write-of
+  "The target identity and payload of the first retained write of the
+   body of fixture `n`, root or `in`: what its baseline intent hashes."
+  ([n] (write-of n []))
+  ([n in]
+   (let [b (get-in (f/base-body n) in)
+         p (some (comp #(when (= :put (:yin.k/reason %)) %)
+                       :yin.k/pending)
+                 (:yin.k/frames b))]
+     [(get-in p [:yin.k/stream :dao.stream/identity]) (:yin.k/value p)])))
 
 
 (deftest the-file-holds-exactly-the-declared-bytes
@@ -54,18 +62,13 @@
           :yin.k/arbitration f/arbitration
           :yin.k/next-op-seq 3
           :yin.k/ops
-          {(f/op-id 0) (intent-hex "out" (literal :a 1))
-           (f/op-id 1) (intent-hex "call-out"
-                                   (literal :dao.stream.apply/id :call-7
-                                            :dao.stream.apply/op :op/add))
-           (f/op-id 2) (intent-hex "link-out"
-                                   (literal :yin.link/id [:t0 7]
-                                            :yin.link/name 'foo))}}
+          {(f/op-id 0) (apply intent-hex (write-of "successor"))}}
          (inspect "successor"))))
 
 
 (deftest snapshot-variants-compare-by-baseline
-  (let [base (inspect "successor")]
+  (let [base (inspect "successor")
+        [target payload] (write-of "successor")]
     (testing "equal intents: a different body, the same baseline"
       (is (not= (:address (f/fixture "successor"))
                 (:address (f/fixture "variant-equal"))))
@@ -75,7 +78,8 @@
         (is (= (set (keys (:yin.k/ops base))) (set (keys (:yin.k/ops v)))))
         (is (not= (get-in base [:yin.k/ops (f/op-id 0)])
                   (get-in v [:yin.k/ops (f/op-id 0)])))
-        (is (= (intent-hex "out" (literal :a 2))
+        (is (not= "w" payload))
+        (is (= (intent-hex target "w")
                (get-in v [:yin.k/ops (f/op-id 0)])))
         (is (not= base v))))
     (testing "the same ids and intents under another counter"
@@ -98,11 +102,12 @@
 (deftest install-children-draw-ids-in-the-roots-context
   (let [r (inspect "installs")]
     (is (= 6 (:yin.k/next-op-seq r)))
-    (is (= {(f/op-id 0) (intent-hex "out" 1)
-            (f/op-id 4) (intent-hex "child-out" :x)
-            (f/op-id 5) (intent-hex "grandchild-out" :y)}
+    (is (= {(f/op-id 4) (apply intent-hex
+                               (write-of "installs"
+                                         [:yin.k/installs 'host.mod
+                                          :yin.k/child]))}
            (:yin.k/ops r))
-        "the child's and the grandchild's ids join the root's baseline")))
+        "the child's id joins the root's baseline")))
 
 
 (deftest a-halted-root-carries-only-its-origin
@@ -127,62 +132,38 @@
 ;; Refusals: one fixture per class, each data with its path
 ;; =============================================================================
 
-(def ^:private child-path [:yin.k/installs 'foo :yin.k/child])
-(def ^:private put-id [:yin.k/frames 0 :yin.k/pending :yin.k/op-id])
-
-
-(def ^:private undecodable
-  "Fixture name to [path kind]: the expected :yin.k/undecodable."
-  {"no-tag" [[] :body]
-   "bad-kind" [[:yin.k/kind] :running]
-   "mixed-child" [(conj child-path :yin.k/version) :mixed-version]
-   "missing-policy" [[:yin.k/policy] :missing-header]
-   "missing-occurrence" [[:yin.k/occurrence] :missing-header]
-   "missing-arbitration" [[:yin.k/arbitration] :missing-header]
-   "missing-next-op-seq" [[:yin.k/next-op-seq] :missing-header]
-   "fork-policy" [[:yin.k/policy] nil]
-   "nil-occurrence" [[:yin.k/occurrence] :nil-occurrence]
-   "occurrence-not-uuid" [[:yin.k/occurrence] :malformed-occurrence]
-   "origin-occurrence-not-uuid" [[:yin.k/origin] :malformed-origin]
-   "malformed-arbitration" [[:yin.k/arbitration] :malformed-arbitration]
-   "origin-is-self" [[:yin.k/origin :yin.k/occurrence] :origin-is-self]
-   "malformed-origin" [[:yin.k/origin] :malformed-origin]
-   "origin-nil-emitter" [[:yin.k/origin] :malformed-origin]
-   "counter-float" [[:yin.k/next-op-seq] :inexact]
-   "counter-over-bound" [[:yin.k/next-op-seq] :inexact]
-   "counter-negative" [[:yin.k/next-op-seq] :inexact]
-   "first-export-counter" [[:yin.k/next-op-seq] :first-export-counter]
-   "halted-root-header" [[:yin.k/occurrence] :halted-header]
-   "halted-root-without-origin" [[:yin.k/origin] :missing-header]
-   "child-header" [(conj child-path :yin.k/occurrence) :child-header]
-   "halted-child-origin" [[:yin.k/installs 'baz :yin.k/child :yin.k/origin]
-                          :child-header]
-   "install-without-entry" [[:yin.k/frames 1 :yin.k/pending]
-                            :incomplete-install]
-   "op-id-on-next" [[:yin.k/frames 1 :yin.k/pending :yin.k/op-id]
-                    :op-id-on-variant]
-   "op-id-at-counter" [(conj put-id :yin.k/seq) :op-seq-range]
-   "child-op-id-out-of-range"
-   [(conj child-path :yin.k/frames 1 :yin.k/pending :yin.k/op-id :yin.k/seq)
-    :op-seq-range]
-   "duplicate-op-id"
-   [(conj child-path :yin.k/frames 1 :yin.k/pending :yin.k/op-id)
-    :duplicate-op-id]
-   "op-id-without-origin" [put-id :op-id-without-origin]
-   "op-id-own-occurrence" [put-id :op-id-own-occurrence]
-   "op-id-malformed" [put-id :malformed-op-id]
-   "op-id-occurrence-not-uuid" [put-id :malformed-op-id]
-   "op-id-seq-float" [(conj put-id :yin.k/seq) :inexact]
-   "op-id-seq-negative" [(conj put-id :yin.k/seq) :inexact]
-   "park-reason" [[:yin.k/frames 1 :yin.k/pending] nil]})
+(def ^:private refused-names
+  "The fixtures whose refusal is an expectation computed from the base."
+  (filter f/expected f/fixture-names))
 
 
 (deftest each-grammar-breach-is-undecodable-naming-its-path
-  (doseq [[n [path kind]] undecodable]
-    (let [r (inspect n)]
-      (is (= :yin.k/undecodable (:yin.k/status r)) n)
-      (is (= path (:yin.k/path r)) n)
-      (is (= kind (:yin.k/kind r)) n))))
+  (doseq [n refused-names
+          :let [[path kind] (f/expected n)
+                r (inspect n)]]
+    (is (= :yin.k/undecodable (:yin.k/status r)) n)
+    (is (= path (:yin.k/path r)) n)
+    (is (= kind (:yin.k/kind r)) n)))
+
+
+(deftest each-mutation-differs-from-its-base-at-the-place-it-names
+  (doseq [n f/fixture-names
+          :let [base (f/base-of n)]
+          :when (and base (not (contains? #{"hash-mismatch" "non-canonical"}
+                                          n)))]
+    (let [mutated (get f/fixtures n)
+          original (f/base-body base)]
+      ;; content equality, not host =: Dart's num equality answers 1 =
+      ;; 1.0, and version-float must differ by its kind
+      (is (not (cbor/content= mutated original)) n)
+      (when-some [place (f/place n)]
+        (is (not (cbor/content= (get-in mutated place)
+                                (get-in original place)))
+            (str n " at " (pr-str place))))))
+  (testing "every accepted base is accepted again by the reader's grammar"
+    (doseq [n ["first-park" "successor" "installs" "parked" "halted-root"]]
+      (is (map? (handoff/validate-body (cbor/decode (:bytes (f/fixture n)))))
+          n))))
 
 
 (deftest the-version-gate-checks-the-integer-kind
@@ -230,7 +211,7 @@
                    "installs" "halted-root" "counter-at-bound"}
         refused (into #{"hash-mismatch" "non-canonical" "version-float"
                         "version-2" "version-absent" "version-0"}
-                      (keys undecodable))]
+                      refused-names)]
     (is (= (set f/fixture-names) (into accepted refused)))
     (doseq [n accepted]
       (is (not (contains? (inspect n) :yin.k/status)) n))))

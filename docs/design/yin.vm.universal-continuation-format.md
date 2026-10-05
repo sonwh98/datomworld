@@ -1748,6 +1748,77 @@ and the task resumes as a purely local one — the sole paths back to local
 execution are *abort export* (before the offer is recorded) and *a grant to
 the emitter itself* (after); there is no third.
 
+(M-next D8/D9, as built.) The exporting machine carries one gate key,
+`:yin.k/gate`, with the modes `:running`, `:exporting` and `:ended`:
+under `:running` internal computation proceeds and stream observations
+and effects are deferred to the driver; under `:exporting` and `:ended`
+nothing is observed, no install child is advanced, a direct resume is
+refused, and every public apply refuses a late result. The root's mode
+is stamped on each install child at its creation and before each run;
+a child carries the mode only. A machine entering exporting refuses
+the custody holds -- a wait entry with reason `:observe`, an entry or
+cell carrying `:yin.k/held`, a cursor cell carrying `:yin.k/unminted`,
+a machine with a nonempty `:yin.k/closes` queue, and a
+`:link-request` entry without `:cursor` -- as `:yin.k/non-portable`,
+kind `:reason-mismatch`, with the holding task's path; the lift
+refuses the same holds on its own behalf. A task is not at a liftable
+safepoint while it holds any of these.
+
+The lift's custody input is one **header** argument -- supplied to
+`holder.export/prepare [machine record serve! header]`, stored in the
+export record as `:header`, and passed to `export-task` through its
+`:header` option -- `nil` or:
+
+    {:yin.k/occurrence  O
+     :yin.k/arbitration {:dao.stream/identity i
+                         :dao.stream/descriptor d}
+     :yin.k/origin      {:yin.k/occurrence P
+                         :dao.lease/lease L
+                         :yin.k/emitter a}  ; absent on a first export
+     :yin.k/next-op-seq n
+     :yin.k/enrolled    #{stream-identity ...}}
+
+A `nil` header lifts today's version-0 fork; a header lifts version 1,
+exclusive, in the canonical codec, with `:yin.k/policy
+:yin.k/exclusive` added by the lift. The occurrence is minted once by
+the driver and persisted before prepare is called; `:yin.k/enrolled`
+is the composition's declaration from the ledger reader; it is never
+encoded into the UCF body, but the header stays in the retained export
+record, which is plain data and supports serialization. Kind and
+header agree at lift: blocked and parked roots carry occurrence,
+arbitration, counter and policy, and origin when present; a halted
+root carries origin only, and a header-bearing halt without an origin
+is refused -- it is not automatically downgraded (a halt with no
+origin at all is a version-0 result under a `nil` header); install
+children carry no header. Before answering `:ok`, a version-1 root
+lift runs `checkpoint/inspect` on its own bytes and address, then
+`handoff/validate-body` on the decoded body; install children do not
+independently undergo the root custody inspection. Any refusal
+returns as the lift's refusal and nothing is published. A lift under a
+header refuses `:yin.k/non-portable`, kind `:op-seq-exhausted`, at the
+2^52-1 counter of a blocked or parked root (a halted root ignores that
+header value), kind `:unprotected-pending` for a retained `:put`,
+`:ffi-request` or `:link-request` entry, in the root or an install
+child, with no operation id whose target identity is enrolled, and
+`:yin.k/unsatisfied` naming the stream for an operation id on an
+unenrolled target.
+
+Abort is permitted only before any possibly accepted offer attempt, or
+upon authoritative evidence that this occurrence has never been
+admitted and cannot still become admitted from an outstanding attempt;
+a refusal of one request is not such evidence. As implemented,
+`holder.export/abort` reads the composition's persisted `attempts`
+sequence -- each attempt's append outcome under `:append` -- and
+accepts abort only with no attempts or when every attempt's outcome is
+in the closed set `#{:dao.stream/full :dao.stream/invalid-value
+:dao.stream/closed :dao.stream/refused}`; `transport-error` and a
+missing answer refuse. A holder exporting a successor may abort only
+under current valid tenure, implemented as `{:now n :bound b :live
+true}` with `:live` supplied by ledger evidence that the lease is the
+occurrence's active lease at its epoch; at or past the bound, and
+without the evidence, abort is refused. After the lease has ended its
+old local machine is never restored.
+
 ### 7.7.5 Fencing effects: epochs, operation ids, and what exactly-once costs
 
 `dao.lease.md` states it plainly: **the absence of a `:lapsed` fact is

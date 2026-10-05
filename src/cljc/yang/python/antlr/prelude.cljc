@@ -110,6 +110,17 @@
    float key or hash can need integers of 1075 bits (2^-1074), so the
    composition's `integer` limits must admit at least that.
 
+   The `integer` module (version 2) answers a limit breach as a reason,
+   not a result, and `py/int-result` wraps every call that can breach:
+   `:yin.vm.integer/bit-limit` raises MemoryError, as CPython 3.9.6 does
+   when an integer cannot be allocated, and `:yin.vm.integer/digit-limit`
+   raises ValueError. CPython 3.9.6 has no digit limit (it arrived in
+   3.9.14 and 3.11), so the digit limit is this support profile's
+   restriction, not a 3.9.6 match. Neither is OverflowError. The guest
+   message is the prelude's, never host text. Every other refusal stays
+   a host failure of the run: the prelude checks its causes before the
+   call, so reaching one is a prelude defect, not a guest error.
+
    Host names the prelude depends on and does not define: `host-names`
    (the cell module from yin.vm.module, the integer module from
    yin.vm.integer, the rest from yin.vm.data)."
@@ -1392,6 +1403,40 @@
          (py/type-error {:py/str "list indices must be integers"})))]
 
     ;; ---------------------------------------------------------- exact numbers
+    ;; The one translator of `integer` results (module version 2; see the
+    ;; namespace docstring): a limit reason raises its guest exception, a
+    ;; reason version 2 never returns fails the run as a prelude defect,
+    ;; and any other result, an integer, string or pair, passes.  It
+    ;; recognizes exactly the nine version-2 reasons: any other keyword
+    ;; result is outside the module's contract.
+    [py/int-result
+     (fn [r]
+       (if (= r :yin.vm.integer/bit-limit)
+         ;; CPython raises a bare MemoryError(): no args
+         (py/raise (let [e (py/make-instance py.b/MemoryError)]
+                     (do (py/setattr e "args" (py/tuple [])) e)))
+         (if (= r :yin.vm.integer/digit-limit)
+           (py/raise-new py.b/ValueError
+                         (py/str (data/str-concat
+                                   "Exceeds the limit for integer string "
+                                   "conversion")))
+           (if (py/int-refusal? r) (:py/int-defect r) r))))]
+    [py/int-refusal?
+     (fn [r]
+       (if (= r :yin.vm.integer/arity)
+         true
+         (if (= r :yin.vm.integer/wrong-type)
+           true
+           (if (= r :yin.vm.integer/out-of-range)
+             true
+             (if (= r :yin.vm.integer/syntax)
+               true
+               (if (= r :yin.vm.integer/zero-division)
+                 true
+                 (if (= r :yin.vm.integer/negative-count)
+                   true
+                   (= r :yin.vm.integer/negative-exponent))))))))]
+
     ;; Numeric keys and hashes need a float's exact value as integers. The
     ;; decomposition uses only steps that are exact on binary64 (halving
     ;; above 2^53, doubling below it) and builds its integers from integer
@@ -1423,7 +1468,10 @@
              p (if (< a (* 2 4503599627370496))
                  (py/float-parts-down a 0)
                  (py/float-parts-up a 0))]
-         (if (< x 0) (py/conj (py/conj [] (integer/neg (get p 0))) (get p 1)) p)))]
+         (if (< x 0)
+           (py/conj (py/conj [] (py/int-result (integer/neg (get p 0))))
+                    (get p 1))
+           p)))]
 
     ;; ---------------------------------------------------------- dicts
     [py/finite-key
@@ -1441,11 +1489,17 @@
                  m (get p 0)
                  e (get p 1)]
              (if (< e 0)
-               (py/finite-key (integer/format m 16)
-                              (integer/format (integer/shift-left 1 (- 0 e))
-                                              16))
-               (py/finite-key (integer/format (integer/shift-left m e) 16)
-                              "1"))))
+               (py/finite-key
+                 (py/int-result (integer/format m 16))
+                 (py/int-result
+                   (integer/format
+                     (py/int-result (integer/shift-left 1 (- 0 e)))
+                     16)))
+               (py/finite-key
+                 (py/int-result
+                   (integer/format (py/int-result (integer/shift-left m e))
+                                   16))
+                 "1"))))
          ;; NaN fails <=; host = can answer true for one boxed NaN
          (if (<= x x)
            (py/conj (py/conj [] :py.numeric/infinite) (if (< x 0) "-" "+"))
@@ -1461,7 +1515,9 @@
          ;; float64 carrier never meets host arithmetic
          (if (py/float? k)
            (py/float-key (py/num k))
-           (py/finite-key (integer/format (py/int-canon (py/num k)) 16) "1"))
+           (py/finite-key
+             (py/int-result (integer/format (py/int-canon (py/num k)) 16))
+             "1"))
          (if (= (get k :py/type) :tuple)
            (assoc {} :py/tuple-key (py/keys-of (get k :items) 0 []))
            (let [t (py/content-type k)]
@@ -1482,19 +1538,27 @@
     ;; since its only identity is a cell id, which is never exposed. A
     ;; tuple is a valid dict key through py/key, but hash() of it, of a
     ;; string and of +-inf is not yet supported (NotImplementedError).
-    [py/hash-modulus (fn [] (integer/sub (integer/shift-left 1 61) 1))]
-    [py/mod-p (fn [n] (get (integer/floor-div-mod n (py/hash-modulus)) 1))]
+    [py/hash-modulus
+     (fn []
+       (py/int-result
+         (integer/sub (py/int-result (integer/shift-left 1 61)) 1)))]
+    [py/mod-p
+     (fn [n]
+       (get (py/int-result (integer/floor-div-mod n (py/hash-modulus))) 1))]
     [py/hash-signed
      ;; the hash of a number of sign s whose magnitude hashes to h; -1 is
      ;; reserved, so it answers -2
      (fn [s h]
        (if (< s 0)
-         (let [v (integer/neg h)] (if (= v -1) -2 v))
+         (let [v (py/int-result (integer/neg h))] (if (= v -1) -2 v))
          h))]
     [py/hash-int
      (fn [n]
        (let [s (integer/compare n 0)]
-         (py/hash-signed s (py/mod-p (if (< s 0) (integer/neg n) n)))))]
+         (py/hash-signed s
+                         (py/mod-p (if (< s 0)
+                                     (py/int-result (integer/neg n))
+                                     n)))))]
     [py/int-canon
      ;; the canonical carrier of a guest integer: a JS -0 from integer
      ;; arithmetic, such as (* -1 0), is the integer 0, which the integer
@@ -1506,10 +1570,13 @@
        (let [p (py/float-parts x)
              m (get p 0)
              s (integer/compare m 0)
-             k (get (integer/floor-div-mod (get p 1) 61) 1)]
-         (py/hash-signed s
-                         (py/mod-p (integer/mul (if (< s 0) (integer/neg m) m)
-                                                (integer/shift-left 1 k))))))]
+             k (get (py/int-result (integer/floor-div-mod (get p 1) 61)) 1)]
+         (py/hash-signed
+           s
+           (py/mod-p
+             (py/int-result
+               (integer/mul (if (< s 0) (py/int-result (integer/neg m)) m)
+                            (py/int-result (integer/shift-left 1 k))))))))]
     [py/hash
      (fn [x]
        (if (py/numeric? x)
@@ -2078,6 +2145,8 @@
    ["RecursionError" 'py.b/RecursionError 'py.b/RuntimeError]
    ["NotImplementedError" 'py.b/NotImplementedError 'py.b/RuntimeError]
    ["OverflowError" 'py.b/OverflowError 'py.b/ArithmeticError]
+   ;; an integer past the composition's bit limit (`py/int-result`)
+   ["MemoryError" 'py.b/MemoryError 'py.b/Exception]
    ["StopIteration" 'py.b/StopIteration 'py.b/Exception]])
 
 

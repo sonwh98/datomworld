@@ -8,9 +8,11 @@
    build/, never under test/, so a plain `cljd test` never runs them twice.
 
    Run with babashka:
-     bb src/dev/cljd_agg.clj [--slow-only | --slow-regex]
+     bb src/dev/cljd_agg.clj [--slow-only | --slow-regex | --only NS,NS...]
    --slow-only restricts the run to the namespaces that use dao.test-slow/guard.
    A namespace in that set with no generated Dart file is fatal.
+   --only compiles and runs only the given test namespaces (bb test:changed);
+   one with no generated Dart file is fatal too.
    --slow-regex prints, for bb.edn, an anchored alternation of those
    namespaces with its dots already escaped for embedding in an EDN string
    (shadow-cljs --config-merge); it is not a ready-to-use regex. It exits 1
@@ -144,16 +146,21 @@
                   ")$"))
     (System/exit 0))
   (let [slow-only? (some #{"--slow-only"} args)
-        wanted     (if slow-only? (slow-namespaces) (test-namespaces))]
+        only       (when (some #{"--only"} args)
+                     (let [v (second (drop-while #(not= "--only" %) args))]
+                       (vec (remove str/blank? (str/split (str v) #",")))))
+        wanted     (cond only only
+                         slow-only? (slow-namespaces)
+                         :else (test-namespaces))]
     (when (empty? wanted)
       (println "No test namespaces selected.")
       (System/exit 1))
-    (compile-tests (test-namespaces))
+    (compile-tests (or only (test-namespaces)))
     (let [files (filter fs/exists? (map dart-file wanted))
           missing (remove (comp fs/exists? dart-file) wanted)]
       (when (seq missing)
         (println "No generated Dart test for:" (str/join ", " missing))
-        (when slow-only?
+        (when (or slow-only? only)
           (System/exit 1)))
       (when (empty? files)
         (println "No generated test files found.")

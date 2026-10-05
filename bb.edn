@@ -53,7 +53,7 @@
                               "bb src/dev/cljd_agg.clj")}
 
   ;; Only the slow tests. Node and Dart select by namespace, so the other
-  ;; tests inside the six namespaces that use dao.test-slow/guard also run.
+  ;; tests inside the nine namespaces that use dao.test-slow/guard also run.
   test:slow:clj {:doc "Only the ^:slow JVM tests (about 14 minutes for long-loops-test); for unattended runs"
                  :depends [build:yin-repl-node gen:python-antlr]
                  :task (shell "clojure -M:test -i :slow")}
@@ -81,4 +81,40 @@
             :depends [test:all:clj test:all:cljs test:all:cljd]}
 
   test {:doc "All three lanes in their fast default form (JVM, Node, Dart)"
-        :depends [build:yin-repl-peer build:yin-repl-node test:clj test:cljs test:cljd]}}}
+        :depends [build:yin-repl-peer build:yin-repl-node test:clj test:cljs test:cljd]}
+
+  ;; Only the tests a change can affect (src/dev/affected.clj): the
+  ;; reverse require closure of the changed files since the merge-base
+  ;; with master. Extra args pass through (--base REF, --changed FILE...).
+  ;; Exit 2 on a wide change (deps.edn, bb.edn, src/dev/, ...): run bb test.
+  test:changed {:doc "Fast tests a change can affect, three lanes in parallel"
+                :task (System/exit
+                        (:exit (apply shell {:continue true}
+                                      "bb" "src/dev/affected.clj"
+                                      *command-line-args*)))}
+
+  test:changed:clj {:doc "JVM lane of test:changed"
+                    :task (System/exit
+                            (:exit (apply shell {:continue true}
+                                          "bb" "src/dev/affected.clj"
+                                          "--lane" "clj" *command-line-args*)))}
+
+  test:changed:cljs {:doc "Node lane of test:changed"
+                     :task (System/exit
+                             (:exit (apply shell {:continue true}
+                                           "bb" "src/dev/affected.clj"
+                                           "--lane" "cljs"
+                                           *command-line-args*)))}
+
+  test:changed:cljd {:doc "Dart lane of test:changed"
+                     :task (System/exit
+                             (:exit (apply shell {:continue true}
+                                           "bb" "src/dev/affected.clj"
+                                           "--lane" "cljd"
+                                           *command-line-args*)))}
+
+  test:changed:list {:doc "What test:changed would run and why; runs nothing"
+                     :task (System/exit
+                             (:exit (apply shell {:continue true}
+                                           "bb" "src/dev/affected.clj"
+                                           "--list" *command-line-args*)))}}}

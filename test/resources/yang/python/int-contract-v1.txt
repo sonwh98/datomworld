@@ -1,0 +1,306 @@
+int-contract-v1
+generator CPython 3.9.6
+profile wide max-bits 4096 max-digits 4300
+profile small max-bits 60 max-digits 5
+0 bits 0
+0 dec 0
+0 hex 0
+0 hash 0
+0 key 0 1
+0 cbor 00
+0 wide normalize=value inc=value dec=value square=value format=value format16=value shl=any
+0 small normalize=value inc=value dec=value square=value format=value format16=value shl=any
+1 bits 1
+1 dec 1
+1 hex 1
+1 hash 1
+1 key 1 1
+1 cbor 01
+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4095
+1 small normalize=value inc=value dec=value square=value format=value format16=value shl=59
+-1 bits 1
+-1 dec -1
+-1 hex -1
+-1 hash -2
+-1 key -1 1
+-1 cbor 20
+-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4095
+-1 small normalize=value inc=value dec=value square=value format=value format16=value shl=59
+2^31-1 bits 31
+2^31-1 dec 2147483647
+2^31-1 hex 7fffffff
+2^31-1 hash 2147483647
+2^31-1 key 7fffffff 1
+2^31-1 cbor 1a7fffffff
+2^31-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4065
+2^31-1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=29
+2^31 bits 32
+2^31 dec 2147483648
+2^31 hex 80000000
+2^31 hash 2147483648
+2^31 key 80000000 1
+2^31 cbor 1a80000000
+2^31 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4064
+2^31 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=28
+2^31+1 bits 32
+2^31+1 dec 2147483649
+2^31+1 hex 80000001
+2^31+1 hash 2147483649
+2^31+1 key 80000001 1
+2^31+1 cbor 1a80000001
+2^31+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4064
+2^31+1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=28
+2^32 bits 33
+2^32 dec 4294967296
+2^32 hex 100000000
+2^32 hash 4294967296
+2^32 key 100000000 1
+2^32 cbor 1b0000000100000000
+2^32 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4063
+2^32 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=27
+2^53-1 bits 53
+2^53-1 dec 9007199254740991
+2^53-1 hex 1fffffffffffff
+2^53-1 hash 9007199254740991
+2^53-1 key 1fffffffffffff 1
+2^53-1 cbor 1b001fffffffffffff
+2^53-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4043
+2^53-1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=7
+2^53 bits 54
+2^53 dec 9007199254740992
+2^53 hex 20000000000000
+2^53 hash 9007199254740992
+2^53 key 20000000000000 1
+2^53 cbor 1b0020000000000000
+2^53 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4042
+2^53 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=6
+2^53+1 bits 54
+2^53+1 dec 9007199254740993
+2^53+1 hex 20000000000001
+2^53+1 hash 9007199254740993
+2^53+1 key 20000000000001 1
+2^53+1 cbor 1b0020000000000001
+2^53+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4042
+2^53+1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=6
+-2^53+1 bits 53
+-2^53+1 dec -9007199254740991
+-2^53+1 hex -1fffffffffffff
+-2^53+1 hash -9007199254740991
+-2^53+1 key -1fffffffffffff 1
+-2^53+1 cbor 3b001ffffffffffffe
+-2^53+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4043
+-2^53+1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=7
+-2^53 bits 54
+-2^53 dec -9007199254740992
+-2^53 hex -20000000000000
+-2^53 hash -9007199254740992
+-2^53 key -20000000000000 1
+-2^53 cbor 3b001fffffffffffff
+-2^53 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4042
+-2^53 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=6
+-2^53-1 bits 54
+-2^53-1 dec -9007199254740993
+-2^53-1 hex -20000000000001
+-2^53-1 hash -9007199254740993
+-2^53-1 key -20000000000001 1
+-2^53-1 cbor 3b0020000000000000
+-2^53-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4042
+-2^53-1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=6
+2^62 bits 63
+2^62 dec 4611686018427387904
+2^62 hex 4000000000000000
+2^62 hash 2
+2^62 key 4000000000000000 1
+2^62 cbor 1b4000000000000000
+2^62 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4033
+2^62 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^63-1 bits 63
+2^63-1 dec 9223372036854775807
+2^63-1 hex 7fffffffffffffff
+2^63-1 hash 3
+2^63-1 key 7fffffffffffffff 1
+2^63-1 cbor 1b7fffffffffffffff
+2^63-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4033
+2^63-1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^63 bits 64
+2^63 dec 9223372036854775808
+2^63 hex 8000000000000000
+2^63 hash 4
+2^63 key 8000000000000000 1
+2^63 cbor 1b8000000000000000
+2^63 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+2^63 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^63+1 bits 64
+2^63+1 dec 9223372036854775809
+2^63+1 hex 8000000000000001
+2^63+1 hash 5
+2^63+1 key 8000000000000001 1
+2^63+1 cbor 1b8000000000000001
+2^63+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+2^63+1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^63+1 bits 63
+-2^63+1 dec -9223372036854775807
+-2^63+1 hex -7fffffffffffffff
+-2^63+1 hash -3
+-2^63+1 key -7fffffffffffffff 1
+-2^63+1 cbor 3b7ffffffffffffffe
+-2^63+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4033
+-2^63+1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^63 bits 64
+-2^63 dec -9223372036854775808
+-2^63 hex -8000000000000000
+-2^63 hash -4
+-2^63 key -8000000000000000 1
+-2^63 cbor 3b7fffffffffffffff
+-2^63 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+-2^63 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^63-1 bits 64
+-2^63-1 dec -9223372036854775809
+-2^63-1 hex -8000000000000001
+-2^63-1 hash -5
+-2^63-1 key -8000000000000001 1
+-2^63-1 cbor 3b8000000000000000
+-2^63-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+-2^63-1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^64-1 bits 64
+2^64-1 dec 18446744073709551615
+2^64-1 hex ffffffffffffffff
+2^64-1 hash 7
+2^64-1 key ffffffffffffffff 1
+2^64-1 cbor 1bffffffffffffffff
+2^64-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+2^64-1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^64 bits 65
+2^64 dec 18446744073709551616
+2^64 hex 10000000000000000
+2^64 hash 8
+2^64 key 10000000000000000 1
+2^64 cbor c249010000000000000000
+2^64 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4031
+2^64 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^64+1 bits 65
+2^64+1 dec 18446744073709551617
+2^64+1 hex 10000000000000001
+2^64+1 hash 9
+2^64+1 key 10000000000000001 1
+2^64+1 cbor c249010000000000000001
+2^64+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4031
+2^64+1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^64+1 bits 64
+-2^64+1 dec -18446744073709551615
+-2^64+1 hex -ffffffffffffffff
+-2^64+1 hash -7
+-2^64+1 key -ffffffffffffffff 1
+-2^64+1 cbor 3bfffffffffffffffe
+-2^64+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+-2^64+1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^64 bits 65
+-2^64 dec -18446744073709551616
+-2^64 hex -10000000000000000
+-2^64 hash -8
+-2^64 key -10000000000000000 1
+-2^64 cbor 3bffffffffffffffff
+-2^64 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4031
+-2^64 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^64-1 bits 65
+-2^64-1 dec -18446744073709551617
+-2^64-1 hex -10000000000000001
+-2^64-1 hash -9
+-2^64-1 key -10000000000000001 1
+-2^64-1 cbor c349010000000000000000
+-2^64-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4031
+-2^64-1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^100 bits 101
+2^100 dec 1267650600228229401496703205376
+2^100 hex 10000000000000000000000000
+2^100 hash 549755813888
+2^100 key 10000000000000000000000000 1
+2^100 cbor c24d10000000000000000000000000
+2^100 wide normalize=value inc=value dec=value square=value format=value format16=value shl=3995
+2^100 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+10^30 bits 100
+10^30 dec 1000000000000000000000000000000
+10^30 hex c9f2c9cd04674edea40000000
+10^30 hash 465258685558744706
+10^30 key c9f2c9cd04674edea40000000 1
+10^30 cbor c24d0c9f2c9cd04674edea40000000
+10^30 wide normalize=value inc=value dec=value square=value format=value format16=value shl=3996
+10^30 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^1074 bits 1075
+2^1074 dec 202402253307310618352495346718917307049556649764142118356901358027430339567995346891960383701437124495187077864316811911389808737385793476867013399940738509921517424276566361364466907742093216341239767678472745068562007483424692698618103355649159556340810056512358769552333414615230502532186327508646006263307707741093494784
+2^1074 hex 40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^1074 hash 137438953472
+2^1074 key 40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 1
+2^1074 cbor c25887040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^1074 wide normalize=value inc=value dec=value square=value format=value format16=value shl=3021
+2^1074 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^1075 bits 1076
+2^1075 dec 404804506614621236704990693437834614099113299528284236713802716054860679135990693783920767402874248990374155728633623822779617474771586953734026799881477019843034848553132722728933815484186432682479535356945490137124014966849385397236206711298319112681620113024717539104666829230461005064372655017292012526615415482186989568
+2^1075 hex 80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^1075 hash 274877906944
+2^1075 key 80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 1
+2^1075 cbor c25887080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^1075 wide normalize=value inc=value dec=value square=value format=value format16=value shl=3020
+2^1075 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^2000 bits 2001
+2^2000 dec 114813069527425452423283320117768198402231770208869520047764273682576626139237031385665948631650626991844596463898746277344711896086305533142593135616665318539129989145312280000688779148240044871428926990063486244781615463646388363947317026040466353970904996558162398808944629605623311649536164221970332681344168908984458505602379484807914058900934776500429002716706625830522008132236281291761267883317206598995396418127021779858404042159853183251540889433902091920554957783589672039160081957216630582755380425583726015528348786419432054508915275783882625175435528800822842770817965453762184851149029376
+2^2000 hex 100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^2000 hash 281474976710656
+2^2000 key 100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 1
+2^2000 cbor c258fb0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^2000 wide normalize=value inc=value dec=value square=value format=value format16=value shl=2095
+2^2000 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+f:2^53 dec 9007199254740992
+f:2^53 hash 9007199254740992
+f:2^53 key 20000000000000 1
+f:2^53 cbor d81b827064616f2e6a696e672f666c6f61743634484340000000000000
+f:2^53 is-int false
+f:2^53 eq-int true
+f:2^63 dec 9223372036854775808
+f:2^63 hash 4
+f:2^63 key 8000000000000000 1
+f:2^63 cbor d81b827064616f2e6a696e672f666c6f617436344843e0000000000000
+f:2^63 is-int false
+f:2^63 eq-int true
+op wide shift-left 1 4095 value
+op wide shift-left 1 4096 bit-limit
+op wide shift-left -1 4095 value
+op wide shift-left -1 4096 bit-limit
+op wide mul 2^2048-1 2^2048-1 value
+op wide mul 2^2048 2^2048-1 value
+op wide mul 2^2048 2^2048 bit-limit
+op wide mul 2^4095 -2 bit-limit
+op wide add 2^4095 2^4095-1 value
+op wide add 2^4096-1 1 bit-limit
+op wide sub -2^4096+1 1 bit-limit
+op wide pow 2 4095 value
+op wide pow 2 4096 bit-limit
+op wide format 2^4096-1 value
+op wide format16 2^4096-1 value
+op wide parse 10^1233 value
+op wide parse 10^1234 bit-limit
+op wide parse 10^4299 bit-limit
+op wide parse 10^4300 digit-limit
+op wide parse16 2^4096-1 value
+op wide parse16 2^4096 bit-limit
+op small shift-left 1 59 value
+op small shift-left 1 60 bit-limit
+op small shift-left -1 59 value
+op small shift-left -1 60 bit-limit
+op small mul 2^30-1 2^30-1 value
+op small mul 2^30 2^30-1 value
+op small mul 2^30 2^30 bit-limit
+op small add 2^59 2^59-1 value
+op small add 2^60-1 1 bit-limit
+op small sub -2^60+1 1 bit-limit
+op small pow 2 59 value
+op small pow 2 60 bit-limit
+op small format 99999 value
+op small format 100000 digit-limit
+op small format -99999 value
+op small format -100000 digit-limit
+op small format16 2^60-1 value
+op small parse 99999 value
+op small parse 100000 digit-limit
+op small parse16 2^60-1 value
+op small parse16 2^60 bit-limit

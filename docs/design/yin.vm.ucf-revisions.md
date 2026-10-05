@@ -379,6 +379,24 @@ untouched, so no image validity changes.
     linker-dht 14.2.2 (the input protocol, the cost note) and
     14.2.4 (the authority's front). C12, D and E remain;
     `handoff-version` is still 0.
+    Status, 2026-10-07: M-next C slice C12 (the stage-C gate:
+    `authority/durability` and `exclusive-capable?`, the crash-cut
+    matrix, the cross-host ledger fixture) and M-next D slices D1 to
+    D9 are implemented (C12 7c62dbde; D1 90bd8e57, D2 7349219d, D3
+    f4961daa, D4 ee3498de, D5 8efde902, D6 52a0383b, D7 98c84713, D8
+    baa3796a, D9 d974289e), and the amendments they forced landed: the
+    C12 sentences in 7.7.7 (enrollment retry), 7.11.1 (the stage-C
+    boundary), linker-dht 14.2.1 (`exclusive-capable?`) and
+    `dao.stream.journal.md` (`:persisted`, the cost note); the D-stage
+    sentences in 7.7.4 (the gate modes, the custody holds, the header
+    as the lift's input, the self-check, the abort rule and tenure)
+    and linker-dht 14.2.2 (the enrolled set is a lift input and never
+    travels). After D6 the custody gate is complete as a fence and as
+    a protocol: every observation a gated task parks has a public
+    apply. `handoff-version` is `#{0 1}`; a `nil` lift header selects
+    the frozen version-0 wire, and a supplied custody header selects
+    version 1. D10 to D16 and E remain; the doc text for the
+    protection classes and the fenced writer lands with D11.
   - Recorded separately, as version-0 defects of the landed stage-1
     reader and not as version-1 gaps: (a) lower assigns an empty
     wait set for a `:parked` body that also carries frames
