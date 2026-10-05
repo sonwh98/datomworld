@@ -54,7 +54,8 @@
     [yang.python.antlr.scope :as scope]
     [yang.python.antlr.uast :as u]
     [yang.stage :as stage]
-    [yin.vm.encoder :as encoder]))
+    [yin.vm.encoder :as encoder]
+    [yin.vm.integer :as integer]))
 
 
 ;; =============================================================================
@@ -250,46 +251,87 @@
 ;; Literals
 ;; =============================================================================
 
-(def ^:private max-exact-int
-  "2^53: the prelude's integer range is [-2^53, 2^53], exact on every host."
-  9007199254740992)
+(def ^:private max-safe-int
+  "2^53 - 1: a literal up to it is a native `:literal` on every host."
+  9007199254740991)
 
 
-(defn- parse-radix
-  [n digits radix]
-  (reduce (fn [acc ch]
-            (let [d (str/index-of "0123456789abcdef" (str/lower-case (str ch)))]
-              (when (or (nil? d) (>= d radix))
-                (unsupported! n "number literal"))
-              (let [x (+ (* acc radix) d)]
-                (when (> x max-exact-int)
-                  (unsupported! n "integer literal beyond 2^53"))
-                x)))
-          0
-          digits))
+(defn- int-digits
+  "`[radix digits]` of integer token `t`, prefix and underscores removed,
+   after checking Python's integer grammar; a malformed token is a syntax
+   diagnostic with CPython 3.9.6's message."
+  [n t]
+  ;; flat character classes: a regex repeating a group recurses per digit
+  ;; on the JVM and overflows the stack on a token of thousands
+  (let [[radix kind digit-class body]
+        (case (str/lower-case (subs t 0 (min 2 (count t))))
+          "0x" [16 "hexadecimal" #"[0-9a-fA-F_]+" (subs t 2)]
+          "0o" [8 "octal" #"[0-7_]+" (subs t 2)]
+          "0b" [2 "binary" #"[01_]+" (subs t 2)]
+          [10 "decimal" #"[0-9][0-9_]*" t])]
+    ;; an underscore only between digits, or after a base prefix
+    (when-not (and (re-matches digit-class body)
+                   (not (str/includes? body "__"))
+                   (not (str/ends-with? body "_")))
+      (syntax! n (str "invalid " kind " literal")))
+    ;; Python 3 reads 0755 as an error, not as octal or decimal
+    (when (and (= 10 radix) (str/starts-with? t "0") (re-find #"[1-9]" t))
+      (syntax! n (str "leading zeros in decimal integer literals are not "
+                      "permitted; use an 0o prefix for octal integers")))
+    [radix (str/replace body "_" "")]))
+
+
+(defn- int-literal
+  "The node of integer token `t`, converted exactly through the `integer`
+   module under limits fitted to this one token (no host double, no
+   native-width parser): a native literal up to 2^53 - 1, else
+   `(py/int-lit hex)` over canonical lowercase hex, which the AST can
+   carry on every host. A decimal token obeys the packet's digit budget;
+   with none declared it must stay within 2^53 - 1. Hex, octal and binary
+   tokens have no digit budget."
+  [ctx n t]
+  (let [[radix digits] (int-digits n t)
+        c (count digits)
+        budget (:max-digits ctx)
+        decimal? (= 10 radix)]
+    (when (and decimal? budget (> c budget))
+      (syntax! n (str "Exceeds the limit (" budget " digits) for integer "
+                      "string conversion: value has " c " digits; consider "
+                      "hexadecimal for huge integer literals")))
+    (let [m (integer/integer-module
+              ;; a digit of radix 16 or less is at most 4 bits
+              {::integer/max-bits (* 4 c),
+               ::integer/max-digits (if decimal? (or budget 16) c)})
+          ;; a decimal token's only leading zeros are those of zero
+          v ((get m 'parse) (if (and decimal? (str/starts-with? digits "0"))
+                              "0"
+                              digits)
+                            radix)]
+      (cond
+        (and (not (keyword? v)) (<= ((get m 'compare) v max-safe-int) 0))
+        (u/lit v)
+        (and decimal? (nil? budget))
+        (unsupported! n (str "decimal integer literal beyond 2^53 - 1 "
+                             "with no digit budget declared"))
+        :else (app* 'py/int-lit (u/lit ((get m 'format) v 16)))))))
 
 
 (defn- parse-number
-  [n text]
-  (let [t (str/replace text "_" "")
-        lower (str/lower-case t)]
+  "The node of one NUMBER token."
+  [ctx n text]
+  (let [lower (str/lower-case text)]
     (cond
       (str/ends-with? lower "j") (unsupported! n "imaginary literal")
-      (str/starts-with? lower "0x") (parse-radix n (subs t 2) 16)
-      (str/starts-with? lower "0o") (parse-radix n (subs t 2) 8)
-      (str/starts-with? lower "0b") (parse-radix n (subs t 2) 2)
       ;; floats are tagged on every host (owner decision 3), and the payload
       ;; is float64 content built while the syntax still says float: on JS a
       ;; bare 2.0 would be the integer 2 and change the row's address
-      (re-find #"[.eE]" t) {:py/float (cbor/float64
-                                        #?(:cljd (double/parse t)
-                                           :clj (Double/parseDouble t)
-                                           :cljs (js/parseFloat t)))}
-      ;; Python 3 reads 0755 as an error, not as octal or decimal
-      (and (str/starts-with? t "0") (re-find #"[1-9]" t))
-      (syntax! n (str "leading zeros in decimal integer literals are not "
-                      "permitted; use an 0o prefix for octal integers"))
-      :else (parse-radix n t 10))))
+      (and (not (re-find #"^0[xob]" lower)) (re-find #"[.e]" lower))
+      (let [t (str/replace text "_" "")]
+        (u/lit {:py/float (cbor/float64
+                            #?(:cljd (double/parse t)
+                               :clj (Double/parseDouble t)
+                               :cljs (js/parseFloat t)))}))
+      :else (int-literal ctx n text))))
 
 
 (defn- code-point->str
@@ -299,11 +341,22 @@
      :cljs (.fromCodePoint js/String cp)))
 
 
+(defn- escape-value
+  "The value of an escape's hex or octal `digits`, already checked: at
+   most eight, so the native accumulator is exact on every host."
+  [digits radix]
+  (reduce (fn [acc ch]
+            (+ (* acc radix)
+               (str/index-of "0123456789abcdef" (str/lower-case (str ch)))))
+          0
+          digits))
+
+
 (defn- hex-value
   [n s]
   (when-not (re-matches #"[0-9a-fA-F]+" s)
     (syntax! n "malformed escape in string literal"))
-  (let [cp (parse-radix n s 16)]
+  (let [cp (escape-value s 16)]
     (when (> cp 0x10FFFF)
       (syntax! n "illegal Unicode character in \\U escape"))
     cp))
@@ -341,7 +394,7 @@
                 (re-matches #"[0-7]" e)
                 (let [digits (re-find #"^[0-7]{1,3}" (subs body (inc i)))]
                   (recur (+ i 1 (count digits))
-                         (conj out (code-point->str (parse-radix n digits 8)))))
+                         (conj out (code-point->str (escape-value digits 8)))))
                 :else (recur (+ i 2) (conj out c e))))
             (recur (inc i) (conj out c))))))))
 
@@ -537,7 +590,7 @@
       (p/token? head "True") (u/lit true)
       (p/token? head "False") (u/lit false)
       (p/token? head "...") (unsupported! n "Ellipsis")
-      (= "NUMBER" (:type head)) (u/lit (parse-number n (:text head)))
+      (= "NUMBER" (:type head)) (parse-number ctx n (:text head))
       (= "STRING" (:type head))
       (u/lit {:py/str (apply str (map #(parse-string n (:text %)) ks))})
       :else (unsupported! n "atom"))))
@@ -1488,11 +1541,25 @@
 ;; Packets
 ;; =============================================================================
 
+(defn- digit-budget
+  "The packet's decimal digit budget, `:yang.python.antlr/max-digits`, or
+   nil when it declares none (then no decimal literal may exceed
+   2^53 - 1). There is no default."
+  [packet]
+  (when (contains? packet :yang.python.antlr/max-digits)
+    (let [b (:yang.python.antlr/max-digits packet)]
+      (when-not (and (int? b) (pos? b))
+        (throw (ex-info "the digit budget must be a positive integer"
+                        {:yang.python.antlr/max-digits b})))
+      b)))
+
+
 (defn- context
   [packet]
   (let [pk (p/validate! packet)
         analysis (scope/analyze pk)]
     {:pk pk,
+     :max-digits (digit-budget packet),
      :analysis analysis,
      :scope (:module analysis),
      :lower lower,
@@ -1515,7 +1582,9 @@
 (defn lower-packet
   "The complete program for one ok packet: the prelude, then the module
    body run by `py/run-module`, with tail calls marked. Its value is
-   `{:py/out [...] :py/exception nil-or-{:type :args}}`."
+   `{:py/out [...] :py/exception nil-or-{:type :args}}`. The packet may
+   declare the decimal digit budget of its literals as
+   `:yang.python.antlr/max-digits`."
   [packet]
   (u/mark-tails
     (u/then prelude/uast
@@ -1546,9 +1615,16 @@
    frontend-metadata side table when the encoder projects it. The medium is
    the state's `:medium` and the batch token is the packet's unit. A packet
    that is not ok, or a lowering diagnostic, becomes one record on port
-   `:diagnostics` and no program. Stateless."
+   `:diagnostics` and no program. The state's `:max-digits`, when the
+   composition declares one, is the digit budget of a packet that
+   declares none. Stateless."
   [state packet]
-  (let [unit (:yang.cst/unit packet)]
+  (let [unit (:yang.cst/unit packet)
+        packet (if (and (contains? state :max-digits)
+                        (not (contains? packet :yang.python.antlr/max-digits)))
+                 (assoc packet
+                        :yang.python.antlr/max-digits (:max-digits state))
+                 packet)]
     (if (= :yang.cst/ok (:yang.cst/outcome packet))
       (try
         [state [[:program (encoder/source-envelope
@@ -1575,13 +1651,18 @@
 (defn open-stage
   "A lowering stage reading CST packets from `cst-stream`, writing program
    batches to `program-stream`, whose logical identity is `medium`, and
-   diagnostics to `diagnostics-stream`."
+   diagnostics to `diagnostics-stream`. `max-digits`, when given, is the
+   decimal digit budget of every packet that declares none."
   ([cst-stream program-stream diagnostics-stream]
    (open-stage cst-stream program-stream diagnostics-stream program-medium))
   ([cst-stream program-stream diagnostics-stream medium]
    (stage/open cst-stream
                {:program program-stream, :diagnostics diagnostics-stream}
-               {:medium medium})))
+               {:medium medium}))
+  ([cst-stream program-stream diagnostics-stream medium max-digits]
+   (stage/open cst-stream
+               {:program program-stream, :diagnostics diagnostics-stream}
+               {:medium medium, :max-digits max-digits})))
 
 
 (defn step-stage

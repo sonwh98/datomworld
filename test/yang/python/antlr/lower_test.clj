@@ -539,7 +539,14 @@
             also refuses such a literal, should a grammar ever pass one)"
     (is (= :yang.cst/syntax-error
            (:yang.cst/outcome (parser/parse-source "x = 0755\n"))))
-    (is (= :yang.cst/ok (:yang.cst/outcome (parser/parse-source "x = 00\n"))))))
+    (is (= :yang.cst/ok (:yang.cst/outcome (parser/parse-source "x = 00\n")))))
+  (testing "malformed underscores never reach it either (the pinned lexer
+            reads no underscore in a number at all; the lowering checks
+            Python's grammar itself, int-literal-test)"
+    (doseq [src ["x = 1__0\n" "x = 1_\n" "x = 0x__f\n" "x = 0_7\n"]]
+      (is (= :yang.cst/syntax-error
+             (:yang.cst/outcome (parser/parse-source src)))
+          src))))
 
 
 (deftest every-grammar-rule-is-classified-test

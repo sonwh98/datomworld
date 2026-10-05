@@ -11,7 +11,8 @@
    notation on the JVM."
   (:require
     [clojure.string :as str]
-    [yin.vm.data :as data]))
+    [yin.vm.data :as data]
+    [yin.vm.integer :as integer]))
 
 
 (defn- integral?
@@ -42,6 +43,14 @@
       (and (integral? x) (< -1e16 x 1e16))
       (str #?(:cljd (.toInt ^num x) :clj (long x) :cljs x) ".0")
       :else (str x))))
+
+
+(def ^:private exact
+  "The `integer` exports with limits no snapshot reaches: the renderer
+   writes an integer's exact decimal with no digit limit, as CPython
+   3.9.6 prints it (a limit on `print` belongs to guest `str`)."
+  (integer/integer-module {::integer/max-bits 9007199254740991,
+                           ::integer/max-digits 9007199254740991}))
 
 
 (declare repr)
@@ -97,6 +106,9 @@
     (true? v) "True"
     (false? v) "False"
     (string? v) (string-repr v)
+    ;; every exact carrier, a JS or Dart BigInt included, which `number?`
+    ;; misses
+    ((get exact 'integer?) v) ((get exact 'format) v)
     (number? v) (str v)
     (vector? v) (seq-repr "[" "]" v)
     (map? v)

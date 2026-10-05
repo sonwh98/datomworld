@@ -2038,12 +2038,17 @@ kind and no AST tag (ruling 3):
   payloads, and trailing bytes; existing Jing fixtures stay unchanged.
 - A source literal within +/-(2^53-1) stays a native `:literal`. A
   larger literal lowers to an application of the integer module's parse
-  function over its canonical decimal string, because the de Bruijn
+  function over its canonical radix-16 string, because the de Bruijn
   canonical value table declares `:bigint` out of domain and the image
   encoder refuses a JS or Dart bigint. Every literal thus stays inside
   the existing domain on all four kernels, and every spelling of one
   value (decimal, hexadecimal, binary, octal) has one address.
   Widening the de Bruijn value domain is a separate kernel ruling.
+  `lower/open-stage` takes an explicit composition digit budget that
+  fills only a packet declaring no `:yang.python.antlr/max-digits` of
+  its own (the packet's declaration wins); with neither, a decimal
+  literal above 2^53-1 is a diagnostic, and hexadecimal, octal and
+  binary literals are exempt from the budget.
 - `42` and `42.0` stay distinct content although numerically equal.
 
 Exact-integer carriers are recognized as scalars in the encoder, the
@@ -2235,7 +2240,7 @@ parity remains a separately tracked limitation, not claimed by C3
 |        | registry without it refuses.                                        |
 +--------+---------------------------------------------------------------------+
 | S2     | Literal and boundary integration: equal spellings give equal rows,  |
-|        | bytes, and hashes; malformed encodings refuse.                      |
+|        | bytes, and hashes; malformed encodings refuse. Landed.              |
 +--------+---------------------------------------------------------------------+
 | S3a    | Limit reasons as guest exceptions: `integer` version 2 returns      |
 |        | them, and `py/int-result` raises MemoryError or ValueError.         |

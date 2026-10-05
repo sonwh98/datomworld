@@ -36,7 +36,7 @@
    :modules (-> (module/empty-registry)
                 module/register-cell-module
                 data/register-data-module
-                (integer/register-integer-module limits))})
+                (prelude/register-integer-module limits))})
 
 
 (def ^:private load-semantic-ast

@@ -125,7 +125,8 @@
    (the cell module from yin.vm.module, the integer module from
    yin.vm.integer, the rest from yin.vm.data)."
   (:require
-    [yang.python.antlr.uast :as u]))
+    [yang.python.antlr.uast :as u]
+    [yin.vm.integer :as integer]))
 
 
 (def host-names
@@ -135,7 +136,7 @@
      data/str-index-of data/str->code-points data/code-points->str
      data/float64 data/float-value data/content=
      integer/sub integer/neg integer/mul integer/compare
-     integer/floor-div-mod integer/shift-left integer/format})
+     integer/floor-div-mod integer/shift-left integer/format integer/parse})
 
 
 (def ^:private core-definitions
@@ -1421,6 +1422,8 @@
                                    "Exceeds the limit for integer string "
                                    "conversion")))
            (if (py/int-refusal? r) (:py/int-defect r) r))))]
+    ;; an integer literal beyond 2^53 - 1, from its canonical hex
+    [py/int-lit (fn [s] (py/int-result (integer/parse s 16)))]
     [py/int-refusal?
      (fn [r]
        (if (= r :yin.vm.integer/arity)
@@ -2291,3 +2294,22 @@
          "iter" 'py.b/iter}
         (map (fn [[nm key _]] [nm key]))
         builtin-classes))
+
+
+(def min-integer-bits
+  "The smallest `::integer/max-bits` this profile admits: every inline
+   literal (up to 2^53 - 1) must fit (C3 S2)."
+  53)
+
+
+(defn register-integer-module
+  "Return `registry` with the `integer` module installed under `limits`
+   for this profile: refused when `::integer/max-bits` is under
+   `min-integer-bits`, otherwise `integer/register-integer-module`."
+  [registry limits]
+  (let [b (::integer/max-bits limits)]
+    (when-not (and (int? b) (<= min-integer-bits b))
+      (throw (ex-info "the Python profile needs integer max-bits >= 53"
+                      {:yang.python.antlr/refusal :yang.python.antlr/max-bits,
+                       ::integer/max-bits b}))))
+  (integer/register-integer-module registry limits))

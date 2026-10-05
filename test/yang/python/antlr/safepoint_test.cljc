@@ -11,6 +11,7 @@
             [dao.stream :as stream]
             [yang.python.antlr.lower :as lower]
             [yang.python.antlr.lower-portable-test :refer [packet]]
+            [yang.python.antlr.prelude :as prelude]
             [yang.python.antlr.render :as render]
             [yang.python.antlr.safepoint :as hooks]
             [yang.python.antlr.safepoint-programs :as programs]
@@ -168,7 +169,7 @@
    :modules (-> (module/empty-registry)
                 module/register-cell-module
                 data/register-data-module
-                (integer/register-integer-module
+                (prelude/register-integer-module
                   {::integer/max-bits 100000, ::integer/max-digits 4300})
                 module/register-stream-module)})
 

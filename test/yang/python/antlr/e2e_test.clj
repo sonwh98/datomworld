@@ -51,9 +51,10 @@
 
 
 (defn register-integer-module
-  "Install the `integer` module under `integer-limits`."
+  "Install the `integer` module under `integer-limits`, through the Python
+   profile's registrar."
   [registry]
-  (integer/register-integer-module registry integer-limits))
+  (prelude/register-integer-module registry integer-limits))
 
 
 (def host-registrars
@@ -138,7 +139,9 @@
          diagnostics (tu/new-memory-log)]
      (doseq [e (source-events [:e2e 0] source)] (stream/append! src e))
      (parser/step-stage (parser/open-stage src cst))
-     (lower/step-stage (lower/open-stage cst program diagnostics))
+     (lower/step-stage (lower/open-stage cst program diagnostics
+                                         lower/program-medium
+                                         (::integer/max-digits integer-limits)))
      (let [problems (tu/drain diagnostics)]
        (if (seq problems)
          {:diagnostics problems}
@@ -221,7 +224,10 @@
    `py.sp/` name (safepoint ruling: the naive program never needs the hook
    prelude)."
   [source]
-  (let [free (free-names (lower/lower-packet (parser/parse-source source)))
+  (let [free (free-names (lower/lower-packet
+                           (assoc (parser/parse-source source)
+                                  :yang.python.antlr/max-digits
+                                  (::integer/max-digits integer-limits))))
         open (remove closed-names free)]
     (is (empty? open) (pr-str open))
     (is (not-any? #(= "py.sp" (namespace %)) free))))

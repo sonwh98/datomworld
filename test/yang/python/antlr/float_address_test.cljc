@@ -220,7 +220,7 @@
 (deftest prelude-addresses-test
   (testing "the bundled prelude and the hook prelude: one address on every
             host (JVM goldens)"
-    (is (= :segment/blake3-bf443cf2c6422edb94a705ef912d1e65017d843a356b2993777ace9922df9635
+    (is (= :segment/blake3-4854d07971414c048a0caa714a2190ab13753686ffaea57232d48ed04aad06d4
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-2d60190887dc1ca388d7a7b75467757c3f0e6c4b2d909603735c9a9852b0e3e3
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
@@ -240,15 +240,15 @@
         prelude-id (fn [{:keys [root rows]}] (first (nth (get rows root) 3)))]
     (is (nil? (vm/validate-rows a')))
     (testing "A, A' and the record: one address on every host (JVM goldens)"
-      (is (= :segment/blake3-68c372692de3fec766fb6aa8aa52de6060fbafec4bee188bbb53dfb4ea93c5fd
+      (is (= :segment/blake3-aa62bc341fa5654aeda294f8215780fab27d846ff7f3c98af6d7550d78ac9b05
              (:root a)))
-      (is (= :segment/blake3-c99b524f90badebdd3f78ef8f5f9d69408e19976520a9217fc71cb0f0f665030
+      (is (= :segment/blake3-1963e3374e27d6ea758ecdd65cb541a5a7deb4a2348565f6edb2f7152da09b41
              (:root a')))
-      (is (= :segment/blake3-9473194fed0a5471b6cb1779006668298c889842db965c71cc649db078226e1a
+      (is (= :segment/blake3-8c0f7c3399fc925e495b70247331917ad43363eda96dd5214fdf7ab4d0682cdf
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
-      (is (= :segment/blake3-32a410ace566c43da4005b0a51005488a9456284fa65c41f7324836b196c4b34
+      (is (= :segment/blake3-7924250dff0aa18fb83a13faf2c719492311452ff9897de08d2c2429744d1cf2
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]
@@ -272,7 +272,7 @@
    :modules (-> (module/empty-registry)
                 module/register-cell-module
                 data/register-data-module
-                (integer/register-integer-module
+                (prelude/register-integer-module
                   {::integer/max-bits 100000, ::integer/max-digits 4300}))})
 
 
