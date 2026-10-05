@@ -58,6 +58,28 @@ bb build:yin-repl-node   # Node REPL target/yin-repl.js; REQUIRED by
                          # by name): `clojure -M:test` without it fails that test
 ```
 
+### Changed-only tests: `bb test:changed`
+
+`bb test:changed` (src/dev/affected.clj) runs the fast tests a change can
+reach: the reverse require closure of the files changed since the
+merge-base with master, plus fixtures that mention a changed resource path,
+tests that walk a changed tree, and each src file's `_test` by convention.
+A walker is a file calling file-seq, fs/glob, fs/list-dir,
+fs/walk-file-tree or .listFiles; each string literal argument of its
+io/file, fs/file, fs/path, fs/glob, java.io.File. or File. calls is a root
+(let-bound roots count), and a change under a root selects it. The three
+lanes run in parallel (logs: target/profile/changed-<lane>.log) after the
+needed builds. `test:changed:list` shows what and why; `:clj`/`:cljs`/
+`:cljd` run one lane; `--base REF`; `--changed FILE...` (absolute OK; a
+typo, an empty list or the wrong cwd exits 1). Use it to iterate and to
+land a slice confined to a package. Exit 2 (from :list too) is a wide
+change (deps.edn bb.edn shadow-cljs.edn mise.toml .cljstyle src/dev/
+antlr/ .clj-kondo/ package*/pubspec*): it runs nothing; run `bb test`,
+as for a change to the core everything requires (yin.vm engine,
+dao.stream, codecs) and before a big merge. Not seen: dynamic loads
+(`requiring-resolve`, `resolve`), paths or walk roots built at run time,
+and spawned programs that changed (target/yin-repl.js, Dart peers).
+
 The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
 slice L5) is two tests:
 
