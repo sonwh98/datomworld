@@ -486,17 +486,22 @@
   "Append `entry`'s retained envelope on the link request stream. `ok`
    moves the entry to the `:link-response` state; `full` keeps it in
    `:link-request`, envelope verbatim, for the next poll; the terminal
-   outcomes throw, naming the outcome and the link id."
-  [resources entry]
-  (let [writer (get resources link-request-resource)
-        o (:dao.stream/outcome (stream/append! writer (:envelope entry)))]
-    (case o
-      :dao.stream/ok (-> entry
-                         (dissoc :envelope)
-                         (assoc :reason :link-response))
-      :dao.stream/full entry
-      (throw (ex-info "Link request could not be appended"
-                      {:outcome o, :link-id (:link-id entry)})))))
+   outcomes throw, naming the outcome and the link id. Under a custody
+   gate (`gate`, the machine's `yin.vm/gate-mode`) nothing is appended:
+   the entry is returned as `full` would leave it."
+  ([resources entry] (append-link-request resources entry nil))
+  ([resources entry gate]
+   (if (some? gate)
+     entry
+     (let [writer (get resources link-request-resource)
+           o (:dao.stream/outcome (stream/append! writer (:envelope entry)))]
+       (case o
+         :dao.stream/ok (-> entry
+                            (dissoc :envelope)
+                            (assoc :reason :link-response))
+         :dao.stream/full entry
+         (throw (ex-info "Link request could not be appended"
+                         {:outcome o, :link-id (:link-id entry)})))))))
 
 
 (defn require-handler
@@ -512,7 +517,9 @@
    a response that lands before the entry is first polled is not skipped
    -- and appends the envelope under the link id `[origin counter]`. On
    `ok` the entry waits in `:link-response`; on `full` it stays in
-   `:link-request` and the poll retries it. The entry is the kernel's
+   `:link-request` and the poll retries it. Under a custody gate the mint
+   and the append are the driver's: the entry is built without `:cursor`
+   and parks in `:link-request` with nothing sent. The entry is the kernel's
    registers plus the link fields: resource ids and plain data, never a
    handle.
 
@@ -545,8 +552,11 @@
                        :available (vec (list-modules (:modules state)))}))
 
       :else
-      (let [minted (stream/cursor response stream/anchor-newest)
-            _ (when-not (= :dao.stream/ok (:dao.stream/outcome minted))
+      (let [gate (vm/gate-mode state)
+            minted (when (nil? gate)
+                     (stream/cursor response stream/anchor-newest))
+            _ (when (and (nil? gate)
+                         (not= :dao.stream/ok (:dao.stream/outcome minted)))
                 (throw (ex-info "Link response cursor mint failed"
                                 {:outcome (:dao.stream/outcome minted),
                                  :module module-name})))
@@ -561,9 +571,10 @@
                                     :yin.link/format format,
                                     :yin.link/contract contract}
                          :request link-request-resource
-                         :response link-response-resource
-                         :cursor (:dao.stream/cursor minted))]
-        (block-on state (append-link-request resources entry))))))
+                         :response link-response-resource)
+            entry (cond-> entry
+                    minted (assoc :cursor (:dao.stream/cursor minted)))]
+        (block-on state (append-link-request resources entry gate))))))
 
 
 (defn default-registry
