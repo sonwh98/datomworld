@@ -15,8 +15,17 @@
    requirements, validates the whole body, and answers it as canonical
    CBOR bytes under their content address.
 
-   `resume-task` is the lower: decode the bytes, check stamp, version,
-   grammar, references and code hashes before anything is installed;
+   `resume-task` is the lower, and its reader is version-aware (M-next
+   D7): the version-1 decode is tried first -- `dao.jing.cbor` canonical
+   bytes, whose decoder refuses the stream codec's tag-39 identifiers --
+   then the stage-1 `dao.stream.cbor` decode; the codec that accepted
+   the bytes decides which body version they may carry (version 1 in
+   jing bytes, version 0 in stream bytes, enforced as
+   `:yin.k/profile-mismatch` before the address check), a version-1
+   body then runs the custody inspector (`yin.vm.ucf.checkpoint`) over
+   its claimed address, and a failure at any step is never
+   reinterpreted through the other codec.  It checks stamp, grammar,
+   references and code hashes before anything is installed;
    attach each stream identity once through its carried descriptor;
    allocate one fresh private resource per logical cell and stream;
    re-seal every reference under the receiving task; restore the store
@@ -39,6 +48,7 @@
    or the export refuses; an install name alone reconstructs nothing."
   (:require [clojure.set :as set]
             [dao.jing :as jing]
+            [dao.jing.cbor :as jing.cbor]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [dao.stream.cbor :as cbor]
@@ -48,6 +58,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.ucf :as ucf]
+            [yin.vm.ucf.checkpoint :as checkpoint]
             [yin.vm.ucf.remote :as ucf.remote]
             [yin.vm.values :as values]))
 
@@ -58,9 +69,21 @@
 
 
 (def handoff-version
-  "The wire version this namespace speaks; stage 2's amendment raises
-   it to 1 (section 14.3), and a body of any other version is refused
-   with :yin.k/profile-mismatch before restoration."
+  "The body versions this namespace's reader speaks: version 0, the
+   frozen stage-1 wire the lower still emits, and version 1, the custody
+   amendment (section 14.3) whose canonical bytes are dao.jing.cbor's.
+   Which of the two a body may carry is decided by the codec that
+   accepted its bytes -- the version-aware reader's gate, before the tag
+   grammar and before any address or restoration check -- and a body of
+   any other version, absent or not of the integer kind, is refused with
+   :yin.k/profile-mismatch."
+  #{0 1})
+
+
+(def ^:private emitted-version
+  "The version the lift emits: the stage-1 fork body.  D9's version-1
+   lift raises this; until then the reader speaks version 1 but nothing
+   emits it."
   0)
 
 
@@ -706,7 +729,7 @@
                                             {:yin.k/segment a}))))
                           (sort-by str segments))
                body (cond-> {handoff-tag true
-                             :yin.k/version handoff-version
+                             :yin.k/version emitted-version
                              :yin.k/kind kind
                              :yin.k/contract ucf/contract-stamp
                              :yin.k/id-counter (or (:id-counter vm) 0)
@@ -939,19 +962,24 @@
 
 
 (defn validate-body
-  "The body grammar both ends run (S7.5.4): the tag, the version, the
+  "The body grammar both ends and both versions run (S7.5.4 over 0 and
+   1): the tag, the version among those this namespace speaks, the
    kind's own shape, every cell reference resolved to exactly the
    cells the body carries -- none missing, none extra -- every pending
    a known variant with the keys that variant requires, every frame's
-   segment among the code the body names, and each code vector still
-   hashing to its own address and admissible as a vector.  A malformed
-   body is refused whole, before any attachment or restoration."
+   segment among the code the body names, each code vector still
+   hashing to its own address and admissible as a vector, and each
+   install entry carrying a phase the wire admits, with phase and
+   parent required outright at version 1.  A malformed body is refused
+   whole, before any attachment or restoration."
   [body]
   (when-not (and (map? body) (true? (get body handoff-tag)))
     (undecodable! {:yin.k/kind :body}))
-  (when-not (= handoff-version (:yin.k/version body))
-    (refuse! :yin.k/profile-mismatch
-             {:yin.k/version (:yin.k/version body)}))
+  (let [version (:yin.k/version body)]
+    (when-not (contains? handoff-version version)
+      (refuse! :yin.k/profile-mismatch
+               {:yin.k/version version
+                :yin.k/supported handoff-version})))
   (let [kind (:yin.k/kind body)
         cells (or (:yin.k/cells body) {})
         code (or (:yin.k/code body) {})]
@@ -1009,6 +1037,20 @@
                      (true? (get (:yin.k/child inst) handoff-tag)))
         (undecodable! {:yin.k/name m
                        :yin.k/path [:yin.k/installs m]}))
+      ;; the phase travels beside the child on both versions' grammar:
+      ;; the wire carries a running or a parked child, never one of the
+      ;; engine's transient phases; version 1 requires phase and parent
+      ;; outright, the child being part of a custody subject's task
+      (when (contains? inst :yin.k/phase)
+        (when-not (contains? #{:running :parked} (:yin.k/phase inst))
+          (undecodable! {:yin.k/phase (:yin.k/phase inst)
+                         :yin.k/path [:yin.k/installs m :yin.k/phase]})))
+      (when (= 1 (:yin.k/version body))
+        (doseq [k [:yin.k/phase :yin.k/parent]]
+          (when-not (contains? inst k)
+            (undecodable! {:yin.k/name m
+                           :yin.k/kind :install-header
+                           :yin.k/path [:yin.k/installs m k]}))))
       ;; a child is a whole body: validated with the same grammar
       ;; before anything of the parent is restored.  Decoded bytes
       ;; are trees, so the recursion terminates.
@@ -1162,6 +1204,16 @@
     (assoc child :origins (inc n))))
 
 
+(defn- child-bytes
+  "A child body re-encoded for its own recursive resume under the codec
+   its version rides: version 1 in jing canonical bytes, version 0 in
+   the stream codec, exactly as it arrived inside its parent."
+  [child-body]
+  (if (= 1 (:yin.k/version child-body))
+    (jing.cbor/encode child-body)
+    (cbor/encode child-body)))
+
+
 (defn- resume-installs
   "Each install child resumed into a fresh child of the receiver's
    composition, its phase and response carried: the receiver's own
@@ -1169,7 +1221,9 @@
    refuses -- its bytes undecodable, a stream it names unattachable
    -- aborts the parent's restoration: the refusal is thrown here,
    before any machine value is assembled, so the parent never answers
-   :ok over a child that did not lower."
+   :ok over a child that did not lower.  The child is resumed as an
+   install child, not a custody root: its own reader pass skips the
+   custody step the root already ran over it."
   [recv body attach! opts]
   (into {}
         (map (fn [[m inst]]
@@ -1179,9 +1233,9 @@
                                (if-some [spawn (:child-of opts)]
                                  (spawn recv response m)
                                  (spawn-child-template recv response m))
-                               (cbor/encode child-body)
+                               (child-bytes child-body)
                                attach!
-                               opts)]
+                               (assoc opts ::install-child true))]
                  (when (not= :ok (:status resumed))
                    (refuse! (:yin.k/status resumed)
                             (dissoc resumed :yin.k/status)))
@@ -1282,28 +1336,120 @@
       (undecodable! {:yin.k/reason (:yin.k/reason pending)}))))
 
 
+;; =============================================================================
+;; The version-aware reader (M-next D7): two codecs, one grammar each
+;; =============================================================================
+
+(def ^:private codec-versions
+  "The body-version contract of each accepting codec, the two-codec
+   split of the D plan's residual 3: stage-1 `dao.stream.cbor` bytes are
+   version 0 only -- that wire is frozen -- and `dao.jing.cbor` canonical
+   bytes are version 1 only, the stream codec's tag-39 identifiers being
+   refused by jing's decoder.  Scalar overlap between the codecs
+   establishes no body compatibility; which codec accepted decides."
+  {:stream #{0} :jing #{1}})
+
+
+(defn- decode-two
+  "Reader step 1: the version-1 decode first (jing), then the version-0
+   decode (the stream codec).  Answers `{:codec c :body b}` for the
+   first codec that accepted the bytes; bytes neither decodes are
+   `:yin.k/undecodable`."
+  [bytes]
+  (letfn [(attempt
+            [decode]
+            (try {:body (decode bytes)}
+                 (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                   nil)))]
+    (or (when-some [r (attempt jing.cbor/decode)]
+          (assoc r :codec :jing))
+        (when-some [r (attempt cbor/decode)]
+          (assoc r :codec :stream))
+        (undecodable! {:yin.k/kind :bytes}))))
+
+
+(defn- require-tag!
+  "Reader step 2: the S7.5.1 tag, before any version or address rule."
+  [body]
+  (when-not (and (map? body) (true? (get body handoff-tag)))
+    (undecodable! {:yin.k/kind :body})))
+
+
+(defn- version-gate!
+  "Reader step 3, before the address check (UCF 7.2.1): the version
+   contract of the codec that accepted the bytes.  A version the codec
+   does not speak, an absent version, or one not of the integer kind is
+   `:yin.k/profile-mismatch`, carrying the version as found and the
+   supported set.  Under `opts`' `:exclusive` a version-0 body is the
+   same refusal: a reader that requires exclusive custody never
+   downgrades a fork into it."
+  [codec body opts]
+  (let [supported (get codec-versions codec)
+        v (get body :yin.k/version)]
+    (when-not (and (jing.cbor/numeric? v)
+                   (= :integer (jing.cbor/numeric-kind v))
+                   (contains? supported v))
+      (refuse! :yin.k/profile-mismatch
+               {:yin.k/version v :yin.k/supported supported}))
+    (when (and (:exclusive opts) (not= 1 v))
+      (refuse! :yin.k/profile-mismatch
+               {:yin.k/version v
+                :yin.k/supported #{1}
+                :yin.k/policy :yin.k/exclusive}))))
+
+
+(defn- custody-inspect!
+  "Reader step 4, version 1 only: `checkpoint/inspect` over the claimed
+   address and the exact bytes -- the address (`:yin.k/hash-mismatch`)
+   first, then the custody grammar, including an entry for every install
+   pending.  The address is the one `opts` names, the address the bytes
+   were fetched under; unnamed, it is the address of the bytes
+   themselves.  A structural failure here is never reinterpreted as
+   version 0: the accepting codec is already fixed.  Answers the
+   operation baseline D10's lower will consume."
+  [bytes opts]
+  (let [address (or (:address opts) (bytes-address bytes))
+        r (checkpoint/inspect address bytes)]
+    (when (contains? r :yin.k/status)
+      (refuse! (:yin.k/status r) (dissoc r :yin.k/status)))
+    r))
+
+
 (defn resume-task
-  "The lower of 14.1.2: `bytes`, a handoff body this namespace minted,
-   resumed into a fresh task over `recv` -- a machine of the receiver's
-   own composition.  Answers `{:status :ok :kind k :vm resumed}` or the
-   first data refusal: `:yin.k/undecodable` bytes or grammar,
-   `:yin.k/profile-mismatch` stamp or version, `:yin.k/hash-mismatch`
-   code, `:yin.k/unsatisfied` a stream that cannot be attached or a
-   primitive the receiver cannot answer.  Nothing partially runnable
-   is ever exposed: the machine value is assembled only after every
-   restoration step passes.  `attach!` is the receiver's own
-   `:dao.stream/attach` dispatch, exactly `yin.vm.ucf.remote`'s; the
-   resumed task is a fork until stage 2."
+  "The lower of 14.1.2 behind the version-aware reader of M-next D7:
+   `bytes`, a handoff body this namespace minted, resumed into a fresh
+   task over `recv` -- a machine of the receiver's own composition.
+   Before any attachment or restoration, in this order: the two-codec
+   decode (jing first, then the stream codec; neither accepting is
+   `:yin.k/undecodable`), the tag, the version gate of the accepting
+   codec (`:yin.k/profile-mismatch`, before the address check), and --
+   version 1 only -- `checkpoint/inspect` over the address `opts` names
+   (`:yin.k/hash-mismatch`, then the custody grammar); then the full
+   recursive grammar of `validate-body`, the contract stamp and the
+   restoration itself.  `opts` may name `:exclusive` (a version-0 body
+   is then refused; without it such a body still lowers as a fork) and
+   `:address`; install children are resumed as children, their pass
+   skipping the custody step their root already ran.  Answers
+   `{:status :ok :kind k :vm resumed}` or the first data refusal:
+   `:yin.k/undecodable` bytes or grammar, `:yin.k/profile-mismatch`
+   stamp or version, `:yin.k/hash-mismatch` address or code,
+   `:yin.k/unsatisfied` a stream that cannot be attached or a primitive
+   the receiver cannot answer.  Nothing partially runnable is ever
+   exposed: the machine value is assembled only after every restoration
+   step passes.  `attach!` is the receiver's own `:dao.stream/attach`
+   dispatch, exactly `yin.vm.ucf.remote`'s; a version-0 resume is a
+   fork."
   ([recv bytes attach!]
    (resume-task recv bytes attach! nil))
   ([recv bytes attach! opts]
    (call!
      (fn []
-       (let [body (try (cbor/decode bytes)
-                       (catch #?(:cljd Object :clj Throwable
-                                 :cljs :default)
-                              _
-                         (undecodable! {:yin.k/kind :bytes})))
+       (let [{:keys [codec body]} (decode-two bytes)
+             _ (require-tag! body)
+             _ (version-gate! codec body opts)
+             _ (when (and (= 1 (:yin.k/version body))
+                          (not (::install-child opts)))
+                 (custody-inspect! bytes opts))
              _ (validate-body body)
              _ (when-not (= ucf/contract-stamp
                             (:yin.k/contract body))
