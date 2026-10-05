@@ -22,6 +22,7 @@
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
             [yin.repl.serve :as serve]
+            [yin.repl.state :as state]
             [yin.repl.store :as store]
             [yin.vm.linker.sign :as sign]))
 
@@ -266,11 +267,17 @@
 ;; The subcommands: `keygen` and `dht init|serve|join`
 ;; =============================================================================
 
+(defn- home-dir*
+  "The user's home directory, or nil where the host has none (ClojureDart)."
+  []
+  #?(:cljd nil
+     :clj (System/getProperty "user.home")
+     :cljs (some-> js/process .-env .-HOME)))
+
+
 (defn- home-dir
   []
-  (or #?(:cljd nil
-         :clj (System/getProperty "user.home")
-         :cljs (some-> js/process .-env .-HOME))
+  (or (home-dir*)
       (throw (ex-info (str "no home directory on this host: give --dir and "
                            "--key explicitly")
                       {}))))
@@ -352,18 +359,56 @@
            manifest (into ["--dht-manifest" manifest])
            true (into (mapcat #(vector "--dht-peer" %)) peers)
            true (into rest))
-         (when (= "init" verb) {:new-key key})]))))
+         {:new-key (when (= "init" verb) key)
+          :name name
+          :dir (or dir (state-path name ""))
+          ;; only `init` publishes: a saved --dht-publish must not survive
+          ;; `serve` or `join`
+          :unset (when-not (= "init" verb) #{"--dht-publish"})}]))))
+
+
+(defn- plain-args
+  "The plain form's `--name n` and `--dir d`, which name the node directory
+   its state file lives in (default `~/.yin/node`), removed from `args`.
+   Answers `[args extra]`."
+  [args]
+  (loop [args (seq args) rest [] node-name "node" dir nil]
+    (if-let [arg (first args)]
+      (case arg
+        "--name" (if (next args)
+                   (recur (nnext args) rest (second args) dir)
+                   (recur (next args) (conj rest arg) node-name dir))
+        "--dir" (if (next args)
+                  (recur (nnext args) rest node-name (second args))
+                  (recur (next args) (conj rest arg) node-name dir))
+        (recur (next args) (conj rest arg) node-name dir))
+      [rest {:name node-name :dir dir}])))
 
 
 (defn expand-args
   "Turn the subcommand surface into the flags `parse-args` reads:
    `keygen [--name n | file]` and `dht init|serve|join`.  Anything else
-   passes through unchanged.  Answers `[args extra]`."
+   passes through unchanged.  Answers `[args extra]`, `extra` carrying what
+   the arguments say beyond flags: `:new-key` (a key file `init` makes),
+   `:name` and `:dir` (the node directory), and `:unset` (saved flags the
+   subcommand clears)."
   [args]
   (case (first args)
     "keygen" [(keygen-args (rest args)) nil]
     "dht" (dht-args (rest args))
-    [args nil]))
+    (plain-args args)))
+
+
+(defn- parse-vm
+  "A `--vm` value as the evaluator keyword the shell takes."
+  [text]
+  (let [vm-type (some-> text keyword)]
+    (if (contains? shell/vm-labels vm-type)
+      vm-type
+      (throw (ex-info (str "--vm takes one of "
+                           (str/join ", " (map name (sort (keys shell/vm-labels))))
+                           ", not " (pr-str text))
+                      {:value text})))))
 
 
 (defn parse-args
@@ -406,6 +451,9 @@
                                         "localhost and on this machine's IP")
                                    {}))
           "--headless" (recur (next args) (assoc opts :headless? true) dht)
+          "--vm" (recur (nnext args)
+                        (assoc opts :vm-type (parse-vm (second args)))
+                        dht)
           "--index-store" (recur (nnext args)
                                  (assoc opts
                                         :index-store-spec
@@ -456,10 +504,11 @@
   ([] (boot {}))
   ([opts] (driver/create-state
             {:host (or (:adapter opts) (host/websocket))
-             :repl (shell/create-state {:index-store-spec
-                                        (:index-store-spec opts)
-                                        :dht-key (:dht-key opts)
-                                        :principals (:principals opts)})})))
+             :repl (shell/create-state
+                     (cond-> {:index-store-spec (:index-store-spec opts)
+                              :dht-key (:dht-key opts)
+                              :principals (:principals opts)}
+                       (:vm-type opts) (assoc :vm-type (:vm-type opts))))})))
 
 
 (def bind-all-host
@@ -548,7 +597,17 @@
    "                    all interfaces: localhost and this machine's IP"
    "  --headless        no prompt, endpoint only; needs --port"
    "  --index-store s   mem (default), file:<dir> or dht:<dir>"
+   "  --vm type         ast-walker, semantic (default), stack or register"
+   "  --name n, --dir d the node directory holding the saved state"
+   "                    (default ~/.yin/node)"
+   "  --reset           forget the saved state; start from the command line"
+   "  --no-state        neither read nor write the saved state"
    "  --help, -h        print this and exit"
+   ""
+   "saved state: the flags a node starts with are kept in <node dir>/state.edn,"
+   "and a bare `yin-repl` starts that node again. Flags change it: a repeated"
+   "flag (--dht-peer, --dht-principal) replaces its saved values, and the"
+   "result is saved. --dht-manifest and --dht-keygen are never saved."
    ""
    "dht flags (need --index-store dht:<dir>, except --dht-keygen):"
    "  --dht-peer host:port        bootstrap contact (IP literal); repeatable"
@@ -566,6 +625,40 @@
    "See src/cljc/yin/vm/docs/yin.repl.md for the walk-through."])
 
 
+(defn- save-state!
+  "Save the flags this run resolved to the node directory's state file when
+   they differ from what was saved (nothing is written for a bare run with
+   nothing saved), and answer the banner's lines about it.  A file that
+   cannot be written is a warning, never a refusal: the node still starts."
+  [dir saved resolved reset?]
+  (let [path (state/path dir)
+        changed (state/changed (or saved {}) resolved)]
+    (try
+      (cond
+        (and (nil? saved) (empty? resolved) (not reset?))
+        []
+
+        (nil? saved)
+        (do (state/save! dir resolved)
+            [(str "state: " (if reset? "reset, " "") "saved to " path
+                  "; a bare yin-repl starts this node again")])
+
+        (seq changed)
+        (do (state/save! dir resolved)
+            [(str "state: resumed from " path " (" (state/describe saved)
+                  "); the command line changed " (str/join ", " changed)
+                  "; saved")])
+
+        :else
+        [(str "state: resumed from " path " (" (state/describe resolved) ")")])
+      (catch #?(:cljd Object
+                :clj Throwable
+                :cljs :default)
+             e
+        [(str "state: WARNING: could not save " path ": "
+              (or (ex-message e) (str e)))]))))
+
+
 (defn startup
   "Parse the arguments and compose the whole shell (the store the parsed
    `:index-store-spec` names included), or answer the refusal text.  This
@@ -581,32 +674,62 @@
    `{:lines [...] :exit 0}` for the host to print and exit with.  A
    `--dht-key` file is loaded here (`load-key`); the key reaches the
    shell, and only its principal reaches the options the banner reads."
-  [args]
-  (try
-    (if (some #{"--help" "-h"} args)
-      {:lines help-lines :exit 0}
-      (let [[args {:keys [new-key]}] (expand-args args)
-            made (when (and new-key (nil? (fs/read-file-text
-                                            (first (split-path new-key))
-                                            (second (split-path new-key)))))
-                   (:lines (keygen! new-key)))
-            opts (cond-> (parse-args args)
-                   made (assoc :startup-lines made))]
-        (if-some [path (:dht-keygen opts)]
-          (keygen! path)
-          (let [key (some-> (:dht-key-file opts) load-key)
-                opts (cond-> opts
-                       key (assoc :publisher (sign/principal (:public key))))]
-            {:opts opts
-             :state (boot (assoc opts :dht-key key))
-             :server (boot-server opts)}))))
-    (catch #?(:cljd Object
-              :clj Throwable
-              :cljs :default)
-           e
-      (if (ex-data e)
-        {:refusal (or (ex-message e) (str e))}
-        (throw e)))))
+  ([args] (startup args nil))
+  ([args {:keys [persist? home]}]
+   (try
+     (if (some #{"--help" "-h"} args)
+       {:lines help-lines :exit 0}
+       (let [reset? (boolean (some #{"--reset"} args))
+             no-state? (boolean (some #{"--no-state"} args))
+             [args {:keys [new-key unset] node-name :name dir :dir}]
+             (expand-args (remove #{"--reset" "--no-state"} args))
+             node-dir (when (and persist? (not no-state?)
+                                 (not (some #{"--dht-keygen"} args)))
+                        (or dir
+                            (some-> (or home (home-dir*))
+                                    (str "/.yin/" node-name))))
+             saved (when (and node-dir (not reset?)) (state/load-flags node-dir))
+             {:keys [flags rest]} (state/split-args args)
+             resolved (state/resolve-flags saved flags unset)
+             args (into (state/flags->args resolved) rest)
+             made (when (and new-key (nil? (fs/read-file-text
+                                             (first (split-path new-key))
+                                             (second (split-path new-key)))))
+                    (:lines (keygen! new-key)))
+             opts (cond-> (try (parse-args args)
+                               (catch #?(:cljd Object
+                                         :clj Throwable
+                                         :cljs :default)
+                                      e
+                                 (throw (if (and saved (ex-data e))
+                                          (ex-info (str (ex-message e)
+                                                        " (with the saved state in "
+                                                        (state/path node-dir)
+                                                        "; --reset forgets it)")
+                                                   (ex-data e))
+                                          e))))
+                    made (assoc :startup-lines made))]
+         (if-some [path (:dht-keygen opts)]
+           (keygen! path)
+           (let [key (some-> (:dht-key-file opts) load-key)
+                 opts (cond-> opts
+                        key (assoc :publisher (sign/principal (:public key))))
+                 state' (boot (assoc opts :dht-key key))
+                 server (boot-server opts)
+                 lines (when node-dir
+                         (save-state! node-dir saved resolved reset?))]
+             {:opts (cond-> opts
+                      (seq lines) (update :startup-lines
+                                          #(into (vec %) lines)))
+              :state state'
+              :server server}))))
+     (catch #?(:cljd Object
+               :clj Throwable
+               :cljs :default)
+            e
+       (if (ex-data e)
+         {:refusal (or (ex-message e) (str e))}
+         (throw e))))))
 
 
 (defn- refuse!
@@ -890,7 +1013,7 @@
      (defn -main
        [& args]
        (let
-         [started (startup args)]
+         [started (startup args {:persist? true})]
          (when (contains? started :exit) (exit-with! started))
          (if-some
            [refusal (:refusal started)]
@@ -1018,7 +1141,7 @@
 
      (defn -main
        [& args]
-       (let [started (startup args)]
+       (let [started (startup args {:persist? true})]
          (when (contains? started :exit) (exit-with! started))
          (if-some [refusal (:refusal started)]
            (refuse! refusal)
@@ -1146,7 +1269,7 @@
 
      (defn -main
        [& args]
-       (let [started (startup args)]
+       (let [started (startup args {:persist? true})]
          (when (contains? started :exit) (exit-with! started))
          (if-some [refusal (:refusal started)]
            (refuse! refusal)

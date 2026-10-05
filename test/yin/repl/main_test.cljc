@@ -1336,7 +1336,8 @@
                                         "--peer" "localhost:4002"
                                         "--listen" "4001"])
         opts (repl/parse-args args)]
-    (is (= {:new-key "k"} extra))
+    (is (= "k" (:new-key extra)))
+    (is (nil? (:unset extra)) "init publishes, so it unsets nothing")
     (is (= "k" (:dht-key-file opts)))
     (is (true? (get-in opts [:index-store-spec :publish?])))
     (is (= [{:host "127.0.0.1" :port 4002}]
@@ -1347,7 +1348,9 @@
   (let [[args extra] (repl/expand-args ["dht" "serve" "--dir" "d" "--peer"
                                         "127.0.0.1:4001" "--listen" "4002"])
         spec (:index-store-spec (repl/parse-args args))]
-    (is (nil? extra))
+    (is (nil? (:new-key extra)))
+    (is (= #{"--dht-publish"} (:unset extra))
+        "serve clears a saved --dht-publish")
     (is (false? (:publish? spec)))
     (is (= 4002 (:bind-port spec)))))
 
@@ -1376,7 +1379,8 @@
 
 (deftest help-documents-every-flag-and-subcommand
   (let [text (str/join "\n" repl/help-lines)]
-    (doseq [word ["--port" "--headless" "--index-store" "--help"
+    (doseq [word ["--vm" "--reset" "--no-state" "state.edn" "--port"
+                  "--headless" "--index-store" "--help"
                   "--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
                   "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key"
                   "--dht-principal" "--dht-keygen" "--name" "--dir" "--key"
