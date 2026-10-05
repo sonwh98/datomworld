@@ -483,7 +483,7 @@
                                  :env E, :stack St', :k K}
                                 call-id)
                        request (apply2/request call-id ffi-op args)
-                       result (apply2/put-request! call-in request)]
+                       result (ffi/put-request vm' call-in request)]
                    (case (:dao.stream/outcome result)
                      :dao.stream/ok
                      (-> parked

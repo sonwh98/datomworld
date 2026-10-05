@@ -52,6 +52,17 @@
                       {:what what}))))
 
 
+(defn put-request
+  "Append `request` to `call-in`, as `apply2/put-request!`, unless the
+   machine `state` is gated: a gated machine makes no handle call and
+   answers `full`, so the call parks as its retained request for the
+   driver to send."
+  [state call-in request]
+  (if (some? (vm/gate-mode state))
+    {:dao.stream/outcome :dao.stream/full}
+    (apply2/put-request! call-in request)))
+
+
 (defn call-id
   "The id of the FFI call a VM is about to park, given the local park id
    `yin.vm.engine/park-id` answers for it: `[caller-token local-id]` when

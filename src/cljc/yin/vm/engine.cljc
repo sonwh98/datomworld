@@ -545,6 +545,62 @@
      (assoc-in state [:resources id] (vm/cursor-entry stream-id cursor))]))
 
 
+(defn- issue-number
+  "[n state'] -- the next machine-only issue number and the state that
+   counts it. Separate from the id counter, so fresh names do not shift."
+  [state]
+  (let [n (or (:yin.k/issued state) 0)]
+    [n (assoc state :yin.k/issued (inc n))]))
+
+
+(defn handle-cursor-unminted
+  "`handle-cursor` under a gate: verifies the stream reference, issues the
+   sealed cursor reference and installs an unminted cell, with no handle
+   call. `seq-n` is the creation order. Returns [cursor-ref updated-state]."
+  [state effect id seq-n]
+  (let [stream-id (check-ref! state :stream/cursor :stream-ref (:stream effect))
+        cursor-ref (issue-ref state :cursor-ref id)]
+    [cursor-ref
+     (assoc-in state
+               [:resources id]
+               {:stream-id stream-id,
+                :yin.k/unminted {:origin :dao.stream/oldest, :seq seq-n}})]))
+
+
+(defn apply-mint
+  "Apply the driver's mint of the unminted cursor cell `cell-id`: the cell
+   becomes a cursor cell seeded with the portable `position`, as the lower
+   seeds one. Performs no stream call. Refused for a cell that is not
+   unminted, and in the `:exporting` and `:ended` gates."
+  [state cell-id position]
+  (let [mode (vm/gate-mode state)
+        cell (get-in state [:resources cell-id])]
+    (when (contains? #{:exporting :ended} mode)
+      (fail "Gate is closed: late mint refused" {:yin.k/gate mode}))
+    (when-not (:yin.k/unminted cell)
+      (fail "Not an unminted cursor cell" {:cell-id cell-id}))
+    (assoc-in state
+              [:resources cell-id]
+              (vm/cursor-entry (:stream-id cell) position))))
+
+
+(defn apply-close
+  "Apply the driver's resolution of the queued close `issue` on
+   `stream-id`: removes that record and nothing else. Performs no stream
+   call. Refused in the `:exporting` and `:ended` gates."
+  [state stream-id issue]
+  (let [mode (vm/gate-mode state)]
+    (when (contains? #{:exporting :ended} mode)
+      (fail "Gate is closed: late close refused" {:yin.k/gate mode}))
+    (cond-> state
+      (contains? state :yin.k/closes)
+      (update :yin.k/closes
+              (fn [closes]
+                (filterv #(not (and (= stream-id (:stream-id %))
+                                    (= issue (:yin.k/issue %))))
+                         closes))))))
+
+
 (defn- next-target
   "The cursor id, its cell and the stream handle a read at `cursor-ref`
    uses; fails when the cursor's stream is gone."
@@ -669,11 +725,20 @@
   "Handle :stream/close, once the reference verifies. `close!` is total
    over {ok} and wakes nothing: a reader parked on this stream learns of
    the close from its own next `next`.
+
+   Under the `:running` gate nothing is performed: the close is queued as
+   a record on `:yin.k/closes` for the driver.
    Returns {:state s'}."
   [state effect]
   (let [stream-id (check-ref! state :stream/close :stream-ref (:stream effect))]
-    (stream/close! (get (:resources state) stream-id))
-    {:state state}))
+    (if (= :running (vm/gate-mode state))
+      (let [[n state'] (issue-number state)]
+        {:state (update state'
+                        :yin.k/closes
+                        (fnil conj [])
+                        {:stream-id stream-id, :yin.k/issue n})})
+      (do (stream/close! (get (:resources state) stream-id))
+          {:state state}))))
 
 
 (def ^:private waitset-resolver
@@ -1728,9 +1793,14 @@
                                       (filterv ffi-response-entry? wait-set)
                                       (remove ffi-response-entry? wait-set))
             wait-set (:wait-set state)
+            gated? (= :running (vm/gate-mode state))
             engine-polled? (some-fn link-entry?
                                     ffi-response-entry?
-                                    observe-entry?)
+                                    observe-entry?
+                                    (fn [e]
+                                      (and gated?
+                                           (contains? #{:put :next}
+                                                      (:reason e)))))
             streams (filterv (complement engine-polled?) wait-set)
             {:keys [woken store], :as result}
             (waitset/check {:waiting streams}
@@ -2195,7 +2265,11 @@
             {:state new-state, :value stream-ref, :blocked? false})
           :stream/cursor
           (let [[id s'] (gensym state "cursor")
-                [cursor-ref new-state] (handle-cursor s' effect id)]
+                [cursor-ref new-state]
+                (case (gate-refuse! state effect)
+                  :running
+                  (handle-cursor-unminted s' effect id (or (:id-counter state) 0))
+                  (handle-cursor s' effect id))]
             {:state new-state, :value cursor-ref, :blocked? false})
           :stream/put
           (let [state (pin-refs state (:val effect))
@@ -2206,7 +2280,12 @@
                     built-entry (if (and built-entry (not (:datom built-entry)))
                                   (assoc built-entry :datom (:val effect))
                                   built-entry)]
-                (handle-stream-block result built-entry))
+                (if (and built-entry (= :running (vm/gate-mode state)))
+                  (let [[n s'] (issue-number (:state result))]
+                    (handle-stream-block
+                      (assoc result :state s')
+                      (assoc built-entry :yin.k/issue n)))
+                  (handle-stream-block result built-entry)))
               {:state (:state result),
                :value (:value result),
                :blocked? false}))
@@ -2233,7 +2312,9 @@
                            :op :poll
                            :cursor-ref (:cursor-ref result)
                            :stream-id (:stream-id result)))))
-              {:state (:state result), :value (:value result), :blocked? false}))
+              {:state (:state result),
+               :value (:value result),
+               :blocked? false}))
           :stream/close
           (let [_ (gate-refuse! state effect)
                 close-result (handle-close state effect)]

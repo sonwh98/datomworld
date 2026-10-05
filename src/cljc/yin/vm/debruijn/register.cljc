@@ -507,7 +507,7 @@
                                          payload
                                          call-id)
         request (apply2/request call-id op args)
-        result (apply2/put-request! call-in request)
+        result (ffi/put-request vm call-in request)
         blocked (fn [entry]
                   (-> parked
                       (update :wait-set (fnil conj []) entry)

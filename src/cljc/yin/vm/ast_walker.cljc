@@ -86,6 +86,21 @@
    ])
 
 
+(def ^:private custody-keys
+  "The machine-only keys the engine's custody gate keeps on a machine
+   value. Record fields cannot be qualified keywords, so they live in the
+   record's extension map and `cesk-return` carries them by hand."
+  [:yin.k/gate :yin.k/closes :yin.k/issued])
+
+
+(defn- carry-custody
+  "`rebuilt` with the custody keys `vm` holds."
+  [rebuilt vm]
+  (reduce (fn [r k] (if (contains? vm k) (assoc r k (get vm k)) r))
+          rebuilt
+          custody-keys))
+
+
 (defn- cesk-return
   "Create a new ASTWalkerVM with updated CESK fields in a single allocation.
    Preserves blocked, store, and scheduler fields from vm.
@@ -96,51 +111,53 @@
         env (if (and (nil? control) (nil? k))
               (engine/without-store-of env)
               env)]
-    (->ASTWalkerVM blocked
-                   (:bridge vm)
-                   (and (not blocked) (nil? control) (nil? k))
-                   k
-                   (:program vm)
-                   control
-                   env
-                   (:id-counter vm)
-                   (:parked vm)
-                   (:primitives vm)
-                   (:primitive-profiles vm)
-                   (:primitive-canonical-names vm)
-                   (:modules vm)
-                   (:make-stream vm)
-                   (:call-capacity vm)
-                   (:ready-queue vm)
-                   (:store vm)
-                   val
-                   (:wait-set vm)
-                   (:telemetry vm)
-                   (:telemetry-step vm)
-                   (:telemetry-t vm)
-                   (:telemetry-eid vm)
-                   (:vm-model vm)
-                   (:vm-id vm)
-                   (:rows vm)
-                   (:row-index vm)
-                   (:row-nodes vm)
-                   (:resources vm)
-                   (:heap vm)
-                   (:gc vm)
-                   (:origin vm)
-                   (:origins vm)
-                   (:ancestry vm)
-                   (:installs vm)
-                   (:module-stores vm)
-                   (:link-retired vm)
-                   (:link-diagnostics vm)
-                   (:capability-secret vm)
-                   (:owner vm)
-                   (:secret-source vm)
-                   (:attach-stream vm)
-                   (:ffi-caller-id vm)
-                   (:ffi-diagnostics vm)
-                   (:callable-effects vm))))
+    (carry-custody
+      (->ASTWalkerVM blocked
+                     (:bridge vm)
+                     (and (not blocked) (nil? control) (nil? k))
+                     k
+                     (:program vm)
+                     control
+                     env
+                     (:id-counter vm)
+                     (:parked vm)
+                     (:primitives vm)
+                     (:primitive-profiles vm)
+                     (:primitive-canonical-names vm)
+                     (:modules vm)
+                     (:make-stream vm)
+                     (:call-capacity vm)
+                     (:ready-queue vm)
+                     (:store vm)
+                     val
+                     (:wait-set vm)
+                     (:telemetry vm)
+                     (:telemetry-step vm)
+                     (:telemetry-t vm)
+                     (:telemetry-eid vm)
+                     (:vm-model vm)
+                     (:vm-id vm)
+                     (:rows vm)
+                     (:row-index vm)
+                     (:row-nodes vm)
+                     (:resources vm)
+                     (:heap vm)
+                     (:gc vm)
+                     (:origin vm)
+                     (:origins vm)
+                     (:ancestry vm)
+                     (:installs vm)
+                     (:module-stores vm)
+                     (:link-retired vm)
+                     (:link-diagnostics vm)
+                     (:capability-secret vm)
+                     (:owner vm)
+                     (:secret-source vm)
+                     (:attach-stream vm)
+                     (:ffi-caller-id vm)
+                     (:ffi-diagnostics vm)
+                     (:callable-effects vm))
+      vm)))
 
 
 (defn- closure-of
@@ -215,7 +232,7 @@
                                          {:k response-cont, :env env}
                                          parked-id)
         request (apply2/request parked-id op (vec args))
-        result (apply2/put-request! call-in request)]
+        result (ffi/put-request state call-in request)]
     (case (:dao.stream/outcome result)
       :dao.stream/ok
       (-> parked
