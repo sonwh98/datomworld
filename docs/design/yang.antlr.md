@@ -2229,7 +2229,7 @@ parity remains a separately tracked limitation, not claimed by C3
 +========+=====================================================================+
 | S0     | Freeze contracts: profile, expected bytes, literals, hashes,        |
 |        | outcomes, and boundary values around 2^53, 2^63, and 2^64. No       |
-|        | existing canonical fixture changes.                                 |
+|        | existing canonical fixture changes. Landed.                         |
 +--------+---------------------------------------------------------------------+
 | S1     | Exact carriers and the pure module, installed explicitly; a         |
 |        | registry without it refuses.                                        |
