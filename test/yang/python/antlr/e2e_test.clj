@@ -150,6 +150,7 @@
                                                                    hooks/profile)))))
                      (run-member (first (tu/drain program))))
                datoms (vec (vm/ast->datoms ast))
+               resolved #(tu/resolved-of ast)
                attempt (fn [f]
                          (try (render/output (f))
                               (catch Exception e [:thrown (ex-message e)])))]
@@ -160,12 +161,14 @@
                                                     datoms)))),
             :stack (attempt #(vm/value
                                (vm/run (prep (dvm/create-vm
-                                               (:image (dl/adapt datoms))
+                                               (:image (dl/lower-stack
+                                                         (resolved)))
                                                (assoc opts
                                                       :contract vm/stack-contract)))))),
             :register (attempt #(vm/value
                                   (vm/run (prep (rvm/create-vm
-                                                  (:image (rc/adapt datoms))
+                                                  (:image (rc/lower-register
+                                                            (resolved)))
                                                   (assoc opts
                                                          :contract
                                                          vm/register-contract))))))}))))))

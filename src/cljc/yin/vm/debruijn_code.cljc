@@ -158,18 +158,23 @@
 (def ^:private hex-digit-chars "0123456789abcdef")
 
 
+(def ^:private byte-hex
+  "The two lowercase hex digits of each byte 0..255."
+  (mapv (fn [b]
+          (str (nth hex-digit-chars (quot b 16))
+               (nth hex-digit-chars (rem b 16))))
+        (range 256)))
+
+
 (defn- to-hex
-  "Width-padded lowercase hex of the non-negative integer n."
+  "Width-padded lowercase hex of the non-negative integer n: its low
+   `width` hex digits, `width` even (every caller passes 2 or 8)."
   [n width]
-  (let [base (if (zero? n)
-               "0"
-               (loop [n n, acc ""]
-                 (if (zero? n)
-                   acc
-                   (recur (unsigned-bit-shift-right n 4)
-                          (str (nth hex-digit-chars (bit-and n 0xf)) acc)))))
-        padded (str (apply str (repeat width "0")) base)]
-    (subs padded (- (count padded) width))))
+  (if (= 2 width)
+    (nth byte-hex (bit-and n 0xff))
+    (let [byte-at #(bit-and (unsigned-bit-shift-right n (* 8 %)) 0xff)]
+      (apply str (map #(nth byte-hex (byte-at %))
+                      (range (dec (quot width 2)) -1 -1))))))
 
 
 (defn- code-unit-at

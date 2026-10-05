@@ -21,6 +21,7 @@
             [dao.stream.observer :as observer]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.debruijn-resolve :as resolve]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
@@ -190,6 +191,22 @@
                           engine/ready-for-ingress?
                           load-fresh-program
                           run-vm))
+
+
+(def ^:private last-resolved (atom nil))
+
+
+(defn resolved-of
+  "`(resolve/resolve (vm/ast->datoms ast))`, kept for the last `ast` by
+   identity, so the stack and register runners of one run resolve its
+   program once (`adapt` is `lower-*` after exactly this `resolve`)."
+  [ast]
+  (let [[k v] @last-resolved]
+    (if (identical? k ast)
+      v
+      (let [v (resolve/resolve (vm/ast->datoms ast))]
+        (reset! last-resolved [ast v])
+        v))))
 
 
 (defn compile-and-run

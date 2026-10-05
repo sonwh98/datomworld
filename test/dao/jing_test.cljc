@@ -100,9 +100,8 @@
 
 (deftest sha256-known-answer
   ;; Pins the actual digest function; load-bearing across hosts: :clj
-  ;; delegates to MessageDigest, :cljs to goog.crypt, :cljd to the
-  ;; hand-rolled
-  ;; SHA-256 in dao.jing. If that implementation drifts, cljd peers mint
+  ;; delegates to MessageDigest, :cljs to goog.crypt, :cljd to
+  ;; package:crypto. If one of them drifts, its peers mint
   ;; different segment-keys than JVM/JS peers for identical values and
   ;; content addressing silently fractures. Vectors are the NIST/FIPS-180-4
   ;; digests.
@@ -117,9 +116,23 @@
         "hello world"
         "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"}]
       (is (= want (jing/sha256 in)) (str "sha256 of " (pr-str in)))))
+  (testing "inputs at the 64-byte block boundaries: 55, 56, 63 and 64 bytes"
+    (doseq [[n want] {55 "9f4390f8d30c2dd92ec9f095b65e2b9ae9b0a925a5258e241c9f1e910f734318",
+                      56 "b35439a4ac6f0948b6d6f9e3c6af0f5f590ce20f1bde7090ef7970686ec6738a",
+                      63 "7d3e74a05d7db15bce4ad9ec0658ea98e3f06eeecf16b4c6fff2da457ddc2f34",
+                      64 "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb"}]
+      (is (= want (jing/sha256 (apply str (repeat n "a"))))
+          (str "sha256 of " n " bytes"))))
   (testing "a 65-byte input, which crosses the 64-byte block boundary"
     (is (= "635361c48bb9eab14198e76ea8ab7f1a41685d6ad62aa9146d301d4f17eb0ae0"
-           (jing/sha256 (apply str (repeat 65 "a")))))))
+           (jing/sha256 (apply str (repeat 65 "a"))))))
+  (testing "the NIST million-a vector: 15,625 blocks"
+    (is (= "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+           (jing/sha256 (apply str (repeat 1000000 "a"))))))
+  (testing "non-ASCII text digests its UTF-8 bytes, a surrogate pair as one
+            4-byte sequence"
+    (is (= "789ce5af9a6f12ce6eb46156de2dd9de9d4529da711113a5d9ae9c938f665197"
+           (jing/sha256 "\u00e9t\u00e9 \u65e5\u672c \uD83D\uDE00")))))
 
 
 (deftest segment-key-is-content-addressed

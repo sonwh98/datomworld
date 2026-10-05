@@ -297,16 +297,26 @@
 (defn- dht-attempt
   "One attempt against the DHT source for the resolved `address`:
    `{:node n :body b}`, `b` `::pending` with `:waits` the manifest whose
-   load the link waits on.  No record starts the load; `:loading` waits;
-   `:failed` is refused and forgotten, so a later require loads again;
-   `:loaded` checks the dependency bindings, the first that is not `:ok`
-   refusing before any link, then links."
+   load the link waits on.  No record starts the load; a record of
+   another kind, whatever its status, is refused
+   `:dao.space.dht/kind-conflict` and left to its owner, neither
+   forgotten, waited on nor linked; `:loading` waits; `:failed` is
+   refused and forgotten, so a later require loads again; `:loaded`
+   checks the dependency bindings, the first that is not `:ok` refusing
+   before any link, then links."
   [node authority request address]
   (let [status (linker.dht/module-status node address)]
     (cond
       (nil? status) {:node (linker.dht/load-module node address)
                      :body ::pending
                      :waits address}
+
+      (not= linker.dht/module-kind (:kind status))
+      {:node node
+       :body {:status :refused
+              :reason :dao.space.dht/kind-conflict
+              :address address
+              :recorded (:kind status)}}
 
       (= :loading (:status status)) {:node node, :body ::pending, :waits address}
 

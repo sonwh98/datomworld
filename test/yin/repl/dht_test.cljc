@@ -1356,6 +1356,154 @@
 
 
 ;; -----------------------------------------------------------------------------
+;; A record of another kind at the resolved address (section 9; head trace
+;; ruling 3, yin.vm.linker.dht.head.md 5.5 "Kinds do not mix")
+;; -----------------------------------------------------------------------------
+
+(defn- conflict-require
+  "Require `mod`, bound to `address`, on the shell `state`, whose node
+   records `address` under the kind `kind`: the require is refused at
+   once with the kind conflict and the record is as it was.  Answers the
+   state."
+  [state address kind]
+  (let [state (assoc-in state [:repl :link-source :name-env] {'mod address})
+        record (get-in (node-of state) [:loads address])
+        asked (count (requests state))
+        [state text] (type! state "(require (quote mod))")]
+    (is (some? record))
+    (is (str/includes? text "Module link refused: kind-conflict") text)
+    (is (nil? (parked state)) "not waited on")
+    (is (= (inc asked) (count (requests state))))
+    (is (= {:status :refused :reason ::space.dht/kind-conflict
+            :address address :recorded kind}
+           (peek (responses state))))
+    (is (= record (get-in (node-of state) [:loads address]))
+        "the record is neither forgotten nor restarted")
+    (is (not= 'mod (get-in state [:repl :last-value])) "not linked")
+    state))
+
+
+(defn- follow-tick
+  "One reading for a shell with a head follower beside it: the shell's
+   step owner, then the follower on the shell's node."
+  [{:keys [state follower now] :as w}]
+  (let [[state _ _] (main/step-all state nil now)
+        [follower node _] (head/step follower (node-of state) now)]
+    (assoc w
+           :state (assoc-in state [:repl :dht] node)
+           :follower follower
+           :now (+ now 10))))
+
+
+(deftest a-require-of-a-failed-candidate-s-address-leaves-it-to-the-follower
+  (let [dir (temp-dir)]
+    (try
+      (let [key (sign/generate)
+            p (sign/principal (:public key))
+            state (solo-state dir {'mod nowhere})
+            board (head/board)
+            [follower node] (head/follow (node-of state)
+                                         {:follow [p] :heads :volatile
+                                          :poll-ticks 10 :repair-ticks 100
+                                          :repair-max-ticks 400})
+            _ (stream/append! board (head/trace key nowhere 0))
+            candidate #(get-in % [:follower :principals p :candidate])
+            status #(space.dht/load-status (node-of (:state %)) nowhere)
+            w (loop [w {:state (assoc-in state [:repl :dht] node)
+                        :follower (head/attach follower p board)
+                        :now 0}]
+                (if (or (= :failed (:state (candidate w))) (> (:now w) 1000))
+                  w
+                  (recur (follow-tick w))))
+            failed (candidate w)]
+        (testing "the candidate's load failed and its retry is due later"
+          (is (= :failed (:state failed)))
+          (is (= {:status :failed :kind head/candidate-kind}
+                 (select-keys (status w) [:status :kind])))
+          (is (< (:now w) (:due failed))))
+        (let [w (update w :state conflict-require nowhere head/candidate-kind)]
+          (testing "the retry delay is intact: no restart before it is due"
+            (let [w (loop [w w]
+                      (if (< (:now w) (:due failed))
+                        (do (is (= failed (candidate w)))
+                            (is (= :failed (:status (status w))))
+                            (recur (follow-tick w)))
+                        w))]
+              (testing "and the follower restarts it once it is"
+                (let [w (follow-tick w)]
+                  (is (= {:status :loading :kind head/candidate-kind}
+                         (select-keys (status w) [:status :kind])))
+                  (is (= {:state :loading :delay (* 2 (:delay failed))}
+                         (select-keys (candidate w) [:state :delay])))
+                  (main/close-index-store! (:state w))))))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest a-require-of-a-failed-index-load-made-by-hand-leaves-it-in-place
+  (let [dir (temp-dir)]
+    (try
+      (let [state (-> (solo-state dir {'mod nowhere})
+                      (update-in [:repl :dht] space.dht/load-index nowhere))
+            w (run-ticks {:state state :peers {} :now 0} 1000
+                         #(= :failed (:status (space.dht/load-status
+                                                (node-of (:state %))
+                                                nowhere))))
+            state (conflict-require (:state w) nowhere space.dht/index-kind)]
+        (is (= {:status :failed :kind space.dht/index-kind}
+               (select-keys (space.dht/load-status (node-of state) nowhere)
+                            [:status :kind])))
+        (testing "a second require is refused the same way: nothing was forgotten"
+          (main/close-index-store!
+            (conflict-require state nowhere space.dht/index-kind))))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest a-require-of-a-loading-or-loaded-record-of-another-kind-is-refused
+  (let [dir (temp-dir)]
+    (try
+      (let [[state _] (type! (solo-state dir {}) "(def z 1)")
+            index (get-in state [:repl :indexer :manifest-address])
+            other (publish-mod! (space.dht/local (node-of state)))
+            loading-index (jing/segment-key "an index still loading")
+            loading-head (jing/segment-key "a head still loading")
+            status #(:status (space.dht/load-status (node-of %1) %2))
+            ;; loaded: an index load by hand, and a load of a kind nobody
+            ;; here knows, at the address of a module that would link
+            state (update-in state [:repl :dht]
+                             #(-> %
+                                  (space.dht/load-index index)
+                                  (space.dht/load other
+                                                  {:kind :test/another
+                                                   :walk (ld/closure-walk
+                                                           other)})))
+            w (run-ticks {:state state :peers {} :now 0} 1000
+                         #(= [:loaded :loaded]
+                             [(status (:state %) index)
+                              (status (:state %) other)]))
+            ;; loading: started after the last step, so never advanced
+            state (update-in (:state w) [:repl :dht]
+                             #(-> %
+                                  (space.dht/load-index loading-index)
+                                  (space.dht/load loading-head
+                                                  {:kind head/candidate-kind
+                                                   :walk (space.dht/index-walk
+                                                           loading-head)})))]
+        (is (= [:loaded :loaded :loading :loading]
+               (mapv #(status state %)
+                     [index other loading-index loading-head])))
+        (-> state
+            (conflict-require index space.dht/index-kind)
+            (conflict-require other :test/another)
+            (conflict-require loading-index space.dht/index-kind)
+            (conflict-require loading-head head/candidate-kind)
+            main/close-index-store!))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+;; -----------------------------------------------------------------------------
 ;; All four VMs
 ;; -----------------------------------------------------------------------------
 
