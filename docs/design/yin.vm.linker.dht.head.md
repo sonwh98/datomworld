@@ -220,7 +220,11 @@ DHT key (C2).
   (`src/cljc/dao/space/transactor.cljc:117-131`). An index of no datoms
   has no trace. The publisher stores no counter.
 - **A reader confirms it.** A loaded index whose greatest `t` is not the
-  trace's sequence refuses the trace, `:yin.head/seq-mismatch`.
+  trace's sequence refuses the trace, `:yin.head/seq-mismatch`. A loaded
+  index with a malformed datom (a row that is not a vector, or a `t`
+  that is not a nonnegative integer) is refused as data too,
+  `:yin.head/index-invalid`, at confirmation and again when a persisted
+  head is restored; the follower never throws on what an index holds.
 - **Proven for the REPL path, enforced for every caller.** The HEAD
   writes of one directory carry strictly increasing sequences, across
   restart and `(reset)`. It holds for `yin.repl.index` because every
@@ -375,10 +379,22 @@ integer from 0 to 2^53 - 1</td>
     the local store.
 - **Kinds do not mix (D3).** `load` of an address already recorded under
   another kind is refused, `:dao.space.dht/kind-conflict`, instead of
-  silently left. If the candidate's manifest is already loaded by hand
-  (index kind), the follower starts nothing, owns nothing, and reads
-  that record; it never forgets or abandons a record that is not of the
-  candidate kind. A `load-index` by hand of a manifest that is loading
+  silently left. If the candidate's manifest is already recorded by
+  hand under the index kind, the follower starts nothing, owns nothing,
+  and reads that record. It never abandons a record that is not of the
+  candidate kind, and it forgets one in a single case, the Unloadable
+  rule below: a `:failed` index-kind record at its candidate's address.
+  That record is the user's throughout: once `:loaded` it is in the
+  snapshot set as any index load made by hand is, whatever the
+  follower's verdict on the trace, and no release removes it. A record
+  of any other kind at the candidate's address is neither read,
+  forgotten nor restarted, whatever its status (`:loading`, `:loaded`
+  or `:failed`): the candidate is reported `:yin.head/unloadable` once,
+  with that record's failure or, for a record that has not failed, its
+  kind and status, and waits until the record's owner removes it, and
+  then loads as a candidate. The follower never reads such a record's
+  datoms.
+  A `load-index` by hand of a manifest that is loading
   as a candidate is refused with that code as data (H1 carries the
   host module's translation), and succeeds once the head is installed.
 - **`abandon` leaves nothing behind.**
@@ -425,9 +441,11 @@ integer from 0 to 2^53 - 1</td>
 - **Unloadable.** The load failed: `:yin.head/unloadable` with the
   failure as data. The candidate stays. After a delay in node ticks,
   doubling from `:repair-ticks` to `:repair-max-ticks`, the failed
-  record is forgotten and the load started again **under the kind the
-  record had**, so a failed load made by hand at that address is
-  restarted as an index load and stays the user's. No deadline ends the
+  record is forgotten and the load started again in the same step
+  **under the kind the record had, which is the candidate kind or the
+  index kind and no other**, so a failed load made by hand at that
+  address is restarted as an index load and stays the user's. A failed
+  record of any other kind is left to its owner. No deadline ends the
   retries; a newer observed trace replaces the candidate.
 
 **The snapshot set** (`yin.vm.linker.dht.md` 7.2, amended) is: the
@@ -657,7 +675,15 @@ bounds how often a reader asks, not how late it learns.</td></tr>
 <td>The acceptor's handoff slots, as the REPL endpoint's.</td></tr>
 </table>
 
-Following never makes the node `busy?`.
+Following alone never makes the node `busy?`: a poll, a judged trace, a
+loaded candidate awaiting installation, a failed one waiting out its
+delay and what an abandoned load leaves in the client are not work the
+node reports. A candidate that is `:loading` is a load like any other
+and makes the node `busy?` until it ends, so the tick owner holds its
+base interval while a head is fetched and returns to its idle curve
+afterwards. Under the alternating replay of 5.5 a load is always
+active, and the node stays at the base interval for as long as the
+alternation lasts.
 
 ## 8. Cross-machine: the owner's question
 
@@ -991,7 +1017,7 @@ adds installed heads), `src/cljc/yin/repl/query.cljc` (**refusal
 translation for the two host load operations**),
 `test/dao/space/dht_test.cljc`, `test/yin/repl/dht_test.cljc`, new
 `test/yin/vm/linker/head_follow_test.cljc`. Amendments carried:
-`yin.vm.linker.dht.md` 1, 7.2, 9, 10 and 13 (D2; `abandon`; the
+`yin.vm.linker.dht.md` 1, 4.3, 7.2, 9, 10 and 13 (D2; `abandon`; the
 refusal and its failure-vocabulary row); `dao.jing.dht.md` section 1 (a
 pointer here). In every case the reader is handed the publisher's board
 ring directly as its reader handle, and blobs travel over the mesh
@@ -1075,6 +1101,17 @@ seam. Complete when:
   composed again from the new records, `install` never called, is at
   the new head with zero `:jing/get` on the request ring, and refuses
   the older trace as `:stale`. `install` of any other trace is refused.
+- **A malformed index.** A signed, verified trace naming a hash-valid
+  index whose rows hold a `t` that is not a nonnegative integer (for
+  example `[101 :x/y 1 "bad-t" 0]`) is refused `:yin.head/index-invalid`
+  as a `:refused` event, from the step and from a restore through
+  `follow` (a startup refusal naming the principal): no throw, the
+  floor unchanged, nothing installed, and not loaded again when shown
+  again.
+- **A foreign record.** A `:failed` record of another kind at the
+  candidate's address (a module-kind load) is left in place after the
+  retry delay, the candidate is `:yin.head/unloadable` once, and after
+  its owner forgets it the candidate loads and installs.
 - **A lost source.** A reader handle answering `cursor-mismatch`, and
   one answering `end`, each produce `:source-lost` once; after `attach`
   of a fresh handle the current head is read again and judged a

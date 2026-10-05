@@ -16,6 +16,7 @@
             [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
             [dao.jing :as jing]
+            [dao.jing.content.step :as content.step]
             [dao.jing.dht :as jing.dht]
             [dao.jing.dht.mesh :as mesh]
             [dao.jing.mem :as mem]
@@ -738,6 +739,239 @@
           (is (= :loaded (:status (dht/load-status node a))))
           (is (= 1 (count events)))
           (dht/close! node))))))
+
+
+;; =============================================================================
+;; Head trace slice H1: one kind per address, and abandon
+;; (docs/design/yin.vm.linker.dht.head.md 5.5)
+;; =============================================================================
+
+(deftest a-load-under-another-kind-is-refused-and-the-same-kind-left
+  (let [a (jing/segment-key "one kind")
+        complete (fn [_] {::dht/walk :complete :value 1})
+        node (dht/load (solo-node) a {:kind ::test :walk complete})]
+    (testing "while it loads"
+      (is (= ::dht/kind-conflict (refused-code #(dht/load-index node a))))
+      (is (= ::dht/kind-conflict
+             (refused-code #(dht/load node a {:kind ::other :walk complete}))))
+      (is (= node (dht/load node a {:kind ::test :walk complete}))
+          "the same kind is left as it is"))
+    (let [[node _] (dht/step node 0)]
+      (testing "once loaded"
+        (is (= :loaded (:status (dht/load-status node a))))
+        (is (= ::dht/kind-conflict (refused-code #(dht/load-index node a))))
+        (is (= ::test (:kind (dht/load-status node a)))
+            "the record is unchanged"))
+      (testing "once forgotten, another kind may load it"
+        (let [[node _] (settle (dht/load-index (dht/forget node a) a) a)]
+          (is (= ::dht/index (:kind (dht/load-status node a))))
+          (dht/close! node))))))
+
+
+(defn- client-holds-nothing?
+  "The node's load client holds no unsent request, no outstanding id and
+   no undelivered completion."
+  [node]
+  (let [client (:client node)]
+    (and (nil? (:unsent client))
+         (empty? (:outstanding client))
+         (empty? (:completed client)))))
+
+
+(defn- none-loading?
+  [node]
+  (not-any? #(= :loading (:status (dht/load-status node %)))
+            (keys (:loads node))))
+
+
+(deftest abandon-is-refused-for-a-record-that-is-not-loading
+  (let [a (jing/segment-key "not loading")
+        node (solo-node)]
+    (is (= ::dht/not-loading (refused-code #(dht/abandon node a))) "no record")
+    (let [[node _] (dht/step (dht/load node a {:kind ::test
+                                               :walk (fn [_]
+                                                       {::dht/walk :complete
+                                                        :value 1})})
+                             0)]
+      (is (= ::dht/not-loading (refused-code #(dht/abandon node a))) "loaded")
+      (is (= :loaded (:status (dht/load-status node a))))
+      (dht/close! node))))
+
+
+(deftest abandon-before-submission-retires-the-unsent-request
+  (let [a (jing/segment-key "abandoned unsent")
+        node (-> (solo-node)
+                 (dht/load a {:kind ::test :walk (missing-walk a)})
+                 ;; the request ring is full: the request is retained unsent
+                 (with-flaky-client [:dao.stream/full]))
+        [node _] (dht/step node 0)]
+    (is (some? (get-in node [:client :unsent])) "retained unsent")
+    (let [node (dht/abandon node a)
+          _ (is (nil? (dht/load-status node a)) "the record is removed")
+          [node events] (dht/step node 10)]
+      (is (= [] events) "no event")
+      (is (none-loading? node))
+      (is (client-holds-nothing? node) (pr-str (:client node)))
+      (is (empty? (gets-asked node)) "the request was never appended")
+      (dht/close! node))))
+
+
+(defn- silent-reader
+  "A node at mesh port 3 whose one peer, at 2, never answers, loading
+   `a` with a walk that always misses it, stepped once: its request is
+   outstanding."
+  [a]
+  (let [net (mesh/mesh)
+        _silent (mesh/join! net 2)
+        node (dht/load (node-at net 3 [2] {}) a {:kind ::test
+                                                 :walk (missing-walk a)})
+        [node _] (dht/step node 0)]
+    (is (= 1 (count (get-in node [:client :outstanding]))))
+    node))
+
+
+(deftest abandon-after-submission-retires-the-outstanding-id
+  (let [a (jing/segment-key "abandoned outstanding")
+        node (dht/abandon (silent-reader a) a)
+        [node events] (dht/step node 10)]
+    (is (= [] events))
+    (is (nil? (dht/load-status node a)))
+    (is (none-loading? node))
+    (is (client-holds-nothing? node) (pr-str (:client node)))
+    (dht/close! node)))
+
+
+(defn- found-answer
+  "The found answer to request `id` for `payload`, bytes and all."
+  [id payload]
+  {:jing/request id
+   :jing/found? true
+   :jing/bytes (jing/bytes->base64 (jing/canonical-bytes payload))})
+
+
+(deftest a-late-answer-to-an-abandoned-load-is-dropped
+  (let [payload {:arrives "too late"}
+        a (jing/segment-key payload)
+        node (silent-reader a)
+        id (first (keys (get-in node [:client :outstanding])))
+        node (dht/abandon node a)
+        late (found-answer id payload)]
+    ;; the answer to the abandoned request arrives, bytes and all
+    (stream/append! (get-in node [:composition :answers]) late)
+    (testing "the client, polled, files it as unsolicited and completes nothing"
+      ;; no load holds an interest, so the node does not step its client:
+      ;; poll it directly, as the node does while it holds anything
+      (let [{:keys [state completions diagnostics]}
+            (content.step/step (:client node) dht/fetch-budget)]
+        (is (= [] completions))
+        (is (= [{:code :dao.jing.content/unsolicited-answer :value late}]
+               diagnostics))
+        (is (not= (get-in node [:client :cursor]) (:cursor state))
+            "the answer was read")
+        (is (empty? (:outstanding state)))))
+    (let [[node events] (reduce (fn [[node events] now]
+                                  (let [[node more] (dht/step node now)]
+                                    [node (into events more)]))
+                                [node []]
+                                ;; past the DHT's own get-ticks
+                                [10 20 6000 6010 6020])]
+      (is (= [] events) "no event")
+      (is (= ::absent ((:get-bytes-fn (dht/local node)) a ::absent))
+          "no blob is stored through it")
+      (is (none-loading? node))
+      (is (client-holds-nothing? node) (pr-str (:client node)))
+      (dht/close! node))))
+
+
+(deftest a-reloaded-address-cannot-complete-from-the-old-answer
+  (let [payload {:arrives "for the old request"}
+        a (jing/segment-key payload)
+        node (silent-reader a)
+        old-id (first (keys (get-in node [:client :outstanding])))
+        ;; abandoned, then loaded again: its new request is never answered
+        node (dht/load (dht/abandon node a) a {:kind ::test
+                                               :walk (missing-walk a)})
+        [node _] (dht/step node 10)
+        new-id (first (keys (get-in node [:client :outstanding])))
+        _ (is (some? new-id))
+        _ (is (not= old-id new-id))
+        before (get-in node [:client :cursor])]
+    ;; the OLD request's answer arrives, bytes and all
+    (stream/append! (get-in node [:composition :answers])
+                    (found-answer old-id payload))
+    (let [[node events] (reduce (fn [[node events] now]
+                                  (let [[node more] (dht/step node now)]
+                                    [node (into events more)]))
+                                [node []]
+                                [20 30 40])]
+      (is (not= before (get-in node [:client :cursor]))
+          "the client read the old answer")
+      (is (= [] events) "the new load neither loads nor fails from it")
+      (is (= {:status :loading :kind ::test :fetched 0 :fetching a}
+             (dht/load-status node a)))
+      (is (= #{new-id} (set (keys (get-in node [:client :outstanding]))))
+          "the new request is still owed")
+      (is (= ::absent ((:get-bytes-fn (dht/local node)) a ::absent))
+          "no blob is stored through it")
+      (dht/close! node))))
+
+
+(defn- held-blob-world
+  "A publisher at mesh port 41 holding one blob, and a reader at 42."
+  []
+  (let [net (mesh/mesh)
+        publisher (node-at net 41 [42] {:publish? true})
+        blob (jing/materialize! (dht/local publisher) {:held "for a reload"})]
+    {:publisher publisher :reader (node-at net 42 [41] {}) :blob blob}))
+
+
+(defn- walk-until-held
+  [blob]
+  (fn [handle]
+    (if (= ::absent ((:get-bytes-fn handle) blob ::absent))
+      {::dht/walk :missing :address blob}
+      {::dht/walk :complete :value :held})))
+
+
+(deftest an-abandoned-address-loaded-again-completes-on-its-own-answer
+  (let [{:keys [publisher reader blob]} (held-blob-world)
+        load-it #(dht/load % blob {:kind ::test :walk (walk-until-held blob)})
+        [reader _] (dht/step (load-it reader) 0)
+        first-id (first (keys (get-in reader [:client :outstanding])))
+        reader (load-it (dht/abandon reader blob))
+        [reader _] (dht/step reader 10)
+        second-id (first (keys (get-in reader [:client :outstanding])))
+        [[publisher reader] events] (run-nodes [publisher reader] 20000
+                                               #(event % :loaded blob))]
+    (is (some? first-id))
+    (is (some? second-id))
+    (is (not= first-id second-id) "a new request id")
+    (is (= {:status :loaded :kind ::test :fetched 1 :value :held}
+           (dht/load-status reader blob)))
+    (is (= 1 (count (events-of events :loaded blob))))
+    (is (client-holds-nothing? reader) (pr-str (:client reader)))
+    (dht/close! publisher)
+    (dht/close! reader)))
+
+
+(deftest abandoning-one-of-two-loads-fetching-one-address-spares-the-other
+  (let [{:keys [publisher reader blob]} (held-blob-world)
+        [m1 m2] [(jing/segment-key "first load") (jing/segment-key "second")]
+        reader (-> reader
+                   (dht/load m1 {:kind ::test :walk (walk-until-held blob)})
+                   (dht/load m2 {:kind ::test :walk (walk-until-held blob)}))
+        [reader _] (dht/step reader 0)
+        _ (is (= 2 (count (get-in reader [:client :outstanding]))))
+        reader (dht/abandon reader m1)
+        [[publisher reader] events] (run-nodes [publisher reader] 20000
+                                               #(event % :loaded m2))]
+    (is (= :loaded (:status (dht/load-status reader m2))))
+    (is (nil? (dht/load-status reader m1)))
+    (is (nil? (event events :loaded m1)))
+    (is (nil? (event events :load-failed m1)))
+    (is (client-holds-nothing? reader) (pr-str (:client reader)))
+    (dht/close! publisher)
+    (dht/close! reader)))
 
 
 ;; =============================================================================

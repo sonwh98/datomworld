@@ -34,7 +34,9 @@
      `:missing` with a `:jing/get` (`dao.jing.content.step`), one at a
      time, until the walk answers `:complete` or `:invalid`.
      `load-index` is `load` with the covered-index walk.  Failure
-     reasons are data.
+     reasons are data.  An address is loaded under one kind: a load
+     under another is refused.  `forget` clears a terminal record and
+     `abandon` a loading one.
    * `db` and `q` read a loaded index through `dao.space.index/
      read-manifest` and `restored-indexes` (`dao.space.query/
      published-db`), locally.
@@ -1155,16 +1157,22 @@
    `{:dao.space.dht/walk :missing :address a}`, `{... :complete :value v}`
    or `{... :invalid :address a-or-nil :defect {:code c ...}}`.  `step`
    fetches each missing address and walks again, and reports `:loaded`
-   or `:load-failed` once.  A load already started, loaded or failed is
-   left as it is.  Answers the node."
+   or `:load-failed` once.  A load of the same kind already started,
+   loaded or failed is left as it is; one recorded under another kind is
+   refused (`:dao.space.dht/kind-conflict`).  Answers the node."
   [node address {:keys [kind walk]}]
   (when-not (jing/segment-address? address)
     (throw (ex-info "dao.space.dht/load takes a segment address"
                     {:address address})))
   (when-not (ifn? walk)
     (throw (ex-info "dao.space.dht/load takes a :walk function" {:kind kind})))
-  (if (contains? (:loads node) address)
-    node
+  (if-some [record (get-in node [:loads address])]
+    (if (= kind (:kind record))
+      node
+      (throw (refused ::kind-conflict
+                      (str address " is recorded as a " (pr-str (:kind record))
+                           " load, not a " (pr-str kind) " load")
+                      {:address address :kind kind :recorded (:kind record)})))
     (assoc-in node [:loads address]
               {:status :loading :kind kind :walk walk :fetching nil :fetched
                0})))
@@ -1209,6 +1217,32 @@
     (throw (refused ::loading (str address " is still loading")
                     {:address address})))
   (update node :loads dissoc address))
+
+
+(defn abandon
+  "`node` without `address`'s `:loading` record, reporting nothing.  Its
+   interest in the fetch client is retired: the retained unsent request,
+   when it is this record's, by `dao.jing.content.step/abandon`; its
+   outstanding request otherwise, by `dao.jing.content.step/retire`, so
+   a late answer is unsolicited and dropped.  Another load fetching the
+   same address has its own request and is untouched.  Refused
+   (`:dao.space.dht/not-loading`) for a record that is not loading."
+  [node address]
+  (let [record (get-in node [:loads address])]
+    (when-not (= :loading (:status record))
+      (throw (refused ::not-loading (str address " is not loading")
+                      {:address address
+                       :status (:status record)})))
+    (let [id (get-in record [:fetching :id])
+          client (:client node)
+          client (cond
+                   (nil? id) client
+                   (= id (get-in client [:unsent :id])) (content.step/abandon
+                                                          client)
+                   :else (content.step/retire client id))]
+      (-> node
+          (assoc :client client)
+          (update :loads dissoc address)))))
 
 
 (defn loaded-datoms
@@ -1308,13 +1342,25 @@
                           outcome}))))))))
 
 
+(defn- client-holds?
+  "Whether the load client holds an unsent request, an outstanding id or
+   an undelivered completion: what an abandoned load leaves to drain."
+  [client]
+  (boolean (or (:unsent client)
+               (seq (:outstanding client))
+               (seq (:completed client)))))
+
+
 (defn- advance-loads
   [node]
   (let [loading (sort-by str (keep (fn [[m r]]
                                      (when (= :loading (:status r))
                                        m))
                                    (:loads node)))]
-    (if (or (empty? loading) (nil? (:dht node)))
+    ;; the client is stepped while it holds anything, so what an abandon
+    ;; leaves drains with no load active
+    (if (or (and (empty? loading) (not (client-holds? (:client node))))
+            (nil? (:dht node)))
       [node []]
       (let [{:keys [state completions]} (content.step/step (:client node)
                                                            fetch-budget)

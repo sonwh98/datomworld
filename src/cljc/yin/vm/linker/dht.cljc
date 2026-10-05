@@ -150,13 +150,29 @@
             :manifest)))
 
 
+(def installed-key
+  "Where the head follower (`yin.vm.linker.head`) records, on the node
+   value, the installed head of each followed principal: `{principal
+   manifest}`."
+  :yin.head/installed)
+
+
+(defn installed-heads
+  "The installed head manifest of each followed principal, `{principal
+   manifest}`: every blob of each is in the node's local store."
+  [node]
+  (or (get node installed-key) {}))
+
+
 (defn snapshots
   "The node's snapshot set (7.2) as the sorted vector of its addresses:
-   the manifest its directory's HEAD names, when there is one, and every
-   index manifest whose load is `:loaded`.  Nothing else in the local
-   store is considered."
+   the manifest its directory's HEAD names, when there is one, every
+   index manifest whose load is `:loaded`, and the installed head of each
+   followed principal (`installed-heads`).  Nothing else in the local
+   store is considered: a candidate head is in no snapshot set."
   [node]
-  (vec (sort-by str (distinct (cond-> (vec (dht/loaded-indexes node))
+  (vec (sort-by str (distinct (cond-> (into (vec (dht/loaded-indexes node))
+                                            (vals (installed-heads node)))
                                 (head node) (conj (head node)))))))
 
 

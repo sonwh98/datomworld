@@ -1439,6 +1439,47 @@
         (cleanup-dir! dir)))))
 
 
+(deftest both-load-operations-answer-a-refusal-as-data
+  ;; head trace slice H1 (yin.vm.linker.dht.head.md 5.5): a load of an
+  ;; address recorded under another kind is refused, and the host answers
+  ;; the refusal under its own code instead of throwing
+  (let [dir (temp-dir)]
+    (try
+      (let [state (solo-state dir {})
+            node (node-of state)
+            m (:address (ct/publish-base! (space.dht/local node)))
+            candidate (jing/segment-key "a head loading as a candidate")
+            state (assoc-in state [:repl :dht]
+                            (space.dht/load node candidate
+                                            {:kind head/candidate-kind
+                                             :walk (space.dht/index-walk
+                                                     candidate)}))
+            [state _] (type! state "(require (quote dao.space.dht))")
+            [state by-hand] (type! state (str "(dao.space.dht/load-index "
+                                              candidate ")"))
+            [state indexed] (type! state (str "(dao.space.dht/load-index " m
+                                              ")"))
+            [state module] (type! state (str "(dao.space.dht/load-module " m
+                                             ")"))
+            [state status] (type! state (str "(dao.space.dht/load-status "
+                                             candidate ")"))]
+        (testing "load-index of a manifest loading as a candidate"
+          (is (str/includes? by-hand ":dao.space.dht/kind-conflict") by-hand)
+          (is (= head/candidate-kind
+                 (:kind (space.dht/load-status (node-of state) candidate)))))
+        (is (= ":loading" indexed))
+        (testing "load-module of an address recorded as an index load"
+          (is (str/includes? module ":dao.space.dht/kind-conflict") module)
+          (is (= space.dht/index-kind
+                 (:kind (space.dht/load-status (node-of state) m)))))
+        (testing "the round continues and the next request is answered"
+          (is (str/includes? status ":status :loading") status)
+          (is (= :loading (get-in state [:repl :last-value :status]))))
+        (main/close-index-store! state))
+      (finally
+        (cleanup-dir! dir)))))
+
+
 (deftest a-dht-store-refuses-a-second-content-source
   (let [dir (temp-dir)]
     (try
