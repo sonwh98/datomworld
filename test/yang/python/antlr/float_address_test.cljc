@@ -288,14 +288,14 @@
                                                     (vm/ast->datoms ast))))),
    :stack (fn [ast]
             (vm/value
-              (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
-                                     (assoc opts
-                                            :contract vm/stack-contract))))),
+              (vm/run (dvm/create-vm
+                        (:image (dl/lower-stack (tu/resolved-of ast)))
+                        (assoc opts :contract vm/stack-contract))))),
    :register (fn [ast]
                (vm/value
                  (vm/run
                    (rvm/create-vm
-                     (:image (rc/adapt (vm/ast->datoms ast)))
+                     (:image (rc/lower-register (tu/resolved-of ast)))
                      (assoc opts :contract vm/register-contract)))))})
 
 

@@ -187,11 +187,11 @@
                                           (vm/ast->datoms ast)))),
    :stack (fn [ast prep]
             (vm/run (prep (dvm/create-vm
-                            (:image (dl/adapt (vm/ast->datoms ast)))
+                            (:image (dl/lower-stack (tu/resolved-of ast)))
                             (assoc opts :contract vm/stack-contract))))),
    :register (fn [ast prep]
                (vm/run (prep (rvm/create-vm
-                               (:image (rc/adapt (vm/ast->datoms ast)))
+                               (:image (rc/lower-register (tu/resolved-of ast)))
                                (assoc opts :contract vm/register-contract)))))})
 
 
@@ -545,9 +545,14 @@
 ;; Recursion (slice 2): depth accounting at :call and :return
 ;; =============================================================================
 
-(defn- derived-ast
-  [pk]
-  (vm/semantic-bytecode->ast (tree-of (:derived (derive* pk hooks/profile)))))
+(def ^:private derived-ast
+  "`A'` for `pk` under `hooks/profile`, memoized: `pk` is a constant
+   packet and `A'` an immutable value (`insertion-is-deterministic-test`
+   still derives twice through `derive*`)."
+  (memoize
+    (fn [pk]
+      (vm/semantic-bytecode->ast
+        (tree-of (:derived (derive* pk hooks/profile)))))))
 
 
 (defn- with-run
