@@ -3159,6 +3159,16 @@ the attribution resolver and authority descriptor explicitly. Without
 that authority offer fork only; declare each unprotected stream's
 at-least-once or fail-stop behavior. No lease gates stream retention.
 
+An exclusive composition asks the authority's `exclusive-capable?` for
+the failure model it requires (M-next C, slice C12): true only for a
+file backend whose declared lock kind is not `:none`, on an open,
+unpoisoned authority opened through `open!`/`grant/reopen!` with no
+poison since, whose declared failure model ranks at or above the
+requirement (`:none` < `:process-crash` < `:power-loss`). A memory
+backend is never capable. The lock kind and failure model are the
+declaration captured at open; neither the lock nor the file is probed
+live.
+
 The source exporting gate applies to every resumable row of 14.1.1:
 reads cannot consume, blocked writers and retained FFI/link requests cannot
 append, direct resume cannot restore reachable parked records, and an

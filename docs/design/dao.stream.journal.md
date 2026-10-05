@@ -209,6 +209,22 @@ identity. A directory sync at creation would let the JVM and Node declare
 `:power-loss`. Node's claim file refuses on pid reuse (see
 `dao.space.store.fs`).
 
+The `:persisted` keys are the authority's contract, not claims about bytes
+the journal cannot see (slice C12): `:identity` says the header's identity
+survives reopen; `:content-references` says the frames persist the
+addresses the ledger references (offer variants, reported results), never
+the content itself. The checkpoint store is the composition's byte-store;
+a reopen over an empty store stays open and clean while inherited-id
+admissions answer `:suspended`.
+
+Reopen is O(history): every open replays every frame, re-encoding and
+re-hashing each record on the file backend, and folds every record, with
+nothing checkpointed. Each transition is one fsync, and a reopen adds one
+per live tenure. `successor-seen?` costs O(occurrences) per report
+decision and per replayed edge; an inherited-id admission costs
+O(chain x occurrences) plus a content-store read, all under the authority
+lock. The whole ledger is in memory.
+
 A medium whose only frame is a torn header does not open: `dao.jing.file`
 refuses it, so the journal answers `transport-error` and the directory
 needs clearing by hand. The memory backend instead starts a fresh empty

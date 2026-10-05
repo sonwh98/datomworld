@@ -1891,6 +1891,11 @@ answers `:stale` (7.7.8 step 3); its committed result is recovered
 from the outcome projection (7.9). An authority opened without
 reclaim replays the recorded result.
 
+(M-next C, slice C12.) Enrollment carries no request identity. After
+an uncertain answer the composition rereads the projection and
+enrolls only when the derived target identity is absent; a blind
+retry enrolls a second target.
+
 ### 7.7.8 Fenced custody, version 1: sequence, envelope, epoch binding
 
 (Amendment r5, 2026-10-04; `yin.vm.linker.dht.md` 14.3 item 2.) This
@@ -2873,6 +2878,14 @@ Clauses, with the stage that owes the evidence
 Canonical fixtures prove grammar parity. They do not prove
 atomicity, attribution, or recovery; those need the durable
 transactional seam of `yin.vm.linker.dht.md` 14.2.4.
+
+(M-next C, slice C12.) The stage-C gate proves the substrate: every
+authority transition under every journal crash cut reopens to its
+pre-state or its post-state with only whole transactions and a
+converging retry, and one ledger's frames are byte-identical across
+hosts. It does not close clause 10: crash, partition, and
+successor-completion through the wired composition, with real kills,
+remain stage E.
 
 Not claimed by this amendment, and still owed by the ownership row:
 exclusive custody itself, atomic admission, crash recovery, input
