@@ -54,10 +54,9 @@
 
 
 (defn- offer!
-  [a]
+  [a store]
   (let [bs (cbor/encode (body "first-park"))]
-    (grant/offer! a (mem/create-content-mem) (fx/segment-address bs) bs
-                  "carrier")))
+    (grant/offer! a store (fx/segment-address bs) bs "carrier")))
 
 
 (defn- a-grant
@@ -158,24 +157,26 @@
 
 (defn- world
   "An offered occurrence granted as lease-1 to holder-a at epoch 0, and
-   one enrolled target: the frames, the authority, the target and a ring
-   buffer for diagnostics."
+   one enrolled target: the frames, the authority, its content store, the
+   target and a ring buffer for diagnostics."
   ([] (world nil))
   ([opts]
    (let [frames (fresh-frames)
-         a (auth frames nil opts)]
-     (offer! a)
+         a (auth frames nil opts)
+         store (mem/create-content-mem)]
+     (offer! a store)
      (grant! a "lease-1" "holder-a" "p-1")
      {:frames frames
       :a a
+      :store store
       :i (:yin.k/target (authority/enroll! a))
       :diag (ring)})))
 
 
 (defn- admit!
   ([w e] (admit! w "holder-a" e))
-  ([{:keys [a i diag]} author e]
-   (admission/admit! a i author e diag)))
+  ([{:keys [a store i diag]} author e]
+   (admission/admit! a store i author e diag)))
 
 
 (defn- regranted
@@ -192,7 +193,8 @@
   [{:keys [frames a] :as w}]
   (authority/close! a)
   (let [a2 (auth frames :before-frame)]
-    (admission/admit! a2 (:i w) "holder-a" (env 99 :cut) (:diag w))
+    (admission/admit! a2 (:store w) (:i w) "holder-a" (env 99 :cut)
+                      (:diag w))
     (assoc w :a a2)))
 
 
@@ -452,7 +454,8 @@
             :yin.k/incarnation "lease-1"
             :yin.k/recorded-intent (ledger/intent (:i w) :v)
             :yin.k/observed-intent (ledger/intent j :v)}
-           (admission/admit! a j "holder-a" (env 0 :v) (:diag w)))
+           (admission/admit! a (:store w) j "holder-a" (env 0 :v)
+                             (:diag w)))
         "the same id and payload to another target is another intent")
     (is (= 1 (count (facts frames :yin.k/quarantined))))
     (is (= {:values [] :terminal :dao.stream/blocked}
@@ -558,9 +561,9 @@
 
 
 (deftest an-unenrolled-boundary-runs-no-admission
-  (let [{:keys [frames a diag]} (world)
+  (let [{:keys [frames a store diag]} (world)
         n (count @frames)
-        r (admission/admit! a "nowhere" "holder-a" (env 0 :v) diag)]
+        r (admission/admit! a store "nowhere" "holder-a" (env 0 :v) diag)]
     (is (= {::admission/unenrolled "nowhere"} r))
     (is (= n (count @frames)))
     (is (empty? (diagnostics diag)))))
@@ -673,7 +676,8 @@
     (authority/close! a)
     (let [cut (auth frames :after-frame-before-visible)]
       (is (= (suspended "lease-1" 0)
-             (admission/admit! cut (:i w) "holder-a" (env 0 :v) (:diag w)))
+             (admission/admit! cut (:store w) (:i w) "holder-a" (env 0 :v)
+                               (:diag w)))
           "the reply is lost: the authority poisons"))
     (let [r (grant/reopen! (backend frames) nil)
           a2 (::authority/authority r)]
@@ -699,9 +703,11 @@
             _ (authority/close! a)
             a1 (auth frames cut)]
         (is (= (suspended "lease-1" 0)
-               (admission/admit! a1 (:i w) "holder-a" (env 0 :v) (:diag w))))
+               (admission/admit! a1 (:store w) (:i w) "holder-a" (env 0 :v)
+                                 (:diag w))))
         (is (= (suspended "lease-1" 0)
-               (admission/admit! a1 (:i w) "holder-a" (env 0 :v) (:diag w)))
+               (admission/admit! a1 (:store w) (:i w) "holder-a" (env 0 :v)
+                                 (:diag w)))
             "the poisoned authority admits nothing")
         (let [a2 (auth frames)]
           (is (= persisted (count (facts frames :yin.k/admitted))))
@@ -718,10 +724,11 @@
 (deftest a-transition-past-a-bound-suspends
   (let [frames (fresh-frames)
         a (auth frames nil {::authority/max-exact 20})
-        _ (offer! a)
+        store (mem/create-content-mem)
+        _ (offer! a store)
         _ (grant! a "lease-1" "holder-a" "p-1")
         i (:yin.k/target (authority/enroll! a))
-        w {:frames frames :a a :i i :diag (ring)}
+        w {:frames frames :a a :store store :i i :diag (ring)}
         n (count @frames)]
     (is (= (suspended "lease-1" 0) (admit! w (env 0 :v))))
     (is (= n (count @frames)))))

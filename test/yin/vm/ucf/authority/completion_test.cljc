@@ -308,7 +308,11 @@
     (lapse! a "lease-1" :policy)
     (is (= :ended-lease
            (refusal
-             (report! a r "lease-1" (park s2 3 (origin r "lease-1"))))))))
+             (report! a r "lease-1" (park s2 3 (origin r "lease-1"))))))
+    (let [ended @frames]
+      (is (= {:yin.k/status :replayed} (report! a r "lease-1" succ-1))
+          "the same report retried after its lease ended replays")
+      (is (= ended @frames) "and writes nothing"))))
 
 
 (deftest the-successor-continues-the-counter
