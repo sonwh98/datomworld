@@ -1616,6 +1616,36 @@ dispatch value but is authored by the authority and carries
 emitter's offer stays evidence. A grant and its binding are one
 transaction.
 
+Slices C6, C7 and C10 add these grantor facts, in the same order rule:
+
+| Fact | Dispatch | Author | Keys, in order |
+|---|---|---|---|
+| epoch change | `:yin.k/custody :yin.k/reclaimed` | authority | `:yin.k/custody`, `:yin.k/occurrence`, `:dao.lease/lease`, `:yin.k/epoch` (the occurrence's epoch after the reclaim, 7.7.8) |
+| refusal | `:yin.k/custody :yin.k/refused` | authority | `:yin.k/custody`, `:yin.k/proposer`, `:dao.lease/proposal` (7.7.8) |
+| fenced admission | `:yin.k/custody :yin.k/fenced` | authority | `:yin.k/custody`, `:yin.k/op-id`, `:yin.k/incarnation`, `:yin.k/epoch` (the lease and epoch that admitted the op id) |
+| quarantine | `:yin.k/custody :yin.k/quarantined` | authority | `:yin.k/custody`, `:yin.k/occurrence`, `:yin.k/op-id` (the op id whose intent conflicted) |
+| input | `:yin.k/custody :yin.k/input` | authority | `:yin.k/custody`, `:yin.k/occurrence`, `:dao.lease/lease`, `:yin.k/input-seq`, `:yin.k/source`, `:yin.k/observed` (`yin.vm.linker.dht.md` 14.2.2) |
+
+A lapse and its epoch change are one transaction, and so are the two
+halves of a refusal (7.7.8). A fenced admission commits in one
+transaction with its op id's dedup record; an intent conflict commits
+only the quarantine.
+
+Slice C8's completion facts, as recorded by the authority:
+
+| Fact | Dispatch | Author | Keys, in order |
+|---|---|---|---|
+| recorded report | `:yin.k/custody :yin.k/resumed` | authority | `:yin.k/custody`, `:yin.k/occurrence`, `:dao.lease/lease`, `:yin.k/result`, `:yin.k/successor` (for a continuation only: the occurrence the authority verified) |
+| closure | `:yin.k/custody :yin.k/completed` | authority | `:yin.k/custody`, `:yin.k/occurrence`, `:dao.lease/lease` (the released lease) |
+| edge | `:yin.k/custody :yin.k/succeeded` | authority | `:yin.k/custody`, `:yin.k/occurrence`, then exactly one of `:yin.k/successor` (the successor edge) and `:yin.k/result` (the terminal edge to a halted result's address, 7.7.6) |
+
+The recorded report is the holder's report after the authority
+verified it (7.7.8). It names no author: its author is the lease's
+holder, which the ledger already holds. It is still evidence;
+completion is the closure. A closure and its edge commit in the
+transaction of the lease's `:release` lapse, between the lapse and
+its epoch change.
+
 The subject of every grant is the **occurrence**, never `:yin.k/id`:
 snapshot variants and retries of one park share one occurrence, so no pair
 of encodings can hold independent grants, and an equal-content copy minted
@@ -1823,6 +1853,12 @@ closed occurrence never regains tenure and receives no further grant
 (7.7.8). Re-offering an earlier link, and compensating for effects
 past it, is a governance act outside automatic successor admission.
 
+(M-next C, slice C8.) A halted result completes its occurrence as a
+continuation does, but the closure's edge is a terminal edge to the
+result's address (7.7.2). A result is not an occurrence: it is never
+offered, admitted or granted, no ancestry runs through it, and the
+chain ends there.
+
 ### 7.7.7 Restart
 
 A grantor that lost its ledger reclaims and re-grants (`dao.lease.md`,
@@ -1832,6 +1868,28 @@ occurrence ledgers it transacts; its recoverable holder for each is the
 `:dao.lease/holder` of the last grant, both of which are facts on (or the
 recoverable state of) the space it possesses. Both are queries, which is
 why custody lives on a `dao.space` and not on the carrier stream.
+
+(M-next C, slice C6.) An authority that reopens its durable ledger
+runs these steps in order, and serves nothing before the last:
+
+1. Open the ledger and fold it.
+2. Reclaim every tenure it shows live, cause `:policy`, in grant
+   order, each lapse with its epoch change as one transaction
+   (7.7.8). Nothing is regranted.
+3. Rebuild the judge from the ledger after those reclaims: its seen
+   facts from every recorded grant and lapse (a lapse of cause
+   `:release` is the release; no separate release is recorded), its
+   answered proposals from the recorded grants and refusals.
+4. Wire the proposal media from their oldest anchor, so a proposal
+   drained before its occurrence could be granted is judged again.
+
+A reclaim that does not commit refuses the whole open; reopen is
+retried, and replays the ledger to the same state. The reclaim is
+the adapter contract of `dao.lease.md`, *Composition duties*.
+Because reopen reclaims, a holder's admission retry after a crash
+answers `:stale` (7.7.8 step 3); its committed result is recovered
+from the outcome projection (7.9). An authority opened without
+reclaim replays the recorded result.
 
 ### 7.7.8 Fenced custody, version 1: sequence, envelope, epoch binding
 
@@ -1941,6 +1999,8 @@ supplies:
   incarnation; `:wrong-author` when attribution is absent, invalid,
   or does not identify the bound holder; and `:foreign-op-id` when
   authoritative scope validation fails.
+- (M-next C, slice C7.) An op id whose `:yin.k/seq` is 2^52-1, a
+  value no writer can assign, is `:malformed`.
 - Enrollment belongs to the target boundary, while a writer's
   authorization comes from attribution and binding. There is no
   "unenrolled writer" defect: an unenrolled boundary cannot run
@@ -2024,6 +2084,36 @@ fact (7.7.2), authored by itself:
   epoch current at that grant, so the first grant binds 0 and the
   grant after `k` reclaims binds `k`. A successor is a new
   occurrence and starts at 0.
+- (M-next C, slice C6.) **The epoch change** is the grantor's fact
+
+  ```clojure
+  {:yin.k/custody    :yin.k/reclaimed
+   :yin.k/occurrence O
+   :dao.lease/lease  L
+   :yin.k/epoch      e}             ; the epoch after the reclaim
+  ```
+
+  committed in the transaction that records `L`'s
+  `:dao.lease/lapsed` fact. Every lapse has exactly one, and the
+  ledger refuses a lapse without it or it without its lapse. At the
+  bound it is still written, carrying the unchanged epoch.
+- (M-next C, slice C6.) **A refusal** is a pair committed in one
+  transaction: the plain `:dao.lease/rejected` lease fact, verbatim
+  `dao.lease` (it names no proposer), and the grantor's
+
+  ```clojure
+  {:yin.k/custody      :yin.k/refused
+   :yin.k/proposer     P
+   :dao.lease/proposal pid}
+  ```
+
+  A lease judge switches on the lease keys and ignores the refused
+  fact; a reader learns which proposal a refusal answered, keyed
+  `[proposer proposal-id]`, from the refused fact alone. The ledger
+  refuses either half
+  without the other. A proposal id is answered at most once, so a
+  candidate refused, or answered `:yin.k/not-holder` (7.8), proposes
+  again with a fresh proposal id.
 - **Restart.** The epoch never decreases, is never reset, and is
   never reused. A grantor that restarts recovers the epoch from its
   durable ledger and reclaims, which raises it, before it grants
@@ -2031,7 +2121,9 @@ fact (7.7.2), authored by itself:
   for that occurrence: 7.7.7's reclaim-and-regrant presumes the
   epoch survived. A new authority never starts an old occurrence at
   0. Recovery from lost epoch or dedup state is governance, outside
-  this protocol (7.7.5).
+  this protocol (7.7.5). (M-next C, slice C6.) Reopen runs 7.7.7's
+  steps, rebuilding the judge after the reclaims: a reclaim that does
+  not commit refuses the open, and reopen is retried.
 - **Exhaustion.** Epoch 2^52-1 is usable until a reclaim would
   increment it: a grant bound at that value is valid, and its
   holder's effects are admitted like any other's. That reclaim ends
@@ -2042,7 +2134,11 @@ fact (7.7.2), authored by itself:
   An exhausted tenure cannot produce an eligible exclusive
   successor: the authority accepts no completion and grants nothing
   for the occurrence. Carrier bytes may remain as history, but a
-  publication cannot reopen custody.
+  publication cannot reopen custody. (M-next C, slices C6 and C8.)
+  In the ledger, that lapse's epoch change carries the lease's own
+  binding epoch, which only a lease bound at 2^52-1 can do; that is
+  the exhaustion. A report recorded at the bound is evidence: its
+  release exhausts the occurrence without completing it.
 - **Why a binding.** A remote holder cannot infer authoritative
   tenure from what it observes: `:dao.lease/lapsed` does not cross
   to it (`dao.lease.md`, *Carriage*), and its view of the ledger is
@@ -2082,7 +2178,14 @@ the outcome (7.9):
    checkpoint is selected by the authority's accepted record, never
    by an envelope-supplied location. Current-occurrence ids require
    no inherited-membership lookup. Keeping the accepted checkpoint
-   readable is a durability duty of the composition.
+   readable is a durability duty of the composition. (M-next C,
+   slice C9.) Ancestry is checked first, from the completion records
+   alone, before the checkpoint is read. A granted occurrence's
+   ancestors never change, so a non-ancestor is `:foreign-op-id`
+   permanently; only membership waits on a store that can be
+   repaired. Any offered variant whose bytes verify to the recorded
+   baseline is the checkpoint, because the variants share one
+   baseline. A store that is absent, closed or throws is unreadable.
 5. *Dedup.* With a record for the id: equal intent answers
    `:replayed` with the recorded result and commits nothing;
    different intent answers `:intent-conflict` and commits nothing.
@@ -2118,6 +2221,10 @@ decide purely; store the body only when the decision will commit;
 commit. A refused, replayed or uninspectable offer stores nothing. A
 store that fails answers `:suspended` and commits nothing; a body
 stored before a commit that then fails is a harmless orphan.
+(M-next C, slice C9.) These mechanics realize the suspension above:
+the comparison's basis, the recorded baseline, is always in the open
+authority's projection, so the only unavailable comparison is that
+failing store.
 
 **One dedup namespace.** The dedup records form one logical namespace
 per arbitration admission resource, across every enrolled target that
@@ -2144,12 +2251,25 @@ a published successor or a resumed report the authority did not
 accept is an orphan, and no ancestry runs through it. A closed
 occurrence receives no further grant.
 
+(M-next C, slice C8.) The first offer of a body with an origin is
+refused `:awaiting-completion` while the origin's lease is its
+occurrence's live lease. Otherwise it is refused `:orphan` unless it
+is the successor the predecessor's closure recorded, under the
+closing lease, at the reported address. An origin naming an
+occurrence this ledger never saw is `:orphan`: a successor's
+arbitration is its predecessor's, so no predecessor lives on another
+authority. A body with no origin is a first export and is
+unconstrained. A halted result completes through a terminal edge
+(7.7.6).
+
 **Quarantine.** An intent conflict that the authority itself
 established, in an authenticated admission, quarantines the
 occurrence: it stays open, is never regranted automatically, and its
 admissions answer `:suspended`. Recovery or compensation is a
 governance decision outside this protocol. An unauthenticated claim
-of a conflict quarantines nothing.
+of a conflict quarantines nothing. (M-next C, slice C8.) A
+quarantined occurrence cannot complete: a report is refused, and a
+release records only the lapse and its epoch change.
 
 ## §7.8 Lifecycle: lift on park, lower on resume
 
@@ -2299,11 +2419,19 @@ exactly these five values:
   epoch; `:yin.k/observed-lease`, its active lease, when one exists;
   and `:yin.k/closed true` when the occurrence is closed.
 - `:intent-conflict` carries `:yin.k/recorded-intent` and
-  `:yin.k/observed-intent`, each an intent vector of 7.7.8.
+  `:yin.k/observed-intent`, each an intent vector of 7.7.8. On
+  M-next C's ledger, `:yin.k/recorded-intent` and
+  `:yin.k/observed-intent` are the canonical intent digests -- the
+  BLAKE3 of the canonical bytes of `[:yin.k/append target value]`
+  -- because the durable dedup record stores the digest and a
+  closed-target record drops the payload. Digest equality is
+  canonical-byte equality; the conflict decision is unchanged.
 - `:suspended` carries `:yin.k/arbitration`, naming the authority
   that could not be read or could not decide, as a body names it
   (7.2.1). It also answers for an exhausted or quarantined
-  occurrence, where retry cannot succeed without governance.
+  occurrence, where retry cannot succeed without governance. On
+  M-next C's authority, `:suspended`'s `:yin.k/arbitration` is
+  `{:dao.stream/identity arb}`, the authority's journal identity.
 - A defective envelope has no admission outcome; its structured
   diagnostic is in 7.7.8.
 - Only `:committed` and `:replayed` discharge a wait, and the
@@ -2317,6 +2445,23 @@ exactly these five values:
 - A duplicate outcome for a wait already discharged is skipped, as
   a duplicate link response is (7.4.3). Outcomes are compared as
   data on every host, never as text.
+- (M-next C, slice C7.) **The outcome projection.** The authority
+  serves the `:committed` outcome of every fenced admission its
+  ledger records on one reader-only stream whose identity is
+  `"<arb>/outcomes"`, arb its journal identity: dense positions in
+  ledger order, stable across reopen, blocked at the tail, never
+  ended. Its records are the authority's because they are derived
+  from its ledger. A driver holding a kept cursor recovers a
+  committed result after a crash without a reply; the other
+  outcomes are direct replies, recovered by retrying.
+- (M-next C, slice C11.) A holder counts a record as
+  authority-authored only when its composition attributes the
+  stream it was read from to the arbitration identity: the reply
+  stream the composition serves under that identity, and the
+  outcome projection at the identity `"<arb>/outcomes"`.
+  Attribution is identity equality; a descriptor is never compared.
+  A front reply's `:yin.k/answer` is the landed answer unchanged
+  (`yin.vm.linker.dht.md` 14.2.4).
 
 ## §7.10 Invariant compliance
 

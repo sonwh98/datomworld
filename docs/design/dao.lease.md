@@ -243,6 +243,14 @@ A composition that grants leases owes all of the following.
   none. One handed no resolver, or one incompatible with its medium, is refused
   at assembly.
 - **A reclaim procedure per subject**, idempotent, reporting success.
+- **Over a durable ledger, a reclaim that only reports readiness.** The
+  revocation is the transaction that records `:lapsed` and its accompanying
+  facts; its commit is the linearization point. No state claiming a
+  successful revocation leaves the grantor's boundary before that commit. A
+  grantor stream that does not answer `:dao.stream/ok` leaves the lease
+  `pending` in the judge and the recorded state unchanged. A judge rebuilt
+  at restart drains its proposal media from their oldest anchor, so a
+  proposal drained but left unanswered before the restart is judged again.
 - **A stream the grantor writes grants and `:lapsed` to**, and the medium each
   recipient reads its carried facts from.
 - **Media that either retain without eviction or declare evict-oldest**,

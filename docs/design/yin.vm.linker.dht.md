@@ -3183,6 +3183,11 @@ from these records; no second DHT ownership index is stored. Epoch is a
 monotone counter advanced atomically on reclaim, never reused after
 restart. Initial epoch is zero; grants bind to the current epoch. Regrant
 follows reclaim, and closed occurrences cannot receive another grant.
+(M-next C, slices C8 and C9.) Nothing is indexed, so the cost is in the
+queries: ancestry for an inherited id costs O(chain length x occurrences)
+plus content-store reads of the accepted checkpoint (one per variant tried,
+until one verifies), and the never-seen check on a report, a closure or an
+edge is one O(occurrences) scan; all run under the authority lock.
 
 The arbitration admission resource owns durable dedup records keyed by
 `{:yin.k/occurrence O :yin.k/seq n}` containing canonical intent and result:
@@ -3200,6 +3205,44 @@ unknown acceptance, migration, and retry. Regrant of the same checkpoint
 restarts from its carried sequence; a successor carries the next sequence.
 Durable input records preserve read outcomes, correlation results, gap
 successors, and their ordering for deterministic recovery of that interval.
+
+(M-next C, slice C10.) **The input protocol.** A holder records each input
+by a request, attributed to it by the composition's resolver:
+
+```clojure
+{:yin.k/occurrence O :dao.lease/lease L :yin.k/epoch e
+ :yin.k/input-seq  k :yin.k/source s    :yin.k/observed v}
+```
+
+`s` is `{:yin.k/kind kind :yin.k/name n}`, kind one of `:yin.k/read`,
+`:yin.k/ffi-result` and `:yin.k/link-result`; `v` is the outcome as data,
+gap successors included. The authority commits it as one fact,
+`{:yin.k/custody :yin.k/input :yin.k/occurrence O :dao.lease/lease L
+:yin.k/input-seq k :yin.k/source s :yin.k/observed v}` (UCF 7.7.2); the
+epoch and holder are `L`'s grant's, so the fact does not repeat them.
+
+- *Ordering.* Each root occurrence has one input sequence, dense in `k`
+  from 0 and shared by all its tenures. Install children have none: they
+  draw from the root's, in the order the driver delivered their inputs.
+- *Tenure first.* An exhausted occurrence answers `:suspended`; a lease not
+  granted on O, or an author not its holder, is refused (`:unbound-lease`,
+  `:wrong-author`); a lapsed lease or another epoch is `:stale`, even for a
+  recorded `k`. A malformed request or an unknown occurrence is refused.
+- *Acknowledgment.* With `n` records: `k = n` answers `:recorded`, only
+  after the durable commit, or `:suspended` when the count would pass
+  2^52-1; `k < n` answers `:replayed` when source and observed equal the
+  record's canonical content, and is refused `:input-conflict`, carrying
+  both, otherwise; `k > n` is refused `:input-gap`, carrying `n`. Only
+  `:recorded` commits. These answers are the authority's `:yin.k/status`
+  family, never admission outcomes.
+- An input conflict commits nothing and quarantines nothing: an input is
+  evidence, not an effect. A quarantined occurrence still records inputs.
+- *Frontier.* A lease's frontier is the count of its occurrence's input
+  records before its grant. A regranted holder replays records 0 to
+  frontier - 1 in order, checks each source, and fails closed on a
+  mismatch; from the frontier it observes live and records. An empty
+  prefix is distinct from missing evidence, which fails closed. The driver
+  delivers an input to the task only once it is recorded or replayed.
 
 The wire grammar for this contract is published as the UCF version-1
 amendment (M-next B) and is not restated here:
@@ -3347,10 +3390,13 @@ stubs. Also run the ordered cross-host candidate pairs of 14.1.1.
   once with durable inputs and once without, causing changed gap/intent.
   Assert: replay reproduces the old intent/result; missing replay fails
   closed; divergent intent at the same id is intent-conflict, no commit.
-- Setup: Partition the protected consumer from authority; lose a lease
-  fact, delay renewal, and advance time only by appended ticks. Action:
-  continue admission and reclaim/regrant. Assert: protected admission
-  suspends without authority; no inference from absent lapse; DaoLease's
+- Setup: Partition the protected consumer, or a remote holder reaching
+  the authority through its front (below), from authority; lose a lease
+  fact or a reply, delay renewal, and advance time only by appended ticks.
+  Action: continue admission and reclaim/regrant; resend lost requests.
+  Assert: protected admission suspends without authority; no inference
+  from absent lapse; a resent request replays; a reply not attributed to
+  the arbitration identity discharges nothing; DaoLease's
   incomplete-evidence rules and holder bound remain intact.
 - Setup: Crash after successor append, after resumed report, after release
   append, and after authoritative closure. Action: reopen authority and
@@ -3364,6 +3410,75 @@ stubs. Also run the ordered cross-host candidate pairs of 14.1.1.
   lower/admit. Assert: failure releases or retains release progress,
   forgery establishes no grant, overflow never wraps, and isolated stores
   preserve resolution. Unenrolled consumers declare their weaker behavior.
+
+(M-next C, slice C11.) **The authority's front.** A holder outside the
+authority's process reaches it through a front: plain functions over an
+inbound stream the holder writes, a reply stream the front writes, and the
+composition's diagnostic stream. One bounded step reads at most n requests
+from a held cursor, a gap counting as one read; there is no clock and no
+thread. A request is a map dispatching on `:yin.k/request`, over a closed
+set, and each kind requires these keys beside `:yin.k/request-id`:
+
+| `:yin.k/request` | Required keys | Answered by |
+|---|---|---|
+| `:yin.k/offer` | `:yin.k/id`, `:yin.k/bytes`, `:yin.k/medium` | the offer admission, into the composition's content store |
+| `:yin.k/proposal` | `:dao.lease/proposal`, `:yin.k/occurrence` | carriage of the lease proposal to the holder's lease-fact medium |
+| `:yin.k/resumed` | `:yin.k/report`, `:yin.k/bytes` | the report admission (UCF 7.7.8) |
+| `:yin.k/release` | `:dao.lease/lease` | carriage of the release to the holder's lease-fact medium |
+| `:yin.k/input` | `:yin.k/input` | the input protocol (14.2.2) |
+| `:yin.k/admit` | `:yin.k/target`, `:yin.k/fenced-envelope` | admission at that enrolled target, reading accepted checkpoints from the same content store (UCF 7.7.8) |
+
+Every request carries a holder-chosen `:yin.k/request-id`, opaque to the
+front and echoed unchanged in its reply; it is the only correlation handle
+a reply carries, and correlation itself is the driver's (stage D). The
+front attributes each request by the composition's resolver over the
+inbound stream's identity; it never reads an author field in the request,
+and it ignores keys it does not require. A request that is not a map,
+names a kind outside the set, or lacks a required key is `:malformed`; one
+with no resolved author is `:wrong-author`. Either commits nothing,
+carries nothing, sends no reply, and appends exactly one diagnostic:
+
+```clojure
+{:yin.k/diagnostic :yin.k/defective-request
+ :yin.k/defect     :malformed       ; or :wrong-author
+ :yin.k/inbound    i                ; the inbound stream's identity
+ :yin.k/author     a                ; resolved attribution, if any
+ :yin.k/claimed    {...}}           ; its :yin.k/request and request id
+```
+
+Claims are nested and the payload is never echoed, as for UCF 7.7.8's
+defective envelope. A request whose landed function throws is answered as
+`:malformed`: nothing was committed, and the throw is an argument defect
+or an implementation fault; the diagnostic's append result is returned
+beside it. The front records a thrown append as its own datum
+`{:yin.vm.ucf.authority.front/threw true}`, where admission records
+`:dao.stream/transport-error`; a composition reading both knows both.
+
+Every other request gets one reply, `{:yin.k/reply k :yin.k/request-id r
+:yin.k/answer x}`, where `x` is the landed function's answer unchanged; a
+non-holder is refused as a direct call would refuse it. An admit that
+produced no admission outcome (a diagnostic, or an unenrolled boundary)
+gets no reply. A carried proposal or release answers `{:yin.k/status
+:carried}`; the judge's answer to it is learned from the ledger, through
+the grant's binding evidence, never from the reply. A holder with no
+lease-fact medium is refused `:no-lease-medium`, and a medium that cannot
+be named or does not take the append answers `:suspended :uncarried`.
+While the authority serves no projection, poisoned or closed, a proposal
+or release is not carried and answers `:suspended :unavailable`. A lost
+reply is recovered by resending the request: the ledger's dedup answers
+`:replayed`, and the judge answers a proposal id once.
+
+A composition that runs the front owes one attribution rule: the resolver
+that attributes a holder's inbound stream and the resolver that attributes
+that holder's lease-fact medium must name the same author for both. The
+front attributes a request to A and carries the fact to A's medium; the
+judge must drain that medium as A's. A composition that cannot guarantee
+this must not offer exclusive custody.
+
+On the holder's side, a reply or an outcome counts by UCF 7.9's rule: the
+composition attributes the stream it was read from to the arbitration
+identity, by identity equality. A record from any other author, a forged
+`:committed` or `:intent-conflict` included, discharges nothing.
 
 ### 14.3 Migration and sequencing
 

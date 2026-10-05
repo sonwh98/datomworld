@@ -365,6 +365,20 @@ untouched, so no image validity changes.
     occurrence form), 7.7.2 (the grantor's facts) and 7.7.8 (the
     view and author behind a binding, the offer order). C6 to C12,
     D and E remain; `handoff-version` is still 0.
+    Status, 2026-10-05: M-next C slices C1 to C11 are implemented
+    (C6 9e53b93c 9153b75e d484080d, C7 919f7db7 3bbb9856, C8
+    59479d9d, C9 9352001f, C10 51efd46c 268c4f4b, C11
+    485fe1a1), and the amendments C6 to C11 forced landed: UCF 7.7.2
+    (the grantor's further facts and the completion facts as
+    recorded), 7.7.6 (the halted result), 7.7.7 (the reopen steps),
+    7.7.8 (the epoch change, the refusal pair, exhaustion in the
+    ledger, the 2^52-1 seq, inherited-id order, successor offers,
+    quarantine and completion) and 7.9 (intent digests, the
+    arbitration shape, the outcome projection, trusted identities);
+    `dao.lease.md` *Composition duties* (the reclaim adapter);
+    linker-dht 14.2.2 (the input protocol, the cost note) and
+    14.2.4 (the authority's front). C12, D and E remain;
+    `handoff-version` is still 0.
   - Recorded separately, as version-0 defects of the landed stage-1
     reader and not as version-1 gaps: (a) lower assigns an empty
     wait set for a `:parked` body that also carries frames
