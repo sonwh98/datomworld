@@ -26,15 +26,16 @@
     [yin.vm.test-utils :as tu]))
 
 
-(def ^:private opts
+(defn- opts-under
+  "The composition over the real modules, `integer` under `limits`."
+  [limits]
   {:make-stream tu/make-stream,
    :capability-secret tu/secret,
    :primitives vm/primitives,
    :modules (-> (module/empty-registry)
                 module/register-cell-module
                 data/register-data-module
-                (integer/register-integer-module
-                  {::integer/max-bits 100000, ::integer/max-digits 4300}))})
+                (integer/register-integer-module limits))})
 
 
 (def ^:private load-semantic-ast
@@ -42,7 +43,9 @@
                         vm/ast-contract))
 
 
-(def ^:private runners
+(defn- runners-under
+  "Each VM's runner over the composition `opts`."
+  [opts]
   {:ast-walker (fn [ast] (vm/value (vm/eval (tu/create-vm opts) ast))),
    :semantic (fn [ast]
                (vm/value (vm/run (load-semantic-ast (semantic/create-vm opts)
@@ -60,16 +63,29 @@
                      (assoc opts :contract vm/register-contract)))))})
 
 
+(def ^:private runners
+  (runners-under (opts-under {::integer/max-bits 100000,
+                              ::integer/max-digits 4300})))
+
+
+(def ^:private small-runners
+  "Runners under limits a float key or hash breaches: 60 bits (2^-1074
+   needs 1075, P = 2^61 - 1 needs 61) and 5 decimal digits."
+  (runners-under (opts-under {::integer/max-bits 60,
+                              ::integer/max-digits 5})))
+
+
 (defn- run-with-prelude
-  "The value of `form` (prelude notation) after `prelude-ast`."
-  [prelude-ast form]
-  (let [ast (u/mark-tails (u/then prelude-ast (u/sexp->uast form)))]
-    (into {}
-          (map (fn [[k run]]
-                 [k (try (run ast)
-                         (catch #?(:cljd Object :clj Exception :cljs :default) e
-                           [:thrown (ex-message e)]))]))
-          runners)))
+  "The value of `form` (prelude notation) after `prelude-ast`, on each
+   of `runners` (default: the ordinary limits)."
+  ([prelude-ast form] (run-with-prelude runners prelude-ast form))
+  ([runners prelude-ast form]
+   (let [ast (u/mark-tails (u/then prelude-ast (u/sexp->uast form)))
+         attempt (fn [run]
+                   (try (run ast)
+                        (catch #?(:cljd Object :clj Exception :cljs :default) e
+                          [:thrown (ex-message e)])))]
+     (into {} (map (fn [[k run]] [k (attempt run)])) runners))))
 
 
 (defn- with-float64
@@ -938,6 +954,19 @@
                      is-row)))))))))
 
 
+(def ^:private caught
+  "Prelude notation: `[class-name & args]` of the guest exception
+   `thunk` raises, else its value."
+  '(fn [thunk]
+     (py/try thunk
+             (fn [e]
+               (data/into (py/conj []
+                                   (get (cell/get (get (cell/get e) :class))
+                                        :name))
+                          (get (get (get (cell/get e) :attrs) "args") :items)))
+             (fn [] :py/None))))
+
+
 (deftest big-integer-keys-past-the-digit-limit-on-every-host-test
   (testing "2^20000 has 6021 decimal digits, past max-digits 4300, yet keys
             in hex: it differs from 2^20000 + 1, and dict insertion,
@@ -986,22 +1015,143 @@
           (is (= [[:py.numeric/finite (apply str "1" (repeat 5000 "0")) "1"]
                   false 2 {:py/str "c"} 1 false {:py/str "b"} 2 true 7]
                  result))))))
-  (testing "its decimal text still refuses at the digit limit"
-    (let [reason (fn [e]
-                   (loop [e e]
-                     (when e
-                       (or (::integer/reason (ex-data e))
-                           (recur (ex-cause e))))))]
-      (doseq [[k run] runners]
-        (is (= :digit-limit
-               (try (run (u/mark-tails
-                           (u/then prelude/functions-uast
-                                   (u/sexp->uast
-                                     '(integer/format
-                                        (integer/shift-left 1 20000))))))
-                    (catch #?(:cljd Object :clj Exception :cljs :default) e
-                      (reason e))))
-            (str k))))))
+  (testing "its decimal text is still the digit limit: the module answers
+            the reason, and py/int-result raises it as a ValueError"
+    (doseq [[k result] (run-with-prelude
+                         prelude/uast
+                         (list 'let ['caught caught]
+                               '(let [big (integer/shift-left 1 20000)]
+                                  (py/conj
+                                    (py/conj [] (integer/format big))
+                                    (caught
+                                      (fn []
+                                        (py/int-result
+                                          (integer/format big))))))))]
+      (is (= [::integer/digit-limit
+              ["ValueError"
+               {:py/str "Exceeds the limit for integer string conversion"}]]
+             result)
+          (str k)))))
+
+
+;; =============================================================================
+;; C3 slice S3a: integer limit reasons are guest exceptions
+;; =============================================================================
+;;
+;; Under `small-runners` (60 bits, 5 digits) the smallest subnormal's key
+;; needs 2^1074, a float 2^80's key needs 2^80, and every hash needs P =
+;; 2^61 - 1: each is a module `::bit-limit`, which the prelude raises as
+;; MemoryError; decimal text past 5 digits is `::digit-limit`, raised as
+;; ValueError. The guest sees only the prelude's class and message.
+
+(def ^:private tiny
+  "5e-324, whose key needs a 1075-bit denominator."
+  {:py/float 5.0E-324})
+
+
+(deftest int-limits-are-catchable-on-every-host-test
+  (testing "MemoryError from keys and hashes, ValueError from decimal
+            text: caught by py/try, the run continues, finally runs, and
+            MemoryError is an Exception"
+    (let [f2-80 '(py/float (* (data/float-value 1) 4503599627370496 268435456))
+          results (run-with-prelude
+                    small-runners
+                    prelude/uast
+                    (with-float64
+                      (list
+                        'let
+                        ['caught caught
+                         'tiny tiny
+                         'log '(cell/new [])
+                         'fin '(caught
+                                 (fn []
+                                   (py/try-finally
+                                     (fn [] (py/key tiny))
+                                     (fn [x]
+                                       (cell/set! log
+                                                  (conj (cell/get log)
+                                                        :finally))))))
+                         'exc '(py/try (fn [] (py/hash 1))
+                                       (fn [e] e)
+                                       (fn [] :py/None))]
+                        (conj-all
+                          ['(caught (fn [] (py/key tiny)))
+                           (list 'caught (list 'fn [] (list 'py/key f2-80)))
+                           '(caught (fn [] (py/hash 1)))
+                           '(caught (fn [] (py/hash {:py/float 1.5})))
+                           '(caught
+                              (fn [] (py/int-result (integer/format 123456))))
+                           '(py/key {:py/float 1.5})
+                           'fin
+                           '(cell/get log)
+                           '(py/isinstance exc py.b/Exception)
+                           '(py/exc-matches exc py.b/Exception)
+                           '(py/add 1 2)]))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [["MemoryError"] ["MemoryError"] ["MemoryError"]
+                  ["MemoryError"]
+                  ["ValueError"
+                   {:py/str "Exceeds the limit for integer string conversion"}]
+                  [:py.numeric/finite "3" "2"]
+                  ["MemoryError"] [:finally] true true 3]
+                 result)))))))
+
+
+(deftest failed-key-normalization-leaves-containers-unchanged-test
+  (testing "a MemoryError from key normalization writes nothing: dict
+            insert, lookup, membership, delete and a tuple key, and set add"
+    (let [results (run-with-prelude
+                    small-runners
+                    prelude/uast
+                    (with-float64
+                      (list
+                        'let
+                        ['caught caught
+                         'tiny tiny
+                         'd '(py/dict-new)
+                         '_1 '(py/dict-set d 1 {:py/str "a"})
+                         'd0 '(cell/get d)
+                         's '(py/set-from [1 2])
+                         's0 '(cell/get s)
+                         'r (conj-all
+                              ['(caught
+                                  (fn [] (py/dict-set d tiny {:py/str "b"})))
+                               '(caught (fn [] (py/getitem d tiny)))
+                               '(caught (fn [] (py/contains d tiny)))
+                               '(caught (fn [] (py/dict-del-quiet d tiny)))
+                               '(caught
+                                  (fn []
+                                    (py/dict-set d
+                                                 (py/tuple (py/conj [1] tiny))
+                                                 {:py/str "c"})))
+                               '(caught (fn [] (py/set-add s tiny)))])]
+                        (conj-all ['r '(= d0 (cell/get d))
+                                   '(= s0 (cell/get s))]))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [(vec (repeat 6 ["MemoryError"])) true true] result)))))))
+
+
+(deftest int-defects-stay-host-failures-on-every-host-test
+  (testing "a wrong type or arity at an integer call, and a reason the
+            module version 2 never returns, fail the run: no guest handler
+            sees them"
+    (doseq [[form message]
+            [['(integer/neg {:py/str "x"}) integer/refusal-message]
+             ['(integer/neg 1 2) integer/refusal-message]
+             ['(py/int-result :yin.vm.integer/zero-division)
+              "Cannot apply non-function"]
+             ['(py/int-result :yin.vm.integer/wrong-type)
+              "Cannot apply non-function"]]]
+      (doseq [[k result] (run-with-prelude
+                           small-runners
+                           prelude/uast
+                           (list 'py/try
+                                 (list 'fn [] (list 'py/int-result form))
+                                 '(fn [e] :caught)
+                                 '(fn [] :py/None)))]
+        (is (= [:thrown message] result) (str k " " (pr-str form)))))))
 
 
 (deftest numeric-dict-keys-on-every-host-test

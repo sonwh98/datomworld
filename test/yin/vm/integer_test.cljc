@@ -108,6 +108,13 @@
    (merge {::integer/op op, ::integer/reason reason} data)])
 
 
+(defn- limited
+  "What `refusal` answers for a call that breaches a limit: the reason
+   returned as data, never thrown (module version 2)."
+  [reason]
+  [:returned reason])
+
+
 (def ^:private two-53 "9007199254740992")
 (def ^:private two-63 "9223372036854775808")
 (def ^:private two-64 "18446744073709551616")
@@ -216,7 +223,7 @@
     (is (same? 0 (call 'shift-left 0 (big two-64))))
     (is (same? (big two-64) (call 'shift-left 1 64)))
     (is (same? 1 (call 'shift-right (big two-64) 64)))
-    (is (= (refused 'shift-left :bit-limit {::integer/limit 100000})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'shift-left 1 (big two-64))))
     (is (= (refused 'shift-right :negative-count {})
            (refusal call 'shift-right 1 -1)))
@@ -246,10 +253,10 @@
   (is (same? (big "515377520732011331036461129765621272702107522001")
              (call 'pow 3 100)))
   (is (= (refused 'pow :negative-exponent {}) (refusal call 'pow 2 -1)))
-  (is (= (refused 'pow :bit-limit {::integer/limit 100000})
+  (is (= (limited ::integer/bit-limit)
          (refusal call 'pow 2 (big two-64)))
       "a huge exponent is refused before any work")
-  (is (= (refused 'pow :bit-limit {::integer/limit 100000})
+  (is (= (limited ::integer/bit-limit)
          (refusal call 'pow 3 100000))))
 
 
@@ -290,14 +297,14 @@
                                        ::integer/max-digits 5})
         call (fn [op & args] (apply (get small op) args))]
     (is (same? 99999 (call 'parse "99999")))
-    (is (= (refused 'parse :digit-limit {::integer/limit 5})
+    (is (= (limited ::integer/digit-limit)
            (refusal call 'parse "100000")))
-    (is (= (refused 'parse :digit-limit {::integer/limit 5})
+    (is (= (limited ::integer/digit-limit)
            (refusal call 'parse "-000001")))
     (is (= "-99999" (call 'format -99999)))
-    (is (= (refused 'format :digit-limit {::integer/limit 5})
+    (is (= (limited ::integer/digit-limit)
            (refusal call 'format 100000)))
-    (is (= (refused 'format :digit-limit {::integer/limit 5})
+    (is (= (limited ::integer/digit-limit)
            (refusal call 'format (big two-64)))
         "refused before the text is built")
     (testing "a power-of-two radix is not digit-limited"
@@ -310,17 +317,47 @@
                                        ::integer/max-digits 4300})
         call (fn [op & args] (apply (get small op) args))]
     (is (same? (big "18446744073709551615") (call 'sub (big two-64) 1)))
-    (is (= (refused 'add :bit-limit {::integer/limit 64})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'add (big "18446744073709551615") 1)))
-    (is (= (refused 'mul :bit-limit {::integer/limit 64})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'mul (big two-63) (big two-63)))
         "refused before the product is built")
-    (is (= (refused 'shift-left :bit-limit {::integer/limit 64})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'shift-left 1 64)))
-    (is (= (refused 'pow :bit-limit {::integer/limit 64})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'pow 2 64)))
-    (is (= (refused 'parse :bit-limit {::integer/limit 64})
-           (refusal call 'parse two-64)))))
+    (is (= (limited ::integer/bit-limit)
+           (refusal call 'parse two-64)))
+    (testing "every limit-capable export answers the reason, a pair too:
+              never half a pair"
+      (is (= (limited ::integer/bit-limit) (refusal call 'neg (big two-64))))
+      (is (= (limited ::integer/bit-limit)
+             (refusal call 'normalize (big two-64))))
+      (is (= (limited ::integer/bit-limit)
+             (refusal call 'bit-not (big two-64))))
+      (is (= (limited ::integer/bit-limit)
+             (refusal call 'quot-rem (big two-64) 1)))
+      (is (= (limited ::integer/bit-limit)
+             (refusal call 'floor-div-mod -1 (big "18446744073709551617")))
+          "the quotient -1 fits, the remainder 2^64 does not"))
+    (testing "every other reason still throws under the same limits"
+      (is (= (refused 'floor-div-mod :zero-division {})
+             (refusal call 'floor-div-mod (big two-64) 0)))
+      (is (= (refused 'shift-left :negative-count {})
+             (refusal call 'shift-left (big two-64) -1)))
+      (is (= (refused 'pow :negative-exponent {})
+             (refusal call 'pow 2 -1)))
+      (is (= (refused 'mul :wrong-type {::integer/arg 1,
+                                        ::integer/expected :integer})
+             (refusal call 'mul (big two-63) ::integer/bit-limit))
+          "a reason fed back in is a wrong type, not a limit")
+      (is (= (refused 'add :arity {::integer/argc 1})
+             (refusal call 'add (big two-64)))))))
+
+
+(deftest module-version-test
+  (is (= 2 integer/module-version)
+      "version 2: the limit reasons are returned, not thrown"))
 
 
 (deftest limits-are-explicit-test
@@ -464,6 +501,13 @@
       (is (= (into [:thrown] (refused 'floor-div-mod :zero-division {}))
              result)
           (str k))))
+  (testing "a limit breach is the reason as the program's value"
+    (doseq [[ast expected]
+            [[(i 'pow (lit 2) (lit 100000)) ::integer/bit-limit]
+             [(i 'format (i 'shift-left (lit 1) (lit 20000)))
+              ::integer/digit-limit]]]
+      (doseq [[k result] (on-every-vm with-integer ast)]
+        (is (= expected (vm/value result)) (str k)))))
   (testing "absent without registration"
     (doseq [[k result] (on-every-vm {:modules (module/default-registry)}
                                     (i 'add (lit 1) (lit 2)))]

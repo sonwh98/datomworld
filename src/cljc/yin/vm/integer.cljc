@@ -49,14 +49,23 @@
    would breach `::max-bits` is refused before it is built wherever its
    size is known in advance (`mul`, `shift-left`, `pow`).
 
-   A refused call throws `ex-info` with the message `refusal-message` and
-   ex-data built here, never host exception text, never an operand:
-   `::op`, `::reason` and the reason's own keys. The reasons are
-   `:arity`, `:wrong-type`, `:out-of-range`, `:syntax`, `:zero-division`,
-   `:negative-count`, `:negative-exponent`, `:bit-limit` and
-   `:digit-limit`. A runtime profile maps them to guest exceptions; the
-   Python profile maps `:bit-limit` to `MemoryError` and `:digit-limit`
-   to `ValueError`, never `OverflowError`."
+   A limit breach is returned, not thrown (version 2): the call answers
+   the keyword `::bit-limit` or `::digit-limit` in place of its result.
+   Every other result is an integer, a boolean, a string or a pair, so
+   the sum needs no tag, and a pair is never answered with one half
+   refused. A guest prelude translates the two reasons into catchable
+   guest exceptions; the Python profile maps `::bit-limit` to
+   `MemoryError` and `::digit-limit` to `ValueError`, never
+   `OverflowError` (`py/int-result`).
+
+   Every other refusal throws `ex-info` with the message
+   `refusal-message` and ex-data built here, never host exception text,
+   never an operand: `::op`, `::reason` and the reason's own keys. These
+   reasons are `:arity`, `:wrong-type`, `:out-of-range`, `:syntax`,
+   `:zero-division`, `:negative-count` and `:negative-exponent`: a
+   caller checks for them before the call, so reaching one is a defect
+   of the caller, and it stays a host failure, never a guest
+   exception."
   (:require
     [clojure.string :as str]
     [yin.vm :as vm]
@@ -71,8 +80,9 @@
 
 (def module-version
   "The version of the kernels' contract. A change to any export's
-   semantics is a new version."
-  1)
+   semantics is a new version. Version 2 returns the limit reasons
+   instead of throwing them."
+  2)
 
 
 (def refusal-message
@@ -119,18 +129,20 @@
   (host/magnitude-bit-length b))
 
 
-(defn- bit-limit!
-  [limits op]
-  (refuse! op :bit-limit {::limit (::max-bits limits)}))
-
-
 (defn- out
-  "Big integer result `b` of `op` in its canonical carrier, or a
-   `:bit-limit` refusal."
-  [limits op b]
-  (when (> (bits b) (::max-bits limits))
-    (bit-limit! limits op))
-  (host/demote b))
+  "Big integer result `b` in its canonical carrier, or `::bit-limit`."
+  [limits b]
+  (if (> (bits b) (::max-bits limits))
+    ::bit-limit
+    (host/demote b)))
+
+
+(defn- pair
+  "`[q r]`, or the first of them that is a limit reason."
+  [q r]
+  (cond (keyword? q) q
+        (keyword? r) r
+        :else [q r]))
 
 
 ;; =============================================================================
@@ -139,17 +151,17 @@
 
 (defn- int-add
   [limits a b]
-  (out limits 'add (host/add (big! 'add 0 a) (big! 'add 1 b))))
+  (out limits (host/add (big! 'add 0 a) (big! 'add 1 b))))
 
 
 (defn- int-sub
   [limits a b]
-  (out limits 'sub (host/sub (big! 'sub 0 a) (big! 'sub 1 b))))
+  (out limits (host/sub (big! 'sub 0 a) (big! 'sub 1 b))))
 
 
 (defn- int-neg
   [limits a]
-  (out limits 'neg (host/sub zero (big! 'neg 0 a))))
+  (out limits (host/sub zero (big! 'neg 0 a))))
 
 
 (defn- int-mul
@@ -157,9 +169,9 @@
   (let [x (big! 'mul 0 a)
         y (big! 'mul 1 b)]
     ;; |x*y| has bits(x) + bits(y) or one fewer bits
-    (when (> (+ (bits x) (bits y) -1) (::max-bits limits))
-      (bit-limit! limits 'mul))
-    (out limits 'mul (host/mul x y))))
+    (if (> (+ (bits x) (bits y) -1) (::max-bits limits))
+      ::bit-limit
+      (out limits (host/mul x y)))))
 
 
 (defn- int-compare
@@ -179,8 +191,8 @@
   [limits a b]
   (let [x (big! 'quot-rem 0 a)
         y (divisor! 'quot-rem b)]
-    [(out limits 'quot-rem (host/quot-trunc x y))
-     (out limits 'quot-rem (host/rem-trunc x y))]))
+    (pair (out limits (host/quot-trunc x y))
+          (out limits (host/rem-trunc x y)))))
 
 
 (defn- int-floor-div-mod
@@ -190,8 +202,8 @@
         q (host/quot-trunc x y)
         r (host/rem-trunc x y)
         adjust? (and (not (zero? (sign r))) (not= (sign r) (sign y)))]
-    [(out limits 'floor-div-mod (if adjust? (host/sub q one) q))
-     (out limits 'floor-div-mod (if adjust? (host/add r y) r))]))
+    (pair (out limits (if adjust? (host/sub q one) q))
+          (out limits (if adjust? (host/add r y) r)))))
 
 
 (defn- int-pow
@@ -206,22 +218,18 @@
       (zero? (host/compare-big x neg-one))
       (if (zero? (sign (host/bit-and-big n one))) 1 -1)
       ;; |x| >= 2 from here, so |x^n| has at least n + 1 bits
-      (pos? (host/compare-big n (host/from-native max-bits)))
-      (bit-limit! limits 'pow)
+      (pos? (host/compare-big n (host/from-native max-bits))) ::bit-limit
+      (> (inc (* (dec (bits x)) (host/to-native n))) max-bits) ::bit-limit
       :else
-      (let [n (host/to-native n)]
-        (when (> (inc (* (dec (bits x)) n)) max-bits)
-          (bit-limit! limits 'pow))
-        (out limits
-             'pow
-             (loop [result one
-                    base x
-                    n n]
-               (let [result (if (odd? n) (host/mul result base) result)
-                     n (quot n 2)]
-                 (if (zero? n)
-                   result
-                   (recur result (host/mul base base) n)))))))))
+      (out limits
+           (loop [result one
+                  base x
+                  n (host/to-native n)]
+             (let [result (if (odd? n) (host/mul result base) result)
+                   n (quot n 2)]
+               (if (zero? n)
+                 result
+                 (recur result (host/mul base base) n))))))))
 
 
 ;; =============================================================================
@@ -230,25 +238,25 @@
 
 (defn- int-bit-and
   [limits a b]
-  (out limits 'bit-and
+  (out limits
        (host/bit-and-big (big! 'bit-and 0 a) (big! 'bit-and 1 b))))
 
 
 (defn- int-bit-or
   [limits a b]
-  (out limits 'bit-or
+  (out limits
        (host/bit-or-big (big! 'bit-or 0 a) (big! 'bit-or 1 b))))
 
 
 (defn- int-bit-xor
   [limits a b]
-  (out limits 'bit-xor
+  (out limits
        (host/bit-xor-big (big! 'bit-xor 0 a) (big! 'bit-xor 1 b))))
 
 
 (defn- int-bit-not
   [limits a]
-  (out limits 'bit-not (host/sub (host/sub zero (big! 'bit-not 0 a)) one)))
+  (out limits (host/sub (host/sub zero (big! 'bit-not 0 a)) one)))
 
 
 (defn- count!
@@ -269,12 +277,9 @@
     (cond
       (zero? (sign x)) 0
       ;; |x << n| has exactly bits(x) + n bits
-      (pos? (host/compare-big n (host/from-native max-bits)))
-      (bit-limit! limits 'shift-left)
-      :else (let [n (host/to-native n)]
-              (when (> (+ (bits x) n) max-bits)
-                (bit-limit! limits 'shift-left))
-              (out limits 'shift-left (host/shift-left-big x n))))))
+      (pos? (host/compare-big n (host/from-native max-bits))) ::bit-limit
+      (> (+ (bits x) (host/to-native n)) max-bits) ::bit-limit
+      :else (out limits (host/shift-left-big x (host/to-native n))))))
 
 
 (defn- int-shift-right
@@ -282,7 +287,7 @@
   (let [x (big! 'shift-right 0 a)
         n (count! 'shift-right k)]
     (if (neg? (host/compare-big n (host/from-native (bits x))))
-      (out limits 'shift-right (host/shift-right-big x (host/to-native n)))
+      (out limits (host/shift-right-big x (host/to-native n)))
       (if (neg? (sign x)) -1 0))))
 
 
@@ -325,11 +330,6 @@
   (zero? (bit-and r (dec r))))
 
 
-(defn- digit-limit!
-  [limits op]
-  (refuse! op :digit-limit {::limit (::max-digits limits)}))
-
-
 (defn- int-parse
   ([limits s] (int-parse limits s 10))
   ([limits s radix]
@@ -341,27 +341,29 @@
          n (count digits)]
      (when (zero? n)
        (refuse! 'parse :syntax {}))
-     (when (and (not (power-of-two? r)) (> n (::max-digits limits)))
-       (digit-limit! limits 'parse))
-     (let [values (mapv (fn [i]
-                          (let [d (get digit-values (subs digits i (inc i)))]
-                            (if (and d (< d r))
-                              d
-                              (refuse! 'parse :syntax {}))))
-                        (range n))
-           magnitude
-           (loop [acc zero
-                  i 0]
-             (if (< i n)
-               (let [end (min n (+ i chunk-digits))
-                     [chunk scale] (reduce (fn [[c s] d] [(+ (* c r) d) (* s r)])
-                                           [0 1]
-                                           (subvec values i end))]
-                 (recur (host/add (host/mul acc (host/from-native scale))
-                                  (host/from-native chunk))
-                        end))
-               acc))]
-       (out limits 'parse (if negative? (host/sub zero magnitude) magnitude))))))
+     (if (and (not (power-of-two? r)) (> n (::max-digits limits)))
+       ::digit-limit
+       (let [values (mapv (fn [i]
+                            (let [d (get digit-values (subs digits i (inc i)))]
+                              (if (and d (< d r))
+                                d
+                                (refuse! 'parse :syntax {}))))
+                          (range n))
+             magnitude
+             (loop [acc zero
+                    i 0]
+               (if (< i n)
+                 (let [end (min n (+ i chunk-digits))
+                       [chunk scale] (reduce (fn [[c s] d]
+                                               [(+ (* c r) d) (* s r)])
+                                             [0 1]
+                                             (subvec values i end))]
+                   (recur (host/add (host/mul acc (host/from-native scale))
+                                    (host/from-native chunk))
+                          end))
+                 acc))]
+         (out limits
+              (if negative? (host/sub zero magnitude) magnitude)))))))
 
 
 (defn- ceil-log2
@@ -380,15 +382,15 @@
          limited? (not (power-of-two? r))]
      ;; |x| >= 2^(bits - 1), so it has more than (bits - 1) / log2(r)
      ;; digits: refuse before building text that is certain to breach
-     (when (and limited?
-                (pos? (bits x))
-                (>= (dec (bits x)) (* (ceil-log2 r) max-digits)))
-       (digit-limit! limits 'format))
-     (let [text (host/to-radix-string x r)]
-       (when (and limited?
+     (if (and limited?
+              (pos? (bits x))
+              (>= (dec (bits x)) (* (ceil-log2 r) max-digits)))
+       ::digit-limit
+       (let [text (host/to-radix-string x r)]
+         (if (and limited?
                   (> (- (count text) (if (neg? (sign x)) 1 0)) max-digits))
-         (digit-limit! limits 'format))
-       text))))
+           ::digit-limit
+           text))))))
 
 
 ;; =============================================================================
@@ -402,7 +404,7 @@
 
 (defn- int-normalize
   [limits a]
-  (out limits 'normalize (big! 'normalize 0 a)))
+  (out limits (big! 'normalize 0 a)))
 
 
 ;; =============================================================================

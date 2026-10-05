@@ -26,6 +26,7 @@
     [yang.python.antlr.safepoint-programs :as programs]
     [yang.safepoint :as safepoint]
     [yin.vm :as vm]
+    [yin.vm.data :as data]
     [yin.vm.encoder :as encoder]
     [yin.vm.engine :as engine]
     [yin.vm.integer :as integer]
@@ -570,6 +571,56 @@
                     "    except TypeError:\n"
                     "        n += 1\n"
                     "print(n)\n"))))
+
+
+(deftest integer-limits-are-guest-exceptions-test
+  (testing "C3 S3a: under a 60-bit composition the key of 5e-324 (2^1074)
+            and every hash (P = 2^61 - 1) breach the bit limit: a
+            MemoryError, an Exception, caught by except and finally, the
+            dict and set unchanged; uncaught, it ends the run as a guest
+            exception"
+    (let [registry (-> (module/empty-registry)
+                       module/register-cell-module
+                       data/register-data-module
+                       (integer/register-integer-module
+                         {::integer/max-bits 60, ::integer/max-digits 5}))
+          source (str "d = {1: 'a'}\n"
+                      "s = {1, 2}\n"
+                      "try:\n"
+                      "    d[5e-324] = 'b'\n"
+                      "except MemoryError:\n"
+                      "    print('insert')\n"
+                      "finally:\n"
+                      "    print('finally')\n"
+                      "try:\n"
+                      "    print(d[5e-324])\n"
+                      "except MemoryError as e:\n"
+                      "    print('lookup', e.args)\n"
+                      "try:\n"
+                      "    s.add(5e-324)\n"
+                      "except Exception as e:\n"
+                      "    print('add', isinstance(e, MemoryError))\n"
+                      "try:\n"
+                      "    d[(1, 5e-324)] = 'c'\n"
+                      "except MemoryError:\n"
+                      "    print('tuple')\n"
+                      "try:\n"
+                      "    hash(1)\n"
+                      "except MemoryError:\n"
+                      "    print('hash')\n"
+                      "print(d, s, d[1.0])\n"
+                      "d[5e-324] = 'e'\n"
+                      "print('unreached')\n")]
+      (doseq [[label opts] [["naive" {}]
+                            ["no-op hooks" {:hooks hooks/noop-uast}]]]
+        (let [results (run-python registry source opts)]
+          (is (not (contains? results :diagnostics)) (pr-str results))
+          (doseq [k [:ast-walker :semantic :stack :register]]
+            (is (= {:py/out ["insert" "finally" "lookup ()" "add True" "tuple"
+                             "hash" "{1: 'a'} {1, 2} a"],
+                    :py/exception {:type "MemoryError", :args []}}
+                   (get results k))
+                (str label " " k))))))))
 
 
 (deftest integer-is-test
