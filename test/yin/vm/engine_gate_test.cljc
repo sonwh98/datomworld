@@ -637,3 +637,570 @@
       (is (= {:dao.stream/outcome :dao.stream/full}
              (ffi/put-request {:yin.k/gate mode} call-in request)))
       (is (= 1 (count @attempts)) (str "no handle call in " mode)))))
+
+
+;; --- D6: links, install children, direct resume -------------------------
+
+(def ^:private blocked-read {:dao.stream/outcome :dao.stream/blocked})
+
+
+(defn- require-ast
+  [module-name]
+  {:type :application,
+   :operator {:type :variable, :name 'require},
+   :operands [(lit module-name)]})
+
+
+(defn- link-opts
+  "Kernel options over counting link streams."
+  [calls]
+  {:make-stream tu/make-stream,
+   :capability-secret tu/secret,
+   :primitives vm/primitives,
+   :modules (module/default-registry),
+   :link-request (counting-handle calls blocked-read),
+   :link-response (counting-handle calls blocked-read)})
+
+
+(deftest running-require-miss-on-every-kernel-test
+  (doseq [[kind run] kernels]
+    (testing (str kind)
+      (let [calls (atom 0)
+            result (run (link-opts calls) :running (require-ast 'foo))
+            entry (first (:wait-set result))]
+        (is (zero? @calls) "zero appends and zero cursor mints")
+        (is (vm/blocked? result))
+        (is (= [:link-request] (mapv :reason (:wait-set result))))
+        (is (not (contains? entry :cursor)) "no cursor on the entry")
+        (is (some? (:envelope entry)) "the envelope is retained verbatim")
+        (is (some? (:link-id entry)))
+        (testing "the sweep neither retries nor scans"
+          (let [swept (engine/check-wait-set result)]
+            (is (zero? @calls))
+            (is (= (:wait-set result) (:wait-set swept)))))))
+    (testing (str kind " ungated")
+      (let [calls (atom 0)
+            result (run (link-opts calls) nil (require-ast 'foo))
+            entry (first (:wait-set result))]
+        (is (<= 2 @calls) "the cursor mint, the append, then the scan")
+        (is (= :link-response (:reason entry)))
+        (is (contains? entry :cursor))))))
+
+
+(deftest gated-append-link-request-answers-full-test
+  (let [calls (atom 0)
+        resources {module/link-request-resource
+                   (counting-handle calls blocked-read)}
+        entry {:reason :link-request, :envelope {:yin.link/id 1}}]
+    (is (= (assoc (dissoc entry :envelope) :reason :link-response)
+           (module/append-link-request resources entry))
+        "no gate argument: appends as before")
+    (is (= 1 @calls))
+    (doseq [mode [:running :exporting :ended]]
+      (is (= entry (module/append-link-request resources entry mode)))
+      (is (= 1 @calls) (str "no append in " mode)))))
+
+
+(defn- link-response-state
+  "A state holding a hand-built `:link-response` entry over a counting
+   response stream."
+  [calls mode]
+  (let [h (counting-handle calls blocked-read)
+        s (-> (vm/empty-state {:make-stream tu/make-stream,
+                               :capability-secret tu/secret})
+              (assoc-in [:resources module/link-response-resource] h)
+              (assoc :wait-set [{:reason :link-response,
+                                 :link-id [:t0 0],
+                                 :name 'foo,
+                                 :cursor ::at}]))]
+    (cond-> s mode (assoc :yin.k/gate mode))))
+
+
+(deftest link-response-scanning-is-gated-test
+  (let [calls (atom 0)]
+    (engine/check-wait-set (link-response-state calls nil))
+    (is (pos? @calls) "ungated scans the response stream"))
+  (doseq [mode [:running :exporting :ended]]
+    (let [calls (atom 0)
+          s (link-response-state calls mode)
+          swept (engine/check-wait-set s)]
+      (is (zero? @calls) (str "no scan in " mode))
+      (is (= (:wait-set s) (:wait-set swept))))))
+
+
+(deftest closed-modes-sweep-nothing-test
+  (let [[s sref cref calls] (setup read-ok)
+        e (effects sref cref)
+        parked (-> (assoc s :yin.k/gate :running)
+                   (run-effect (:put e))
+                   :state
+                   (run-effect (:next e))
+                   :state)]
+    (doseq [mode [:exporting :ended]]
+      (let [swept (engine/check-wait-set (assoc parked :yin.k/gate mode))]
+        (is (zero? @calls) (str "no retry in " mode))
+        (is (= (:wait-set parked) (:wait-set swept)))
+        (is (empty? (:ready-queue swept)))))))
+
+
+(deftest ffi-response-routing-is-gated-on-every-kernel-test
+  (let [program {:type :dao.stream.apply/call,
+                 :op :op/echo,
+                 :operands [(lit 3)]}]
+    (doseq [[kind run] kernels]
+      (testing (str kind)
+        (let [attempts (atom [])
+              plain (run (ffi-opts attempts :dao.stream/ok) nil program)
+              entry (first (:wait-set plain))
+              cell-id (:id (:cursor-ref entry))
+              stream-id (get-in plain [:resources cell-id :stream-id])
+              calls (atom 0)
+              counted (assoc-in plain
+                                [:resources stream-id]
+                                (counting-handle calls blocked-read))]
+          (is (vm/blocked? plain))
+          (is (some? stream-id))
+          (engine/check-wait-set counted)
+          (is (pos? @calls) "ungated routing reads the response cell")
+          (doseq [mode [:running :exporting :ended]]
+            (reset! calls 0)
+            (let [g (assoc counted :yin.k/gate mode)
+                  swept (engine/check-wait-set g)]
+              (is (zero? @calls) (str "no read in " mode))
+              (is (= (:wait-set g) (:wait-set swept))))))))))
+
+
+(defn- install-child
+  "A not-yet-stamped semantic child blocked on a read of a fresh stream,
+   its stream handles counting into `calls`."
+  [calls]
+  (load-semantic
+    (semantic/create-vm (kernel-opts calls))
+    (vm/ast->datoms
+      (with-stream (fn [s]
+                     {:type :application,
+                      :operator {:type :lambda,
+                                 :params ['c],
+                                 :body {:type :stream/next,
+                                        :source {:type :variable,
+                                                 :name 'c}}},
+                      :operands [{:type :stream/cursor, :source s}]})))))
+
+
+(defn- install-state
+  [child mode]
+  (cond-> (assoc (vm/empty-state {:make-stream tu/make-stream,
+                                  :capability-secret tu/secret})
+                 :installs {'foo {:phase :running,
+                                  :vm child,
+                                  :parent [:t0 0],
+                                  :response {}}})
+    mode (assoc :yin.k/gate mode)))
+
+
+(deftest running-install-child-is-stamped-and-advanced-test
+  (let [calls (atom 0)
+        swept (engine/check-wait-set
+                (install-state (install-child calls) :running))
+        inst (get-in swept [:installs 'foo])]
+    (is (zero? @calls) "the child observes nothing")
+    (is (= :running (:yin.k/gate (:vm inst))) "stamped before the run")
+    (is (= :parked (:phase inst)) "and it advanced to its park")
+    (is (vm/blocked? (:vm inst)))
+    (is (= [:next] (mapv :reason (:wait-set (:vm inst)))))
+    (is (not-any? #(contains? (:vm inst) %)
+                  [:yin.k/custody :yin.k/closes :yin.k/issued :yin.k/lease])
+        "the child carries the mode only")))
+
+
+(deftest closed-modes-advance-no-install-child-test
+  (doseq [mode [:exporting :ended]]
+    (let [calls (atom 0)
+          child (install-child calls)
+          swept (engine/check-wait-set (install-state child mode))
+          inst (get-in swept [:installs 'foo])]
+      (is (zero? @calls))
+      (is (= child (:vm inst)) (str "no child step in " mode))
+      (is (= :running (:phase inst))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest created-install-child-carries-the-mode-test
+     (let [start (deref (var engine/start-install))
+           calls (atom 0)
+           image (:vector (linearize/lower-rows
+                            (vm/ast->semantic-bytecode (lit 1))))
+           root (semantic/create-vm (kernel-opts calls))]
+       (doseq [mode [nil :running :exporting :ended]]
+         (let [[s refusal] (start (cond-> root mode (assoc :yin.k/gate mode))
+                                  'foo
+                                  {:image {:value image}}
+                                  [:t0 0])
+               child (get-in s [:installs 'foo :vm])]
+           (is (nil? refusal))
+           (is (= mode (:yin.k/gate child))))))))
+
+
+(deftest closed-modes-refuse-a-direct-resume-test
+  (let [restored (atom 0)
+        restore (fn [state _parked _val] (swap! restored inc) state)
+        base (assoc (vm/empty-state {:make-stream tu/make-stream,
+                                     :capability-secret tu/secret})
+                    :parked {:parked-0 {:type :parked-continuation,
+                                        :id :parked-0}})]
+    (doseq [mode [nil :running]]
+      (reset! restored 0)
+      (engine/resume-continuation (cond-> base mode (assoc :yin.k/gate mode))
+                                  :parked-0 1 restore)
+      (is (= 1 @restored) (str "resume proceeds in " (or mode :ungated))))
+    (doseq [mode [:exporting :ended]]
+      (reset! restored 0)
+      (is (throws? #(engine/resume-continuation
+                      (assoc base :yin.k/gate mode)
+                      :parked-0 1 restore)))
+      (is (zero? @restored) (str "refused in " mode)))))
+
+
+;; --- D6: the driver's link applies --------------------------------------
+
+(defn- gated-miss
+  "[state calls link-id] of a `require` miss on a gated semantic VM."
+  []
+  (let [calls (atom 0)
+        s ((:semantic kernels) (link-opts calls) :running (require-ast 'foo))]
+    [s calls (:link-id (first (:wait-set s)))]))
+
+
+(defn- with-mode
+  [s mode]
+  (if mode (assoc s :yin.k/gate mode) (dissoc s :yin.k/gate)))
+
+
+(deftest apply-link-cursor-installs-on-the-request-entry-test
+  (let [[s calls id] (gated-miss)
+        entry (first (:wait-set s))
+        s' (engine/apply-link-cursor s id ::pos)
+        entry' (first (:wait-set s'))]
+    (is (= ::pos (:cursor entry')))
+    (is (= (assoc entry :cursor ::pos) entry') "only the cursor is added")
+    (is (= :link-request (:reason entry')))
+    (is (= (:ready-queue s) (:ready-queue s')) "nothing woken")
+    (is (zero? @calls) "zero stream calls")
+    (testing "a double install is refused, even with an equal position"
+      (is (throws? #(engine/apply-link-cursor s' id ::pos)))
+      (is (throws? #(engine/apply-link-cursor s' id ::other))))
+    (testing "an unknown id is refused"
+      (is (throws? #(engine/apply-link-cursor s [:t0 99] ::pos))))
+    (testing "a gated poll round after the install makes zero calls"
+      (let [swept (engine/check-wait-set s')]
+        (is (zero? @calls))
+        (is (= (:wait-set s') (:wait-set swept)))))))
+
+
+(deftest apply-link-cursor-targets-one-entry-test
+  (let [[s _ id] (gated-miss)
+        second-entry (assoc (first (:wait-set s)) :link-id [:t0 9])
+        two (update s :wait-set conj second-entry)
+        s' (engine/apply-link-cursor two [:t0 9] ::pos)]
+    (is (not (contains? (first (:wait-set s')) :cursor)))
+    (is (= ::pos (:cursor (second (:wait-set s')))))
+    (is (= id (:link-id (first (:wait-set s')))))))
+
+
+(deftest link-applies-are-refused-outside-running-test
+  (let [[s _ id] (gated-miss)
+        sent (engine/apply-link-sent (engine/apply-link-cursor s id ::pos)
+                                     id)]
+    (doseq [mode [nil :exporting :ended]]
+      (testing (str (or mode :ungated))
+        (is (throws? #(engine/apply-link-cursor (with-mode s mode) id ::pos)))
+        (is (throws? #(engine/apply-link-sent
+                        (with-mode (engine/apply-link-cursor s id ::pos) mode)
+                        id)))
+        (is (throws? #(engine/apply-link-read (with-mode sent mode)
+                                              id
+                                              {:dao.stream/outcome
+                                               :dao.stream/blocked})))))))
+
+
+(deftest apply-link-sent-moves-the-entry-to-link-response-test
+  (let [[s calls id] (gated-miss)]
+    (testing "an entry without a cursor cannot be sent"
+      (is (throws? #(engine/apply-link-sent s id))))
+    (let [s' (engine/apply-link-cursor s id ::pos)
+          sent (engine/apply-link-sent s' id)
+          entry (first (:wait-set sent))]
+      (is (= :link-response (:reason entry)))
+      (is (not (contains? entry :envelope)))
+      (is (= ::pos (:cursor entry)))
+      (is (= (:ready-queue s) (:ready-queue sent)))
+      (is (zero? @calls))
+      (is (throws? #(engine/apply-link-sent sent id)) "no longer a request")
+      (is (throws? #(engine/apply-link-sent s' [:t0 99])))
+      (testing "a gated round leaves it waiting with zero calls"
+        (is (= (:wait-set sent)
+               (:wait-set (engine/check-wait-set sent))))
+        (is (zero? @calls))))))
+
+
+(deftest apply-link-read-applies-one-outcome-test
+  (let [[s calls id] (gated-miss)
+        sent (-> s
+                 (engine/apply-link-cursor id ::pos)
+                 (engine/apply-link-sent id))
+        ok (fn [v]
+             {:dao.stream/outcome :dao.stream/ok,
+              :dao.stream/value v,
+              :dao.stream/cursor ::next})]
+    (testing "blocked keeps waiting, state unchanged"
+      (is (= sent
+             (engine/apply-link-read sent id {:dao.stream/outcome
+                                              :dao.stream/blocked}))))
+    (testing "another id's response is skipped and the cursor advances"
+      (let [s' (engine/apply-link-read sent id (ok {:yin.link/id [:t0 77]}))
+            entry (first (:wait-set s'))]
+        (is (= :link-response (:reason entry)))
+        (is (= ::next (:cursor entry)))
+        (is (empty? (:ready-queue s')))))
+    (testing "its own refused response wakes the entry with the refusal"
+      (let [s' (engine/apply-link-read
+                 sent id (ok {:yin.link/id id, :status :refused,
+                              :reason :absent}))]
+        (is (empty? (:wait-set s')))
+        (is (= 1 (count (:ready-queue s'))))
+        (is (= :link-refused (:status (first (:ready-queue s')))))))
+    (testing "gap and the rest refuse the entry"
+      (doseq [o [:dao.stream/gap :dao.stream/end]]
+        (let [s' (engine/apply-link-read sent id {:dao.stream/outcome o})]
+          (is (empty? (:wait-set s')))
+          (is (= :link-refused (:status (first (:ready-queue s'))))))))
+    (testing "an unknown id, or a request still unsent, is refused"
+      (is (throws? #(engine/apply-link-read sent [:t0 99]
+                                            (ok {:yin.link/id id}))))
+      (is (throws? #(engine/apply-link-read
+                      (engine/apply-link-cursor s id ::pos) id
+                      (ok {:yin.link/id id})))))
+    (is (zero? @calls) "zero stream calls")))
+
+
+;; --- D6: the driver's put and next applies ------------------------------
+
+(defn- scripted-handle
+  "A handle answering `put-outcome` to every append and `read-outcome` to
+   every next, counting calls."
+  [calls put-outcome read-outcome]
+  (reify
+    stream/IDaoStreamReader
+
+    (cursor
+      [_ _]
+      (swap! calls inc)
+      {:dao.stream/outcome :dao.stream/ok, :dao.stream/cursor ::at})
+
+    (next
+      [_ _]
+      (swap! calls inc)
+      read-outcome)
+
+
+    stream/IDaoStreamWriter
+
+    (append!
+      [_ _]
+      (swap! calls inc)
+      put-outcome)))
+
+
+(defn- parked-pair
+  "[state put-entry next-entry cursor-id calls] of a gated machine holding
+   one parked put and one parked next, over a handle answering the given
+   outcomes to whatever is polled."
+  [put-outcome read-outcome]
+  (let [calls (atom 0)
+        [sref s0] (engine/attach-resource
+                    (vm/empty-state {:make-stream tu/make-stream,
+                                     :capability-secret tu/secret})
+                    (scripted-handle calls put-outcome read-outcome))
+        [cref s1] (engine/handle-cursor s0 {:stream sref} :cursor-0)
+        e (effects sref cref)
+        parked (-> (assoc s1 :yin.k/gate :running)
+                   (run-effect (:put e))
+                   :state
+                   (run-effect (:next e))
+                   :state)
+        [put-entry next-entry] (:wait-set parked)]
+    (reset! calls 0)
+    [parked put-entry next-entry (:id cref) calls]))
+
+
+(def ^:private ok-put {:dao.stream/outcome :dao.stream/ok})
+
+
+(def ^:private read-outcomes
+  [{:dao.stream/outcome :dao.stream/ok,
+    :dao.stream/value :v,
+    :dao.stream/cursor ::next}
+   {:dao.stream/outcome :dao.stream/blocked}
+   {:dao.stream/outcome :dao.stream/end}
+   {:dao.stream/outcome :dao.stream/gap, :dao.stream/cursor ::recovered}
+   {:dao.stream/outcome :dao.stream/cursor-mismatch}
+   {:dao.stream/outcome :dao.stream/refused}])
+
+
+(deftest apply-put-matches-the-ungated-sweep-test
+  (doseq [o [{:dao.stream/outcome :dao.stream/ok}
+             {:dao.stream/outcome :dao.stream/full}
+             {:dao.stream/outcome :dao.stream/closed}
+             {:dao.stream/outcome :dao.stream/refused}]]
+    (testing (str (:dao.stream/outcome o))
+      (let [[parked put-entry _ _ calls] (parked-pair o read-ok)
+            applied (engine/apply-put parked put-entry o)
+            [ungated pe] (parked-pair o {:dao.stream/outcome
+                                         :dao.stream/blocked})
+            swept (engine/check-wait-set (dissoc ungated :yin.k/gate))]
+        (is (= put-entry pe))
+        (is (zero? @calls) "the apply makes no stream call")
+        (is (= (filterv #(= :put (:reason %)) (:ready-queue swept))
+               (:ready-queue applied))
+            "the same ready entries as the ungated sweep's retry")
+        (is (= (filterv #(= :put (:reason %)) (:wait-set swept))
+               (filterv #(= :put (:reason %)) (:wait-set applied))))))))
+
+
+(deftest apply-next-matches-the-ungated-sweep-test
+  (doseq [o read-outcomes]
+    (testing (str (:dao.stream/outcome o))
+      (let [[parked _ next-entry cid calls] (parked-pair ok-put o)
+            applied (engine/apply-next parked next-entry o)
+            [ungated] (parked-pair {:dao.stream/outcome :dao.stream/full} o)
+            swept (engine/check-wait-set (dissoc ungated :yin.k/gate))]
+        (is (zero? @calls))
+        (is (= (filterv #(= :next (:reason %)) (:ready-queue swept))
+               (:ready-queue applied)))
+        (is (= (filterv #(= :next (:reason %)) (:wait-set swept))
+               (filterv #(= :next (:reason %)) (:wait-set applied))))
+        (is (= (get-in swept [:resources cid :cursor])
+               (get-in applied [:resources cid :cursor]))
+            "the cell advances as the sweep advances it")))))
+
+
+(deftest put-and-next-applies-refuse-test
+  (let [[parked put-entry next-entry _ calls] (parked-pair ok-put read-ok)
+        ok-read (first read-outcomes)]
+    (doseq [mode [nil :exporting :ended]]
+      (testing (str (or mode :ungated))
+        (let [s (with-mode parked mode)]
+          (is (throws? #(engine/apply-put s put-entry ok-put)))
+          (is (throws? #(engine/apply-next s next-entry ok-read))))))
+    (testing "an entry the wait set does not hold"
+      (is (throws? #(engine/apply-put parked
+                                      (assoc put-entry :stream-id :nope)
+                                      ok-put)))
+      (is (throws? #(engine/apply-next parked
+                                       (assoc next-entry :stream-id :nope)
+                                       ok-read))))
+    (testing "an entry of the other kind"
+      (is (throws? #(engine/apply-put parked next-entry ok-put)))
+      (is (throws? #(engine/apply-next parked put-entry ok-read))))
+    (testing "a second apply finds no entry"
+      (let [after (engine/apply-put parked put-entry ok-put)]
+        (is (throws? #(engine/apply-put after put-entry ok-put)))))
+    (is (zero? @calls))))
+
+
+;; --- D6: the driver's FFI applies ---------------------------------------
+
+(defn- ffi-response
+  [id value cursor]
+  {:dao.stream/outcome :dao.stream/ok,
+   :dao.stream/value (apply2/success-response id value),
+   :dao.stream/cursor cursor})
+
+
+(defn- out-cursor
+  [s]
+  (get-in s [:resources vm/call-out-cursor-key :cursor]))
+
+
+(deftest ffi-sent-moves-the-request-to-its-reader-test
+  (let [program {:type :dao.stream.apply/call,
+                 :op :op/echo,
+                 :operands [(lit 3)]}]
+    (doseq [[kind run] kernels]
+      (testing (str kind)
+        (let [attempts (atom [])
+              gated (run (ffi-opts attempts :dao.stream/ok) :running program)
+              cid (ffi/request-call-id (first (:wait-set gated)))
+              sent (engine/apply-ffi-sent gated cid)]
+          (is (some? cid))
+          (doseq [mode [nil :exporting :ended]]
+            (is (throws? #(engine/apply-ffi-sent (with-mode gated mode)
+                                                 cid))))
+          (is (throws? #(engine/apply-ffi-sent gated :nope)))
+          (is (empty? (:wait-set sent)))
+          (is (= 1 (count (:ready-queue sent))))
+          (is (throws? #(engine/apply-ffi-sent sent cid))
+              "a second transition is refused")
+          (let [waiting (vm/run sent)]
+            (is (vm/blocked? waiting))
+            (is (= cid (ffi/response-call-id (first (:wait-set waiting))))
+                "restored as the call's response reader"))
+          (is (zero? (count @attempts)) "no stream call"))))))
+
+
+(deftest ffi-read-applies-one-response-test
+  (let [program {:type :dao.stream.apply/call,
+                 :op :op/echo,
+                 :operands [(lit 3)]}
+        blocked {:dao.stream/outcome :dao.stream/blocked}]
+    (doseq [[kind run] kernels]
+      (testing (str kind)
+        (let [attempts (atom [])
+              gated (run (ffi-opts attempts :dao.stream/ok) :running program)
+              cid (ffi/request-call-id (first (:wait-set gated)))
+              waiting (vm/run (engine/apply-ffi-sent gated cid))
+              reader (first (:wait-set waiting))
+              other (assoc reader :call-id :other)
+              shared (update waiting :wait-set conj other)]
+          (testing "refusals"
+            (is (throws? #(engine/apply-ffi-read gated cid blocked))
+                "a request is not yet a reader")
+            (doseq [mode [nil :exporting :ended]]
+              (is (throws? #(engine/apply-ffi-read (with-mode waiting mode)
+                                                   cid
+                                                   blocked))))
+            (is (throws? #(engine/apply-ffi-read waiting :nope blocked)))
+            (is (throws? #(engine/apply-next waiting reader blocked))
+                "a response reader is not a plain next"))
+          (testing "blocked keeps waiting"
+            (is (= waiting (engine/apply-ffi-read waiting cid blocked))))
+          (testing "its own response settles the call"
+            (let [read (engine/apply-ffi-read waiting cid
+                                              (ffi-response cid 3 ::after))
+                  done (vm/run read)]
+              (is (empty? (:wait-set read)))
+              (is (= 1 (count (:ready-queue read))))
+              (is (= ::after (out-cursor read)))
+              (is (vm/halted? done))
+              (is (= 3 (vm/value done)))))
+          (testing "a response no reader owns is skipped and advances"
+            (let [read (engine/apply-ffi-read waiting cid
+                                              (ffi-response :nobody 9 ::after))]
+              (is (= (:wait-set waiting) (:wait-set read)))
+              (is (empty? (:ready-queue read)))
+              (is (= ::after (out-cursor read)))
+              (is (= :unmatched (:kind (first (:ffi-diagnostics read)))))))
+          (testing "on a shared cell another reader's response wakes it"
+            (let [read (engine/apply-ffi-read shared cid
+                                              (ffi-response :other 4 ::after))]
+              (is (= [reader] (:wait-set read)) "ours keeps waiting")
+              (is (= [:other] (mapv :call-id (:ready-queue read))))
+              (is (= ::after (out-cursor read)))))
+          (testing "end wakes every reader of the cell"
+            (let [read (engine/apply-ffi-read
+                         shared cid {:dao.stream/outcome :dao.stream/end})]
+              (is (empty? (:wait-set read)))
+              (is (= [::ffi/response-ended ::ffi/response-ended]
+                     (mapv :status (:ready-queue read))))))
+          (is (zero? (count @attempts)) "zero stream calls throughout"))))))

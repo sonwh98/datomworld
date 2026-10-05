@@ -2177,9 +2177,10 @@ power-of-two radix is exempt from `::max-digits`.
   composition's `integer` limits must admit at least 1075 bits for float
   keys. Under a smaller bit limit the key is refused, never
   approximated: the refusal must surface as the documented guest
-  failure (ruling 11: `MemoryError`). The prelude does not map `integer`
-  refusals to guest exceptions yet, so today such a refusal fails the
-  run instead.
+  failure (ruling 11: `MemoryError`). Since S3a the prelude translates
+  it through the single translator `py/int-result`: the breach raises a
+  catchable `MemoryError`, and a failed key normalization leaves the
+  container unchanged.
 
 Guest numeric `hash()` uses P = 2^61-1 on every host (ruling 7):
 `h(n) = sign(n) * (abs(n) mod P)`, with -1 replaced by -2. A finite
@@ -2228,13 +2229,17 @@ parity remains a separately tracked limitation, not claimed by C3
 +========+=====================================================================+
 | S0     | Freeze contracts: profile, expected bytes, literals, hashes,        |
 |        | outcomes, and boundary values around 2^53, 2^63, and 2^64. No       |
-|        | existing canonical fixture changes.                                 |
+|        | existing canonical fixture changes. Landed.                         |
 +--------+---------------------------------------------------------------------+
 | S1     | Exact carriers and the pure module, installed explicitly; a         |
 |        | registry without it refuses.                                        |
 +--------+---------------------------------------------------------------------+
 | S2     | Literal and boundary integration: equal spellings give equal rows,  |
 |        | bytes, and hashes; malformed encodings refuse.                      |
++--------+---------------------------------------------------------------------+
+| S3a    | Limit reasons as guest exceptions: `integer` version 2 returns      |
+|        | them, and `py/int-result` raises MemoryError or ValueError.         |
+|        | Landed.                                                             |
 +--------+---------------------------------------------------------------------+
 | S3     | Integer operators, including augmented forms, through the prelude;  |
 |        | every C1 arithmetic regression still passes.                        |

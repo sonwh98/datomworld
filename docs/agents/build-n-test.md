@@ -26,17 +26,22 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # (dao.test-slow/guard "name" (fn [] ...)); it prints SKIP unless DATOM_SLOW_TESTS=1.
 # Node and Dart select slow tests by NAMESPACE (derived by grepping `slow/guard`
 # under test/), so the non-slow tests inside those namespaces also run there.
-# On Node, shadow also runs the test namespaces those six require (about seven
-# more, e.g. lower-portable-test); on Dart only the six namespaces run.
+# On Node, shadow also runs the test namespaces those nine require (about
+# seven more, e.g. lower-portable-test); on Dart only the nine namespaces run.
 # Run test:slow / test:all before a big merge or a commit that touches many parts.
 # Run one Dart lane at a time repo-wide.
 #
-# When to tag a test slow: when it takes more than about 5 s on any lane. The
+# When to tag a test slow: when it takes more than about 5 s on any lane (the
+# Python e2e tests sit on a ~3 s floor, so their JVM cut is 3.0 s). The
 # default lanes must stay in minutes; 22 JVM tests (0.75% of the suite) were
 # 81% of its test time. Tag it ^:slow on the JVM; if it is a .cljc test, also
 # wrap its body in dao.test-slow/guard so Node and Dart skip it by default. A
 # test that is slow only on Dart (dao.jing.dht-test/unproven-chunks-... takes
 # 72 s there, 3.6 s on the JVM) is a candidate for a speed investigation first.
+# Python slow set (2026-10-06): 65 ^:slow and 15 guard-only tests in the
+# yang.python.antlr e2e, e2e-c1, prelude-parity, safepoint, float-address
+# and int-contract tests; a Python slice landing runs `clojure -M:test -i :slow -n <ns>` for
+# its changed Python namespaces.
 # While iterating, run only `bb test:clj` (or one namespace: `clojure -M:test -n
 # <ns>`), not the full `bb test`. Run the full three-lane `bb test` once per
 # slice, before landing, and one lane set at a time: overlapping runs slow each
@@ -57,6 +62,28 @@ bb build:yin-repl-node   # Node REPL target/yin-repl.js; REQUIRED by
                          # and the linker L5 Node reader that requires a module
                          # by name): `clojure -M:test` without it fails that test
 ```
+
+### Changed-only tests: `bb test:changed`
+
+`bb test:changed` (src/dev/affected.clj) runs the fast tests a change can
+reach: the reverse require closure of the files changed since the
+merge-base with master, plus fixtures that mention a changed resource path,
+tests that walk a changed tree, and each src file's `_test` by convention.
+A walker is a file calling file-seq, fs/glob, fs/list-dir,
+fs/walk-file-tree or .listFiles; each string literal argument of its
+io/file, fs/file, fs/path, fs/glob, java.io.File. or File. calls is a root
+(let-bound roots count), and a change under a root selects it. The three
+lanes run in parallel (logs: target/profile/changed-<lane>.log) after the
+needed builds. `test:changed:list` shows what and why; `:clj`/`:cljs`/
+`:cljd` run one lane; `--base REF`; `--changed FILE...` (absolute OK; a
+typo, an empty list or the wrong cwd exits 1). Use it to iterate and to
+land a slice confined to a package. Exit 2 (from :list too) is a wide
+change (deps.edn bb.edn shadow-cljs.edn mise.toml .cljstyle src/dev/
+antlr/ .clj-kondo/ package*/pubspec*): it runs nothing; run `bb test`,
+as for a change to the core everything requires (yin.vm engine,
+dao.stream, codecs) and before a big merge. Not seen: dynamic loads
+(`requiring-resolve`, `resolve`), paths or walk roots built at run time,
+and spawned programs that changed (target/yin-repl.js, Dart peers).
 
 The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
 slice L5) is two tests:

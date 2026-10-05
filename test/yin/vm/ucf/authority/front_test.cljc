@@ -659,24 +659,32 @@
 (defn- inheriting
   "A granted world where R completed under lease-1 into S1, whose body
    carries R's ids 0 to 2, and S1 is offered and granted as lease-2 to
-   holder-a, all in the front's own store."
+   holder-a, all in the front's own store.  The regenerated successor
+   base (D9) lifts one write, so the body carries its write frame once
+   per id, a clone under each."
   []
   (let [{:keys [a store] :as w} (granted)
+        base (assoc (get fx/fixtures "successor")
+                    :yin.k/occurrence succ-occ
+                    :yin.k/origin {:yin.k/occurrence occ
+                                   :dao.lease/lease "lease-1"
+                                   :yin.k/emitter "holder-a"}
+                    :yin.k/arbitration
+                    {:dao.stream/identity arb
+                     :dao.stream/descriptor
+                     {:dao.stream/type :dao.stream/journal}})
+        write (some (fn [f]
+                      (when (= :put (get-in f [:yin.k/pending :yin.k/reason]))
+                        f))
+                    (:yin.k/frames base))
         {:keys [address bytes]}
-        (enc (reduce (fn [b k]
-                       (assoc-in b [:yin.k/frames k :yin.k/pending
-                                    :yin.k/op-id]
-                                 {:yin.k/occurrence occ :yin.k/seq k}))
-                     (assoc (get fx/fixtures "successor")
-                            :yin.k/occurrence succ-occ
-                            :yin.k/origin {:yin.k/occurrence occ
-                                           :dao.lease/lease "lease-1"
-                                           :yin.k/emitter "holder-a"}
-                            :yin.k/arbitration
-                            {:dao.stream/identity arb
-                             :dao.stream/descriptor
-                             {:dao.stream/type :dao.stream/journal}})
-                     (range 3)))]
+        (enc (assoc base :yin.k/frames
+                    (mapv (fn [k]
+                            (assoc-in write
+                                      [:yin.k/pending :yin.k/op-id]
+                                      {:yin.k/occurrence occ
+                                       :yin.k/seq k}))
+                          (range 3))))]
     (completion/report! a "holder-a" (completion/resumed occ "lease-1" address)
                         bytes)
     (stream/append! (grant/writer a) (lease/lapsed "lease-1" :release))

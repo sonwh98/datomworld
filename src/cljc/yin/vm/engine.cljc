@@ -493,7 +493,7 @@
   (stream/append! (get (:resources state) stream-id) val))
 
 
-(defn- apply-put
+(defn- apply-put-outcome
   "Apply half of `:stream/put`: an append outcome to the effect's answer."
   [state stream-id val result]
   (let [o (outcome result)]
@@ -526,7 +526,8 @@
         val (:val effect)]
     (if (= :running (gate-refuse! state effect))
       {:park true, :stream-id stream-id, :state state}
-      (apply-put state stream-id val (observe-put state stream-id val)))))
+      (apply-put-outcome state stream-id val
+                         (observe-put state stream-id val)))))
 
 
 (defn handle-cursor
@@ -618,7 +619,7 @@
      :handle handle}))
 
 
-(defn- apply-next
+(defn- apply-next-outcome
   "Apply half of `:stream/next`: a read outcome `result` to the effect's
    answer."
   [state cursor-ref {:keys [cursor-id stream-id]} result]
@@ -673,10 +674,10 @@
        :cursor-ref cursor-ref,
        :stream-id (:stream-id target),
        :state state}
-      (apply-next state
-                  cursor-ref
-                  target
-                  (stream/next (:handle target) (:cursor target))))))
+      (apply-next-outcome state
+                          cursor-ref
+                          target
+                          (stream/next (:handle target) (:cursor target))))))
 
 
 (defn handle-poll
@@ -709,7 +710,7 @@
     (let [cursor-ref (:cursor-ref entry)
           target (-> (next-target state cursor-ref)
                      (assoc :handle nil))
-          result (apply-next state cursor-ref target outcome)
+          result (apply-next-outcome state cursor-ref target outcome)
           value (if (:park result) :dao.stream/blocked (:value result))
           state' (:state result)]
       (-> state'
@@ -1241,6 +1242,14 @@
   (jing/segment-key (:manifest response)))
 
 
+(defn- stamp-gate
+  "`child` carrying the root's custody gate `mode` and nothing else of
+   the root's custody: the mode only. An ungated root leaves it as is."
+  [child mode]
+  (cond-> child
+    (some? mode) (assoc :yin.k/gate mode)))
+
+
 (defn- spawn-child
   "`loading` (section 7.3): a fresh child of the parent's backend over the
    verified image, under a fresh origin tag, its install ancestry the
@@ -1273,7 +1282,7 @@
         child (reduce (fn [c [m entry]] (receive-module c m entry))
                       child
                       (linked-entries registry))]
-    [child (assoc state :origins (inc n))]))
+    [(stamp-gate child (vm/gate-mode state)) (assoc state :origins (inc n))]))
 
 
 (defn- wake-installed
@@ -1382,14 +1391,20 @@
    origin image, lowering the slice or a store snapshot, or receiving a
    dependency -- refuses it too, at phase `:linked`, from the state the
    round started with: nothing half-published survives, every waiter is
-   restored with the refusal, and no throw leaves the round."
+   restored with the refusal, and no throw leaves the round.
+
+   Under a custody gate the child is stamped with the root's mode before
+   it runs; in `:exporting` and `:ended` it does not run."
   [state module-name]
   (let [inst (get-in state [:installs module-name])
+        mode (vm/gate-mode state)
         [child refusal]
-        (try [(vm/run (:vm inst)) nil]
-             (catch #?(:cljd Object :clj Throwable :cljs :default) e
-               [nil (error-refusal module-name e)]))]
+        (when-not (contains? #{:exporting :ended} mode)
+          (try [(vm/run (stamp-gate (:vm inst) mode)) nil]
+               (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                 [nil (error-refusal module-name e)])))]
     (cond
+      (and (nil? child) (nil? refusal)) state
       refusal (refuse-install state module-name refusal)
       (:blocked? child)
       (assoc-in state [:installs module-name]
@@ -1468,6 +1483,35 @@
             [state waiter nil]))))))
 
 
+(defn- link-read-step
+  "Apply one read outcome `r` to the `:link-response` `entry`, whose
+   `:cursor` is the position the read was made at (section 7.2, step 7):
+   an `ok` carrying another id's response advances the cursor and skips
+   it, `[:skipped state entry]`; every other result is final,
+   `[:done state waiting woken]`. An `ok` with the entry's own id settles;
+   `blocked` keeps waiting; `gap` and the terminal outcomes are raised as
+   the effect's error."
+  [state entry r]
+  (let [o (outcome r)]
+    (case o
+      :dao.stream/ok
+      (let [v (:dao.stream/value r)
+            id (when (map? v) (:yin.link/id v))
+            entry (assoc entry :cursor (:dao.stream/cursor r))]
+        (if (= id (:link-id entry))
+          (into [:done] (settle state entry v))
+          [:skipped (skip state entry id) entry]))
+      :dao.stream/blocked [:done state entry nil]
+      [:done
+       (retire state (:link-id entry) :restored)
+       nil
+       (refused-entry entry
+                      {:status :refused,
+                       :reason :link-stream,
+                       :outcome o,
+                       :link-id (:link-id entry)})])))
+
+
 (defn- poll-link-response
   "Poll a `:link-response` entry's kept cursor (section 7.2, step 7):
    advance past every response whose `:yin.link/id` is not its own,
@@ -1478,40 +1522,32 @@
   [state entry]
   (let [reader (get (:resources state) module/link-response-resource)]
     (loop [state state
-           cursor (:cursor entry)]
-      (let [r (stream/next reader cursor)
-            o (outcome r)]
-        (case o
-          :dao.stream/ok
-          (let [v (:dao.stream/value r)
-                id (when (map? v) (:yin.link/id v))
-                entry (assoc entry :cursor (:dao.stream/cursor r))]
-            (if (= id (:link-id entry))
-              (settle state entry v)
-              (recur (skip state entry id) (:cursor entry))))
-          :dao.stream/blocked [state (assoc entry :cursor cursor) nil]
-          [(retire state (:link-id entry) :restored)
-           nil
-           (refused-entry entry
-                          {:status :refused,
-                           :reason :link-stream,
-                           :outcome o,
-                           :link-id (:link-id entry)})])))))
+           entry entry]
+      (let [[tag a b c] (link-read-step state
+                                        entry
+                                        (stream/next reader (:cursor entry)))]
+        (if (= :skipped tag)
+          (recur a b)
+          [a b c])))))
 
 
 (defn- poll-link-entry
   "One poll of a link wait entry: a `:link-request` retries its retained
    envelope and, appended, polls on as a `:link-response`; an `:install`
-   waits for its install. Returns `[state waiting woken]`."
+   waits for its install. Under a custody gate a request is not retried
+   and a response is not scanned. Returns `[state waiting woken]`."
   [state entry]
-  (case (:reason entry)
-    :link-request
-    (let [entry' (module/append-link-request (:resources state) entry)]
-      (if (= :link-response (:reason entry'))
-        (poll-link-response state entry')
-        [state entry' nil]))
-    :link-response (poll-link-response state entry)
-    :install [state entry nil]))
+  (let [gate (vm/gate-mode state)]
+    (case (:reason entry)
+      :link-request
+      (let [entry' (module/append-link-request (:resources state) entry gate)]
+        (if (= :link-response (:reason entry'))
+          (poll-link-response state entry')
+          [state entry' nil]))
+      :link-response (if (some? gate)
+                       [state entry nil]
+                       (poll-link-response state entry))
+      :install [state entry nil])))
 
 
 (defn- poll-links
@@ -1531,6 +1567,79 @@
         (assoc :wait-set (into (vec others) waiting))
         (update :ready-queue (fnil into []) woken)
         advance-installs)))
+
+
+(defn- require-running!
+  "Refuse a driver apply on an ungated task (it drives itself) and in the
+   `:exporting` and `:ended` gates (a late result)."
+  [state data]
+  (let [mode (vm/gate-mode state)]
+    (when-not (= :running mode)
+      (fail (if (nil? mode)
+              "Ungated task: it drives its own streams"
+              "Gate is closed: late apply refused")
+            (assoc data :yin.k/gate mode)))))
+
+
+(defn- link-entry-slot
+  "The index of the gated task's wait entry in `reason` for `link-id`;
+   refuses an ungated task, the `:exporting` and `:ended` gates, and an id
+   no such entry holds."
+  [state link-id reason]
+  (require-running! state {:link-id link-id})
+  (or (first (keep-indexed (fn [i e]
+                             (when (and (= reason (:reason e))
+                                        (= link-id (:link-id e)))
+                               i))
+                           (:wait-set state)))
+      (fail "No such link entry" {:link-id link-id, :reason reason})))
+
+
+(defn apply-link-cursor
+  "Apply the driver's mint of the link response cursor for the gated
+   `:link-request` entry `link-id`: sets `:cursor` to the portable
+   `position`. The entry stays a `:link-request`, envelope verbatim;
+   nothing is woken. Performs no stream call. Refused for an ungated
+   task, in the `:exporting` and `:ended` gates, for an id no
+   `:link-request` entry holds, and for an entry that has a cursor."
+  [state link-id position]
+  (let [i (link-entry-slot state link-id :link-request)]
+    (when (contains? (get-in state [:wait-set i]) :cursor)
+      (fail "Link cursor already installed" {:link-id link-id}))
+    (assoc-in state [:wait-set i :cursor] position)))
+
+
+(defn apply-link-sent
+  "Apply the driver's send of the gated `:link-request` entry `link-id`:
+   the entry moves to `:link-response` and drops its envelope. Performs no
+   stream call. Refused as `apply-link-cursor` is, and for an entry
+   without `:cursor`: the cursor precedes the append."
+  [state link-id]
+  (let [i (link-entry-slot state link-id :link-request)]
+    (when-not (contains? (get-in state [:wait-set i]) :cursor)
+      (fail "Link request sent before its cursor" {:link-id link-id}))
+    (update-in state
+               [:wait-set i]
+               #(-> % (dissoc :envelope) (assoc :reason :link-response)))))
+
+
+(defn apply-link-read
+  "Apply one read `outcome` of the link response stream to the gated
+   `:link-response` entry `link-id`, as `poll-link-response` applies one
+   read; the successor position is inside the outcome. Another id's
+   response advances the cursor and is skipped, `blocked` keeps waiting,
+   the entry's own response settles and the rest refuse. Performs no
+   stream call. Refused as `apply-link-cursor` is."
+  [state link-id outcome]
+  (let [i (link-entry-slot state link-id :link-response)
+        entry (get-in state [:wait-set i])
+        [_tag state' waiting woken] (link-read-step state entry outcome)
+        ws (:wait-set state')]
+    (-> state'
+        (assoc :wait-set (if waiting
+                           (assoc ws i waiting)
+                           (into (subvec ws 0 i) (subvec ws (inc i)))))
+        (update :ready-queue (fnil into []) (when woken [woken])))))
 
 
 (defn abandon-link
@@ -1647,6 +1756,42 @@
       {:dao.stream/outcome :dao.stream.waitset/invalid-answer})))
 
 
+(defn- ffi-read-step
+  "Apply one read `r` of response cell `cell-key`, read at `cursor`, to
+   the readers `waiting` (`woken` so far), as `poll-ffi-cell` applies one
+   read. Returns `[:more state cursor waiting woken]` when the run goes
+   on past an `ok` that woke an owner or was skipped, and `[:done state
+   cursor waiting woken]` otherwise."
+  [state cell-key cursor waiting woken pending r]
+  (let [o (outcome r)
+        wake-all (fn [status value]
+                   (into woken
+                         (map (fn [e]
+                                {:entry e, :status status, :value value}))
+                         waiting))]
+    (case o
+      :dao.stream/ok
+      (let [v (:dao.stream/value r)
+            id (apply2/response-id v)
+            owner (when (some? id)
+                    (first (filter #(= id (ffi/response-call-id %)) waiting)))]
+        (cond
+          owner [:more state (:dao.stream/cursor r)
+                 (filterv #(not (identical? owner %)) waiting)
+                 (conj woken {:entry owner, :status :ok, :value v})]
+          (and (some? id) (contains? pending id))
+          [:done state cursor waiting woken]
+          :else [:more (ffi-skip state cell-key v) (:dao.stream/cursor r)
+                 waiting woken]))
+      :dao.stream/blocked [:done state cursor waiting woken]
+      :dao.stream/end
+      [:done state cursor [] (wake-all ::ffi/response-ended nil)]
+      :dao.stream/gap
+      [:done state (:dao.stream/cursor r) []
+       (wake-all ::ffi/response-gap :dao.stream/gap)]
+      [:done state cursor [] (wake-all o o)])))
+
+
 (defn- poll-ffi-cell
   "Route one response cell: read at most `budget` values from its
    cursor, waking each waiter in `entries` whose call id a response
@@ -1671,48 +1816,15 @@
              n 0]
         (let [done (fn [state cursor waiting woken]
                      [(assoc-in state [:resources cell-key :cursor] cursor)
-                      waiting woken])
-              wake-all (fn [status value]
-                         (into woken
-                               (map (fn [e]
-                                      {:entry e,
-                                       :status status,
-                                       :value value}))
-                               waiting))]
+                      waiting woken])]
           (if (or (empty? waiting) (>= n budget))
             (done state cursor waiting woken)
-            (let [r (read-response handle cursor)
-                  o (outcome r)]
-              (case o
-                :dao.stream/ok
-                (let [v (:dao.stream/value r)
-                      id (apply2/response-id v)
-                      owner (when (some? id)
-                              (first (filter #(= id (ffi/response-call-id %))
-                                             waiting)))]
-                  (cond
-                    owner (recur state
-                                 (:dao.stream/cursor r)
-                                 (filterv #(not (identical? owner %)) waiting)
-                                 (conj woken
-                                       {:entry owner, :status :ok, :value v})
-                                 (inc n))
-                    (and (some? id) (contains? pending id))
-                    (done state cursor waiting woken)
-                    :else (recur (ffi-skip state cell-key v)
-                                 (:dao.stream/cursor r)
-                                 waiting
-                                 woken
-                                 (inc n))))
-                :dao.stream/blocked (done state cursor waiting woken)
-                :dao.stream/end
-                (done state cursor [] (wake-all ::ffi/response-ended nil))
-                :dao.stream/gap
-                (done state
-                      (:dao.stream/cursor r)
-                      []
-                      (wake-all ::ffi/response-gap :dao.stream/gap))
-                (done state cursor [] (wake-all o o))))))))))
+            (let [[tag state cursor waiting woken]
+                  (ffi-read-step state cell-key cursor waiting woken pending
+                                 (read-response handle cursor))]
+              (if (= :more tag)
+                (recur state cursor waiting woken (inc n))
+                (done state cursor waiting woken)))))))))
 
 
 (defn- poll-ffi-responses
@@ -1744,6 +1856,164 @@
           (assoc :wait-set (into (vec others) waiting))
           (update :ready-queue (fnil into [])
                   (make-woken-run-queue-entries state woken))))))
+
+
+(defn- wait-slot
+  "The index of the first wait entry equal to `entry` that satisfies
+   `ok?`; refuses an entry the wait set does not hold."
+  [state entry ok? what]
+  (or (first (keep-indexed (fn [i e] (when (and (= entry e) (ok? e)) i))
+                           (:wait-set state)))
+      (fail "No such wait entry" {:what what})))
+
+
+(defn- woken-answer
+  "The `dao.stream.waitset` result for `entry` woken by `status`."
+  [entry status value cursor]
+  (cond-> {:entry entry, :status status, :value value}
+    cursor (assoc :cursor cursor)))
+
+
+(defn- invalid-answer?
+  "True when `r` is not an outcome of `op` the contract can vouch for."
+  [op r]
+  (let [defect (stream/validate-outcome op r)]
+    (and defect (not= :unauthorized-outcome (:error defect)))))
+
+
+(defn- wake-slot
+  "`state` with the wait entry at `i` removed and `woken` queued."
+  [state i woken]
+  (let [ws (:wait-set state)]
+    (-> state
+        (assoc :wait-set (into (subvec ws 0 i) (subvec ws (inc i))))
+        (update :ready-queue (fnil into [])
+                (make-woken-run-queue-entries state woken)))))
+
+
+(defn apply-put
+  "Apply the driver's append `outcome` to the gated parked `:put` entry
+   `entry`, as the ungated sweep applies a retry: `full` keeps waiting;
+   `ok` wakes it with the appended value; every other outcome wakes it
+   under its own status, raised when the entry resumes. Performs no
+   stream call. Refused for an ungated task, in the `:exporting` and
+   `:ended` gates, for an entry the wait set does not hold, and for a
+   retained FFI request (`apply-ffi-sent`)."
+  [state entry outcome]
+  (require-running! state {})
+  (let [i (wait-slot state entry
+                     #(and (= :put (:reason %))
+                           (nil? (ffi/request-call-id %)))
+                     :put)
+        o (:dao.stream/outcome outcome)]
+    (cond
+      (invalid-answer? :append! outcome)
+      (wake-slot state i [{:entry entry,
+                           :status :dao.stream.waitset/invalid-answer}])
+      (= :dao.stream/full o) state
+      :else (wake-slot state i
+                       [(if (= :dao.stream/ok o)
+                          (woken-answer entry :ok (:datom entry) nil)
+                          (woken-answer entry o o nil))]))))
+
+
+(defn apply-next
+  "Apply the driver's read `outcome` to the gated parked `:next` entry
+   `entry`, as the ungated sweep applies a retry: `blocked` keeps
+   waiting; `ok` and `gap` advance the cursor cell to the outcome's
+   position and wake it; `end` and every other outcome wake it under
+   their own status. Performs no stream call. Refused as `apply-put` is,
+   and for an FFI response reader (`apply-ffi-read`)."
+  [state entry outcome]
+  (require-running! state {})
+  (let [i (wait-slot state entry
+                     #(and (= :next (:reason %))
+                           (map? (:cursor-ref %))
+                           (nil? (ffi/response-call-id %)))
+                     :next)
+        o (:dao.stream/outcome outcome)
+        cursor (:dao.stream/cursor outcome)
+        cursor-id (:id (:cursor-ref entry))
+        advance #(assoc-in state [:resources cursor-id :cursor] cursor)]
+    (cond
+      (invalid-answer? :next outcome)
+      (wake-slot state i [{:entry entry,
+                           :status :dao.stream.waitset/invalid-answer}])
+      (= :dao.stream/blocked o) state
+      (= :dao.stream/ok o)
+      (wake-slot (advance) i
+                 [(woken-answer entry :ok (:dao.stream/value outcome) cursor)])
+      (= :dao.stream/end o)
+      (wake-slot state i [(woken-answer entry :end nil nil)])
+      (= :dao.stream/gap o)
+      (wake-slot (advance) i
+                 [(woken-answer entry :dao.stream/gap :dao.stream/gap
+                                cursor)])
+      :else (wake-slot state i [(woken-answer entry o o nil)]))))
+
+
+(defn apply-ffi-sent
+  "Apply the driver's send of the retained FFI request of call `call-id`:
+   the request writer leaves the wait set and is queued woken by `ok`,
+   so the kernel restores it as the call's response reader, exactly as
+   the ungated sweep's successful retry does. Performs no stream call.
+   Refused as `apply-put` is, and for an id no retained request holds: a
+   second transition finds none."
+  [state call-id]
+  (require-running! state {:call-id call-id})
+  (let [i (or (first (keep-indexed
+                       (fn [n e]
+                         (when (and (= :put (:reason e))
+                                    (some? (ffi/request-call-id e))
+                                    (= call-id (ffi/request-call-id e)))
+                           n))
+                       (:wait-set state)))
+              (fail "No retained FFI request" {:call-id call-id}))
+        entry (get-in state [:wait-set i])]
+    (wake-slot state i [(woken-answer entry :ok (:datom entry) nil)])))
+
+
+(defn apply-ffi-read
+  "Apply one read `outcome` of the call-out cell to the gated FFI
+   response readers of the cell that call `call-id`'s reader waits on,
+   as `poll-ffi-cell` applies one read. The response wakes the reader
+   whose call id it names -- `call-id`'s or another waiter's on the
+   shared cell -- and the cell advances; a response no live reader owns
+   is discarded with a diagnostic and the cell advances; one belonging
+   to a woken request writer not yet a reader is not consumed; `blocked`
+   keeps waiting; `end` and `gap` wake every reader of the cell as the
+   router does, and any other outcome wakes them under its own status.
+   Performs no stream call. Refused as `apply-put` is, and for a
+   `call-id` no response reader holds."
+  [state call-id outcome]
+  (require-running! state {:call-id call-id})
+  (let [reader? #(and (some? (ffi/response-call-id %))
+                      (map? (:cursor-ref %)))
+        target (or (first (filter #(and (reader? %)
+                                        (= call-id (ffi/response-call-id %)))
+                                  (:wait-set state)))
+                   (fail "No FFI response reader" {:call-id call-id}))
+        cell-key (:id (:cursor-ref target))
+        cell (get (:resources state) cell-key)
+        _ (when-not (map? cell)
+            (fail "No response cell" {:call-id call-id}))
+        readers (filterv #(and (reader? %)
+                               (= cell-key (:id (:cursor-ref %))))
+                         (:wait-set state))
+        pending (into #{} (keep ffi/request-call-id) (:ready-queue state))
+        r (if (invalid-answer? :next outcome)
+            {:dao.stream/outcome :dao.stream.waitset/invalid-answer}
+            outcome)
+        [_ state' cursor waiting woken]
+        (ffi-read-step state cell-key (:cursor cell) readers [] pending r)
+        gone (remove (fn [e] (some #(identical? e %) waiting)) readers)]
+    (-> state'
+        (assoc-in [:resources cell-key :cursor] cursor)
+        (assoc :wait-set
+               (filterv (fn [e] (not-any? #(identical? e %) gone))
+                        (:wait-set state')))
+        (update :ready-queue (fnil into [])
+                (make-woken-run-queue-entries state' woken)))))
 
 
 (defn check-wait-set
@@ -1780,7 +2050,11 @@
 
    The FFI response readers are routed next, also outside the stream
    sweep (`poll-ffi-responses`): a response wakes the reader whose call
-   id it names, never whichever reader its cell reached first."
+   id it names, never whichever reader its cell reached first.
+
+   A gated machine (any `:yin.k/gate`) observes nothing here: no link
+   retry or scan, no FFI response read, no put or next retry. Its install
+   children are stamped and stepped in `:running` only."
   [state]
   (let [wait-set (:wait-set state)]
     (if (and (empty? wait-set) (empty? (:installs state)))
@@ -1789,11 +2063,14 @@
                               (filterv link-entry? wait-set)
                               (remove link-entry? wait-set))
             wait-set (:wait-set state)
-            state (poll-ffi-responses state
-                                      (filterv ffi-response-entry? wait-set)
-                                      (remove ffi-response-entry? wait-set))
+            gated? (some? (vm/gate-mode state))
+            state (if gated?
+                    state
+                    (poll-ffi-responses state
+                                        (filterv ffi-response-entry? wait-set)
+                                        (remove ffi-response-entry?
+                                                wait-set)))
             wait-set (:wait-set state)
-            gated? (= :running (vm/gate-mode state))
             engine-polled? (some-fn link-entry?
                                     ffi-response-entry?
                                     observe-entry?
@@ -1970,8 +2247,10 @@
 
 
 (defn resume-continuation
-  "Restore state from a parked continuation."
+  "Restore state from a parked continuation. A machine whose custody
+   gate is `:exporting` or `:ended` refuses a direct resume."
   [state parked-id resume-val restore-fn]
+  (gate-refuse! state {:effect :resume})
   (if-let [parked (get-in state [:parked parked-id])]
     (let [new-state (update state :parked dissoc parked-id)]
       (-> (restore-fn new-state parked resume-val)

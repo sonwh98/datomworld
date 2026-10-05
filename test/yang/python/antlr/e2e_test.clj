@@ -26,6 +26,7 @@
     [yang.python.antlr.safepoint-programs :as programs]
     [yang.safepoint :as safepoint]
     [yin.vm :as vm]
+    [yin.vm.data :as data]
     [yin.vm.encoder :as encoder]
     [yin.vm.engine :as engine]
     [yin.vm.integer :as integer]
@@ -240,12 +241,12 @@
 ;; Programs
 ;; =============================================================================
 
-(deftest arithmetic-and-print-test
+(deftest ^:slow arithmetic-and-print-test
   (every-vm= (prints "7 3.5" "-4")
              "print(1 + 2 * 3, 7 / 2)\nprint(-(2 + 2))\n"))
 
 
-(deftest floats-are-tagged-test
+(deftest ^:slow floats-are-tagged-test
   (testing "int and float stay distinct values; 4/2 is 2.0 on every host"
     (every-vm= (prints "2.0 3.0 4.5 2 True False" "{1: 'b'} [1.0, 2]")
                (str "print(4 / 2, 1 + 2.0, 3 * 1.5, 1 + 1, 1 == 1.0, 2.5 < 2)\n"
@@ -254,7 +255,7 @@
                     "print(d, [1.0, 2])\n"))))
 
 
-(deftest closures-and-nonlocal-test
+(deftest ^:slow closures-and-nonlocal-test
   (every-vm= (prints "2 3")
              (str "def make():\n"
                   "    n = 0\n"
@@ -268,7 +269,7 @@
                   "print(c(), c())\n")))
 
 
-(deftest global-declaration-test
+(deftest ^:slow global-declaration-test
   (every-vm= (prints "7")
              (str "total = 0\n"
                   "def add(k):\n"
@@ -278,7 +279,7 @@
                   "print(total)\n")))
 
 
-(deftest undefined-global-is-name-error-test
+(deftest ^:slow undefined-global-is-name-error-test
   (every-vm= {:py/out ["caught"],
               :py/exception {:type "NameError",
                              :args ["name 'nowhere' is not defined"]}}
@@ -289,7 +290,7 @@
                   "print(nowhere)\n")))
 
 
-(deftest builtin-fallback-before-module-binding-test
+(deftest ^:slow builtin-fallback-before-module-binding-test
   (testing "a module-assigned builtin name reads the builtin until the module
             binds it, and the module binding after; a function sees the same"
     (every-vm= (prints "0" "1" "1")
@@ -301,7 +302,7 @@
                     "print(f())\n"))))
 
 
-(deftest class-body-reads-class-namespace-then-globals-test
+(deftest ^:slow class-body-reads-class-namespace-then-globals-test
   (testing "a class-body read before the body assigns the name falls back to
             the global; after, it reads the class namespace"
     (every-vm= (prints "1" "2" "1 2")
@@ -313,7 +314,7 @@
                     "print(x, C.x)\n"))))
 
 
-(deftest module-namespace-is-a-dict-test
+(deftest ^:slow module-namespace-is-a-dict-test
   (testing "globals() is the namespace global reads and writes go through"
     (every-vm= (prints "3 1")
                (str "x = 1\n"
@@ -324,7 +325,7 @@
                     "print(y, f())\n"))))
 
 
-(deftest forward-capture-test
+(deftest ^:slow forward-capture-test
   (testing "a closure created before the local's only assignment sees it"
     (every-vm= (prints "5")
                (str "def outer():\n"
@@ -344,7 +345,7 @@
                   "print(fib(10))\n")))
 
 
-(deftest function-objects-test
+(deftest ^:slow function-objects-test
   (testing "defaults, *args, __name__, identity, arity as a Python TypeError,
             builtins as values"
     (every-vm= (prints "[1, 2, 0] [1, 5, 0] [1, 5, 2] f"
@@ -365,7 +366,7 @@
                     "print(L([1, 2]), L)\n"))))
 
 
-(deftest too-many-arguments-test
+(deftest ^:slow too-many-arguments-test
   (every-vm= {:py/out [],
               :py/exception
               {:type "TypeError",
@@ -373,7 +374,7 @@
              "def g(a):\n    return a\ng(1, 2)\n"))
 
 
-(deftest while-break-continue-test
+(deftest ^:slow while-break-continue-test
   (every-vm= (prints "[1, 2, 4, 5, 6]")
              (str "i = 0\n"
                   "acc = []\n"
@@ -387,7 +388,7 @@
                   "print(acc)\n")))
 
 
-(deftest for-range-list-else-test
+(deftest ^:slow for-range-list-else-test
   (every-vm= (prints "140")
              (str "s = 0\n"
                   "for k in range(5):\n"
@@ -399,7 +400,7 @@
                   "print(s)\n")))
 
 
-(deftest lambda-test
+(deftest ^:slow lambda-test
   (every-vm= (prints "5 [1, 4, 9]")
              (str "add = lambda a, b: a + b\n"
                   "sq = lambda x: x * x\n"
@@ -409,7 +410,7 @@
                   "print(add(2, 3), out)\n")))
 
 
-(deftest try-except-raise-test
+(deftest ^:slow try-except-raise-test
   (testing "the handler catches a raise from a callee; the mutation before the
             raise survives"
     (every-vm= (prints "[1, 3] ('neg',)")
@@ -429,7 +430,7 @@
                     "    print(log, e.args)\n"))))
 
 
-(deftest try-else-and-reraise-test
+(deftest ^:slow try-else-and-reraise-test
   (every-vm= {:py/out ["else" "inner"],
               :py/exception {:type "KeyError", :args ["k"]}}
              (str "try:\n"
@@ -445,7 +446,7 @@
                   "    raise\n")))
 
 
-(deftest escape-restores-handlers-test
+(deftest ^:slow escape-restores-handlers-test
   (testing "return out of a try inside a loop leaves no stale handler"
     (every-vm= (prints "1" "caught")
                (str "def h():\n"
@@ -463,7 +464,7 @@
                     "    print('caught')\n"))))
 
 
-(deftest unbound-local-test
+(deftest ^:slow unbound-local-test
   (every-vm= (prints "unbound")
              (str "x = 1\n"
                   "def g():\n"
@@ -489,7 +490,7 @@
              "print(1)\nraise ValueError('bad')\nprint(2)\n"))
 
 
-(deftest classes-test
+(deftest ^:slow classes-test
   (every-vm= (prints "40 4 True False")
              (str "class A:\n"
                   "    def __init__(self, v):\n"
@@ -531,7 +532,7 @@
                     "print(d, len(d), d[1])\n"))))
 
 
-(deftest exact-numeric-keys-test
+(deftest ^:slow exact-numeric-keys-test
   (testing "C3 ruling 6: one slot per numeric value, the first inserted key
             kept; signed zeros together; -1 and -2 apart; a function keys by
             its identity"
@@ -548,7 +549,7 @@
                     "print({-1: 'a', -2: 'b'}, e[f])\n"))))
 
 
-(deftest numeric-hash-test
+(deftest ^:slow numeric-hash-test
   (testing "C3 ruling 7: P = 2^61 - 1; equal numbers hash equal; -1 is -2"
     (every-vm= (prints "True True True" "-2 -2 1 12345"
                        "1152921504606846977 230584300921369408 1224995262755759164")
@@ -558,7 +559,7 @@
                     "print(hash(1.5), hash(0.1), hash(1e300))\n"))))
 
 
-(deftest unhashable-test
+(deftest ^:slow unhashable-test
   (testing "hash() of a list, a function or a generator is a TypeError"
     (every-vm= (prints "3")
                (str "def g():\n"
@@ -572,7 +573,57 @@
                     "print(n)\n"))))
 
 
-(deftest integer-is-test
+(deftest ^:slow integer-limits-are-guest-exceptions-test
+  (testing "C3 S3a: under a 60-bit composition the key of 5e-324 (2^1074)
+            and every hash (P = 2^61 - 1) breach the bit limit: a
+            MemoryError, an Exception, caught by except and finally, the
+            dict and set unchanged; uncaught, it ends the run as a guest
+            exception"
+    (let [registry (-> (module/empty-registry)
+                       module/register-cell-module
+                       data/register-data-module
+                       (integer/register-integer-module
+                         {::integer/max-bits 60, ::integer/max-digits 5}))
+          source (str "d = {1: 'a'}\n"
+                      "s = {1, 2}\n"
+                      "try:\n"
+                      "    d[5e-324] = 'b'\n"
+                      "except MemoryError:\n"
+                      "    print('insert')\n"
+                      "finally:\n"
+                      "    print('finally')\n"
+                      "try:\n"
+                      "    print(d[5e-324])\n"
+                      "except MemoryError as e:\n"
+                      "    print('lookup', e.args)\n"
+                      "try:\n"
+                      "    s.add(5e-324)\n"
+                      "except Exception as e:\n"
+                      "    print('add', isinstance(e, MemoryError))\n"
+                      "try:\n"
+                      "    d[(1, 5e-324)] = 'c'\n"
+                      "except MemoryError:\n"
+                      "    print('tuple')\n"
+                      "try:\n"
+                      "    hash(1)\n"
+                      "except MemoryError:\n"
+                      "    print('hash')\n"
+                      "print(d, s, d[1.0])\n"
+                      "d[5e-324] = 'e'\n"
+                      "print('unreached')\n")]
+      (doseq [[label opts] [["naive" {}]
+                            ["no-op hooks" {:hooks hooks/noop-uast}]]]
+        (let [results (run-python registry source opts)]
+          (is (not (contains? results :diagnostics)) (pr-str results))
+          (doseq [k [:ast-walker :semantic :stack :register]]
+            (is (= {:py/out ["insert" "finally" "lookup ()" "add True" "tuple"
+                             "hash" "{1: 'a'} {1, 2} a"],
+                    :py/exception {:type "MemoryError", :args []}}
+                   (get results k))
+                (str label " " k))))))))
+
+
+(deftest ^:slow integer-is-test
   (testing "C3 ruling 8: `is` on integers is value-based; True is not 1"
     (every-vm= (prints "True True False")
                (str "x = 2 ** 52\n"
@@ -607,7 +658,7 @@
                     "print(i, n)\n"))))
 
 
-(deftest keyboard-interrupt-is-a-builtin-test
+(deftest ^:slow keyboard-interrupt-is-a-builtin-test
   (testing "with no hook prelude, KeyboardInterrupt is a BaseException that
             except Exception does not catch (naive, and under no-op hooks)"
     (every-vm= (prints "k True False")
@@ -716,7 +767,7 @@
                     "    print('rt', isinstance(e, Exception))\n"))))
 
 
-(deftest recursion-under-real-hooks-test
+(deftest ^:slow recursion-under-real-hooks-test
   (testing "a to-the-limit countdown from parsed source ends in RecursionError
             on every VM; the corpus's ordinary calls are untouched"
     (every-vm-signalled= {:py/out ["3"],

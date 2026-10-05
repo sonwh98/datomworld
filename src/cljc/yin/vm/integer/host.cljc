@@ -66,6 +66,48 @@
                     (not (and (zero? x) (neg? (/ 1 x))))))))
 
 
+(defn safe-native?
+  "True when `x` is a native carrier within +/-(2^53 - 1): a JVM `long`,
+   a Dart `int`, or exactly the `Number` arm of `exact-integer?` on JS.
+   Two such values add, subtract and compare natively without rounding
+   or wrapping on every host."
+  [x]
+  #?(:cljd (and (dart/is? x int)
+                (<= -9007199254740991 x)
+                (<= x 9007199254740991))
+     :clj (and (instance? Long x)
+               (let [n (.longValue ^Long x)]
+                 (and (<= -9007199254740991 n) (<= n 9007199254740991))))
+     :cljs (and (number? x)
+                (js/Number.isSafeInteger x)
+                (not (and (zero? x) (neg? (/ 1 x)))))))
+
+
+(defn host-float?
+  "True when `x` is a host binary64: a JVM `Double`, a Dart `double`, any
+   JS `Number`."
+  [x]
+  #?(:cljd (dart/is? x double)
+     :clj (instance? Double x)
+     :cljs (number? x)))
+
+
+(defn nan-float?
+  "True when host float `x` is a NaN."
+  [x]
+  #?(:cljd (.-isNaN ^double x)
+     :clj (Double/isNaN (double x))
+     :cljs (js/isNaN x)))
+
+
+(defn infinite-float?
+  "True when host float `x` is an infinity."
+  [x]
+  #?(:cljd (.-isInfinite ^double x)
+     :clj (Double/isInfinite (double x))
+     :cljs (and (not (js/isFinite x)) (not (js/isNaN x)))))
+
+
 ;; =============================================================================
 ;; Promotion and demotion
 ;; =============================================================================
@@ -123,6 +165,23 @@
   #?(:cljd (.toInt ^BigInt b)
      :clj (.longValue ^BigInteger b)
      :cljs (js/Number b)))
+
+
+(defn native->double
+  "Native integer `n`, within +/-2^53, as a host double: exact."
+  [n]
+  #?(:cljd (.toDouble ^int n)
+     :clj (double n)
+     :cljs n))
+
+
+(defn trunc-native
+  "Finite host float `x`, of magnitude below 2^53, truncated toward zero
+   to a native integer: exact, and never a JS `-0`."
+  [x]
+  #?(:cljd (.truncate ^double x)
+     :clj (long x)
+     :cljs (+ (js/Math.trunc x) 0)))
 
 
 ;; =============================================================================

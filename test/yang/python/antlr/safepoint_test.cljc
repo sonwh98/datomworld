@@ -380,7 +380,8 @@
 ;; Running A'
 ;; =============================================================================
 
-(deftest no-op-hooks-are-transparent-test
+(defn- no-op-hooks-are-transparent
+  []
   (doseq [[label pk] [[:def-and-while def-and-while]]]
     (testing (str label)
       (let [expected (naive pk identity)]
@@ -388,7 +389,13 @@
         (every= (get expected :semantic) (derived pk hooks/noop-uast identity))))))
 
 
-(deftest interrupt-test
+(deftest ^:slow no-op-hooks-are-transparent-test
+  (slow/guard "no-op-hooks-are-transparent-test"
+              no-op-hooks-are-transparent))
+
+
+(defn- interrupt
+  []
   (testing "while True: pass with one pre-appended signal ends with
             KeyboardInterrupt"
     (every= [true false {:py/out [], :py/exception {:type "KeyboardInterrupt",
@@ -399,14 +406,26 @@
             (derived caught hooks/uast (with-signals [2])))))
 
 
-(deftest no-park-test
+(deftest ^:slow interrupt-test
+  (slow/guard "interrupt-test"
+              interrupt))
+
+
+(defn- no-park
+  []
   (testing "with an empty signal stream the derived program finishes without
             blocking and prints what the naive one prints"
     (every= [true false {:py/out ["5"], :py/exception nil}]
             (derived def-and-while hooks/uast (with-signals [])))))
 
 
-(deftest registered-handler-runs-test
+(deftest no-park-test
+  (slow/guard "no-park-test"
+              no-park))
+
+
+(defn- registered-handler-runs
+  []
   (testing "a registered Python handler is called with the signal and None,
             and the program goes on"
     ;; registered before the base prelude loads, so the function object is
@@ -428,7 +447,13 @@
                            outcome)))))
 
 
-(deftest fail-closed-test
+(deftest registered-handler-runs-test
+  (slow/guard "registered-handler-runs-test"
+              registered-handler-runs))
+
+
+(defn- fail-closed
+  []
   (testing "the derived program without the hook prelude names the hook"
     (every= [:thrown "Unable to resolve symbol: py.sp/loop in this context"]
             (on-every-vm (vm/semantic-bytecode->ast
@@ -442,6 +467,11 @@
       (is (some #(= 'py.b/KeyboardInterrupt (:value (first (:operands %))))
                 (definitions ast)))
       (is (not-any? #(= "py.sp" (namespace %)) (filter symbol? (names-in ast)))))))
+
+
+(deftest fail-closed-test
+  (slow/guard "fail-closed-test"
+              fail-closed))
 
 
 (deftest hook-prelude-defines-only-py-sp-test
@@ -532,12 +562,18 @@
   (on-every-vm (hooks/program hooks/uast ast) (with-signals []) outcome))
 
 
-(deftest recursion-error-test
+(defn- recursion-error
+  []
   (testing "the default limit, exactly: f(999) is 1000 frames and completes;
             f(1000) raises RecursionError, caught by except RecursionError;
             probe(1) finds the limit at 1000 frames"
     (every= [true false {:py/out ["0" "rec" "1000"], :py/exception nil}]
             (hooked (derived-ast programs/recursion)))))
+
+
+(deftest ^:slow recursion-error-test
+  (slow/guard "recursion-error-test"
+              recursion-error))
 
 
 (defn- limited
@@ -547,7 +583,8 @@
     #(u/then (u/sexp->uast (list 'py.sp/set-recursion-limit! n)) %)))
 
 
-(deftest escape-restores-depth-test
+(defn- escape-restores-depth
+  []
   (testing "under limit 100: a raise through 50 frames with finally restores
             the depth saved at the catching try, so probe finds 100 frames
             again, neither fewer (depth left high) nor more (depth left
@@ -560,7 +597,13 @@
             (hooked (limited programs/unwind 100)))))
 
 
-(deftest generator-depth-test
+(deftest ^:slow escape-restores-depth-test
+  (slow/guard "escape-restores-depth-test"
+              escape-restores-depth))
+
+
+(defn- generator-depth
+  []
   (testing "under limit 100, depth measures the current continuation. A
             generator resumed 20 frames down runs on top of its resumer
             (its own frame is the 21st), so probe inside finds 79; resumed
@@ -576,7 +619,13 @@
             (hooked (limited programs/generators 100)))))
 
 
-(deftest generator-admission-test
+(deftest ^:slow generator-depth-test
+  (slow/guard "generator-depth-test"
+              generator-depth))
+
+
+(defn- generator-admission
+  []
   (testing "under limit 100, starting or resuming a generator is admitted
             only when its frame fits: the call-free generator g, reached
             100 frames down, is refused at its start and later at a resume,
@@ -591,6 +640,11 @@
             (hooked (limited programs/admission 100)))))
 
 
+(deftest ^:slow generator-admission-test
+  (slow/guard "generator-admission-test"
+              generator-admission))
+
+
 (defn- with-limit-cell
   "`ast` (`(then prelude run)`) with the base prelude's limit cell set to
    `n` before the module runs: the one way to lower it with no hook
@@ -599,7 +653,8 @@
   (with-run ast #(u/then (u/sexp->uast (list 'cell/set! 'py.rt/limit n)) %)))
 
 
-(deftest admission-in-every-mode-test
+(defn- admission-in-every-mode
+  []
   (testing "under limit 3, admission at generator crossings is the base
             prelude's, so a naive run, a run under no-op hooks and a run
             under the real hooks refuse the same crossing. next(via(2))
@@ -624,7 +679,13 @@
       (every= expected (hooked (with-limit-cell (derived-ast pk) 3))))))
 
 
-(deftest delegation-admission-test
+(deftest ^:slow admission-in-every-mode-test
+  (slow/guard "admission-in-every-mode-test"
+              admission-in-every-mode))
+
+
+(defn- delegation-admission
+  []
   (testing "under limit 100, through top -> mid -> leaf joined by yield
             from, each active generator is one frame: from the top, probe
             in leaf finds 97 (leaf is the 3rd frame), and from 20 frames
@@ -641,7 +702,13 @@
             (hooked (limited programs/delegation 100)))))
 
 
-(deftest generator-rebase-test
+(deftest ^:slow delegation-admission-test
+  (slow/guard "delegation-admission-test"
+              delegation-admission))
+
+
+(defn- generator-rebase
+  []
   (testing "under limit 100: resumed first from the top (99), then 20
             frames down (79), then from the top again (99); an outer
             generator resuming an inner one counts both frames, from the
@@ -653,7 +720,13 @@
             (hooked (limited programs/rebase 100)))))
 
 
-(deftest generator-throw-close-depth-test
+(deftest ^:slow generator-rebase-test
+  (slow/guard "generator-rebase-test"
+              generator-rebase))
+
+
+(defn- generator-throw-close-depth
+  []
   (testing "under limit 100: a generator suspended 20 frames down (79) and
             thrown into from the top runs its finally at the current base
             (99) before the exception reaches the caller; close from the
@@ -663,13 +736,19 @@
             (hooked (limited programs/throwclose 100)))))
 
 
+(deftest ^:slow generator-throw-close-depth-test
+  (slow/guard "generator-throw-close-depth-test"
+              generator-throw-close-depth))
+
+
 (defn- run-module-form
   "`(py/run-module (fn [g gf] body))`."
   [body]
   (list 'py/run-module (list 'fn '[g gf] body)))
 
 
-(deftest set-recursion-limit-test
+(defn- set-recursion-limit
+  []
   (testing "a lower limit takes effect"
     (every= [true false {:py/out ["50"], :py/exception nil}]
             (hooked (limited programs/probe 50))))
@@ -755,3 +834,8 @@
                                        (py/print
                                          (py/conj []
                                                   (py.sp/recursion-limit)))))))))))))))
+
+
+(deftest ^:slow set-recursion-limit-test
+  (slow/guard "set-recursion-limit-test"
+              set-recursion-limit))

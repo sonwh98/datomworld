@@ -10,6 +10,7 @@
     [clojure.walk :as walk]
     [dao.jing :as jing]
     [dao.jing.cbor :as cbor]
+    [dao.test-slow :as slow]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.render :as render]
     [yang.python.antlr.uast :as u]
@@ -26,15 +27,16 @@
     [yin.vm.test-utils :as tu]))
 
 
-(def ^:private opts
+(defn- opts-under
+  "The composition over the real modules, `integer` under `limits`."
+  [limits]
   {:make-stream tu/make-stream,
    :capability-secret tu/secret,
    :primitives vm/primitives,
    :modules (-> (module/empty-registry)
                 module/register-cell-module
                 data/register-data-module
-                (integer/register-integer-module
-                  {::integer/max-bits 100000, ::integer/max-digits 4300}))})
+                (integer/register-integer-module limits))})
 
 
 (def ^:private load-semantic-ast
@@ -42,7 +44,9 @@
                         vm/ast-contract))
 
 
-(def ^:private runners
+(defn- runners-under
+  "Each VM's runner over the composition `opts`."
+  [opts]
   {:ast-walker (fn [ast] (vm/value (vm/eval (tu/create-vm opts) ast))),
    :semantic (fn [ast]
                (vm/value (vm/run (load-semantic-ast (semantic/create-vm opts)
@@ -60,16 +64,29 @@
                      (assoc opts :contract vm/register-contract)))))})
 
 
+(def ^:private runners
+  (runners-under (opts-under {::integer/max-bits 100000,
+                              ::integer/max-digits 4300})))
+
+
+(def ^:private small-runners
+  "Runners under limits a float key or hash breaches: 60 bits (2^-1074
+   needs 1075, P = 2^61 - 1 needs 61) and 5 decimal digits."
+  (runners-under (opts-under {::integer/max-bits 60,
+                              ::integer/max-digits 5})))
+
+
 (defn- run-with-prelude
-  "The value of `form` (prelude notation) after `prelude-ast`."
-  [prelude-ast form]
-  (let [ast (u/mark-tails (u/then prelude-ast (u/sexp->uast form)))]
-    (into {}
-          (map (fn [[k run]]
-                 [k (try (run ast)
-                         (catch #?(:cljd Object :clj Exception :cljs :default) e
-                           [:thrown (ex-message e)]))]))
-          runners)))
+  "The value of `form` (prelude notation) after `prelude-ast`, on each
+   of `runners` (default: the ordinary limits)."
+  ([prelude-ast form] (run-with-prelude runners prelude-ast form))
+  ([runners prelude-ast form]
+   (let [ast (u/mark-tails (u/then prelude-ast (u/sexp->uast form)))
+         attempt (fn [run]
+                   (try (run ast)
+                        (catch #?(:cljd Object :clj Exception :cljs :default) e
+                          [:thrown (ex-message e)])))]
+     (into {} (map (fn [[k run]] [k (attempt run)])) runners))))
 
 
 (defn- with-float64
@@ -203,7 +220,8 @@
     [(py/snapshot :py/None) nil]])
 
 
-(deftest prelude-semantics-on-every-vm-test
+(defn- prelude-semantics-on-every-vm
+  []
   (let [form (reduce (fn [acc [f _]]
                        (list 'py/conj acc (with-float64 f)))
                      []
@@ -215,7 +233,13 @@
         (is (= expected result))))))
 
 
-(deftest range-fast-path-on-every-host-test
+(deftest ^:slow prelude-semantics-on-every-vm-test
+  (slow/guard "prelude-semantics-on-every-vm-test"
+              prelude-semantics-on-every-vm))
+
+
+(defn- range-fast-path-on-every-host
+  []
   (testing "iterating range(3000) never enters the recursive range-elem:
             with it stubbed to a sentinel, every element is still exact. The
             guard's edge is pinned too: index 2^26 takes the O(1) path,
@@ -243,7 +267,13 @@
           (is (= [-12345 (vec (range 3000)) 67108864 -12345] result)))))))
 
 
-(deftest printed-floats-on-every-host-test
+(deftest ^:slow range-fast-path-on-every-host-test
+  (slow/guard "range-fast-path-on-every-host-test"
+              range-fast-path-on-every-host))
+
+
+(defn- printed-floats-on-every-host
+  []
   (testing "over the real cell and data modules: print(2, 4/2, 1 + 2.0, 0.5)
             renders 2 2.0 3.0 0.5 on every VM and host, JS included"
     (let [results (run-with-prelude
@@ -260,6 +290,11 @@
         (testing (str k)
           (is (= {:py/out ["2 2.0 3.0 0.5"], :py/exception nil}
                  (if (map? result) (render/output result) result))))))))
+
+
+(deftest printed-floats-on-every-host-test
+  (slow/guard "printed-floats-on-every-host-test"
+              printed-floats-on-every-host))
 
 
 (deftest escapes-on-every-host-test
@@ -282,7 +317,8 @@
                  (if (map? result) (render/output result) result))))))))
 
 
-(deftest generator-switch-on-every-host-test
+(defn- generator-switch-on-every-host
+  []
   (testing "a generator built from a literal body, switched three times:
             two yields, then completion, never a raise from its side"
     (let [results (run-with-prelude
@@ -296,6 +332,11 @@
       (doseq [[k result] results]
         (testing (str k)
           (is (= [[:yield 1] [:yield 2] [:return :py/None]] result)))))))
+
+
+(deftest generator-switch-on-every-host-test
+  (slow/guard "generator-switch-on-every-host-test"
+              generator-switch-on-every-host))
 
 
 (deftest generator-throw-and-close-on-every-host-test
@@ -346,7 +387,8 @@
                  result)))))))
 
 
-(deftest generator-throw-non-exception-class-on-every-host-test
+(defn- generator-throw-non-exception-class-on-every-host
+  []
   (testing "throwing a class not deriving from BaseException is a TypeError
             before the class is called: its __init__ never runs and the
             generator stays suspended at its yield"
@@ -378,6 +420,11 @@
       (doseq [[k result] results]
         (testing (str k)
           (is (= [1 true [] 2] result)))))))
+
+
+(deftest generator-throw-non-exception-class-on-every-host-test
+  (slow/guard "generator-throw-non-exception-class-on-every-host-test"
+              generator-throw-non-exception-class-on-every-host))
 
 
 (deftest yield-from-and-iter-on-every-host-test
@@ -458,7 +505,8 @@
                  result)))))))
 
 
-(deftest delegation-stop-and-sticky-dict-iterator-on-every-host-test
+(defn- delegation-stop-and-sticky-dict-iterator-on-every-host
+  []
   (testing "a StopIteration(7) thrown through a closed generator delegate
             completes the delegation with 7, while one escaping the
             delegate's body is still PEP 479's RuntimeError; a dict iterator
@@ -510,7 +558,13 @@
           (is (= [1 :py/None 7 1 true {:py/str "a"} true true] result)))))))
 
 
-(deftest delegation-chain-callers-and-unwinding-on-every-host-test
+(deftest delegation-stop-and-sticky-dict-iterator-on-every-host-test
+  (slow/guard "delegation-stop-and-sticky-dict-iterator-on-every-host-test"
+              delegation-stop-and-sticky-dict-iterator-on-every-host))
+
+
+(defn- delegation-chain-callers-and-unwinding-on-every-host
+  []
   (testing "a three-deep yield from chain resumed by a changing caller: the
             top level, a caller with its own handler frame, another
             generator, and a delegating generator; then a yield in the
@@ -596,6 +650,11 @@
                  result)))))))
 
 
+(deftest delegation-chain-callers-and-unwinding-on-every-host-test
+  (slow/guard "delegation-chain-callers-and-unwinding-on-every-host-test"
+              delegation-chain-callers-and-unwinding-on-every-host))
+
+
 (def ^:private genexp-form
   "A generator expression in the lowering's shape: the source through
    `py/iter` at creation, then an anonymous generator yielding `(f x)` for
@@ -612,7 +671,8 @@
   (reduce (fn [acc s] (list 'py/conj acc s)) [] syms))
 
 
-(deftest generator-expression-on-every-host-test
+(defn- generator-expression-on-every-host
+  []
   (testing "any, all and sum consume a generator expression lazily: any and
             all stop at the first decisive element; a non-iterable source
             fails at creation, a non-iterable inner clause only when
@@ -663,7 +723,13 @@
                  result)))))))
 
 
-(deftest generator-expression-admission-on-every-host-test
+(deftest generator-expression-on-every-host-test
+  (slow/guard "generator-expression-on-every-host-test"
+              generator-expression-on-every-host))
+
+
+(defn- generator-expression-admission-on-every-host
+  []
   (testing "nested generator expressions cross through py/gen-switch, so
             the recursion-limit admission counts each active one: under
             limit 2 two nested ones run, a third is refused with
@@ -693,7 +759,13 @@
           (is (= [1 true :created 2 5] result)))))))
 
 
-(deftest integer-bound-on-every-host-test
+(deftest generator-expression-admission-on-every-host-test
+  (slow/guard "generator-expression-admission-on-every-host-test"
+              generator-expression-admission-on-every-host))
+
+
+(defn- integer-bound-on-every-host
+  []
   (testing "over the real cell and data modules, results outside
             [-2^53, 2^53] are a guest OverflowError identically on every VM
             and host (the JVM would otherwise throw, JS round, Dart wrap):
@@ -726,6 +798,11 @@
           (is (= {:py/out ["9007199254740992 overflow overflow overflow overflow overflow"],
                   :py/exception nil}
                  (if (map? result) (render/output result) result))))))))
+
+
+(deftest integer-bound-on-every-host-test
+  (slow/guard "integer-bound-on-every-host-test"
+              integer-bound-on-every-host))
 
 
 ;; =============================================================================
@@ -852,7 +929,8 @@
    ['(py/is 1 {:py/float 1.0}) false]])
 
 
-(deftest numeric-keys-hash-and-is-on-every-host-test
+(defn- numeric-keys-hash-and-is-on-every-host
+  []
   (let [form (reduce (fn [acc [f _]] (list 'py/conj acc (with-float64 f)))
                      []
                      key-hash-is-cases)
@@ -861,6 +939,11 @@
     (doseq [[k result] results]
       (testing (str k)
         (is (= expected result))))))
+
+
+(deftest ^:slow numeric-keys-hash-and-is-on-every-host-test
+  (slow/guard "numeric-keys-hash-and-is-on-every-host-test"
+              numeric-keys-hash-and-is-on-every-host))
 
 
 (def ^:private is-table
@@ -888,7 +971,8 @@
      ['t-neg-zero '(py/tuple (py/conj [] neg-zero))]]))
 
 
-(deftest float-is-on-every-host-test
+(defn- float-is-on-every-host
+  []
   (testing "`is` is Jing content identity (yang.antlr.md 8.5.4): every NaN
             is one value, 0.0 is not -0.0 while == holds, 1 is not 1.0,
             True is not 1, tuples recurse; is-not negates; and over every
@@ -938,7 +1022,26 @@
                      is-row)))))))))
 
 
-(deftest big-integer-keys-past-the-digit-limit-on-every-host-test
+(deftest ^:slow float-is-on-every-host-test
+  (slow/guard "float-is-on-every-host-test"
+              float-is-on-every-host))
+
+
+(def ^:private caught
+  "Prelude notation: `[class-name & args]` of the guest exception
+   `thunk` raises, else its value."
+  '(fn [thunk]
+     (py/try thunk
+             (fn [e]
+               (data/into (py/conj []
+                                   (get (cell/get (get (cell/get e) :class))
+                                        :name))
+                          (get (get (get (cell/get e) :attrs) "args") :items)))
+             (fn [] :py/None))))
+
+
+(defn- big-integer-keys-past-the-digit-limit-on-every-host
+  []
   (testing "2^20000 has 6021 decimal digits, past max-digits 4300, yet keys
             in hex: it differs from 2^20000 + 1, and dict insertion,
             lookup, replacement and deletion, set membership and tuple keys
@@ -986,22 +1089,166 @@
           (is (= [[:py.numeric/finite (apply str "1" (repeat 5000 "0")) "1"]
                   false 2 {:py/str "c"} 1 false {:py/str "b"} 2 true 7]
                  result))))))
-  (testing "its decimal text still refuses at the digit limit"
-    (let [reason (fn [e]
-                   (loop [e e]
-                     (when e
-                       (or (::integer/reason (ex-data e))
-                           (recur (ex-cause e))))))]
-      (doseq [[k run] runners]
-        (is (= :digit-limit
-               (try (run (u/mark-tails
-                           (u/then prelude/functions-uast
-                                   (u/sexp->uast
-                                     '(integer/format
-                                        (integer/shift-left 1 20000))))))
-                    (catch #?(:cljd Object :clj Exception :cljs :default) e
-                      (reason e))))
-            (str k))))))
+  (testing "its decimal text is still the digit limit: the module answers
+            the reason, and py/int-result raises it as a ValueError"
+    (doseq [[k result] (run-with-prelude
+                         prelude/uast
+                         (list 'let ['caught caught]
+                               '(let [big (integer/shift-left 1 20000)]
+                                  (py/conj
+                                    (py/conj [] (integer/format big))
+                                    (caught
+                                      (fn []
+                                        (py/int-result
+                                          (integer/format big))))))))]
+      (is (= [::integer/digit-limit
+              ["ValueError"
+               {:py/str "Exceeds the limit for integer string conversion"}]]
+             result)
+          (str k)))))
+
+
+(deftest ^:slow big-integer-keys-past-the-digit-limit-on-every-host-test
+  (slow/guard "big-integer-keys-past-the-digit-limit-on-every-host-test"
+              big-integer-keys-past-the-digit-limit-on-every-host))
+
+
+;; =============================================================================
+;; C3 slice S3a: integer limit reasons are guest exceptions
+;; =============================================================================
+;;
+;; Under `small-runners` (60 bits, 5 digits) the smallest subnormal's key
+;; needs 2^1074, a float 2^80's key needs 2^80, and every hash needs P =
+;; 2^61 - 1: each is a module `::bit-limit`, which the prelude raises as
+;; MemoryError; decimal text past 5 digits is `::digit-limit`, raised as
+;; ValueError. The guest sees only the prelude's class and message.
+
+(def ^:private tiny
+  "5e-324, whose key needs a 1075-bit denominator."
+  {:py/float 5.0E-324})
+
+
+(defn- int-limits-are-catchable-on-every-host
+  []
+  (testing "MemoryError from keys and hashes, ValueError from decimal
+            text: caught by py/try, the run continues, finally runs, and
+            MemoryError is an Exception"
+    (let [f2-80 '(py/float (* (data/float-value 1) 4503599627370496 268435456))
+          results (run-with-prelude
+                    small-runners
+                    prelude/uast
+                    (with-float64
+                      (list
+                        'let
+                        ['caught caught
+                         'tiny tiny
+                         'log '(cell/new [])
+                         'fin '(caught
+                                 (fn []
+                                   (py/try-finally
+                                     (fn [] (py/key tiny))
+                                     (fn [x]
+                                       (cell/set! log
+                                                  (conj (cell/get log)
+                                                        :finally))))))
+                         'exc '(py/try (fn [] (py/hash 1))
+                                       (fn [e] e)
+                                       (fn [] :py/None))]
+                        (conj-all
+                          ['(caught (fn [] (py/key tiny)))
+                           (list 'caught (list 'fn [] (list 'py/key f2-80)))
+                           '(caught (fn [] (py/hash 1)))
+                           '(caught (fn [] (py/hash {:py/float 1.5})))
+                           '(caught
+                              (fn [] (py/int-result (integer/format 123456))))
+                           '(py/key {:py/float 1.5})
+                           'fin
+                           '(cell/get log)
+                           '(py/isinstance exc py.b/Exception)
+                           '(py/exc-matches exc py.b/Exception)
+                           '(py/add 1 2)]))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [["MemoryError"] ["MemoryError"] ["MemoryError"]
+                  ["MemoryError"]
+                  ["ValueError"
+                   {:py/str "Exceeds the limit for integer string conversion"}]
+                  [:py.numeric/finite "3" "2"]
+                  ["MemoryError"] [:finally] true true 3]
+                 result)))))))
+
+
+(deftest ^:slow int-limits-are-catchable-on-every-host-test
+  (slow/guard "int-limits-are-catchable-on-every-host-test"
+              int-limits-are-catchable-on-every-host))
+
+
+(defn- failed-key-normalization-leaves-containers-unchanged
+  []
+  (testing "a MemoryError from key normalization writes nothing: dict
+            insert, lookup, membership, delete and a tuple key, and set add"
+    (let [results (run-with-prelude
+                    small-runners
+                    prelude/uast
+                    (with-float64
+                      (list
+                        'let
+                        ['caught caught
+                         'tiny tiny
+                         'd '(py/dict-new)
+                         '_1 '(py/dict-set d 1 {:py/str "a"})
+                         'd0 '(cell/get d)
+                         's '(py/set-from [1 2])
+                         's0 '(cell/get s)
+                         'r (conj-all
+                              ['(caught
+                                  (fn [] (py/dict-set d tiny {:py/str "b"})))
+                               '(caught (fn [] (py/getitem d tiny)))
+                               '(caught (fn [] (py/contains d tiny)))
+                               '(caught (fn [] (py/dict-del-quiet d tiny)))
+                               '(caught
+                                  (fn []
+                                    (py/dict-set d
+                                                 (py/tuple (py/conj [1] tiny))
+                                                 {:py/str "c"})))
+                               '(caught (fn [] (py/set-add s tiny)))])]
+                        (conj-all ['r '(= d0 (cell/get d))
+                                   '(= s0 (cell/get s))]))))]
+      (doseq [[k result] results]
+        (testing (str k)
+          (is (= [(vec (repeat 6 ["MemoryError"])) true true] result)))))))
+
+
+(deftest ^:slow failed-key-normalization-leaves-containers-unchanged-test
+  (slow/guard "failed-key-normalization-leaves-containers-unchanged-test"
+              failed-key-normalization-leaves-containers-unchanged))
+
+
+(defn- int-defects-stay-host-failures-on-every-host
+  []
+  (testing "a wrong type or arity at an integer call, and a reason the
+            module version 2 never returns, fail the run: no guest handler
+            sees them"
+    (doseq [[form message]
+            [['(integer/neg {:py/str "x"}) integer/refusal-message]
+             ['(integer/neg 1 2) integer/refusal-message]
+             ['(py/int-result :yin.vm.integer/zero-division)
+              "Cannot apply non-function"]
+             ['(py/int-result :yin.vm.integer/wrong-type)
+              "Cannot apply non-function"]]]
+      (doseq [[k result] (run-with-prelude
+                           small-runners
+                           prelude/uast
+                           (list 'py/try
+                                 (list 'fn [] (list 'py/int-result form))
+                                 '(fn [e] :caught)
+                                 '(fn [] :py/None)))]
+        (is (= [:thrown message] result) (str k " " (pr-str form)))))))
+
+
+(deftest ^:slow int-defects-stay-host-failures-on-every-host-test
+  (slow/guard "int-defects-stay-host-failures-on-every-host-test"
+              int-defects-stay-host-failures-on-every-host))
 
 
 (deftest numeric-dict-keys-on-every-host-test
@@ -1067,7 +1314,8 @@
              (fn [] :py/None))))
 
 
-(deftest preserved-key-arms-on-every-host-test
+(defn- preserved-key-arms-on-every-host
+  []
   (testing "through py/key, by dict and set insertion: identity objects
             (cells) key by identity and stay distinct; lists, dicts, sets
             and tuples holding one are unhashable; numeric set dedup keeps
@@ -1115,6 +1363,11 @@
           (is (= [4 5 3 [1 2] [true]
                   "TypeError" "TypeError" "TypeError" "TypeError" "TypeError"]
                  result)))))))
+
+
+(deftest preserved-key-arms-on-every-host-test
+  (slow/guard "preserved-key-arms-on-every-host-test"
+              preserved-key-arms-on-every-host))
 
 
 (deftest nan-keys-on-every-host-test
@@ -1168,7 +1421,8 @@
           (is (= [1 1 1 1 2 1 true true true :found :found] result)))))))
 
 
-(deftest unhashable-on-every-host-test
+(defn- unhashable-on-every-host
+  []
   (testing "hash() of a list or any other cell is a guest TypeError; of a
             non-numeric value it is not yet supported"
     (let [caught '(fn [thunk]
@@ -1199,7 +1453,13 @@
                  (if (map? result) (render/output result) result))))))))
 
 
-(deftest signed-zero-floats-on-every-host-test
+(deftest unhashable-on-every-host-test
+  (slow/guard "unhashable-on-every-host-test"
+              unhashable-on-every-host))
+
+
+(defn- signed-zero-floats-on-every-host
+  []
   (testing "float % and // on exact multiples and infinite divisors, rendered
             on the host because = cannot see a zero's sign: the JVM (where
             host = tells 0.0 from 0) and Node (where it cannot) agree with
@@ -1232,6 +1492,11 @@
         (testing (str k)
           (is (= expected
                  (if (vector? result) (mapv render/float-repr result) result))))))))
+
+
+(deftest signed-zero-floats-on-every-host-test
+  (slow/guard "signed-zero-floats-on-every-host-test"
+              signed-zero-floats-on-every-host))
 
 
 (deftest render-test

@@ -27,7 +27,7 @@
 ;; 1. finally and with
 ;; =============================================================================
 
-(deftest finally-runs-on-every-exit-test
+(deftest ^:slow finally-runs-on-every-exit-test
   (testing "normal completion, return, break, continue and raise all run the
             finally block"
     (every-vm=
@@ -59,7 +59,7 @@
              "print(log)"))))
 
 
-(deftest finally-nesting-and-override-test
+(deftest ^:slow finally-nesting-and-override-test
   (testing "nested finally blocks run innermost first; a return in finally
             overrides; finally follows a handler that returns"
     (every-vm= (prints "1 2 m ['inner', 'outer', 'except', 'fin']")
@@ -113,7 +113,7 @@
                       "print('after-break')"))))
 
 
-(deftest with-statement-test
+(deftest ^:slow with-statement-test
   (testing "__enter__/__exit__ on normal exit, a suppressing __exit__, return
             through two managers, and a propagating exception"
     (every-vm= (prints "enter a" "in a" "exit a none" "enter b" "exit b ValueError"
@@ -151,7 +151,7 @@
 ;; 2. Tuples, unpacking and slices
 ;; =============================================================================
 
-(deftest tuples-and-unpacking-test
+(deftest ^:slow tuples-and-unpacking-test
   (every-vm= (prints "6 1 2 3 1 [2, 3, 4] ['a', 'b'] c p p"
                      "a 1" "b 2"
                      "2 1"
@@ -174,7 +174,7 @@
                     "    print('unpack')")))
 
 
-(deftest slices-test
+(deftest ^:slow slices-test
   (every-vm= (prints "() (1,) (3, 2, 1) (2, 3) [4, 5] ell hlo"
                      "(2, 3) he (3, 2)"
                      "[0, 'a', 3, 4] [] True 3 [] [4, 3]")
@@ -201,7 +201,7 @@
 ;; 3. Operators
 ;; =============================================================================
 
-(deftest arithmetic-operators-test
+(deftest ^:slow arithmetic-operators-test
   (every-vm= (prints "3 -4 1 2 -2 1024 0.5 8.0 -8 512 -4"
                      "3.0 0.5 2 7 5 -6 2 16 -4 2"
                      "zero")
@@ -213,7 +213,7 @@
                     "    print('zero')")))
 
 
-(deftest membership-and-augmented-test
+(deftest ^:slow membership-and-augmented-test
   (every-vm= (prints "True True False True False True True"
                      "4 22 [1, 2, 1, 2] [0, 0, 0] abab (1, 1)")
              (lines "print(3 in [1, 2, 3], 'ell' in 'hello', 'k' not in {'k': 1}, (1, 2) in [(1, 2)], 2 in (1, 3), 4 in range(5), 2 in {1, 2})"
@@ -238,7 +238,7 @@
 ;; 4. Comprehensions
 ;; =============================================================================
 
-(deftest comprehensions-test
+(deftest ^:slow comprehensions-test
   (every-vm= (prints "[4, 16] {3: 6, 4: 8} {0, 1}"
                      "[(1, 0), (2, 0), (2, 1)] 10 ['a', 'b'] True False"
                      "(1, 2) {1}")
@@ -248,7 +248,7 @@
                     "print(tuple(x for x in [1, 2]), set(x for x in [1, 1]))")))
 
 
-(deftest comprehension-scope-test
+(deftest ^:slow comprehension-scope-test
   (testing "the loop variable is local to the comprehension; the first
             iterable is evaluated in the enclosing (here, class) scope;
             closures over the loop variable share its one cell"
@@ -268,7 +268,7 @@
 ;; 5. Keyword arguments
 ;; =============================================================================
 
-(deftest keyword-arguments-test
+(deftest ^:slow keyword-arguments-test
   (every-vm= (prints "[1, 2, (), 3, 4, {}]"
                      "[1, 5, (6, 7), 8, 0, {'e': 9}]"
                      "[1, 2, (3,), 4, 4, {'z': 5}]"
@@ -305,7 +305,7 @@
 ;; 6. The r2 gate's P3 notes
 ;; =============================================================================
 
-(deftest gate-p3-runtime-test
+(deftest ^:slow gate-p3-runtime-test
   (testing "global globals then globals(); builtin classes stay builtin when
             the module rebinds their names (as in CPython); the
             UnboundLocalError message; repr of quotes and control characters"
@@ -342,7 +342,7 @@
 ;; OverflowError here, a big int there).
 ;; =============================================================================
 
-(deftest tuple-of-classes-test
+(deftest ^:slow tuple-of-classes-test
   (testing "except with a flat tuple matches any element; a nested tuple or a
             non-class in an except clause is a TypeError when matched (every
             element is checked first); isinstance recurses into tuples"
@@ -388,7 +388,7 @@
                       "    print('bad isinstance')"))))
 
 
-(deftest integer-bound-test
+(deftest ^:slow integer-bound-test
   (testing "an int result outside [-2^53, 2^53] is a guest OverflowError on
             every VM and host (CPython would give a big int); the boundary
             itself and everything inside agree with CPython"
@@ -404,7 +404,7 @@
                       "print(ov(lambda: 9007199254740991 * 3), ov(lambda: -9007199254740992 - 1), 0 << 100, -1 >> 100, ov(lambda: ~(2 ** 53)), 2 ** 52 * 2)"))))
 
 
-(deftest gate-p3-round2-test
+(deftest ^:slow gate-p3-round2-test
   (testing "break and continue in finally swallow the exception in flight
             (legal since 3.8); raising a non-exception is a TypeError;
             `except E as e` unbinds e; range len and membership in closed
@@ -585,7 +585,7 @@
              "print(k(b=1, *[2]))"))))
 
 
-(deftest generator-consumer-rebound-test
+(deftest ^:slow generator-consumer-rebound-test
   (testing "a consumer name rebound through globals() receives the
             generator expression itself (C2 S4: nothing is inlined)"
     (every-vm= (prints "[1, 'mine']")
@@ -597,7 +597,7 @@
 ;; Round 4: gate r3. Expected output is CPython 3.9.6's for the same source.
 ;; =============================================================================
 
-(deftest float-zero-and-infinity-test
+(deftest ^:slow float-zero-and-infinity-test
   (testing "exact float multiples with both divisor signs, x % +-inf and
             x // +-inf, and signed zeros, identical on every VM (zero tests
             are host-independent; a zero result's sign comes from the

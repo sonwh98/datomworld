@@ -14,6 +14,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
+            [yin.vm.integer-v3-fixtures :as fx]
             [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
@@ -106,6 +107,13 @@
   [op reason data]
   [integer/refusal-message
    (merge {::integer/op op, ::integer/reason reason} data)])
+
+
+(defn- limited
+  "What `refusal` answers for a call that breaches a limit: the reason
+   returned as data, never thrown (module version 2)."
+  [reason]
+  [:returned reason])
 
 
 (def ^:private two-53 "9007199254740992")
@@ -216,7 +224,7 @@
     (is (same? 0 (call 'shift-left 0 (big two-64))))
     (is (same? (big two-64) (call 'shift-left 1 64)))
     (is (same? 1 (call 'shift-right (big two-64) 64)))
-    (is (= (refused 'shift-left :bit-limit {::integer/limit 100000})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'shift-left 1 (big two-64))))
     (is (= (refused 'shift-right :negative-count {})
            (refusal call 'shift-right 1 -1)))
@@ -246,10 +254,10 @@
   (is (same? (big "515377520732011331036461129765621272702107522001")
              (call 'pow 3 100)))
   (is (= (refused 'pow :negative-exponent {}) (refusal call 'pow 2 -1)))
-  (is (= (refused 'pow :bit-limit {::integer/limit 100000})
+  (is (= (limited ::integer/bit-limit)
          (refusal call 'pow 2 (big two-64)))
       "a huge exponent is refused before any work")
-  (is (= (refused 'pow :bit-limit {::integer/limit 100000})
+  (is (= (limited ::integer/bit-limit)
          (refusal call 'pow 3 100000))))
 
 
@@ -290,14 +298,14 @@
                                        ::integer/max-digits 5})
         call (fn [op & args] (apply (get small op) args))]
     (is (same? 99999 (call 'parse "99999")))
-    (is (= (refused 'parse :digit-limit {::integer/limit 5})
+    (is (= (limited ::integer/digit-limit)
            (refusal call 'parse "100000")))
-    (is (= (refused 'parse :digit-limit {::integer/limit 5})
+    (is (= (limited ::integer/digit-limit)
            (refusal call 'parse "-000001")))
     (is (= "-99999" (call 'format -99999)))
-    (is (= (refused 'format :digit-limit {::integer/limit 5})
+    (is (= (limited ::integer/digit-limit)
            (refusal call 'format 100000)))
-    (is (= (refused 'format :digit-limit {::integer/limit 5})
+    (is (= (limited ::integer/digit-limit)
            (refusal call 'format (big two-64)))
         "refused before the text is built")
     (testing "a power-of-two radix is not digit-limited"
@@ -310,17 +318,47 @@
                                        ::integer/max-digits 4300})
         call (fn [op & args] (apply (get small op) args))]
     (is (same? (big "18446744073709551615") (call 'sub (big two-64) 1)))
-    (is (= (refused 'add :bit-limit {::integer/limit 64})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'add (big "18446744073709551615") 1)))
-    (is (= (refused 'mul :bit-limit {::integer/limit 64})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'mul (big two-63) (big two-63)))
         "refused before the product is built")
-    (is (= (refused 'shift-left :bit-limit {::integer/limit 64})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'shift-left 1 64)))
-    (is (= (refused 'pow :bit-limit {::integer/limit 64})
+    (is (= (limited ::integer/bit-limit)
            (refusal call 'pow 2 64)))
-    (is (= (refused 'parse :bit-limit {::integer/limit 64})
-           (refusal call 'parse two-64)))))
+    (is (= (limited ::integer/bit-limit)
+           (refusal call 'parse two-64)))
+    (testing "every limit-capable export answers the reason, a pair too:
+              never half a pair"
+      (is (= (limited ::integer/bit-limit) (refusal call 'neg (big two-64))))
+      (is (= (limited ::integer/bit-limit)
+             (refusal call 'normalize (big two-64))))
+      (is (= (limited ::integer/bit-limit)
+             (refusal call 'bit-not (big two-64))))
+      (is (= (limited ::integer/bit-limit)
+             (refusal call 'quot-rem (big two-64) 1)))
+      (is (= (limited ::integer/bit-limit)
+             (refusal call 'floor-div-mod -1 (big "18446744073709551617")))
+          "the quotient -1 fits, the remainder 2^64 does not"))
+    (testing "every other reason still throws under the same limits"
+      (is (= (refused 'floor-div-mod :zero-division {})
+             (refusal call 'floor-div-mod (big two-64) 0)))
+      (is (= (refused 'shift-left :negative-count {})
+             (refusal call 'shift-left (big two-64) -1)))
+      (is (= (refused 'pow :negative-exponent {})
+             (refusal call 'pow 2 -1)))
+      (is (= (refused 'mul :wrong-type {::integer/arg 1,
+                                        ::integer/expected :integer})
+             (refusal call 'mul (big two-63) ::integer/bit-limit))
+          "a reason fed back in is a wrong type, not a limit")
+      (is (= (refused 'add :arity {::integer/argc 1})
+             (refusal call 'add (big two-64)))))))
+
+
+(deftest module-version-test
+  (is (= 3 integer/module-version)
+      "version 3: the float exports beside the version 2 contract"))
 
 
 (deftest limits-are-explicit-test
@@ -362,13 +400,209 @@
 
 
 ;; =============================================================================
+;; Fast paths (version 3 kernels; results unchanged)
+;; =============================================================================
+
+(def ^:private max-safe 9007199254740991)
+(def ^:private two-26 67108864)
+
+
+(deftest fast-path-edge-test
+  (testing "add and sub: a result past +/-(2^53 - 1) takes the big path"
+    (is (same? max-safe (call 'add 9007199254740990 1)))
+    (is (same? (n two-53) (call 'add max-safe 1)))
+    (is (same? (n "-9007199254740992") (call 'sub (- max-safe) 1)))
+    (is (same? (- max-safe) (call 'sub -9007199254740990 1)))
+    (is (same? (n "18014398509481982") (call 'add max-safe max-safe)))
+    (is (same? (n "-18014398509481982") (call 'sub (- max-safe) max-safe))))
+  (testing "mul: operands up to 2^26 natively, a wider one the big path"
+    (is (same? 4503599627370496 (call 'mul two-26 two-26)))
+    (is (same? -4503599627370496 (call 'mul (- two-26) two-26)))
+    (is (same? 4503599694479360 (call 'mul (inc two-26) two-26)))
+    (is (same? 4503599761588225 (call 'mul (inc two-26) (inc two-26))))
+    (is (same? (n "81129638414606663681390495662081")
+               (call 'mul max-safe max-safe))))
+  (testing "a zero product is the integer 0, never a JS -0"
+    (doseq [[a b] [[-1 0] [0 -1] [(- two-26) 0]]]
+      (let [r (call 'mul a b)]
+        (is (same? 0 r) (pr-str [a b]))
+        (is (true? (call 'integer? r)) (pr-str [a b])))))
+  (testing "compare natively when both are safe"
+    (is (= -1 (call 'compare (- max-safe) max-safe)))
+    (is (= 0 (call 'compare max-safe max-safe)))
+    (is (= -1 (call 'compare max-safe (n two-53))))
+    (is (= 1 (call 'compare (n "-9007199254740992") (n "-9007199254740993")))))
+  (testing "mixed fast and big operands"
+    (is (same? 8 (call 'add (big "5") 3)))
+    (is (same? (big "18446744073709551619") (call 'add 3 (big two-64))))
+    (is (same? 134217728 (call 'mul (big "2") two-26)))
+    (is (= 0 (call 'compare (big "7") 7))))
+  (testing "promotion, then cancellation back to a native"
+    (is (same? max-safe (call 'sub (call 'add max-safe max-safe) max-safe)))
+    (is (same? 2 (call 'sub (call 'add max-safe 2) max-safe)))
+    (is (same? 0 (call 'add (call 'mul max-safe max-safe)
+                       (call 'neg (call 'mul max-safe max-safe))))))
+  #?(:cljs (is (= (refused 'add :wrong-type {::integer/arg 0,
+                                             ::integer/expected :integer})
+                  (refusal call 'add (* -1 0) 0))
+               "a JS -0 operand is still refused, never added natively")))
+
+
+(deftest fast-path-respects-the-bit-limit-test
+  (let [at-53 (integer/integer-module {::integer/max-bits 53,
+                                       ::integer/max-digits 4300})
+        at-52 (integer/integer-module {::integer/max-bits 52,
+                                       ::integer/max-digits 4300})]
+    (testing "max-bits 53: every fast result fits, every other is checked"
+      (is (same? max-safe ((get at-53 'add) 9007199254740990 1)))
+      (is (= ::integer/bit-limit ((get at-53 'add) max-safe 1))
+          "2^53 has 54 bits")
+      (is (= ::integer/bit-limit ((get at-53 'sub) (- max-safe) 1)))
+      (is (same? 4503599627370496 ((get at-53 'mul) two-26 two-26)))
+      (is (= ::integer/bit-limit ((get at-53 'mul) 134217728 134217728))
+          "2^27 squared is 2^54")
+      (is (= ::integer/bit-limit ((get at-53 'mul) 2147483648 4194304))
+          "2^31 times 2^22 is 2^53"))
+    (testing "below 53 bits there is no fast table"
+      (is (= ::integer/bit-limit ((get at-52 'add) 4503599627370495 1)))
+      (is (= ::integer/bit-limit ((get at-52 'mul) two-26 two-26))))))
+
+
+;; =============================================================================
+;; Floats (version 3), against CPython 3.9.6
+;; =============================================================================
+
+(def ^:private fixture (delay (fx/read-file)))
+
+
+(defn- rows
+  [op]
+  (get-in @fixture [:rows op]))
+
+
+(defn- float-result?
+  [x]
+  #?(:cljd (dart/is? x double)
+     :clj (instance? Double x)
+     :cljs (number? x)))
+
+
+(defn- float-mismatch
+  "nil when `actual` is what float row `row` expects as text `expected`,
+   else `[row actual]`."
+  [row expected actual]
+  (when-not (if (= "float-overflow" expected)
+              (= ::integer/float-overflow actual)
+              (and (float-result? actual)
+                   (= expected (fx/double->bits actual))))
+    [row actual]))
+
+
+(deftest float-fixture-test
+  (is (= "CPython 3.9.6" (:generator @fixture)))
+  (is (= {"to-float" 187, "true-div" 96, "compare-float" 837, "from-float" 29}
+         (into {} (map (fn [op] [op (count (rows op))]))
+               ["to-float" "true-div" "compare-float" "from-float"]))
+      "the fixture keeps every row: 1149 in all")
+  (testing "to-float: float(int), ties to even, overflow as the reason"
+    (is (= []
+           (into []
+                 (keep (fn [[a e :as row]]
+                         (float-mismatch row e (call 'to-float (n a)))))
+                 (rows "to-float")))))
+  (testing "true-div: int / int correctly rounded, huge and subnormal"
+    (is (<= 90 (count (rows "true-div"))))
+    (is (= []
+           (into []
+                 (keep (fn [[a b e :as row]]
+                         (float-mismatch row e
+                                         (call 'true-div (n a) (n b)))))
+                 (rows "true-div")))))
+  (testing "compare-float: exact, the integer never rounded"
+    (is (<= 800 (count (rows "compare-float"))))
+    (is (= []
+           (into []
+                 (keep (fn [[a x e :as row]]
+                         (let [r (call 'compare-float (n a)
+                                       (fx/bits->double x))]
+                           (when-not (= ({"-1" -1, "0" 0, "1" 1} e) r)
+                             [row r]))))
+                 (rows "compare-float")))))
+  (testing "from-float: exact truncation into the canonical carrier"
+    (is (= []
+           (into []
+                 (keep (fn [[x e :as row]]
+                         (let [r (call 'from-float (fx/bits->double x))]
+                           (when-not (same? (n e) r)
+                             [row r]))))
+                 (rows "from-float"))))))
+
+
+(deftest float-named-cases-test
+  (is (= "3ff0000000000000"
+         (fx/double->bits (call 'true-div (call 'pow 10 400)
+                                (call 'pow 10 400)))))
+  (is (= "0000000000000001"
+         (fx/double->bits (call 'true-div 1 (call 'shift-left 1 1074)))))
+  (is (= "0000000000000000"
+         (fx/double->bits (call 'true-div 1 (call 'shift-left 1 1075))))
+      "half the least subnormal ties to even: +0.0")
+  (is (= "8000000000000000" (fx/double->bits (call 'true-div 0 -5)))
+      "CPython: 0 / -5 is -0.0")
+  (is (= "0000000000000000" (fx/double->bits (call 'to-float 0))))
+  (is (= ::integer/float-overflow
+         (call 'to-float (call 'sub (call 'shift-left 1 1024)
+                               (call 'shift-left 1 970))))
+      "the tie above the largest finite float rounds to the even overflow")
+  (is (= "7fefffffffffffff"
+         (fx/double->bits
+           (call 'to-float (call 'sub (call 'sub (call 'shift-left 1 1024)
+                                            (call 'shift-left 1 970))
+                                 1)))))
+  (let [inf (fx/bits->double "7ff0000000000000")
+        ninf (fx/bits->double "fff0000000000000")]
+    (is (= -1 (call 'compare-float (call 'shift-left 1 5000) inf)))
+    (is (= 1 (call 'compare-float (call 'neg (call 'shift-left 1 5000))
+                   ninf)))))
+
+
+(deftest float-refusals-test
+  (is (= (refused 'true-div :zero-division {}) (refusal call 'true-div 1 0)))
+  (is (= (refused 'true-div :zero-division {})
+         (refusal call 'true-div (big two-64) (big "0"))))
+  (is (= (refused 'to-float :wrong-type {::integer/arg 0,
+                                         ::integer/expected :integer})
+         (refusal call 'to-float 0.5)))
+  (is (= (refused 'compare-float :wrong-type {::integer/arg 1,
+                                              ::integer/expected :float})
+         (refusal call 'compare-float 1 "1")))
+  (is (= (refused 'compare-float :wrong-type
+                  {::integer/arg 1, ::integer/expected :non-nan-float})
+         (refusal call 'compare-float 1 (fx/bits->double "7ff8000000000000"))))
+  (doseq [x ["7ff8000000000000" "7ff0000000000000" "fff0000000000000"]]
+    (is (= (refused 'from-float :wrong-type
+                    {::integer/arg 0, ::integer/expected :finite-float})
+           (refusal call 'from-float (fx/bits->double x)))
+        x))
+  (let [small (integer/integer-module {::integer/max-bits 64,
+                                       ::integer/max-digits 4300})]
+    (is (= ::integer/bit-limit
+           ((get small 'from-float) (fx/bits->double "7fefffffffffffff")))
+        "from-float answers the bit limit like every integer result")
+    (is (same? (n "-9223372036854775808")
+               ((get small 'from-float)
+                (fx/bits->double "c3e0000000000000"))))))
+
+
+;; =============================================================================
 ;; Composition
 ;; =============================================================================
 
 (deftest every-export-is-pure-test
   (is (= #{'integer? 'normalize 'add 'sub 'neg 'mul 'compare 'quot-rem
            'floor-div-mod 'pow 'bit-and 'bit-or 'bit-xor 'bit-not 'shift-left
-           'shift-right 'bit-length 'parse 'format}
+           'shift-right 'bit-length 'parse 'format 'to-float 'compare-float
+           'true-div 'from-float}
          (set (keys module-fns))
          (set (keys integer/integer-profiles))))
   (doseq [[sym profile] integer/integer-profiles]
@@ -464,6 +698,13 @@
       (is (= (into [:thrown] (refused 'floor-div-mod :zero-division {}))
              result)
           (str k))))
+  (testing "a limit breach is the reason as the program's value"
+    (doseq [[ast expected]
+            [[(i 'pow (lit 2) (lit 100000)) ::integer/bit-limit]
+             [(i 'format (i 'shift-left (lit 1) (lit 20000)))
+              ::integer/digit-limit]]]
+      (doseq [[k result] (on-every-vm with-integer ast)]
+        (is (= expected (vm/value result)) (str k)))))
   (testing "absent without registration"
     (doseq [[k result] (on-every-vm {:modules (module/default-registry)}
                                     (i 'add (lit 1) (lit 2)))]
