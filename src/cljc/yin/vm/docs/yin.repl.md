@@ -81,10 +81,11 @@ file is plain EDN and may be edited by hand:
   `--vm` to save one.
 - **Changing it:** a flag overrides the saved value for that setting, and the
   result is saved. A repeated flag (`--dht-peer`, `--dht-principal`,
-  `--dht-follow`) replaces all of its saved values rather than adding to them. `dht init`
-  saves publishing; `dht serve` and `dht join` clear it. A bare switch
-  (`--headless`, `--dht-publish`) cannot be turned off by a flag, so use
-  `--reset`.
+  `--dht-follow`) replaces all of its saved values rather than adding to them.
+  `dht init` saves publishing and a key; `dht serve` and `dht join` clear both
+  from the saved state (a `--key` on that command line still stands). A bare
+  switch (`--headless`, `--dht-publish`) cannot be turned off by a flag, so
+  use `--reset`.
 - **`--reset`** forgets the saved state and starts from the command line
   alone; the result is saved. **`--no-state`** neither reads nor writes it,
   for a one-off run.
@@ -184,7 +185,9 @@ the server's `yin>` prompt answers a remote request in the same tick, and a
 definition a remote client makes is visible at the local prompt on the next
 tick. The endpoint evaluates locally or reports that it does not proxy.
 `--port` listens on all interfaces, so the server answers on `localhost`
-and on the machine's own IP, and its startup banner names both. There is
+and on the machine's own IP, and its startup banner names both. (Dart cannot
+list interfaces, so there the banner prints `ws://<this machine's IP>:<port>`
+for the second address; the server still answers on it.) There is
 no authentication: anyone who can reach the port can evaluate code in the
 shared shell, so run it on a network you trust. There is no `--host`; it is
 refused rather than ignored.
@@ -239,7 +242,8 @@ below still works, but A reports `NOT acknowledged: too few peers, sent to
    private half and is never printed. An existing key file is never
    overwritten. The banner must then say that publishing is ON and name the
    same principal. `yin-repl keygen [--name n | file]` makes a key without
-   starting a node.
+   starting a node: with `--name n` it writes `~/.yin/n.key`, with a file it
+   writes that file, and with neither it writes `~/.yin/publisher.key`.
 
 3. At A's prompt, define and publish a module:
 
@@ -480,15 +484,16 @@ prompt's `(yin.link/names)`.
 `/tmp`): a lost key can never sign again, and a new key is a new
 principal. Never delete a node's directory: it holds the node's copy.
 Closing a node discards its retry queue, so a publication that was not
-yet acknowledged is not retried after a restart; publish it again. Receivers verify names against
-the publisher's principal, not against where the bytes came from, so
-hand the principal out with the network address and replace the
-declaration when a key rotates. The Node reader the process tests spawn
-is a build artifact: `bb build:yin-repl-node` writes `target/yin-repl.js`,
-and a missing build fails `test/yin/repl/dht_process_test.clj`. A fresh
-worktree must run `clj -M:antlr-gen` before JVM test runs: the generated
-parser path, `build/antlr/python3/classes`, is on the classpath and
-absent until generated.
+yet acknowledged is not retried after a restart; publish it again.
+Receivers verify names against the publisher's principal, not against
+where the bytes came from, so hand the principal out with the network
+address and replace the declaration when a key rotates. The Node reader
+the process tests spawn is a build artifact: `bb build:yin-repl-node`
+writes `target/yin-repl.js`, and a missing build fails
+`test/yin/repl/dht_process_test.clj`. A fresh worktree must run
+`clj -M:antlr-gen` before JVM test runs: the generated parser path,
+`build/antlr/python3/classes`, is on the classpath and absent until
+generated.
 
 ## Design documents
 
