@@ -429,6 +429,9 @@ One link attempt against a DHT source proceeds in this order:
    resolution: refuse with the fold's outcome.
 2. Read the module load record for that address on the node (4.3).
    - None: start the load, answer pending.
+   - A record of another kind, in any status: refuse
+     `:dao.space.dht/kind-conflict` (section 9) and leave the record as
+     it is.
    - `:loading`: answer pending.
    - `:failed`: refuse (section 9), then `forget` the record, so a later
      require starts a new load.
@@ -2006,6 +2009,21 @@ A dependency name does not resolve to its pinned address.
 <td>
 A link refused <code>:absent</code> after a <code>:loaded</code> record. A
 defect, reported.
+</td>
+</tr>
+<tr>
+<td>
+<code>:dao.space.dht/kind-conflict</code>
+</td>
+<td>
+<code>:address</code>, <code>:recorded</code> the record's kind
+</td>
+<td>
+The name resolves to an address whose load record is not a module load: an
+index load, a candidate head (<code>yin.vm.linker.dht.head.md</code> 5.5) or
+any other kind, <code>:loading</code>, <code>:loaded</code> or
+<code>:failed</code>. The record is left as it is: not forgotten, not waited
+on, not linked.
 </td>
 </tr>
 <tr>
