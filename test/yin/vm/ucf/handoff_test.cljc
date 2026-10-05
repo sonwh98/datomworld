@@ -515,7 +515,19 @@
       (is (cbor/byte-payload? (:bytes export)))
       (is (= body (cbor/decode (:bytes export)))
           "the bytes are the canonical encoding of the body")
-      (is (= (:address export) (jing/content-hash body))))
+      (let [address (:address export)
+            algo (:algorithm (jing/parse-segment-address address))]
+        (is (jing/segment-address? address)
+            "the address is a jing segment address")
+        (is (= (:digest (jing/parse-segment-address address))
+               (jing/digest-bytes algo (:bytes export)))
+            "the digest is recomputed from the emitted bytes")
+        (is (jing/segment-bytes-match? address (:bytes export))
+            "a receiver verifying the fetched bytes accepts the address")
+        (is (not (jing/segment-bytes-match?
+                   address
+                   (cbor/encode (assoc body :yin.k/id-counter -1))))
+            "other bytes do not verify under the address")))
     (testing "one cell for the waiters, the closure and the store;
               two more for the independents"
       (is (= 3 (count (:yin.k/cells body)))

@@ -590,6 +590,16 @@
         (sort-by str (:stores @found))))
 
 
+(defn- bytes-address
+  "The jing segment address of the exact emitted `bytes`, the scheme a
+   receiver verifies fetched bytes against (`jing/segment-bytes-match?`)."
+  [bytes]
+  (let [algo jing/default-hash-algorithm]
+    (keyword "segment"
+             (str (get-in jing/registry [algo :address-id]) "-"
+                  (jing/digest-bytes algo bytes)))))
+
+
 (defn export-task
   "The lift of 14.1.2: `vm`, a blocked or halted task at a safepoint,
    as canonical bytes under their content address.  Answers
@@ -722,7 +732,7 @@
             :kind kind
             :body body
             :bytes bytes
-            :address (jing/content-hash body)}))))))
+            :address (bytes-address bytes)}))))))
 
 
 ;; =============================================================================
