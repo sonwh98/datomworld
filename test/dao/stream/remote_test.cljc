@@ -1210,3 +1210,403 @@
                  (stream/cursor hb :dao.stream/oldest))
               "the shared link files each answer for its own
                reflection"))))))
+
+
+;; =============================================================================
+;; Name resolution (2.1, 2.3 step 0, 2.4 resolve)
+;; =============================================================================
+
+(defn- serve-named!
+  "One mirror step of `peer` with the name map `names` beside its
+   table."
+  [peer names]
+  (swap! (:mirror peer)
+         #(remote/mirror-step @(:table peer) names (:b-reader peer)
+                              % (:b-writer peer))))
+
+
+(defn- named-request
+  [n op id]
+  {:dao.stream.remote/name n
+   :dao.stream.remote/op op
+   :dao.stream.remote/args []
+   :dao.stream.remote/id id})
+
+
+(defn- answers-to
+  "The answers retained on wire buffer `h` carrying the id `id`."
+  [h id]
+  (filterv #(and (map? %) (= id (:dao.stream.remote/id %))) (values h)))
+
+
+(def ^:private retry
+  {:dao.stream/outcome :dao.stream/transport-error
+   :dao.stream/retry? true})
+
+
+(deftest a-named-descriptor-request-answers-the-entrys-own-identity
+  (let [t (toy)
+        s (ring 1)
+        id (:dao.stream/identity (stream/descriptor s))
+        peer (served-peer {id (entry s #{:reader})} t)
+        names {"yin.head/p" id "stale" "no-such-entry"}]
+    (doseq [[n op rid] [["yin.head/p" :dao.stream/descriptor 1]
+                        ["unmapped" :dao.stream/descriptor 2]
+                        ["stale" :dao.stream/descriptor 3]
+                        ["yin.head/p" :dao.stream/next 4]
+                        ["yin.head/p" :dao.stream/cursor 5]
+                        ["yin.head/p" :dao.stream/append! 6]]]
+      (stream/append! (:ab t) (named-request n op rid)))
+    (stream/append! (:ab t) (assoc (named-request "yin.head/p"
+                                                  :dao.stream/descriptor 7)
+                                   :dao.stream.remote/args :not-a-vector))
+    (serve-named! peer names)
+    (testing "a mapped name: the entry's own identity and surface, the
+              name echoed"
+      (let [[a & more] (answers-to (:ba t) 1)]
+        (is (nil? more))
+        (is (= :dao.stream/ok (:dao.stream/outcome a)))
+        (is (= id (:dao.stream/identity a)) "the ring's own identity")
+        (is (= #{:reader} (:dao.stream.remote/surface a)))
+        (is (= "yin.head/p" (:dao.stream.remote/name a)))
+        (is (= (:dao.stream/descriptor (stream/descriptor s))
+               (:dao.stream/descriptor a))
+            "the descriptor answer of the entry's handle")))
+    (testing "an unmapped name, and a name mapped to an identity the
+              table lacks, are not-found carrying the name"
+      (doseq [[rid n] [[2 "unmapped"] [3 "stale"]]]
+        (is (= [{:dao.stream.remote/id rid
+                 :dao.stream.remote/name n
+                 :dao.stream.remote/error :dao.stream.remote/not-found}]
+               (answers-to (:ba t) rid)))))
+    (testing "a named request with any other op is malformed and dropped"
+      (doseq [rid [4 5 6 7]]
+        (is (= [] (answers-to (:ba t) rid)))))
+    (testing "no value on the wire carries the name as an identity"
+      (is (not-any? #(contains? #{"yin.head/p" "unmapped" "stale"}
+                                (:dao.stream/identity %))
+                    (values (:ba t)))))
+    (testing "without a name map every name is unmapped"
+      (let [t (toy)
+            peer (served-peer {id (entry s #{:reader})} t)]
+        (stream/append! (:ab t) (named-request "yin.head/p"
+                                               :dao.stream/descriptor 1))
+        (serve! peer)
+        (is (= :dao.stream.remote/not-found
+               (:dao.stream.remote/error (first (answers-to (:ba t) 1)))))))))
+
+
+(deftest an-identity-request-is-answered-as-before
+  (let [s (ring 4)
+        _ (stream/append! s "hello")
+        id (:dao.stream/identity (stream/descriptor s))
+        reqs [{:dao.stream/identity id
+               :dao.stream.remote/op :dao.stream/descriptor
+               :dao.stream.remote/args []
+               :dao.stream.remote/id 1}
+              {:dao.stream/identity id
+               :dao.stream.remote/op :dao.stream/cursor
+               :dao.stream.remote/args [:dao.stream/oldest]
+               :dao.stream.remote/id 2}
+              {:dao.stream/identity "absent"
+               :dao.stream.remote/op :dao.stream/descriptor
+               :dao.stream.remote/args []
+               :dao.stream.remote/id 3}]
+        answered (fn [serve reqs]
+                   (let [t (toy)
+                         peer (served-peer {id (entry s #{:reader})} t)]
+                     (doseq [r reqs] (stream/append! (:ab t) r))
+                     (serve peer)
+                     (values (:ba t))))
+        before (answered serve! reqs)]
+    (is (= 3 (count before)))
+    (is (= before (answered #(serve-named! % {"n" id}) reqs))
+        "a name map changes nothing for an identity request")
+    (is (= before (answered #(serve-named! % {"n" id})
+                            (mapv #(assoc % :dao.stream.remote/name "n")
+                                  reqs)))
+        "a request carrying an identity is an identity request whatever
+         else it carries: a name beside it is ignored")))
+
+
+(defn- resolving
+  "Peer B serving the ring `s` under its own identity and the name
+   yin.head/p, and A's links over the toy with `opts`."
+  ([s] (resolving s {}))
+  ([s opts]
+   (let [t (toy)
+         id (:dao.stream/identity (stream/descriptor s))
+         peer (served-peer {id (entry s #{:reader})} t)
+         ls (remote/links (merge {:dao.stream.remote/channels
+                                  {(:channel t) (:a-end t)}}
+                                 opts))]
+     {:t t :id id :peer peer :links ls
+      :serve! #(serve-named! peer {"yin.head/p" id})
+      :resolve #((:resolve ls) (:channel t) %)})))
+
+
+(deftest resolve-answers-retry-then-a-descriptor-attach-accepts
+  (let [s (ring 1)
+        _ (stream/append! s "head")
+        {:keys [t id links serve! resolve]} (resolving s)]
+    (is (= retry (resolve "yin.head/p"))
+        "no answer filed yet: retry, as cursor answers")
+    (is (= 1 (count (op-requests (:ab t) :dao.stream/descriptor))))
+    (is (= retry (resolve "yin.head/p")))
+    (is (= 1 (count (op-requests (:ab t) :dao.stream/descriptor)))
+        "outstanding: not sent again")
+    (is (not-any? #(contains? % :dao.stream/identity)
+                  (op-requests (:ab t) :dao.stream/descriptor))
+        "the named request carries no identity")
+    (serve!)
+    (let [r (resolve "yin.head/p")
+          d (:dao.stream/descriptor r)]
+      (is (= :dao.stream/ok (:dao.stream/outcome r)))
+      (is (= id (:dao.stream/identity r)))
+      (is (= #{:reader} (:dao.stream.remote/surface r)))
+      (is (= {:dao.stream/type :dao.stream/remote
+              :dao.stream/identity id
+              :dao.stream/channel (:channel t)}
+             d)
+          "the remote descriptor of the real stream over the same
+           channel")
+      (testing "attach! accepts it, through the same link"
+        (let [a ((:attach links) d)
+              refl (:dao.stream/handle a)]
+          (is (= :dao.stream/ok (:dao.stream/outcome a)))
+          (is (= id (:dao.stream/identity (stream/descriptor refl)))
+              "the reflection reports the ring's own identity")
+          (serve!)
+          (stream/cursor refl :dao.stream/oldest)
+          (serve!)
+          (let [c (stream/cursor refl :dao.stream/oldest)]
+            (is (= (stream/cursor s :dao.stream/oldest) c))
+            (stream/next refl (:dao.stream/cursor c))
+            (serve!)
+            (is (= "head" (:dao.stream/value
+                            (stream/next refl (:dao.stream/cursor c))))))))
+      (testing "a resolved answer is forgotten: a name is asked afresh"
+        (is (= retry (resolve "yin.head/p")))))))
+
+
+(deftest resolve-of-an-unmapped-name-is-not-found
+  (let [{:keys [t serve! resolve]} (resolving (ring 1))]
+    (resolve "yin.head/q")
+    (serve!)
+    (is (= {:dao.stream/outcome :dao.stream/transport-error
+            :dao.stream.remote/reason :dao.stream.remote/not-found}
+           (resolve "yin.head/q")))
+    (testing "nothing is marked: the name may be asked again"
+      (is (= retry (resolve "yin.head/q")))
+      (is (= 2 (count (op-requests (:ab t) :dao.stream/descriptor)))))))
+
+
+(deftest resolve-over-an-unreached-or-lost-channel
+  (let [{:keys [t links resolve]} (resolving (ring 1))]
+    (is (= {:dao.stream/outcome :dao.stream/not-found}
+           ((:resolve links) {:dao.stream/type :dao.stream.test/channel
+                              :dao.stream/identity "elsewhere"}
+                             "yin.head/p"))
+        "a channel this peer does not reach")
+    (resolve "yin.head/p")
+    (stream/close! (:ba t))
+    (is (= {:dao.stream/outcome :dao.stream/transport-error
+            :dao.stream.remote/reason :dao.stream.remote/channel-gone}
+           (resolve "yin.head/p"))
+        "channel loss: not retryable")))
+
+
+(deftest unexpected-answers-to-a-resolve-are-dropped
+  (let [{:keys [t resolve]} (resolving (ring 1))]
+    (resolve "yin.head/p")
+    (let [rid (:dao.stream.remote/id
+                (first (op-requests (:ab t) :dao.stream/descriptor)))]
+      (doseq [v [;; the right id, another name
+                 {:dao.stream.remote/id rid
+                  :dao.stream.remote/name "yin.head/other"
+                  :dao.stream.remote/error :dao.stream.remote/not-found}
+                 ;; the right id, no name
+                 {:dao.stream.remote/id rid
+                  :dao.stream/identity "x"
+                  :dao.stream.remote/error :dao.stream.remote/not-found}
+                 ;; named, no identity, and not the not-found error
+                 {:dao.stream.remote/id rid
+                  :dao.stream.remote/name "yin.head/p"
+                  :dao.stream/outcome :dao.stream/ok}
+                 ;; shapes off a channel
+                 nil 7 "s" [1 2] (list 1 2 3) {}]]
+        (stream/append! (:ba t) v))
+      (is (= retry (resolve "yin.head/p"))
+          "none completed the request, which stays outstanding")
+      (is (= 1 (count (op-requests (:ab t) :dao.stream/descriptor)))))))
+
+
+(deftest resolve-is-resent-after-k-asks
+  (let [s (ring 1)
+        t (toy)
+        id (:dao.stream/identity (stream/descriptor s))
+        peer (served-peer {id (entry s #{:reader})} t)
+        end {:reader (:ba t)
+             :writer (dropping-writer (:ab t) 1 #{:dao.stream/descriptor})}
+        ls (remote/links {:dao.stream.remote/channels {(:channel t) end}
+                          :dao.stream.remote/resend-after 2})
+        resolve #((:resolve ls) (:channel t) %)]
+    (resolve "yin.head/p")
+    (is (= 0 (count (op-requests (:ab t) :dao.stream/descriptor)))
+        "the channel lost the request")
+    (resolve "yin.head/p")
+    (resolve "yin.head/p")
+    (is (= 1 (count (op-requests (:ab t) :dao.stream/descriptor)))
+        "re-sent at the k-th further ask, with the same id")
+    (serve-named! peer {"yin.head/p" id})
+    (is (= id (:dao.stream/identity (resolve "yin.head/p"))))))
+
+
+(deftest a-named-request-with-args-is-malformed
+  (let [t (toy)
+        s (ring 1)
+        id (:dao.stream/identity (stream/descriptor s))
+        peer (served-peer {id (entry s #{:reader})} t)]
+    (doseq [[rid args] [[1 [1]] [2 [1 2]] [3 []]]]
+      (stream/append! (:ab t) (assoc (named-request "yin.head/p"
+                                                    :dao.stream/descriptor rid)
+                                     :dao.stream.remote/args args)))
+    (serve-named! peer {"yin.head/p" id})
+    (is (= [] (answers-to (:ba t) 1)))
+    (is (= [] (answers-to (:ba t) 2)))
+    (is (= id (:dao.stream/identity (first (answers-to (:ba t) 3))))
+        "empty args: answered")))
+
+
+(defn- not-found-refusing-writer
+  "A channel writer that carries values to `h` but refuses, with
+   invalid-value, any not-found error: the frame budget bites on the
+   answer to an unmapped name, never on its oversize fallback."
+  [h]
+  (reify stream/IDaoStreamWriter
+    (append!
+      [_ v]
+      (if (= :dao.stream.remote/not-found (:dao.stream.remote/error v))
+        {:dao.stream/outcome :dao.stream/invalid-value}
+        (stream/append! h v)))))
+
+
+(deftest an-uncarryable-not-found-is-an-oversize-resolve
+  (let [{:keys [t peer resolve]} (resolving (ring 1))]
+    (resolve "yin.head/q")
+    (swap! (:mirror peer)
+           #(remote/mirror-step @(:table peer) {} (:b-reader peer) %
+                                (not-found-refusing-writer (:ba t))))
+    (is (= [{:dao.stream.remote/id 0
+             :dao.stream.remote/name "yin.head/q"
+             :dao.stream.remote/error :dao.stream.remote/oversize}]
+           (values (:ba t)))
+        "the fallback carries the name and no identity")
+    (is (= {:dao.stream/outcome :dao.stream/transport-error
+            :dao.stream.remote/reason :dao.stream.remote/oversize}
+           (resolve "yin.head/q"))
+        "filed and returned, not left outstanding")))
+
+
+(defn- counting-writer
+  "A channel writer that answers `outcome` to every append, counting
+   the attempts in `n`."
+  [n outcome]
+  (reify stream/IDaoStreamWriter
+    (append!
+      [_ _]
+      (swap! n inc)
+      {:dao.stream/outcome outcome})))
+
+
+(defn- link-of
+  "The link `ls` keeps for the toy's channel, read through a reflection
+   attached on it: the link state is the reflection's :link."
+  [ls t]
+  (:link @(.-state (:dao.stream/handle
+                     ((:attach ls) {:dao.stream/type :dao.stream/remote
+                                    :dao.stream/identity "probe"
+                                    :dao.stream/channel (:channel t)})))))
+
+
+(defn- refusing-links
+  [t attempts outcome]
+  (remote/links {:dao.stream.remote/channels
+                 {(:channel t)
+                  {:reader (:ba t)
+                   :writer (counting-writer attempts outcome)}}}))
+
+
+(deftest an-uncarryable-name-is-a-terminal-resolve
+  (doseq [outcome [:dao.stream/invalid-value :dao.stream/closed]]
+    (testing (str outcome)
+      (let [t (toy)
+            attempts (atom 0)
+            ls (refusing-links t attempts outcome)
+            link (link-of ls t)
+            _ (reset! attempts 0)
+            resolve #((:resolve ls) (:channel t) "yin.head/p")]
+        (is (= {:dao.stream/outcome outcome} (resolve)))
+        (is (= {:dao.stream/outcome outcome} (resolve))
+            "terminal, and the writer asked again")
+        (is (= {:dao.stream/outcome outcome} (resolve)))
+        (is (= 3 @attempts) "each resolve attempts the send")
+        (is (= {} (:outstanding @link)))
+        (is (= {} (:filed @link))))))
+  (testing "a hundred refused names: the link holds none of them"
+    (let [t (toy)
+          attempts (atom 0)
+          ls (refusing-links t attempts :dao.stream/invalid-value)
+          link (link-of ls t)
+          names (set (map #(str "yin.head/n" %) (range 100)))]
+      (doseq [n names]
+        (is (= {:dao.stream/outcome :dao.stream/invalid-value}
+               ((:resolve ls) (:channel t) n))))
+      (is (= {} (:outstanding @link)))
+      (is (= {} (:filed @link)))
+      (is (not-any? names (tree-seq coll? seq @link))
+          "no name in any key of the link")))
+  (testing "full is backpressure: retried by the next resolve"
+    (let [s (ring 1)
+          t (toy)
+          id (:dao.stream/identity (stream/descriptor s))
+          peer (served-peer {id (entry s #{:reader})} t)
+          ls (remote/links {:dao.stream.remote/channels
+                            {(:channel t)
+                             {:reader (:ba t)
+                              :writer (full-then-forward-writer (:ab t) 1)}}})
+          resolve #((:resolve ls) (:channel t) "yin.head/p")]
+      (is (= retry (resolve)))
+      (is (= 0 (count (op-requests (:ab t) :dao.stream/descriptor))))
+      (is (= retry (resolve)))
+      (is (= 1 (count (op-requests (:ab t) :dao.stream/descriptor))))
+      (serve-named! peer {"yin.head/p" id})
+      (is (= id (:dao.stream/identity (resolve)))))))
+
+
+(deftest an-answer-with-no-identity-completes-no-identity-request
+  (doseq [e [:dao.stream.remote/not-found :dao.stream.remote/oversize]]
+    (testing (str "absent identity, " e)
+      (let [t (toy)
+            r (:dao.stream/handle (attach (:a-end t) nil {}))
+            link (:link @(.-state r))]
+        (is (contains? (:outstanding @link) 0) "the probe is outstanding")
+        (stream/append! (:ba t) {:dao.stream.remote/id 0
+                                 :dao.stream.remote/name "unasked"
+                                 :dao.stream.remote/error e})
+        (is (= retry (stream/cursor r :dao.stream/oldest))
+            "dropped: the reflection is not gone")
+        (is (contains? (:outstanding @link) 0) "the probe stays outstanding"))))
+  (testing "an explicit nil identity behaves as before"
+    (let [t (toy)
+          r (:dao.stream/handle (attach (:a-end t) nil {}))
+          link (:link @(.-state r))]
+      (stream/append! (:ba t) {:dao.stream.remote/id 0
+                               :dao.stream/identity nil
+                               :dao.stream.remote/error
+                               :dao.stream.remote/not-found})
+      (is (= {:dao.stream/outcome :dao.stream/transport-error
+              :dao.stream.remote/reason :dao.stream.remote/not-found}
+             (stream/cursor r :dao.stream/oldest))
+          "it matches the nil identity and marks the reflection gone")
+      (is (not (contains? (:outstanding @link) 0))))))

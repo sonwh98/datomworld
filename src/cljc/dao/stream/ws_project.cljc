@@ -169,14 +169,18 @@
    :traffic (the deposit target the acknowledgement carries),
    :admission (its declaration), :reader (the traffic reader the
    projection reads), :cursor (its minted reading cursor) and :ring
-   (the fresh channel ring buffer). The listener is the host's: it
+   (the fresh channel ring buffer). `:names`, optional, is the name
+   map beside the table (dao.stream.remote.md section 2), {name
+   identity}, each value a key of the table: the mirror answers a
+   named descriptor request from it. The listener is the host's: it
    calls ws/accept-connection! on this endpoint, per dao.stream.ws.md
    Serving."
-  [{:keys [endpoint slots table make-media] :as config}]
+  [{:keys [endpoint slots table names make-media] :as config}]
   (when-not (and (map? config)
                  (some? endpoint)
                  (fn? make-media)
                  (map? table)
+                 (or (nil? names) (map? names))
                  (seq slots)
                  (every? valid-slot? slots))
     (throw (ex-info "invalid DaoStream ws acceptor composition"
@@ -184,6 +188,7 @@
   (atom {:endpoint endpoint
          :slots (vec slots)
          :table table
+         :names names
          :make-media make-media
          :offer-cursors (mapv :offer-cursor slots)
          :sessions {}}))
@@ -271,6 +276,7 @@
       (step! (:project session))
       (swap! acceptor assoc-in [:sessions attachment :cursor]
              (remote/mirror-step (:table @acceptor)
+                                 (:names @acceptor)
                                  (:ring session)
                                  (:cursor session)
                                  (:handle session))))
@@ -319,10 +325,12 @@
    reflection operation. One dial value carries one active
    attachment; a reattachment composes a fresh dial with a fresh
    cursor, as dao.stream.ws.md composes one medium per active client
-   attachment. :dao.stream.remote/events, :dao.stream.remote/resend-
-   after and :dao.stream.remote/budget pass to the attacher as its
-   policy."
-  [{:keys [attach! traffic cursor ring table] :as opts}]
+   attachment. `:names`, optional, is the name map beside `:table`
+   that this end's mirror answers named requests from. `dial-resolve!`
+   resolves a name through the dialed channel before any reflection
+   exists. :dao.stream.remote/events, :dao.stream.remote/resend-after
+   and :dao.stream.remote/budget pass to the attacher as its policy."
+  [{:keys [attach! traffic cursor ring table names] :as opts}]
   (when-not (and (fn? attach!)
                  (map? traffic)
                  (stream/writer? (:dao.stream/handle traffic))
@@ -331,7 +339,8 @@
                  (stream/reader? ring)
                  (stream/writer? ring)
                  (stream/closable? ring)
-                 (map? table))
+                 (map? table)
+                 (or (nil? names) (map? names)))
     (throw (ex-info "invalid DaoStream ws dial composition"
                     {:opts opts})))
   (let [channel (atom nil)
@@ -341,8 +350,36 @@
                                   :dao.stream.remote/resend-after
                                   :dao.stream.remote/budget])]
     (atom {:attach! attach! :traffic traffic :cursor cursor :ring ring
-           :table table :channel channel :mirror-cursor mirror-cursor
-           :policy policy})))
+           :table table :names names :channel channel
+           :mirror-cursor mirror-cursor :policy policy})))
+
+
+(defn- establish!
+  "The ws attach of the channel descriptor `cd`, the attachment's
+   projection onto the ring, and the remote links over the channel end
+   {:reader ring :writer handle}, recorded as the dial's one channel.
+   Nil once established; a channel attach that fails answers the ws
+   attacher's own outcome and records nothing."
+  [dial cd]
+  (let [{:keys [attach! traffic cursor ring channel policy]} @dial
+        r (attach! cd)]
+    (if-not (= :dao.stream/ok (:dao.stream/outcome r))
+      r
+      (let [handle (:dao.stream/handle r)
+            ls (remote/links
+                 (merge policy
+                        {:dao.stream.remote/channels
+                         {cd {:reader ring :writer handle}}}))]
+        (reset! channel {:attachment (:dao.stream/attachment r)
+                         :handle handle
+                         :project (projection
+                                    {:attachment (:dao.stream/attachment r)
+                                     :traffic (:dao.stream/handle traffic)
+                                     :cursor cursor
+                                     :ring ring})
+                         :reflect! (:attach ls)
+                         :resolve! (:resolve ls)})
+        nil))))
 
 
 (defn dial-attach!
@@ -360,29 +397,30 @@
    fresh cursor, as `dial` documents. Returns the remote attach!
    result."
   [dial descriptor]
-  (let [{:keys [attach! traffic cursor ring channel policy]} @dial]
+  (let [{:keys [channel]} @dial]
     (when-some [attached @channel]
       (throw (ex-info
                "this dial already attached its one active attachment"
                {:attachment (:attachment attached)
                 :reattachment "compose a fresh dial with a fresh cursor"})))
-    (let [r (attach! (:dao.stream/channel descriptor))]
-      (if-not (= :dao.stream/ok (:dao.stream/outcome r))
-        r
-        (let [cd (:dao.stream/channel descriptor)
-              handle (:dao.stream/handle r)
-              project (projection {:attachment (:dao.stream/attachment r)
-                                   :traffic (:dao.stream/handle traffic)
-                                   :cursor cursor
-                                   :ring ring})
-              reflect! (remote/attacher
-                         (merge policy
-                                {:dao.stream.remote/channels
-                                 {cd {:reader ring :writer handle}}}))]
-          (reset! channel {:attachment (:dao.stream/attachment r)
-                           :handle handle :project project
-                           :reflect! reflect!})
-          (reflect! descriptor))))))
+    (or (establish! dial (:dao.stream/channel descriptor))
+        ((:reflect! @channel) descriptor))))
+
+
+(defn dial-resolve!
+  "Resolve the name `n` through the dial's channel, the ws descriptor
+   `cd`: dao.stream.remote's link resolve (dao.stream.remote.md 2.4).
+   A dial with no channel yet attaches `cd` first, as `dial-attach!`
+   does, so a name is resolved before any reflection exists; the
+   descriptor a resolve answers is then attached through the same
+   channel by `dial-reflect!`. A channel attach that fails answers the
+   ws attacher's own outcome. Answers the resolve's outcome: retry
+   until the answer is filed, then ok with the remote descriptor and
+   surface, or transport-error naming not-found or channel-gone."
+  [dial cd n]
+  (let [{:keys [channel]} @dial]
+    (or (when (nil? @channel) (establish! dial cd))
+        ((:resolve! @channel) cd n))))
 
 
 (defn dial-reflect!
@@ -408,12 +446,12 @@
    direction's requests against this end's table. Returns the
    mirror's advanced reading cursor."
   [dial]
-  (let [{:keys [ring table channel mirror-cursor]} @dial]
+  (let [{:keys [ring table names channel mirror-cursor]} @dial]
     (when-some [project (:project @channel)]
       (step! project))
     (when-some [handle (:handle @channel)]
       (swap! mirror-cursor
-             (fn [c] (remote/mirror-step table ring c handle))))
+             (fn [c] (remote/mirror-step table names ring c handle))))
     @mirror-cursor))
 
 

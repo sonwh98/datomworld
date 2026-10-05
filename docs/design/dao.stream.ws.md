@@ -1,6 +1,7 @@
 # DaoStream WebSocket Transport
 
-Status: design target, subordinate to `dao.stream.md`. That document is the
+Status: implemented (`dao.stream.ws` and its host adapters), subordinate
+to `dao.stream.md`. That document is the
 contract; this one specifies the WebSocket transport's implementation of it.
 Where the two disagree, the contract wins.
 

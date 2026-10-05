@@ -1,6 +1,8 @@
 # DaoStream Remote: Any Stream, Reachable As Itself
 
-Status: design target, not implemented. Subordinate to
+Status: implemented (`dao.stream.remote`, `dao.stream.ws-project`,
+`dao.stream.udp`, `dao.stream.remote-pair`, `dao.stream.remote-meet`).
+Subordinate to
 [`dao.stream.md`](./dao.stream.md), which is the contract and wins on any
 disagreement. Every sentence below is a rule. It replaces the earlier serve
 draft (git history, `docs/design/dao.stream.serve.md` at `71f3fb93`) and
@@ -71,7 +73,9 @@ outcome maps returned verbatim. Four concepts.
 - **table**: composition data on a peer, `{identity {:handle h :surface
   S}}` plus the optional keys of sections 6 and 7. A plain map the
   composition owns, not a registry (`dao.stream.md`, No hidden global
-  state).
+  state). Beside it the composition may hold a **name map**, `{name
+  identity}`, each value a key of the table, owned the same way. A name
+  is lookup data and never a `:dao.stream/identity`.
 - **mirror step**: the pure step a peer runs over a channel to answer
   requests against its table. It holds no state between calls beyond the
   channel reader's cursor.
@@ -115,11 +119,30 @@ the transport-owned namespace rule of `dao.stream.md` (Envelopes).
 {:dao.stream.remote/id       n
  :dao.stream/identity        id
  :dao.stream.remote/error    e}        ; one of the three errors below
+
+;; named request: a name in place of the identity, descriptor only
+{:dao.stream.remote/name     nm
+ :dao.stream.remote/op       :dao.stream/descriptor
+ :dao.stream.remote/args     []
+ :dao.stream.remote/id       n}
+
+;; its answers: the descriptor answer of the entry the name maps to, with
+;; that entry's own :dao.stream/identity and surface, plus
+{:dao.stream.remote/name     nm}
+;; or the not-found error, carrying the name and no identity
+{:dao.stream.remote/id       n
+ :dao.stream.remote/name     nm
+ :dao.stream.remote/error    :dao.stream.remote/not-found}
 ```
 
 A request is one value on the channel writer; an answer is one value on the
 other end's. The request map is open: keys not named here pass to the mirror
-step's middleware chain (section 7) and are otherwise ignored. A value that
+step's middleware chain (section 7) and are otherwise ignored. A request that
+carries `:dao.stream/identity` is an identity request whatever else it
+carries, a `:dao.stream.remote/name` included, which is then ignored. A
+request that carries `:dao.stream.remote/name` and no
+`:dao.stream/identity` is a named request; with any op other than
+`descriptor`, or with args other than `[]`, it is malformed. A value that
 is neither a well-formed request nor a well-formed answer is dropped as a
 diagnostic below the mirror step and the link, as malformed wire input
 (`datom.world.md`, Host Boundaries). Wire ops are exactly four: `close!`
@@ -134,14 +157,17 @@ never by fabricating an outcome the operation's closed set forbids
 - `not-found`: the identity is absent from the table, whether never served,
   retired by policy, or reclaimed with its lease. An identity this peer does
   not serve has no operations and no surface, so this one error is the
-  honest answer for all four ops.
+  honest answer for all four ops. For a named request it means the name is
+  absent from the name map or maps to an identity absent from the table,
+  and the answer carries the name and no identity.
 - `no-surface`: the op is outside the entry's declared surface, under the
   fixed mapping: `cursor` and `next` need `:reader`, `append!` needs
   `:writer`, `descriptor` needs no surface and is always answerable.
 - `oversize`: the channel writer refused the answer value itself
   (`invalid-value`); the read is not skipped and no cursor advances past
   it. Large media travel as `dao.jing` addresses (`dao.stream.md`,
-  Granularity).
+  Granularity). For a named request it carries the name, and an identity
+  only when the answer it replaces carried one.
 
 All three names live under `:dao.stream.remote/`. The declared surface is
 answer data, not descriptor data: the remote descriptor (2.2) carries no
@@ -167,9 +193,16 @@ transport never creates: a dynamic dispatch table has an
 
 ### 2.3 The mirror step
 
-`(mirror-step table chan-reader cursor chan-writer) -> cursor'`. For each
-request read from `chan-reader`, in order, bounded by a composition budget:
+`(mirror-step table chan-reader cursor chan-writer) -> cursor'`, and
+`(mirror-step table names chan-reader cursor chan-writer)` with the name
+map; without one every name is unmapped. For each request read from
+`chan-reader`, in order, bounded by a composition budget:
 
+0. A named request: look up its name in the name map and the identity
+   found in the table. Either absent: append the `not-found` answer with
+   the name and no identity. Otherwise append the `descriptor` answer of
+   step 3 for that entry, with its own `:dao.stream/identity` and the name
+   under `:dao.stream.remote/name`. Steps 1 to 4 do not run for it.
 1. Look up `:dao.stream/identity` in the table. Absent: append the answer
    with `:dao.stream.remote/error :dao.stream.remote/not-found`.
 2. Present, but the op outside the entry's declared surface under 2.1's
@@ -195,7 +228,7 @@ budget is correct. A value the channel cannot carry is answered with
 `:dao.stream.remote/error :dao.stream.remote/oversize` in place of that
 element (2.1).
 
-Steps 1 to 4 are the mirror's only contacts with the entry's handle: no
+Steps 0 to 4 are the mirror's only contacts with the entry's handle: no
 answer path calls a handle outside `apply-request`, so nothing bypasses the
 entry's middleware or its declared surface, and a reflection mints every
 anchor, `:oldest` and `:newest` included, by request.
@@ -259,7 +292,8 @@ Then the operation answers as follows.
 reflection gone; once gone, every later `cursor`, `next` and `append!`
 answers `transport-error` with
 `:dao.stream.remote/reason :dao.stream.remote/not-found`, while
-`descriptor` still answers `ok`: a name outlives what it named. A filed
+`descriptor` still answers `ok`: a descriptor outlives what it described.
+A filed
 `no-surface` or `oversize` marks nothing; each is returned, for the
 operation that caused it, as `transport-error` with
 `:dao.stream.remote/reason` set to the error's name. A reflection marked
@@ -278,6 +312,27 @@ answers later `cursor` and `next` `transport-error` with
 `append!` keeps answering the channel writer's own outcome, `closed` once
 the channel is down. Filed answers are still returned. Reattachment is the
 caller's policy, by `attach!` on the same descriptor.
+
+**Resolve.** A link also answers `resolve` `name`, for no reflection. It
+drains, then returns and forgets a filed answer for the name: `ok` with
+the remote descriptor of the identity answered over the link's channel,
+`:dao.stream/identity` and `:dao.stream.remote/surface`; or the filed
+`not-found` as `transport-error` with
+`:dao.stream.remote/reason :dao.stream.remote/not-found`, which marks
+nothing. A filed `oversize` is returned the same way, with its own name as
+the reason. Otherwise it sends the named request if none is outstanding for
+the name and answers `transport-error` with `:dao.stream/retry? true`, as
+`cursor` does. A send the channel writer refuses with `full` is retried by
+the next `resolve`; any other refusal is returned as the writer's own
+outcome, leaves nothing outstanding and is remembered nowhere, so each
+`resolve` of that name attempts the send again. A named answer is filed
+only when its id is outstanding and it echoes the name asked. An answer
+that carries no `:dao.stream/identity` completes no identity request.
+After channel loss `resolve` answers `transport-error` with
+`:dao.stream.remote/reason :dao.stream.remote/channel-gone`. On a channel
+descriptor this peer holds no channel for, `resolve` answers `not-found`,
+as `attach!` does. The caller attaches the descriptor answered with
+`attach!`; from there nothing in this section changes.
 
 **Refused.** A filed `:dao.stream/refused` is returned verbatim for the
 operation it answers and marks nothing: refusal is per operation
@@ -503,6 +558,16 @@ that policy, and either peer may serve such a pair to the other over the
 same channel. This is Linda's request medium, and the shape `yin.repl` and
 content lookup take (implementation plan, section 1). The meeting board and
 the relay pair are section 4's instances of it.
+
+**Stream names.** A name is lookup data and never a `:dao.stream/identity`:
+no descriptor, cursor or answer carries a name under that key. A stream
+whose identity is new each time its holder starts is reached by a name in
+its peer's name map, resolved before each attachment and again after the
+channel is lost. **The head board** (`yin.vm.linker.dht.head.md` 5.1) is
+this convention: the publisher's table holds its board ring under the
+ring's own identity with surface `#{:reader}`, its name map holds
+`"yin.head/"` followed by the principal, mapped to that identity, and a
+reader resolves the name and attaches the descriptor answered.
 
 **Peer names.** A name is a self-certifying hash of a public key, the
 kickoff-hash form of `dao.stream.discovery.md`. It appears only inside

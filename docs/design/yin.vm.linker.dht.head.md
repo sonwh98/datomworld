@@ -641,8 +641,11 @@ that trace is written.</td></tr>
 <td>The board's acceptor (a one-entry table and a one-entry name map)
 and the reader's dial (resolve the name, then attach), thin
 compositions of <code>dao.stream.ws-project</code>; the listener and
-the attacher are arguments. The only namespace here that knows a
-transport.</td></tr>
+the host's connect seam are arguments (a ws attacher is tied to its own
+traffic medium, and every redial needs a fresh one). <code>serve</code>
+requires a positive bind port and refuses otherwise as data: the board
+binds at the node's UDP port number (5.1), so the number is always
+known. The only namespace here that knows a transport.</td></tr>
 </table>
 
 `dao.space.dht` gains `abandon`, the kind-conflict refusal and the

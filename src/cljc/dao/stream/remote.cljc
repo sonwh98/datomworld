@@ -18,7 +18,15 @@
    descriptor, shared by every reflection through that channel, and
    answers ok at once -- the contract's deferred remote confirmation.
    There is no :dao.stream/create entry: attaching through this
-   transport never creates."
+   transport never creates.
+
+   A name is lookup data and never a :dao.stream/identity. A peer's
+   composition may hold, beside its table, a name map {name identity};
+   a named descriptor request carries :dao.stream.remote/name in place
+   of :dao.stream/identity and the mirror answers the mapped entry's
+   own identity and surface. `links` is the asking side: the attach
+   entry and `resolve` over the same per-channel links, so a name is
+   resolved and its stream then attached through one link."
   (:require [dao.stream :as stream]
             [dao.stream.middleware :as middleware]))
 
@@ -45,25 +53,48 @@
     :dao.stream.remote/oversize})
 
 
+(defn- named?
+  "True when the map `v` carries a name: a named request, or the
+   answer to one."
+  [v]
+  (contains? v :dao.stream.remote/name))
+
+
 (defn- well-formed-request?
   "True when `v` is a well-formed request: a map naming its identity
    and one of the four wire ops, carrying an args vector and the
-   asker-minted id. Anything else is dropped as malformed wire input."
+   asker-minted id; or a named request, which carries a name in place
+   of the identity and may ride the descriptor op only, with empty
+   args. A request that carries an identity is an identity request
+   whatever else it carries; a named request with any other op, or
+   with args that are not empty, is malformed. Anything else is
+   dropped as malformed wire input."
   [v]
   (and (map? v)
-       (contains? v :dao.stream/identity)
-       (contains? wire-ops (:dao.stream.remote/op v))
        (vector? (:dao.stream.remote/args v))
-       (contains? v :dao.stream.remote/id)))
+       (contains? v :dao.stream.remote/id)
+       (if (contains? v :dao.stream/identity)
+         (contains? wire-ops (:dao.stream.remote/op v))
+         (and (named? v)
+              (= :dao.stream/descriptor (:dao.stream.remote/op v))
+              (empty? (:dao.stream.remote/args v))))))
 
 
 (defn- well-formed-answer?
   "True when `v` is a well-formed answer: a map carrying the id and
-   the identity and either a protocol error or an outcome map."
+   the identity and either a protocol error or an outcome map. The
+   answer to a named request carries the name; its not-found error
+   carries the name and no identity, because an unmapped name names no
+   stream, and so does the oversize error that replaces an answer that
+   carried none."
   [v]
   (and (map? v)
        (contains? v :dao.stream.remote/id)
-       (contains? v :dao.stream/identity)
+       (or (contains? v :dao.stream/identity)
+           (and (named? v)
+                (contains? #{:dao.stream.remote/not-found
+                             :dao.stream.remote/oversize}
+                           (:dao.stream.remote/error v))))
        (or (contains? protocol-errors (:dao.stream.remote/error v))
            (stream/outcome-map? v))))
 
@@ -130,9 +161,46 @@
   (let [r (stream/append! chan-writer answer)]
     (when (= :dao.stream/invalid-value (:dao.stream/outcome r))
       (stream/append! chan-writer
-                      (error-answer (:dao.stream/identity answer)
-                                    (:dao.stream.remote/id answer)
-                                    :dao.stream.remote/oversize)))))
+                      (assoc (select-keys answer [:dao.stream/identity
+                                                  :dao.stream.remote/id
+                                                  :dao.stream.remote/name])
+                             :dao.stream.remote/error
+                             :dao.stream.remote/oversize)))))
+
+
+(defn- descriptor-answer
+  "The descriptor answer of a table entry: the entry's handle's own
+   descriptor outcome, with the id, the served identity and the
+   entry's declared surface."
+  [entry identity id]
+  (-> (stream/descriptor (:handle entry))
+      (assoc :dao.stream.remote/id id
+             :dao.stream/identity identity
+             :dao.stream.remote/surface (:surface entry))))
+
+
+(defn- answer-named!
+  "The mirror's step 0 for one well-formed named request: look the
+   name up in the name map and the identity it maps to in the table.
+   An unmapped name, and a name mapped to an identity the table lacks,
+   are answered not-found with the name and no identity. Otherwise the
+   answer is the descriptor answer of the mapped entry -- its own
+   identity, its declared surface -- with the name echoed. The name
+   never rides :dao.stream/identity."
+  [table names chan-writer req]
+  (let [n (:dao.stream.remote/name req)
+        id (:dao.stream.remote/id req)
+        identity (when (map? names) (get names n))
+        entry (when (and (map? names) (contains? names n))
+                (get table identity))]
+    (write-answer!
+      chan-writer
+      (if-not entry
+        {:dao.stream.remote/id id
+         :dao.stream.remote/name n
+         :dao.stream.remote/error :dao.stream.remote/not-found}
+        (assoc (descriptor-answer entry identity id)
+               :dao.stream.remote/name n)))))
 
 
 (defn- answer!
@@ -155,12 +223,7 @@
                                    :dao.stream.remote/not-found))
       (let [h (:handle entry)]
         (if (= :dao.stream/descriptor op)
-          (write-answer!
-            chan-writer
-            (-> (stream/descriptor h)
-                (assoc :dao.stream.remote/id id
-                       :dao.stream/identity identity
-                       :dao.stream.remote/surface (:surface entry))))
+          (write-answer! chan-writer (descriptor-answer entry identity id))
           (if-not (contains? (into #{} (:surface entry))
                              (required-surface op))
             (write-answer! chan-writer
@@ -193,21 +256,30 @@
    or end; a gap adopts the reader's own recovery cursor, the lost wire
    values being lost. The mirror never constructs, parses or rewrites
    a cursor, an anchor or an outcome: the served stream is the
-   original, its cursors, its positions, its gap, its end."
-  [table chan-reader cursor chan-writer]
-  (let [channel (:dao.stream/identity (stream/descriptor chan-reader))]
-    (loop [cursor cursor]
-      (let [r (stream/next chan-reader cursor)]
-        (case (:dao.stream/outcome r)
-          :dao.stream/ok
-          (do (when (well-formed-request? (:dao.stream/value r))
-                (answer! table chan-writer channel
-                         (:dao.stream/value r)))
-              (recur (:dao.stream/cursor r)))
-          :dao.stream/blocked cursor
-          :dao.stream/end cursor
-          :dao.stream/gap (recur (:dao.stream/cursor r))
-          cursor)))))
+   original, its cursors, its positions, its gap, its end.
+
+   The five-argument form takes the composition's name map `names`,
+   {name identity}, each value a key of `table`: a named descriptor
+   request is answered from it (step 0). Without a name map every
+   name is unmapped."
+  ([table chan-reader cursor chan-writer]
+   (mirror-step table nil chan-reader cursor chan-writer))
+  ([table names chan-reader cursor chan-writer]
+   (let [channel (:dao.stream/identity (stream/descriptor chan-reader))]
+     (loop [cursor cursor]
+       (let [r (stream/next chan-reader cursor)]
+         (case (:dao.stream/outcome r)
+           :dao.stream/ok
+           (let [v (:dao.stream/value r)]
+             (when (well-formed-request? v)
+               (if (contains? v :dao.stream/identity)
+                 (answer! table chan-writer channel v)
+                 (answer-named! table names chan-writer v)))
+             (recur (:dao.stream/cursor r)))
+           :dao.stream/blocked cursor
+           :dao.stream/end cursor
+           :dao.stream/gap (recur (:dao.stream/cursor r))
+           cursor))))))
 
 
 ;; =============================================================================
@@ -224,8 +296,9 @@
    their served identity and the cursor that precedes each; an
    optional event writer; and the policy data -- the resend-after k
    and the budget k stamped on next requests, both composition data."
-  [chan policy]
-  (atom {:reader (:reader chan)
+  [cd chan policy]
+  (atom {:channel cd
+         :reader (:reader chan)
          :writer (:writer chan)
          :cursor (:dao.stream/cursor
                    (stream/cursor (:reader chan) :dao.stream/oldest))
@@ -398,6 +471,22 @@
           (recur (:dao.stream/cursor o) further))))))
 
 
+(defn- absorb-named!
+  "A resolve's answer, read off the channel: taken only when it echoes
+   the name its outstanding request asked, and filed under its id for
+   the resolve that asked. No reflection exists for a name, so nothing
+   is marked gone and nothing is emitted. An answer that does not echo
+   the name never completes the request, which stays outstanding."
+  [link id entry v]
+  (let [req (:req entry)]
+    (when (and (named? v)
+               (= (:dao.stream.remote/name req)
+                  (:dao.stream.remote/name v)))
+      (swap! link update :outstanding dissoc id)
+      (swap! link assoc-in [:filed id]
+             {:req req :ans v :reflection nil}))))
+
+
 (defn- absorb!
   "Consume one value read off the channel. A well-formed answer whose
    id is outstanding and whose identity is the outstanding entry's
@@ -408,40 +497,46 @@
    filed under its id and its more outcomes installed. Answers whose
    id is not outstanding, answers whose identity is not the
    reflection's own -- a mismatch never completes a request, which
-   stays outstanding -- and values that are not well-formed answers,
-   are dropped as diagnostics."
+   stays outstanding, and an answer that carries no identity
+   completes no identity request -- and values that are not
+   well-formed answers,
+   are dropped as diagnostics. The answer to a named request is the
+   resolve's (absorb-named!)."
   [link v]
   (when (well-formed-answer? v)
     (let [id (:dao.stream.remote/id v)]
       (when-some [entry (get (:outstanding @link) id)]
-        (let [refl (:reflection entry)
-              req (:req entry)
-              op (:dao.stream.remote/op req)
-              e (:dao.stream.remote/error v)]
-          (when (= (:dao.stream/identity v) (:identity @refl))
-            (swap! link update :outstanding dissoc id)
-            (swap! refl update :ids disj id)
-            (cond
-              (= :dao.stream.remote/not-found e)
-              (do (swap! refl assoc :gone? true)
-                  (when (or (= :dao.stream/descriptor op)
-                            (= :dao.stream/append! op))
-                    (emit! link v)))
+        (if (named? (:req entry))
+          (absorb-named! link id entry v)
+          (let [refl (:reflection entry)
+                req (:req entry)
+                op (:dao.stream.remote/op req)
+                e (:dao.stream.remote/error v)]
+            (when (and (contains? v :dao.stream/identity)
+                       (= (:dao.stream/identity v) (:identity @refl)))
+              (swap! link update :outstanding dissoc id)
+              (swap! refl update :ids disj id)
+              (cond
+                (= :dao.stream.remote/not-found e)
+                (do (swap! refl assoc :gone? true)
+                    (when (or (= :dao.stream/descriptor op)
+                              (= :dao.stream/append! op))
+                      (emit! link v)))
 
-              (= :dao.stream/descriptor op)
-              ;; The attach probe's confirmation. ok records; a
-              ;; no-surface or oversize error marks nothing.
-              (when (nil? e)
-                (learn! refl v)
-                (emit! link v))
+                (= :dao.stream/descriptor op)
+                ;; The attach probe's confirmation. ok records; a
+                ;; no-surface or oversize error marks nothing.
+                (when (nil? e)
+                  (learn! refl v)
+                  (emit! link v))
 
-              (= :dao.stream/append! op)
-              (emit! link v)
+                (= :dao.stream/append! op)
+                (emit! link v)
 
-              :else
-              (do (swap! link assoc-in
-                         [:filed id] {:req req :ans v :reflection refl})
-                  (install-more! link v)))))))))
+                :else
+                (do (swap! link assoc-in
+                           [:filed id] {:req req :ans v :reflection refl})
+                    (install-more! link v))))))))))
 
 
 (defn- channel-loss!
@@ -455,7 +550,8 @@
       (emit! link {:dao.stream.remote/event
                    :dao.stream.remote/append-unknown
                    :dao.stream.remote/id id}))
-    (swap! (:reflection entry) update :ids disj id))
+    (when-some [refl (:reflection entry)]
+      (swap! refl update :ids disj id)))
   (swap! link assoc :outstanding {} :channel-gone? true))
 
 
@@ -474,13 +570,15 @@
    end is the channel's loss; a gap adopts the reader's own recovery
    cursor, the lost wire values being lost. Each drain is also one
    further ask of an outstanding descriptor probe -- the probe's
-   caller never asks it remotely -- so resend-after re-sends it, and
+   caller never asks it remotely, where a named request's caller asks
+   by calling resolve again -- so resend-after re-sends it, and
    one more try of each probe the writer has refused, until a send
    is accepted."
   [link]
   (when-not (:channel-gone? @link)
     (doseq [[_ e] (:outstanding @link)]
-      (when (= :dao.stream/descriptor (:dao.stream.remote/op (:req e)))
+      (when (and (= :dao.stream/descriptor (:dao.stream.remote/op (:req e)))
+                 (not (named? (:req e))))
         (count-ask! link (:dao.stream.remote/id (:req e)))))
     (retry-pending! link)
     (loop []
@@ -684,6 +782,97 @@
     (result :dao.stream/ok)))
 
 
+;; =============================================================================
+;; The link's resolve (2.4)
+;; =============================================================================
+
+(defn- named-id
+  "The least id in `entries` -- the link's outstanding or filed map --
+   whose request is a named request for the name `n`, if any."
+  [entries n]
+  (first
+    (sort
+      (keep (fn [[id e]]
+              (let [r (:req e)]
+                (when (and (named? r) (= n (:dao.stream.remote/name r)))
+                  id)))
+            entries))))
+
+
+(defn- send-named!
+  "Append one named descriptor request for `n` to the channel writer,
+   outstanding only when the writer accepted the send: a refused send
+   leaves the request unsent and the next resolve sends again. The
+   request carries the name in place of :dao.stream/identity."
+  [link n]
+  (let [req {:dao.stream.remote/name n
+             :dao.stream.remote/op :dao.stream/descriptor
+             :dao.stream.remote/args []
+             :dao.stream.remote/id (mint-id! link)}
+        r (stream/append! (:writer @link) req)]
+    (when (= :dao.stream/ok (:dao.stream/outcome r))
+      (swap! link assoc-in [:outstanding (:dao.stream.remote/id req)]
+             {:req req :asks 0 :reflection nil}))
+    r))
+
+
+(defn- resolved
+  "The outcome a filed answer to a named request yields: ok with the
+   remote descriptor of the stream the name mapped to -- its own
+   identity, over this link's channel -- and the entry's declared
+   surface; a protocol error translated per the reflection's rules,
+   not-found included; any other outcome the source's own map."
+  [link ans]
+  (cond
+    (some? (:dao.stream.remote/error ans))
+    (translated (:dao.stream.remote/error ans))
+
+    (= :dao.stream/ok (:dao.stream/outcome ans))
+    (let [identity (:dao.stream/identity ans)]
+      {:dao.stream/outcome :dao.stream/ok
+       :dao.stream/descriptor {:dao.stream/type :dao.stream/remote
+                               :dao.stream/identity identity
+                               :dao.stream/channel (:channel @link)}
+       :dao.stream/identity identity
+       :dao.stream.remote/surface (:dao.stream.remote/surface ans)})
+
+    :else
+    (dissoc (bare-outcome ans)
+            :dao.stream.remote/name :dao.stream.remote/surface)))
+
+
+(defn- resolve-name
+  "The link's resolve: drain, then a filed answer for the name is
+   returned and forgotten -- a name is looked up afresh each time it
+   is asked, never remembered. Otherwise a named descriptor request is
+   sent if none is outstanding, and the answer is transport-error with
+   :dao.stream/retry? true, as cursor answers. A send the writer
+   refuses with full is retried by the next resolve; any other refusal
+   is the writer's own outcome, leaves nothing outstanding and is
+   remembered nowhere -- the writer is the source of truth for what it
+   can carry -- so each resolve of that name attempts the send again.
+   After channel loss the answer is transport-error naming
+   channel-gone, not retryable."
+  [link n]
+  (drain! link)
+  (if-some [id (named-id (:filed @link) n)]
+    (let [ans (:ans (get (:filed @link) id))]
+      (swap! link update :filed dissoc id)
+      (resolved link ans))
+    (cond
+      (:channel-gone? @link)
+      (translated :dao.stream.remote/channel-gone)
+
+      :else
+      (if-some [id (named-id (:outstanding @link) n)]
+        (do (count-ask! link id) (retry-read))
+        (let [r (send-named! link n)]
+          (if (contains? #{:dao.stream/ok :dao.stream/full}
+                         (:dao.stream/outcome r))
+            (retry-read)
+            r))))))
+
+
 (deftype ReflectionHandle
   [state]
 
@@ -735,6 +924,64 @@
        (contains? d :dao.stream/channel)))
 
 
+(defn links
+  "The asking side over one set of per-channel links: {:attach f
+   :resolve g}. `f` is `attacher`'s entry. `(g channel-descriptor
+   name)` is the link's resolve over the link `f` keeps for that
+   channel, created here when none exists yet: a filed answer for the
+   name is returned and forgotten -- ok with the remote descriptor of
+   the stream the name maps to, its own identity over that channel,
+   and the entry's declared surface under :dao.stream.remote/surface;
+   the not-found error as transport-error with reason not-found;
+   otherwise the named descriptor request is sent when none is
+   outstanding and the answer is transport-error with
+   :dao.stream/retry? true, as cursor answers. After channel loss the
+   answer is transport-error naming channel-gone. A channel this peer
+   does not reach is not-found. `opts` is `attacher`'s."
+  [opts]
+  (let [channels (:dao.stream.remote/channels opts)
+        policy (select-keys opts [:dao.stream.remote/events
+                                  :dao.stream.remote/resend-after
+                                  :dao.stream.remote/budget])
+        by-channel (atom {})
+        link-for! (fn [cd]
+                    (swap! by-channel
+                           (fn [m]
+                             (if (contains? m cd)
+                               m
+                               (assoc m cd
+                                      (new-link cd (get channels cd)
+                                                policy)))))
+                    (get @by-channel cd))]
+    {:attach
+     (fn [descriptor]
+       (if-not (valid-remote-descriptor? descriptor)
+         (result :dao.stream/invalid-descriptor)
+         (let [cd (:dao.stream/channel descriptor)]
+           (if-not (contains? channels cd)
+             (result :dao.stream/not-found)
+             (let [link (link-for! cd)
+                   refl (atom {:link link
+                               :descriptor descriptor
+                               :identity (:dao.stream/identity descriptor)
+                               :surface nil
+                               :source-descriptor nil
+                               :gone? false
+                               :closed? false
+                               :ids #{}})]
+               (send-request!
+                 link refl
+                 (wire-request link refl :dao.stream/descriptor []))
+               {:dao.stream/outcome :dao.stream/ok
+                :dao.stream/handle (ReflectionHandle. refl)
+                :dao.stream/attachment (str (random-uuid))})))))
+     :resolve
+     (fn [cd n]
+       (if-not (contains? channels cd)
+         (result :dao.stream/not-found)
+         (resolve-name (link-for! cd) n)))}))
+
+
 (defn attacher
   "The composition's :dao.stream/attach entry for :dao.stream/remote
    descriptors; a dynamic dispatch table has this entry and no
@@ -754,38 +1001,7 @@
    confirmation -- and the link sends one descriptor probe for the
    identity: its answer is the reflection's confirmation, not-found
    marking the reflection gone, ok recording the source's descriptor
-   and declared surface."
+   and declared surface. `links` gives the same entry with the link's
+   resolve beside it."
   [opts]
-  (let [channels (:dao.stream.remote/channels opts)
-        policy (select-keys opts [:dao.stream.remote/events
-                                  :dao.stream.remote/resend-after
-                                  :dao.stream.remote/budget])
-        links (atom {})]
-    (fn [descriptor]
-      (if-not (valid-remote-descriptor? descriptor)
-        (result :dao.stream/invalid-descriptor)
-        (let [cd (:dao.stream/channel descriptor)]
-          (if-not (contains? channels cd)
-            (result :dao.stream/not-found)
-            (do (swap! links
-                       (fn [m]
-                         (if (contains? m cd)
-                           m
-                           (assoc m cd
-                                  (new-link (get channels cd) policy)))))
-                (let [link (get @links cd)
-                      refl (atom {:link link
-                                  :descriptor descriptor
-                                  :identity (:dao.stream/identity
-                                              descriptor)
-                                  :surface nil
-                                  :source-descriptor nil
-                                  :gone? false
-                                  :closed? false
-                                  :ids #{}})]
-                  (send-request!
-                    link refl
-                    (wire-request link refl :dao.stream/descriptor []))
-                  {:dao.stream/outcome :dao.stream/ok
-                   :dao.stream/handle (ReflectionHandle. refl)
-                   :dao.stream/attachment (str (random-uuid))}))))))))
+  (:attach (links opts)))
