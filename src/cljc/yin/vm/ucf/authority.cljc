@@ -24,6 +24,10 @@
    `:dao.stream/transport-error`.  Only a reopen, which reads the
    frames, clears it.
 
+   `durability` is the backend's declaration kept from open (plan 1.8)
+   and `exclusive-capable?` compares it with the failure model a
+   composition requires (slice C12).
+
    Enrollment mints a target whose identity derives from the ledger's
    identity and the enrolling t.  `target-reader` is the reader-only
    stream of a target's committed appends (`ledger-projection`); the
@@ -133,9 +137,12 @@
                      :journal h
                      :transactor tx
                      :bound (get opts ::max-exact ledger/max-exact)
+                     :durability (when-let [d (::journal/durability backend)]
+                                   (d))
                      :state (atom {:projection (:projection folded)
                                    :cursor (:cursor folded)
                                    :poisoned? false
+                                   :clean? true
                                    :closed? false})}}))))
 
 
@@ -161,12 +168,59 @@
 
 
 ;; =============================================================================
+;; Durability (plan 1.8)
+;; =============================================================================
+
+(defn durability
+  "The declaration the journal backend made when this authority opened
+   it, as data: `{:dao.stream.journal/backend :file|:memory
+   :dao.stream.journal/failure-model :process-crash|:power-loss|:none
+   :dao.stream.journal/lock-kind :os-lock|:claim-file|:none
+   :dao.stream.journal/persisted #{...}}`.  Nil for a backend that
+   declares nothing."
+  [authority]
+  (:durability authority))
+
+
+(def ^:private failure-rank
+  {:none 0 :process-crash 1 :power-loss 2})
+
+
+(defn exclusive-capable?
+  "True only when this authority can serve an exclusive composition that
+   requires surviving `required`, :process-crash or :power-loss: its
+   backend is :file whose declared lock kind is not :none,
+   it is open, unpoisoned and clean (`:clean?` is set by a successful
+   open!, which grant/reopen! goes through, and cleared by poison, so
+   only a reopen sets it again; today that makes it equivalent to not
+   poisoned, and it is the hook a stricter rule would fill), and its
+   declared failure model covers `required` (:power-loss covers
+   :process-crash, not the reverse).  A memory backend is never
+   capable.  The lock kind and failure model are the declaration the
+   backend made at open, and the flags are read as they stand: neither
+   the lock nor the file is probed."
+  [authority required]
+  (let [d (durability authority)
+        s @(:state authority)]
+    (boolean
+      (and (contains? #{:process-crash :power-loss} required)
+           (= :file (:dao.stream.journal/backend d))
+           (contains? #{:os-lock :claim-file}
+                      (:dao.stream.journal/lock-kind d))
+           (:clean? s)
+           (not (:poisoned? s))
+           (not (:closed? s))
+           (<= (failure-rank required)
+               (get failure-rank (:dao.stream.journal/failure-model d) 0))))))
+
+
+;; =============================================================================
 ;; Transition
 ;; =============================================================================
 
 (defn- poison!
   [authority reason]
-  (swap! (:state authority) assoc :poisoned? true)
+  (swap! (:state authority) assoc :poisoned? true :clean? false)
   (status :suspended reason))
 
 
