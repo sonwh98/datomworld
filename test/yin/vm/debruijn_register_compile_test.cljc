@@ -913,6 +913,42 @@
     (is (= [0] (get liveness 2)))))
 
 
+(def ^:private four-bodies
+  "Body 0 branches around a call that keeps reg 1 live; body 1 reads its
+   own reg 0 after a call; body 2 has no terminator and falls into body
+   3, which reads reg 0."
+  {:bodies [{:locals 0, :registers 3, :start 0, :end 6}
+            {:locals 0, :registers 3, :start 7, :end 10}
+            {:locals 0, :registers 2, :start 11, :end 12}
+            {:locals 0, :registers 1, :start 13, :end 13}],
+   :instructions [[:const 0 1] [:const 1 2] [:branch-false 0 5]
+                  [:call 2 1 [0] false []] [:jump 6] [:move 2 1] [:halt 1]
+                  [:const 0 3] [:const 1 4] [:call 2 0 [1] false []]
+                  [:return 0]
+                  [:const 0 5] [:call 1 0 [] false []]
+                  [:return 0]]})
+
+
+(deftest body-liveness-reads-only-its-own-body-test
+  (testing "each body's boundary live sets"
+    (is (= [{3 [1]} {9 [0]} {12 []} {}]
+           (mapv #(rcode/body-liveness four-bodies %) (range 4)))))
+  (testing "a successor in another body reads as empty: body 3's read of
+            reg 0 does not reach body 2's call"
+    (is (= [] (get (rcode/body-liveness four-bodies 2) 12))))
+  (testing "a backward jump into another body reads as empty, and a
+            negative target throws"
+    (let [back (assoc-in four-bodies [:instructions 10] [:jump 0])
+          neg (assoc-in four-bodies [:instructions 10] [:jump -1])]
+      (is (= [] (get (rcode/body-liveness back 1) 9)))
+      (is (thrown? #?(:cljd Object :clj Exception :cljs :default)
+            (rcode/body-liveness neg 1)))))
+  (testing "a successor past the image still throws"
+    (is (thrown? #?(:cljd Object :clj Exception :cljs :default)
+          (rcode/body-liveness (update four-bodies :instructions pop)
+                               2)))))
+
+
 ;; =============================================================================
 ;; 15. Validator tests for R2 operand kinds and shapes
 ;; =============================================================================

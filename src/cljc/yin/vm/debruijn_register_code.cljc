@@ -350,20 +350,27 @@
   [{:keys [bodies instructions]} body-index]
   (let [{:keys [start end]} (nth bodies body-index)
         pcs (vec (range start (inc end)))
-        total (count instructions)
-        empty-sets (vec (repeat total (sorted-set)))]
+        empty-sets (vec (repeat (count pcs) (sorted-set)))
+        ;; One slot per pc of the body, indexed by `pc - start`. A
+        ;; successor in another body reads the empty set; one outside
+        ;; the image still throws, from `nth`.
+        at (fn [v pc]
+             (cond (<= start pc end) (nth v (- pc start))
+                   (< -1 pc (count instructions)) (sorted-set)
+                   :else (nth instructions pc)))]
     (loop [live-in empty-sets, live-out empty-sets]
       (let [[live-in' live-out' changed?]
             (reduce
               (fn [[in out changed?] pc]
                 (let [t (nth instructions pc)
-                      new-out (reduce (fn [s s-pc] (into s (nth in s-pc)))
+                      i (- pc start)
+                      new-out (reduce (fn [s s-pc] (into s (at in s-pc)))
                                       (sorted-set)
                                       (successors-of instructions pc))
                       new-in (into (use-of t) (reduce disj new-out (def-of t)))]
-                  [(assoc in pc new-in) (assoc out pc new-out)
-                   (or changed? (not= new-in (nth in pc))
-                       (not= new-out (nth out pc)))]))
+                  [(assoc in i new-in) (assoc out i new-out)
+                   (or changed? (not= new-in (nth in i))
+                       (not= new-out (nth out i)))]))
               [live-in live-out false]
               (rseq pcs))]
         (if changed?
@@ -373,7 +380,8 @@
                         (let [t (nth instructions pc)
                               op (nth t 0)]
                           (when (boundary-opcodes op)
-                            [pc (vec (disj (nth live-out' pc) (nth t 1)))]))))
+                            [pc (vec (disj (nth live-out' (- pc start))
+                                           (nth t 1)))]))))
                 pcs))))))
 
 
