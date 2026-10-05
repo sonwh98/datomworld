@@ -276,9 +276,18 @@ port and list any live node with `--peer`; a node may list several.
 ### The flags
 
 `yin-repl --help` (or `-h`) prints every subcommand and flag and exits
-with status 0, on every host. The subcommands map onto these. `dht serve` is `--index-store dht:<dir>`
-with `--dht-peer` and `--dht-port`; `dht init` adds `--dht-publish` and
-`--dht-key`, making the key first as `--dht-keygen` does; `dht join` adds
+with status 0, on every host.
+
+Every node takes these, with or without a DHT: `--port n` and `--headless`
+(serve the shell; see Server behavior), `--index-store
+mem|file:<dir>|dht:<dir>`, `--vm ast-walker|semantic|stack|register` (the
+evaluator the shell starts with, `semantic` by default), and the saved-state
+controls `--name n` and `--dir d` (the node directory), `--reset` and
+`--no-state` (see Saved state).
+
+The subcommands map onto the DHT flags. `dht serve` is
+`--index-store dht:<dir>` with `--dht-peer` and `--dht-port`; `dht init`
+adds `--dht-publish` and `--dht-key`, making the key first as `--dht-keygen` does; `dht join` adds
 the token's peer, `--dht-manifest` and `--dht-principal` (the token
 accepts the principal with or without `ed25519:`). `--listen` is
 `--dht-bind` and `--dht-port` together. Any other flag (`--port`,
@@ -428,6 +437,17 @@ worktree must run `clj -M:antlr-gen` before JVM test runs: the generated
 parser path, `build/antlr/python3/classes`, is on the classpath and
 absent until generated.
 
-See [`docs/design/yin.repl.implementation-plan.md`](../../../../docs/design/yin.repl.implementation-plan.md)
-for the plan this REPL implements and the contract documents it is subordinate
-to.
+## Design documents
+
+The contracts this guide follows, all under `docs/design/`:
+
+- [`yin.vm.linker.dht.md`](../../../../../docs/design/yin.vm.linker.dht.md):
+  publishing, resolving and loading modules by signed name over the DHT.
+- [`yin.repl.dao.space-index.md`](../../../../../docs/design/yin.repl.dao.space-index.md):
+  automatic code indexing on evaluation, and the `dht:<dir>` store.
+- [`yin.repl.link-policy.md`](../../../../../docs/design/yin.repl.link-policy.md):
+  what a pending `require` does when nobody answers.
+- [`dao.jing.dht.md`](../../../../../docs/design/dao.jing.dht.md): the DHT node
+  the store composes over.
+- [`yin-repl-design.md`](../../../../../docs/design/yin-repl-design.md): the v1
+  REPL's design, kept for history; the live REPL is this one.
