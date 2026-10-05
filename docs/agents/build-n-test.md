@@ -26,12 +26,13 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # (dao.test-slow/guard "name" (fn [] ...)); it prints SKIP unless DATOM_SLOW_TESTS=1.
 # Node and Dart select slow tests by NAMESPACE (derived by grepping `slow/guard`
 # under test/), so the non-slow tests inside those namespaces also run there.
-# On Node, shadow also runs the test namespaces those six require (about seven
-# more, e.g. lower-portable-test); on Dart only the six namespaces run.
+# On Node, shadow also runs the test namespaces those eight require (about
+# seven more, e.g. lower-portable-test); on Dart only the eight namespaces run.
 # Run test:slow / test:all before a big merge or a commit that touches many parts.
 # Run one Dart lane at a time repo-wide.
 #
-# When to tag a test slow: when it takes more than about 5 s on any lane. The
+# When to tag a test slow: when it takes more than about 5 s on any lane (the
+# Python e2e tests sit on a ~3 s floor, so their JVM cut is 3.0 s). The
 # default lanes must stay in minutes; 22 JVM tests (0.75% of the suite) were
 # 81% of its test time. Tag it ^:slow on the JVM; if it is a .cljc test, also
 # wrap its body in dao.test-slow/guard so Node and Dart skip it by default. A
