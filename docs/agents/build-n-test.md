@@ -37,6 +37,10 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # wrap its body in dao.test-slow/guard so Node and Dart skip it by default. A
 # test that is slow only on Dart (dao.jing.dht-test/unproven-chunks-... takes
 # 72 s there, 3.6 s on the JVM) is a candidate for a speed investigation first.
+# Python slow set (2026-10-06): 63 ^:slow and 15 guard-only tests in the
+# yang.python.antlr e2e, e2e-c1, prelude-parity, safepoint and float-address
+# tests; a Python slice landing runs `clojure -M:test -i :slow -n <ns>` for
+# its changed Python namespaces.
 # While iterating, run only `bb test:clj` (or one namespace: `clojure -M:test -n
 # <ns>`), not the full `bb test`. Run the full three-lane `bb test` once per
 # slice, before landing, and one lane set at a time: overlapping runs slow each

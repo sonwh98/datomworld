@@ -13,6 +13,7 @@
     [clojure.test :refer [deftest is testing]]
     [dao.jing :as jing]
     [dao.jing.cbor :as cbor]
+    [dao.test-slow :as slow]
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.lower-portable-test :refer [packet]]
     [yang.python.antlr.prelude :as prelude]
@@ -308,7 +309,8 @@
         runners))
 
 
-(deftest runs-on-every-vm-test
+(defn- runs-on-every-vm
+  []
   (let [a (tree-of (projected))]
     (testing "A as projected"
       (doseq [[k out] (outputs (vm/semantic-bytecode->ast a))]
@@ -319,6 +321,11 @@
       (doseq [[k out] (outputs (vm/semantic-bytecode->ast
                                  (cbor/decode (jing/canonical-bytes a))))]
         (is (= {:py/out [printed], :py/exception nil} out) (str k))))))
+
+
+(deftest ^:slow runs-on-every-vm-test
+  (slow/guard "runs-on-every-vm-test"
+              runs-on-every-vm))
 
 
 (defn- refusal-in
@@ -352,7 +359,8 @@
            :default (is (= 3.0 r) (str k)))))))
 
 
-(deftest dict-keys-test
+(defn- dict-keys
+  []
   (testing "1, 1.0 and True key one entry, -0.0 keys as 0, 0.5 keys as 1/2,
             and 0.1 as its exact rational: ruling-6 hex-string keys, the
             same bytes on every host"
@@ -393,6 +401,11 @@
             (str k))))))
 
 
+(deftest dict-keys-test
+  (slow/guard "dict-keys-test"
+              dict-keys))
+
+
 ;; =============================================================================
 ;; NaN
 ;; =============================================================================
@@ -408,7 +421,8 @@
      ["EOF" "<EOF>"]]))
 
 
-(deftest nan-test
+(defn- nan
+  []
   (let [nan (cbor/float64 ##NaN)
         ;; inf - inf: a NaN the host computed, whatever sign and payload
         ;; bits it carries
@@ -442,6 +456,11 @@
         (doseq [[k out] (outputs ast)]
           (is (= {:py/out ["nan inf -inf"], :py/exception nil} out)
               (str k)))))))
+
+
+(deftest ^:slow nan-test
+  (slow/guard "nan-test"
+              nan))
 
 
 ;; =============================================================================
