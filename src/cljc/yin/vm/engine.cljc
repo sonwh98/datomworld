@@ -476,22 +476,27 @@
     [stream-ref (assoc-in state [:resources id] handle)]))
 
 
-(defn handle-put
-  "Handle :stream/put. Total over the six append outcomes, once the
-   reference verifies.
-   Returns {:value v :state s} on success, {:park true :stream-id id :state s}
-   on `full`. `closed`, `invalid-value` and `transport-error` are errors
-   that name their outcome, as v1's throw on a closed stream did.
-   `refused`, and any outcome outside this contract version, is not a
-   throw: the effect's value is the shaped refusal
-   {:status :refused, :outcome o, :stream-id id} -- data the program
-   reads, the way `poll-link-response` answers a refused link."
+(defn- gate-refuse!
+  "Refuse an immediate effect of a machine whose gate is `:exporting` or
+   `:ended`: nothing is observed. Returns the gate mode otherwise."
   [state effect]
-  (let [stream-id (check-ref! state :stream/put :stream-ref (:stream effect))
-        val (:val effect)
-        handle (get (:resources state) stream-id)
-        result (stream/append! handle val)
-        o (outcome result)]
+  (let [mode (vm/gate-mode state)]
+    (when (contains? #{:exporting :ended} mode)
+      (fail "Gate is closed: no observation"
+            {:yin.k/gate mode, :effect (:effect effect)}))
+    mode))
+
+
+(defn- observe-put
+  "Observe half of `:stream/put`: the append, as its outcome."
+  [state stream-id val]
+  (stream/append! (get (:resources state) stream-id) val))
+
+
+(defn- apply-put
+  "Apply half of `:stream/put`: an append outcome to the effect's answer."
+  [state stream-id val result]
+  (let [o (outcome result)]
     (case o
       :dao.stream/ok {:value val, :state state}
       :dao.stream/full {:park true, :stream-id stream-id, :state state}
@@ -501,6 +506,27 @@
       (fail "Stream append failed" {:outcome o, :stream-id stream-id})
       {:state state,
        :value {:status :refused, :outcome o, :stream-id stream-id}})))
+
+
+(defn handle-put
+  "Handle :stream/put. Total over the six append outcomes, once the
+   reference verifies.
+   Returns {:value v :state s} on success, {:park true :stream-id id :state s}
+   on `full`. `closed`, `invalid-value` and `transport-error` are errors
+   that name their outcome, as v1's throw on a closed stream did.
+   `refused`, and any outcome outside this contract version, is not a
+   throw: the effect's value is the shaped refusal
+   {:status :refused, :outcome o, :stream-id id} -- data the program
+   reads, the way `poll-link-response` answers a refused link.
+
+   Under the `:running` gate nothing is observed: the put parks as it
+   would on `full`."
+  [state effect]
+  (let [stream-id (check-ref! state :stream/put :stream-ref (:stream effect))
+        val (:val effect)]
+    (if (= :running (gate-refuse! state effect))
+      {:park true, :stream-id stream-id, :state state}
+      (apply-put state stream-id val (observe-put state stream-id val)))))
 
 
 (defn handle-cursor
@@ -519,6 +545,53 @@
      (assoc-in state [:resources id] (vm/cursor-entry stream-id cursor))]))
 
 
+(defn- next-target
+  "The cursor id, its cell and the stream handle a read at `cursor-ref`
+   uses; fails when the cursor's stream is gone."
+  [state cursor-ref]
+  (let [cursor-id (check-ref! state :stream/next :cursor-ref cursor-ref)
+        resources (:resources state)
+        cursor-data (get resources cursor-id)
+        stream-id (:stream-id cursor-data)
+        handle (get resources stream-id)]
+    (when (nil? handle)
+      (fail "Stream not found for cursor" {:stream-id stream-id}))
+    {:cursor-id cursor-id,
+     :cursor (:cursor cursor-data),
+     :stream-id stream-id,
+     :handle handle}))
+
+
+(defn- apply-next
+  "Apply half of `:stream/next`: a read outcome `result` to the effect's
+   answer."
+  [state cursor-ref {:keys [cursor-id stream-id]} result]
+  (let [o (outcome result)
+        advance (fn [value]
+                  {:value value,
+                   :state (assoc-in state
+                                    [:resources cursor-id :cursor]
+                                    (:dao.stream/cursor result))})]
+    (case o
+      :dao.stream/ok (advance (:dao.stream/value result))
+      :dao.stream/blocked {:park true,
+                           :cursor-ref cursor-ref,
+                           :stream-id stream-id,
+                           :state state}
+      :dao.stream/end {:value nil, :state state}
+      :dao.stream/gap (advance :dao.stream/gap)
+      (:dao.stream/cursor-mismatch
+        :dao.stream/invalid-cursor
+        :dao.stream/transport-error)
+      (fail "Stream read failed"
+            {:outcome o, :stream-id stream-id, :cursor-id cursor-id})
+      {:state state,
+       :value {:status :refused,
+               :outcome o,
+               :stream-id stream-id,
+               :cursor-id cursor-id}})))
+
+
 (defn handle-next
   "Handle :stream/next. Total over the eight read outcomes, once the
    reference verifies.
@@ -531,53 +604,65 @@
    not a throw: the effect's value is the shaped refusal
    {:status :refused, :outcome o, :stream-id id, :cursor-id cid} --
    data the program reads, the way `poll-link-response` answers a
-   refused link."
+   refused link.
+
+   Under the `:running` gate nothing is observed: the read parks as it
+   would on `blocked`."
   [state effect]
   (let [cursor-ref (:cursor effect)
-        cursor-id (check-ref! state :stream/next :cursor-ref cursor-ref)
-        resources (:resources state)
-        cursor-data (get resources cursor-id)
-        stream-id (:stream-id cursor-data)
-        handle (get resources stream-id)]
-    (when (nil? handle)
-      (fail "Stream not found for cursor" {:stream-id stream-id}))
-    (let [result (stream/next handle (:cursor cursor-data))
-          o (outcome result)
-          advance (fn [value]
-                    {:value value,
-                     :state (assoc-in state
-                                      [:resources cursor-id :cursor]
-                                      (:dao.stream/cursor result))})]
-      (case o
-        :dao.stream/ok (advance (:dao.stream/value result))
-        :dao.stream/blocked {:park true,
-                             :cursor-ref cursor-ref,
-                             :stream-id stream-id,
-                             :state state}
-        :dao.stream/end {:value nil, :state state}
-        :dao.stream/gap (advance :dao.stream/gap)
-        (:dao.stream/cursor-mismatch
-          :dao.stream/invalid-cursor
-          :dao.stream/transport-error)
-        (fail "Stream read failed"
-              {:outcome o, :stream-id stream-id, :cursor-id cursor-id})
-        {:state state,
-         :value {:status :refused,
-                 :outcome o,
-                 :stream-id stream-id,
-                 :cursor-id cursor-id}}))))
+        target (next-target state cursor-ref)
+        gate (gate-refuse! state effect)]
+    (if (= :running gate)
+      {:park true,
+       :cursor-ref cursor-ref,
+       :stream-id (:stream-id target),
+       :state state}
+      (apply-next state
+                  cursor-ref
+                  target
+                  (stream/next (:handle target) (:cursor target))))))
 
 
 (defn handle-poll
   "Handle :stream/poll: `handle-next` with `blocked` as a value. A blocked
    read answers `:dao.stream/blocked` and leaves the cursor where it was;
    nothing parks and no wait entry is built. Every other outcome is
-   exactly `handle-next`'s."
+   exactly `handle-next`'s.
+
+   Under the `:running` gate nothing is observed and the answer is the
+   parked marker `handle-effect` turns into an `:observe` entry."
   [state effect]
   (let [result (handle-next state effect)]
-    (if (:park result)
+    (if (and (:park result) (not= :running (vm/gate-mode state)))
       {:value :dao.stream/blocked, :state state}
       result)))
+
+
+(defn apply-observation
+  "Apply the observed `outcome` of the `:observe` wait entry `entry`: the
+   cell advances as the ungated poll advances it, the entry leaves the
+   wait set, and its continuation goes to the ready queue with the poll's
+   answer. Performs no stream call. Refused in the `:exporting` and
+   `:ended` gates, and for any entry that is not an `:observe` poll."
+  [state entry outcome]
+  (let [mode (vm/gate-mode state)]
+    (when (contains? #{:exporting :ended} mode)
+      (fail "Gate is closed: late observation refused" {:yin.k/gate mode}))
+    (when-not (and (= :observe (:reason entry)) (= :poll (:op entry)))
+      (fail "Not an observe entry" {:entry-reason (:reason entry)}))
+    (let [cursor-ref (:cursor-ref entry)
+          target (-> (next-target state cursor-ref)
+                     (assoc :handle nil))
+          result (apply-next state cursor-ref target outcome)
+          value (if (:park result) :dao.stream/blocked (:value result))
+          state' (:state result)]
+      (-> state'
+          (update :wait-set (fn [ws] (filterv #(not= entry %) ws)))
+          (update :ready-queue
+                  (fnil into [])
+                  [(-> entry
+                       (dissoc :reason :op :yin.k/held)
+                       (assoc :value value))])))))
 
 
 (defn handle-close
@@ -963,6 +1048,13 @@
 (defn- link-entry?
   [entry]
   (contains? link-reasons (:reason entry)))
+
+
+(defn- observe-entry?
+  "True for a held observation (`:reason :observe`): a machine-only entry
+   the driver applies through `apply-observation`; the sweep never polls it."
+  [entry]
+  (= :observe (:reason entry)))
 
 
 (defn- ready
@@ -1636,7 +1728,9 @@
                                       (filterv ffi-response-entry? wait-set)
                                       (remove ffi-response-entry? wait-set))
             wait-set (:wait-set state)
-            engine-polled? (some-fn link-entry? ffi-response-entry?)
+            engine-polled? (some-fn link-entry?
+                                    ffi-response-entry?
+                                    observe-entry?)
             streams (filterv (complement engine-polled?) wait-set)
             {:keys [woken store], :as result}
             (waitset/check {:waiting streams}
@@ -2127,9 +2221,22 @@
                :blocked? false}))
           :stream/poll
           (let [result (handle-poll state effect)]
-            {:state (:state result), :value (:value result), :blocked? false})
+            (if (and (:park result) (= :running (vm/gate-mode state)))
+              (let [builder (or (get park-entry-fns :stream/poll)
+                                (get park-entry-fns :stream/next))
+                    built (when builder (builder state effect result))]
+                (handle-stream-block
+                  result
+                  (when built
+                    (assoc built
+                           :reason :observe
+                           :op :poll
+                           :cursor-ref (:cursor-ref result)
+                           :stream-id (:stream-id result)))))
+              {:state (:state result), :value (:value result), :blocked? false}))
           :stream/close
-          (let [close-result (handle-close state effect)]
+          (let [_ (gate-refuse! state effect)
+                close-result (handle-close state effect)]
             {:state (:state close-result), :value nil, :blocked? false})
           ;; `:heap` is VM state, not continuation state: a write is seen
           ;; by every holder of the ref and survives continuation invocation

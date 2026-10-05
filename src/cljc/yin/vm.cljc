@@ -597,6 +597,13 @@
   {:stream-id stream-id, :cursor cursor})
 
 
+(defn gate-mode
+  "The custody gate of a machine value: nil (ungated), `:running`,
+   `:exporting` or `:ended`, read from `:yin.k/gate`."
+  [state]
+  (:yin.k/gate state))
+
+
 ;; Bytecode Opcodes
 ;; =============================================================================
 ;; Shared instruction set for stack and register bytecode VMs.
