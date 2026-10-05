@@ -53,7 +53,7 @@
                               "bb src/dev/cljd_agg.clj")}
 
   ;; Only the slow tests. Node and Dart select by namespace, so the other
-  ;; tests inside the eight namespaces that use dao.test-slow/guard also run.
+  ;; tests inside the nine namespaces that use dao.test-slow/guard also run.
   test:slow:clj {:doc "Only the ^:slow JVM tests (about 14 minutes for long-loops-test); for unattended runs"
                  :depends [build:yin-repl-node gen:python-antlr]
                  :task (shell "clojure -M:test -i :slow")}
