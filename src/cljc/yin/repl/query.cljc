@@ -622,22 +622,31 @@
       (assoc :datoms (count (:value status))))))
 
 
-(defn- publication-call
-  "`[node' answer]` of `retry!` or `cancel!` on `manifest`: `ok` answers
-   `ok`; the plain function's refusal is answered under its own code."
+(defn- refusable-call
+  "`[node' answer]` of the plain function `f` on `node` and `manifest`:
+   `(ok node')` answers; a `:dao.space.dht/refused` of any code is
+   answered under its own code, the node unchanged."
   [node manifest f ok]
-  (try [(f node manifest) {:ok ok}]
+  (try (let [node (f node manifest)] [node {:ok (ok node)}])
        (catch #?(:cljd Object :clj Exception :cljs :default) e
          (if-let [code (:dao.space.dht/refused (ex-data e))]
            [node (refusal code (ex-message e) nil)]
            (throw e)))))
 
 
+(defn- publication-call
+  "`[node' answer]` of `retry!` or `cancel!` on `manifest`: `ok` answers
+   `ok`; the plain function's refusal is answered under its own code."
+  [node manifest f ok]
+  (refusable-call node manifest f (constantly ok)))
+
+
 (defn- dht-answer
   "The response to one `dao.space.dht` call, answered from `node` — the
    shell's DHT node — by the `dao.space.dht` function the operation
    names, and the node after it: `load-index` starts a load and answers
-   its status at once, never waiting; `load-status` answers the load's
+   its status at once, never waiting, or the plain function's refusal
+   under its own code (`load-module` likewise); `load-status` answers the load's
    status map; `q` answers `dao.space.dht/q` under `limits`, refused
    until the index is loaded; `retry` and `cancel` answer `:retrying`
    and `:cancelled`, or the plain function's refusal; `load-module`
@@ -663,15 +672,15 @@
           :else
           (case (apply2/request-op request)
             ::dht-load-index
-            (let [node (dht/load-index node manifest)]
-              [node {:ok (:status (dht/load-status node manifest))}])
+            (refusable-call node manifest dht/load-index
+                            #(:status (dht/load-status % manifest)))
 
             ::dht-load-status
             [node {:ok (host-status (dht/load-status node manifest))}]
 
             ::dht-load-module
-            (let [node (linker.dht/load-module node manifest)]
-              [node {:ok (:status (linker.dht/module-status node manifest))}])
+            (refusable-call node manifest linker.dht/load-module
+                            #(:status (linker.dht/module-status % manifest)))
 
             ::dht-module-status
             [node {:ok (host-status (linker.dht/module-status node manifest))}]

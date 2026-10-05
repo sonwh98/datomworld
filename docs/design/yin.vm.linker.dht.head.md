@@ -220,19 +220,38 @@ DHT key (C2).
   (`src/cljc/dao/space/transactor.cljc:117-131`). An index of no datoms
   has no trace. The publisher stores no counter.
 - **A reader confirms it.** A loaded index whose greatest `t` is not the
-  trace's sequence refuses the trace, `:yin.head/seq-mismatch`.
-- **Proven for the REPL path, enforced for every caller.** That two HEAD
-  writes of one directory never share a greatest `t`, across restart and
-  `(reset)`, holds for `yin.repl.index` (`index.cljc:189-233, 378-435`)
-  and H0 pins it. `deposit!` takes the datoms, never a sequence, and
-  refuses within one process a sequence equal to the last it signed with
-  another manifest (`:yin.head/seq-collision`) or below it
-  (`:yin.head/seq-regression`).
+  trace's sequence refuses the trace, `:yin.head/seq-mismatch`. A loaded
+  index with a malformed datom (a row that is not a vector, or a `t`
+  that is not a nonnegative integer) is refused as data too,
+  `:yin.head/index-invalid`, at confirmation and again when a persisted
+  head is restored; the follower never throws on what an index holds.
+- **Proven for the REPL path, enforced for every caller.** The HEAD
+  writes of one directory carry strictly increasing sequences, across
+  restart and `(reset)`. It holds for `yin.repl.index` because every
+  publication commits a transaction first (`index.cljc:189-233,
+  378-435`), and H0 pins it.
+- `deposit!` takes the datoms, never a sequence, and refuses within one
+  process a sequence equal to the last it signed with another manifest
+  (`:yin.head/seq-collision`) or below it (`:yin.head/seq-regression`).
+- **Hydration is the one HEAD write that commits no transaction, and it
+  is inside the claim.** It is refused when the directory's HEAD names
+  another manifest, and it writes nothing when HEAD already names the
+  same one (`yin/repl/dht.cljc:46-53, 79-82`). So it is only ever a
+  directory's first HEAD write. Its sequence is the hydrated index's own
+  greatest `t`, as a restart's recovery has, and the next publication is
+  one above it.
+- **The claim is per directory, not per key.** A key that signs from two
+  directories can sign two manifests at one sequence; readers refuse
+  them (`:stale`, `:yin.head/equivocation`) and install neither wrongly.
 - **The key kept and the directory lost** restarts the sequence; readers
   refuse the new traces as stale. The remedy is
   `yin.vm.linker.dht.md` 6.5's, unchanged and still available (5.8):
   hydrate the directory from the last published manifest before
-  publishing, or take a new key.
+  publishing, or take a new key. Only the last published manifest is the
+  remedy: its trace is the one already signed, a reader judges it
+  `:duplicate`, and the next round is a candidate. Hydrating an older
+  manifest, or another publisher's under a key that has published, is the
+  lost-directory case again.
 
 Rejected: the `m` slot (C1); a stored counter; a `:prev` chain.
 
@@ -258,7 +277,12 @@ Rejected: the `m` slot (C1); a stored counter; a `:prev` chain.
   (`yin.vm.linker.dht.md` 5.5.6). The deposit is a local append.
 - The publisher does not batch; the ring does.
 - At startup a node with a key and a recovered HEAD deposits that HEAD's
-  trace, so a reader's first contact needs no new round.
+  trace, so a reader's first contact needs no new round. A completed
+  hydration counts as that startup: it writes HEAD through the base
+  store's `:head-fn`, not through the wrapper that calls `announce!`
+  (`yin/repl/dht.cljc:208`), so the "deposit after `announce!`" rule
+  below does not fire for it. The composition deposits the hydrated
+  HEAD's trace once, when hydration completes.
 - A node deposits when it has a key, a socket and `:publish?`.
 - **`announce!` and the ledger ring stay as they are, beside the
   board.** The ledger ring is the node's private work queue of put
@@ -292,8 +316,8 @@ followed principal, the floor, the installed manifest and the trace:
 
 <table>
 <tr><th>Case</th><th>Outcome</th></tr>
-<tr><td>Not the closed shape of 5.2, or a sequence that is not a
-nonnegative integer</td>
+<tr><td>Not the closed shape of 5.2, or a sequence that is not an
+integer from 0 to 2^53 - 1</td>
 <td><code>:yin.head/malformed</code></td></tr>
 <tr><td>Principal is not the followed one</td>
 <td><code>:yin.head/wrong-principal</code></td></tr>
@@ -355,10 +379,22 @@ nonnegative integer</td>
     the local store.
 - **Kinds do not mix (D3).** `load` of an address already recorded under
   another kind is refused, `:dao.space.dht/kind-conflict`, instead of
-  silently left. If the candidate's manifest is already loaded by hand
-  (index kind), the follower starts nothing, owns nothing, and reads
-  that record; it never forgets or abandons a record that is not of the
-  candidate kind. A `load-index` by hand of a manifest that is loading
+  silently left. If the candidate's manifest is already recorded by
+  hand under the index kind, the follower starts nothing, owns nothing,
+  and reads that record. It never abandons a record that is not of the
+  candidate kind, and it forgets one in a single case, the Unloadable
+  rule below: a `:failed` index-kind record at its candidate's address.
+  That record is the user's throughout: once `:loaded` it is in the
+  snapshot set as any index load made by hand is, whatever the
+  follower's verdict on the trace, and no release removes it. A record
+  of any other kind at the candidate's address is neither read,
+  forgotten nor restarted, whatever its status (`:loading`, `:loaded`
+  or `:failed`): the candidate is reported `:yin.head/unloadable` once,
+  with that record's failure or, for a record that has not failed, its
+  kind and status, and waits until the record's owner removes it, and
+  then loads as a candidate. The follower never reads such a record's
+  datoms.
+  A `load-index` by hand of a manifest that is loading
   as a candidate is refused with that code as data (H1 carries the
   host module's translation), and succeeds once the head is installed.
 - **`abandon` leaves nothing behind.**
@@ -405,9 +441,11 @@ nonnegative integer</td>
 - **Unloadable.** The load failed: `:yin.head/unloadable` with the
   failure as data. The candidate stays. After a delay in node ticks,
   doubling from `:repair-ticks` to `:repair-max-ticks`, the failed
-  record is forgotten and the load started again **under the kind the
-  record had**, so a failed load made by hand at that address is
-  restarted as an index load and stays the user's. No deadline ends the
+  record is forgotten and the load started again in the same step
+  **under the kind the record had, which is the candidate kind or the
+  index kind and no other**, so a failed load made by hand at that
+  address is restarted as an index load and stays the user's. A failed
+  record of any other kind is left to its owner. No deadline ends the
   retries; a newer observed trace replaces the candidate.
 
 **The snapshot set** (`yin.vm.linker.dht.md` 7.2, amended) is: the
@@ -552,11 +590,12 @@ follows nothing yet.
 
 ClojureDart traps: `heads.edn` is rendered with no whitespace before a
 closing bracket; host branches put `:cljd` first; no protocol method
-takes `[_ _]`; no test reaches a private var by `#'`; the sequence stays
-within 2^53 and the vectors include one above 2^32; a manifest address
-from the wire is compared with `=`; a trace decoded from the channel
-codec is verified over `dao.jing/canonical-bytes`, asserted on all
-three hosts.
+takes `[_ _]`; no test reaches a private var by `#'`; the sequence is at
+most 2^53 - 1, the greatest integer exact on every host, and a greater
+one is malformed (5.5), and the vectors include one above 2^32; a
+manifest address from the wire is compared with `=`; a trace decoded
+from the channel codec is verified over `dao.jing/canonical-bytes`,
+asserted on all three hosts.
 
 ## 6. The plain Clojure API
 
@@ -636,7 +675,15 @@ bounds how often a reader asks, not how late it learns.</td></tr>
 <td>The acceptor's handoff slots, as the REPL endpoint's.</td></tr>
 </table>
 
-Following never makes the node `busy?`.
+Following alone never makes the node `busy?`: a poll, a judged trace, a
+loaded candidate awaiting installation, a failed one waiting out its
+delay and what an abandoned load leaves in the client are not work the
+node reports. A candidate that is `:loading` is a load like any other
+and makes the node `busy?` until it ends, so the tick owner holds its
+base interval while a head is fetched and returns to its idle curve
+afterwards. Under the alternating replay of 5.5 a load is always
+active, and the node stays at the base interval for as long as the
+alternation lasts.
 
 ## 8. Cross-machine: the owner's question
 
@@ -922,7 +969,9 @@ Node and Dart. H0 and H1 own disjoint source files.
 `src/cljc/yin/vm/linker/head.cljc` (`trace`, `verify`, `seq-of`,
 `judge`), `src/cljc/yin/vm/linker/sign.cljc` (the head prefix),
 `test/yin/vm/linker/sign_vectors.edn`, new
-`test/yin/vm/linker/head_test.cljc`. Complete when:
+`test/yin/vm/linker/head_test.cljc`, and `test/yin/repl/dht_test.cljc`
+(the hydration cases; H1 owns that file later and H0 lands first).
+Complete when:
 - One trace under RFC 8032 TEST 1's seed is in the vectors with its
   canonical bytes, signed message and signature, byte for byte on all
   three hosts; one has a sequence above 2^32.
@@ -933,16 +982,31 @@ Node and Dart. H0 and H1 own disjoint source files.
 - **Sequence zero.** With a `nil` floor a trace of sequence 0 is a
   candidate. With floor 0: sequence 1 a candidate, sequence 0 with the
   installed manifest a duplicate, with another `:equivocation`. A
-  negative or non-integer sequence is `:malformed`. `seq-of` of one
-  transaction is 0, asserted against `dao.space.transactor`.
+  negative or non-integer sequence, or one above 2^53 - 1, is
+  `:malformed`. `seq-of` of one transaction is 0, asserted against
+  `dao.space.transactor`.
 - `judge` produces every row of 5.5, and its arity admits no source and
   no candidate.
+- **Neither `judge` nor `verify` ever throws.** A trace comes off a
+  channel, so any shape is possible: an envelope or a proof that is a
+  list of any length, a vector, a number, a string or `nil`, and a
+  non-map trace, each answer `:yin.head/malformed` (`judge`) and `false`
+  (`verify`) on every host. The cases are in the tests, odd-length lists
+  included.
 - `seq-of` over a rehydrated index equals `seq-of` before the restart;
-  a further round raises it; two HEAD writes of one directory never
-  share it across rounds, name transactions, `(reset)` and the
-  unwritten-row recovery of `yin.vm.linker.dht.md` 5.1. **If a HEAD
-  move that commits no transaction is found, the slice stops and 5.2 is
-  reopened.**
+  a further round raises it; the HEAD writes of one directory carry
+  strictly increasing sequences across rounds, name transactions,
+  `(reset)` and the unwritten-row recovery of `yin.vm.linker.dht.md`
+  5.1.
+- **Hydration** (5.2), in `test/yin/repl/dht_test.cljc`: into a
+  directory with no HEAD it writes HEAD once, at the hydrated index's own
+  sequence, and the reader's next round is one above it; given the
+  manifest HEAD already names it writes nothing; given another it is
+  refused and HEAD is unchanged.
+- **The stop rule.** If any path is found that writes a directory's HEAD
+  to a manifest whose sequence is not above that directory's previous
+  HEAD write, the slice stops and 5.2 is reopened. A HEAD write that
+  commits no transaction but is a directory's first is not that case.
 
 **H1 -- the follower, over any reader.** No transport. Files:
 `src/cljc/yin/vm/linker/head.cljc` (`board`, `deposit!`, `follow`,
@@ -953,7 +1017,7 @@ adds installed heads), `src/cljc/yin/repl/query.cljc` (**refusal
 translation for the two host load operations**),
 `test/dao/space/dht_test.cljc`, `test/yin/repl/dht_test.cljc`, new
 `test/yin/vm/linker/head_follow_test.cljc`. Amendments carried:
-`yin.vm.linker.dht.md` 1, 7.2, 9, 10 and 13 (D2; `abandon`; the
+`yin.vm.linker.dht.md` 1, 4.3, 7.2, 9, 10 and 13 (D2; `abandon`; the
 refusal and its failure-vocabulary row); `dao.jing.dht.md` section 1 (a
 pointer here). In every case the reader is handed the publisher's board
 ring directly as its reader handle, and blobs travel over the mesh
@@ -1037,6 +1101,17 @@ seam. Complete when:
   composed again from the new records, `install` never called, is at
   the new head with zero `:jing/get` on the request ring, and refuses
   the older trace as `:stale`. `install` of any other trace is refused.
+- **A malformed index.** A signed, verified trace naming a hash-valid
+  index whose rows hold a `t` that is not a nonnegative integer (for
+  example `[101 :x/y 1 "bad-t" 0]`) is refused `:yin.head/index-invalid`
+  as a `:refused` event, from the step and from a restore through
+  `follow` (a startup refusal naming the principal): no throw, the
+  floor unchanged, nothing installed, and not loaded again when shown
+  again.
+- **A foreign record.** A `:failed` record of another kind at the
+  candidate's address (a module-kind load) is left in place after the
+  retry delay, the candidate is `:yin.head/unloadable` once, and after
+  its owner forgets it the candidate loads and installs.
 - **A lost source.** A reader handle answering `cursor-mismatch`, and
   one answering `end`, each produce `:source-lost` once; after `attach`
   of a fresh handle the current head is read again and judged a

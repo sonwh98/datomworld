@@ -72,9 +72,12 @@ Owner invariants this contract is bound by:
   payload-agnostic.
 - Code and continuations are datoms.
 
-**Out of scope:** latest-root discovery, key rotation and revocation, the
-persistent stepped linker, the `:lease` link policy, authenticated node ids.
-Section 13 lists every deferral.
+**Out of scope:** rendezvous, key rotation and revocation, the persistent
+stepped linker, the `:lease` link policy, authenticated node ids. Section 13
+lists every deferral. Latest-root discovery is no longer deferred: a reader
+follows a declared publisher's HEAD as a signed trace
+([`yin.vm.linker.dht.head.md`](./yin.vm.linker.dht.head.md)), and the head
+it installs joins the snapshot set (7.2).
 
 ## 2. The starting tree (master `c66809fa`)
 
@@ -694,8 +697,21 @@ answers one of three shapes:
   other outcome that submitted nothing fails the load `:unaskable` with
   that outcome keyword verbatim.
 - A load is `:loaded` only when its walk answered `:complete`.
-- A load already `:loading`, `:loaded` or `:failed` is left as it is.
-  `forget` removes a terminal record; it is refused for a `:loading` one.
+- An address is loaded under one kind. A load of the same kind already
+  `:loading`, `:loaded` or `:failed` is left as it is; a load under another
+  kind is refused `:dao.space.dht/kind-conflict` (section 9) and the record
+  is left as it is. `forget` removes a terminal record; it is refused for a
+  `:loading` one.
+- `(dao.space.dht/abandon node address)` removes a `:loading` record and
+  emits no event; it is refused `:dao.space.dht/not-loading` for any other.
+  It retires the record's interest in the client: the retained unsent
+  request, when it is this record's, by `dao.jing.content.step/abandon`;
+  otherwise its outstanding request by `dao.jing.content.step/retire`, so
+  a late answer is unsolicited and dropped. Another load fetching the same
+  address has its own request and is untouched. The node steps its client
+  while a record is loading or while the client holds an unsent request, an
+  outstanding id or an undelivered completion, so what an abandon leaves
+  drains with no load active.
 
 **Load status:**
 
@@ -1722,11 +1738,18 @@ manifest writes nothing.
 ### 7.2 The snapshot set
 
 A node's snapshot set is: the manifest its directory's HEAD names, when
-there is one, and every manifest whose `:dao.space.dht/index` load is
-`:loaded` on that node. Nothing else in the local store is considered.
+there is one; every manifest whose `:dao.space.dht/index` load is
+`:loaded` on that node; and the installed head of each principal the node
+follows (`yin.vm.linker.dht.head.md` 5.5), read from the local store,
+where every blob of it already is. Nothing else in the local store is
+considered: a candidate head, loading or loaded, is in no snapshot set.
 
 - Loading an index is not a subscription. A publisher's later HEAD reaches a
-  reader only when its address is handed over and loaded.
+  reader only when its address is handed over and loaded, or when the
+  reader follows the publisher's principal and installs the head.
+- Following never writes the reader's own HEAD. Installation replaces a
+  principal's installed head in one step, so no fold sees two heads of one
+  principal, or none.
 - The set is recorded as the sorted vector of its addresses. That vector is
   the fold's `:snapshot` and appears in provenance.
 
@@ -2082,8 +2105,9 @@ section 5.5; a blob's `:reason` there is one of the DHT's `/unacknowledged`
 reasons, `:dao.space.dht/backlog-full`, `:dao.space.dht/publications-full`
 or `:dao.space.dht/cancelled`.
 
-Node-call refusals. `dao.space.dht/retry!`, `cancel!` and `forget` refuse by
-throwing an `ex-info` whose data carries
+Node-call refusals. `dao.space.dht/retry!`, `cancel!`, `forget`, `load`
+(and so `load-index` and `yin.vm.linker.dht/load-module`) and `abandon`
+refuse by throwing an `ex-info` whose data carries
 `{:dao.space.dht/refused code ...}`, with the code from this closed set:
 
 <table>
@@ -2132,10 +2156,37 @@ No live publication of the manifest. Carries <code>:manifest</code>.
 The load record is <code>:loading</code>. Carries <code>:address</code>.
 </td>
 </tr>
+<tr>
+<td>
+<code>:dao.space.dht/kind-conflict</code>
+</td>
+<td>
+<code>load</code>
+</td>
+<td>
+The address is already recorded under another <code>:kind</code>; the record
+is left as it is. Carries <code>:address</code>, <code>:kind</code> the kind
+asked for, and <code>:recorded</code> the record's kind.
+</td>
+</tr>
+<tr>
+<td>
+<code>:dao.space.dht/not-loading</code>
+</td>
+<td>
+<code>abandon</code>
+</td>
+<td>
+The address has no <code>:loading</code> record. Carries <code>:address</code>
+and <code>:status</code>, the record's status or nil.
+</td>
+</tr>
 </table>
 
 A consumer matches the code, never the message. The `dao.space.dht` host
-module answers each one as the call's error under the same code.
+module answers each one as the call's error under the same code: `retry`,
+`cancel`, `load-index` and `load-module` alike, so a refusal of any code
+never escapes the host interpreter.
 
 ## 10. The plain Clojure API
 
@@ -2175,10 +2226,10 @@ S5; statuses and reasons per section 4.3.
 </tr>
 <tr>
 <td>
-<code>dao.space.dht/load</code>, <code>forget</code>
+<code>dao.space.dht/load</code>, <code>forget</code>, <code>abandon</code>
 </td>
 <td>
-Section 4.3.
+Section 4.3; refusal codes in section 9.
 </td>
 </tr>
 <tr>
@@ -2314,7 +2365,18 @@ durable directory).
 <code>(yin.vm.linker.dht/snapshots node)</code>
 </td>
 <td>
-The snapshot vector of 7.2: HEAD and every <code>:loaded</code> index, sorted.
+The snapshot vector of 7.2: HEAD, every <code>:loaded</code> index, and each
+installed head, sorted.
+</td>
+</tr>
+<tr>
+<td>
+<code>(yin.vm.linker.dht/installed-heads node)</code>
+</td>
+<td>
+<code>{principal manifest}</code>: the installed head of each followed
+principal, as the follower of <code>yin.vm.linker.dht.head.md</code> records
+it on the node value.
 </td>
 </tr>
 <tr>
@@ -2928,8 +2990,9 @@ each, and the design docs this one cross-references. Acceptance:
   ticker advances beside the node, with the node's rings as the content
   pair and no prefetch. The staged load is the interim implementation, and
   its acceptance gate is L2's zero-fetch link.
-- **Latest-root discovery and rendezvous.** A reader is handed every index
-  manifest address it loads.
+- **Rendezvous.** A reader is handed every index manifest address it loads
+  by hand, and the address of each source it follows. Latest-root discovery
+  is no longer deferred: `yin.vm.linker.dht.head.md` is its design.
 - **The `:lease` link policy.** `yin.repl.link-policy.md` section 6.
 - **Key rotation and revocation.** A rotation or revocation envelope under
   the same fold is the candidate (`yin.vm.linker.md` section 12).

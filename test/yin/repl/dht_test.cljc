@@ -35,6 +35,7 @@
             [yin.vm.linker :as linker]
             [yin.vm.linker.closure-test :as ct]
             [yin.vm.linker.dht :as ld]
+            [yin.vm.linker.head :as head]
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.publish-test :as publish-test]
             [yin.vm.linker.sign :as sign]))
@@ -610,6 +611,90 @@
                 "the reader itself never evaluated it")
             (close! reader))
           (close! pub)))
+      (finally
+        (run! cleanup-dir! [pdir rdir])))))
+
+
+(defn- recorded-dht-store
+  "`repl.dht/open` of `spec`, every HEAD write recorded in `heads` after
+   it succeeds: a round's, through the handle's `:head-fn`, and the
+   hydration's, through the node's local store (yin.repl.dht/hydrated)."
+  [spec heads]
+  (let [record (fn [head-fn]
+                 (fn [m] (head-fn m) (swap! heads conj m)))]
+    (-> (repl.dht/open spec)
+        (update :head-fn record)
+        (update-in [:dht :composition :local :head-fn] record))))
+
+
+(deftest hydration-is-a-directory-s-first-head-write-at-its-own-sequence
+  ;; docs/design/yin.vm.linker.dht.head.md 5.2: the HEAD writes of one
+  ;; directory carry strictly increasing sequences; hydration is only ever
+  ;; the first, installing the index at its own greatest t.
+  (let [[pdir rdir] [(temp-dir) (temp-dir)]
+        net (mesh/mesh)
+        peers {71 (peer-node net 71)}
+        heads (atom [])
+        spec (fn [port opts]
+               (dht-spec rdir (merge {:bind! (mesh-bind net port (atom 0))
+                                      :peers [{:host "127.0.0.1" :port 70}]}
+                                     opts)))
+        seq-at (fn [shell m]
+                 (head/seq-of (space.index/read-datoms (:index-store shell) m)))]
+    (try
+      (let [pub (publisher net pdir 70 [71] {:publish? true})
+            [pub _] (repl/eval-input pub "(def answer 4242)")
+            manifest (get-in pub [:indexer :manifest-address])
+            published (seq-at pub manifest)
+            reader (repl/create-state
+                     {:index-store
+                      (recorded-dht-store
+                        (spec 72 {:manifest manifest})
+                        heads)})
+            [[pub reader]] (run-until [pub reader] peers 0 20000
+                                      #(line-with % "hydrated"))]
+        (close! pub)
+        (testing "no HEAD: hydration is the one HEAD write, at its own sequence"
+          (is (repl.dht/admitting? reader))
+          (is (= [manifest] @heads))
+          (is (= published
+                 (head/seq-of (get-in reader [:index-recovery :datoms])))))
+        (close! reader)
+        (testing "the same manifest: no load, no HEAD write, admitted at once"
+          (let [reader (repl/create-state
+                         {:index-store (recorded-dht-store
+                                         (spec 73 {:manifest manifest})
+                                         heads)})]
+            (is (repl.dht/admitting? reader))
+            (is (nil? (space.dht/load-status (:dht reader) manifest)))
+            (is (= [manifest] @heads))
+            (testing "one round writes a second HEAD, one sequence above"
+              (let [[reader _] (repl/eval-input reader "(def later 1)")
+                    next-manifest (get-in reader
+                                          [:indexer :manifest-address])
+                    key (sign/generate)
+                    p (sign/principal (:public key))]
+                (is (= [manifest next-manifest] @heads))
+                (is (= (inc published) (seq-at reader next-manifest)))
+                (is (= :duplicate
+                       (head/judge p published manifest
+                                   (head/trace key manifest published))))
+                (is (= :candidate
+                       (head/judge p published manifest
+                                   (head/trace key next-manifest
+                                               (inc published)))))))
+            (close! reader)))
+        (testing "a different manifest: refused, HEAD unchanged, lock released"
+          (let [held (head-manifest rdir)
+                other (jing/segment-key "another index")
+                e (refusal-of #(recorded-dht-store
+                                 (spec 74 {:manifest other})
+                                 heads))]
+            (is (some? e))
+            (is (str/includes? (ex-message e) (str held)))
+            (is (= held (head-manifest rdir)))
+            (is (= 2 (count @heads)))
+            (store/close! (repl.dht/open (spec 75 {}))))))
       (finally
         (run! cleanup-dir! [pdir rdir])))))
 
@@ -1349,6 +1434,47 @@
         (is (= (dissoc (ld/module-status (node-of state) m) :value)
                (get-in state [:repl :last-value])))
         (is (= :loaded (get-in state [:repl :last-value :status])))
+        (main/close-index-store! state))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest both-load-operations-answer-a-refusal-as-data
+  ;; head trace slice H1 (yin.vm.linker.dht.head.md 5.5): a load of an
+  ;; address recorded under another kind is refused, and the host answers
+  ;; the refusal under its own code instead of throwing
+  (let [dir (temp-dir)]
+    (try
+      (let [state (solo-state dir {})
+            node (node-of state)
+            m (:address (ct/publish-base! (space.dht/local node)))
+            candidate (jing/segment-key "a head loading as a candidate")
+            state (assoc-in state [:repl :dht]
+                            (space.dht/load node candidate
+                                            {:kind head/candidate-kind
+                                             :walk (space.dht/index-walk
+                                                     candidate)}))
+            [state _] (type! state "(require (quote dao.space.dht))")
+            [state by-hand] (type! state (str "(dao.space.dht/load-index "
+                                              candidate ")"))
+            [state indexed] (type! state (str "(dao.space.dht/load-index " m
+                                              ")"))
+            [state module] (type! state (str "(dao.space.dht/load-module " m
+                                             ")"))
+            [state status] (type! state (str "(dao.space.dht/load-status "
+                                             candidate ")"))]
+        (testing "load-index of a manifest loading as a candidate"
+          (is (str/includes? by-hand ":dao.space.dht/kind-conflict") by-hand)
+          (is (= head/candidate-kind
+                 (:kind (space.dht/load-status (node-of state) candidate)))))
+        (is (= ":loading" indexed))
+        (testing "load-module of an address recorded as an index load"
+          (is (str/includes? module ":dao.space.dht/kind-conflict") module)
+          (is (= space.dht/index-kind
+                 (:kind (space.dht/load-status (node-of state) m)))))
+        (testing "the round continues and the next request is answered"
+          (is (str/includes? status ":status :loading") status)
+          (is (= :loading (get-in state [:repl :last-value :status]))))
         (main/close-index-store! state))
       (finally
         (cleanup-dir! dir)))))

@@ -35,7 +35,11 @@ payload. Distribution is by content, never by provenance.
 **Root discovery is outside this epic (owner decision 3).** A reader holding
 only a peer address cannot learn which manifest is current. A restart reads
 the local HEAD of the durable-store epic; a remote query is given a manifest
-address. Signed root facts and rendezvous are a separate later epic.
+address. Signed root facts and rendezvous are a separate later epic. The
+first is now designed above this layer, in
+[`yin.vm.linker.dht.head.md`](./yin.vm.linker.dht.head.md): a publisher's
+HEAD is a signed trace on a stream it writes, and the DHT learns nothing
+about roots.
 
 ## 2. Layering and composition
 

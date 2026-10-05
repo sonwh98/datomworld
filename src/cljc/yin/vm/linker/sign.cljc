@@ -1,5 +1,6 @@
 (ns yin.vm.linker.sign
-  "Ed25519 proofs for canonical module envelopes."
+  "Ed25519 proofs for canonical module envelopes and published head
+   traces, each under its own domain-separation prefix."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [dao.jing :as jing]
@@ -16,6 +17,12 @@
 
 
 (def ^:private domain "yin.module/envelope:v1\n")
+
+
+;; A published head trace's prefix (yin.vm.linker.dht.head.md 5.2): domain
+;; separation, so a name envelope's signature is never a head proof and a
+;; head proof never a name envelope's.
+(def ^:private head-domain "yin.head/trace:v1\n")
 (def ^:private private-prefix "302e020100300506032b657004220420")
 (def ^:private public-prefix "302a300506032b6570032100")
 (def ^:private digits "0123456789abcdef")
@@ -60,8 +67,9 @@
 
 
 (defn- message
-  [canonical]
-  (host-bytes (concat (utf8 domain) canonical)))
+  ([canonical] (message domain canonical))
+  ([prefix canonical]
+   (host-bytes (concat (utf8 prefix) canonical))))
 
 
 #?(:cljd nil :clj
@@ -160,6 +168,32 @@
    (to-hex (sign-bytes seed (message (jing/canonical-bytes envelope))))})
 
 
+(defn- verify-message
+  "True when `signature` (128 hex) is `public`'s Ed25519 signature of the
+   host bytes `msg`."
+  [public msg signature]
+  (let [sig (host-bytes (from-hex signature))]
+    #?(:cljd (ed/verify (ed/PublicKey. (host-bytes (from-hex public)))
+                        msg sig)
+       :clj (let [factory (KeyFactory/getInstance "Ed25519" "SunEC")
+                  encoded (host-bytes
+                            (from-hex (str public-prefix public)))
+                  pub (.generatePublic factory
+                                       (X509EncodedKeySpec. encoded))
+                  verifier (Signature/getInstance "Ed25519" "SunEC")]
+              (.initVerify verifier pub)
+              (.update verifier msg)
+              (.verify verifier sig))
+       :cljs (let [crypto (js/require "crypto")
+                   pub (.createPublicKey
+                         crypto #js {:key (js/Buffer.from
+                                            (str public-prefix public)
+                                            "hex")
+                                     :format "der" :type "spki"})]
+               (.verify crypto nil (js/Buffer.from msg) pub
+                        (js/Buffer.from sig))))))
+
+
 (defn verify-envelope
   [public canonical signature]
   (try
@@ -167,27 +201,40 @@
                  (= (principal public)
                     (:yin.module/asserted-by (cbor/decode canonical))))
       false
-      (let [msg (message canonical)
-            sig (host-bytes (from-hex signature))]
-        #?(:cljd (ed/verify (ed/PublicKey. (host-bytes (from-hex public)))
-                            msg sig)
-           :clj (let [factory (KeyFactory/getInstance "Ed25519" "SunEC")
-                      encoded (host-bytes
-                                (from-hex (str public-prefix public)))
-                      pub (.generatePublic factory
-                                           (X509EncodedKeySpec. encoded))
-                      verifier (Signature/getInstance "Ed25519" "SunEC")]
-                  (.initVerify verifier pub)
-                  (.update verifier msg)
-                  (.verify verifier sig))
-           :cljs (let [crypto (js/require "crypto")
-                       pub (.createPublicKey
-                             crypto #js {:key (js/Buffer.from
-                                                (str public-prefix public)
-                                                "hex")
-                                         :format "der" :type "spki"})]
-                   (.verify crypto nil (js/Buffer.from msg) pub
-                            (js/Buffer.from sig))))))
+      (verify-message public (message canonical) signature))
+    (catch #?(:cljd Object :clj Exception :cljs :default) _ false)))
+
+
+(defn sign-trace
+  "Sign a head trace envelope (yin.vm.linker.dht.head.md 5.2): the
+   message is `yin.head/trace:v1\\n` as UTF-8 followed by the envelope's
+   canonical bytes.  Answers the proof map.  The key must be the
+   envelope's own principal."
+  [seed envelope]
+  #?(:cljs (when-not (exists? js/require)
+             (throw (ex-info "Ed25519 signing primitive unavailable"
+                             {:reason :yin.link.sign/no-primitive}))))
+  (when-not (hex? 64 seed)
+    (throw (ex-info "Invalid Ed25519 seed" {:reason :invalid-seed})))
+  (when-not (= (principal (public-of seed)) (:yin.head/principal envelope))
+    (throw (ex-info "Trace principal differs from key"
+                    {:reason :principal-mismatch})))
+  {:yin.head/signature
+   (to-hex (sign-bytes seed (message head-domain
+                                     (jing/canonical-bytes envelope))))})
+
+
+(defn verify-trace
+  "True when `signature` is `public`'s head proof over the envelope whose
+   canonical bytes are `canonical`, and that envelope's principal is
+   `public`'s.  False otherwise; never throws."
+  [public canonical signature]
+  (try
+    (if-not (and (hex? 64 public) (hex? 128 signature)
+                 (= (principal public)
+                    (:yin.head/principal (cbor/decode canonical))))
+      false
+      (verify-message public (message head-domain canonical) signature))
     (catch #?(:cljd Object :clj Exception :cljs :default) _ false)))
 
 
