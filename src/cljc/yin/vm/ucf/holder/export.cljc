@@ -173,25 +173,86 @@
 ;; Prepare, then encode
 ;; =============================================================================
 
+(defn- check-header!
+  "A header is nil (the version-0 fork lift) or a map carrying the
+   arbitration, the counter and the enrolled set; anything else is a
+   defect of the caller, not a refusal.  The lift judges the rest."
+  [header]
+  (when (some? header)
+    (when-not (and (map? header)
+                   (contains? header :yin.k/arbitration)
+                   (contains? header :yin.k/next-op-seq)
+                   (set? (:yin.k/enrolled header)))
+      (throw (ex-info "Prepare of a malformed header"
+                      {:yin.k/hint :malformed-header})))))
+
+
+(defn- seeded-by-handle
+  "handle -> descriptor for every key the retained `table` already
+   answers, resolved through `machine`'s own resource bindings at each
+   key's task path: the alias reuse an interrupted prepare had already
+   proved, reconstructed before any new key is served, so a retry never
+   serves a handle the record already answers under another alias.
+   Handles are never persisted; this mapping lives within the one
+   call."
+  [machine table]
+  (let [at (into {} (machines [] machine))]
+    (into {}
+          (keep (fn [[[path id] descriptor]]
+                  (when-some [h (get-in (get at path) [:resources id])]
+                    [h descriptor])))
+          table)))
+
+
 (defn prepare
   "Prepare `record`: call `serve!` once per stream of the exporting
    `machine`, install children included, and answer
    `{:status :ok :record r}` with every answer retained in `r`, or the
    data outcome of the lift's refusal with `:record` added, carrying
    what was served before the refusal so a retry never serves a stream
-   twice.  The served table is keyed by the stream handle, which is
-   what the lift hands `serve!`."
-  [machine record serve!]
+   twice -- not even under a resource alias the refused attempt never
+   reached, whose handle the retained table and the machine's bindings
+   still identify.
+
+   The served table is keyed by `[task-path resource-id]` and holds the
+   descriptor `serve!` answered, so the record is plain data that a
+   journal can store; a handle is asked at most once, across the calls
+   of one retained record, even when two resources hold it.  `header`
+   is nil for the version-0 fork lift, or the version-1 custody header
+   (`handoff/export-task`), kept in the record as `:header`.  Prepare
+   mints nothing: the occurrence was minted by the driver before it was
+   called."
+  [machine record serve! header]
+  (check-header! header)
   (let [table (atom (:served record))
-        once (fn [h]
+        by-handle (atom (seeded-by-handle machine (:served record)))
+        once (fn [k h]
                (let [t @table]
-                 (if (contains? t h)
-                   (get t h)
+                 (cond
+                   (contains? t k)
+                   (let [served (get t k)]
+                     ;; an alias of an already-served key asks again for
+                     ;; nothing: the handle is known served from here on
+                     (swap! by-handle assoc h served)
+                     served)
+                   (contains? @by-handle h)
+                   (let [served (get @by-handle h)]
+                     ;; a handle already served under another resource id
+                     ;; is the one stream: no second call, and the table
+                     ;; must hold this key too or the record is unprepared
+                     ;; for a resource it reached
+                     (swap! table assoc k served)
+                     served)
+                   :else
                    (let [served (serve! h)]
                      ;; a refusal is not an answer: a retry asks again
-                     (when (some? served) (swap! table assoc h served))
+                     (when (some? served)
+                       (swap! table assoc k served)
+                       (swap! by-handle assoc h served))
                      served))))
-        r (handoff/export-task (reinstated machine record) once)]
+        record (assoc record :header header)
+        r (handoff/export-task (reinstated machine record) nil
+                               {:header header :serve-keyed once})]
     (if (= :ok (:status r))
       {:status :ok :record (assoc record :served @table)}
       (assoc r :record (assoc record :served @table)))))
@@ -199,19 +260,22 @@
 
 (defn encode
   "The lift of the prepared `record` over `machine`: the answer of
-   `handoff/export-task`, from a `serve!` that only reads the record.
-   It allocates and publishes nothing.  A stream the record has no
-   answer for is a defect of the caller (an unprepared record), not a
-   refusal."
+   `handoff/export-task`, from a `serve-keyed` that only reads the
+   record, under the header the record retains.  It allocates and
+   publishes nothing, and one record gives equal bytes every time.  A
+   stream the record has no answer for is a defect of the caller (an
+   unprepared record), not a refusal."
   [machine record]
   (let [served (:served record)]
     (handoff/export-task
       (reinstated machine record)
-      (fn [h]
-        (if (contains? served h)
-          (get served h)
-          (throw (ex-info "Encode of an unprepared record"
-                          {:yin.k/hint :unprepared-stream})))))))
+      nil
+      {:header (:header record)
+       :serve-keyed (fn [k _h]
+                      (if (contains? served k)
+                        (get served k)
+                        (throw (ex-info "Encode of an unprepared record"
+                                        {:yin.k/hint :unprepared-stream}))))})))
 
 
 ;; =============================================================================

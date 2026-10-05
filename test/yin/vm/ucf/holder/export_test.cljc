@@ -361,7 +361,7 @@
   (let [m (parked-machine)
         {:keys [calls table serve!]} (served-table)
         {m' :machine record :record} (export/enter m)
-        prepared (export/prepare m' record serve!)
+        prepared (export/prepare m' record serve! nil)
         record' (:record prepared)
         after-prepare @calls
         e1 (export/encode m' record')
@@ -375,7 +375,7 @@
     (is (= (vec (:bytes e1)) (vec (:bytes e2))) "deterministic bytes")
     (is (= (:address e1) (:address e2)))
     (testing "preparing a prepared record again serves nothing new"
-      (export/prepare m' record' serve!)
+      (export/prepare m' record' serve! nil)
       (is (= after-prepare @calls)))
     (testing "an unprepared record is a defect, not a refusal"
       (is (throws? #(export/encode m' record))))))
@@ -385,7 +385,7 @@
   (let [m (parked-installer)
         {:keys [calls table serve!]} (served-table)
         {m' :machine record :record} (export/enter m)
-        prepared (export/prepare m' record serve!)]
+        prepared (export/prepare m' record serve! nil)]
     (is (= :ok (:status prepared)) (pr-str prepared))
     (is (pos? @calls))
     (is (= @calls (count @table)) "each stream, child's included, once")
@@ -488,7 +488,7 @@
         stingy (fn [h]
                  (compare-and-set! first-handle nil h)
                  (when (= h @first-handle) served-answer))
-        refused (export/prepare m' record stingy)]
+        refused (export/prepare m' record stingy nil)]
     (is (= :yin.k/unsatisfied (:yin.k/status refused)) (pr-str refused))
     (is (= 1 (count (get-in refused [:record :served]))))
     (testing "a retry with the returned record never re-serves that stream"
@@ -497,7 +497,8 @@
             retry (export/prepare m' (:record refused)
                                   (fn [h]
                                     (swap! asked conj h)
-                                    (serve! h)))]
+                                    (serve! h))
+                                  nil)]
         (is (= :ok (:status retry)) (pr-str retry))
         (is (not-any? #(= @first-handle %) @asked))
         (is (= 1 (count @asked)) "only the other stream")))))
@@ -517,7 +518,7 @@
   (let [m (parked-explicit)
         {m' :machine record :record} (export/enter m)
         {:keys [serve!]} (served-table)
-        prepared (export/prepare m' record serve!)]
+        prepared (export/prepare m' record serve! nil)]
     (is (seq (:parked m)) "the source holds a parked record")
     (is (seq (:parked record)) "the record holds it")
     (is (every? #(not (contains? (:parked m') %)) (keys (:parked record)))
