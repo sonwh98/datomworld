@@ -10212,3 +10212,63 @@ Next: (1) linker M-next C to E (durable authority transactions; handoff integrat
   S5-scope work), safepoint slices 3 and 4, then the recorded prelude follow-ups (py/is float behavior across hosts, range-count and membership cost, fmod-pos termination, stale genexp refusals, integer-key digit
   limit, iter(callable, sentinel), the unexplained 2x in long-loops-test). (3) Owner: the unattended bb test:slow schedule needs hours and a go-ahead; the ClojureDart upstream report awaits a decision; the older
   local branches (linker-l0..l5, dht-s5, linker-dht, linker-transfer, agent.tzu.postgraphics, chore-license-gpl2, dao.stream-redesign, dao.stream.whatsapp) were not touched.
+
+## 2026-10-05 15:09:38 +07 — Seat record (claude): the yin.repl track (DHT command line, --help, bind-all, saved node state)
+Completed-GMT: 2026-10-05 08:09:38 GMT
+Coding-Agent: claude
+Session-ID: pending (provider-generated; background job 7fdf0e81)
+Tree: worktree-yin-repl-docs-fixes@71e07e9e on origin/master 8bae3f57, committed; uncommitted: this entry until committed
+Done (all on origin/master except the last bullet; every unit was its own worktree, ff or --no-ff merged by the owner's word):
+- c5c4a442 feat: `dht init|serve|join [token]` and `keygen` expand to the existing --dht-* flags; state under ~/.yin/<name>,
+  --listen, --peer (localhost accepted), the key made on first `init`, and one `dht: join token:
+  yin:<host:port>/<principal>/segment/...` line a reader passes whole. Docs ec30e98c, 0e200302, 5cba3937 (quick start first,
+  flags as the reference). Running the walk-through corrected the doc: a publication is acknowledged only once two peers hold
+  it (ack-peers >= 2, dao/jing/dht.cljc), so the walk-through uses two storing peers.
+- ca168abc docs: yin.repl.md reframed as the primary user interface into datom.world, more than a REPL.
+- eed49e76 feat: `--help` / `-h` prints every subcommand and flag, exit 0; a test checks a fixed list of flags and
+  subcommands appears in it (a flag added to the parser later must be added to that list too).
+- aeb9cb69 (merge 153625bf) feat: `--port` serves on all interfaces (0.0.0.0, advertised host the first private-range IPv4);
+  `--host` is removed and refused, not ignored; the banner names both addresses and says there is no authentication.
+- cfab3932, cf495f1b, 22599342, cf4bb9ab, 04379079 (merge 57414082) feat+fix: the node's flags are saved to
+  <node dir>/state.edn and a bare `yin-repl` resumes them; the command line overrides and re-saves; `--reset`, `--no-state`,
+  `--vm`. New src/cljc/yin/repl/state.cljc. dht_process_test's spawn! passes --no-state so process tests never touch ~/.yin.
+- 71e07e9e (this branch, not yet merged) docs: yin.repl.md flags section lists the node-level flags; the dead link to the
+  absent yin.repl.implementation-plan.md (and its wrong depth: four `..` where five are needed) is replaced by a Design
+  documents section of five links, each checked to resolve.
+Decisions: (1) Owner choices, asked and answered: subcommands, a single join token, default state dir ~/.yin/<name>;
+  `--port` binds all interfaces (the owner picked it over loopback-only and an opt-in LAN switch); saved state is node
+  configuration only, in ~/.yin/<name>/state.edn, and flags override and are saved. (2) A saved bare switch (--headless,
+  --dht-publish) cannot be turned off by a flag, only by --reset or `dht serve|join`; accepted, not designed around.
+  (3) The one-argument `startup` stays stateless; only the three -main entry points pass {:persist? true}. (4) Review
+  outcomes on the saved-state change: a flag value beginning with `--` is refused as a missing value (the reviewer's P3 was
+  answered by documenting it and `./--name`, not by removing the guard); the shared-state-file hazard (two nodes, one --name,
+  stores elsewhere) is documented, not enforced, because the store lock covers the file only when the store is in the node
+  directory; the Dart `.-osError` dynamic-typing warning is left unhinted. (5) The LLM-in-yin.repl idea was researched and
+  PARKED at the owner's word before its three design questions were answered; nothing is in the repo (findings are in the
+  owner's auto-memory, project_llm_integration_parked).
+  Review coverage, stated plainly: the saved-state change (feature and five fix rounds) had independent review by a
+  different family, gpt-6.1-sol, signed off at 04379079. The DHT command line, --help and the bind-all change were committed
+  on the owner's instruction after tests and real-process runs, without an independent reviewer.
+Verification: saved state: `clj -M:test -r "yin\.repl\..*"` on the merged tree 253 tests, 2208 assertions, 0 failures;
+  `bb test:cljs` 2837 / 92627 / 0 and `bb test:cljd` "All tests passed!" at +2792, both on the branch's final code before the
+  merge; real processes on JVM, Node and Dart: save, bare resume, flag override that stuck, --no-state, --reset. bind-all:
+  89 tests / 671 assertions JVM; a server on each of JVM, Node, Dart answered a JVM client over 127.0.0.1 and over the LAN
+  address, 6 of 6 `(+ 1 2)` -> 3. DHT command line: publisher + two storing peers + reader on each host, `(my.lib/f 1)` ->
+  4201; and one publisher host with readers on the other two hosts, all three combinations, 4201. --help: main_test, and a
+  real run on JVM and Node. kondo clean on every touched file except an existing error in src/cljc/yin/repl/host.cljc:15.
+Unrun: the full three-lane `bb test` on the merged tree (the merged-tree run was the JVM yin.repl sweep); `bb test:slow:*`;
+  Node and Dart clients against a `--port` server (only a JVM client was used); --help on Dart directly (it shares the exit
+  path `keygen` used there); the state reader's Windows branches (reasoned from the Dart and Node API docs, never run).
+Delegates: gpt-6.1-sol, codex thread 01a1080c-197c-7e41-8fcb-03414cea37b6, five rounds, read-only: round 1
+  collab/1791136351931-reviewer-yin-repl-state.*, then -r2 (1791138163517), -r3 (1791139897778), -r4 (1791143284533), -r5
+  (1791144773001), each a .prompt.md, .gpt-6.1-sol.stdout.log and .gpt-6.1-sol.findings.md; four findings in round 1, a
+  residual or new one in each of rounds 2 to 4, sign-off in round 5; no model-switch line in any log. Three Explore
+  subagents for the parked LLM survey (no artifacts).
+Next: (1) merge this docs branch. It changes docs/orchestrator-log.md, and the main checkout has another seat's uncommitted
+  edits to that file (the Rust-kernel entries), so git will refuse the merge until they commit or set them aside.
+  (2) Open on yin.repl, none started: a bare `yin-repl` cannot use the DHT without saved state, and a
+  shell cannot join a DHT mid-session (a `(join "<token>")` at the prompt is a design change, Architect first); the join
+  token prints only after the acknowledgement deadline, up to about a minute; the full three-lane `bb test` on the merged
+  tree. (3) docs/design/yin-repl-design.md still points at the same missing implementation-plan file; not edited. (4) Parked:
+  embedding an open-source LLM in yin.repl via dao.stream (dao.agent.md section 4.2 already specifies `:op/llm-infer` as a
+  park/resume :ffi-call; the three open questions are embedding style, first-slice scope and weights acquisition).
