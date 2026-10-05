@@ -34,6 +34,10 @@
       :dao.lease/lease l} the holder's release, appended to its
                           lease-fact stream; the judge's release lapse
                           completes or reclaims (slice C8)
+     {:yin.k/request :yin.k/renewal :yin.k/request-id r
+      :dao.lease/lease l} the holder's renewal, appended to its
+                          lease-fact stream; the judge counts it as
+                          evidence of the holder when it drains it
      {:yin.k/request :yin.k/input :yin.k/request-id r
       :yin.k/input input-request}
                           input/record-input!
@@ -72,12 +76,13 @@
 
    where answer is exactly the landed function's answer: a
    `:yin.k/admission` outcome for an admit, a `:yin.k/status` map for
-   the rest, and `{:yin.k/status :carried}` once a proposal or release
-   is on the holder's lease-fact stream.  An admit that admission
+   the rest, and `{:yin.k/status :carried}` once a proposal, a release
+   or a renewal is on the holder's lease-fact stream.  An admit that
+   admission
    answers with a diagnostic, or at a boundary it never enrolled, gets
    no reply: admission produced no outcome.  While the authority serves
-   no projection, poisoned or closed, a proposal or release is not
-   carried and answers `{:yin.k/status :suspended :yin.k/reason
+   no projection, poisoned or closed, a proposal, release or renewal is
+   not carried and answers `{:yin.k/status :suspended :yin.k/reason
    :unavailable}`; the landed functions answer the other kinds
    themselves.  A holder with no lease-fact stream is refused
    `:no-lease-medium`; a lease-fact stream that cannot be named (its
@@ -111,6 +116,7 @@
    :yin.k/proposal [:dao.lease/proposal :yin.k/occurrence]
    :yin.k/resumed [:yin.k/report :yin.k/bytes]
    :yin.k/release [:dao.lease/lease]
+   :yin.k/renewal [:dao.lease/lease]
    :yin.k/input [:yin.k/input]
    :yin.k/admit [:yin.k/target :yin.k/fenced-envelope]})
 
@@ -238,6 +244,8 @@
                           (get r :yin.k/bytes))
       :yin.k/release
       (carry! f author (lease/release (get r :dao.lease/lease)))
+      :yin.k/renewal
+      (carry! f author (lease/renewal (get r :dao.lease/lease)))
       :yin.k/input
       (input/record-input! a author (get r :yin.k/input))
       :yin.k/admit

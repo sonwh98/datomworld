@@ -225,6 +225,11 @@
   (request :yin.k/release "r-release" {:dao.lease/lease l}))
 
 
+(defn- renewal-req
+  [l]
+  (request :yin.k/renewal "r-renew" {:dao.lease/lease l}))
+
+
 (defn- judge
   "A judge over authority `a` reading `medium` as holder-a's lease facts."
   [a medium]
@@ -364,6 +369,37 @@
 
 
 ;; =============================================================================
+;; Renewal
+;; =============================================================================
+
+(deftest a-renewal-is-carried-and-counted-by-the-judge
+  (let [w (world)
+        {:keys [address bytes]} root
+        _ (grant/offer! (:a w) (:store w) address bytes "carrier")
+        w (send! w (proposal-req "p-a"))
+        j (grant/step! (:a w) (judge (:a w) (:medium w)))
+        l (:dao.lease/lease (first (facts (:frames w) :dao.lease/accepted)))
+        w (send! w (renewal-req l))]
+    (is (= {:yin.k/status :carried} (answer w)))
+    (is (= (lease/renewal l) (last (read-all (:medium w)))))
+    (let [j2 (grant/step! (:a w) j)]
+      (is (not-any? #(contains? (:leases %) l) (:facts j))
+          "the grant alone registered the lease on no medium")
+      (is (some #(contains? (:leases %) l) (:facts j2))
+          "only the counted renewal registered the lease on the medium"))))
+
+
+(deftest an-unresolved-renewal-author-is-wrong-author
+  (let [w (send! (world {:resolver (fn [_ _] nil)}) (renewal-req "lease-1"))
+        [d] (read-all (:diag w))]
+    (is (= [] (read-all (:medium w))) "nothing carried")
+    (is (= [] (read-all (:out w))) "no reply")
+    (is (= :wrong-author (:yin.k/defect d)))
+    (is (= {:yin.k/request :yin.k/renewal :yin.k/request-id "r-renew"}
+           (:yin.k/claimed d)))))
+
+
+;; =============================================================================
 ;; Defective requests
 ;; =============================================================================
 
@@ -379,6 +415,7 @@
                                  :yin.k/occurrence "O"})
    (request :yin.k/proposal "r" {:yin.k/occurrence occ})
    (request :yin.k/release "r" {})
+   (request :yin.k/renewal "r" {})
    (request :yin.k/resumed "r" {:yin.k/bytes (:bytes root)})
    (request :yin.k/input "r" {})
    (request :yin.k/admit "r" {:yin.k/fenced-envelope (env "lease-1" 0 :v)})])
@@ -688,7 +725,8 @@
                (report-req "lease-1")
                (input-req "lease-1" 0 :v)
                (proposal-req "p")
-               (release-req "lease-1")]]
+               (release-req "lease-1")
+               (renewal-req "lease-1")]]
       (testing (:yin.k/request r)
         (is (= :suspended (:yin.k/status (answer (send! w r)))))))
     (testing "admit"
@@ -850,5 +888,5 @@
 
 (deftest the-request-set-is-closed
   (is (= #{:yin.k/offer :yin.k/proposal :yin.k/resumed :yin.k/release
-           :yin.k/input :yin.k/admit}
+           :yin.k/renewal :yin.k/input :yin.k/admit}
          front/requests)))
