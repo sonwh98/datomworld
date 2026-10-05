@@ -40,8 +40,8 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # While iterating, run only `bb test:clj` (or one namespace: `clojure -M:test -n
 # <ns>`), not the full `bb test`. Run the full three-lane `bb test` once per
 # slice, before landing, and one lane set at a time: overlapping runs slow each
-# other down. Cross-host bugs show only on Node or Dart, so the full run is still
-# the gate before a commit.
+# other down. Cross-host bugs show only on Node or Dart, so the full run is
+# still the gate before a commit.
 # Measured fast-lane times (2026-10-03): bb test about 14 min = JVM 5.5 + Node
 # 3.8 + Dart 4.3, plus builds. test:slow: Node and Dart about 5 min each (mostly
 # compile); the JVM half is estimated at 17 min (long-loops-test alone is 14),
