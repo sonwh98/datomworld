@@ -3384,6 +3384,15 @@ and DaoStream outcome maps gain no keys. The target stream identity and
 effect kind come from the enrolled operation's boundary. Credentials are
 composition resources, never raw host objects inside UCF program values.
 
+(M-next D9.) On lift, `:yin.k/enrolled` is supplied in the retained
+custody header from the ledger reader's fold. It is excluded from the
+UCF body; the export record remains serializable. For retained
+`:put`, `:ffi-request`, and `:link-request` entries in the root or
+install children, an enrolled target without an operation id refuses
+as `:yin.k/non-portable`, kind `:unprotected-pending`; an operation
+id on an unenrolled target refuses as `:yin.k/unsatisfied`, naming
+the stream (UCF 7.7.4).
+
 Epoch and sequence are nonnegative portable exact integers bounded by
 2^52-1. Neither wraps, and the two exhaust differently (UCF 7.7.8). An
 exhausted sequence assigns no id, appends nothing, and refuses export.
