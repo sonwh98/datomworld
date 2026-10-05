@@ -102,11 +102,12 @@
 
 
 (defn resolve-flags
-  "The flags this run starts with: `saved` overridden by `explicit`, minus
-   the `unset` flags a subcommand clears (`dht serve` is never publishing,
-   whatever was saved)."
+  "The flags this run starts with: `saved` overridden by `explicit`.  The
+   `unset` flags a subcommand clears (by default `dht serve` clears saved
+   publishing and key state) are dropped from `saved` only, so a flag the
+   command line names explicitly always stands."
   [saved explicit unset]
-  (apply dissoc (merge saved explicit) unset))
+  (merge (apply dissoc saved unset) explicit))
 
 
 (defn changed

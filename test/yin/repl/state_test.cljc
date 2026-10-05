@@ -51,6 +51,13 @@
     (is (= {"--dht-peer" ["a:1"] "--port" "1"}
            (state/resolve-flags saved {} #{"--dht-publish"}))
         "a subcommand clears a saved switch")
+    (is (= {"--dht-peer" ["a:1"] "--dht-publish" true "--dht-key" "k2"
+            "--port" "1"}
+           (state/resolve-flags (assoc saved "--dht-key" "k1")
+                                {"--dht-key" "k2"}
+                                #{"--dht-key"}))
+        "a cleared flag is dropped from the saved values only: one the command
+         line names explicitly stands")
     (is (= ["--dht-peer" "--dht-publish"]
            (state/changed saved {"--dht-peer" ["b:2"] "--port" "1"})))))
 
@@ -230,7 +237,35 @@
             resolved (state/resolve-flags saved (:flags (state/split-args args))
                                           (:unset extra))]
         (is (not (contains? resolved "--dht-publish")))
-        (is (= ["127.0.0.1:4002"] (get resolved "--dht-peer")))))))
+        (is (= ["127.0.0.1:4002"] (get resolved "--dht-peer")))))
+    (testing "serve and join also drop a saved key; init keeps it; a --key
+              named on the command line stands"
+      (let [hex64 (apply str (repeat 64 "a"))
+            token (str "yin:127.0.0.1:4001/" hex64)
+            saved {"--dht-publish" true "--dht-key" "~/.yin/a.key"
+                   "--dht-peer" ["127.0.0.1:4002"]}
+            resolve (fn [& args]
+                      (let [[args' extra] (repl/expand-args args)]
+                        (state/resolve-flags saved
+                                             (:flags (state/split-args args'))
+                                             (:unset extra))))]
+        (is (not (contains? (resolve "dht" "serve" "--dir" dir
+                                     "--peer" "localhost:4002")
+                            "--dht-key")))
+        (is (not (contains? (resolve "dht" "join" token "--dir" dir)
+                            "--dht-key")))
+        (is (= "k2" (get (resolve "dht" "serve" "--dir" dir "--key" "k2"
+                                  "--peer" "localhost:4002")
+                         "--dht-key"))
+            "an explicit --key on serve is not dropped")
+        (is (= true (get (resolve "dht" "serve" "--dir" dir "--dht-publish"
+                                  "--peer" "localhost:4002")
+                         "--dht-publish"))
+            "an explicit --dht-publish on serve stands")
+        (is (= "k3" (get (resolve "dht" "init" "--dir" dir "--key" "k3"
+                                  "--peer" "localhost:4002")
+                         "--dht-key"))
+            "init keeps the key it is given")))))
 
 
 (deftest dht-join-saves-its-follow-and-a-bare-start-resumes-it

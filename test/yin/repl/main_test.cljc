@@ -1316,7 +1316,7 @@
     (is (= 4003 (:bind-port spec)))
     (is (= [hex64] (:principals opts)))
     (is (not (:publish? spec)))
-    (is (= #{"--dht-publish"} (:unset extra)))))
+    (is (= #{"--dht-publish" "--dht-key"} (:unset extra)))))
 
 
 (deftest a-printed-join-token-is-what-join-parses
@@ -1425,8 +1425,8 @@
                                         "127.0.0.1:4001" "--listen" "4002"])
         spec (:index-store-spec (repl/parse-args args))]
     (is (nil? (:new-key extra)))
-    (is (= #{"--dht-publish"} (:unset extra))
-        "serve clears a saved --dht-publish")
+    (is (= #{"--dht-publish" "--dht-key"} (:unset extra))
+        "serve clears a saved --dht-publish and --dht-key")
     (is (false? (:publish? spec)))
     (is (= 4002 (:bind-port spec)))))
 

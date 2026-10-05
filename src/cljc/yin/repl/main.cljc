@@ -443,9 +443,10 @@
          {:new-key (when (= "init" verb) key)
           :name name
           :dir (or dir (state-path name ""))
-          ;; only `init` publishes: a saved --dht-publish must not survive
-          ;; `serve` or `join`
-          :unset (when-not (= "init" verb) #{"--dht-publish"})}]))))
+          ;; only `init` publishes and signs by default: a saved --dht-publish
+          ;; or --dht-key must not survive `serve` or `join` (explicit flags
+          ;; named on that command line still stand)
+          :unset (when-not (= "init" verb) #{"--dht-publish" "--dht-key"})}]))))
 
 
 (defn- plain-args
