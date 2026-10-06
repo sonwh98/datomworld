@@ -339,10 +339,14 @@
    ;; the handoff lower's isolated-store install (UCF 7.6.2): every
    ;; carried key goes through store-put -- a reserved key inside a
    ;; tampered body refuses -- and the checked slice then lands on the
-   ;; fresh receiver in one write
+   ;; fresh receiver in one write.  D10 renamed the lower to
+   ;; resume-task* and moved child restoration behind
+   ;; isolated-receiver, which pre-seeds the receiver's isolated store
+   ;; (grant-authorized state only, D10's inputs ruling)
    "src/cljc/yin/vm/ucf/handoff.cljc"
-   {["resume-task" "assoc"] 1
-    ["resume-task" "engine/store-put"] 1}
+   {["isolated-receiver" "assoc"] 1
+    ["resume-task*" "assoc"] 1
+    ["resume-task*" "engine/store-put"] 1}
    ;; display projections of a VM's store in the browser demos
    "src/cljs/datomworld/demo/compilation_pipeline.cljs"
    {["walker-cesk" :map] 1}

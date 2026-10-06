@@ -23,14 +23,22 @@
             [dao.jing.cbor :as jing.cbor]
             [dao.jing.cbor-fixtures :as fx]
             [dao.stream :as stream]
+            [dao.stream.apply :as apply2]
             [dao.stream.cbor :as cbor]
             [dao.stream.remote :as remote]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
+            [yin.vm.debruijn-linearize :as dl]
+            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.debruijn.register :as register]
+            [yin.vm.debruijn.stack :as stack]
+            [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.ucf.handoff :as handoff]
+            [yin.vm.ucf.lift-support :as support]
             [yin.vm.test-utils :as tu]))
 
 
@@ -219,13 +227,17 @@
 ;; The reader under test, and the refusal assertions
 ;; =============================================================================
 
+(declare lower-options)
+
+
 (defn- read!
   "The version-aware reader over a counting attach!, on a receiving task
    that composes the attach seam an install child's spawn resolves its
    streams through.  Answers [outcome attaches]."
   ([bytes] (read! bytes nil))
   ([bytes opts]
-   (let [attaches (atom 0)
+   (let [opts (if (= ::granted opts) (lower-options bytes) opts)
+         attaches (atom 0)
          t (toy)
          base (attacher t)
          attach! (fn [descriptor]
@@ -341,13 +353,372 @@
   (keyword "segment" (str "blake3-" (jing/digest-bytes :blake3 bs))))
 
 
+(defn lower-options
+  [bytes]
+  (let [body (jing.cbor/decode bytes)
+        identities (into #{}
+                         (comp (filter #(and (map? %)
+                                             (= :yin.k/stream (:yin.k/tag %))))
+                               (map :dao.stream/identity))
+                         (tree-seq coll? seq body))
+        address (segment-address bytes)
+        occurrence (:yin.k/occurrence body)]
+    {:address address
+     :protection (zipmap identities (repeat :at-least-once))
+     :grant {:checkpoint address
+             :dao.lease/lease "lease-new"
+             :dao.lease/holder "holder-new"
+             :tenure {:now 10 :bound 20 :live true}
+             :evidence {:yin.k/status :yin.k/ready
+                        :yin.k/binding
+                        {:yin.k/occurrence occurrence
+                         :dao.lease/lease "lease-new"
+                         :dao.lease/holder "holder-new"
+                         :yin.k/epoch 2
+                         :yin.k/transaction
+                         {:yin.k/arbitration (get-in body [:yin.k/arbitration
+                                                           :dao.stream/identity])}}
+                        :yin.k/enrolled #{}
+                        :yin.k/prefix {:yin.k/occurrence occurrence
+                                       :dao.lease/lease "lease-new"
+                                       :yin.k/frontier 0
+                                       :yin.k/inputs []}}}}))
+
+
+(deftest v1-grant-boundary-and-consistency
+  (let [bytes (jing.cbor/encode (blocked-v1))
+        opts (lower-options bytes)
+        occurrence (get-in opts [:grant :evidence :yin.k/binding :yin.k/occurrence])]
+    (refused bytes :yin.k/awaiting-grant {})
+    (doseq [[path value]
+            [[[:grant :checkpoint] :segment/other]
+             [[:grant :evidence :yin.k/binding :yin.k/occurrence] predecessor]
+             [[:grant :evidence :yin.k/binding :dao.lease/lease] "wrong"]
+             [[:grant :evidence :yin.k/binding :dao.lease/holder] "wrong"]
+             [[:grant :evidence :yin.k/binding :yin.k/transaction
+               :yin.k/arbitration] "wrong"]
+             [[:grant :evidence :yin.k/binding :yin.k/epoch] -1]
+             [[:grant :evidence :yin.k/binding :yin.k/epoch] (jing.cbor/float64 1)]
+             [[:grant :evidence :yin.k/binding :yin.k/epoch] 4503599627370496]
+             [[:grant :tenure :now] 20]
+             [[:grant :tenure :live] false]
+             [[:grant :evidence :yin.k/prefix :dao.lease/lease] "wrong"]
+             [[:grant :evidence :yin.k/prefix :yin.k/occurrence] predecessor]
+             [[:grant :evidence :yin.k/prefix :yin.k/frontier] 1]
+             [[:grant :evidence :yin.k/prefix] {:yin.k/occurrence occurrence :dao.lease/lease "lease-new" :yin.k/frontier 2 :yin.k/inputs [{:yin.k/input-seq 0} {:yin.k/input-seq 0}]}]
+             [[:grant :evidence :yin.k/prefix] {:yin.k/occurrence occurrence :dao.lease/lease "lease-new" :yin.k/frontier 2 :yin.k/inputs [{:yin.k/input-seq 0} {:yin.k/input-seq 2}]}]
+             [[:grant :evidence :yin.k/prefix] {:yin.k/occurrence occurrence :dao.lease/lease "lease-new" :yin.k/frontier 2 :yin.k/inputs [{:yin.k/input-seq 1} {:yin.k/input-seq 0}]}]]]
+      (testing (pr-str path)
+        (refused bytes (assoc-in opts path value) :yin.k/not-holder {})))
+    (refused bytes (assoc-in opts [:grant :evidence]
+                             {:yin.k/status :yin.k/unsatisfied
+                              :yin.k/reason :gap})
+             :yin.k/unsatisfied {:yin.k/reason :gap})
+    (refused bytes (assoc-in opts [:grant :evidence :yin.k/prefix]
+                             {:yin.k/status :suspended :yin.k/reason :unavailable})
+             :yin.k/unsatisfied {:yin.k/reason :unavailable})))
+
+
+(deftest malformed-lower-options-are-caller-defects
+  (let [bytes (jing.cbor/encode (blocked-v1))
+        opts (lower-options bytes)]
+    (doseq [[path value] [[[:grant] []]
+                          [[:grant :evidence] []]
+                          [[:grant :evidence :yin.k/binding] []]
+                          [[:grant :tenure] []]
+                          [[:protection] {"stream" :unknown}]]]
+      (is (try (read! bytes (assoc-in opts path value)) false
+               (catch #?(:cljd Object :clj Exception :cljs :default) exception
+                 (nil? (:yin.k/status (ex-data exception)))))))))
+
+
+(deftest v1-restores-custody-counter-prefix-and-ended-result
+  (doseq [counter [3 4503599627370495]]
+    (let [bytes (jing.cbor/encode (assoc (blocked-v1) :yin.k/next-op-seq counter))
+          opts (assoc-in (lower-options bytes) [:grant :evidence :yin.k/prefix]
+                         {:yin.k/occurrence occurrence :dao.lease/lease "lease-new"
+                          :yin.k/frontier 1
+                          :yin.k/inputs [{:yin.k/input-seq 0
+                                          :yin.k/source {} :yin.k/observed 42}]})
+          [out] (read! bytes opts)
+          machine (:vm out)]
+      (is (= :ok (:status out)))
+      (is (= :running (:yin.k/gate machine)))
+      (is (= counter (get-in machine [:yin.k/custody :yin.k/next-op-seq])))
+      (is (= {:next 0 :prefix (get-in opts [:grant :evidence :yin.k/prefix])}
+             (get-in machine [:yin.k/custody :input])))
+      (is (= {:bound 20} (get-in machine [:yin.k/custody :tenure])))))
+  (let [[out] (read! (jing.cbor/encode (halted-v1)))]
+    (is (= :ended (:yin.k/gate (:vm out))))
+    (is (not (contains? (:vm out) :yin.k/custody)))))
+
+
+(deftest v1-protection-and-retained-put
+  (doseq [id [nil (op-id 1)]
+          class [:enrolled :at-least-once :fail-stop]]
+    (let [base (with-header (:body (export-of (support/parked-writer))) 3)
+          body (cond-> base id (assoc-in [:yin.k/frames 0 :yin.k/pending :yin.k/op-id] id))
+          bytes (jing.cbor/encode body)
+          target (get-in body [:yin.k/frames 0 :yin.k/pending :yin.k/stream :dao.stream/identity])
+          opts (-> (lower-options bytes)
+                   (assoc-in [:protection target] class)
+                   (assoc-in [:grant :evidence :yin.k/enrolled]
+                             (if (= class :enrolled) #{target} #{})))]
+      (if (= (some? id) (= class :enrolled))
+        (let [[out] (read! bytes opts)]
+          (is (= :ok (:status out)))
+          (is (= id (:op-id (first (:wait-set (:vm out))))))
+          (is (= class (get-in out [:vm :yin.k/custody :protection target]))))
+        (refused bytes opts :yin.k/unsatisfied {:dao.stream/identity target}))))
+  (let [bytes (jing.cbor/encode (blocked-v1))
+        opts (lower-options bytes)
+        target (first (keys (:protection opts)))]
+    (refused bytes (update opts :protection dissoc target)
+             :yin.k/unsatisfied {:dao.stream/identity target})
+    (refused bytes (assoc-in opts [:protection target] :enrolled)
+             :yin.k/unsatisfied {:dao.stream/identity target})
+    (refused bytes (assoc-in opts [:grant :evidence :yin.k/enrolled] #{target})
+             :yin.k/unsatisfied {:dao.stream/identity target})))
+
+
+(deftest v1-restored-puts-have-stamped-issues-and-clear-receiver-state
+  (let [child-base (assoc (:body (export-of (support/parked-writer))) :yin.k/version 1)
+        frame (first (:yin.k/frames child-base))
+        child-base (assoc child-base :yin.k/frames [frame frame])
+        body (assoc-in (install-v1) [:yin.k/installs 'host.mod :yin.k/child] child-base)
+        bytes (jing.cbor/encode body)
+        target (get-in child-base [:yin.k/frames 0 :yin.k/pending :yin.k/stream :dao.stream/identity])
+        opts (assoc-in (lower-options bytes) [:protection target] :at-least-once)
+        recv (assoc (new-machine)
+                    :yin.k/issued 999
+                    :yin.k/closes [{:stream-id "fake" :yin.k/issue 998}])
+        out (handoff/resume-task recv bytes (attacher (toy)) opts)
+        machine (:vm out)
+        child (get-in machine [:installs 'host.mod :vm])]
+    (is (= :ok (:status out)))
+
+    (testing "Receiver-local close/issue state is removed"
+      (is (not (contains? machine :yin.k/closes)))
+      (is (not (contains? child :yin.k/closes))))
+
+    (testing "Rebuilt next counter and wait order for child"
+      (let [[wait1 wait2] (:wait-set child)]
+        (is (= 0 (:yin.k/issue wait1)) "First restored put pinned in wait order")
+        (is (= 1 (:yin.k/issue wait2)) "Second restored put pinned in wait order")
+        (is (= 2 (:yin.k/issued child)) "Rebuilt next counter is 2")
+        (let [issue-number @#'engine/issue-number
+              [close-issue child'] (issue-number child)
+              [put-issue _] (issue-number child')]
+          (is (= 2 close-issue) "new close ordering")
+          (is (= 3 put-issue) "new put ordering"))))
+
+    (testing "Rebuilt next counter for root without puts"
+      (is (= 0 (:yin.k/issued machine)))
+      (let [issue-number @#'engine/issue-number
+            [close-issue _] (issue-number machine)]
+        (is (= 0 close-issue))))))
+
+
+(deftest v1-child-state-and-receiver-isolation
+  (let [bytes (jing.cbor/encode (install-v1))
+        [out] (read! bytes (lower-options bytes))
+        child (get-in out [:vm :installs 'host.mod :vm])]
+    (is (= :ok (:status out)))
+    (is (= :running (:yin.k/gate child)))
+    (is (not (contains? child :yin.k/custody)))
+    (is (= :next (:reason (first (:wait-set child)))))
+    (is (= [] (:ready-queue child))))
+  (let [bytes (jing.cbor/encode (blocked-v1))
+        out (handoff/resume-task
+              (assoc (new-machine) :store {'receiver-only 99}
+                     :module-stores {'receiver.mod {'x 99}}
+                     :modules (module/assoc-module (module/default-registry)
+                                                   'receiver.mod
+                                                   {:manifest {:yin.module/name 'receiver.mod}
+                                                    :address :segment/receiver
+                                                    :slice {'x 99} :bindings {'x 99}}))
+              bytes (attacher (toy)) (lower-options bytes))]
+    (is (= :ok (:status out)))
+    (is (not (contains? (:store (:vm out)) 'receiver-only)))
+    (is (not (contains? (:module-stores (:vm out)) 'receiver.mod)))
+    (is (nil? (module/resolve-module (:modules (:vm out)) 'receiver.mod)))))
+
+
+(deftest v1-ffi-and-link-ids-and-kept-cursors
+  (let [call-in (support/one-slot-stream "call-in")
+        call-out (ring 8)
+        _ (stream/append! call-in :warmed)
+        caller (semantic/create-vm
+                 {:make-stream make-ring-stream :capability-secret tu/secret
+                  :modules (module/default-registry)
+                  :call-in call-in :call-out call-out
+                  :call-out-cursor (vm/mint-oldest call-out :test)})
+        ffi (vm/run (load-ast caller
+                              {:type :dao.stream.apply/call :op :op/echo
+                               :operands [(lit "hello")]}))
+        request (support/one-slot-stream "link-in")
+        _ (stream/append! request :warmed)
+        link (vm/run (load-ast (linking-machine request (ring 8))
+                               (app (v 'require) (lit 'host.mod))))]
+    (doseq [[machine reason] [[ffi :ffi-request] [link :link-request]]]
+      (let [body (-> (:body (export-of machine))
+                     (with-header 3)
+                     (assoc-in [:yin.k/frames 0 :yin.k/pending :yin.k/op-id]
+                               (op-id 1)))
+            pending (get-in body [:yin.k/frames 0 :yin.k/pending])
+            target (get-in pending [:yin.k/request :dao.stream/identity])
+            bytes (jing.cbor/encode body)
+            opts (-> (lower-options bytes)
+                     (assoc-in [:protection target] :enrolled)
+                     (assoc-in [:grant :evidence :yin.k/enrolled] #{target}))
+            [out] (read! bytes opts)
+            entry (first (:wait-set (:vm out)))]
+        (is (= reason (:yin.k/reason pending)))
+        (is (= :ok (:status out)) (pr-str (dissoc out :vm)))
+        (is (= (op-id 1) (:op-id entry)))
+        (when (= reason :link-request)
+          (is (= (get-in body [:yin.k/cells (:yin.k/cell pending) :yin.k/position])
+                 (:cursor entry))))))))
+
+
+(deftest v1-child-protection-refuses-before-root-attachment
+  (let [body (install-v1)
+        bytes (jing.cbor/encode body)
+        opts (lower-options bytes)
+        target (get-in body [:yin.k/installs 'host.mod :yin.k/child
+                             :yin.k/cells :yin.k/c-0 :yin.k/stream
+                             :dao.stream/identity])]
+    (refused bytes (update opts :protection dissoc target)
+             :yin.k/unsatisfied {:dao.stream/identity target}))
+  (doseq [id [nil (op-id 1)]]
+    (let [child (cond-> (assoc (:body (export-of (support/parked-writer)))
+                               :yin.k/version 1)
+                  id (assoc-in [:yin.k/frames 0 :yin.k/pending :yin.k/op-id] id))
+          body (assoc-in (install-v1) [:yin.k/installs 'host.mod :yin.k/child] child)
+          bytes (jing.cbor/encode body)
+          target (get-in child [:yin.k/frames 0 :yin.k/pending :yin.k/stream
+                                :dao.stream/identity])
+          opts (cond-> (lower-options bytes)
+                 (nil? id) (assoc-in [:protection target] :enrolled)
+                 (nil? id) (assoc-in [:grant :evidence :yin.k/enrolled] #{target}))]
+      (refused bytes opts :yin.k/unsatisfied {:dao.stream/identity target}))))
+
+
+(deftest v1-child-initialization-is-not-replayed
+  (let [request (ring 8)
+        response (ring 8)
+        child-image (semantic-vector
+                      (then {:type :dao.stream.apply/call :op :op/init
+                             :operands [(lit 1)]}
+                            (next-of (cursor-of {:type :stream/make :buffer 4}))))
+        parent (semantic/create-vm
+                 {:make-stream make-ring-stream :capability-secret tu/secret
+                  :secret-source (fn [origin] (str tu/secret "/" (name origin)))
+                  :modules (module/default-registry)
+                  :link-request request :link-response response})
+        waiting (vm/run (load-ast parent (app (v 'require) (lit 'host.mod))))
+        _ (stream/append! response
+                          {:yin.link/id (:link-id (first (:wait-set waiting)))
+                           :status :ok :image {:value child-image}
+                           :manifest {:yin.module/name 'host.mod
+                                      :yin.module/exports #{}} :obligations []})
+        initializing (vm/run waiting)
+        child (get-in initializing [:installs 'host.mod :vm])
+        effects (get (:resources child) vm/call-in-stream-key)
+        init-call (first (:wait-set child))
+        _ (stream/append! (get (:resources child) vm/call-out-stream-key)
+                          (apply2/success-response (:call-id init-call) 1))
+        completed-child (vm/run child)]
+    (is (= 1 (count (tu/drain effects))))
+    (let [saved (assoc-in initializing [:installs 'host.mod :vm]
+                          (vm/run completed-child))
+          body (-> (:body (export-of saved))
+                   (with-header 3)
+                   (assoc-in [:yin.k/installs 'host.mod :yin.k/child :yin.k/version] 1))
+          bytes (jing.cbor/encode body)
+          [out] (read! bytes (lower-options bytes))]
+      (is (= :ok (:status out)) (pr-str (dissoc out :vm)))
+      (is (= :next (:reason (first (get-in out [:vm :installs 'host.mod :vm :wait-set])))))
+      (is (= 1 (count (tu/drain effects))))
+      (is (= 1 (count (tu/drain request)))))))
+
+
+(deftest v1-lower-supported-kernel-boundary
+  (let [opts {:make-stream make-ring-stream :capability-secret tu/secret
+              :modules (module/default-registry)}
+        ast (next-of (cursor-of {:type :stream/make :buffer 4}))
+        kernels
+        [[:walker #(walker/create-vm opts)
+          #(walker/vm-load-rows % (vm/ast->semantic-bytecode ast) vm/ast-contract)]
+         [:semantic #(semantic/create-vm opts) #(load-ast % ast)]
+         [:stack #(stack/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+                                   (assoc opts :contract vm/stack-contract)) identity]
+         [:register #(register/create-vm (:image (rc/adapt (vm/ast->datoms ast)))
+                                         (assoc opts :contract vm/register-contract)) identity]]]
+    (doseq [[kernel create load] kernels]
+      (testing (name kernel)
+        (let [source (vm/run (load (create)))
+              exported (export-of source)]
+          (if (= kernel :semantic)
+            (let [body (with-header (:body exported) 9)
+                  bytes (jing.cbor/encode body)
+                  out (handoff/resume-task (create) bytes (attacher (toy))
+                                           (lower-options bytes))]
+              (is (= :ok (:status out)) (pr-str (dissoc out :vm)))
+              (is (= 9 (get-in out [:vm :yin.k/custody :yin.k/next-op-seq])))
+              (is (= :running (get-in out [:vm :yin.k/gate])))
+              (is (= :next (:reason (first (:wait-set (:vm out)))))))
+            (do
+              (is (= :yin.k/non-portable (:yin.k/status exported)))
+              (is (= :unaddressed-segment (:yin.k/kind exported))))))))))
+
+
+(deftest d9-blocked-and-parked-fixtures-restore-with-explicit-grants
+  (doseq [source [support/parked-explicit support/parked-two-cursors
+                  #(support/with-op-id (support/parked-writer) :put (op-id 1))]]
+    (let [machine (source)
+          carried? (:op-id (first (:wait-set machine)))
+          lifted (support/lift machine (support/header 3 support/origin
+                                                       (if carried? #{"s0"} #{})))
+          _ (is (= :ok (:status lifted)) (pr-str (dissoc lifted :record :body :bytes)))
+          bytes (:bytes lifted)
+          body (:body lifted)
+          target (get-in body [:yin.k/frames 0 :yin.k/pending :yin.k/stream
+                               :dao.stream/identity])
+          opts (cond-> (lower-options bytes)
+                 carried? (assoc-in [:protection target] :enrolled)
+                 carried? (assoc-in [:grant :evidence :yin.k/enrolled] #{target}))
+          attached (atom {})
+          attach! (fn [descriptor]
+                    (let [handle (or (get @attached descriptor)
+                                     (support/one-slot-stream (str (count @attached))))]
+                      (swap! attached assoc descriptor handle)
+                      {:dao.stream/outcome :dao.stream/ok :dao.stream/handle handle}))
+          out (handoff/resume-task (assoc (new-machine) :attach-stream attach!)
+                                   bytes attach! opts)
+          receiver (:vm out)
+          references (filter #(and (map? %) (= :cursor-ref (:type %)))
+                             (tree-seq coll? seq [(:store receiver)
+                                                  (:module-stores receiver)]))]
+      (is (= :ok (:status out)) (pr-str (dissoc out :vm)))
+      (is (= (:kind lifted) (:kind out)))
+      (is (= :running (:yin.k/gate receiver)))
+      (is (every? #(engine/authentic-ref? receiver :cursor-ref %) references))
+      (is (= (count (:yin.k/cells body))
+             (count (filter #(and (map? %) (contains? % :cursor))
+                            (vals (apply dissoc (:resources receiver)
+                                         [vm/call-out-cursor-key]))))))
+      (when carried?
+        (is (= (op-id 1) (:op-id (first (:wait-set receiver)))))))))
+
+
 ;; =============================================================================
 ;; The two-codec split: which codec accepted decides the version
 ;; =============================================================================
 
 (deftest the-accepting-codec-decides-the-body-version
   (testing "a version-1 body rides jing canonical bytes end to end"
-    (let [[r n] (read! (jing.cbor/encode (blocked-v1)))]
+    (let [[r n] (read! (jing.cbor/encode (blocked-v1)) ::granted)]
       (is (= :ok (:status r)) (pr-str r))
       (is (pos? n) "the valid body attached its streams")
       (is (= :blocked (:kind r)))))
@@ -516,7 +887,7 @@
                 :yin.k/kind :child-header}))
     (testing "without one, the halted child validates and the whole
               body lowers"
-      (let [[r] (read! (jing.cbor/encode (at (halted-child nil))))]
+      (let [[r] (read! (jing.cbor/encode (at (halted-child nil))) ::granted)]
         (is (= :ok (:status r)) (pr-str r))
         (is (contains? (:installs (:vm r)) 'host.mod)
             "the child lowered beside its root")))))
@@ -640,5 +1011,16 @@
     (let [[r] (read! (jing.cbor/encode
                        (assoc-in (install-v1)
                                  [:yin.k/installs 'host.mod :yin.k/phase]
-                                 :running)))]
+                                 :running)) ::granted)]
       (is (= :ok (:status r)) (pr-str r)))))
+
+
+(deftest v1-public-install-child-option-cannot-bypass-grant
+  (let [bytes (jing.cbor/encode (blocked-v1))
+        opts (assoc (lower-options bytes) :yin.vm.ucf.handoff/install-child true)
+        opts (dissoc opts :grant)
+        attached (atom 0)
+        attach! (fn [_] (swap! attached inc))
+        out (handoff/resume-task (new-machine) bytes attach! opts)]
+    (is (= :yin.k/awaiting-grant (:yin.k/status out)) (pr-str out))
+    (is (zero? @attached))))
