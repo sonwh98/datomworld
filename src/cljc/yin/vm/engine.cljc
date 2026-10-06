@@ -695,18 +695,32 @@
       result)))
 
 
+(defn- refuse-unminted!
+  "The gate's unminted cursor cell (D6 gate finding 1, carried to D11): a
+   driver read apply must not advance a cell the gate left unminted --
+   that would bolt a cursor onto the retained `:yin.k/unminted` marker.
+   The driver mints the cell first (`apply-mint`)."
+  [state entry]
+  (let [cell-id (:id (:cursor-ref entry))]
+    (when (:yin.k/unminted (get-in state [:resources cell-id]))
+      (fail "Cannot apply a read to an unminted cursor cell"
+            {:cell-id cell-id}))))
+
+
 (defn apply-observation
   "Apply the observed `outcome` of the `:observe` wait entry `entry`: the
    cell advances as the ungated poll advances it, the entry leaves the
    wait set, and its continuation goes to the ready queue with the poll's
    answer. Performs no stream call. Refused in the `:exporting` and
-   `:ended` gates, and for any entry that is not an `:observe` poll."
+   `:ended` gates, for any entry that is not an `:observe` poll, and for
+   an entry whose cursor cell is still unminted."
   [state entry outcome]
   (let [mode (vm/gate-mode state)]
     (when (contains? #{:exporting :ended} mode)
       (fail "Gate is closed: late observation refused" {:yin.k/gate mode}))
     (when-not (and (= :observe (:reason entry)) (= :poll (:op entry)))
       (fail "Not an observe entry" {:entry-reason (:reason entry)}))
+    (refuse-unminted! state entry)
     (let [cursor-ref (:cursor-ref entry)
           target (-> (next-target state cursor-ref)
                      (assoc :handle nil))
@@ -1923,7 +1937,8 @@
    waiting; `ok` and `gap` advance the cursor cell to the outcome's
    position and wake it; `end` and every other outcome wake it under
    their own status. Performs no stream call. Refused as `apply-put` is,
-   and for an FFI response reader (`apply-ffi-read`)."
+   for an FFI response reader (`apply-ffi-read`), and for an entry whose
+   cursor cell is still unminted (the driver mints it first)."
   [state entry outcome]
   (require-running! state {})
   (let [i (wait-slot state entry
@@ -1931,6 +1946,7 @@
                            (map? (:cursor-ref %))
                            (nil? (ffi/response-call-id %)))
                      :next)
+        _ (refuse-unminted! state entry)
         o (:dao.stream/outcome outcome)
         cursor (:dao.stream/cursor outcome)
         cursor-id (:id (:cursor-ref entry))
@@ -1952,6 +1968,22 @@
       :else (wake-slot state i [(woken-answer entry o o nil)]))))
 
 
+(defn- ffi-request-slot
+  "The wait-set index of the retained FFI request of call `call-id`;
+  refuses an ungated task, the closed gates, and an id no retained
+  request holds."
+  [state call-id]
+  (require-running! state {:call-id call-id})
+  (or (first (keep-indexed
+               (fn [n e]
+                 (when (and (= :put (:reason e))
+                            (some? (ffi/request-call-id e))
+                            (= call-id (ffi/request-call-id e)))
+                   n))
+               (:wait-set state)))
+      (fail "No retained FFI request" {:call-id call-id})))
+
+
 (defn apply-ffi-sent
   "Apply the driver's send of the retained FFI request of call `call-id`:
    the request writer leaves the wait set and is queued woken by `ok`,
@@ -1960,17 +1992,31 @@
    Refused as `apply-put` is, and for an id no retained request holds: a
    second transition finds none."
   [state call-id]
-  (require-running! state {:call-id call-id})
-  (let [i (or (first (keep-indexed
-                       (fn [n e]
-                         (when (and (= :put (:reason e))
-                                    (some? (ffi/request-call-id e))
-                                    (= call-id (ffi/request-call-id e)))
-                           n))
-                       (:wait-set state)))
-              (fail "No retained FFI request" {:call-id call-id}))
+  (let [i (ffi-request-slot state call-id)
         entry (get-in state [:wait-set i])]
     (wake-slot state i [(woken-answer entry :ok (:datom entry) nil)])))
+
+
+(defn apply-ffi-outcome
+  "Apply the driver's whole append `outcome` for the retained FFI request
+   of call `call-id`, as `apply-put` applies a program put's: `ok` is the
+   sent transition (`apply-ffi-sent`), `full` keeps the request waiting
+   for a retry, and every terminal outcome -- and any answer the append
+   contract cannot vouch for -- wakes the writer under its own status,
+   the ungated sweep's disposition for a put whose append answered
+   terminally. Performs no stream call. Refused as `apply-ffi-sent` is."
+  [state call-id outcome]
+  (let [i (ffi-request-slot state call-id)
+        entry (get-in state [:wait-set i])
+        o (:dao.stream/outcome outcome)]
+    (cond
+      (invalid-answer? :append! outcome)
+      (wake-slot state i [{:entry entry,
+                           :status :dao.stream.waitset/invalid-answer}])
+      (= :dao.stream/full o) state
+      (= :dao.stream/ok o)
+      (wake-slot state i [(woken-answer entry :ok (:datom entry) nil)])
+      :else (wake-slot state i [(woken-answer entry o o nil)]))))
 
 
 (defn apply-ffi-read
