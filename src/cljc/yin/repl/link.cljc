@@ -133,8 +133,12 @@
    assertions the reader honors (yin.vm.linker.dht.md 7.1), and `key`
    the node's own publisher key, whose principal is declared too (6.5):
    a node resolves the names it published.  Only the public half is
-   kept here."
-  [{:keys [name-env content-store content-client dht? principals key]}]
+   kept here.  `follow` are the principal ids (`ed25519:<hex>`) whose
+   published heads the DHT source follows (yin.vm.linker.dht.head.md
+   5.6): a name that is `:absent` while one of them has no installed head
+   is pending on it, not refused."
+  [{:keys [name-env content-store content-client dht? principals key
+           follow]}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
@@ -145,6 +149,7 @@
   {:name-env (or name-env {})
    :principals (vec (distinct (cond-> (vec principals)
                                 key (conj (:public key)))))
+   :follow (vec follow)
    :content (cond
               dht? {:kind :dht}
 
@@ -337,11 +342,21 @@
          :body (or unbound (dht-link node request address))}))))
 
 
+(defn- awaited-heads
+  "The followed principals of `source` with no installed head on `node`:
+   a name absent now may be asserted by the first head of one of them."
+  [source node]
+  (let [installed (linker.dht/installed-heads node)]
+    (vec (remove #(contains? installed %) (:follow source)))))
+
+
 (defn- answer
   "The response body for one link request under `:body`, or `::pending`
    when nothing this round can answer it: no content source, an attempt
-   that spent its budget, or a DHT closure load not yet ended (its
-   manifest under `:waits`).  `:node` is the shell's DHT node after the
+   that spent its budget, a DHT closure load not yet ended (its
+   manifest under `:waits`), or a name `:absent` while a followed
+   principal has no installed head (those principals under `:heads`,
+   yin.vm.linker.dht.head.md 5.6).  `:node` is the shell's DHT node after the
    answer.  A request that is not by name is refused: the interpreter
    serves what the shell's own VMs send, the by-name manifest requests
    of section 7.2, and nothing else."
@@ -359,9 +374,14 @@
       dht?
       (let [declared (authority source)
             entry (linker.dht/resolve-name node declared name)]
-        (if (= :ok (:status entry))
+        (cond
+          (= :ok (:status entry))
           (dht-attempt node declared request (:address entry))
-          {:node node, :body entry}))
+
+          (and (= :absent (:reason entry)) (seq (awaited-heads source node)))
+          {:node node, :body ::pending, :heads (awaited-heads source node)}
+
+          :else {:node node, :body entry}))
 
       :else
       {:node node
@@ -393,7 +413,8 @@
    `{:pair pair :pending pending :progress? bool :dht node}`,
    `:progress?` true when at least one response was appended, so the
    shell knows the round moved something; a pending entry a DHT load
-   holds names that load's manifest under `:manifest`."
+   holds names that load's manifest under `:manifest`, and one awaiting
+   a first head names those principals under `:principals`."
   ([comp] (serve comp serve-budget))
   ([{:keys [pair source dht]} budget]
    (loop [pair pair
@@ -408,7 +429,7 @@
            ;; blocked, or a gap: nothing more is answerable this round
            {:pair pair, :pending pending, :progress? progress?, :dht node}
            (let [request (:dao.stream/value r)
-                 {:keys [node body waits]} (answer source node request)
+                 {:keys [node body waits heads]} (answer source node request)
                  answered? (and (not= ::pending body)
                                 (respond! pair request body))]
              (if answered?
@@ -421,6 +442,7 @@
                 :pending (conj pending
                                (cond-> {:name (:yin.link/name request)
                                         :yin.link/id (:yin.link/id request)}
-                                 waits (assoc :manifest waits)))
+                                 waits (assoc :manifest waits)
+                                 heads (assoc :principals heads)))
                 :progress? progress?
                 :dht node}))))))))

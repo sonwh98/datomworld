@@ -1,0 +1,1046 @@
+(ns yin.repl.dht-head-test
+  "The published head trace in the REPL (docs/design/
+   yin.vm.linker.dht.head.md, slice H3), in process: a publisher shell
+   deposits its HEAD at every move and serves its board, printing the
+   join token once the board is bound; a reader shell follows it, parks
+   a first-contact require until the first head is installed, writes
+   `heads.edn` before it installs, prints the moved line, and restarts
+   from `heads.edn` before any connection.
+
+   The DHT is the dao.jing.dht test mesh and the WebSocket is an
+   in-process loopback net standing in for the host's `listen!` and
+   `connect!` seams (as in yin.vm.linker.head-ws-test), pumped by the
+   test, so every host runs the same composition.  Real processes over
+   real sockets are yin.repl.dht-process-test."
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            #?@(:cljd [["dart:io" :as dart-io]])
+            [dao.jing.dht.mesh :as mesh]
+            [dao.space.store :as durable]
+            [dao.space.store.fs :as fs]
+            [dao.stream :as stream]
+            [dao.stream.ws :as ws]
+            [yin.repl :as repl]
+            [yin.repl.dht :as repl.dht]
+            [yin.repl.main :as main]
+            [yin.vm.linker.dht :as ld]
+            [yin.vm.linker.head :as head]
+            [yin.vm.linker.sign :as sign])
+  #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
+
+
+;; =============================================================================
+;; An in-process loopback WebSocket net
+;; =============================================================================
+
+(defn- ws-net
+  []
+  (atom {:listeners {} :queue [] :conns []}))
+
+
+(defn- enqueue!
+  [net f]
+  (swap! net update :queue conj f)
+  nil)
+
+
+(defn- pump!
+  [net]
+  (loop []
+    (let [q (:queue @net)]
+      (when (seq q)
+        (swap! net assoc :queue [])
+        (doseq [f q] (f))
+        (recur)))))
+
+
+(defn- deliver!
+  [adapter payload]
+  (if (string? payload)
+    ((:message! adapter) payload)
+    ((:binary! adapter) payload)))
+
+
+(defn- close-conn!
+  [conn code reason]
+  (when-not @(:closed? conn)
+    (reset! (:closed? conn) true)
+    (when-some [s @(:server conn)] ((:closed! s) code reason))
+    ((:closed! (:client conn)) code reason)))
+
+
+(defn- listen-on
+  [net]
+  (fn [{:keys [bind-host bind-port accept! deposit!]}]
+    (when (contains? (:listeners @net) bind-port)
+      (throw (ex-info "address in use" {:port bind-port})))
+    (swap! net assoc-in [:listeners bind-port]
+           {:accept! accept! :deposit! deposit!})
+    (deposit! :bind-succeeded {:host bind-host :port bind-port})
+    {:dao.stream/outcome :dao.stream/ok :port bind-port}))
+
+
+(defn- unlisten!
+  [net port]
+  (let [conns (filterv #(= port (:port %)) (:conns @net))]
+    (swap! net update :listeners dissoc port)
+    (doseq [c conns] (close-conn! c 1001 "going away"))))
+
+
+(defn- connect-on
+  [net]
+  (fn [descriptor client]
+    (let [conn {:port (:ws/port descriptor)
+                :client client
+                :server (atom nil)
+                :closed? (atom false)}]
+      (swap! net update :conns conj conn)
+      (swap! net update :dialed (fnil conj []) [(:ws/host descriptor)
+                                                (:ws/port descriptor)])
+      (enqueue! net
+                (fn []
+                  (if-some [l (get-in @net [:listeners (:ws/port descriptor)])]
+                    (let [socket {:send! (fn [p]
+                                           (enqueue! net
+                                                     #(when-not @(:closed? conn)
+                                                        (deliver! client p))))
+                                  :close! (fn [code reason]
+                                            (enqueue! net
+                                                      #(close-conn!
+                                                         conn code reason)))}
+                          r ((:accept! l) (:ws/path descriptor) socket 0)]
+                      (when-some [h (:ws/handle r)]
+                        (reset! (:server conn) (ws/adapter h))
+                        ((:opened! client))))
+                    (close-conn! conn 1006 "connection refused"))))
+      {:send! (fn [p]
+                (enqueue! net #(when-not @(:closed? conn)
+                                 (when-some [s @(:server conn)]
+                                   (deliver! s p)))))
+       :close! (fn [code reason]
+                 (enqueue! net #(close-conn! conn code reason)))})))
+
+
+(defn- ws-host
+  "The host WebSocket seam over `net`, as yin.repl.host answers it."
+  [net]
+  {:bind! (listen-on net)
+   :connect! (connect-on net)
+   :unbind! (fn [listener deposit!]
+              (unlisten! net (:port listener))
+              (deposit! :stopped {}))})
+
+
+;; =============================================================================
+;; Host helpers
+;; =============================================================================
+
+(defn- temp-dir
+  []
+  (str "target/test-dht-head-" (random-uuid)))
+
+
+(defn- refusal-of
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:cljd Object :clj Exception :cljs :default) e e)))
+
+
+;; =============================================================================
+;; Shells and a world
+;; =============================================================================
+
+(def ^:private pub-port 11)
+(def ^:private reader-port 12)
+
+
+(defn- quick
+  "The follower's delays shortened to the test's cadence."
+  [state]
+  (if (get-in state [:repl :dht ::repl.dht/follower])
+    (update-in state [:repl :dht ::repl.dht/follower]
+               assoc :poll-ticks 50 :repair-ticks 200 :repair-max-ticks 800)
+    state))
+
+
+(defn- shell
+  "The step owner's state of a shell over `dir` at mesh `port`."
+  [{:keys [mesh ws dir port peers key principals follow write! bind-host
+           bind!]}]
+  (quick
+    (main/boot (cond-> {:index-store-spec
+                        (cond-> {:type :dht
+                                 :dir dir
+                                 :bind! (or bind! (mesh/seam mesh port (atom 0)))
+                                 :publish? (some? key)
+                                 :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
+                                              peers)}
+                          bind-host (assoc :bind-host bind-host)
+                          (seq follow) (assoc :follow follow))
+                        :dht-key key
+                        :principals principals
+                        :ws-host (when ws (ws-host ws))}
+                 write! (assoc :write-heads! write!)))))
+
+
+(defn- follow-of
+  [key]
+  [{:principal (:public key) :host "127.0.0.1" :port pub-port}])
+
+
+(defn- publisher
+  [w key dir]
+  (shell {:mesh (:mesh w) :ws (:ws w) :dir dir :port pub-port
+          :peers [reader-port] :key key :principals []}))
+
+
+(defn- reader
+  ([w key dir] (reader w key dir {}))
+  ([w key dir opts]
+   (shell (merge {:mesh (:mesh w) :ws (:ws w) :dir dir :port reader-port
+                  :peers [pub-port] :principals [(:public key)]
+                  :follow (follow-of key)}
+                 opts))))
+
+
+(defn- world
+  []
+  {:mesh (mesh/mesh) :ws (ws-net) :now 0 :lines {:a [] :b []}})
+
+
+(defn- tick
+  [w]
+  (pump! (:ws w))
+  (let [now (:now w)
+        step (fn [w k]
+               (if-some [s (get w k)]
+                 (let [[s _ lines] (main/step-all s nil now)]
+                   (pump! (:ws w))
+                   (-> w (assoc k s) (update-in [:lines k] into lines)))
+                 w))]
+    (-> w (step :a) (step :b) (assoc :now (+ now 10)))))
+
+
+(defn- run
+  [w limit done?]
+  (loop [w w left limit]
+    (if (or (done? w) (zero? left)) w (recur (tick w) (dec left)))))
+
+
+(defn- type!
+  "Evaluate `line` at shell `k`: the world, its text appended to `k`'s
+   lines."
+  [w k line]
+  (let [[repl text] (repl/eval-input (get-in w [k :repl]) line)]
+    (-> w (assoc-in [k :repl] repl) (update-in [:lines k] conj text))))
+
+
+(defn- value
+  [w k]
+  (get-in w [k :repl :last-value]))
+
+
+(defn- heads-of
+  [w k key]
+  (get (head/heads (get-in w [k :repl :dht ::repl.dht/follower]))
+       (sign/principal (:public key))))
+
+
+(defn- installed?
+  [k key]
+  (fn [w] (some? (:manifest (heads-of w k key)))))
+
+
+(defn- lines-with
+  [w k text]
+  (filterv #(str/includes? (str %) text) (get-in w [:lines k])))
+
+
+(defn- pending?
+  [w k]
+  (some? (get-in w [k :repl :pending-run])))
+
+
+(defn- close!
+  [w]
+  (doseq [k [:a :b]]
+    (when-some [s (get w k)] (main/close-index-store! s))))
+
+
+(defn- publish!
+  "At A: define f as `n` and publish it as alib."
+  [w n]
+  (-> w
+      (type! :a (str "(def f (fn [] " n "))"))
+      (type! :a "(require (quote yin.link))")
+      (type! :a "(yin.link/publish (quote alib) (quote [f]))")))
+
+
+;; =============================================================================
+;; The token, the board and the deposit
+;; =============================================================================
+
+(deftest the-token-prints-once-when-the-board-is-bound
+  (let [key (sign/generate)
+        w (world)
+        w (assoc w :a (publisher w key (temp-dir)))
+        w (run w 20 (fn [_] false))
+        tokens (lines-with w :a "dht: join token: ")]
+    (is (= [(str "dht: join token: yin:127.0.0.1:" pub-port "/" (:public key))]
+           tokens)
+        (pr-str (get-in w [:lines :a])))
+    (testing "the token parses back to the peer and the principal"
+      (is (= [(str "127.0.0.1:" pub-port) (:public key)]
+             (main/parse-token (subs (first tokens)
+                                     (count "dht: join token: "))))))
+    (testing "every HEAD move deposits its trace on the board"
+      (let [w (publish! w 1)
+            board (get-in w [:a :repl :dht ::repl.dht/publisher :board])
+            c (stream/cursor board :dao.stream/oldest)
+            trace (:dao.stream/value (stream/next board (:dao.stream/cursor c)))]
+        (is (head/verify trace))
+        (is (= (get-in w [:a :repl :indexer :manifest-address])
+               (get-in trace [:yin.head/envelope :yin.head/manifest]))
+            "the board names HEAD")))
+    (close! w)))
+
+
+(deftest no-board-means-no-token
+  (testing "a TCP port already in use: no board, no token, the port named"
+    (let [key (sign/generate)
+          w (world)
+          _ ((listen-on (:ws w)) {:bind-host "127.0.0.1" :bind-port pub-port
+                                  :deposit! (fn [& _] nil)})
+          w (assoc w :a (publisher w key (temp-dir)))
+          w (run w 20 (fn [_] false))]
+      (is (empty? (lines-with w :a "dht: join token:")))
+      (is (seq (lines-with w :a (str "could not bind TCP 127.0.0.1:" pub-port)))
+          (pr-str (get-in w [:lines :a])))
+      (is (seq (lines-with w :a "dht: node ")) "the node keeps running")
+      (close! w)))
+  (testing "a bind host that is not a loopback literal serves no board"
+    (let [key (sign/generate)
+          w (world)
+          w (assoc w :a (shell {:mesh (:mesh w) :ws (:ws w) :dir (temp-dir)
+                                :port pub-port :peers [reader-port] :key key
+                                :principals [] :bind-host "10.0.0.5"}))
+          w (run w 20 (fn [_] false))]
+      (is (empty? (lines-with w :a "join token")))
+      (is (seq (lines-with w :a "served on loopback only"))
+          (pr-str (get-in w [:lines :a])))
+      (is (empty? (:listeners @(:ws w))) "nothing listened")
+      (close! w)))
+  (testing "a node without a key deposits nothing and serves no board"
+    (let [w (world)
+          w (assoc w :a (shell {:mesh (:mesh w) :ws (:ws w) :dir (temp-dir)
+                                :port pub-port :peers [reader-port]
+                                :principals []}))
+          w (run w 20 (fn [_] false))]
+      (is (nil? (get-in w [:a :repl :dht ::repl.dht/publisher])))
+      (is (empty? (lines-with w :a "join token")))
+      (close! w))))
+
+
+;; =============================================================================
+;; Following: first contact, the moved line, (reset), and a bare restart
+;; =============================================================================
+
+(deftest a-reader-follows-requires-moves-and-restarts-from-heads-edn
+  (let [key (sign/generate)
+        principal (sign/principal (:public key))
+        [dir-a dir-b] [(temp-dir) (temp-dir)]
+        w (world)
+        w (assoc w :a (publisher w key dir-a) :b (reader w key dir-b))
+        w (type! w :b "(require (quote alib))")]
+    (testing "a require typed before the first head parks pending on it"
+      (is (pending? w :b) (pr-str (get-in w [:lines :b])))
+      (is (= [principal]
+             (mapcat :principals (get-in w [:b :repl :pending-run :links]))))
+      (is (seq (lines-with w :b ";; require pending: alib"))))
+    (let [w (publish! w 42)
+          w (run w 3000 #(and (not (pending? % :b)) ((installed? :b key) %)))
+          m1 (:manifest (heads-of w :b key))]
+      (testing "the install completes it with no typed line"
+        (is (some? m1) (pr-str (get-in w [:lines :b])))
+        (is (not (pending? w :b)))
+        (is (= 'alib (value w :b)) (pr-str (get-in w [:lines :b])))
+        (is (seq (lines-with w :b (str "dht: installed the head of "
+                                       principal))))
+        (is (= [["127.0.0.1" pub-port]] (distinct (:dialed @(:ws w))))
+            "only the address the principal was given is dialed"))
+      (testing "the head is durable before it is used"
+        (is (= m1 (get-in (repl.dht/read-heads dir-b)
+                          [:records :heads principal :yin.head/envelope
+                           :yin.head/manifest]))))
+      (let [w (type! w :b "(alib/f)")
+            _ (is (= 42 (value w :b)))
+            w (type! w :b "(require (quote yin.head))")
+            w (type! w :b "(yin.head/heads)")]
+        (testing "(yin.head/heads) answers what is installed"
+          (is (= m1 (get-in (value w :b) [principal :manifest]))
+              (pr-str (value w :b))))
+        (let [w (publish! w 43)
+              w (run w 3000 #(not= m1 (:manifest (heads-of % :b key))))
+              m2 (:manifest (heads-of w :b key))
+              moved (lines-with w :b "dht: alib moved: linked ")]
+          (testing "an installed head that moves a linked name prints one line"
+            (is (and m2 (not= m1 m2)) (pr-str (get-in w [:lines :b])))
+            (is (= 1 (count moved)) (pr-str (get-in w [:lines :b])))
+            (is (str/includes? (str (first moved)) principal))
+            (is (str/includes? (str (first moved))
+                               "(reset) then (require 'alib) links it")))
+          (let [w (type! w :b "(yin.head/moved)")
+                [moved-entry] (value w :b)
+                w (type! w :b "(require (quote alib))")
+                w (type! w :b "(alib/f)")]
+            (testing "(yin.head/moved) names the moved name"
+              (is (= 'alib (:name moved-entry)) (pr-str (value w :b)))
+              (is (not= (:linked moved-entry) (:resolved moved-entry))))
+            (testing "the repeat require is unchanged"
+              (is (= 42 (value w :b))))
+            (let [w (type! w :b "(reset)")
+                  w (type! w :b "(require (quote alib))")
+                  w (run w 3000 #(not (pending? % :b)))
+                  w (type! w :b "(alib/f)")]
+              (testing "(reset) then require links the new module"
+                (is (= 43 (value w :b)) (pr-str (get-in w [:lines :b])))))
+            (testing "a bare restart resolves from heads.edn before any
+                      connection, with the publisher stopped"
+              (close! w)
+              (let [w2 (world)
+                    b (shell {:mesh (:mesh w2) :ws nil :dir dir-b
+                              :port reader-port :peers [pub-port]
+                              :principals [(:public key)]
+                              :follow (follow-of key)})
+                    node (get-in b [:repl :dht])]
+                (is (= m2 (get (ld/installed-heads node) principal))
+                    "installed at open, before any step")
+                (is (= :ok (:status (ld/resolve-name
+                                      node
+                                      (ld/authority {:principals [(:public key)]})
+                                      'alib))))
+                (let [w2 (-> (assoc w2 :b b)
+                             (type! :b "(require (quote alib))")
+                             (run 3000 #(not (pending? % :b)))
+                             (type! :b "(alib/f)"))]
+                  (is (= 43 (value w2 :b)) (pr-str (get-in w2 [:lines :b])))
+                  (close! w2))))))))))
+
+
+(deftest abandon-ends-a-first-contact-require
+  (let [key (sign/generate)
+        w (world)
+        w (assoc w :b (reader w key (temp-dir)))
+        w (type! w :b "(require (quote alib))")
+        w (run w 50 (fn [_] false))]
+    (is (pending? w :b) "no publisher: the require waits on the first head")
+    (let [w (type! w :b "(abandon)")]
+      (is (not (pending? w :b)))
+      (is (nil? (:pending (repl/repl-state (get-in w [:b :repl])))))
+      (close! w))))
+
+
+;; =============================================================================
+;; The write precedes the install (5.7)
+;; =============================================================================
+
+(defn- failing-write
+  "A `heads.edn` write seam: `(mode)` answers :fail (throw, nothing
+   written), :write-then-fail (written, then a throw: a crash between the
+   write and the install), or :ok."
+  [mode]
+  (fn [dir name text]
+    (case (mode)
+      :fail (throw (ex-info "disk full" {}))
+      :write-then-fail (do (fs/atomic-replace! dir name text)
+                           (throw (ex-info "killed after the write" {})))
+      (fs/atomic-replace! dir name text))))
+
+
+(deftest the-write-precedes-the-install
+  (let [key (sign/generate)
+        [dir-a dir-b] [(temp-dir) (temp-dir)]
+        mode (atom :fail)
+        w (world)
+        w (assoc w
+                 :a (publisher w key dir-a)
+                 :b (reader w key dir-b {:write! (failing-write #(deref mode))}))
+        w (publish! w 1)
+        w (run w 3000 #(seq (lines-with % :b ":yin.head/unpersisted")))]
+    (testing "a write that fails prints :yin.head/unpersisted and installs
+              nothing"
+      (is (seq (lines-with w :b ":yin.head/unpersisted (disk full)"))
+          (pr-str (get-in w [:lines :b])))
+      (is (seq (lines-with w :b "again in 200 ticks")) "the delay is in ticks")
+      (is (nil? (:manifest (heads-of w :b key))))
+      (is (= :confirmed (get-in (heads-of w :b key) [:candidate :state])))
+      (is (empty? (ld/installed-heads (get-in w [:b :repl :dht])))
+          "nothing reads a confirmed head before the write"))
+    (reset! mode :ok)
+    (let [w (run w 3000 (installed? :b key))]
+      (testing "and installs after the retry"
+        (is (some? (:manifest (heads-of w :b key)))
+            (pr-str (get-in w [:lines :b]))))
+      (close! w))))
+
+
+(defn- crash-before-rename
+  "The real `heads.edn` write, interrupted in the one window a crash can
+   hit: after the temp file is synced, before the rename.  It leaves a
+   stale temp file beside `heads.edn`."
+  [dir name text]
+  (fs/atomic-replace! dir name text
+                      {:before-rename (fn [_] (throw (ex-info "crashed before the rename" {})))}))
+
+
+(defn- dir-names
+  [dir]
+  #?(:cljd (set (map #(last (str/split (.-path %) #"/"))
+                     (.listSync (dart-io/Directory. dir))))
+     :clj (set (map #(.getName ^java.io.File %)
+                    (.listFiles (java.io.File. ^String dir))))
+     :cljs (set (js->clj (.readdirSync (js/require "fs") dir)))))
+
+
+(deftest a-simulated-crash-restarts-at-the-head-heads-edn-holds
+  ;; SIMULATED, by the Architect's ruling for H3: no OS process is killed.
+  ;; The crash is a write seam that fails, then the shell is closed and
+  ;; opened again from the same directory.  What a real kill adds is the
+  ;; atomicity of `dao.space.store.fs/atomic-replace!`, which is that
+  ;; function's own contract.
+  (let [key (sign/generate)
+        principal (sign/principal (:public key))
+        [dir-a dir-b] [(temp-dir) (temp-dir)]
+        mode (atom :ok)
+        written #(get-in (repl.dht/read-heads dir-b)
+                         [:records :heads principal :yin.head/envelope
+                          :yin.head/manifest])
+        w (world)
+        w (assoc w
+                 :a (publisher w key dir-a)
+                 :b (reader w key dir-b {:write! (failing-write #(deref mode))}))
+        w (run (publish! w 1) 3000 (installed? :b key))
+        m1 (:manifest (heads-of w :b key))
+        heads-text #(fs/read-file-text dir-b repl.dht/heads-file)]
+    (is (= m1 (written)))
+    (testing "simulated crash before the write: the restart is at the old
+              head"
+      (reset! mode :fail)
+      (let [w (publish! w 2)
+            w (run w 3000 #(seq (lines-with % :b ":yin.head/unpersisted")))
+            confirmed (get-in (heads-of w :b key) [:candidate :manifest])
+            _ (close! w)
+            b (reader w key dir-b)]
+        (is (and confirmed (not= m1 confirmed)))
+        (is (= m1 (get (ld/installed-heads (get-in b [:repl :dht])) principal)))
+        (main/close-index-store! b)))
+    (testing "a real write interrupted before its rename leaves the old
+              heads.edn bytes untouched and a stale temp file, which startup
+              ignores and the next write replaces past"
+      (let [before (heads-text)
+            w (world)
+            w (assoc w
+                     :a (publisher w key dir-a)
+                     :b (reader w key dir-b {:write! crash-before-rename}))
+            w (publish! w 3)
+            w (run w 3000 #(seq (lines-with % :b "crashed before the rename")))
+            stale (filterv #(str/starts-with? % (str repl.dht/heads-file ".tmp-"))
+                           (dir-names dir-b))]
+        (is (seq (lines-with w :b "crashed before the rename"))
+            (pr-str (get-in w [:lines :b])))
+        (is (= before (heads-text)) "the old bytes, exactly")
+        (is (seq stale) "the interrupted write left its temp file")
+        (close! w)
+        (let [w (world)
+              w (assoc w
+                       :a (publisher w key dir-a)
+                       :b (reader w key dir-b))]
+          (is (= m1 (get (ld/installed-heads (get-in w [:b :repl :dht]))
+                         principal))
+              "startup reads heads.edn and ignores the temp file")
+          (let [newest (get-in w [:a :repl :indexer :manifest-address])
+                w (run w 3000 #(= newest (:manifest (heads-of % :b key))))]
+            (is (= newest (written)) "the next write replaces heads.edn")
+            (close! w)))))
+    (testing "simulated crash between the write and the install: the restart
+              is at the new head"
+      (reset! mode :write-then-fail)
+      (let [w (world)
+            w (assoc w
+                     :a (publisher w key dir-a)
+                     :b (reader w key dir-b {:write! (failing-write #(deref mode))}))
+            w (publish! w 4)
+            newest (get-in w [:a :repl :indexer :manifest-address])
+            w (run w 3000 (fn [_] (= newest (written))))
+            _ (is (= newest (written)) (pr-str (get-in w [:lines :b])))
+            _ (is (seq (lines-with w :b "killed after the write")))
+            _ (is (not= newest (:manifest (heads-of w :b key)))
+                  "not installed in this process")
+            _ (close! w)
+            b (reader w key dir-b)]
+        (is (= newest (get (ld/installed-heads (get-in b [:repl :dht])) principal))
+            "the restart is at the head the file holds")
+        (main/close-index-store! b)))))
+
+
+;; =============================================================================
+;; heads.edn (5.7): absent, malformed, a record that fails verification, a
+;; record for an unfollowed principal
+;; =============================================================================
+
+(defn- close-failure
+  []
+  #?(:cljd (Exception. "close failed")
+     :clj (java.io.IOException. "close failed")
+     :cljs (js/Error. "close failed")))
+
+
+(defn- recording-bind
+  "A mesh socket seam that counts its binds and its closes in `counts`;
+   with `throw?` each close releases the socket and then throws."
+  ([counts] (recording-bind counts false))
+  ([counts throw?]
+   (let [seam (mesh/seam (mesh/mesh) reader-port (atom 0))]
+     (fn [opts]
+       (swap! counts update :bound (fnil inc 0))
+       (update (seam opts) :close!
+               (fn [close!]
+                 (fn []
+                   (swap! counts update :closed (fnil inc 0))
+                   (close!)
+                   (when throw? (throw (close-failure))))))))))
+
+
+(defn- recording-store
+  "The `:open-store` seam: the durable directory store, counting its
+   closes in `counts`; with `throw?` each close releases the store and
+   then throws."
+  [counts throw?]
+  (fn [dir]
+    (let [s (durable/open dir)]
+      (assoc s :close-fn (fn []
+                           (swap! counts update :store-closed (fnil inc 0))
+                           ((:close-fn s))
+                           (when throw? (throw (close-failure))))))))
+
+
+(defn- open-reader
+  ([dir key] (open-reader dir key (atom {})))
+  ([dir key counts]
+   (shell {:mesh (mesh/mesh) :ws nil :dir dir :port reader-port
+           :peers [pub-port] :principals [(:public key)]
+           :follow (follow-of key) :bind! (recording-bind counts)})))
+
+
+(defn- write-heads!
+  [dir text]
+  (fs/atomic-replace! dir repl.dht/heads-file text))
+
+
+(defn- mkdirs!
+  [dir]
+  #?(:cljd (.createSync (dart-io/Directory. dir) .recursive true)
+     :clj (.mkdirs (java.io.File. ^String dir))
+     :cljs (.mkdirSync (js/require "fs") dir #js {:recursive true})))
+
+
+(deftest heads-edn-cases-are-refusals-as-data
+  (let [key (sign/generate)
+        other (sign/generate)
+        principal (sign/principal (:public key))
+        manifest (keyword (str "segment/blake3-" (apply str (repeat 64 "a"))))
+        good (head/trace key manifest 7)
+        record (fn [p t] (repl.dht/render-heads {:version 1 :heads {p t}}))]
+    (testing "absent: no head, and the shell opens"
+      (let [dir (temp-dir)
+            b (open-reader dir key)]
+        (is (= {:records {:version 1 :heads {}}} (repl.dht/read-heads dir)))
+        (is (nil? (:manifest (get (head/heads (get-in b [:repl :dht
+                                                         ::repl.dht/follower]))
+                                  principal))))
+        (main/close-index-store! b)))
+    (doseq [[label text why]
+            [["malformed EDN" "{:version 1 :heads" "not readable EDN"]
+             ["a trailing form" "{:version 1 :heads {}} garbage"
+              "not readable EDN"]
+             ["a truncated second form" "{:version 1 :heads {}} {:broken"
+              "not readable EDN"]
+             ["an empty file" "" "not readable EDN"]
+             ["another version" "{:version 2 :heads {}}" "not a version-1"]
+             ["no heads map" "{:version 1 :heads []}" "not a version-1"]
+             ["a record that fails verification"
+              (record principal (assoc-in good [:yin.head/proof
+                                                :yin.head/signature]
+                                          (apply str (repeat 128 "0"))))
+              "does not verify"]
+             ["a record for an unfollowed principal"
+              (record (sign/principal (:public other))
+                      (head/trace other manifest 7))
+              "is recorded but not followed"]
+             ["a record whose index is not local" (record principal good)
+              "is not in the local store"]]]
+      (testing label
+        (let [dir (temp-dir)]
+          (mkdirs! dir)
+          (write-heads! dir text)
+          (is (= (contains? #{"malformed EDN" "another version" "no heads map"
+                              "a trailing form" "a truncated second form"
+                              "an empty file"}
+                            label)
+                 (contains? (repl.dht/read-heads dir) :refusal))
+              "the file is read as data, never a throw; its records are
+               verified by the follower")
+          (let [counts (atom {})
+                e (refusal-of #(open-reader dir key counts))]
+            (is (some? (ex-data e)) "a designed refusal, never a raw error")
+            (is (str/includes? (str (ex-message e)) why) (ex-message e))
+            (is (str/includes? (str (ex-message e)) repl.dht/heads-file))
+            (is (= (:bound @counts 0) (:closed @counts 0))
+                (str "no socket outlives the refusal: " (pr-str @counts))))
+          (testing "the refusal releases the directory"
+            (write-heads! dir (repl.dht/render-heads {:version 1 :heads {}}))
+            (let [b (open-reader dir key)]
+              (is (some? b))
+              (main/close-index-store! b))))))))
+
+
+(deftest heads-edn-renders-with-no-space-before-a-closer
+  (let [key (sign/generate)
+        manifest (keyword (str "segment/blake3-" (apply str (repeat 64 "c"))))
+        records {:version 1
+                 :heads {(sign/principal (:public key))
+                         (head/trace key manifest 4294967297)}}
+        text (repl.dht/render-heads records)]
+    (is (not (re-find #"\s[\]\}\)]" text)))
+    (is (= {:records records} (repl.dht/parse-heads "heads.edn" text)))))
+
+
+;; =============================================================================
+;; The yin.head host module holds no rule
+;; =============================================================================
+
+(deftest the-host-module-answers-with-no-follower
+  (let [w (world)
+        w (assoc w :b (shell {:mesh (:mesh w) :ws nil :dir (temp-dir)
+                              :port reader-port :peers [] :principals []}))
+        w (-> w
+              (type! :b "(require (quote yin.head))")
+              (type! :b "(yin.head/heads)"))]
+    (is (= {} (value w :b)) "a node that follows nothing has no heads")
+    (let [w (type! w :b "(yin.head/moved)")]
+      (is (= [] (value w :b))))
+    (close! w)))
+
+
+#?(:cljd nil
+   :clj
+   (deftest the-host-module-holds-no-fold-verification-or-file-write
+     (let [text (slurp "src/cljc/yin/repl/query.cljc")]
+       (doseq [word ["dao.space.store.fs" "yin.vm.linker.sign"
+                     "yin.vm.linker.authority" "head/verify" "head/judge"
+                     "head/install" "head/step" "atomic-replace!"
+                     "name-environment"]]
+         (is (not (str/includes? text word)) word)))))
+
+
+;; =============================================================================
+;; The host owns the dial's liveness (H2 sign-off notes 1 to 3)
+;; =============================================================================
+
+(deftest a-lost-or-silent-dial-is-closed-and-composed-again
+  (testing "nothing listens: each dial is lost and the next follows the
+            doubling delay, at the given address only"
+    (let [key (sign/generate)
+          w (world)
+          w (assoc w :b (reader w key (temp-dir)))
+          w (run w 70 (fn [_] false))
+          dialed (:dialed @(:ws w))]
+      (is (<= 2 (count dialed) 3) (pr-str dialed))
+      (is (= [["127.0.0.1" pub-port]] (distinct dialed)))
+      (close! w)))
+  (testing "a board that accepts and never answers: the resolving dial is
+            closed after the delay, then a fresh one is composed"
+    (let [key (sign/generate)
+          w (world)
+          _ (swap! (:ws w) assoc-in [:listeners pub-port]
+                   {:accept! (fn [& _] {}) :deposit! (fn [& _] nil)})
+          w (assoc w :b (reader w key (temp-dir)))
+          w (run w 70 (fn [_] false))
+          conns (:conns @(:ws w))]
+      (is (<= 2 (count conns)) (pr-str (:dialed @(:ws w))))
+      (is (every? #(deref (:closed? %)) (butlast conns))
+          "every dial but the newest was closed before the next")
+      (close! w))))
+
+
+;; =============================================================================
+;; heads.edn is read bounded and strictly UTF-8
+;; =============================================================================
+
+(defn- ascii-codes
+  [text]
+  (mapv #?(:cljd #(.codeUnitAt text %)
+           :clj #(int (.charAt ^String text %))
+           :cljs #(.charCodeAt text %))
+        (range (count text))))
+
+
+(defn- write-bytes!
+  [path codes]
+  #?(:cljd (.writeAsBytesSync (dart-io/File. path) (Uint8List.fromList codes))
+     :clj (java.nio.file.Files/write
+            (java.nio.file.Paths/get path (make-array String 0))
+            ^bytes (byte-array (map unchecked-byte codes))
+            ^"[Ljava.nio.file.OpenOption;" (make-array java.nio.file.OpenOption 0))
+     :cljs (.writeFileSync (js/require "fs") path (js/Buffer.from (clj->js codes)))))
+
+
+(deftest heads-edn-is-bounded-and-strict-utf-8
+  (let [key (sign/generate)
+        empty-text (repl.dht/render-heads {:version 1 :heads {}})]
+    (testing "an invalid byte, even inside a comment, is refused"
+      (let [dir (temp-dir)
+            counts (atom {})]
+        (mkdirs! dir)
+        (write-bytes! (str dir "/" repl.dht/heads-file)
+                      (-> (ascii-codes empty-text)
+                          (into (ascii-codes "; "))
+                          (conj 0xff 10)))
+        (is (re-find #"not valid UTF-8"
+                     (str (:refusal (repl.dht/read-heads dir)))))
+        (let [e (refusal-of #(open-reader dir key counts))]
+          (is (re-find #"not valid UTF-8" (str (ex-message e))))
+          (is (= (:bound @counts 0) (:closed @counts 0))))))
+    (testing "a file larger than the bound is refused, by size"
+      (let [dir (temp-dir)]
+        (mkdirs! dir)
+        (write-heads! dir (str empty-text ";"
+                               (apply str (repeat repl.dht/heads-max-bytes "x"))
+                               "\n"))
+        (is (re-find #"holds more than"
+                     (str (:refusal (repl.dht/read-heads dir)))))))
+    (testing "a leading UTF-8 byte order mark is ignored, on every host"
+      (let [dir (temp-dir)]
+        (mkdirs! dir)
+        (write-bytes! (str dir "/" repl.dht/heads-file)
+                      (into [0xef 0xbb 0xbf] (ascii-codes empty-text)))
+        (is (= {:records {:version 1 :heads {}}} (repl.dht/read-heads dir)))))
+    (testing "an overlong encoding and an encoded surrogate stay refused"
+      (doseq [bad [[0xc0 0xaf] [0xed 0xa0 0x80]]]
+        (let [dir (temp-dir)]
+          (mkdirs! dir)
+          (write-bytes! (str dir "/" repl.dht/heads-file)
+                        (-> (ascii-codes empty-text)
+                            (into (ascii-codes "; "))
+                            (into bad)
+                            (conj 10)))
+          (is (re-find #"not valid UTF-8"
+                       (str (:refusal (repl.dht/read-heads dir))))
+              (pr-str bad)))))
+    (testing "a record with comments and whitespace around it still reads"
+      (let [dir (temp-dir)]
+        (mkdirs! dir)
+        (write-heads! dir (str "; the heads\n" empty-text "  ; trailing\n\n"))
+        (is (= {:records {:version 1 :heads {}}} (repl.dht/read-heads dir)))))))
+
+
+;; =============================================================================
+;; A refusal ring that overflows says so and stays visible
+;; =============================================================================
+
+(deftest deposit-refusals-past-the-ring-are-reported-lost-then-stay-visible
+  (let [key (sign/generate)
+        w (world)
+        w (run (assoc w :a (publisher w key (temp-dir))) 2 (fn [_] false))
+        notes (get-in w [:a :repl :dht ::repl.dht/publisher :notes])
+        note! (fn [i]
+                (stream/append! notes {:status :refused
+                                       :reason :yin.head/test
+                                       :manifest (str "m" i)}))
+        step! (fn [w now]
+                (let [[repl lines] (repl.dht/step (get-in w [:a :repl]) now)]
+                  [(assoc-in w [:a :repl] repl) lines]))]
+    (run! note! (range 65))
+    (let [[w lines] (step! w 100)
+          reported (filterv #(str/includes? % "was not deposited") lines)]
+      (is (some #(str/includes? % "the oldest were not reported") lines)
+          (pr-str lines))
+      (is (= 64 (count reported)) "every retained refusal is drained")
+      (is (str/includes? (str (last reported)) "m64"))
+      (note! 65)
+      (let [[_ lines] (step! w 110)]
+        (is (= ["dht: the head trace of m65 was not deposited: :yin.head/test"]
+               lines)
+            "a later refusal is reported")))
+    (close! w)))
+
+
+;; =============================================================================
+;; The moved line names only new moves; a dial failure prints once
+;; =============================================================================
+
+(deftest a-move-is-reported-once-and-each-name-its-own
+  (let [key (sign/generate)
+        w (world)
+        w (assoc w :a (publisher w key (temp-dir)) :b (reader w key (temp-dir)))
+        w (-> w
+              (type! :a "(def f (fn [] 1))")
+              (type! :a "(def g (fn [] 1))")
+              (type! :a "(require (quote yin.link))")
+              (type! :a "(yin.link/publish (quote alib) (quote [f]))")
+              (type! :a "(yin.link/publish (quote blib) (quote [g]))"))
+        newest #(get-in % [:a :repl :indexer :manifest-address])
+        caught-up #(= (newest %) (:manifest (heads-of % :b key)))
+        w (run w 3000 caught-up)
+        w (-> w
+              (type! :b "(require (quote alib))")
+              (type! :b "(require (quote blib))")
+              (run 3000 #(not (pending? % :b))))
+        moved (fn [w n] (lines-with w :b (str "dht: " n " moved: ")))]
+    (is (= 'blib (value w :b)) (pr-str (get-in w [:lines :b])))
+    (let [w (-> w
+                (type! :a "(def f (fn [] 2))")
+                (type! :a "(yin.link/publish (quote alib) (quote [f]))")
+                (run 3000 caught-up))
+          _ (is (= 1 (count (moved w "alib"))) (pr-str (get-in w [:lines :b])))
+          w (-> w (type! :a "(def unrelated 3)") (run 3000 caught-up))
+          _ (is (= 1 (count (moved w "alib")))
+                "a later install that leaves alib where it moved prints nothing")
+          w (-> w
+                (type! :a "(def g (fn [] 2))")
+                (type! :a "(yin.link/publish (quote blib) (quote [g]))")
+                (run 3000 caught-up))]
+      (is (= 1 (count (moved w "blib"))) (pr-str (get-in w [:lines :b])))
+      (is (= 1 (count (moved w "alib"))) "alib is not printed again")
+      (close! w))))
+
+
+(deftest a-dial-failure-prints-once-per-change
+  (testing "nothing listens: many dials, one line"
+    (let [key (sign/generate)
+          w (world)
+          w (run (assoc w :b (reader w key (temp-dir))) 200 (fn [_] false))
+          failures (lines-with w :b "dht: cannot follow ")]
+      (is (<= 3 (count (:dialed @(:ws w))))
+          (pr-str (get-in w [:b :repl :dht ::repl.dht/follow :links])))
+      (is (= 1 (count failures)) (pr-str (get-in w [:lines :b])))
+      (is (str/includes? (str (first failures)) (str "127.0.0.1:" pub-port)))
+      (close! w)))
+  (testing "a board of another principal answers not-found: said once"
+    (let [key (sign/generate)
+          other (sign/generate)
+          w (world)
+          w (assoc w :a (publisher w other (temp-dir)) :b (reader w key (temp-dir)))
+          w (run w 200 (fn [_] false))
+          failures (lines-with w :b "dht: cannot follow ")]
+      (is (<= 2 (count (:dialed @(:ws w)))))
+      (is (= 1 (count failures)) (pr-str (get-in w [:lines :b])))
+      (is (str/includes? (str (first failures))
+                         "serves no head board for this principal"))
+      (close! w))))
+
+
+;; =============================================================================
+;; heads.edn must be a regular file; a failed cleanup never masks a refusal
+;; =============================================================================
+
+(defn- symlink!
+  "A symlink at `path` to `target`, relative to the link's directory."
+  [path target]
+  #?(:cljd (.createSync (dart-io/Link. path) target)
+     :clj (java.nio.file.Files/createSymbolicLink
+            (java.nio.file.Paths/get path (make-array String 0))
+            (java.nio.file.Paths/get target (make-array String 0))
+            (make-array java.nio.file.attribute.FileAttribute 0))
+     :cljs (.symlinkSync (js/require "fs") target path)))
+
+
+(deftest heads-edn-must-be-a-regular-file
+  (let [empty-text (repl.dht/render-heads {:version 1 :heads {}})
+        path #(str % "/" repl.dht/heads-file)]
+    (testing "a directory is refused, by name"
+      (let [dir (temp-dir)]
+        (mkdirs! (path dir))
+        (is (re-find #"not a regular file"
+                     (str (:refusal (repl.dht/read-heads dir)))))))
+    (testing "a symlink to a regular file is followed"
+      (let [dir (temp-dir)]
+        (mkdirs! dir)
+        (fs/atomic-replace! dir "real.edn" empty-text)
+        (symlink! (path dir) "real.edn")
+        (is (= {:records {:version 1 :heads {}}} (repl.dht/read-heads dir)))))
+    (testing "a dangling symlink is refused, never read as absence"
+      (let [dir (temp-dir)]
+        (mkdirs! dir)
+        (symlink! (path dir) "missing.edn")
+        (is (re-find #"not a regular file"
+                     (str (:refusal (repl.dht/read-heads dir)))))))))
+
+
+(deftest a-failed-cleanup-never-masks-the-refusal
+  (let [key (sign/generate)
+        other (sign/generate)
+        manifest (keyword (str "segment/blake3-" (apply str (repeat 64 "a"))))
+        unfollowed (repl.dht/render-heads
+                     {:version 1
+                      :heads {(sign/principal (:public other))
+                              (head/trace other manifest 7)}})
+        open! (fn [dir counts socket-throws? store-throws?]
+                (repl.dht/open {:type :dht :dir dir
+                                :bind! (recording-bind counts socket-throws?)
+                                :peers [{:host "127.0.0.1" :port pub-port}]
+                                :follow (follow-of key)}
+                               {:open-store (recording-store counts
+                                                             store-throws?)}))]
+    (doseq [[label text why socket? store? bound]
+            [["after the join, the socket's close throws" unfollowed
+              "is recorded but not followed" true false 1]
+             ["after the join, the store's close throws" unfollowed
+              "is recorded but not followed" false true 1]
+             ["after the join, both closes throw" unfollowed
+              "is recorded but not followed" true true 1]
+             ["before the join, the store's close throws" "{:version 1"
+              "not readable EDN" false true 0]]]
+      (testing label
+        (let [dir (temp-dir)
+              counts (atom {})]
+          (mkdirs! dir)
+          (write-heads! dir text)
+          (let [e (refusal-of #(open! dir counts socket? store?))]
+            (is (some? (ex-data e)) (str "the refusal itself, not " e))
+            (is (str/includes? (str (ex-message e)) why) (ex-message e)))
+          (is (= {:bound bound :closed bound :store-closed 1}
+                 (merge {:bound 0 :closed 0} @counts))
+              "each resource closed exactly once")
+          (testing "nothing leaks: the directory opens again"
+            (write-heads! dir (repl.dht/render-heads {:version 1 :heads {}}))
+            (let [handle (open! dir (atom {}) false false)]
+              (is (some? (:dht handle)))
+              (durable/close! handle))))))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest ^:slow a-fifo-at-heads-edn-is-refused-not-waited-on
+     ;; In a child JVM, bounded: a regression blocks the child, not this
+     ;; test, and fails at the deadline.
+     (let [dir (temp-dir)
+           fifo (str dir "/" repl.dht/heads-file)
+           _ (mkdirs! dir)
+           made (.waitFor (.start (ProcessBuilder. ^java.util.List ["mkfifo" fifo])))
+           child (.start (doto (ProcessBuilder.
+                                 ^java.util.List
+                                 [(str (System/getProperty "java.home") "/bin/java")
+                                  "-cp" (System/getProperty "java.class.path")
+                                  "clojure.main" "-e"
+                                  (str "(require 'yin.repl.dht)"
+                                       "(prn (yin.repl.dht/read-heads " (pr-str dir) "))"
+                                       "(shutdown-agents)")])
+                           (.redirectErrorStream true)))
+           done? (.waitFor child 240 java.util.concurrent.TimeUnit/SECONDS)
+           out (if done?
+                 (slurp (.getInputStream child))
+                 (do (.destroyForcibly child) "the child blocked"))]
+       (is (zero? made) "mkfifo made the FIFO")
+       (is done? "the read did not block on the FIFO")
+       (is (str/includes? out "it is not a regular file") out))))

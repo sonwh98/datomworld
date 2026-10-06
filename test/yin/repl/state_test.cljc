@@ -231,3 +231,31 @@
                                           (:unset extra))]
         (is (not (contains? resolved "--dht-publish")))
         (is (= ["127.0.0.1:4002"] (get resolved "--dht-peer")))))))
+
+
+(deftest dht-join-saves-its-follow-and-a-bare-start-resumes-it
+  (let [dir (temp-dir)
+        hex (apply str (repeat 64 "b"))
+        joined (repl/startup ["dht" "join" (str "yin:localhost:4001/" hex)
+                              "--dir" dir]
+                             {:persist? true})
+        saved (state/load-flags dir)]
+    (is (nil? (:refusal joined)) (:refusal joined))
+    (testing "join saves --dht-follow beside the principal, and no manifest"
+      (is (= [(str hex "@127.0.0.1:4001")] (get saved "--dht-follow")))
+      (is (= [hex] (get saved "--dht-principal")))
+      (is (= ["127.0.0.1:4001"] (get saved "--dht-peer")))
+      (is (not (contains? saved "--dht-manifest"))))
+    (testing "the shell says, per followed principal, whether a head is
+              installed"
+      (is (str/includes? (banner-of joined)
+                         (str "dht: following ed25519:" hex
+                              " at 127.0.0.1:4001; no head installed yet"))
+          (banner-of joined)))
+    (repl/close-index-store! (:state joined))
+    (let [bare (repl/startup ["--dir" dir] {:persist? true})]
+      (is (nil? (:refusal bare)) (:refusal bare))
+      (is (= [{:principal hex :host "127.0.0.1" :port 4001}]
+             (get-in bare [:opts :index-store-spec :follow]))
+          "a bare start follows again")
+      (repl/close-index-store! (:state bare)))))

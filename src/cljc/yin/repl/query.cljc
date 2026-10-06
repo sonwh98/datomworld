@@ -55,7 +55,11 @@
    the plain functions of `dao.space.dht` and `yin.vm.linker.dht`
    (yin.vm.linker.dht.md 10): each answer checks its arguments, makes one
    call into the plain API, and responds; a `yin.link/publish` then
-   commits the envelopes it signed through the session's indexer."
+   commits the envelopes it signed through the session's indexer.
+   `(require 'yin.head)` activates `heads` and `moved`
+   (yin.vm.linker.dht.head.md 6), each one call into
+   `yin.vm.linker.head`: this namespace holds no rule of the head trace,
+   no fold, no verification and no file write."
   (:require #?@(:cljd [["dart:typed_data" :refer [Uint8List]]]
                 :default [])
             [dao.jing :as jing]
@@ -67,11 +71,13 @@
             [dao.stream.apply :as apply2]
             [dao.stream.ringbuffer :as ring]
             [yin.repl.ast-index :as ast-index]
+            [yin.repl.dht :as repl.dht]
             [yin.repl.index :as repl.index]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
             [yin.vm.linker.dht :as linker.dht]
+            [yin.vm.linker.head :as head]
             [yin.vm.module :as module]))
 
 
@@ -120,6 +126,21 @@
    answered by `yin.vm.linker.dht/names`."
   {'publish ::link-publish
    'names ::link-names})
+
+
+(def head-module-name
+  "The module `(require 'yin.head)` activates: the follower's status and
+   the moved names (yin.vm.linker.dht.head.md 5.6, 5.7), each one call
+   into `yin.vm.linker.head`."
+  'yin.head)
+
+
+(def head-ops
+  "The `dao.stream.apply` operations the `yin.head` module requests:
+   `heads`, answered by `yin.vm.linker.head/heads` of the shell's
+   follower, and `moved`, by `yin.vm.linker.head/moved`."
+  {'heads ::head-heads
+   'moved ::head-moved})
 
 
 (def views
@@ -192,10 +213,24 @@
      'names (vm/primitive-profile 'names :effectful [0] #{::call} :none)}))
 
 
+(defn activate-head
+  "`registry` with the `yin.head` host module installed."
+  [registry]
+  (module/register-host-module
+    registry head-module-name
+    (into {} (map (fn [[sym op]]
+                    [sym (fn [& args]
+                           (module/make-effect ::call {:op op, :args (vec args)}))]))
+          head-ops)
+    {'heads (vm/primitive-profile 'heads :effectful [0] #{::call} :none)
+     'moved (vm/primitive-profile 'moved :effectful [0] #{::call} :none)}))
+
+
 (def ^:private host-modules
   {module-name activate
    dht-module-name activate-dht
-   link-module-name activate-link})
+   link-module-name activate-link
+   head-module-name activate-head})
 
 
 (defn- require-handler
@@ -712,6 +747,11 @@
   (contains? (set (vals dht-ops)) (apply2/request-op request)))
 
 
+(defn- head-op?
+  [request]
+  (contains? (set (vals head-ops)) (apply2/request-op request)))
+
+
 (defn- link-op?
   [request]
   (contains? (set (vals link-ops)) (apply2/request-op request)))
@@ -805,6 +845,31 @@
                     (apply2/success-response id (:ok answer)))]))
 
 
+(defn- head-answer
+  "The response to one `yin.head` call, from `node`, the shell's DHT
+   node, under the session composition `ctx`: `heads` answers
+   `yin.vm.linker.head/heads` of the node's follower (`{}` when it
+   follows nothing), `moved` answers `yin.vm.linker.head/moved` of the
+   node's names against the requesting VM's linked modules.  It holds no
+   rule: each is one call."
+  [node ctx request]
+  (let [id (apply2/request-id request)
+        answer (cond
+                 (nil? node)
+                 (unavailable (str "the shell has no DHT node; start it with "
+                                   "--index-store dht:<dir>"))
+
+                 (= ::head-heads (apply2/request-op request))
+                 {:ok (if-some [f (repl.dht/follower node)] (head/heads f) {})}
+
+                 :else
+                 {:ok (head/moved (linker.dht/names node (:authority ctx))
+                                  (first (session-modules (:modules ctx))))})]
+    (if (refused? answer)
+      {apply2/id-key id, apply2/error-key answer}
+      (apply2/success-response id (:ok answer)))))
+
+
 ;; =============================================================================
 ;; The interpreter
 ;; =============================================================================
@@ -818,8 +883,8 @@
    unanswered: no call made it.  A `dao.space.dht` call is answered from
    `dht`, the shell's DHT node, which a `load-index` advances.  A
    `yin.link` call is answered from `dht` and `indexer` under `link`, the
-   session composition `link-answer` reads; a publish advances both.
-   Returns `{:pair pair :dht node :indexer indexer :progress? bool
+   session composition `link-answer` reads; a publish advances both.  A
+   `yin.head` call reads the follower `dht` carries.  Returns `{:pair pair :dht node :indexer indexer :progress? bool
    :answered n}`, `n` the responses appended."
   [{:keys [pair indexer ast-indexer dht limits budget link]}]
   (loop [pair pair
@@ -842,6 +907,7 @@
                 (dht-op? request) (let [[n response] (dht-answer node limits request)]
                                     [n indexer response])
                 (link-op? request) (link-answer node indexer link request)
+                (head-op? request) [node indexer (head-answer node link request)]
                 :else [node indexer (answer indexer ast-indexer limits request)])
               landed? (or (nil? response)
                           (= :dao.stream/ok

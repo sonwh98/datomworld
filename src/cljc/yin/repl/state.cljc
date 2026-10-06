@@ -7,7 +7,9 @@
    directory already recovers what was evaluated.  A run resolves
    `saved flags < command-line flags` (a repeated flag's values replace the
    saved ones whole), starts from the result, and saves it.  One-shot flags
-   (`--dht-manifest`, `--dht-keygen`) are never saved."
+   (`--dht-manifest`, `--dht-keygen`) are never saved.  `--dht-follow` is
+   saved; the head it installed never is: that is `heads.edn`'s, in the
+   store directory (yin.vm.linker.dht.head.md 5.8)."
   (:require #?(:cljd [clojure.edn :as edn]
                :clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
@@ -35,7 +37,8 @@
    ["--dht-port" :value]
    ["--dht-max-inbound-bytes" :value]
    ["--dht-key" :value]
-   ["--dht-principal" :many]])
+   ["--dht-principal" :many]
+   ["--dht-follow" :many]])
 
 
 (def ^:private kinds (into {} saved-flags))

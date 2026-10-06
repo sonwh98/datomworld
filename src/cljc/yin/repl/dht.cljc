@@ -23,24 +23,68 @@
    and each later change of it (yin.vm.linker.dht.md 5.5.6).  A load's
    failure reason is data; it is rendered as text here.
 
-   A reader handed a manifest address (`:manifest`) loads it through
-   `dao.space.dht/load-index` before the shell admits any evaluation, as a
-   restart installs its recovery first, then writes it to HEAD and
-   rehydrates the indexer from the loaded datoms, so `q` answers the
-   remote run's facts.  A load that cannot complete, or a socket that
-   cannot bind, refuses the shell (`refusal`); it never starts over an
-   empty index.  Remote indexes are also reachable at the prompt, through
-   the `dao.space.dht` host module (yin.repl.query), over the same node."
-  (:require [clojure.string :as str]
+   A reader handed a manifest address (`:manifest`, a pin) loads it
+   through `dao.space.dht/load-index` before the shell admits any
+   evaluation, as a restart installs its recovery first, then writes it
+   to HEAD and rehydrates the indexer from the loaded datoms, so `q`
+   answers the remote run's facts.  A load that cannot complete, or a
+   socket that cannot bind, refuses the shell (`refusal`); it never
+   starts over an empty index.  Remote indexes are also reachable at the
+   prompt, through the `dao.space.dht` host module (yin.repl.query), over
+   the same node.
+
+   The published head trace (docs/design/yin.vm.linker.dht.head.md,
+   slice H3) is composed here too, the shell owning the file, the lines
+   and the dial:
+   * A publisher (a key, a socket and `:publish?`) deposits its HEAD's
+     trace on its board (`yin.vm.linker.head/deposit!`) at every HEAD
+     write, after `announce!`, at startup for a recovered HEAD, and once
+     when a hydration completes (5.4).  Once its socket is bound on a
+     loopback literal it serves the board over WebSocket at the same
+     port number (`yin.vm.linker.head.ws/serve`) and prints the join
+     token `yin:<host:port>/<principal>` when that endpoint is bound.
+   * A reader (`:follow`, each `{:principal hex :host h :port p}` with a
+     loopback host) restores `<dir>/heads.edn` before any connection
+     (5.7), dials each principal's board at the address it was given and
+     nowhere else, steps the follower after the node, and installs a
+     confirmed head only after `heads.edn` holds it."
+  (:require #?(:cljd [clojure.edn :as edn]
+               :clj [clojure.edn :as edn]
+               :cljs [cljs.reader :as reader])
+            #?@(:cljd [["dart:convert" :as convert]
+                       ["dart:io" :as dart-io]])
+            [clojure.string :as str]
             [dao.space.dht :as dht]
+            [dao.space.index :as space.index]
             [dao.space.store :as durable]
+            [dao.space.store.fs :as fs]
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ringbuffer]
             [yin.repl.index :as index]
-            [yin.repl.store :as store]))
+            [yin.repl.link :as link]
+            [yin.repl.store :as store]
+            [yin.vm.linker.dht :as ld]
+            [yin.vm.linker.head :as head]
+            [yin.vm.linker.head.ws :as head.ws]
+            [yin.vm.linker.sign :as sign]
+            [yin.vm.module :as module])
+  #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
 
 
 (def default-max-inbound-bytes
   "The CLI default of the inbound storage bound; `dao.space.dht`'s."
   dht/default-max-inbound-bytes)
+
+
+(def heads-file
+  "The follower's durable state in the store directory (5.7)."
+  "heads.edn")
+
+
+(def heads-max-bytes
+  "The most bytes a `heads.edn` may hold: 64 followed principals take a
+   few tens of KiB, so a larger file is refused before it is decoded."
+  (* 1024 1024))
 
 
 (defn- refused-head
@@ -53,43 +97,402 @@
          manifest " into an empty directory")))
 
 
+;; =============================================================================
+;; heads.edn (5.7)
+;; =============================================================================
+
+(defn- read-edn
+  [text]
+  #?(:cljd (edn/read-string text)
+     :clj (edn/read-string text)
+     :cljs (reader/read-string text)))
+
+
+(defn- read-one
+  "The one EDN form `text` holds, or ::unreadable: a trailing form, a
+   truncated suffix and an empty text are refused, as on every host's
+   `read-string` alone they are not.  The text is read inside a vector
+   closed by a sentinel no file can predict, so the first form that
+   reads is the whole vector only when the text is exactly one complete
+   form (whitespace and comments around it allowed)."
+  [text]
+  (let [end (keyword "yin.repl.dht" (str "end-" (random-uuid)))
+        ;; a newline ends a trailing comment; no whitespace precedes the
+        ;; closer (ClojureDart's reader refuses one)
+        forms (read-edn (str "[" text "\n" end "]"))]
+    (if (and (vector? forms) (= 2 (count forms)) (= end (second forms)))
+      (first forms)
+      ::unreadable)))
+
+
+(defn parse-heads
+  "The records `text`, a `heads.edn` read from `path`, holds:
+   `{:records {:version 1 :heads {principal trace}}}`, or `{:refusal
+   text}` when it is not exactly one readable EDN form or not a version-1
+   heads file.
+   Never throws.  The records themselves are verified by
+   `yin.vm.linker.head/follow`."
+  [path text]
+  (let [data (try (read-one text)
+                  (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                    ::unreadable))]
+    (cond
+      (= ::unreadable data)
+      {:refusal (str "heads file " path ": it is not readable EDN")}
+
+      (not (and (map? data) (= 1 (:version data)) (map? (:heads data))
+                (= #{:version :heads} (set (keys data)))))
+      {:refusal (str "heads file " path ": it is not a version-1 heads file")}
+
+      :else {:records data})))
+
+
+(defn render-heads
+  "The text of `records`: one EDN map, with no whitespace before a
+   closing bracket (ClojureDart's reader refuses one)."
+  [records]
+  (str (pr-str records) "\n"))
+
+
+(defn- not-regular
+  []
+  (ex-info "it is not a regular file" {}))
+
+
+(defn- read-bounded
+  "At most `limit` bytes of the file at `path`, one more when it holds
+   more, or nil when no entry exists there.  Never reads the whole of a
+   larger file into memory, and never opens what is not a regular file
+   (a directory, a FIFO, a device), which would block or fail: that is
+   refused first.  A symlink is followed when its target is a regular
+   file; a dangling one is refused."
+  [path limit]
+  ;; On Dart and the JVM the type is checked, then the file is opened:
+  ;; a regular file swapped for a FIFO between the two would still block
+  ;; the open.  Accepted (Architect, H3 round 3): the swap needs write
+  ;; access to this node's own locked store directory, which can already
+  ;; replace HEAD, and the worst outcome is a startup that blocks, never
+  ;; a wrong head.  Node opens non-blocking and checks the opened
+  ;; descriptor, so it is not exposed.
+  #?(:cljd (let [t (.-type (.statSync (dart-io/File. path)))]
+             (cond
+               (= t dart-io/FileSystemEntityType.notFound)
+               ;; a dangling link is an entry, not absence
+               (when (.existsSync (dart-io/Link. path))
+                 (throw (not-regular)))
+
+               (not= t dart-io/FileSystemEntityType.file)
+               (throw (not-regular))
+
+               :else
+               (let [raf (.openSync (dart-io/File. path))]
+                 (try (.readSync raf (inc limit))
+                      (finally (.closeSync raf))))))
+     :clj (let [p (java.nio.file.Paths/get path (make-array String 0))]
+            (cond
+              (java.nio.file.Files/notExists
+                p (into-array java.nio.file.LinkOption
+                              [java.nio.file.LinkOption/NOFOLLOW_LINKS]))
+              nil
+
+              (not (java.nio.file.Files/isRegularFile
+                     p (make-array java.nio.file.LinkOption 0)))
+              (throw (not-regular))
+
+              :else
+              (with-open [in (java.nio.file.Files/newInputStream
+                               p (make-array java.nio.file.OpenOption 0))]
+                (.readNBytes in (int (inc limit))))))
+     :cljs (let [fs (js/require "fs")
+                 entry? (try (.lstatSync fs path) true
+                             (catch :default _ false))]
+             (when entry?
+               (when-not (try (.isFile (.statSync fs path))
+                              (catch :default _ false))
+                 (throw (not-regular)))
+               ;; non-blocking, then the opened resource is checked again
+               (let [fd (.openSync fs path (bit-or (.. fs -constants -O_RDONLY)
+                                                   (.. fs -constants -O_NONBLOCK)))
+                     buf (js/Buffer.alloc (inc limit))]
+                 (try
+                   (when-not (.isFile (.fstatSync fs fd))
+                     (throw (not-regular)))
+                   (loop [off 0]
+                     (let [n (.readSync fs fd buf off (- (inc limit) off) nil)
+                           off' (+ off n)]
+                       (if (and (pos? n) (< off' (inc limit)))
+                         (recur off')
+                         (.subarray buf 0 off'))))
+                   (finally (.closeSync fs fd))))))))
+
+
+(defn- byte-length
+  [bs]
+  #?(:cljd (.-length ^Uint8List bs)
+     :clj (alength ^bytes bs)
+     :cljs (.-length bs)))
+
+
+(defn- decode-utf8
+  "`bs` as text, strictly: invalid UTF-8 throws, never decodes to a
+   replacement character."
+  [bs]
+  ;; Dart's `utf8` codec does not allow malformed input: it throws a
+  ;; FormatException
+  #?(:cljd (.decode convert/utf8 ^Uint8List bs)
+     :clj (str (.decode (doto (.newDecoder java.nio.charset.StandardCharsets/UTF_8)
+                          (.onMalformedInput
+                            java.nio.charset.CodingErrorAction/REPORT)
+                          (.onUnmappableCharacter
+                            java.nio.charset.CodingErrorAction/REPORT))
+                        (java.nio.ByteBuffer/wrap ^bytes bs)))
+     :cljs (.decode (js/TextDecoder. "utf-8" #js {:fatal true}) bs)))
+
+
+(defn read-heads
+  "The persisted head records of the store directory `dir`: `{:records
+   r}`, an empty version-1 record when no `heads.edn` exists, or
+   `{:refusal text}`: a file that cannot be read, holds more than
+   `heads-max-bytes`, is not valid UTF-8, or is not exactly one
+   version-1 record.  Never throws."
+  [dir]
+  (let [path (str dir "/" heads-file)
+        bs (try (read-bounded path heads-max-bytes)
+                (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                  {::failed (or (ex-message e) (str e))}))
+        text (when (and (some? bs) (not (map? bs))
+                        (<= (byte-length bs) heads-max-bytes))
+               (try (decode-utf8 bs)
+                    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                      ::invalid)))]
+    (cond
+      (nil? bs) {:records {:version 1 :heads {}}}
+      (map? bs) {:refusal (str "heads file " path ": it cannot be read ("
+                               (::failed bs) ")")}
+      (nil? text) {:refusal (str "heads file " path ": it holds more than "
+                                 heads-max-bytes " bytes")}
+      (= ::invalid text) {:refusal (str "heads file " path
+                                        ": it is not valid UTF-8")}
+      ;; one policy on every host: a leading byte order mark is ignored
+      ;; (Node's decoder drops it, the JVM's keeps U+FEFF)
+      :else (parse-heads path (if (str/starts-with? text "\uFEFF")
+                                (subs text 1)
+                                text)))))
+
+
+;; =============================================================================
+;; The board and the deposit (5.4)
+;; =============================================================================
+
+(defn- ring
+  [n]
+  (:dao.stream/handle
+    (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type
+                         ringbuffer/capacity-key n})))
+
+
+(defn- deposit-head!
+  "Deposit the trace of `manifest`, read from `store`, on `board`; a
+   refusal is appended to `notes` for the step to print."
+  [{:keys [board key dht-store notes]} manifest]
+  (let [r (try (head/deposit! board key manifest
+                              (space.index/read-datoms dht-store manifest))
+               (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                 {:status :refused :reason :yin.head/unreadable
+                  :manifest manifest :detail (or (ex-message e) (str e))}))]
+    (when (= :refused (:status r))
+      (stream/append! notes r))
+    r))
+
+
+(defn- publisher
+  "The board composition of a publishing node: a key, a socket (peers)
+   and `:publish?` (5.4), or nil."
+  [{:keys [peers publish?]} key base]
+  (when (and (map? key) (:seed key) (:public key) publish? (seq peers))
+    (let [notes (ring 64)]
+      {:board (head/board)
+       :key key
+       :principal (sign/principal (:public key))
+       :dht-store base
+       :notes notes
+       :notes-cursor (:dao.stream/cursor
+                       (stream/cursor notes stream/anchor-newest))})))
+
+
+;; =============================================================================
+;; Opening the store
+;; =============================================================================
+
+(defn followed-principals
+  "The principal ids, `ed25519:<hex>`, a DHT store spec follows."
+  [spec]
+  (mapv #(sign/principal (:principal %)) (:follow spec)))
+
+
+(defn- checked-follow
+  "The `:follow` entries of `spec`, each `{:principal hex :host h :port
+   p}` with a loopback literal host, one per principal; throws a refusal
+   otherwise."
+  [{:keys [follow peers]}]
+  (let [refuse #(throw (ex-info % {:follow follow}))]
+    (when-not (or (nil? follow) (vector? follow))
+      (refuse "the followed principals must be a vector"))
+    (doseq [{:keys [principal host port] :as f} follow]
+      (when-not (and (map? f) (string? principal)
+                     (re-matches #"[0-9a-f]{64}" principal))
+        (refuse (str "--dht-follow names a principal by 64 lowercase "
+                     "hexadecimal characters, not " (pr-str principal))))
+      (when-not (head.ws/loopback? host)
+        (refuse (str "--dht-follow " principal "@" host ":" port
+                     ": the head board is followed on loopback only")))
+      (when-not (and (integer? port) (<= 1 port 65535))
+        (refuse (str "--dht-follow " principal ": the port must be 1 to "
+                     "65535, not " (pr-str port)))))
+    (when (and (seq follow) (empty? peers))
+      (refuse (str "--dht-follow needs a --dht-peer: a followed head's "
+                   "index is fetched over the DHT")))
+    (when-not (= (count follow) (count (distinct (map :principal follow))))
+      (refuse "--dht-follow names each principal once: one source each"))
+    (vec follow)))
+
+
+(defn- heads-records
+  "The records of `<dir>/heads.edn` when `follow` is not empty, read
+   before the node binds anything; a file that cannot be read as one
+   version-1 record refuses startup naming it."
+  [dir follow]
+  (when (seq follow)
+    (let [{:keys [records refusal]} (read-heads dir)]
+      (when refusal
+        (throw (ex-info (str refusal "; move it aside to follow every "
+                             "principal from no head, dropping each one's "
+                             "rollback floor until a head is installed")
+                        {:dir dir})))
+      records)))
+
+
+(defn- follower-of
+  "The follower of `follow` on `node`, restored from the persisted
+   `records` before any connection: `[follower node]`, or `[nil node]`
+   when nothing is followed.  A record that fails refuses startup naming
+   it."
+  [node dir follow records]
+  (if (empty? follow)
+    [nil node]
+    (let [path (str dir "/" heads-file)]
+      (try
+        (head/follow node {:follow (mapv #(sign/principal (:principal %))
+                                         follow)
+                           :heads records})
+        (catch #?(:cljd Object :clj Throwable :cljs :default) e
+          (if-some [reason (:yin.head/refused (ex-data e))]
+            (throw (ex-info (str "heads file " path ": " (ex-message e)
+                                 " (" reason "); remove that record to "
+                                 "follow it from no head, dropping its "
+                                 "rollback floor until a head is installed")
+                            {:dir dir :reason reason}))
+            (throw e)))))))
+
+
+(defn- compose
+  "The store handle of `open`, over the joined `node`: the publisher's
+   board, the follower restored from `records`, a pinned hydration, and
+   the HEAD write that announces and deposits."
+  [node base {:keys [dir manifest] :as checked} follow records
+   {:keys [key ws write-heads!]}]
+  (let [pub (publisher checked key base)
+        [follower node] (follower-of node dir follow records)
+        node (cond-> (assoc node ::dir dir ::ws ws)
+               pub (assoc ::publisher pub)
+               follower (assoc ::follower follower
+                               ::follow
+                               {:sources (into {}
+                                               (map (fn [f]
+                                                      [(sign/principal
+                                                         (:principal f))
+                                                       f]))
+                                               follow)
+                                :links {}
+                                :waiting {}
+                                :write! (or write-heads! fs/atomic-replace!)})
+               (and manifest (not= manifest (get-in base [:recovery
+                                                          :manifest])))
+               (-> (dht/load-index manifest)
+                   (assoc ::hydrating manifest)))]
+    ;; a recovered HEAD's trace, so a reader's first contact needs no new
+    ;; round (5.4)
+    (when-some [recovered (and pub (get-in base [:recovery :manifest]))]
+      (deposit-head! pub recovered))
+    (assoc (dht/store node)
+           :head-fn (fn [manifest-address]
+                      ((:head-fn base) manifest-address)
+                      (dht/announce! node manifest-address)
+                      (when pub (deposit-head! pub manifest-address)))
+           :recovery (:recovery base)
+           :durable-dir dir
+           :dht node)))
+
+
+(defn- quietly!
+  "Run the cleanup `f`, swallowing what it throws: a cleanup never
+   replaces the refusal that caused it."
+  [f]
+  (try (f) nil
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+
+
 (defn open
   "Open a `dht:<dir>` store from its spec (yin.repl.store/checked-spec):
    the durable directory store, and the `dao.space.dht` node joined over
    it.  Answers the store handle the shell keeps (the node's store, with
    the durable HEAD write announcing each publication, the recovery, and
    the directory), carrying the node under `:dht`, which the shell moves
-   onto its own state (yin.repl/create-state)."
-  [spec]
-  (let [{:keys [dir peers publish? bind-host bind-port max-inbound-bytes
-                manifest bind!]} (store/checked-spec spec)
-        base (durable/open dir)]
-    (try
-      (when-some [why (refused-head dir manifest
-                                    (get-in base [:recovery :manifest]))]
-        (throw (ex-info why {:dir dir :manifest manifest})))
-      (let [node (dht/join {:local base
-                            :peers peers
-                            :publish? publish?
-                            :bind-host bind-host
-                            :bind-port bind-port
-                            :max-inbound-bytes max-inbound-bytes
-                            :bind! (or bind! (dht/default-bind))})
-            node (cond-> (assoc node ::dir dir)
-                   (and manifest (not= manifest (get-in base [:recovery
-                                                              :manifest])))
-                   (-> (dht/load-index manifest)
-                       (assoc ::hydrating manifest)))]
-        (assoc (dht/store node)
-               :head-fn (fn [manifest-address]
-                          ((:head-fn base) manifest-address)
-                          (dht/announce! node manifest-address))
-               :recovery (:recovery base)
-               :durable-dir dir
-               :dht node))
-      (catch #?(:cljd Object :clj Throwable :cljs :default) e
-        (store/close! base)
-        (throw e)))))
+   onto its own state (yin.repl/create-state).
+
+   `opts`: `:key`, the publisher key `{:seed :public}`, which makes a
+   publishing node deposit its head; `:ws`, the host WebSocket seam
+   `{:connect! :bind! :unbind!}` (yin.repl.host) the board is served and
+   dialed over; `:write-heads!`, `(fn [dir name text])`, the atomic file
+   replace `heads.edn` is written with (`dao.space.store.fs` by
+   default); `:open-store`, `(fn [dir])`, the durable directory open
+   (`dao.space.store/open` by default).
+
+   A refusal releases everything it opened, exactly once, and is
+   answered as itself whatever the release throws: before the join the
+   directory store is closed; once joined the node owns it, and closing
+   the node closes the socket and then the store."
+  ([spec] (open spec {}))
+  ([spec {:keys [key ws write-heads! open-store]}]
+   (let [{:keys [dir peers publish? bind-host bind-port max-inbound-bytes
+                 manifest bind!]
+          :as checked} (store/checked-spec spec)
+         follow (checked-follow checked)
+         base ((or open-store durable/open) dir)
+         [node records]
+         (try
+           (when-some [why (refused-head dir manifest
+                                         (get-in base [:recovery :manifest]))]
+             (throw (ex-info why {:dir dir :manifest manifest})))
+           (let [records (heads-records dir follow)]
+             [(dht/join {:local base
+                         :peers peers
+                         :publish? publish?
+                         :bind-host bind-host
+                         :bind-port bind-port
+                         :max-inbound-bytes max-inbound-bytes
+                         :bind! (or bind! (dht/default-bind))})
+              records])
+           (catch #?(:cljd Object :clj Throwable :cljs :default) e
+             (quietly! #(store/close! base))
+             (throw e)))]
+     ;; from here the node owns the store and holds a socket
+     (try
+       (compose node base checked follow records
+                {:key key :ws ws :write-heads! write-heads!})
+       (catch #?(:cljd Object :clj Throwable :cljs :default) e
+         (quietly! #(dht/close! node))
+         (throw e))))))
 
 
 (defn without-runner
@@ -98,6 +501,27 @@
    answered as it is."
   [handle]
   (dissoc handle :dht))
+
+
+(defn follower
+  "The head follower the shell's DHT `node` carries, or nil when it
+   follows nothing."
+  [node]
+  (get node ::follower))
+
+
+(defn close!
+  "Release what the head composition holds on the shell's node: the
+   board's listener and every dial.  Idempotent enough for an exit: a
+   listener is asked to stop once per call."
+  [shell]
+  (let [node (:dht shell)]
+    (when-some [listener (get-in node [::publisher :server :listener])]
+      (try ((:unbind! (::ws node)) listener (fn [& _] nil))
+           (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+    (doseq [[_ {:keys [dial]}] (get-in node [::follow :links])]
+      (when dial (head.ws/close! dial)))
+    nil))
 
 
 ;; =============================================================================
@@ -157,14 +581,15 @@
 
 (defn- failure-text
   "A load's failure reason, data (dao.space.dht 4.3), as text."
-  [{:dao.space.dht/keys [failure] :keys [address cause defect outcome]}]
+  [{:dao.space.dht/keys [failure] :keys [address cause defect outcome]
+    :as reason}]
   (case failure
     :miss (str "no peer produced " address " (" (name cause) ")")
     :invalid (str "the content " (when address (str "at " address " "))
                   "is invalid (" (:code defect) ")"
                   (when-let [text (:text defect)] (str ": " text)))
     :unaskable (str "could not ask for " address " (" (name outcome) ")")
-    (pr-str failure)))
+    (pr-str (if (nil? failure) reason failure))))
 
 
 (defn- event-line
@@ -195,52 +620,383 @@
     (pr-str event)))
 
 
+(defn join-token
+  "The one string a reader hands `yin-repl dht join`: the publishing
+   node's address and its principal's 64 hex digits, as
+   `yin:<host:port>/<principal>` (5.8).  It names no manifest: a reader
+   follows the head the principal publishes."
+  [host port principal]
+  (str "yin:" (address-text host port) "/" principal))
+
+
+(defn- trace-text
+  [trace]
+  (let [{:yin.head/keys [manifest] n :yin.head/seq} (:yin.head/envelope trace)]
+    (str manifest " (seq " n ")")))
+
+
+(defn- head-line
+  "A follower event (`yin.vm.linker.head`) as the line the REPL prints,
+   or nil."
+  [{:keys [principal trace reason failure outcome detail delay] :as e}]
+  (case (:yin.head/event e)
+    :installed (str "dht: installed the head of " principal ": "
+                    (trace-text trace))
+    :refused (str "dht: refused a head of " principal ": " reason
+                  (when (map? trace) (str ", " (trace-text trace))))
+    :unloadable (str "dht: the head of " principal " " (trace-text trace)
+                     " cannot load: " (failure-text failure)
+                     "; trying again after the repair delay")
+    :source-lost (str "dht: lost the head board of " principal " ("
+                      (pr-str outcome) "); dialing it again")
+    :unpersisted (str "dht: the head of " principal " " (trace-text trace)
+                      " is not installed: :yin.head/unpersisted (" detail
+                      "); writing " heads-file " again in " delay " ticks")
+    nil))
+
+
 ;; =============================================================================
-;; The step
+;; The board endpoint and the token (5.1, 5.8)
 ;; =============================================================================
+
+(defn- serve-board
+  "Compose the board's endpoint once the node's socket is bound at
+   `host`:`port`: `[pub lines]`."
+  [pub ws host port]
+  (let [server (if-some [listen! (:bind! ws)]
+                 (head.ws/serve {:board (:board pub)
+                                 :principal (:principal pub)
+                                 :bind-host host
+                                 :bind-port port
+                                 :listen! listen!})
+                 {:status :refused :reason :yin.head.ws/no-listener})]
+    [(assoc pub :server server :listen [host port])
+     (when (= :refused (:status server))
+       [(case (:reason server)
+          :yin.head.ws/not-loopback
+          (str "dht: the head board is served on loopback only; this node "
+               "binds " host ", so it serves no board and prints no token")
+          :yin.head.ws/no-listener
+          "dht: this host has no WebSocket listener: no head board, no token"
+          (str "dht: the head board could not bind TCP "
+               (address-text host port) ": no board, no join token; "
+               "choose another --dht-port"))])]))
+
+
+(defn- step-board
+  "Advance the board's endpoint, print the token once when it is bound,
+   and print each deposit refusal: `[pub lines]`."
+  [pub node events now]
+  (let [bound (some #(when (= :bound (::dht/event %)) %) events)
+        [pub lines] (if (and bound (nil? (:server pub)))
+                      (serve-board pub (::ws node) (:host bound) (:port bound))
+                      [pub nil])
+        before (get-in pub [:server :status])
+        server (when (:server pub) (head.ws/serve-step (:server pub) now))
+        pub (cond-> pub server (assoc :server server))
+        [host port] (:listen pub)
+        lines (cond-> (vec lines)
+                (and (= :serving (:status server)) (not (:token? pub)))
+                (conj (str "dht: join token: "
+                           (join-token host port (:public (:key pub)))))
+
+                (and (= :refused (:status server)) (not= :refused before))
+                (conj (str "dht: the head board could not bind TCP "
+                           (address-text host port) ": no board, no join "
+                           "token; choose another --dht-port")))
+        pub (cond-> pub (= :serving (:status server)) (assoc :token? true))
+        ;; a gap means refusals were evicted unread: adopt its recovery
+        ;; cursor, say so, and drain what the ring still holds
+        [notes lost? cursor] (loop [notes [] lost? false
+                                    cursor (:notes-cursor pub)]
+                               (let [r (stream/next (:notes pub) cursor)]
+                                 (case (:dao.stream/outcome r)
+                                   :dao.stream/ok (recur (conj notes
+                                                               (:dao.stream/value r))
+                                                         lost?
+                                                         (:dao.stream/cursor r))
+                                   :dao.stream/gap (recur notes true
+                                                          (:dao.stream/cursor r))
+                                   [notes lost? cursor])))]
+    [(assoc pub :notes-cursor cursor)
+     (-> lines
+         (cond-> lost? (conj (str "dht: more head trace refusals arrived "
+                                  "than could be kept; the oldest were not "
+                                  "reported")))
+         (into (map (fn [{:keys [reason manifest]}]
+                      (str "dht: the head trace of " manifest " was not "
+                           "deposited: " reason)))
+               notes))]))
+
 
 (defn- hydrated
   "Install the loaded remote index as this directory's: HEAD first, then
-   the indexer, exactly as a restart's recovery is installed."
+   the indexer, exactly as a restart's recovery is installed.  A
+   publisher deposits the hydrated HEAD's trace once (5.4)."
   [shell node]
   (let [manifest (::hydrating node)
         recovery {:manifest manifest :datoms (dht/loaded-datoms node manifest)}]
     ((:head-fn (dht/local node)) manifest)
+    (when-some [pub (::publisher node)]
+      (deposit-head! pub manifest))
     (-> shell
         (update :indexer index/rehydrate recovery)
         (assoc :index-recovery recovery
                :dht (dissoc node ::hydrating)))))
 
 
-(defn join-token
-  "The one string a reader hands `yin-repl dht join`: the publishing
-   node's address, its principal's 64 hex digits and the manifest address
-   (without its leading colon), as `yin:host:port/principal/segment/...`."
-  [host port principal manifest]
-  (str "yin:" (address-text host port) "/" principal "/"
-       (str/replace-first (str manifest) ":" "")))
+;; =============================================================================
+;; Following (5.3, 5.5, 5.7)
+;; =============================================================================
+
+(defn- next-delay
+  [follower delay]
+  (if delay
+    (min (* 2 delay) (:repair-max-ticks follower))
+    (:repair-ticks follower)))
 
 
-(defn- token-lines
-  "The join token line for the latest publication this tick, when the node
-   listens and its shell holds a publisher key."
-  [shell node events]
-  (let [principal (some-> shell :dht-key :public)
-        [host port] (::listen node)
-        published (filter #(#{:published :republished} (::dht/event %))
-                          events)]
-    (when (and principal host (:publish? node) (seq published))
-      [(str "dht: join token: "
-            (join-token host port principal (:manifest (last published))))])))
+(defn- drop-dial
+  "Close the dial of a link and schedule the next one after its delay;
+   the last failure reported is kept."
+  [follower link now]
+  (when-some [d (:dial link)] (head.ws/close! d))
+  (let [delay (next-delay follower (:delay link))]
+    {:due (+ now delay) :delay delay :failed (:failed link)}))
 
+
+(defn- lost-reason
+  "What ended a lost dial, as one keyword: the remote's reason, or the
+   outcome."
+  [d]
+  (let [o (:outcome d)]
+    (or (:dao.stream.remote/reason o) (:dao.stream/outcome o) :lost)))
+
+
+(defn- dial-line
+  "The line a dial failure prints when it differs from the last one."
+  [principal {:keys [host port]} failure]
+  (str "dht: cannot follow " principal " at " (address-text host port) ": "
+       (case failure
+         :dao.stream.remote/not-found
+         "that endpoint serves no head board for this principal"
+         :dao.stream.remote/channel-gone "the connection was refused or closed"
+         :yin.head/no-answer "the board did not answer"
+         :yin.head.ws/no-connector "this host has no WebSocket dialer"
+         (str failure))
+       "; dialing it again"))
+
+
+(defn- step-link
+  "Advance the dial of `principal`'s board: compose one when due, step
+   it, hand a fresh reflection to the follower, and redial a dial that
+   is lost or still resolving after its delay (the host owns its
+   liveness: `yin.vm.linker.head.ws/dial` composes no resend).  Only
+   the address the principal was given is dialed.  Answers `[follower
+   link failure]`, `failure` the keyword that ended a dial this step,
+   or nil."
+  [follower ws source link now]
+  (cond
+    (and (nil? (:dial link)) (some? (:due link)) (< now (:due link)))
+    [follower link nil]
+
+    (nil? (:dial link))
+    (let [d (if-some [connect! (:connect! ws)]
+              (head.ws/dial {:principal (sign/principal (:principal source))
+                             :host (:host source)
+                             :port (:port source)
+                             :connect! connect!})
+              {:status :refused :reason :yin.head.ws/no-connector})]
+      (if (= :refused (:status d))
+        [follower (drop-dial follower link now) (:reason d)]
+        [follower (assoc link :dial d :since now :handle nil) nil]))
+
+    :else
+    (let [d (head.ws/dial-step (:dial link))
+          link (assoc link :dial d)
+          h (head.ws/handle d)]
+      (cond
+        (and h (not (identical? h (:handle link))))
+        [(head/attach follower (sign/principal (:principal source)) h)
+         (assoc link :handle h :delay nil :failed nil)
+         nil]
+
+        (= :lost (:status d))
+        [follower (drop-dial follower link now) (lost-reason d)]
+
+        (and (= :resolving (:status d))
+             (< (+ (:since link) (next-delay follower (:delay link))) now))
+        [follower (drop-dial follower link now) :yin.head/no-answer]
+
+        :else [follower link nil]))))
+
+
+(defn- step-links
+  "Step every principal's dial: `[follower links lines]`, one line per
+   change of a dial's failure, never one per attempt."
+  [follower node now]
+  (let [{:keys [sources links]} (::follow node)]
+    (reduce (fn [[follower links lines] [p source]]
+              (let [[follower link failure] (step-link follower (::ws node)
+                                                       source
+                                                       ;; a map from the
+                                                       ;; start: on
+                                                       ;; ClojureDart an
+                                                       ;; assoc of two or more
+                                                       ;; keyword pairs is
+                                                       ;; inlined to -conj,
+                                                       ;; and -conj on nil
+                                                       ;; conses a list; the
+                                                       ;; JVM and Node make
+                                                       ;; a map
+                                                       (get links p {})
+                                                       now)
+                    fresh? (and failure (not= failure (:failed (get links p))))]
+                [follower
+                 (assoc links p (cond-> link failure (assoc :failed failure)))
+                 (cond-> lines fresh? (conj (dial-line p source failure)))]))
+            [follower links []]
+            sources)))
+
+
+(defn- persist
+  "5.7 steps 2 and 3 for `principal`'s confirmed `trace`: replace
+   `heads.edn` with it in its place, and only when that returned,
+   install it.  A write that fails installs nothing and waits for the
+   repair delay.  Answers `[follower node waiting events]`."
+  [follower node waiting principal trace now]
+  (let [{:keys [write!]} (::follow node)
+        dir (::dir node)
+        failed (try (write! dir heads-file
+                            (render-heads (head/records follower principal
+                                                        trace)))
+                    nil
+                    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                      (or (ex-message e) (str e))))]
+    (if failed
+      (let [delay (next-delay follower (get-in waiting [principal :delay]))]
+        [follower node
+         (assoc waiting principal {:trace trace :due (+ now delay)
+                                   :delay delay})
+         [{:yin.head/event :unpersisted :principal principal :trace trace
+           :detail failed :delay delay}]])
+      (let [[follower node events] (head/install follower node principal
+                                                 trace)]
+        [follower node (dissoc waiting principal) events]))))
+
+
+(defn- retry-waiting
+  "Write again each confirmed head whose write failed, once its delay
+   has passed and while it is still the principal's confirmed candidate."
+  [follower node waiting now]
+  (reduce (fn [[follower node waiting events] [p {:keys [trace due]}]]
+            (let [cand (get-in (head/heads follower) [p :candidate])]
+              (cond
+                (not (and (= :confirmed (:state cand)) (= trace (:trace cand))))
+                [follower node (dissoc waiting p) events]
+
+                (< now due) [follower node waiting events]
+
+                :else
+                (let [[follower node waiting more]
+                      (persist follower node waiting p trace now)]
+                  [follower node waiting (into events more)]))))
+          [follower node waiting []]
+          waiting))
+
+
+(defn- linked-registry
+  "`{name manifest-address}` of the modules the shell's VM linked."
+  [shell]
+  (into {}
+        (keep (fn [[n e]] (when (some? (:address e)) [n (:address e)])))
+        (some-> (get-in shell [:vm :modules]) module/module-entries)))
+
+
+(defn moved
+  "The linked names of the shell's session whose resolved address
+   differs now (`yin.vm.linker.head/moved`): derived, stored nowhere."
+  [shell node]
+  (head/moved (ld/names node (link/authority (:link-source shell)))
+              (linked-registry shell)))
+
+
+(defn- moved-lines
+  "The line of 5.7 for each linked name an installed head moved: only
+   moves that were not already standing before this step's installs
+   (`before`, the node then), so a name is reported once per new
+   address, and nothing is stored."
+  [shell before node installed]
+  (when (seq installed)
+    (let [heads (str/join ", "
+                          (map (fn [{:keys [principal trace]}]
+                                 (str principal " seq "
+                                      (get-in trace [:yin.head/envelope
+                                                     :yin.head/seq])))
+                               installed))
+          standing (set (map (juxt :name :resolved) (moved shell before)))]
+      (into []
+            (comp (remove #(contains? standing [(:name %) (:resolved %)]))
+                  (map (fn [{n :name :keys [linked resolved]}]
+                         (str "dht: " n " moved: linked " linked
+                              ", now resolves to " resolved " (head of "
+                              heads "); (reset) then (require '" n
+                              ") links it"))))
+            (moved shell node)))))
+
+
+(defn- step-follow
+  "One pass of the follower after the node: dials, `head/step`, and for
+   each confirmed head the write that precedes its install.  Answers
+   `[node lines events]`."
+  [shell node now]
+  (if-some [follower (::follower node)]
+    (let [before node
+          [follower links dial-lines] (step-links follower node now)
+          [follower node events] (head/step follower node now)
+          ;; a lost source: drop its dial; the next is composed after the
+          ;; delay, and the follower mints :oldest on its handle
+          links (reduce (fn [links {:keys [principal]}]
+                          (update links principal
+                                  #(drop-dial follower % now)))
+                        links
+                        (filter #(= :source-lost (:yin.head/event %)) events))
+          waiting (get-in node [::follow :waiting])
+          [follower node waiting retried] (retry-waiting follower node waiting
+                                                         now)
+          [follower node waiting persisted]
+          (reduce (fn [[follower node waiting more] {:keys [principal trace]}]
+                    (let [[follower node waiting es]
+                          (persist follower node waiting principal trace now)]
+                      [follower node waiting (into more es)]))
+                  [follower node waiting []]
+                  (filter #(= :confirmed (:yin.head/event %)) events))
+          events (-> events (into retried) (into persisted))
+          node (-> node
+                   (assoc ::follower follower)
+                   (update ::follow assoc :links links :waiting waiting))
+          installed (filterv #(= :installed (:yin.head/event %)) events)]
+      [node
+       (-> dial-lines
+           (into (keep head-line) events)
+           (into (moved-lines shell before node installed)))
+       events])
+    [node [] []]))
+
+
+;; =============================================================================
+;; The step
+;; =============================================================================
 
 (defn step
   "Advance the shell's node once at the host's clock reading `now`
    (dao.space.dht/step) and answer `[shell' lines events]`: its events as
    lines, and as the data the ticker reads to re-check a pending require
    (yin.repl/recheck-on-load-events), a completed hydration installed, a
-   failed one or a failed bind recorded as the shell's refusal.  A shell
-   without a DHT store is answered unchanged."
+   failed one or a failed bind recorded as the shell's refusal.  The
+   head composition steps after the node: the board's endpoint (and the
+   join token once it is bound), then the follower, whose events join
+   the node's.  A shell without a DHT store is answered unchanged."
   [shell now]
   (if-let
     [node (:dht shell)]
@@ -252,8 +1008,13 @@
                         (assoc ::listen [host port])))
                     node
                     events)
-       lines (into (mapv #(event-line node %) events)
-                   (token-lines shell node events))
+       lines (mapv #(event-line node %) events)
+       [node board-lines] (if-some [pub (::publisher node)]
+                            (let [[pub ls] (step-board pub node events now)]
+                              [(assoc node ::publisher pub) ls])
+                            [node []])
+       [node follow-lines head-events] (step-follow shell node now)
+       lines (-> lines (into board-lines) (into follow-lines))
        hydrating (::hydrating node)
        status (when hydrating (:status (dht/load-status node hydrating)))
        node (cond->
@@ -269,7 +1030,9 @@
               (dht/refusal node)
               (assoc ::refusal (dht/refusal node)))
        shell (assoc shell :dht node)]
-      [(if (= :loaded status) (hydrated shell node) shell) lines events])
+      [(if (= :loaded status) (hydrated shell node) shell)
+       lines
+       (into (vec events) head-events)])
     [shell [] []]))
 
 
@@ -282,7 +1045,7 @@
 
 (defn admitting?
   "True when the shell may evaluate: no hydration is outstanding and none
-   was refused."
+   was refused.  Following never holds evaluation back (5.8)."
   [shell]
   (let [node (:dht shell)]
     (or (nil? node)
@@ -291,15 +1054,32 @@
 
 (defn busy?
   "True while the node owes the REPL a line; the ticker keeps its base
-   cadence then."
+   cadence then.  Following alone is never busy (section 7): only a
+   candidate's load is, as a load of the node."
   [shell]
   (boolean (some-> (:dht shell) dht/busy?)))
+
+
+(defn follow-lines
+  "What the shell states at startup per followed principal: where it is
+   followed, and whether a head is installed (5.8)."
+  [shell]
+  (let [node (:dht shell)]
+    (when-some [follower (::follower node)]
+      (mapv (fn [[p {:keys [manifest floor]}]]
+              (let [{:keys [host port]} (get-in node [::follow :sources p])]
+                (str "dht: following " p " at " (address-text host port) "; "
+                     (if manifest
+                       (str "installed head " manifest " (seq " floor ")")
+                       (str "no head installed yet: a (require ...) of its "
+                            "names waits for the first")))))
+            (head/heads follower)))))
 
 
 (defn banner
   "What the REPL states at startup about a DHT store spec, before the
    node steps once, and so before anything is shared."
-  [{:keys [dir peers publish? bind-host bind-port]}]
+  [{:keys [dir peers publish? bind-host bind-port follow-suspended]}]
   (let [content (durable/content-path dir)
         peers-text (str/join ", " (map #(address-text (:host %) (:port %))
                                        peers))]
@@ -329,6 +1109,10 @@
       (conj (str
               "dht: fetch-only, nothing this node holds is "
               "shared (--dht-publish shares it)"))
+
+      follow-suspended
+      (conj (str "dht: --dht-manifest pins this run: following is suspended "
+                 "for this run (the saved --dht-follow is kept)"))
 
       true
       (conj (str "dht: a (require ...) of a module this node does not hold "

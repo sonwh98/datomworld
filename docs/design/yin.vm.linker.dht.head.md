@@ -492,7 +492,9 @@ that run and the banner says following is suspended. A direct entry
 ### 5.7 Persistence and relink (decision 7)
 
 **Persistence.** The follower's durable state is the last installed
-trace of each followed principal, verbatim, in `<node dir>/heads.edn`:
+trace of each followed principal, verbatim, in `heads.edn` in the DHT
+store directory (the `dht:<dir>` store; for the `dht` subcommands that
+is the node directory):
 
 ```clojure
 {:version 1

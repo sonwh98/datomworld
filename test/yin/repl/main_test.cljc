@@ -1303,32 +1303,108 @@
 (def ^:private hex64 (apply str (repeat 64 "a")))
 
 
-(deftest dht-join-expands-a-token-to-peer-principal-and-manifest
-  (let [token (str "yin:127.0.0.1:4001/" hex64 "/segment/blake3-" hex64)
-        opts (repl/parse-args (first (repl/expand-args
-                                       ["dht" "join" token "--dir" "d"
-                                        "--listen" "4003"])))
+(deftest dht-join-expands-a-token-to-peer-principal-and-follow
+  (let [token (str "yin:127.0.0.1:4001/" hex64)
+        [args extra] (repl/expand-args ["dht" "join" token "--dir" "d"
+                                        "--listen" "4003"])
+        opts (repl/parse-args args)
         spec (:index-store-spec opts)]
     (is (= [{:host "127.0.0.1" :port 4001}] (:peers spec)))
-    (is (= (keyword (str "segment/blake3-" hex64)) (:manifest spec)))
+    (is (nil? (:manifest spec)) "join passes no --dht-manifest")
+    (is (not (some #{"--dht-manifest"} args)))
+    (is (= [{:principal hex64 :host "127.0.0.1" :port 4001}] (:follow spec)))
     (is (= 4003 (:bind-port spec)))
     (is (= [hex64] (:principals opts)))
-    (is (not (:publish? spec)))))
+    (is (not (:publish? spec)))
+    (is (= #{"--dht-publish"} (:unset extra)))))
 
 
 (deftest a-printed-join-token-is-what-join-parses
-  (let [manifest (keyword (str "segment/blake3-" hex64))
-        token (repl.dht/join-token "127.0.0.1" 4001 hex64 manifest)]
-    (is (= (str "yin:127.0.0.1:4001/" hex64 "/segment/blake3-" hex64) token))
-    (is (= ["127.0.0.1:4001" hex64 (str "segment/blake3-" hex64)]
-           (repl/parse-token token)))
+  (let [token (repl.dht/join-token "127.0.0.1" 4001 hex64)]
+    (is (= (str "yin:127.0.0.1:4001/" hex64) token))
+    (is (= ["127.0.0.1:4001" hex64] (repl/parse-token token)))
+    (is (= ["127.0.0.1:4001" hex64]
+           (repl/parse-token (str "yin:127.0.0.1:4001/ed25519:" hex64)))
+        "the principal accepts its ed25519: prefix")
     (is (= (:index-store-spec
              (repl/parse-args ["--index-store" "dht:d" "--dht-peer"
-                               "127.0.0.1:4001" "--dht-manifest"
-                               (str manifest)]))
+                               "127.0.0.1:4001" "--dht-principal" hex64
+                               "--dht-follow" (str hex64 "@127.0.0.1:4001")]))
            (:index-store-spec
              (repl/parse-args (first (repl/expand-args
                                        ["dht" "join" token "--dir" "d"]))))))))
+
+
+(deftest a-token-with-a-third-part-is-refused-with-the-pin-message
+  (doseq [token [(str "yin:127.0.0.1:4001/" hex64 "/segment/blake3-" hex64)
+                 (str "yin:127.0.0.1:4001/" hex64 "/")]]
+    (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs js/Error)
+                          #"a manifest is a pin and belongs to --dht-manifest"
+          (repl/parse-token token))
+        token)
+    (testing "and startup answers it as a refusal, data"
+      (is (re-find #"belongs to --dht-manifest"
+                   (str (:refusal (repl/startup ["dht" "join" token
+                                                 "--dir" "d"]))))))))
+
+
+(deftest dht-follow-parses-a-principal-at-a-loopback-address
+  (is (= {:principal hex64 :host "127.0.0.1" :port 4001}
+         (repl/parse-follow (str hex64 "@127.0.0.1:4001"))))
+  (is (= {:principal hex64 :host "127.0.0.1" :port 4001}
+         (repl/parse-follow (str hex64 "@localhost:4001"))))
+  (is (= {:principal hex64 :host "::1" :port 4001}
+         (repl/parse-follow (str hex64 "@[::1]:4001"))))
+  (doseq [[text re] [[(str hex64 "@10.0.0.2:4001") #"loopback only"]
+                     [(str hex64 "@127.0.0.1:0") #"port from 1 to 65535"]
+                     [(str hex64 "@127.0.0.1:99999") #"port from 1 to 65535"]
+                     ["abc@127.0.0.1:4001" #"takes <64 lowercase hex>"]
+                     [(str hex64 "127.0.0.1:4001") #"takes <64 lowercase hex>"]
+                     [nil #"takes <64 lowercase hex>"]]]
+    (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs js/Error) re
+          (repl/parse-follow text))
+        (pr-str text))))
+
+
+(deftest dht-follow-of-an-undeclared-principal-refuses-startup
+  (let [follow (str hex64 "@127.0.0.1:4001")
+        base ["--index-store" "dht:d" "--dht-peer" "127.0.0.1:4001"]]
+    (is (re-find #"not declared: add --dht-principal"
+                 (str (:refusal (repl/startup (into base ["--dht-follow"
+                                                          follow])))))
+        "a followed principal must be declared")
+    (is (re-find #"needs a --dht-peer"
+                 (str (:refusal (repl/startup ["--index-store" "dht:d"
+                                               "--dht-principal" hex64
+                                               "--dht-follow" follow])))))
+    (is (re-find #"each principal once"
+                 (str (:refusal (repl/startup
+                                  (into base ["--dht-principal" hex64
+                                              "--dht-follow" follow
+                                              "--dht-follow"
+                                              (str hex64 "@127.0.0.1:4002")]))))))
+    (is (re-find #"need --index-store dht:<dir>"
+                 (str (:refusal (repl/startup ["--dht-follow" follow]))))
+        "following means nothing to another store")
+    (testing "a declared principal composes the spec"
+      (is (= [{:principal hex64 :host "127.0.0.1" :port 4001}]
+             (get-in (repl/parse-args (into base ["--dht-principal" hex64
+                                                  "--dht-follow" follow]))
+                     [:index-store-spec :follow]))))))
+
+
+(deftest dht-manifest-suspends-following-for-the-run
+  (let [follow (str hex64 "@127.0.0.1:4001")
+        manifest (str ":segment/blake3-" hex64)
+        opts (repl/parse-args ["--index-store" "dht:d"
+                               "--dht-peer" "127.0.0.1:4001"
+                               "--dht-principal" hex64 "--dht-follow" follow
+                               "--dht-manifest" manifest])
+        spec (:index-store-spec opts)]
+    (is (nil? (:follow spec)) "a pinned run follows nothing")
+    (is (true? (:follow-suspended spec)))
+    (is (some #(str/includes? % "following is suspended") (repl/banner opts))
+        "and the banner says so")))
 
 
 (deftest dht-init-publishes-with-a-key-and-localhost-peer
@@ -1383,7 +1459,36 @@
                   "--headless" "--index-store" "--help"
                   "--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
                   "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key"
-                  "--dht-principal" "--dht-keygen" "--name" "--dir" "--key"
+                  "--dht-principal" "--dht-follow" "heads.edn"
+                  "--dht-keygen" "--name" "--dir" "--key"
                   "--listen" "--peer" "--telemetry" "dht init" "dht serve"
                   "dht join" "keygen"]]
       (is (str/includes? text word) word))))
+
+
+(deftest an-oversized-number-is-a-refusal-on-every-numeric-flag
+  (let [huge "9999999999999999999999999999"
+        follow (str hex64 "@127.0.0.1:" huge)
+        base ["--index-store" "dht:d" "--dht-peer" "127.0.0.1:4001"]]
+    (doseq [[args re]
+            [[(into base ["--dht-principal" hex64 "--dht-follow" follow])
+              #"--dht-follow takes a port from 1 to 65535"]
+             [(into base ["--dht-principal" hex64 "--dht-follow"
+                          (str hex64 "@127.0.0.1:70000")])
+              #"--dht-follow takes a port from 1 to 65535"]
+             [["--index-store" "dht:d" "--dht-peer" (str "127.0.0.1:" huge)]
+              #"--dht-peer takes host:port with a port from 1 to 65535"]
+             [(into base ["--dht-port" huge]) #"--dht-port takes an integer"]
+             [(into base ["--dht-max-inbound-bytes" huge])
+              #"--dht-max-inbound-bytes takes an integer"]
+             [["--port" huge] #"--port takes a port from 0 to 65535"]
+             [["--port" "70000"] #"--port takes a port from 0 to 65535"]
+             [["--port" "abc"] #"--port takes a port from 0 to 65535"]
+             [["dht" "join" (str "yin:127.0.0.1:" huge "/" hex64) "--dir" "d"]
+              #"--dht-peer takes host:port with a port from 1 to 65535"]
+             [["dht" "join" (str "yin:127.0.0.1:4001/" hex64) "--dir" "d"
+               "--listen" huge]
+              #"--dht-port takes an integer"]]]
+      (let [started (repl/startup args)]
+        (is (re-find re (str (:refusal started))) (pr-str args started))
+        (is (nil? (:state started)))))))

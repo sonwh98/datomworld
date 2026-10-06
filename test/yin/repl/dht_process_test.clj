@@ -536,35 +536,38 @@
    and evaluate its export.  Each step waits for the line it answers
    (`(vm ...)` is answered at once even while a require is pending, so
    nothing is typed ahead).  Answers the failures, each naming the VM and
-   the line it did not see."
-  [p]
-  (reduce
-    (fn [failures [i vm-type]]
-      (let [n (inc i)
-            step (fn [failures line re k]
-                   (if (seq failures)
-                     failures
-                     (do (type! p line)
-                         (if (await-count p re k exchange-ms)
-                           failures
-                           (conj failures (str vm-type ": " line
-                                               " never answered "
-                                               re " (" k ")"))))))
-            walker? (= :ast-walker vm-type)]
-        (-> failures
-            (step (str "(vm " vm-type ")")
-                  (re-pattern (str "Switched to " (vm-names vm-type))) 1)
-            (step "(require (quote my.lib))" #"^(yin> )*'my\.lib$" n)
-            (step "(my.lib/f 1)" #"^(yin> )*4201$" n)
-            (step "(require (quote my.store))"
-                  (if walker?
-                    #"Module link refused: undeclared-free"
-                    #"^(yin> )*'my\.store$")
-                  (if walker? 1 (dec n)))
-            (cond-> (not walker?)
-              (step "(my.store/g)" #"^(yin> )*8$" (dec n))))))
-    []
-    (map-indexed vector vm-types)))
+   the line it did not see.  `offset` counts the `'my.lib` answers the
+   reader printed before (a first-contact require), so each wait is for
+   its own answer."
+  ([p] (require-on-each-vm p 0))
+  ([p offset]
+   (reduce
+     (fn [failures [i vm-type]]
+       (let [n (inc i)
+             step (fn [failures line re k]
+                    (if (seq failures)
+                      failures
+                      (do (type! p line)
+                          (if (await-count p re k exchange-ms)
+                            failures
+                            (conj failures (str vm-type ": " line
+                                                " never answered "
+                                                re " (" k ")"))))))
+             walker? (= :ast-walker vm-type)]
+         (-> failures
+             (step (str "(vm " vm-type ")")
+                   (re-pattern (str "Switched to " (vm-names vm-type))) 1)
+             (step "(require (quote my.lib))" #"^(yin> )*'my\.lib$" (+ n offset))
+             (step "(my.lib/f 1)" #"^(yin> )*4201$" n)
+             (step "(require (quote my.store))"
+                   (if walker?
+                     #"Module link refused: undeclared-free"
+                     #"^(yin> )*'my\.store$")
+                   (if walker? 1 (dec n)))
+             (cond-> (not walker?)
+               (step "(my.store/g)" #"^(yin> )*8$" (dec n))))))
+     []
+     (map-indexed vector vm-types))))
 
 
 (def ^:private published-line
@@ -979,5 +982,200 @@
         (finally
           (doseq [p @procs] (stop! p))
           (doseq [x anchors] ((:stop! x)))
+          (io/delete-file key-file true)
+          (run! delete-dir! dirs))))))
+
+
+;; =============================================================================
+;; The published head trace, slice H3 (docs/design/yin.vm.linker.dht.head.md
+;; section 11): a reader joins by token and follows the publisher's HEAD
+;; =============================================================================
+
+(def ^:private token-line
+  #"dht: join token: (yin:\S+)")
+
+
+(defn- await-head-written
+  "The manifest A's last `dht: published` line names, once it is the one
+   A's HEAD names: A's rounds are over.  Acknowledgement is not awaited:
+   a reader follows A's head, not the replicas."
+  [a dir ms]
+  (let [deadline (+ (System/currentTimeMillis) ms)]
+    (loop []
+      (let [last-published (some->> @(:lines a)
+                                    (keep #(second (re-find
+                                                     #"dht: published :(segment/\S+) "
+                                                     %)))
+                                    last)]
+        (cond
+          (and last-published (= last-published (head-of-dir dir)))
+          last-published
+          (< (System/currentTimeMillis) deadline) (do (Thread/sleep 100)
+                                                      (recur))
+          :else nil)))))
+
+
+(defn- spawn-stateful!
+  "Start one REPL process that keeps its node state (no `--no-state`):
+   `dht join --dir d` saves its flags in `d`, which a bare `--dir d`
+   resumes."
+  [label command args]
+  (spawn-command! label (into (vec command) args)))
+
+
+(defn- await-next
+  "Type `line` at `p`, then wait for one more output line matching `re`
+   than there were before it was typed."
+  [p line re]
+  (let [before (count (filter #(re-find re %) @(:lines p)))]
+    (type! p line)
+    (await-count p re (inc before) exchange-ms)))
+
+
+(defn- first-contact-leg
+  "Reader `p`, started with `dht join <token>` while the publisher is
+   down: a require typed then parks pending on the first head; it is
+   asserted parked before the publisher comes back."
+  [p]
+  (testing (str (:label p) " parks a first-contact require")
+    (is (await-line p #"no head installed yet" startup-ms) (transcript p))
+    (is (await-next p "(vm :ast-walker)" #"Switched to ASTWalkerVM")
+        (transcript p))
+    (type! p "(require (quote my.lib))")
+    (is (await-line p #";; require pending: my\.lib" exchange-ms)
+        (transcript p))
+    (is (not-any? #(re-find #"^(yin> )*'my\.lib$" %) @(:lines p))
+        "nothing is installed yet")))
+
+
+(defn- follower-leg
+  "Reader `p` once the publisher is back: the parked require completes
+   with no further input, then both modules are required on each of the
+   four VMs."
+  [p principal]
+  (testing (str (:label p) " completes the parked require on the install")
+    (is (await-count p #"^(yin> )*'my\.lib$" 1 startup-ms) (transcript p))
+    (is (await-line p (re-pattern (str "dht: installed the head of "
+                                       principal))
+                    1000)
+        (transcript p)))
+  (testing (str (:label p) " requires each module by name on all four VMs")
+    (let [failures (require-on-each-vm p 1)]
+      (is (empty? failures) (str failures "\n" (transcript p))))))
+
+
+(defn- moved-leg
+  "Reader `p` after A republished my.lib: the moved line prints, the
+   repeat require is unchanged, and `(reset)` then require links the
+   new module."
+  [p]
+  (testing (str (:label p) " reports the move and links it after (reset)")
+    (is (await-line p #"dht: my\.lib moved: linked :segment/\S+, now resolves to"
+                    exchange-ms)
+        (transcript p))
+    (is (await-next p "(require (quote my.lib))" #"^(yin> )*'my\.lib$")
+        (transcript p))
+    (is (await-next p "(my.lib/f 1)" #"^(yin> )*4201$")
+        (str "the repeat require is unchanged\n" (transcript p)))
+    (is (await-next p "(reset)" #"reset$") (transcript p))
+    (is (await-next p "(require (quote my.lib))" #"^(yin> )*'my\.lib$")
+        (transcript p))
+    (is (await-next p "(my.lib/f 1)" #"^(yin> )*4301$")
+        (str "(reset) then require links the new module\n" (transcript p)))))
+
+
+(deftest
+  ^:slow a-reader-follows-the-publisher-s-head-across-processes
+  (let
+    [storing {::jing.dht/publish? true
+              ::jing.dht/max-inbound-bytes (* 64 1024 1024)}
+     anchor (start-anchor! storing)
+     dirs (vec (repeatedly 3 temp-dir))
+     key-file (str (temp-dir) ".key")
+     peer #(str "127.0.0.1:" %)
+     procs (atom [])]
+    (is (nil? (:failure anchor)) (:failure anchor))
+    (when-not
+      (:failure anchor)
+      (try
+        (main/keygen! key-file)
+        (let
+          [x (:port anchor)
+           a-args ["--index-store" (str "dht:" (dirs 0)) "--dht-peer" (peer x)
+                   "--dht-publish" "--dht-key" key-file]
+           a1 (spawn! "publisher-a" a-args)
+           _ (swap! procs conj a1)
+           pa (bound-port a1)
+           token (some->> (await-line a1 token-line startup-ms)
+                          (re-find token-line)
+                          second)
+           public (second (re-find #"/([0-9a-f]{64})$" (str token)))
+           principal (str "ed25519:" public)]
+          (testing "A prints the join token once its board is bound"
+            (is (some? pa) (transcript a1))
+            (is (= (str "yin:127.0.0.1:" pa "/" public) token) (transcript a1))
+            (is (= 1 (count (filter #(re-find token-line %) @(:lines a1))))))
+          (when token
+            ;; A publishes and stops, so no head is reachable until every
+            ;; reader has parked: the first contact cannot race the install
+            (doseq [line publisher-lines] (type! a1 line))
+            (is (await-head-written a1 (dirs 0) exchange-ms) (transcript a1))
+            (stop! a1)
+            (is (.exists (io/file node-script))
+                (str "the Node reader is required: " node-script
+                     " is absent; build it with `bb build:yin-repl-node`"))
+            (let
+              [join (fn [label command dir]
+                      (let [p (spawn-stateful! label command
+                                               ["dht" "join" token "--dir" dir
+                                                "--peer" (peer x)])]
+                        (swap! procs conj p)
+                        p))
+               b (join "reader-b-jvm" (jvm-command) (dirs 1))
+               e (when (.exists (io/file node-script))
+                   (join "reader-b-node" ["node" node-script] (dirs 2)))
+               readers (remove nil? [b e])
+               _ (doseq [p readers] (first-contact-leg p))
+               ;; A comes back on the same port: its recovered HEAD is its
+               ;; board's first trace (5.4)
+               a (spawn! "publisher-a-again" (into a-args ["--dht-port"
+                                                           (str pa)]))]
+              (swap! procs conj a)
+              (testing "A restarted on its port prints the same token"
+                (is (= token (some->> (await-line a token-line startup-ms)
+                                      (re-find token-line)
+                                      second))
+                    (transcript a)))
+              (doseq [p readers] (follower-leg p principal))
+              (testing "join saved --dht-follow"
+                (is (str/includes? (slurp (str (dirs 1) "/state.edn"))
+                                   (str ":dht-follow [\"" public "@127.0.0.1:"
+                                        pa "\"]"))))
+              (type! a "(def f (fn [x] (+ x 4300)))")
+              (type! a "(require (quote yin.link))")
+              (type! a "(yin.link/publish (quote my.lib) (quote [f]))")
+              (doseq [p readers] (moved-leg p))
+              (testing "a reader restarted with A stopped still requires it"
+                (stop! a)
+                (doseq [p readers] (stop! p))
+                (doseq [[label command dir] [["reader-b-jvm-again" (jvm-command)
+                                              (dirs 1)]
+                                             (when e
+                                               ["reader-b-node-again"
+                                                ["node" node-script] (dirs 2)])]
+                        :when label]
+                  (let [p (spawn-stateful! label command ["--dir" dir])]
+                    (swap! procs conj p)
+                    (is (await-line p #"dht: following ed25519:\S+ at .*; installed head"
+                                    startup-ms)
+                        (transcript p))
+                    (is (await-next p "(require (quote my.lib))"
+                                    #"^(yin> )*'my\.lib$")
+                        (transcript p))
+                    (is (await-next p "(my.lib/f 1)" #"^(yin> )*4301$")
+                        (transcript p))))))))
+        (finally
+          (doseq [p @procs] (stop! p))
+          ((:stop! anchor))
           (io/delete-file key-file true)
           (run! delete-dir! dirs))))))

@@ -24,6 +24,7 @@
             [yin.repl.serve :as serve]
             [yin.repl.state :as state]
             [yin.repl.store :as store]
+            [yin.vm.linker.head.ws :as head.ws]
             [yin.vm.linker.sign :as sign]))
 
 
@@ -56,9 +57,12 @@
 
 
 (defn- parse-int
-  "The decimal integer `text` names, or nil."
+  "The decimal integer `text` names, or nil: total on every host.  At
+   most 15 digits, so the value is exact on every host (below 2^53) and
+   no host parser can overflow; a longer number is nil, which each flag
+   refuses as data."
   [text]
-  (when (and (string? text) (re-matches #"-?\d+" text))
+  (when (and (string? text) (re-matches #"-?\d{1,15}" text))
     #?(:cljd (int/parse text)
        :cljs (js/parseInt text 10)
        :clj (Long/parseLong text))))
@@ -97,7 +101,44 @@
 
 (def ^:private dht-flags
   #{"--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
-    "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key" "--dht-principal"})
+    "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key" "--dht-principal"
+    "--dht-follow"})
+
+
+(def max-follow
+  "The most principals one node follows (yin.vm.linker.dht.head.md 7)."
+  64)
+
+
+(defn parse-follow
+  "A `--dht-follow` value, `<64 hex>@<host:port>`, as `{:principal hex
+   :host h :port p}`: the principal whose published head is followed, at
+   the one address its board is dialed at.  The host must be a loopback
+   IP literal (`localhost` is 127.0.0.1): following off loopback is
+   not in this release (yin.vm.linker.dht.head.md 5.1, 8.3)."
+  [text]
+  (let [[_ principal v6 v4 port]
+        (re-matches #"(?:ed25519:)?([0-9a-f]{64})@(?:\[([^\]]+)\]|([^:\[\]@]+)):(\d+)"
+                    (str/replace-first (str text) #"@localhost:" "@127.0.0.1:"))
+        host (or v6 v4)
+        port (parse-int port)]
+    (cond
+      (nil? principal)
+      (throw (ex-info (str "--dht-follow takes <64 lowercase hex>@<host:port>,"
+                           " not " (pr-str text))
+                      {:value text}))
+
+      (not (datagram/valid-port? port))
+      (throw (ex-info (str "--dht-follow takes a port from 1 to 65535, not "
+                           (pr-str text))
+                      {:value text}))
+
+      (not (head.ws/loopback? host))
+      (throw (ex-info (str "--dht-follow " (pr-str text) ": a head board is "
+                           "followed on loopback only (127.0.0.1 or ::1)")
+                      {:value text}))
+
+      :else {:principal principal :host host :port port})))
 
 
 (defn parse-principal
@@ -227,7 +268,7 @@
    and a bind address means nothing to a solo node, so each such use is
    refused rather than ignored."
   [spec {:keys [flags peers publish? bind-host bind-port max-inbound-bytes
-                manifest]}]
+                manifest follow principals]}]
   (cond
     (and (seq flags) (not= :dht (:type spec)))
     (throw (ex-info (str (str/join ", " (sort flags))
@@ -247,19 +288,44 @@
                          (pr-str bind-host))
                     {:value bind-host}))
 
+    (and (seq follow) (empty? peers))
+    (throw (ex-info (str "--dht-follow needs a --dht-peer: a followed head's "
+                         "index is fetched over the DHT")
+                    {}))
+
+    (some #(not (contains? (set principals) (:principal %))) follow)
+    (let [p (:principal (first (remove #(contains? (set principals)
+                                                   (:principal %))
+                                       follow)))]
+      (throw (ex-info (str "--dht-follow " p " follows a principal that is not"
+                           " declared: add --dht-principal " p)
+                      {:principal p})))
+
+    (not= (count follow) (count (distinct (map :principal follow))))
+    (throw (ex-info "--dht-follow names each principal once: one source each"
+                    {}))
+
+    (> (count follow) max-follow)
+    (throw (ex-info (str "at most " max-follow " principals may be followed")
+                    {:count (count follow)}))
+
     :else
     (store/checked-spec
       (cond-> (assoc spec :peers (vec peers) :publish? (boolean publish?))
         bind-host (assoc :bind-host bind-host)
         bind-port (assoc :bind-port bind-port)
         max-inbound-bytes (assoc :max-inbound-bytes max-inbound-bytes)
-        manifest (assoc :manifest manifest)))))
+        manifest (assoc :manifest manifest)
+        ;; a pin wins for the run: it follows nothing (5.6)
+        (and (seq follow) (not manifest)) (assoc :follow (vec follow))
+        (and (seq follow) manifest) (assoc :follow-suspended true)))))
 
 
 (defn- dht-number
   [flag text]
   (or (parse-int text)
-      (throw (ex-info (str flag " takes an integer, not " (pr-str text))
+      (throw (ex-info (str flag " takes an integer of at most 15 digits, not "
+                           (pr-str text))
                       {:value text}))))
 
 
@@ -296,17 +362,27 @@
 
 
 (defn parse-token
-  "A join token `yin:host:port/principal/segment/...` as `[peer principal
-   manifest]` flag values; the principal accepts an `ed25519:` prefix."
+  "A join token `yin:<host:port>/<principal>` as `[peer principal]` flag
+   values; the principal accepts an `ed25519:` prefix.  A token with a
+   third part is refused: a manifest is a pin and belongs to
+   `--dht-manifest` (yin.vm.linker.dht.head.md 5.8)."
   [text]
-  (let [[_ peer principal manifest]
-        (re-matches #"yin:([^/]+)/(?:ed25519:)?([^/]+)/(.+)" (str text))]
-    (when-not peer
-      (throw (ex-info (str "a join token looks like yin:host:port/principal/"
-                           "segment/..., as `dht: join token:` prints it, "
+  (let [[_ peer principal more]
+        (re-matches #"yin:([^/]+)/(?:ed25519:)?([^/]+)(/.*)?" (str text))]
+    (cond
+      (and peer more)
+      (throw (ex-info (str "a join token has two parts, yin:<host:port>/"
+                           "<principal>; " (pr-str text) " has a third: a "
+                           "manifest is a pin and belongs to --dht-manifest")
+                      {:value text}))
+
+      (not peer)
+      (throw (ex-info (str "a join token looks like yin:<host:port>/"
+                           "<principal>, as `dht: join token:` prints it, "
                            "not " (pr-str text))
-                      {:value text})))
-    [peer principal manifest]))
+                      {:value text}))
+
+      :else [peer principal])))
 
 
 (defn- keygen-args
@@ -321,7 +397,8 @@
 
 (defn- dht-args
   "The legacy flags of `dht init|serve|join`.  `init` publishes (its key is
-   made on first use); `serve` stores for others; `join <token>` reads.
+   made on first use); `serve` stores for others; `join <token>` reads,
+   declaring and following the token's principal at its address.
    Every node needs a `--peer` to open a socket (the two-node start in
    yin.repl.md); `--listen [ip:]port` is the node's own address.  Returns
    `[args {:new-key path}]`."
@@ -344,8 +421,9 @@
             (recur (next args) (assoc o :token arg))
             (recur (next args) (update o :rest conj arg)))))
       (let [{:keys [name dir key peers listen token rest]} o
-            [tpeer principal manifest] (when (= "join" verb)
-                                         (parse-token token))
+            [tpeer principal] (when (= "join" verb)
+                                (parse-token token))
+            tpeer (some-> tpeer peer-text)
             peers (cond-> peers tpeer (conj tpeer))
             [_ lhost lport] (when listen
                               (re-matches #"(?:(.+):)?(\d+)" listen))
@@ -355,8 +433,11 @@
            key (into ["--dht-key" key])
            lhost (into ["--dht-bind" lhost])
            lport (into ["--dht-port" lport])
-           principal (into ["--dht-principal" principal])
-           manifest (into ["--dht-manifest" manifest])
+           ;; join follows the principal's head at the token's address and
+           ;; passes no manifest: its first manifest is the first head it
+           ;; installs (yin.vm.linker.dht.head.md 5.8)
+           principal (into ["--dht-principal" principal
+                            "--dht-follow" (str principal "@" tpeer)])
            true (into (mapcat #(vector "--dht-peer" %)) peers)
            true (into rest))
          {:new-key (when (= "init" verb) key)
@@ -427,8 +508,11 @@
    `--dht-max-inbound-bytes n`, the inbound storage bound; and
    `--dht-manifest address`, a remote index to hydrate before the first
    evaluation; `--dht-key file`, the publisher's stable key file
-   (yin.vm.linker.dht.md 6.5); and `--dht-principal hex`, repeatable, a
-   publisher whose signed names this node honors (7.1).  Any of them
+   (yin.vm.linker.dht.md 6.5); `--dht-principal hex`, repeatable, a
+   publisher whose signed names this node honors (7.1); and
+   `--dht-follow hex@host:port`, repeatable, a declared publisher whose
+   published head this node follows at that loopback address
+   (yin.vm.linker.dht.head.md 5.5, 5.8).  Any of them
    without `dht:<dir>` is refused.  `--dht-keygen file` writes a new key
    file and exits."
   [args]
@@ -441,10 +525,16 @@
             value (second args)]
         (case arg
           "--port" (recur (nnext args)
-                          (assoc opts :port (when-let [p (second args)]
-                                              #?(:cljd (int/parse p)
-                                                 :cljs (js/parseInt p 10)
-                                                 :clj (Long/parseLong p))))
+                          (assoc opts :port (when-some [p (second args)]
+                                              (let [n (parse-int p)]
+                                                (if (and n (<= 0 n 65535))
+                                                  n
+                                                  (throw (ex-info
+                                                           (str "--port takes a "
+                                                                "port from 0 to "
+                                                                "65535, not "
+                                                                (pr-str p))
+                                                           {:value p}))))))
                           dht)
           "--host" (throw (ex-info (str "--host is gone: --port serves on all "
                                         "interfaces, so it answers on "
@@ -482,6 +572,9 @@
                                    (update opts :principals (fnil conj [])
                                            (parse-principal value))
                                    dht)
+          "--dht-follow" (recur (nnext args) opts
+                                (update dht :follow (fnil conj [])
+                                        (parse-follow value)))
           "--dht-keygen" (recur (nnext args)
                                 (assoc opts :dht-keygen
                                        (or value
@@ -493,7 +586,8 @@
           "--telemetry-stream" (recur (nnext args)
                                       (update opts :rejected conj arg) dht)
           (recur (next args) (update opts :extra (fnil conj []) arg) dht)))
-      (update opts :index-store-spec dht-spec dht))))
+      (update opts :index-store-spec dht-spec
+              (assoc dht :principals (:principals opts))))))
 
 
 (defn boot
@@ -507,7 +601,9 @@
              :repl (shell/create-state
                      (cond-> {:index-store-spec (:index-store-spec opts)
                               :dht-key (:dht-key opts)
-                              :principals (:principals opts)}
+                              :principals (:principals opts)
+                              :ws-host (:ws-host opts)
+                              :write-heads! (:write-heads! opts)}
                        (:vm-type opts) (assoc :vm-type (:vm-type opts))))})))
 
 
@@ -582,7 +678,8 @@
    "subcommands:"
    "  dht init          publish: share the store, make the key on first run"
    "  dht serve         storing peer: fetch only, no key"
-   "  dht join <token>  reader: peer, principal and manifest from a join token"
+   "  dht join <token>  reader: follow the head of the token's principal;"
+   "                    the token is yin:<host:port>/<principal>"
    "  keygen            write a new Ed25519 key file and exit"
    ""
    "dht options:"
@@ -606,8 +703,9 @@
    ""
    "saved state: the flags a node starts with are kept in <node dir>/state.edn,"
    "and a bare `yin-repl` starts that node again. Flags change it: a repeated"
-   "flag (--dht-peer, --dht-principal) replaces its saved values, and the"
-   "result is saved. --dht-manifest and --dht-keygen are never saved."
+   "flag (--dht-peer, --dht-principal, --dht-follow) replaces its saved"
+   "values, and the result is saved. --dht-manifest and --dht-keygen are"
+   "never saved. A followed head is kept in <dht dir>/heads.edn."
    ""
    "dht flags (need --index-store dht:<dir>, except --dht-keygen):"
    "  --dht-peer host:port        bootstrap contact (IP literal); repeatable"
@@ -615,9 +713,12 @@
    "  --dht-bind ip               socket address; needs a peer"
    "  --dht-port p                socket port; needs a peer"
    "  --dht-max-inbound-bytes n   inbound payload bound (default 64 MiB)"
-   "  --dht-manifest :segment/... remote index to hydrate first; needs a peer"
+   "  --dht-manifest :segment/... remote index to hydrate first; needs a peer;"
+   "                              a pin: this run follows nothing"
    "  --dht-key file              the publisher's key file"
    "  --dht-principal hex         a publisher to trust; repeatable"
+   "  --dht-follow hex@host:port  follow a declared publisher's head at its"
+   "                              loopback address; repeatable"
    "  --dht-keygen file           write a new key file and exit"
    ""
    "--telemetry and --telemetry-stream are rejected."
@@ -714,10 +815,16 @@
            (let [key (some-> (:dht-key-file opts) load-key)
                  opts (cond-> opts
                         key (assoc :publisher (sign/principal (:public key))))
-                 state' (boot (assoc opts :dht-key key))
+                 ;; the head board is served and dialed over the host's
+                 ;; WebSocket seam (yin.vm.linker.dht.head.md 5.1)
+                 state' (boot (assoc opts
+                                     :dht-key key
+                                     :ws-host (or (:adapter opts)
+                                                  (host/websocket))))
                  server (boot-server opts)
-                 lines (when node-dir
-                         (save-state! node-dir saved resolved reset?))]
+                 lines (into (vec (repl.dht/follow-lines (:repl state')))
+                             (when node-dir
+                               (save-state! node-dir saved resolved reset?)))]
              {:opts (cond-> opts
                       (seq lines) (update :startup-lines
                                           #(into (vec %) lines)))
@@ -746,8 +853,10 @@
   "Release the index store's lifecycle resources before the host exits
    (in durable mode, the exclusive directory lock).  The shell has already
    stopped when a host calls this; the memory store has nothing to
-   release."
+   release.  A DHT store's head board listener and dials are released
+   first (yin.repl.dht/close!)."
   [state]
+  (repl.dht/close! (:repl state))
   (store/close! (get-in state [:repl :index-store])))
 
 

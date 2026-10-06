@@ -262,6 +262,9 @@
        " (quote [f]))  - publish module m exporting f from this session's"
        " indexed code under the --dht-key principal, and (yin.link/names)"
        "  - the names this node resolves\n"
+       "  (require (quote yin.head)), then (yin.head/heads)  - each followed"
+       " principal's installed head, and (yin.head/moved)  - the linked"
+       " names a newer head moved\n"
        "  (repl-state)\n"
        "  (help)\n"
        "  (quit)\n"
@@ -855,11 +858,19 @@
    `(yin.link/publish ...)` is refused and the node still reads, resolves,
    loads and links.  `:principals` are the public keys whose signed name
    assertions the reader honors (7.1); a key's own principal is declared
-   with them."
+   with them.
+
+   A DHT store spec's `:follow` entries are the principals whose
+   published heads the node follows (yin.vm.linker.dht.head.md 5.5);
+   `:ws-host` is the host WebSocket seam (yin.repl.host) the head board
+   is served and dialed over, and `:write-heads!` the file replace
+   `heads.edn` is written with (yin.repl.dht/open).  A `(require ...)` of
+   a name that is absent while a followed principal has no installed
+   head stays pending until that head is installed."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
-            index-store-spec dht-key principals]
+            index-store-spec dht-key principals ws-host write-heads!]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
@@ -885,10 +896,16 @@
                         :content-client content-client
                         :dht? (= :dht (:type index-store-spec))
                         :principals principals
-                        :key dht-key})
+                        :key dht-key
+                        :follow (when (= :dht (:type index-store-spec))
+                                  (repl.dht/followed-principals
+                                    index-store-spec))})
          index-store (or index-store
                          (if (= :dht (:type index-store-spec))
-                           (repl.dht/open index-store-spec)
+                           (repl.dht/open index-store-spec
+                                          {:key dht-key
+                                           :ws ws-host
+                                           :write-heads! write-heads!})
                            (store/open index-store-spec)))]
      (merge
        (update (make-session vm-type output-stream primitives shell-token
@@ -1791,15 +1808,22 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 (defn recheck-on-load-events
   "The host ticker's re-check of a pending run over a DHT link source
    (yin.vm.linker.dht.md 8.2): `recheck-pending`, once, if and only if
-   `events` -- one tick's `dao.space.dht/step` events -- hold a `:loaded`
-   or `:load-failed` event for a manifest a pending link waits on.  Any
-   other event, and any event while nothing waits on its manifest,
-   answers `[state nil]` with `state` itself: no re-check, no `:checks`."
+   `events` -- one tick's `dao.space.dht/step` events and head follower
+   events -- hold a `:loaded` or `:load-failed` event for a manifest a
+   pending link waits on, or an `:installed` head of a principal a
+   pending link awaits (yin.vm.linker.dht.head.md 5.6, first contact).
+   Any other event, and any event while nothing waits on it, answers
+   `[state nil]` with `state` itself: no re-check, no `:checks`."
   [state events]
-  (let [waits (set (keep :manifest (get-in state [:pending-run :links])))]
+  (let [links (get-in state [:pending-run :links])
+        waits (set (keep :manifest links))
+        heads (set (mapcat :principals links))]
     (if (some (fn [e]
-                (and (contains? #{:loaded :load-failed} (:dao.space.dht/event e))
-                     (contains? waits (:manifest e))))
+                (or (and (contains? #{:loaded :load-failed}
+                                    (:dao.space.dht/event e))
+                         (contains? waits (:manifest e)))
+                    (and (= :installed (:yin.head/event e))
+                         (contains? heads (:principal e)))))
               events)
       (recheck-pending state)
       [state nil])))

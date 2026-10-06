@@ -71,15 +71,17 @@ file is plain EDN and may be edited by hand:
 
 - **What is saved:** `--index-store`, `--vm`, `--port`, `--headless`,
   `--dht-peer`, `--dht-publish`, `--dht-bind`, `--dht-port`,
-  `--dht-max-inbound-bytes`, `--dht-key` and `--dht-principal`, which is
-  what the `dht` subcommands expand to. The one-shot `--dht-manifest` and
-  `--dht-keygen` are never saved. Definitions are not saved here: a durable
+  `--dht-max-inbound-bytes`, `--dht-key`, `--dht-principal` and
+  `--dht-follow`, which is what the `dht` subcommands expand to. The
+  one-shot `--dht-manifest` and `--dht-keygen` are never saved, and
+  neither is a followed head: that is `heads.edn`'s, in the store
+  directory (see Following a publisher's head). Definitions are not saved here: a durable
   index store (`file:` or `dht:`) already keeps what was evaluated. The
   evaluator chosen at the prompt with `(vm :type)` is not saved; start with
   `--vm` to save one.
 - **Changing it:** a flag overrides the saved value for that setting, and the
-  result is saved. A repeated flag (`--dht-peer`, `--dht-principal`)
-  replaces all of its saved values rather than adding to them. `dht init`
+  result is saved. A repeated flag (`--dht-peer`, `--dht-principal`,
+  `--dht-follow`) replaces all of its saved values rather than adding to them. `dht init`
   saves publishing; `dht serve` and `dht join` clear it. A bare switch
   (`--headless`, `--dht-publish`) cannot be turned off by a flag, so use
   `--reset`.
@@ -253,25 +255,29 @@ below still works, but A reports `NOT acknowledged: too few peers, sent to
    acknowledged is not replicated yet; if it says it is retrying, leave A
    open. A's own copy is durable in its directory either way.
 
-4. Take the **join token** A prints with those lines, its last `dht: join
-   token: yin:127.0.0.1:4001/<principal>/segment/...`. It bundles A's
-   address, the principal and the index manifest (what A records in
-   `~/.yin/a/HEAD`), so nothing is copied separately; use the latest one.
-   It carries the address A bound, so give `--listen` a routable `ip` when
-   readers are on other machines.
+4. Take the **join token** A printed once its socket and head board were
+   bound: `dht: join token: yin:127.0.0.1:4001/<principal>`. It names A's
+   address and its principal, and no manifest: a reader follows whatever
+   A's HEAD is. It is printed once per run, and only on a loopback bind.
 
 5. Start **C**, a reader with an empty directory, with the token:
 
    ```bash
-   clj -M:clj-yin-repl dht join --name c yin:127.0.0.1:4001/9d61b19d.../segment/...
+   clj -M:clj-yin-repl dht join --name c yin:127.0.0.1:4001/9d61b19d...
    ```
 
-   After `dht: hydrated ...` and `evaluation admitted`, `(require (quote
-   my.lib))` followed by `(my.lib/f 1)` answers `4201`.
+   C admits evaluation at once and says `dht: following ed25519:... at
+   127.0.0.1:4001; no head installed yet`. `(require (quote my.lib))`
+   waits for C's first head, then `(my.lib/f 1)` answers `4201`.
 
-Nodes may run on different hosts: a reader on the JVM, Node or Dart joins
-a publisher on any of them. To use more nodes, give each its own state and
-port and list any live node with `--peer`; a node may list several.
+Readers may run on the JVM, Node or Dart. `dht join` is loopback only in
+this version: a publisher bound off loopback prints no token, so a reader
+on another machine still starts with `--dht-manifest` and `--dht-principal`
+by hand (see The flags). The DHT itself may span hosts. Give a publisher
+a fixed `--listen` port: a reader's saved `--dht-follow` names that port,
+and a publisher restarted on another one is not found. To use more nodes,
+give each its own state and port and list any live node with `--peer`; a
+node may list several.
 
 ### The flags
 
@@ -288,8 +294,10 @@ controls `--name n` and `--dir d` (the node directory), `--reset` and
 The subcommands map onto the DHT flags. `dht serve` is
 `--index-store dht:<dir>` with `--dht-peer` and `--dht-port`; `dht init`
 adds `--dht-publish` and `--dht-key`, making the key first as `--dht-keygen` does; `dht join` adds
-the token's peer, `--dht-manifest` and `--dht-principal` (the token
-accepts the principal with or without `ed25519:`). `--listen` is
+the token's peer, `--dht-principal` and `--dht-follow` (the token
+accepts the principal with or without `ed25519:`), and no
+`--dht-manifest`. A token with a third part is refused: a manifest is a
+pin and belongs to `--dht-manifest`. `--listen` is
 `--dht-bind` and `--dht-port` together. Any other flag (`--port`,
 `--headless`, `--dht-max-inbound-bytes`) passes through after the
 subcommand.
@@ -304,7 +312,11 @@ address, loopback and ephemeral unless given, and need a peer;
 `--dht-max-inbound-bytes n` bounds the payload the node accepts from
 peers, 64 MiB by default. `--dht-manifest :segment/...`, with or without
 its leading colon, hands the node a remote index manifest to hydrate
-before the first evaluation, and needs a peer too. `--dht-key file` loads
+before the first evaluation, and needs a peer too; it is a pin, so a run
+given it follows nothing and its banner says following is suspended.
+`--dht-follow hex@host:port` (repeatable) follows the published head of
+a principal declared with `--dht-principal`, at that loopback address;
+an undeclared one refuses startup. `--dht-key file` loads
 the publisher's stable Ed25519 key file, and `--dht-principal hex`
 (repeatable) declares a publisher whose signed names this node honors:
 the public key's 64 lowercase hexadecimal digits alone, without the
@@ -318,7 +330,7 @@ clj -M:clj-yin-repl --index-store dht:$HOME/.yin/a \
     --dht-peer 127.0.0.1:4002 --dht-peer 127.0.0.1:4003 --dht-port 4001 \
     --dht-publish --dht-key ~/.yin/a.key
 clj -M:clj-yin-repl --index-store dht:$HOME/.yin/c --dht-peer 127.0.0.1:4001 \
-    --dht-manifest :segment/... --dht-principal 9d61b19d...
+    --dht-principal 9d61b19d... --dht-follow 9d61b19d...@127.0.0.1:4001
 ```
 
 The banner states, before the node steps once and so before anything is
@@ -365,10 +377,13 @@ and a format it refused at publish time (an export reading a module-level
 definition from inside a lambda refuses the tree format) refuses at
 require time too.
 
-**Loading by name.** A reader started with `dht join` (step 5) hydrates
-before the first evaluation: typed lines wait in the input medium until
-the reader prints `dht: hydrated :<manifest>`, with the datom and blob
-counts, and `evaluation admitted`. Then require by name:
+**Loading by name.** A reader started with `dht join` (step 5) follows
+the publisher's head and admits evaluation at once. A require of a name
+no installed head asserts yet waits for the first head, and completes
+when it is installed with no line typed. A reader started with
+`--dht-manifest` hydrates that index first instead: typed lines wait
+until it prints `dht: hydrated :<manifest>` and `evaluation admitted`.
+Then require by name:
 
 ```clojure
 yin> (require (quote my.lib))
@@ -391,6 +406,44 @@ Each VM's session links the module itself, so after `(vm :type)` require
 the name again: the same published name evaluates on all four VMs.
 `(yin.link/names)` answers the names this node resolves, each with its
 manifest address and the principal that asserted it.
+
+### Following a publisher's head
+
+A publisher (a key, a peer and `--dht-publish`) deposits a signed trace of
+its index HEAD on its **head board** at every HEAD move, and serves the
+board over WebSocket at the same port number as its DHT socket, path
+`/head`, on a loopback bind only. A follower dials the board at the
+address it was given and nowhere else, fetches the index the trace names
+over the DHT, checks it, and installs it as that principal's head. The
+lines it prints:
+
+- `dht: installed the head of ed25519:...: :segment/... (seq n)`.
+- `dht: my.lib moved: linked :segment/a, now resolves to :segment/b
+  (head of ed25519:... seq n); (reset) then (require 'my.lib) links it`.
+  A session keeps what it linked: a repeat `(require ...)` is unchanged.
+- `dht: refused a head of ...` (a trace that is stale, forged, or does not
+  match its index), `... cannot load ...` (retried), `lost the head board
+  ...; dialing it again`, and `:yin.head/unpersisted` when `heads.edn`
+  cannot be written (nothing is installed; the write is retried).
+- `dht: cannot follow ed25519:... at 127.0.0.1:4001: ...; dialing it
+  again`, once each time the reason changes, not at every attempt: nothing
+  answers there, or that endpoint serves no head board for this principal
+  (a publisher started with another key, or on another port).
+
+The installed head of each followed principal is written to
+`<dht dir>/heads.edn` before it is used, so a restart resolves from it
+before any connection, publisher stopped or not. A `heads.edn` that is not
+one readable record, larger than 1 MiB, or not valid UTF-8 refuses
+startup; move the file aside to follow from no head. A record that does
+not verify, or one for a principal no longer followed, refuses startup
+naming it: remove that record. Either way that principal is followed from
+no head, so its floor is dropped and the protection against an older head
+being shown again ends for it until a head is installed. `(require (quote yin.head))` answers
+`(yin.head/heads)`, per principal what is installed, the candidate and the
+last refusal, and `(yin.head/moved)`, the linked names a newer head moved.
+A bare `q` answers this node's own index; the publisher's facts are
+`(dao.space.dht/q <manifest> ...)` after `(dao.space.dht/load-index
+<manifest>)`, with the manifest from `(yin.head/heads)`.
 
 **Why a required name can be trusted.** Content is content-addressed,
 and every hop re-verifies it: a blob fetched from a peer is checked
@@ -443,6 +496,8 @@ The contracts this guide follows, all under `docs/design/`:
 
 - [`yin.vm.linker.dht.md`](../../../../../docs/design/yin.vm.linker.dht.md):
   publishing, resolving and loading modules by signed name over the DHT.
+- [`yin.vm.linker.dht.head.md`](../../../../../docs/design/yin.vm.linker.dht.head.md):
+  following a publisher's index HEAD by principal.
 - [`yin.repl.dao.space-index.md`](../../../../../docs/design/yin.repl.dao.space-index.md):
   automatic code indexing on evaluation, and the `dht:<dir>` store.
 - [`yin.repl.link-policy.md`](../../../../../docs/design/yin.repl.link-policy.md):
