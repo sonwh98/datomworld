@@ -527,13 +527,17 @@
 
 
 (deftest huge-hex-test
-  (testing "a 5000-digit hex literal runs under max-digits 4300 and prints
-            its exact decimal (no digit limit on the snapshot in S2)"
-    (let [hex (apply str (repeat 5000 "f"))
-          n (f/call (f/module 100000 100000) 'parse hex 16)]
+  (testing "a 5000-digit hex literal runs under max-digits 4300, and
+            printing it raises the digit-limit ValueError before anything
+            is printed (S4: print checks every integer first)"
+    (let [hex (apply str (repeat 5000 "f"))]
       (doseq [[k result] (run-everywhere @runners
                                          (print-program [(str "0x" hex)]))]
-        (is (= {:py/out [(text-in n 10)], :py/exception nil}
+        (is (= {:py/out [],
+                :py/exception
+                {:type "ValueError",
+                 :args [(str "Exceeds the limit (4300 digits) for integer"
+                             " string conversion")]}}
                (render/output result))
             (str k)))))
   (testing "0x1 and 1100 zero digits (2^4400) under max-bits 4096: a

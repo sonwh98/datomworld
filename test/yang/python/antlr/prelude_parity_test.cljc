@@ -11,6 +11,7 @@
     [dao.jing :as jing]
     [dao.jing.cbor :as cbor]
     [dao.test-slow :as slow]
+    [yang.python.antlr.int-ops-test :as ops]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.render :as render]
     [yang.python.antlr.uast :as u]
@@ -21,7 +22,6 @@
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
     [yin.vm.integer :as integer]
-    [yin.vm.integer.host :as integer-host]
     [yin.vm.linearize :as linearize]
     [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]
@@ -100,33 +100,6 @@
                      (update x :py/float data/float64)
                      x))
                  form))
-
-
-(defn- exact-literals
-  "`form` with every integer literal of magnitude 2^53 or more as an
-   (integer/parse text): a bare one is not a canonical carrier on JS. A
-   float literal such as 1.0E20 is also an integer there, so callers
-   skip the float-only rows."
-  [form]
-  (walk/postwalk (fn [x]
-                   (if (and (integer? x) (>= (abs x) 9007199254740992))
-                     (list 'integer/parse (str x))
-                     x))
-                 form))
-
-
-(defn- canon-ints
-  "`x` with every integer, host number or big carrier, as its decimal
-   text, so a result compares equal across hosts. An integral double is
-   one too: py/floor answers -3.0 on Dart, and a float's own type is
-   carried by its {:py/float} wrapper."
-  [x]
-  (walk/postwalk (fn [n]
-                   (if (or (integer-host/big-carrier? n)
-                           (and (number? n) (zero? (rem n 1))))
-                     (str (if (number? n) (long n) n))
-                     n))
-                 x))
 
 
 (def ^:private cases
@@ -256,14 +229,14 @@
                        (list 'py/conj acc
                              (if (= 'py/float-mod (first f))
                                (with-float64 f)
-                               (exact-literals (with-float64 f)))))
+                               (ops/exact-literals (with-float64 f)))))
                      []
                      cases)
-        expected (canon-ints (mapv (comp with-float64 second) cases))
+        expected (ops/canon-ints (mapv (comp with-float64 second) cases))
         results (run-with-prelude prelude/functions-uast form)]
     (doseq [[k result] results]
       (testing (str k)
-        (is (= expected (canon-ints result)))))))
+        (is (= expected (ops/canon-ints result)))))))
 
 
 (deftest ^:slow prelude-semantics-on-every-vm-test
@@ -1132,7 +1105,8 @@
                                           (integer/format big))))))))]
       (is (= [::integer/digit-limit
               ["ValueError"
-               {:py/str "Exceeds the limit for integer string conversion"}]]
+               {:py/str (str "Exceeds the limit (4300 digits) for integer"
+                             " string conversion")}]]
              result)
           (str k)))))
 
@@ -1201,7 +1175,8 @@
           (is (= [["MemoryError"] ["MemoryError"] ["MemoryError"]
                   ["MemoryError"]
                   ["ValueError"
-                   {:py/str "Exceeds the limit for integer string conversion"}]
+                   {:py/str (str "Exceeds the limit (5 digits) for integer"
+                                 " string conversion")}]
                   [:py.numeric/finite "3" "2"]
                   ["MemoryError"] [:finally] true true 3]
                  result)))))))

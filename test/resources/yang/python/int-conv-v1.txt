@@ -1,0 +1,1012 @@
+int-conv-v1
+CPython 3.9.6
+int_str	s:	0	!ValueError	invalid literal for int() with base 0: ''
+int_str	s:	2	!ValueError	invalid literal for int() with base 2: ''
+int_str	s:	8	!ValueError	invalid literal for int() with base 8: ''
+int_str	s:	10	!ValueError	invalid literal for int() with base 10: ''
+int_str	s:	16	!ValueError	invalid literal for int() with base 16: ''
+int_str	s:	36	!ValueError	invalid literal for int() with base 36: ''
+int_str	s:20	0	!ValueError	invalid literal for int() with base 0: ' '
+int_str	s:20	2	!ValueError	invalid literal for int() with base 2: ' '
+int_str	s:20	8	!ValueError	invalid literal for int() with base 8: ' '
+int_str	s:20	10	!ValueError	invalid literal for int() with base 10: ' '
+int_str	s:20	16	!ValueError	invalid literal for int() with base 16: ' '
+int_str	s:20	36	!ValueError	invalid literal for int() with base 36: ' '
+int_str	s:9,a	0	!ValueError	invalid literal for int() with base 0: '\t\n'
+int_str	s:9,a	2	!ValueError	invalid literal for int() with base 2: '\t\n'
+int_str	s:9,a	8	!ValueError	invalid literal for int() with base 8: '\t\n'
+int_str	s:9,a	10	!ValueError	invalid literal for int() with base 10: '\t\n'
+int_str	s:9,a	16	!ValueError	invalid literal for int() with base 16: '\t\n'
+int_str	s:9,a	36	!ValueError	invalid literal for int() with base 36: '\t\n'
+int_str	s:30	0	0
+int_str	s:30	2	0
+int_str	s:30	8	0
+int_str	s:30	10	0
+int_str	s:30	16	0
+int_str	s:30	36	0
+int_str	s:30,30	0	0
+int_str	s:30,30	2	0
+int_str	s:30,30	8	0
+int_str	s:30,30	10	0
+int_str	s:30,30	16	0
+int_str	s:30,30	36	0
+int_str	s:30,31,30	0	!ValueError	invalid literal for int() with base 0: '010'
+int_str	s:30,31,30	2	2
+int_str	s:30,31,30	8	8
+int_str	s:30,31,30	10	10
+int_str	s:30,31,30	16	16
+int_str	s:30,31,30	36	36
+int_str	s:30,5f,30	0	0
+int_str	s:30,5f,30	2	0
+int_str	s:30,5f,30	8	0
+int_str	s:30,5f,30	10	0
+int_str	s:30,5f,30	16	0
+int_str	s:30,5f,30	36	0
+int_str	s:30,30,30,5f,31	0	!ValueError	invalid literal for int() with base 0: '000_1'
+int_str	s:30,30,30,5f,31	2	1
+int_str	s:30,30,30,5f,31	8	1
+int_str	s:30,30,30,5f,31	10	1
+int_str	s:30,30,30,5f,31	16	1
+int_str	s:30,30,30,5f,31	36	1
+int_str	s:2b,31	0	1
+int_str	s:2b,31	2	1
+int_str	s:2b,31	8	1
+int_str	s:2b,31	10	1
+int_str	s:2b,31	16	1
+int_str	s:2b,31	36	1
+int_str	s:2d,31	0	-1
+int_str	s:2d,31	2	-1
+int_str	s:2d,31	8	-1
+int_str	s:2d,31	10	-1
+int_str	s:2d,31	16	-1
+int_str	s:2d,31	36	-1
+int_str	s:2b	0	!ValueError	invalid literal for int() with base 0: '+'
+int_str	s:2b	2	!ValueError	invalid literal for int() with base 2: '+'
+int_str	s:2b	8	!ValueError	invalid literal for int() with base 8: '+'
+int_str	s:2b	10	!ValueError	invalid literal for int() with base 10: '+'
+int_str	s:2b	16	!ValueError	invalid literal for int() with base 16: '+'
+int_str	s:2b	36	!ValueError	invalid literal for int() with base 36: '+'
+int_str	s:2d	0	!ValueError	invalid literal for int() with base 0: '-'
+int_str	s:2d	2	!ValueError	invalid literal for int() with base 2: '-'
+int_str	s:2d	8	!ValueError	invalid literal for int() with base 8: '-'
+int_str	s:2d	10	!ValueError	invalid literal for int() with base 10: '-'
+int_str	s:2d	16	!ValueError	invalid literal for int() with base 16: '-'
+int_str	s:2d	36	!ValueError	invalid literal for int() with base 36: '-'
+int_str	s:31,5f,30	0	10
+int_str	s:31,5f,30	2	2
+int_str	s:31,5f,30	8	8
+int_str	s:31,5f,30	10	10
+int_str	s:31,5f,30	16	16
+int_str	s:31,5f,30	36	36
+int_str	s:5f,31	0	!ValueError	invalid literal for int() with base 0: '_1'
+int_str	s:5f,31	2	!ValueError	invalid literal for int() with base 2: '_1'
+int_str	s:5f,31	8	!ValueError	invalid literal for int() with base 8: '_1'
+int_str	s:5f,31	10	!ValueError	invalid literal for int() with base 10: '_1'
+int_str	s:5f,31	16	!ValueError	invalid literal for int() with base 16: '_1'
+int_str	s:5f,31	36	!ValueError	invalid literal for int() with base 36: '_1'
+int_str	s:31,5f	0	!ValueError	invalid literal for int() with base 0: '1_'
+int_str	s:31,5f	2	!ValueError	invalid literal for int() with base 2: '1_'
+int_str	s:31,5f	8	!ValueError	invalid literal for int() with base 8: '1_'
+int_str	s:31,5f	10	!ValueError	invalid literal for int() with base 10: '1_'
+int_str	s:31,5f	16	!ValueError	invalid literal for int() with base 16: '1_'
+int_str	s:31,5f	36	!ValueError	invalid literal for int() with base 36: '1_'
+int_str	s:31,5f,5f,30	0	!ValueError	invalid literal for int() with base 0: '1__0'
+int_str	s:31,5f,5f,30	2	!ValueError	invalid literal for int() with base 2: '1__0'
+int_str	s:31,5f,5f,30	8	!ValueError	invalid literal for int() with base 8: '1__0'
+int_str	s:31,5f,5f,30	10	!ValueError	invalid literal for int() with base 10: '1__0'
+int_str	s:31,5f,5f,30	16	!ValueError	invalid literal for int() with base 16: '1__0'
+int_str	s:31,5f,5f,30	36	!ValueError	invalid literal for int() with base 36: '1__0'
+int_str	s:30,78,5f,66	0	15
+int_str	s:30,78,5f,66	2	!ValueError	invalid literal for int() with base 2: '0x_f'
+int_str	s:30,78,5f,66	8	!ValueError	invalid literal for int() with base 8: '0x_f'
+int_str	s:30,78,5f,66	10	!ValueError	invalid literal for int() with base 10: '0x_f'
+int_str	s:30,78,5f,66	16	15
+int_str	s:30,78,5f,66	36	1203
+int_str	s:30,58,46,46	0	255
+int_str	s:30,58,46,46	2	!ValueError	invalid literal for int() with base 2: '0XFF'
+int_str	s:30,58,46,46	8	!ValueError	invalid literal for int() with base 8: '0XFF'
+int_str	s:30,58,46,46	10	!ValueError	invalid literal for int() with base 10: '0XFF'
+int_str	s:30,58,46,46	16	255
+int_str	s:30,58,46,46	36	43323
+int_str	s:30,6f,5f,37	0	7
+int_str	s:30,6f,5f,37	2	!ValueError	invalid literal for int() with base 2: '0o_7'
+int_str	s:30,6f,5f,37	8	7
+int_str	s:30,6f,5f,37	10	!ValueError	invalid literal for int() with base 10: '0o_7'
+int_str	s:30,6f,5f,37	16	!ValueError	invalid literal for int() with base 16: '0o_7'
+int_str	s:30,6f,5f,37	36	871
+int_str	s:30,62,5f,31	0	1
+int_str	s:30,62,5f,31	2	1
+int_str	s:30,62,5f,31	8	!ValueError	invalid literal for int() with base 8: '0b_1'
+int_str	s:30,62,5f,31	10	!ValueError	invalid literal for int() with base 10: '0b_1'
+int_str	s:30,62,5f,31	16	177
+int_str	s:30,62,5f,31	36	397
+int_str	s:30,78	0	!ValueError	invalid literal for int() with base 0: '0x'
+int_str	s:30,78	2	!ValueError	invalid literal for int() with base 2: '0x'
+int_str	s:30,78	8	!ValueError	invalid literal for int() with base 8: '0x'
+int_str	s:30,78	10	!ValueError	invalid literal for int() with base 10: '0x'
+int_str	s:30,78	16	!ValueError	invalid literal for int() with base 16: '0x'
+int_str	s:30,78	36	33
+int_str	s:30,78,5f,5f,66	0	!ValueError	invalid literal for int() with base 0: '0x__f'
+int_str	s:30,78,5f,5f,66	2	!ValueError	invalid literal for int() with base 2: '0x__f'
+int_str	s:30,78,5f,5f,66	8	!ValueError	invalid literal for int() with base 8: '0x__f'
+int_str	s:30,78,5f,5f,66	10	!ValueError	invalid literal for int() with base 10: '0x__f'
+int_str	s:30,78,5f,5f,66	16	!ValueError	invalid literal for int() with base 16: '0x__f'
+int_str	s:30,78,5f,5f,66	36	!ValueError	invalid literal for int() with base 36: '0x__f'
+int_str	s:30,78,5f,66,5f	0	!ValueError	invalid literal for int() with base 0: '0x_f_'
+int_str	s:30,78,5f,66,5f	2	!ValueError	invalid literal for int() with base 2: '0x_f_'
+int_str	s:30,78,5f,66,5f	8	!ValueError	invalid literal for int() with base 8: '0x_f_'
+int_str	s:30,78,5f,66,5f	10	!ValueError	invalid literal for int() with base 10: '0x_f_'
+int_str	s:30,78,5f,66,5f	16	!ValueError	invalid literal for int() with base 16: '0x_f_'
+int_str	s:30,78,5f,66,5f	36	!ValueError	invalid literal for int() with base 36: '0x_f_'
+int_str	s:30,62,32	0	!ValueError	invalid literal for int() with base 0: '0b2'
+int_str	s:30,62,32	2	!ValueError	invalid literal for int() with base 2: '0b2'
+int_str	s:30,62,32	8	!ValueError	invalid literal for int() with base 8: '0b2'
+int_str	s:30,62,32	10	!ValueError	invalid literal for int() with base 10: '0b2'
+int_str	s:30,62,32	16	178
+int_str	s:30,62,32	36	398
+int_str	s:30,6f,38	0	!ValueError	invalid literal for int() with base 0: '0o8'
+int_str	s:30,6f,38	2	!ValueError	invalid literal for int() with base 2: '0o8'
+int_str	s:30,6f,38	8	!ValueError	invalid literal for int() with base 8: '0o8'
+int_str	s:30,6f,38	10	!ValueError	invalid literal for int() with base 10: '0o8'
+int_str	s:30,6f,38	16	!ValueError	invalid literal for int() with base 16: '0o8'
+int_str	s:30,6f,38	36	872
+int_str	s:61	0	!ValueError	invalid literal for int() with base 0: 'a'
+int_str	s:61	2	!ValueError	invalid literal for int() with base 2: 'a'
+int_str	s:61	8	!ValueError	invalid literal for int() with base 8: 'a'
+int_str	s:61	10	!ValueError	invalid literal for int() with base 10: 'a'
+int_str	s:61	16	10
+int_str	s:61	36	10
+int_str	s:5a	0	!ValueError	invalid literal for int() with base 0: 'Z'
+int_str	s:5a	2	!ValueError	invalid literal for int() with base 2: 'Z'
+int_str	s:5a	8	!ValueError	invalid literal for int() with base 8: 'Z'
+int_str	s:5a	10	!ValueError	invalid literal for int() with base 10: 'Z'
+int_str	s:5a	16	!ValueError	invalid literal for int() with base 16: 'Z'
+int_str	s:5a	36	35
+int_str	s:31,2e,30	0	!ValueError	invalid literal for int() with base 0: '1.0'
+int_str	s:31,2e,30	2	!ValueError	invalid literal for int() with base 2: '1.0'
+int_str	s:31,2e,30	8	!ValueError	invalid literal for int() with base 8: '1.0'
+int_str	s:31,2e,30	10	!ValueError	invalid literal for int() with base 10: '1.0'
+int_str	s:31,2e,30	16	!ValueError	invalid literal for int() with base 16: '1.0'
+int_str	s:31,2e,30	36	!ValueError	invalid literal for int() with base 36: '1.0'
+int_str	s:31,65,32	0	!ValueError	invalid literal for int() with base 0: '1e2'
+int_str	s:31,65,32	2	!ValueError	invalid literal for int() with base 2: '1e2'
+int_str	s:31,65,32	8	!ValueError	invalid literal for int() with base 8: '1e2'
+int_str	s:31,65,32	10	!ValueError	invalid literal for int() with base 10: '1e2'
+int_str	s:31,65,32	16	482
+int_str	s:31,65,32	36	1802
+int_str	s:20,31,27,20	0	!ValueError	invalid literal for int() with base 0: " 1' "
+int_str	s:20,31,27,20	2	!ValueError	invalid literal for int() with base 2: " 1' "
+int_str	s:20,31,27,20	8	!ValueError	invalid literal for int() with base 8: " 1' "
+int_str	s:20,31,27,20	10	!ValueError	invalid literal for int() with base 10: " 1' "
+int_str	s:20,31,27,20	16	!ValueError	invalid literal for int() with base 16: " 1' "
+int_str	s:20,31,27,20	36	!ValueError	invalid literal for int() with base 36: " 1' "
+int_str	s:31,22	0	!ValueError	invalid literal for int() with base 0: '1"'
+int_str	s:31,22	2	!ValueError	invalid literal for int() with base 2: '1"'
+int_str	s:31,22	8	!ValueError	invalid literal for int() with base 8: '1"'
+int_str	s:31,22	10	!ValueError	invalid literal for int() with base 10: '1"'
+int_str	s:31,22	16	!ValueError	invalid literal for int() with base 16: '1"'
+int_str	s:31,22	36	!ValueError	invalid literal for int() with base 36: '1"'
+int_str	s:5c	0	!ValueError	invalid literal for int() with base 0: '\\'
+int_str	s:5c	2	!ValueError	invalid literal for int() with base 2: '\\'
+int_str	s:5c	8	!ValueError	invalid literal for int() with base 8: '\\'
+int_str	s:5c	10	!ValueError	invalid literal for int() with base 10: '\\'
+int_str	s:5c	16	!ValueError	invalid literal for int() with base 16: '\\'
+int_str	s:5c	36	!ValueError	invalid literal for int() with base 36: '\\'
+int_str	s:0	0	!ValueError	invalid literal for int() with base 0: '\x00'
+int_str	s:0	2	!ValueError	invalid literal for int() with base 2: '\x00'
+int_str	s:0	8	!ValueError	invalid literal for int() with base 8: '\x00'
+int_str	s:0	10	!ValueError	invalid literal for int() with base 10: '\x00'
+int_str	s:0	16	!ValueError	invalid literal for int() with base 16: '\x00'
+int_str	s:0	36	!ValueError	invalid literal for int() with base 36: '\x00'
+int_str	s:20,20,2d,31,32,20,20	0	-12
+int_str	s:20,20,2d,31,32,20,20	2	!ValueError	invalid literal for int() with base 2: '  -12  '
+int_str	s:20,20,2d,31,32,20,20	8	-10
+int_str	s:20,20,2d,31,32,20,20	10	-12
+int_str	s:20,20,2d,31,32,20,20	16	-18
+int_str	s:20,20,2d,31,32,20,20	36	-38
+int_str	s:31,30	2	2
+int_str	s:2d,31,30	2	-2
+int_str	s:7a	2	!ValueError	invalid literal for int() with base 2: 'z'
+int_str	s:31,30	3	3
+int_str	s:2d,31,30	3	-3
+int_str	s:7a	3	!ValueError	invalid literal for int() with base 3: 'z'
+int_str	s:31,5f,30	3	3
+int_str	s:31,5f,5f,30	3	!ValueError	invalid literal for int() with base 3: '1__0'
+int_str	s:31,30	4	4
+int_str	s:2d,31,30	4	-4
+int_str	s:7a	4	!ValueError	invalid literal for int() with base 4: 'z'
+int_str	s:31,5f,30	4	4
+int_str	s:31,5f,5f,30	4	!ValueError	invalid literal for int() with base 4: '1__0'
+int_str	s:31,30	5	5
+int_str	s:2d,31,30	5	-5
+int_str	s:7a	5	!ValueError	invalid literal for int() with base 5: 'z'
+int_str	s:31,5f,30	5	5
+int_str	s:31,5f,5f,30	5	!ValueError	invalid literal for int() with base 5: '1__0'
+int_str	s:31,30	6	6
+int_str	s:2d,31,30	6	-6
+int_str	s:7a	6	!ValueError	invalid literal for int() with base 6: 'z'
+int_str	s:31,5f,30	6	6
+int_str	s:31,5f,5f,30	6	!ValueError	invalid literal for int() with base 6: '1__0'
+int_str	s:31,30	7	7
+int_str	s:2d,31,30	7	-7
+int_str	s:7a	7	!ValueError	invalid literal for int() with base 7: 'z'
+int_str	s:31,5f,30	7	7
+int_str	s:31,5f,5f,30	7	!ValueError	invalid literal for int() with base 7: '1__0'
+int_str	s:31,30	8	8
+int_str	s:2d,31,30	8	-8
+int_str	s:7a	8	!ValueError	invalid literal for int() with base 8: 'z'
+int_str	s:31,30	9	9
+int_str	s:2d,31,30	9	-9
+int_str	s:7a	9	!ValueError	invalid literal for int() with base 9: 'z'
+int_str	s:31,5f,30	9	9
+int_str	s:31,5f,5f,30	9	!ValueError	invalid literal for int() with base 9: '1__0'
+int_str	s:31,30	10	10
+int_str	s:2d,31,30	10	-10
+int_str	s:7a	10	!ValueError	invalid literal for int() with base 10: 'z'
+int_str	s:31,30	11	11
+int_str	s:2d,31,30	11	-11
+int_str	s:7a	11	!ValueError	invalid literal for int() with base 11: 'z'
+int_str	s:31,5f,30	11	11
+int_str	s:31,5f,5f,30	11	!ValueError	invalid literal for int() with base 11: '1__0'
+int_str	s:31,30	12	12
+int_str	s:2d,31,30	12	-12
+int_str	s:7a	12	!ValueError	invalid literal for int() with base 12: 'z'
+int_str	s:31,5f,30	12	12
+int_str	s:31,5f,5f,30	12	!ValueError	invalid literal for int() with base 12: '1__0'
+int_str	s:31,30	13	13
+int_str	s:2d,31,30	13	-13
+int_str	s:7a	13	!ValueError	invalid literal for int() with base 13: 'z'
+int_str	s:31,5f,30	13	13
+int_str	s:31,5f,5f,30	13	!ValueError	invalid literal for int() with base 13: '1__0'
+int_str	s:31,30	14	14
+int_str	s:2d,31,30	14	-14
+int_str	s:7a	14	!ValueError	invalid literal for int() with base 14: 'z'
+int_str	s:31,5f,30	14	14
+int_str	s:31,5f,5f,30	14	!ValueError	invalid literal for int() with base 14: '1__0'
+int_str	s:31,30	15	15
+int_str	s:2d,31,30	15	-15
+int_str	s:7a	15	!ValueError	invalid literal for int() with base 15: 'z'
+int_str	s:31,5f,30	15	15
+int_str	s:31,5f,5f,30	15	!ValueError	invalid literal for int() with base 15: '1__0'
+int_str	s:31,30	16	16
+int_str	s:2d,31,30	16	-16
+int_str	s:7a	16	!ValueError	invalid literal for int() with base 16: 'z'
+int_str	s:31,30	17	17
+int_str	s:2d,31,30	17	-17
+int_str	s:7a	17	!ValueError	invalid literal for int() with base 17: 'z'
+int_str	s:31,5f,30	17	17
+int_str	s:31,5f,5f,30	17	!ValueError	invalid literal for int() with base 17: '1__0'
+int_str	s:31,30	18	18
+int_str	s:2d,31,30	18	-18
+int_str	s:7a	18	!ValueError	invalid literal for int() with base 18: 'z'
+int_str	s:31,5f,30	18	18
+int_str	s:31,5f,5f,30	18	!ValueError	invalid literal for int() with base 18: '1__0'
+int_str	s:31,30	19	19
+int_str	s:2d,31,30	19	-19
+int_str	s:7a	19	!ValueError	invalid literal for int() with base 19: 'z'
+int_str	s:31,5f,30	19	19
+int_str	s:31,5f,5f,30	19	!ValueError	invalid literal for int() with base 19: '1__0'
+int_str	s:31,30	20	20
+int_str	s:2d,31,30	20	-20
+int_str	s:7a	20	!ValueError	invalid literal for int() with base 20: 'z'
+int_str	s:31,5f,30	20	20
+int_str	s:31,5f,5f,30	20	!ValueError	invalid literal for int() with base 20: '1__0'
+int_str	s:31,30	21	21
+int_str	s:2d,31,30	21	-21
+int_str	s:7a	21	!ValueError	invalid literal for int() with base 21: 'z'
+int_str	s:31,5f,30	21	21
+int_str	s:31,5f,5f,30	21	!ValueError	invalid literal for int() with base 21: '1__0'
+int_str	s:31,30	22	22
+int_str	s:2d,31,30	22	-22
+int_str	s:7a	22	!ValueError	invalid literal for int() with base 22: 'z'
+int_str	s:31,5f,30	22	22
+int_str	s:31,5f,5f,30	22	!ValueError	invalid literal for int() with base 22: '1__0'
+int_str	s:31,30	23	23
+int_str	s:2d,31,30	23	-23
+int_str	s:7a	23	!ValueError	invalid literal for int() with base 23: 'z'
+int_str	s:31,5f,30	23	23
+int_str	s:31,5f,5f,30	23	!ValueError	invalid literal for int() with base 23: '1__0'
+int_str	s:31,30	24	24
+int_str	s:2d,31,30	24	-24
+int_str	s:7a	24	!ValueError	invalid literal for int() with base 24: 'z'
+int_str	s:31,5f,30	24	24
+int_str	s:31,5f,5f,30	24	!ValueError	invalid literal for int() with base 24: '1__0'
+int_str	s:31,30	25	25
+int_str	s:2d,31,30	25	-25
+int_str	s:7a	25	!ValueError	invalid literal for int() with base 25: 'z'
+int_str	s:31,5f,30	25	25
+int_str	s:31,5f,5f,30	25	!ValueError	invalid literal for int() with base 25: '1__0'
+int_str	s:31,30	26	26
+int_str	s:2d,31,30	26	-26
+int_str	s:7a	26	!ValueError	invalid literal for int() with base 26: 'z'
+int_str	s:31,5f,30	26	26
+int_str	s:31,5f,5f,30	26	!ValueError	invalid literal for int() with base 26: '1__0'
+int_str	s:31,30	27	27
+int_str	s:2d,31,30	27	-27
+int_str	s:7a	27	!ValueError	invalid literal for int() with base 27: 'z'
+int_str	s:31,5f,30	27	27
+int_str	s:31,5f,5f,30	27	!ValueError	invalid literal for int() with base 27: '1__0'
+int_str	s:31,30	28	28
+int_str	s:2d,31,30	28	-28
+int_str	s:7a	28	!ValueError	invalid literal for int() with base 28: 'z'
+int_str	s:31,5f,30	28	28
+int_str	s:31,5f,5f,30	28	!ValueError	invalid literal for int() with base 28: '1__0'
+int_str	s:31,30	29	29
+int_str	s:2d,31,30	29	-29
+int_str	s:7a	29	!ValueError	invalid literal for int() with base 29: 'z'
+int_str	s:31,5f,30	29	29
+int_str	s:31,5f,5f,30	29	!ValueError	invalid literal for int() with base 29: '1__0'
+int_str	s:31,30	30	30
+int_str	s:2d,31,30	30	-30
+int_str	s:7a	30	!ValueError	invalid literal for int() with base 30: 'z'
+int_str	s:31,5f,30	30	30
+int_str	s:31,5f,5f,30	30	!ValueError	invalid literal for int() with base 30: '1__0'
+int_str	s:31,30	31	31
+int_str	s:2d,31,30	31	-31
+int_str	s:7a	31	!ValueError	invalid literal for int() with base 31: 'z'
+int_str	s:31,5f,30	31	31
+int_str	s:31,5f,5f,30	31	!ValueError	invalid literal for int() with base 31: '1__0'
+int_str	s:31,30	32	32
+int_str	s:2d,31,30	32	-32
+int_str	s:7a	32	!ValueError	invalid literal for int() with base 32: 'z'
+int_str	s:31,5f,30	32	32
+int_str	s:31,5f,5f,30	32	!ValueError	invalid literal for int() with base 32: '1__0'
+int_str	s:31,30	33	33
+int_str	s:2d,31,30	33	-33
+int_str	s:7a	33	!ValueError	invalid literal for int() with base 33: 'z'
+int_str	s:31,5f,30	33	33
+int_str	s:31,5f,5f,30	33	!ValueError	invalid literal for int() with base 33: '1__0'
+int_str	s:31,30	34	34
+int_str	s:2d,31,30	34	-34
+int_str	s:7a	34	!ValueError	invalid literal for int() with base 34: 'z'
+int_str	s:31,5f,30	34	34
+int_str	s:31,5f,5f,30	34	!ValueError	invalid literal for int() with base 34: '1__0'
+int_str	s:31,30	35	35
+int_str	s:2d,31,30	35	-35
+int_str	s:7a	35	!ValueError	invalid literal for int() with base 35: 'z'
+int_str	s:31,5f,30	35	35
+int_str	s:31,5f,5f,30	35	!ValueError	invalid literal for int() with base 35: '1__0'
+int_str	s:31,30	36	36
+int_str	s:2d,31,30	36	-36
+int_str	s:7a	36	35
+int_str	s:31,30	-1	!ValueError	int() base must be >= 2 and <= 36, or 0
+int_str	s:31,30	1	!ValueError	int() base must be >= 2 and <= 36, or 0
+int_str	s:31,30	37	!ValueError	int() base must be >= 2 and <= 36, or 0
+int_str	s:31,30	1208925819614629174706176	!ValueError	int() base must be >= 2 and <= 36, or 0
+int_str	s:31,30	-1208925819614629174706176	!ValueError	int() base must be >= 2 and <= 36, or 0
+int_str	s:31,30	True	!ValueError	int() base must be >= 2 and <= 36, or 0
+int_str	s:31,30	False	10
+int_str	s:31,30	f:4004000000000000	!TypeError	'float' object cannot be interpreted as an integer
+int_str	s:31,30	_	!TypeError	'NoneType' object cannot be interpreted as an integer
+int_str	s:9,31,9	10	1
+int_str	s:9	10	!ValueError	invalid literal for int() with base 10: '\t'
+int_str	s:31,9	10	1
+int_str	s:a,31,a	10	1
+int_str	s:a	10	!ValueError	invalid literal for int() with base 10: '\n'
+int_str	s:31,a	10	1
+int_str	s:b,31,b	10	1
+int_str	s:b	10	!ValueError	invalid literal for int() with base 10: '\x0b'
+int_str	s:31,b	10	1
+int_str	s:c,31,c	10	1
+int_str	s:c	10	!ValueError	invalid literal for int() with base 10: '\x0c'
+int_str	s:31,c	10	1
+int_str	s:d,31,d	10	1
+int_str	s:d	10	!ValueError	invalid literal for int() with base 10: '\r'
+int_str	s:31,d	10	1
+int_str	s:1c,31,1c	10	!ValueError	invalid literal for int() with base 10: '\x1c1\x1c'
+int_str	s:1c	10	!ValueError	invalid literal for int() with base 10: '\x1c'
+int_str	s:31,1c	10	!ValueError	invalid literal for int() with base 10: '1\x1c'
+int_str	s:1d,31,1d	10	!ValueError	invalid literal for int() with base 10: '\x1d1\x1d'
+int_str	s:1d	10	!ValueError	invalid literal for int() with base 10: '\x1d'
+int_str	s:31,1d	10	!ValueError	invalid literal for int() with base 10: '1\x1d'
+int_str	s:1e,31,1e	10	!ValueError	invalid literal for int() with base 10: '\x1e1\x1e'
+int_str	s:1e	10	!ValueError	invalid literal for int() with base 10: '\x1e'
+int_str	s:31,1e	10	!ValueError	invalid literal for int() with base 10: '1\x1e'
+int_str	s:1f,31,1f	10	!ValueError	invalid literal for int() with base 10: '\x1f1\x1f'
+int_str	s:1f	10	!ValueError	invalid literal for int() with base 10: '\x1f'
+int_str	s:31,1f	10	!ValueError	invalid literal for int() with base 10: '1\x1f'
+int_str	s:20,31,20	10	1
+int_str	s:31,20	10	1
+int_str	s:85,31,85	10	1
+int_str	s:85	10	!ValueError	invalid literal for int() with base 10: '\x85'
+int_str	s:31,85	10	1
+int_str	s:a0,31,a0	10	1
+int_str	s:a0	10	!ValueError	invalid literal for int() with base 10: '\xa0'
+int_str	s:31,a0	10	1
+int_str	s:1680,31,1680	10	1
+int_str	s:1680	10	!ValueError	invalid literal for int() with base 10: '\u1680'
+int_str	s:31,1680	10	1
+int_str	s:2000,31,2000	10	1
+int_str	s:2000	10	!ValueError	invalid literal for int() with base 10: '\u2000'
+int_str	s:31,2000	10	1
+int_str	s:2001,31,2001	10	1
+int_str	s:2001	10	!ValueError	invalid literal for int() with base 10: '\u2001'
+int_str	s:31,2001	10	1
+int_str	s:2002,31,2002	10	1
+int_str	s:2002	10	!ValueError	invalid literal for int() with base 10: '\u2002'
+int_str	s:31,2002	10	1
+int_str	s:2003,31,2003	10	1
+int_str	s:2003	10	!ValueError	invalid literal for int() with base 10: '\u2003'
+int_str	s:31,2003	10	1
+int_str	s:2004,31,2004	10	1
+int_str	s:2004	10	!ValueError	invalid literal for int() with base 10: '\u2004'
+int_str	s:31,2004	10	1
+int_str	s:2005,31,2005	10	1
+int_str	s:2005	10	!ValueError	invalid literal for int() with base 10: '\u2005'
+int_str	s:31,2005	10	1
+int_str	s:2006,31,2006	10	1
+int_str	s:2006	10	!ValueError	invalid literal for int() with base 10: '\u2006'
+int_str	s:31,2006	10	1
+int_str	s:2007,31,2007	10	1
+int_str	s:2007	10	!ValueError	invalid literal for int() with base 10: '\u2007'
+int_str	s:31,2007	10	1
+int_str	s:2008,31,2008	10	1
+int_str	s:2008	10	!ValueError	invalid literal for int() with base 10: '\u2008'
+int_str	s:31,2008	10	1
+int_str	s:2009,31,2009	10	1
+int_str	s:2009	10	!ValueError	invalid literal for int() with base 10: '\u2009'
+int_str	s:31,2009	10	1
+int_str	s:200a,31,200a	10	1
+int_str	s:200a	10	!ValueError	invalid literal for int() with base 10: '\u200a'
+int_str	s:31,200a	10	1
+int_str	s:2028,31,2028	10	1
+int_str	s:2028	10	!ValueError	invalid literal for int() with base 10: '\u2028'
+int_str	s:31,2028	10	1
+int_str	s:2029,31,2029	10	1
+int_str	s:2029	10	!ValueError	invalid literal for int() with base 10: '\u2029'
+int_str	s:31,2029	10	1
+int_str	s:202f,31,202f	10	1
+int_str	s:202f	10	!ValueError	invalid literal for int() with base 10: '\u202f'
+int_str	s:31,202f	10	1
+int_str	s:205f,31,205f	10	1
+int_str	s:205f	10	!ValueError	invalid literal for int() with base 10: '\u205f'
+int_str	s:31,205f	10	1
+int_str	s:3000,31,3000	10	1
+int_str	s:3000	10	!ValueError	invalid literal for int() with base 10: '\u3000'
+int_str	s:31,3000	10	1
+int_str	s:200b,31,200b	10	!ValueError	invalid literal for int() with base 10: '\u200b1\u200b'
+int_str	s:200b	10	!ValueError	invalid literal for int() with base 10: '\u200b'
+int_str	s:31,200b	10	!ValueError	invalid literal for int() with base 10: '1\u200b'
+int_str	s:feff,31,feff	10	!ValueError	invalid literal for int() with base 10: '\ufeff1\ufeff'
+int_str	s:feff	10	!ValueError	invalid literal for int() with base 10: '\ufeff'
+int_str	s:31,feff	10	!ValueError	invalid literal for int() with base 10: '1\ufeff'
+float_int	-9007199254740991	_	f:c33fffffffffffff
+str_int	-9007199254740991	_	s:2d,39,30,30,37,31,39,39,32,35,34,37,34,30,39,39,31
+hex	-9007199254740991	_	s:2d,30,78,31,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	-9007199254740991	_	s:2d,30,6f,33,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	-9007199254740991	_	s:2d,30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	-9007199254740991	_	9007199254740991
+float_int	9007199254740991	_	f:433fffffffffffff
+str_int	9007199254740991	_	s:39,30,30,37,31,39,39,32,35,34,37,34,30,39,39,31
+hex	9007199254740991	_	s:30,78,31,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	9007199254740991	_	s:30,6f,33,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	9007199254740991	_	s:30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	9007199254740991	_	9007199254740991
+float_int	-9007199254740992	_	f:c340000000000000
+str_int	-9007199254740992	_	s:2d,39,30,30,37,31,39,39,32,35,34,37,34,30,39,39,32
+hex	-9007199254740992	_	s:2d,30,78,32,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	-9007199254740992	_	s:2d,30,6f,34,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	-9007199254740992	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	-9007199254740992	_	9007199254740992
+float_int	9007199254740992	_	f:4340000000000000
+str_int	9007199254740992	_	s:39,30,30,37,31,39,39,32,35,34,37,34,30,39,39,32
+hex	9007199254740992	_	s:30,78,32,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	9007199254740992	_	s:30,6f,34,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	9007199254740992	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	9007199254740992	_	9007199254740992
+float_int	-9007199254740993	_	f:c340000000000000
+str_int	-9007199254740993	_	s:2d,39,30,30,37,31,39,39,32,35,34,37,34,30,39,39,33
+hex	-9007199254740993	_	s:2d,30,78,32,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	-9007199254740993	_	s:2d,30,6f,34,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	-9007199254740993	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	-9007199254740993	_	9007199254740993
+float_int	9007199254740993	_	f:4340000000000000
+str_int	9007199254740993	_	s:39,30,30,37,31,39,39,32,35,34,37,34,30,39,39,33
+hex	9007199254740993	_	s:30,78,32,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	9007199254740993	_	s:30,6f,34,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	9007199254740993	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	9007199254740993	_	9007199254740993
+float_int	-9223372036854775807	_	f:c3e0000000000000
+str_int	-9223372036854775807	_	s:2d,39,32,32,33,33,37,32,30,33,36,38,35,34,37,37,35,38,30,37
+hex	-9223372036854775807	_	s:2d,30,78,37,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	-9223372036854775807	_	s:2d,30,6f,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	-9223372036854775807	_	s:2d,30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	-9223372036854775807	_	9223372036854775807
+float_int	9223372036854775807	_	f:43e0000000000000
+str_int	9223372036854775807	_	s:39,32,32,33,33,37,32,30,33,36,38,35,34,37,37,35,38,30,37
+hex	9223372036854775807	_	s:30,78,37,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	9223372036854775807	_	s:30,6f,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	9223372036854775807	_	s:30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	9223372036854775807	_	9223372036854775807
+float_int	-9223372036854775808	_	f:c3e0000000000000
+str_int	-9223372036854775808	_	s:2d,39,32,32,33,33,37,32,30,33,36,38,35,34,37,37,35,38,30,38
+hex	-9223372036854775808	_	s:2d,30,78,38,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	-9223372036854775808	_	s:2d,30,6f,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	-9223372036854775808	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	-9223372036854775808	_	9223372036854775808
+float_int	9223372036854775808	_	f:43e0000000000000
+str_int	9223372036854775808	_	s:39,32,32,33,33,37,32,30,33,36,38,35,34,37,37,35,38,30,38
+hex	9223372036854775808	_	s:30,78,38,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	9223372036854775808	_	s:30,6f,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	9223372036854775808	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	9223372036854775808	_	9223372036854775808
+float_int	-9223372036854775809	_	f:c3e0000000000000
+str_int	-9223372036854775809	_	s:2d,39,32,32,33,33,37,32,30,33,36,38,35,34,37,37,35,38,30,39
+hex	-9223372036854775809	_	s:2d,30,78,38,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	-9223372036854775809	_	s:2d,30,6f,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	-9223372036854775809	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	-9223372036854775809	_	9223372036854775809
+float_int	9223372036854775809	_	f:43e0000000000000
+str_int	9223372036854775809	_	s:39,32,32,33,33,37,32,30,33,36,38,35,34,37,37,35,38,30,39
+hex	9223372036854775809	_	s:30,78,38,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	9223372036854775809	_	s:30,6f,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	9223372036854775809	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	9223372036854775809	_	9223372036854775809
+float_int	-1208925819614629174706175	_	f:c4f0000000000000
+str_int	-1208925819614629174706175	_	s:2d,31,32,30,38,39,32,35,38,31,39,36,31,34,36,32,39,31,37,34,37,30,36,31,37,35
+hex	-1208925819614629174706175	_	s:2d,30,78,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	-1208925819614629174706175	_	s:2d,30,6f,33,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	-1208925819614629174706175	_	s:2d,30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	-1208925819614629174706175	_	1208925819614629174706175
+float_int	1208925819614629174706175	_	f:44f0000000000000
+str_int	1208925819614629174706175	_	s:31,32,30,38,39,32,35,38,31,39,36,31,34,36,32,39,31,37,34,37,30,36,31,37,35
+hex	1208925819614629174706175	_	s:30,78,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	1208925819614629174706175	_	s:30,6f,33,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	1208925819614629174706175	_	s:30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	1208925819614629174706175	_	1208925819614629174706175
+float_int	-1208925819614629174706176	_	f:c4f0000000000000
+str_int	-1208925819614629174706176	_	s:2d,31,32,30,38,39,32,35,38,31,39,36,31,34,36,32,39,31,37,34,37,30,36,31,37,36
+hex	-1208925819614629174706176	_	s:2d,30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	-1208925819614629174706176	_	s:2d,30,6f,34,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	-1208925819614629174706176	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	-1208925819614629174706176	_	1208925819614629174706176
+float_int	1208925819614629174706176	_	f:44f0000000000000
+str_int	1208925819614629174706176	_	s:31,32,30,38,39,32,35,38,31,39,36,31,34,36,32,39,31,37,34,37,30,36,31,37,36
+hex	1208925819614629174706176	_	s:30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	1208925819614629174706176	_	s:30,6f,34,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	1208925819614629174706176	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	1208925819614629174706176	_	1208925819614629174706176
+float_int	-1208925819614629174706177	_	f:c4f0000000000000
+str_int	-1208925819614629174706177	_	s:2d,31,32,30,38,39,32,35,38,31,39,36,31,34,36,32,39,31,37,34,37,30,36,31,37,37
+hex	-1208925819614629174706177	_	s:2d,30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	-1208925819614629174706177	_	s:2d,30,6f,34,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	-1208925819614629174706177	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	-1208925819614629174706177	_	1208925819614629174706177
+float_int	1208925819614629174706177	_	f:44f0000000000000
+str_int	1208925819614629174706177	_	s:31,32,30,38,39,32,35,38,31,39,36,31,34,36,32,39,31,37,34,37,30,36,31,37,37
+hex	1208925819614629174706177	_	s:30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	1208925819614629174706177	_	s:30,6f,34,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	1208925819614629174706177	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	1208925819614629174706177	_	1208925819614629174706177
+float_int	-115792089237316195423570985008687907853269984665640564039457584007913129639935	_	f:cff0000000000000
+str_int	-115792089237316195423570985008687907853269984665640564039457584007913129639935	_	s:2d,31,31,35,37,39,32,30,38,39,32,33,37,33,31,36,31,39,35,34,32,33,35,37,30,39,38,35,30,30,38,36,38,37,39,30,37,38,35,33,32,36,39,39,38,34,36,36,35,36,34,30,35,36,34,30,33,39,34,35,37,35,38,34,30,30,37,39,31,33,31,32,39,36,33,39,39,33,35
+hex	-115792089237316195423570985008687907853269984665640564039457584007913129639935	_	s:2d,30,78,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	-115792089237316195423570985008687907853269984665640564039457584007913129639935	_	s:2d,30,6f,31,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	-115792089237316195423570985008687907853269984665640564039457584007913129639935	_	s:2d,30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	-115792089237316195423570985008687907853269984665640564039457584007913129639935	_	115792089237316195423570985008687907853269984665640564039457584007913129639935
+float_int	115792089237316195423570985008687907853269984665640564039457584007913129639935	_	f:4ff0000000000000
+str_int	115792089237316195423570985008687907853269984665640564039457584007913129639935	_	s:31,31,35,37,39,32,30,38,39,32,33,37,33,31,36,31,39,35,34,32,33,35,37,30,39,38,35,30,30,38,36,38,37,39,30,37,38,35,33,32,36,39,39,38,34,36,36,35,36,34,30,35,36,34,30,33,39,34,35,37,35,38,34,30,30,37,39,31,33,31,32,39,36,33,39,39,33,35
+hex	115792089237316195423570985008687907853269984665640564039457584007913129639935	_	s:30,78,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	115792089237316195423570985008687907853269984665640564039457584007913129639935	_	s:30,6f,31,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	115792089237316195423570985008687907853269984665640564039457584007913129639935	_	s:30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	115792089237316195423570985008687907853269984665640564039457584007913129639935	_	115792089237316195423570985008687907853269984665640564039457584007913129639935
+float_int	-115792089237316195423570985008687907853269984665640564039457584007913129639936	_	f:cff0000000000000
+str_int	-115792089237316195423570985008687907853269984665640564039457584007913129639936	_	s:2d,31,31,35,37,39,32,30,38,39,32,33,37,33,31,36,31,39,35,34,32,33,35,37,30,39,38,35,30,30,38,36,38,37,39,30,37,38,35,33,32,36,39,39,38,34,36,36,35,36,34,30,35,36,34,30,33,39,34,35,37,35,38,34,30,30,37,39,31,33,31,32,39,36,33,39,39,33,36
+hex	-115792089237316195423570985008687907853269984665640564039457584007913129639936	_	s:2d,30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	-115792089237316195423570985008687907853269984665640564039457584007913129639936	_	s:2d,30,6f,32,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	-115792089237316195423570985008687907853269984665640564039457584007913129639936	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	-115792089237316195423570985008687907853269984665640564039457584007913129639936	_	115792089237316195423570985008687907853269984665640564039457584007913129639936
+float_int	115792089237316195423570985008687907853269984665640564039457584007913129639936	_	f:4ff0000000000000
+str_int	115792089237316195423570985008687907853269984665640564039457584007913129639936	_	s:31,31,35,37,39,32,30,38,39,32,33,37,33,31,36,31,39,35,34,32,33,35,37,30,39,38,35,30,30,38,36,38,37,39,30,37,38,35,33,32,36,39,39,38,34,36,36,35,36,34,30,35,36,34,30,33,39,34,35,37,35,38,34,30,30,37,39,31,33,31,32,39,36,33,39,39,33,36
+hex	115792089237316195423570985008687907853269984665640564039457584007913129639936	_	s:30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	115792089237316195423570985008687907853269984665640564039457584007913129639936	_	s:30,6f,32,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	115792089237316195423570985008687907853269984665640564039457584007913129639936	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	115792089237316195423570985008687907853269984665640564039457584007913129639936	_	115792089237316195423570985008687907853269984665640564039457584007913129639936
+float_int	-115792089237316195423570985008687907853269984665640564039457584007913129639937	_	f:cff0000000000000
+str_int	-115792089237316195423570985008687907853269984665640564039457584007913129639937	_	s:2d,31,31,35,37,39,32,30,38,39,32,33,37,33,31,36,31,39,35,34,32,33,35,37,30,39,38,35,30,30,38,36,38,37,39,30,37,38,35,33,32,36,39,39,38,34,36,36,35,36,34,30,35,36,34,30,33,39,34,35,37,35,38,34,30,30,37,39,31,33,31,32,39,36,33,39,39,33,37
+hex	-115792089237316195423570985008687907853269984665640564039457584007913129639937	_	s:2d,30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	-115792089237316195423570985008687907853269984665640564039457584007913129639937	_	s:2d,30,6f,32,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	-115792089237316195423570985008687907853269984665640564039457584007913129639937	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	-115792089237316195423570985008687907853269984665640564039457584007913129639937	_	115792089237316195423570985008687907853269984665640564039457584007913129639937
+float_int	115792089237316195423570985008687907853269984665640564039457584007913129639937	_	f:4ff0000000000000
+str_int	115792089237316195423570985008687907853269984665640564039457584007913129639937	_	s:31,31,35,37,39,32,30,38,39,32,33,37,33,31,36,31,39,35,34,32,33,35,37,30,39,38,35,30,30,38,36,38,37,39,30,37,38,35,33,32,36,39,39,38,34,36,36,35,36,34,30,35,36,34,30,33,39,34,35,37,35,38,34,30,30,37,39,31,33,31,32,39,36,33,39,39,33,37
+hex	115792089237316195423570985008687907853269984665640564039457584007913129639937	_	s:30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	115792089237316195423570985008687907853269984665640564039457584007913129639937	_	s:30,6f,32,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	115792089237316195423570985008687907853269984665640564039457584007913129639937	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	115792089237316195423570985008687907853269984665640564039457584007913129639937	_	115792089237316195423570985008687907853269984665640564039457584007913129639937
+float_int	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	f:ffe0000000000000
+str_int	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	s:2d,38,39,38,38,34,36,35,36,37,34,33,31,31,35,37,39,35,33,38,36,34,36,35,32,35,39,35,33,39,34,35,31,32,33,36,36,38,30,38,39,38,38,34,38,39,34,37,31,31,35,33,32,38,36,33,36,37,31,35,30,34,30,35,37,38,38,36,36,33,33,37,39,30,32,37,35,30,34,38,31,35,36,36,33,35,34,32,33,38,36,36,31,32,30,33,37,36,38,30,31,30,35,36,30,30,35,36,39,33,39,39,33,35,36,39,36,36,37,38,38,32,39,33,39,34,38,38,34,34,30,37,32,30,38,33,31,31,32,34,36,34,32,33,37,31,35,33,31,39,37,33,37,30,36,32,31,38,38,38,38,33,39,34,36,37,31,32,34,33,32,37,34,32,36,33,38,31,35,31,31,30,39,38,30,30,36,32,33,30,34,37,30,35,39,37,32,36,35,34,31,34,37,36,30,34,32,35,30,32,38,38,34,34,31,39,30,37,35,33,34,31,31,37,31,32,33,31,34,34,30,37,33,36,39,35,36,35,35,35,32,37,30,34,31,33,36,31,38,35,38,31,36,37,35,32,35,35,33,34,32,32,39,33,31,34,39,31,31,39,39,37,33,36,32,32,39,36,39,32,33,39,38,35,38,31,35,32,34,31,37,36,37,38,31,36,34,38,31,32,31,31,32,30,36,38,36,30,37
+hex	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	s:2d,30,78,37,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	s:2d,30,6f,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	s:2d,30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607
+float_int	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	f:7fe0000000000000
+str_int	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	s:38,39,38,38,34,36,35,36,37,34,33,31,31,35,37,39,35,33,38,36,34,36,35,32,35,39,35,33,39,34,35,31,32,33,36,36,38,30,38,39,38,38,34,38,39,34,37,31,31,35,33,32,38,36,33,36,37,31,35,30,34,30,35,37,38,38,36,36,33,33,37,39,30,32,37,35,30,34,38,31,35,36,36,33,35,34,32,33,38,36,36,31,32,30,33,37,36,38,30,31,30,35,36,30,30,35,36,39,33,39,39,33,35,36,39,36,36,37,38,38,32,39,33,39,34,38,38,34,34,30,37,32,30,38,33,31,31,32,34,36,34,32,33,37,31,35,33,31,39,37,33,37,30,36,32,31,38,38,38,38,33,39,34,36,37,31,32,34,33,32,37,34,32,36,33,38,31,35,31,31,30,39,38,30,30,36,32,33,30,34,37,30,35,39,37,32,36,35,34,31,34,37,36,30,34,32,35,30,32,38,38,34,34,31,39,30,37,35,33,34,31,31,37,31,32,33,31,34,34,30,37,33,36,39,35,36,35,35,35,32,37,30,34,31,33,36,31,38,35,38,31,36,37,35,32,35,35,33,34,32,32,39,33,31,34,39,31,31,39,39,37,33,36,32,32,39,36,39,32,33,39,38,35,38,31,35,32,34,31,37,36,37,38,31,36,34,38,31,32,31,31,32,30,36,38,36,30,37
+hex	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	s:30,78,37,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	s:30,6f,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	s:30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607	_	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068607
+float_int	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	f:ffe0000000000000
+str_int	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	s:2d,38,39,38,38,34,36,35,36,37,34,33,31,31,35,37,39,35,33,38,36,34,36,35,32,35,39,35,33,39,34,35,31,32,33,36,36,38,30,38,39,38,38,34,38,39,34,37,31,31,35,33,32,38,36,33,36,37,31,35,30,34,30,35,37,38,38,36,36,33,33,37,39,30,32,37,35,30,34,38,31,35,36,36,33,35,34,32,33,38,36,36,31,32,30,33,37,36,38,30,31,30,35,36,30,30,35,36,39,33,39,39,33,35,36,39,36,36,37,38,38,32,39,33,39,34,38,38,34,34,30,37,32,30,38,33,31,31,32,34,36,34,32,33,37,31,35,33,31,39,37,33,37,30,36,32,31,38,38,38,38,33,39,34,36,37,31,32,34,33,32,37,34,32,36,33,38,31,35,31,31,30,39,38,30,30,36,32,33,30,34,37,30,35,39,37,32,36,35,34,31,34,37,36,30,34,32,35,30,32,38,38,34,34,31,39,30,37,35,33,34,31,31,37,31,32,33,31,34,34,30,37,33,36,39,35,36,35,35,35,32,37,30,34,31,33,36,31,38,35,38,31,36,37,35,32,35,35,33,34,32,32,39,33,31,34,39,31,31,39,39,37,33,36,32,32,39,36,39,32,33,39,38,35,38,31,35,32,34,31,37,36,37,38,31,36,34,38,31,32,31,31,32,30,36,38,36,30,38
+hex	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	s:2d,30,78,38,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	s:2d,30,6f,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608
+float_int	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	f:7fe0000000000000
+str_int	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	s:38,39,38,38,34,36,35,36,37,34,33,31,31,35,37,39,35,33,38,36,34,36,35,32,35,39,35,33,39,34,35,31,32,33,36,36,38,30,38,39,38,38,34,38,39,34,37,31,31,35,33,32,38,36,33,36,37,31,35,30,34,30,35,37,38,38,36,36,33,33,37,39,30,32,37,35,30,34,38,31,35,36,36,33,35,34,32,33,38,36,36,31,32,30,33,37,36,38,30,31,30,35,36,30,30,35,36,39,33,39,39,33,35,36,39,36,36,37,38,38,32,39,33,39,34,38,38,34,34,30,37,32,30,38,33,31,31,32,34,36,34,32,33,37,31,35,33,31,39,37,33,37,30,36,32,31,38,38,38,38,33,39,34,36,37,31,32,34,33,32,37,34,32,36,33,38,31,35,31,31,30,39,38,30,30,36,32,33,30,34,37,30,35,39,37,32,36,35,34,31,34,37,36,30,34,32,35,30,32,38,38,34,34,31,39,30,37,35,33,34,31,31,37,31,32,33,31,34,34,30,37,33,36,39,35,36,35,35,35,32,37,30,34,31,33,36,31,38,35,38,31,36,37,35,32,35,35,33,34,32,32,39,33,31,34,39,31,31,39,39,37,33,36,32,32,39,36,39,32,33,39,38,35,38,31,35,32,34,31,37,36,37,38,31,36,34,38,31,32,31,31,32,30,36,38,36,30,38
+hex	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	s:30,78,38,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	s:30,6f,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608	_	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608
+float_int	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	f:ffe0000000000000
+str_int	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	s:2d,38,39,38,38,34,36,35,36,37,34,33,31,31,35,37,39,35,33,38,36,34,36,35,32,35,39,35,33,39,34,35,31,32,33,36,36,38,30,38,39,38,38,34,38,39,34,37,31,31,35,33,32,38,36,33,36,37,31,35,30,34,30,35,37,38,38,36,36,33,33,37,39,30,32,37,35,30,34,38,31,35,36,36,33,35,34,32,33,38,36,36,31,32,30,33,37,36,38,30,31,30,35,36,30,30,35,36,39,33,39,39,33,35,36,39,36,36,37,38,38,32,39,33,39,34,38,38,34,34,30,37,32,30,38,33,31,31,32,34,36,34,32,33,37,31,35,33,31,39,37,33,37,30,36,32,31,38,38,38,38,33,39,34,36,37,31,32,34,33,32,37,34,32,36,33,38,31,35,31,31,30,39,38,30,30,36,32,33,30,34,37,30,35,39,37,32,36,35,34,31,34,37,36,30,34,32,35,30,32,38,38,34,34,31,39,30,37,35,33,34,31,31,37,31,32,33,31,34,34,30,37,33,36,39,35,36,35,35,35,32,37,30,34,31,33,36,31,38,35,38,31,36,37,35,32,35,35,33,34,32,32,39,33,31,34,39,31,31,39,39,37,33,36,32,32,39,36,39,32,33,39,38,35,38,31,35,32,34,31,37,36,37,38,31,36,34,38,31,32,31,31,32,30,36,38,36,30,39
+hex	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	s:2d,30,78,38,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	s:2d,30,6f,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	-89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609
+float_int	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	f:7fe0000000000000
+str_int	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	s:38,39,38,38,34,36,35,36,37,34,33,31,31,35,37,39,35,33,38,36,34,36,35,32,35,39,35,33,39,34,35,31,32,33,36,36,38,30,38,39,38,38,34,38,39,34,37,31,31,35,33,32,38,36,33,36,37,31,35,30,34,30,35,37,38,38,36,36,33,33,37,39,30,32,37,35,30,34,38,31,35,36,36,33,35,34,32,33,38,36,36,31,32,30,33,37,36,38,30,31,30,35,36,30,30,35,36,39,33,39,39,33,35,36,39,36,36,37,38,38,32,39,33,39,34,38,38,34,34,30,37,32,30,38,33,31,31,32,34,36,34,32,33,37,31,35,33,31,39,37,33,37,30,36,32,31,38,38,38,38,33,39,34,36,37,31,32,34,33,32,37,34,32,36,33,38,31,35,31,31,30,39,38,30,30,36,32,33,30,34,37,30,35,39,37,32,36,35,34,31,34,37,36,30,34,32,35,30,32,38,38,34,34,31,39,30,37,35,33,34,31,31,37,31,32,33,31,34,34,30,37,33,36,39,35,36,35,35,35,32,37,30,34,31,33,36,31,38,35,38,31,36,37,35,32,35,35,33,34,32,32,39,33,31,34,39,31,31,39,39,37,33,36,32,32,39,36,39,32,33,39,38,35,38,31,35,32,34,31,37,36,37,38,31,36,34,38,31,32,31,31,32,30,36,38,36,30,39
+hex	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	s:30,78,38,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	s:30,6f,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609	_	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068609
+float_int	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	!OverflowError	int too large to convert to float
+str_int	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	s:2d,31,37,39,37,36,39,33,31,33,34,38,36,32,33,31,35,39,30,37,37,32,39,33,30,35,31,39,30,37,38,39,30,32,34,37,33,33,36,31,37,39,37,36,39,37,38,39,34,32,33,30,36,35,37,32,37,33,34,33,30,30,38,31,31,35,37,37,33,32,36,37,35,38,30,35,35,30,30,39,36,33,31,33,32,37,30,38,34,37,37,33,32,32,34,30,37,35,33,36,30,32,31,31,32,30,31,31,33,38,37,39,38,37,31,33,39,33,33,35,37,36,35,38,37,38,39,37,36,38,38,31,34,34,31,36,36,32,32,34,39,32,38,34,37,34,33,30,36,33,39,34,37,34,31,32,34,33,37,37,37,36,37,38,39,33,34,32,34,38,36,35,34,38,35,32,37,36,33,30,32,32,31,39,36,30,31,32,34,36,30,39,34,31,31,39,34,35,33,30,38,32,39,35,32,30,38,35,30,30,35,37,36,38,38,33,38,31,35,30,36,38,32,33,34,32,34,36,32,38,38,31,34,37,33,39,31,33,31,31,30,35,34,30,38,32,37,32,33,37,31,36,33,33,35,30,35,31,30,36,38,34,35,38,36,32,39,38,32,33,39,39,34,37,32,34,35,39,33,38,34,37,39,37,31,36,33,30,34,38,33,35,33,35,36,33,32,39,36,32,34,32,32,34,31,33,37,32,31,35
+hex	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	s:2d,30,78,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	s:2d,30,6f,31,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	s:2d,30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215
+float_int	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	!OverflowError	int too large to convert to float
+str_int	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	s:31,37,39,37,36,39,33,31,33,34,38,36,32,33,31,35,39,30,37,37,32,39,33,30,35,31,39,30,37,38,39,30,32,34,37,33,33,36,31,37,39,37,36,39,37,38,39,34,32,33,30,36,35,37,32,37,33,34,33,30,30,38,31,31,35,37,37,33,32,36,37,35,38,30,35,35,30,30,39,36,33,31,33,32,37,30,38,34,37,37,33,32,32,34,30,37,35,33,36,30,32,31,31,32,30,31,31,33,38,37,39,38,37,31,33,39,33,33,35,37,36,35,38,37,38,39,37,36,38,38,31,34,34,31,36,36,32,32,34,39,32,38,34,37,34,33,30,36,33,39,34,37,34,31,32,34,33,37,37,37,36,37,38,39,33,34,32,34,38,36,35,34,38,35,32,37,36,33,30,32,32,31,39,36,30,31,32,34,36,30,39,34,31,31,39,34,35,33,30,38,32,39,35,32,30,38,35,30,30,35,37,36,38,38,33,38,31,35,30,36,38,32,33,34,32,34,36,32,38,38,31,34,37,33,39,31,33,31,31,30,35,34,30,38,32,37,32,33,37,31,36,33,33,35,30,35,31,30,36,38,34,35,38,36,32,39,38,32,33,39,39,34,37,32,34,35,39,33,38,34,37,39,37,31,36,33,30,34,38,33,35,33,35,36,33,32,39,36,32,34,32,32,34,31,33,37,32,31,35
+hex	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	s:30,78,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66,66
+oct	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	s:30,6f,31,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37,37
+bin	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	s:30,62,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31,31
+abs	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215	_	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137215
+float_int	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	!OverflowError	int too large to convert to float
+str_int	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	s:2d,31,37,39,37,36,39,33,31,33,34,38,36,32,33,31,35,39,30,37,37,32,39,33,30,35,31,39,30,37,38,39,30,32,34,37,33,33,36,31,37,39,37,36,39,37,38,39,34,32,33,30,36,35,37,32,37,33,34,33,30,30,38,31,31,35,37,37,33,32,36,37,35,38,30,35,35,30,30,39,36,33,31,33,32,37,30,38,34,37,37,33,32,32,34,30,37,35,33,36,30,32,31,31,32,30,31,31,33,38,37,39,38,37,31,33,39,33,33,35,37,36,35,38,37,38,39,37,36,38,38,31,34,34,31,36,36,32,32,34,39,32,38,34,37,34,33,30,36,33,39,34,37,34,31,32,34,33,37,37,37,36,37,38,39,33,34,32,34,38,36,35,34,38,35,32,37,36,33,30,32,32,31,39,36,30,31,32,34,36,30,39,34,31,31,39,34,35,33,30,38,32,39,35,32,30,38,35,30,30,35,37,36,38,38,33,38,31,35,30,36,38,32,33,34,32,34,36,32,38,38,31,34,37,33,39,31,33,31,31,30,35,34,30,38,32,37,32,33,37,31,36,33,33,35,30,35,31,30,36,38,34,35,38,36,32,39,38,32,33,39,39,34,37,32,34,35,39,33,38,34,37,39,37,31,36,33,30,34,38,33,35,33,35,36,33,32,39,36,32,34,32,32,34,31,33,37,32,31,36
+hex	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	s:2d,30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	s:2d,30,6f,32,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216
+float_int	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	!OverflowError	int too large to convert to float
+str_int	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	s:31,37,39,37,36,39,33,31,33,34,38,36,32,33,31,35,39,30,37,37,32,39,33,30,35,31,39,30,37,38,39,30,32,34,37,33,33,36,31,37,39,37,36,39,37,38,39,34,32,33,30,36,35,37,32,37,33,34,33,30,30,38,31,31,35,37,37,33,32,36,37,35,38,30,35,35,30,30,39,36,33,31,33,32,37,30,38,34,37,37,33,32,32,34,30,37,35,33,36,30,32,31,31,32,30,31,31,33,38,37,39,38,37,31,33,39,33,33,35,37,36,35,38,37,38,39,37,36,38,38,31,34,34,31,36,36,32,32,34,39,32,38,34,37,34,33,30,36,33,39,34,37,34,31,32,34,33,37,37,37,36,37,38,39,33,34,32,34,38,36,35,34,38,35,32,37,36,33,30,32,32,31,39,36,30,31,32,34,36,30,39,34,31,31,39,34,35,33,30,38,32,39,35,32,30,38,35,30,30,35,37,36,38,38,33,38,31,35,30,36,38,32,33,34,32,34,36,32,38,38,31,34,37,33,39,31,33,31,31,30,35,34,30,38,32,37,32,33,37,31,36,33,33,35,30,35,31,30,36,38,34,35,38,36,32,39,38,32,33,39,39,34,37,32,34,35,39,33,38,34,37,39,37,31,36,33,30,34,38,33,35,33,35,36,33,32,39,36,32,34,32,32,34,31,33,37,32,31,36
+hex	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	s:30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+oct	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	s:30,6f,32,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+bin	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30
+abs	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	_	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216
+float_int	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	!OverflowError	int too large to convert to float
+str_int	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	s:2d,31,37,39,37,36,39,33,31,33,34,38,36,32,33,31,35,39,30,37,37,32,39,33,30,35,31,39,30,37,38,39,30,32,34,37,33,33,36,31,37,39,37,36,39,37,38,39,34,32,33,30,36,35,37,32,37,33,34,33,30,30,38,31,31,35,37,37,33,32,36,37,35,38,30,35,35,30,30,39,36,33,31,33,32,37,30,38,34,37,37,33,32,32,34,30,37,35,33,36,30,32,31,31,32,30,31,31,33,38,37,39,38,37,31,33,39,33,33,35,37,36,35,38,37,38,39,37,36,38,38,31,34,34,31,36,36,32,32,34,39,32,38,34,37,34,33,30,36,33,39,34,37,34,31,32,34,33,37,37,37,36,37,38,39,33,34,32,34,38,36,35,34,38,35,32,37,36,33,30,32,32,31,39,36,30,31,32,34,36,30,39,34,31,31,39,34,35,33,30,38,32,39,35,32,30,38,35,30,30,35,37,36,38,38,33,38,31,35,30,36,38,32,33,34,32,34,36,32,38,38,31,34,37,33,39,31,33,31,31,30,35,34,30,38,32,37,32,33,37,31,36,33,33,35,30,35,31,30,36,38,34,35,38,36,32,39,38,32,33,39,39,34,37,32,34,35,39,33,38,34,37,39,37,31,36,33,30,34,38,33,35,33,35,36,33,32,39,36,32,34,32,32,34,31,33,37,32,31,37
+hex	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	s:2d,30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	s:2d,30,6f,32,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	s:2d,30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217
+float_int	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	!OverflowError	int too large to convert to float
+str_int	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	s:31,37,39,37,36,39,33,31,33,34,38,36,32,33,31,35,39,30,37,37,32,39,33,30,35,31,39,30,37,38,39,30,32,34,37,33,33,36,31,37,39,37,36,39,37,38,39,34,32,33,30,36,35,37,32,37,33,34,33,30,30,38,31,31,35,37,37,33,32,36,37,35,38,30,35,35,30,30,39,36,33,31,33,32,37,30,38,34,37,37,33,32,32,34,30,37,35,33,36,30,32,31,31,32,30,31,31,33,38,37,39,38,37,31,33,39,33,33,35,37,36,35,38,37,38,39,37,36,38,38,31,34,34,31,36,36,32,32,34,39,32,38,34,37,34,33,30,36,33,39,34,37,34,31,32,34,33,37,37,37,36,37,38,39,33,34,32,34,38,36,35,34,38,35,32,37,36,33,30,32,32,31,39,36,30,31,32,34,36,30,39,34,31,31,39,34,35,33,30,38,32,39,35,32,30,38,35,30,30,35,37,36,38,38,33,38,31,35,30,36,38,32,33,34,32,34,36,32,38,38,31,34,37,33,39,31,33,31,31,30,35,34,30,38,32,37,32,33,37,31,36,33,33,35,30,35,31,30,36,38,34,35,38,36,32,39,38,32,33,39,39,34,37,32,34,35,39,33,38,34,37,39,37,31,36,33,30,34,38,33,35,33,35,36,33,32,39,36,32,34,32,32,34,31,33,37,32,31,37
+hex	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	s:30,78,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+oct	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	s:30,6f,32,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+bin	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	s:30,62,31,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,31
+abs	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217	_	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137217
+float_int	0	_	f:0000000000000000
+str_int	0	_	s:30
+hex	0	_	s:30,78,30
+oct	0	_	s:30,6f,30
+bin	0	_	s:30,62,30
+abs	0	_	0
+float_int	1	_	f:3ff0000000000000
+str_int	1	_	s:31
+hex	1	_	s:30,78,31
+oct	1	_	s:30,6f,31
+bin	1	_	s:30,62,31
+abs	1	_	1
+float_int	-1	_	f:bff0000000000000
+str_int	-1	_	s:2d,31
+hex	-1	_	s:2d,30,78,31
+oct	-1	_	s:2d,30,6f,31
+bin	-1	_	s:2d,30,62,31
+abs	-1	_	1
+float_int	True	_	f:3ff0000000000000
+str_int	True	_	s:54,72,75,65
+hex	True	_	s:30,78,31
+oct	True	_	s:30,6f,31
+bin	True	_	s:30,62,31
+abs	True	_	1
+float_int	False	_	f:0000000000000000
+str_int	False	_	s:46,61,6c,73,65
+hex	False	_	s:30,78,30
+oct	False	_	s:30,6f,30
+bin	False	_	s:30,62,30
+abs	False	_	0
+int_float	f:0000000000000000	_	0
+round1	f:0000000000000000	_	0
+abs	f:0000000000000000	_	f:0000000000000000
+int_float	f:8000000000000000	_	0
+round1	f:8000000000000000	_	0
+abs	f:8000000000000000	_	f:0000000000000000
+int_float	f:0000000000000001	_	0
+round1	f:0000000000000001	_	0
+abs	f:0000000000000001	_	f:0000000000000001
+int_float	f:8000000000000001	_	0
+round1	f:8000000000000001	_	0
+abs	f:8000000000000001	_	f:0000000000000001
+int_float	f:000fffffffffffff	_	0
+round1	f:000fffffffffffff	_	0
+abs	f:000fffffffffffff	_	f:000fffffffffffff
+int_float	f:800fffffffffffff	_	0
+round1	f:800fffffffffffff	_	0
+abs	f:800fffffffffffff	_	f:000fffffffffffff
+int_float	f:0010000000000000	_	0
+round1	f:0010000000000000	_	0
+abs	f:0010000000000000	_	f:0010000000000000
+int_float	f:8010000000000000	_	0
+round1	f:8010000000000000	_	0
+abs	f:8010000000000000	_	f:0010000000000000
+int_float	f:3fe0000000000000	_	0
+round1	f:3fe0000000000000	_	0
+abs	f:3fe0000000000000	_	f:3fe0000000000000
+int_float	f:bfe0000000000000	_	0
+round1	f:bfe0000000000000	_	0
+abs	f:bfe0000000000000	_	f:3fe0000000000000
+int_float	f:3ff0000000000000	_	1
+round1	f:3ff0000000000000	_	1
+abs	f:3ff0000000000000	_	f:3ff0000000000000
+int_float	f:bff0000000000000	_	-1
+round1	f:bff0000000000000	_	-1
+abs	f:bff0000000000000	_	f:3ff0000000000000
+int_float	f:4004000000000000	_	2
+round1	f:4004000000000000	_	2
+abs	f:4004000000000000	_	f:4004000000000000
+int_float	f:c004000000000000	_	-2
+round1	f:c004000000000000	_	-2
+abs	f:c004000000000000	_	f:4004000000000000
+int_float	f:400c000000000000	_	3
+round1	f:400c000000000000	_	4
+abs	f:400c000000000000	_	f:400c000000000000
+int_float	f:c00c000000000000	_	-3
+round1	f:c00c000000000000	_	-4
+abs	f:c00c000000000000	_	f:400c000000000000
+int_float	f:4340000000000000	_	9007199254740992
+round1	f:4340000000000000	_	9007199254740992
+abs	f:4340000000000000	_	f:4340000000000000
+int_float	f:c340000000000000	_	-9007199254740992
+round1	f:c340000000000000	_	-9007199254740992
+abs	f:c340000000000000	_	f:4340000000000000
+int_float	f:7fefffffffffffff	_	179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368
+round1	f:7fefffffffffffff	_	179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368
+abs	f:7fefffffffffffff	_	f:7fefffffffffffff
+int_float	f:ffefffffffffffff	_	-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368
+round1	f:ffefffffffffffff	_	-179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368
+abs	f:ffefffffffffffff	_	f:7fefffffffffffff
+int_float	f:7ff0000000000000	_	!OverflowError	cannot convert float infinity to integer
+round1	f:7ff0000000000000	_	!OverflowError	cannot convert float infinity to integer
+abs	f:7ff0000000000000	_	f:7ff0000000000000
+int_float	f:fff0000000000000	_	!OverflowError	cannot convert float infinity to integer
+round1	f:fff0000000000000	_	!OverflowError	cannot convert float infinity to integer
+abs	f:fff0000000000000	_	f:7ff0000000000000
+int_float	f:7ff8000000000000	_	!ValueError	cannot convert float NaN to integer
+round1	f:7ff8000000000000	_	!ValueError	cannot convert float NaN to integer
+abs	f:7ff8000000000000	_	f:7ff8000000000000
+int_float	f:fff8000000000000	_	!ValueError	cannot convert float NaN to integer
+round1	f:fff8000000000000	_	!ValueError	cannot convert float NaN to integer
+abs	f:fff8000000000000	_	f:7ff8000000000000
+round_int	-351	-4	0
+round_int	-351	-3	0
+round_int	-351	-2	-400
+round_int	-351	-1	-350
+round_int	-351	0	-351
+round_int	-351	1	-351
+round_int	-351	80	-351
+round_int	-350	-4	0
+round_int	-350	-3	0
+round_int	-350	-2	-400
+round_int	-350	-1	-350
+round_int	-350	0	-350
+round_int	-350	1	-350
+round_int	-350	80	-350
+round_int	-250	-4	0
+round_int	-250	-3	0
+round_int	-250	-2	-200
+round_int	-250	-1	-250
+round_int	-250	0	-250
+round_int	-250	1	-250
+round_int	-250	80	-250
+round_int	-150	-4	0
+round_int	-150	-3	0
+round_int	-150	-2	-200
+round_int	-150	-1	-150
+round_int	-150	0	-150
+round_int	-150	1	-150
+round_int	-150	80	-150
+round_int	-50	-4	0
+round_int	-50	-3	0
+round_int	-50	-2	0
+round_int	-50	-1	-50
+round_int	-50	0	-50
+round_int	-50	1	-50
+round_int	-50	80	-50
+round_int	-1	-4	0
+round_int	-1	-3	0
+round_int	-1	-2	0
+round_int	-1	-1	0
+round_int	-1	0	-1
+round_int	-1	1	-1
+round_int	-1	80	-1
+round_int	0	-4	0
+round_int	0	-3	0
+round_int	0	-2	0
+round_int	0	-1	0
+round_int	0	0	0
+round_int	0	1	0
+round_int	0	80	0
+round_int	1	-4	0
+round_int	1	-3	0
+round_int	1	-2	0
+round_int	1	-1	0
+round_int	1	0	1
+round_int	1	1	1
+round_int	1	80	1
+round_int	50	-4	0
+round_int	50	-3	0
+round_int	50	-2	0
+round_int	50	-1	50
+round_int	50	0	50
+round_int	50	1	50
+round_int	50	80	50
+round_int	150	-4	0
+round_int	150	-3	0
+round_int	150	-2	200
+round_int	150	-1	150
+round_int	150	0	150
+round_int	150	1	150
+round_int	150	80	150
+round_int	250	-4	0
+round_int	250	-3	0
+round_int	250	-2	200
+round_int	250	-1	250
+round_int	250	0	250
+round_int	250	1	250
+round_int	250	80	250
+round_int	350	-4	0
+round_int	350	-3	0
+round_int	350	-2	400
+round_int	350	-1	350
+round_int	350	0	350
+round_int	350	1	350
+round_int	350	80	350
+round_int	351	-4	0
+round_int	351	-3	0
+round_int	351	-2	400
+round_int	351	-1	350
+round_int	351	0	351
+round_int	351	1	351
+round_int	351	80	351
+round_int	1208925819614629174706177	-4	1208925819614629174710000
+round_int	1208925819614629174706177	-3	1208925819614629174706000
+round_int	1208925819614629174706177	-2	1208925819614629174706200
+round_int	1208925819614629174706177	-1	1208925819614629174706180
+round_int	1208925819614629174706177	0	1208925819614629174706177
+round_int	1208925819614629174706177	1	1208925819614629174706177
+round_int	1208925819614629174706177	80	1208925819614629174706177
+pow_float	0	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497791	!ZeroDivisionError	0.0 cannot be raised to a negative power
+pow_float	1	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497791	f:3ff0000000000000
+pow_float	2	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497791	f:0000000000000000
+pow_float	f:3ff0000000000000	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497791	f:3ff0000000000000
+pow_float	f:bff0000000000000	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497791	f:3ff0000000000000
+pow_float	f:3ff0000000000000	179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497791	f:3ff0000000000000
+pow_float	f:bff0000000000000	179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497791	f:3ff0000000000000
+pow_float	0	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792	!OverflowError	int too large to convert to float
+pow_float	1	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792	!OverflowError	int too large to convert to float
+pow_float	2	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792	!OverflowError	int too large to convert to float
+pow_float	f:3ff0000000000000	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792	!OverflowError	int too large to convert to float
+pow_float	f:bff0000000000000	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792	!OverflowError	int too large to convert to float
+pow_float	f:3ff0000000000000	179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792	!OverflowError	int too large to convert to float
+pow_float	f:bff0000000000000	179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792	!OverflowError	int too large to convert to float
+pow_float	0	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497793	!OverflowError	int too large to convert to float
+pow_float	1	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497793	!OverflowError	int too large to convert to float
+pow_float	2	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497793	!OverflowError	int too large to convert to float
+pow_float	f:3ff0000000000000	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497793	!OverflowError	int too large to convert to float
+pow_float	f:bff0000000000000	-179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497793	!OverflowError	int too large to convert to float
+pow_float	f:3ff0000000000000	179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497793	!OverflowError	int too large to convert to float
+pow_float	f:bff0000000000000	179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497793	!OverflowError	int too large to convert to float
+pow_float	0	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	!OverflowError	int too large to convert to float
+pow_float	1	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	!OverflowError	int too large to convert to float
+pow_float	2	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	!OverflowError	int too large to convert to float
+pow_float	f:3ff0000000000000	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	!OverflowError	int too large to convert to float
+pow_float	f:bff0000000000000	-179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	!OverflowError	int too large to convert to float
+pow_float	f:3ff0000000000000	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	!OverflowError	int too large to convert to float
+pow_float	f:bff0000000000000	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216	!OverflowError	int too large to convert to float
+pow_float	f:c000000000000000	f:fff0000000000000	f:0000000000000000
+pow_float	f:c000000000000000	f:7ff0000000000000	f:7ff0000000000000
+pow_float	f:c000000000000000	f:7ff8000000000000	f:7ff8000000000000
+pow_float	f:c000000000000000	f:c000000000000000	f:3fd0000000000000
+pow_float	f:c000000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:c000000000000000	f:4000000000000000	f:4010000000000000
+pow_float	f:c000000000000000	9007199254740992	!OverflowError	(34, 'Result too large')
+pow_float	f:bff0000000000000	f:fff0000000000000	f:3ff0000000000000
+pow_float	f:bff0000000000000	f:7ff0000000000000	f:3ff0000000000000
+pow_float	f:bff0000000000000	f:7ff8000000000000	f:7ff8000000000000
+pow_float	f:bff0000000000000	f:c000000000000000	f:3ff0000000000000
+pow_float	f:bff0000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:bff0000000000000	f:4000000000000000	f:3ff0000000000000
+pow_float	f:bff0000000000000	9007199254740992	f:3ff0000000000000
+pow_float	f:8000000000000000	f:fff0000000000000	f:7ff0000000000000
+pow_float	f:8000000000000000	f:7ff0000000000000	f:0000000000000000
+pow_float	f:8000000000000000	f:7ff8000000000000	f:7ff8000000000000
+pow_float	f:8000000000000000	f:c000000000000000	!ZeroDivisionError	0.0 cannot be raised to a negative power
+pow_float	f:8000000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:8000000000000000	f:4000000000000000	f:0000000000000000
+pow_float	f:8000000000000000	9007199254740992	f:0000000000000000
+pow_float	f:0000000000000000	f:fff0000000000000	f:7ff0000000000000
+pow_float	f:0000000000000000	f:7ff0000000000000	f:0000000000000000
+pow_float	f:0000000000000000	f:7ff8000000000000	f:7ff8000000000000
+pow_float	f:0000000000000000	f:c000000000000000	!ZeroDivisionError	0.0 cannot be raised to a negative power
+pow_float	f:0000000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:0000000000000000	f:4000000000000000	f:0000000000000000
+pow_float	f:0000000000000000	9007199254740992	f:0000000000000000
+pow_float	f:3fe0000000000000	f:fff0000000000000	f:7ff0000000000000
+pow_float	f:3fe0000000000000	f:7ff0000000000000	f:0000000000000000
+pow_float	f:3fe0000000000000	f:7ff8000000000000	f:7ff8000000000000
+pow_float	f:3fe0000000000000	f:c000000000000000	f:4010000000000000
+pow_float	f:3fe0000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:3fe0000000000000	f:4000000000000000	f:3fd0000000000000
+pow_float	f:3fe0000000000000	9007199254740992	f:0000000000000000
+pow_float	f:3ff0000000000000	f:fff0000000000000	f:3ff0000000000000
+pow_float	f:3ff0000000000000	f:7ff0000000000000	f:3ff0000000000000
+pow_float	f:3ff0000000000000	f:7ff8000000000000	f:3ff0000000000000
+pow_float	f:3ff0000000000000	f:c000000000000000	f:3ff0000000000000
+pow_float	f:3ff0000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:3ff0000000000000	f:4000000000000000	f:3ff0000000000000
+pow_float	f:3ff0000000000000	9007199254740992	f:3ff0000000000000
+pow_float	f:4000000000000000	f:fff0000000000000	f:0000000000000000
+pow_float	f:4000000000000000	f:7ff0000000000000	f:7ff0000000000000
+pow_float	f:4000000000000000	f:7ff8000000000000	f:7ff8000000000000
+pow_float	f:4000000000000000	f:c000000000000000	f:3fd0000000000000
+pow_float	f:4000000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:4000000000000000	f:4000000000000000	f:4010000000000000
+pow_float	f:4000000000000000	9007199254740992	!OverflowError	(34, 'Result too large')
+pow_float	f:7ff0000000000000	f:fff0000000000000	f:0000000000000000
+pow_float	f:7ff0000000000000	f:7ff0000000000000	f:7ff0000000000000
+pow_float	f:7ff0000000000000	f:7ff8000000000000	f:7ff8000000000000
+pow_float	f:7ff0000000000000	f:c000000000000000	f:0000000000000000
+pow_float	f:7ff0000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:7ff0000000000000	f:4000000000000000	f:7ff0000000000000
+pow_float	f:7ff0000000000000	9007199254740992	f:7ff0000000000000
+pow_float	f:fff0000000000000	f:fff0000000000000	f:0000000000000000
+pow_float	f:fff0000000000000	f:7ff0000000000000	f:7ff0000000000000
+pow_float	f:fff0000000000000	f:7ff8000000000000	f:7ff8000000000000
+pow_float	f:fff0000000000000	f:c000000000000000	f:0000000000000000
+pow_float	f:fff0000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:fff0000000000000	f:4000000000000000	f:7ff0000000000000
+pow_float	f:fff0000000000000	9007199254740992	f:7ff0000000000000
+pow_float	f:7ff8000000000000	f:fff0000000000000	f:7ff8000000000000
+pow_float	f:7ff8000000000000	f:7ff0000000000000	f:7ff8000000000000
+pow_float	f:7ff8000000000000	f:7ff8000000000000	f:7ff8000000000000
+pow_float	f:7ff8000000000000	f:c000000000000000	f:7ff8000000000000
+pow_float	f:7ff8000000000000	f:0000000000000000	f:3ff0000000000000
+pow_float	f:7ff8000000000000	f:4000000000000000	f:7ff8000000000000
+pow_float	f:7ff8000000000000	9007199254740992	f:7ff8000000000000
+pow_float	2	-1075	f:0000000000000000
+pow_float	2	-1074	f:0000000000000001
+pow_float	2	-1073	f:0000000000000002
+pow_float	2	1023	89884656743115795386465259539451236680898848947115328636715040578866337902750481566354238661203768010560056939935696678829394884407208311246423715319737062188883946712432742638151109800623047059726541476042502884419075341171231440736956555270413618581675255342293149119973622969239858152417678164812112068608
+pow_float	2	1024	179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216
+pow_float	f:4000000000000000	-1075	f:0000000000000000
+pow_float	f:4000000000000000	-1074	f:0000000000000001
+pow_float	f:4000000000000000	-1073	f:0000000000000002
+pow_float	f:4000000000000000	1023	f:7fe0000000000000
+pow_float	f:4000000000000000	1024	!OverflowError	(34, 'Result too large')
+zdiv	f:3ff0000000000000	0	!ZeroDivisionError	float division by zero
+zdiv	f:3ff0000000000000	1	!ZeroDivisionError	float floor division by zero
+zdiv	f:3ff0000000000000	2	!ZeroDivisionError	float modulo
+zdiv	f:3ff0000000000000	3	!ZeroDivisionError	float divmod()
+zdiv	f:bff0000000000000	0	!ZeroDivisionError	float division by zero
+zdiv	f:bff0000000000000	1	!ZeroDivisionError	float floor division by zero
+zdiv	f:bff0000000000000	2	!ZeroDivisionError	float modulo
+zdiv	f:bff0000000000000	3	!ZeroDivisionError	float divmod()
+zdiv	f:7ff0000000000000	0	!ZeroDivisionError	float division by zero
+zdiv	f:7ff0000000000000	1	!ZeroDivisionError	float floor division by zero
+zdiv	f:7ff0000000000000	2	!ZeroDivisionError	float modulo
+zdiv	f:7ff0000000000000	3	!ZeroDivisionError	float divmod()
+zdiv	f:7ff8000000000000	0	!ZeroDivisionError	float division by zero
+zdiv	f:7ff8000000000000	1	!ZeroDivisionError	float floor division by zero
+zdiv	f:7ff8000000000000	2	!ZeroDivisionError	float modulo
+zdiv	f:7ff8000000000000	3	!ZeroDivisionError	float divmod()

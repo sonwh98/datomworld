@@ -109,17 +109,26 @@
    float key or hash can need integers of 1075 bits (2^-1074), so the
    composition's `integer` limits must admit at least that.
 
-   The `integer` module (version 3) answers a limit breach as a reason,
+   The `integer` module (version 4) answers a limit breach as a reason,
    not a result, and `py/int-result` wraps every call that can breach:
    `:yin.vm.integer/bit-limit` raises MemoryError, as CPython 3.9.6 does
    when an integer cannot be allocated, and `:yin.vm.integer/digit-limit`
    raises ValueError. CPython 3.9.6 has no digit limit (it arrived in
    3.9.14 and 3.11), so the digit limit is this support profile's
-   restriction, not a 3.9.6 match. Float overflow raises OverflowError
-   with \"int too large to convert to float\". The guest
+   restriction, not a 3.9.6 match; its message names the composition's
+   limit, read through `integer/max-digits`. Float overflow raises
+   OverflowError with \"int too large to convert to float\". The guest
    message is the prelude's, never host text. Every other refusal stays
    a host failure of the run: the prelude checks its causes before the
    call, so reaching one is a prelude defect, not a guest error.
+
+   The conversion builtins (C3 slice S4: int, float, str, repr, bool,
+   abs, pow, hex, oct, bin, round) validate text here and leave digits
+   to the kernels: `integer/parse`, `integer/decimal->float` (one
+   rounding, no digit limit) and `integer/float-digits`, whose shortest
+   digits `py/float-repr` lays out by the same rule as the boundary
+   renderer. `print` checks the digit limit of every integer it shows
+   before it appends anything.
 
    Host names the prelude depends on and does not define: `host-names`
    (the cell module from yin.vm.module, the integer module from
@@ -139,7 +148,9 @@
      integer/to-float integer/compare-float integer/true-div
      integer/pow integer/shift-right integer/bit-and
      integer/bit-or integer/bit-xor integer/bit-not integer/from-float
-     integer/floor-div-mod integer/shift-left integer/format integer/parse})
+     integer/floor-div-mod integer/shift-left integer/format integer/parse
+     integer/float-digits integer/decimal->float integer/max-digits
+     data/substring})
 
 
 (def ^:private core-definitions
@@ -647,9 +658,9 @@
              (py/all-exc-classes? (get cls :items) 0)
              (py/exc-class? cls))
          (py/class-match? (py/type-of e) cls true {:py/str ""})
-         (py/type-error {:py/str (data/str-concat
-                                   "catching classes that do not inherit from "
-                                   "BaseException is not allowed")})))]
+         (py/type-error (py/str (data/str-concat
+                                  "catching classes that do not inherit from "
+                                  "BaseException is not allowed")))))]
 
     ;; ---------------------------------------------------------- names
     [py/local-get
@@ -1147,35 +1158,38 @@
            (py/type-error {:py/str "unsupported operand type"}))
          (py/type-error {:py/str "unsupported operand type"})))]
     [py/division-operands
-     (fn [a b]
+     (fn [a b message]
        (if (if (py/numeric? a) (py/numeric? b) false)
          (if (if (py/int? a) (py/int? b) false)
            (do (py/division-check a b)
                (py/conj (py/conj [] (py/num a)) (py/num b)))
            (let [x (py/as-float a) y (py/as-float b)]
-             (do (py/division-check x y)
+             (do (if (py/zero? y)
+                   (py/raise-new py.b/ZeroDivisionError (py/str message))
+                   :py/None)
                  (py/conj (py/conj [] x) y))))
          (py/type-error {:py/str "unsupported operand type"})))]
     [py/divmod-values
-     (fn [a b]
-       (let [xy (py/division-operands a b)]
+     (fn [a b message]
+       (let [xy (py/division-operands a b message)]
          (if (if (py/int? a) (py/int? b) false)
            (py/int-result (integer/floor-div-mod (get xy 0) (get xy 1)))
            (py/float-divmod (get xy 0) (get xy 1)))))]
     [py/floordiv
      (fn [a b]
-       (let [q (get (py/divmod-values a b) 0)]
+       (let [q (get (py/divmod-values a b "float floor division by zero")
+                    0)]
          (if (if (py/int? a) (py/int? b) false) q (py/float q))))]
     [py/mod
      (fn [a b]
-       (let [xy (py/division-operands a b)]
+       (let [xy (py/division-operands a b "float modulo")]
          (if (if (py/int? a) (py/int? b) false)
            (get (py/int-result
                   (integer/floor-div-mod (get xy 0) (get xy 1))) 1)
            (py/float (py/float-mod (get xy 0) (get xy 1))))))]
     [py/divmod
      (fn [a b]
-       (let [qr (py/divmod-values a b)]
+       (let [qr (py/divmod-values a b "float divmod()")]
          (py/tuple
            (if (if (py/int? a) (py/int? b) false)
              qr
@@ -1189,44 +1203,83 @@
          (let [h (py/fpow base (py/int-result (integer/shift-right e 1)))
                hh (* h h)]
            (if (= (integer/bit-and e 1) 0) hh (* hh base)))))]
+    [py/power-overflow
+     ;; OverflowError(34, 'Result too large'), the errno pair CPython's
+     ;; float pow raises (measured on macOS, int-conv-v1)
+     (fn []
+       (let [e (py/make-instance py.b/OverflowError)]
+         (do (py/setattr e "args"
+                         (py/tuple [34 {:py/str "Result too large"}]))
+             (py/raise e))))]
+    [py/negative-power
+     ;; x ** -n for an integer n > 0: 1 / x^n while x^n is finite, so
+     ;; every exact case is exact; when x^n overflows, the reciprocals of
+     ;; its two halves, so 2 ** -1074 is 5e-324. Underflow overflows.
+     (fn [x n]
+       (let [p (py/fpow x n)]
+         (if (py/finite? p)
+           (if (py/zero? p)
+             (py/power-overflow)
+             (/ (data/float-value 1) p))
+           (let [h (py/int-result (integer/shift-right n 1))]
+             (* (/ (data/float-value 1) (py/fpow x h))
+                (/ (data/float-value 1)
+                   (py/fpow x (py/int-result (integer/sub n h)))))))))]
+    [py/power-special
+     ;; x ** y for a NaN or infinite y: CPython's table by |x| against 1
+     (fn [x y]
+       (if (= x (data/float-value 1))
+         (data/float-value 1)
+         (if (not (<= y y))
+           y
+           (let [a (py/float-abs x)]
+             (if (= a (data/float-value 1))
+               (data/float-value 1)
+               (if (not (<= x x))
+                 x
+                 (if (if (> a 1) (> y 0) (< y 0))
+                   (data/float-value ##Inf)
+                   (data/float-value 0))))))))]
+    [py/float-power
+     ;; a ** b with a float result, as CPython's float_pow: base, then
+     ;; exponent, convert to doubles (OverflowError from 2^1024 - 2^970),
+     ;; before the zero check; an integral exponent of any size is exact
+     ;; through from-float. A finite pair with an infinite result raises.
+     (fn [a b]
+       (let [x (py/as-float a)
+             y (py/as-float b)]
+         (if (py/finite? y)
+           (let [e (py/int-result (integer/from-float y))]
+             (if (= (integer/compare-float e y) 0)
+               (let [negative (< (integer/compare e 0) 0)]
+                 (if (if negative (py/zero? x) false)
+                   (py/raise-new
+                     py.b/ZeroDivisionError
+                     {:py/str "0.0 cannot be raised to a negative power"})
+                   (let [r (if negative
+                             (py/negative-power
+                               x (py/int-result (integer/neg e)))
+                             (py/fpow x e))]
+                     (if (if (py/finite? x)
+                           (= (py/float-abs r) (data/float-value ##Inf))
+                           false)
+                       (py/power-overflow)
+                       (py/float r)))))
+               (py/raise-new
+                 py.b/NotImplementedError
+                 {:py/str "non-integer exponents are not supported"})))
+           (py/float (py/power-special x y)))))]
     [py/pow
+     ;; an int result only for int ** non-negative int
      (fn [a b]
        (if (if (py/numeric? a) (py/numeric? b) false)
-         (let [x (py/num a)
-               y (py/num b)
-               floaty (if (py/float? a) true (py/float? b))]
-           (if (if (py/float? b) (< (py/floor y) y) false)
-             (py/raise-new py.b/NotImplementedError
-                           {:py/str "non-integer exponents are not supported"})
-             (let [e (if (py/float? b)
-                       (let [f (py/floor y)]
-                         (if (< f 0)
-                           (py/int-result (integer/neg (py/int-of (- 0 f))))
-                           (py/int-of f))) y)]
-               (do
-                 ;; |e| >= 2^1024 iff its 1024-bit right shift is > 0.
-                 ;; Compare that quotient: a 1025-bit threshold literal
-                 ;; would itself breach a small composition's bit limit.
-                 (if (if floaty
-                       (> (integer/compare
-                            (py/int-result
-                              (integer/shift-right (py/abs e) 1024)) 0) 0)
-                       false)
-                   (py/raise-new py.b/OverflowError
-                                 {:py/str "int too large to convert to float"})
-                   :py/None)
-                 (if (< (integer/compare e 0) 0)
-                   (if (py/zero? a)
-                     (py/raise-new py.b/ZeroDivisionError
-                                   (py/str (data/str-concat
-                                             "0.0 cannot be raised to "
-                                             "a negative power")))
-                     (py/float (/ (data/float-value 1)
-                                  (py/fpow (py/as-float a)
-                                           (py/int-result (integer/neg e))))))
-                   (if floaty
-                     (py/float (py/fpow (py/as-float a) e))
-                     (py/int-result (integer/pow x e))))))))
+         (if (if (py/float? a)
+               true
+               (if (py/float? b)
+                 true
+                 (< (integer/compare (py/num b) 0) 0)))
+           (py/float-power a b)
+           (py/int-result (integer/pow (py/num a) (py/num b))))
          (py/type-error {:py/str "unsupported operand type for **"})))]
     [py/int-op
      (fn [op a b]
@@ -1263,7 +1316,7 @@
              (let [x (py/as-float a) y (py/as-float b)]
                (if (= y (data/float-value 0))
                  (py/raise-new py.b/ZeroDivisionError
-                               {:py/str "division by zero"})
+                               {:py/str "float division by zero"})
                  (py/float (/ x y))))
              (if (py/zero? b)
                (py/raise-new py.b/ZeroDivisionError
@@ -1335,10 +1388,17 @@
      (fn [c xs i]
        (let [x (get xs i :py/stop)]
          (if (= x :py/stop) true (if (py/contains c x) (py/all-in? c xs (+ i 1)) false))))]
+    [py/same?
+     ;; CPython's identity-then-== for container items, so a NaN finds
+     ;; itself; under content identity any two NaNs do (one-NaN rule)
+     (fn [a b]
+       (if (py/eq a b) true (if (py/float? a) (py/is a b) false)))]
     [py/seq-contains?
      (fn [xs x i]
        (let [y (get xs i :py/stop)]
-         (if (= y :py/stop) false (if (py/eq y x) true (py/seq-contains? xs x (+ i 1))))))]
+         (if (= y :py/stop)
+           false
+           (if (py/same? y x) true (py/seq-contains? xs x (+ i 1))))))]
     [py/contains
      ;; `x in c`
      (fn [c x]
@@ -1349,11 +1409,22 @@
          (let [k (py/kind c)]
            (if (if (= k :dict) true (= k :set))
              (py/dict-has? c x)
-             (if (if (= k :range) (py/int? x) false)
-               (py/range-has? c (py/num x))
-               (if (if (= k :list) true (if (= k :tuple) true (= k :range)))
+             (if (= k :range)
+               (if (py/int? x)
+                 (py/range-has? c (py/num x))
+                 (if (py/float? x) (py/range-has-float? c (py/num x)) false))
+               (if (if (= k :list) true (= k :tuple))
                  (py/seq-contains? (py/to-vector c) x 0)
-                 (py/type-error {:py/str "argument of type is not iterable"})))))))]
+                 (py/type-error
+                   {:py/str "argument of type is not iterable"})))))))]
+    [py/range-has-float?
+     ;; the answer of CPython's linear search, in constant time: only an
+     ;; integral float can equal a range element
+     (fn [r v]
+       (if (py/finite? v)
+         (let [n (py/int-result (integer/from-float v))]
+           (if (= (integer/compare-float n v) 0) (py/range-has? r n) false))
+         false))]
     [py/range-has?
      (fn [r x]
        (let [start (get r :start)
@@ -1377,7 +1448,7 @@
            (= y :py/stop)
            (if (= y :py/stop)
              false
-             (if (py/eq x y) (py/eq-items xs ys (+ i 1)) false)))))]
+             (if (py/same? x y) (py/eq-items xs ys (+ i 1)) false)))))]
     [py/ne (fn [a b] (not (py/eq a b)))]
     ;; `is` is content identity for every non-cell value (C3 ruling 8,
     ;; yang.antlr.md 8.5.4): equal integers are `is`-equal at any
@@ -1446,9 +1517,14 @@
                        (do (py/setattr e "args" (py/tuple [])) e)))
            (if (= r :yin.vm.integer/digit-limit)
              (py/raise-new py.b/ValueError
+                           ;; N from the composition, never a prelude row
                            (py/str (data/str-concat
-                                     "Exceeds the limit for integer string "
-                                     "conversion")))
+                                     "Exceeds the limit ("
+                                     (data/str-concat
+                                       (integer/format (integer/max-digits))
+                                       (data/str-concat
+                                         " digits) for integer string "
+                                         "conversion")))))
              (if (= r :yin.vm.integer/float-overflow)
                (py/raise-new py.b/OverflowError
                              {:py/str "int too large to convert to float"})
@@ -2165,11 +2241,499 @@
                                    0
                                    [])))
          (py/snapshot e)))]
+    [py/check-print-all
+     (fn [xs i]
+       (let [x (get xs i :py/stop)]
+         (if (= x :py/stop)
+           :py/None
+           (do (py/check-print x) (py/check-print-all xs (+ i 1))))))]
+    [py/check-print
+     ;; The digit limit of every integer print will show, in the shapes
+     ;; py/snapshot walks, so a breach raises before py.rt/out changes.
+     ;; Small integers too: the `small` profile's limit is 5 digits.
+     (fn [x]
+       (if (py/int? x)
+         (do (py/int-result (integer/format (py/num x))) :py/None)
+         (if (= (py/kind x) :tuple)
+           (py/check-print-all (get x :items) 0)
+           (if (py/cell? x)
+             (let [c (cell/get x)
+                   k (get c :py/type)]
+               (if (if (= k :list) true (= k :set))
+                 (py/check-print-all (get c (if (= k :list) :items :keys)) 0)
+                 (if (= k :dict)
+                   (do (py/check-print-all (get c :keys) 0)
+                       (py/check-print-all (get c :vals) 0))
+                   :py/None)))
+             (if (= (py/kind x) :range)
+               (do (py/check-print (get x :start))
+                   (py/check-print (get x :stop))
+                   (py/check-print (get x :step)))
+               :py/None)))))]
     [py/print
      (fn [items]
-       (do (cell/set! py.rt/out
+       (do (py/check-print-all items 0)
+           (cell/set! py.rt/out
                       (conj (cell/get py.rt/out) (py/snapshot-all items 0 [])))
            :py/None))]
+
+    ;; ---------------------------------------------------------- conversions
+    ;; The scalar conversions behind int, float, str, repr, abs, hex, oct,
+    ;; bin and round (C3 slice S4). Text is validated here, before any
+    ;; kernel call; a kernel :syntax refusal would be a prelude defect.
+    [py/type-name
+     (fn [x]
+       (if (= x :py/None)
+         "NoneType"
+         (if (if (= x true) true (= x false))
+           "bool"
+           (if (py/float? x)
+             "float"
+             (if (py/int? x)
+               "int"
+               (if (py/str? x)
+                 "str"
+                 (let [k (py/kind x)]
+                   (if (= k :instance)
+                     (get (cell/get (get (cell/get x) :class)) :name)
+                     (get {:list "list", :tuple "tuple", :dict "dict",
+                           :set "set", :range "range",
+                           :function "function", :method "method",
+                           :generator "generator", :iterator "iterator",
+                           :class "type"}
+                          k
+                          "object")))))))))]
+    [py/type-text
+     ;; prefix, then x's type name, then suffix, as a guest string
+     (fn [prefix x suffix]
+       (py/str (data/str-concat prefix
+                                (data/str-concat (py/type-name x) suffix))))]
+    [py/index-type-error
+     (fn [x]
+       (py/type-error
+         (py/type-text "'" x "' object cannot be interpreted as an integer")))]
+    [py/space?
+     ;; str.isspace, less 28..31: int() and float() of CPython 3.9.6 do
+     ;; not strip those four (measured, int-conv-v1 and float-text-v1)
+     (fn [c]
+       (if (if (<= 9 c) (<= c 13) false)
+         true
+         (if (if (<= 8192 c) (<= c 8202) false)
+           true
+           (get {32 true, 133 true, 160 true, 5760 true, 8232 true,
+                 8233 true, 8239 true, 8287 true, 12288 true}
+                c
+                false))))]
+    [py/strip-start
+     (fn [cs i]
+       (if (py/space? (get cs i -1)) (py/strip-start cs (+ i 1)) i))]
+    [py/strip-end
+     (fn [cs i start]
+       (if (if (> i start) (py/space? (get cs (- i 1))) false)
+         (py/strip-end cs (- i 1) start)
+         i))]
+    [py/strip-space
+     (fn [s]
+       (let [cs (data/str->code-points s)
+             a (py/strip-start cs 0)
+             b (py/strip-end cs (data/count cs) a)]
+         (data/code-points->str (data/subvec cs a b))))]
+    [py/text-repeat
+     (fn [s n acc]
+       (if (> n 0)
+         (py/text-repeat s (- n 1) (data/str-concat acc s))
+         acc))]
+    [py/char-escape
+     ;; render/string-repr's escapes, for code point c under quote q
+     (fn [c q]
+       (let [ch (data/code-points->str (py/conj [] c))]
+         (if (= c 92)
+           "\\\\"
+           (if (= ch q)
+             (data/str-concat "\\" q)
+             (if (= c 10)
+               "\\n"
+               (if (= c 13)
+                 "\\r"
+                 (if (= c 9)
+                   "\\t"
+                   (if (if (< c 32) true (= c 127))
+                     (let [h (integer/format c 16)]
+                       (data/str-concat
+                         "\\x"
+                         (if (< c 16) (data/str-concat "0" h) h)))
+                     ch))))))))]
+    [py/str-escape
+     (fn [cs i q acc]
+       (let [c (get cs i :py/stop)]
+         (if (= c :py/stop)
+           (data/str-concat acc q)
+           (py/str-escape cs (+ i 1) q
+                          (data/str-concat acc (py/char-escape c q))))))]
+    [py/str-repr
+     ;; the guest port of render/string-repr, over code points
+     (fn [s]
+       (let [q (if (if (nil? (data/str-index-of s "'"))
+                     false
+                     (nil? (data/str-index-of s "\"")))
+                 "\""
+                 "'")]
+         (py/str-escape (data/str->code-points s) 0 q q)))]
+    [py/exponent-text
+     (fn [e]
+       (let [ed (integer/format (if (< e 0) (- 0 e) e))]
+         (data/str-concat (if (< e 0) "e-" "e+")
+                          (if (< (data/str-length ed) 2)
+                            (data/str-concat "0" ed)
+                            ed))))]
+    [py/digits-repr
+     ;; CPython's repr layout of shortest digits d1d2...dn x 10^e, the
+     ;; rule render/float-repr follows (a parity law binds the two)
+     (fn [digits e]
+       (let [n (data/str-length digits)]
+         (if (if (<= 0 e) (< e 16) false)
+           (if (<= n (+ e 1))
+             (data/str-concat
+               digits
+               (data/str-concat (py/text-repeat "0" (- (+ e 1) n) "") ".0"))
+             (data/str-concat
+               (data/substring digits 0 (+ e 1))
+               (data/str-concat "." (data/substring digits (+ e 1)))))
+           (if (if (<= -4 e) (< e 0) false)
+             (data/str-concat
+               "0."
+               (data/str-concat (py/text-repeat "0" (- (- 0 e) 1) "")
+                                digits))
+             (data/str-concat
+               (data/substring digits 0 1)
+               (data/str-concat
+                 (if (> n 1)
+                   (data/str-concat "." (data/substring digits 1))
+                   "")
+                 (py/exponent-text e)))))))]
+    [py/float-repr
+     (fn [x]
+       (if (not (<= x x))
+         "nan"
+         (if (= x (data/float-value ##Inf))
+           "inf"
+           (if (= x (data/float-value ##-Inf))
+             "-inf"
+             (if (= x (data/float-value 0))
+               ;; float content tells the zeros apart on every host (as
+               ;; `0.0 is -0.0` does); a bare 0 is an integer on JS
+               (if (data/content= (data/float64 x)
+                                  (data/float64 (* (data/float-value -1)
+                                                   (data/float-value 0))))
+                 "-0.0"
+                 "0.0")
+               (let [de (integer/float-digits x)]
+                 (data/str-concat
+                   (if (< x 0) "-" "")
+                   (py/digits-repr (get de 0) (get de 1)))))))))]
+    [py/digit
+     ;; the value of an ASCII digit or letter, else -1
+     (fn [c]
+       (if (if (<= 48 c) (<= c 57) false)
+         (- c 48)
+         (if (if (<= 65 c) (<= c 90) false)
+           (- c 55)
+           (if (if (<= 97 c) (<= c 122) false) (- c 87) -1))))]
+    [py/read-digits
+     ;; [next-index cleaned-digits valid?] for the digits below `base`
+     ;; from i. An underscore needs a digit on each side; the caller
+     ;; drops the one a prefix may carry.
+     (fn [cs i base prev acc]
+       (let [c (get cs i -1)
+             d (py/digit c)]
+         (if (if (<= 0 d) (< d base) false)
+           (py/read-digits cs (+ i 1) base true
+                           (data/str-concat
+                             acc (data/code-points->str (py/conj [] c))))
+           (if (= c 95)
+             (if prev
+               (py/read-digits cs (+ i 1) base false acc)
+               (py/conj (py/conj (py/conj [] i) acc) false))
+             (py/conj (py/conj (py/conj [] i) acc)
+                      (if (= acc "") true prev))))))]
+    [py/int-text-error
+     (fn [s base]
+       (py/raise-new
+         py.b/ValueError
+         (py/str (data/str-concat
+                   "invalid literal for int() with base "
+                   (data/str-concat (integer/format base)
+                                    (data/str-concat ": " (py/str-repr s)))))))]
+    [py/zero-digits?
+     (fn [cs i]
+       (let [c (get cs i :py/stop)]
+         (if (= c :py/stop)
+           true
+           (if (= c 48) (py/zero-digits? cs (+ i 1)) false))))]
+    [py/int-text
+     ;; int(s, given): optional sign, a prefix matching the base (any
+     ;; prefix for base 0), digits; the cleaned text goes to the kernel,
+     ;; whose digit limit applies to base 10 only
+     (fn [s given]
+       (let [cs (data/str->code-points (py/strip-space s))
+             c (get cs 0 -1)
+             neg (= c 45)
+             i (if (if neg true (= c 43)) 1 0)
+             p (if (= (get cs i) 48)
+                 (get {120 16, 88 16, 111 8, 79 8, 98 2, 66 2}
+                      (get cs (+ i 1))
+                      0)
+                 0)
+             base (if (= given 0) (if (= p 0) 10 p) given)
+             prefix (if (= p 0) false (= p base))
+             j (if prefix (+ i 2) i)
+             j (if (if prefix (= (get cs j) 95) false) (+ j 1) j)
+             ds (py/read-digits cs j base false "")
+             digits (get ds 1)]
+         (if (if (= (get ds 0) (data/count cs))
+               (if (get ds 2) (not (= digits "")) false)
+               false)
+           ;; base 0 without a prefix: a leading zero only for zero
+           (if (if (= given 0) (if prefix false (= (get cs i) 48)) false)
+             (if (py/zero-digits? (data/str->code-points digits) 0)
+               (py/int-result (integer/parse digits base))
+               (py/int-text-error s given))
+             (py/int-result
+               (integer/parse (if neg (data/str-concat "-" digits) digits)
+                              base)))
+           (py/int-text-error s given))))]
+    [py/float-to-int
+     (fn [v]
+       (if (not (<= v v))
+         (py/raise-new py.b/ValueError
+                       {:py/str "cannot convert float NaN to integer"})
+         (if (py/finite? v)
+           (py/int-result (integer/from-float v))
+           (py/raise-new
+             py.b/OverflowError
+             {:py/str "cannot convert float infinity to integer"}))))]
+    [py/int-conv
+     ;; int(x, base); base :py/missing when not given
+     (fn [x base]
+       (let [b (if (= base :py/missing) 10 base)]
+         (do
+           (if (py/int? b) :py/None (py/index-type-error b))
+           (if (if (= (integer/compare (py/num b) 0) 0)
+                 true
+                 (if (<= (integer/compare 2 (py/num b)) 0)
+                   (<= (integer/compare (py/num b) 36) 0)
+                   false))
+             :py/None
+             (py/raise-new
+               py.b/ValueError
+               {:py/str "int() base must be >= 2 and <= 36, or 0"}))
+           (if (py/str? x)
+             (py/int-text (get x :py/str) (py/num b))
+             (if (not (= base :py/missing))
+               (py/type-error
+                 {:py/str "int() can't convert non-string with explicit base"})
+               (if (py/int? x)
+                 (py/num x)
+                 (if (py/float? x)
+                   (py/float-to-int (py/num x))
+                   (py/type-error
+                     (py/type-text
+                       (data/str-concat
+                         "int() argument must be a string, a bytes-like "
+                         "object or a number, not '")
+                       x
+                       "'")))))))))]
+    [py/ascii-lower
+     (fn [cs i acc]
+       (let [c (get cs i :py/stop)]
+         (if (= c :py/stop)
+           (data/code-points->str acc)
+           (py/ascii-lower cs (+ i 1)
+                           (conj acc (if (if (<= 65 c) (<= c 90) false)
+                                       (+ c 32)
+                                       c))))))]
+    [py/float-text-error
+     (fn [s]
+       (py/raise-new
+         py.b/ValueError
+         (py/str (data/str-concat "could not convert string to float: "
+                                  (py/str-repr s)))))]
+    [py/decimal-exponent
+     ;; The exponent's digits, saturated at 10^18 so the composition's
+     ;; digit limit never applies to an exponent; leading zeros are free.
+     (fn [cs i n]
+       (let [c (get cs i :py/stop)
+             cap (py/int-lit "de0b6b3a7640000")]
+         (if (= c :py/stop)
+           n
+           (py/decimal-exponent
+             cs (+ i 1)
+             (if (>= (integer/compare n cap) 0)
+               cap
+               (let [v (py/int-result
+                         (integer/add (py/int-result (integer/mul n 10))
+                                      (- c 48)))]
+                 (if (> (integer/compare v cap) 0) cap v)))))))]
+    [py/float-decimal
+     ;; digits [. digits] [e|E [sign] digits] from i to the end; the
+     ;; value is decimal->float of all the digits, scaled, then signed
+     (fn [s cs i neg]
+       (let [a (py/read-digits cs i 10 false "")
+             j (get a 0)
+             b (if (= (get cs j) 46)
+                 (py/read-digits cs (+ j 1) 10 false "")
+                 (py/conj (py/conj (py/conj [] j) "") true))
+             k (get b 0)
+             exponent (if (= (get cs k) 101) true (= (get cs k) 69))
+             k (if exponent (+ k 1) k)
+             eneg (if exponent (= (get cs k) 45) false)
+             k (if (if exponent (if eneg true (= (get cs k) 43)) false)
+                 (+ k 1)
+                 k)
+             e (if exponent
+                 (py/read-digits cs k 10 false "")
+                 (py/conj (py/conj (py/conj [] k) "0") true))
+             ds (data/str-concat (get a 1) (get b 1))]
+         (if (if (if (get a 2) (get b 2) false)
+               (if (get e 2)
+                 (if (if (= ds "") false (not (= (get e 1) "")))
+                   (= (get e 0) (data/count cs))
+                   false)
+                 false)
+               false)
+           (let [x (py/decimal-exponent (data/str->code-points (get e 1))
+                                        0 0)
+                 x (if eneg (py/int-result (integer/neg x)) x)
+                 v (integer/decimal->float
+                     ds
+                     (py/int-result
+                       (integer/sub x (data/str-length (get b 1)))))]
+             (py/float (if neg (* (data/float-value -1) v) v)))
+           (py/float-text-error s))))]
+    [py/float-text
+     ;; float(s): a whitespace-only s quotes '' in the error, as CPython
+     (fn [s]
+       (let [t (py/strip-space s)
+             cs (data/str->code-points t)
+             neg (= (get cs 0) 45)
+             i (if (if neg true (= (get cs 0) 43)) 1 0)
+             word (py/ascii-lower (data/subvec cs i) 0 [])]
+         (if (if (= word "inf") true (= word "infinity"))
+           (py/float (if neg
+                       (data/float-value ##-Inf)
+                       (data/float-value ##Inf)))
+           (if (= word "nan")
+             ;; "-nan" is the one NaN too: no portable host op sets a
+             ;; NaN's sign bit, an arithmetic NaN takes the CPU's default
+             ;; sign, and dao.jing writes every NaN as 7ff8, so no C3
+             ;; guest op can observe the sign. Built by inf - inf, as the
+             ;; prelude's other NaNs are: a ##NaN literal row is not equal
+             ;; to itself on JS, which breaks content addressing.
+             (py/float (- (data/float-value ##Inf) (data/float-value ##Inf)))
+             (py/float-decimal (if (= t "") "" s) cs i neg)))))]
+    [py/float-conv
+     (fn [x]
+       (if (py/float? x)
+         x
+         (if (py/int? x)
+           (py/float (py/as-float x))
+           (if (py/str? x)
+             (py/float-text (get x :py/str))
+             (py/type-error
+               (py/type-text
+                 "float() argument must be a string or a number, not '"
+                 x
+                 "'"))))))]
+    [py/str-conv
+     ;; str(x) or repr(x) of a scalar; container text is not in C3
+     (fn [x repr?]
+       (if (py/str? x)
+         (if repr? (py/str (py/str-repr (get x :py/str))) x)
+         (if (= x true)
+           (py/str "True")
+           (if (= x false)
+             (py/str "False")
+             (if (= x :py/None)
+               (py/str "None")
+               (if (py/float? x)
+                 (py/str (py/float-repr (py/num x)))
+                 (if (py/int? x)
+                   (py/str (py/int-result (integer/format (py/num x))))
+                   (py/raise-new
+                     py.b/NotImplementedError
+                     (py/type-text "str() of '" x
+                                   "' is not supported")))))))))]
+    [py/abs-conv
+     (fn [x]
+       (if (py/int? x)
+         (py/abs (py/num x))
+         (if (py/float? x)
+           (let [v (py/num x)]
+             ;; + 0.0 turns -0.0 into 0.0; py/float-abs keeps -0.0
+             (py/float (if (< v 0)
+                         (* (data/float-value -1) v)
+                         (+ v (data/float-value 0)))))
+           (py/type-error
+             (py/type-text "bad operand type for abs(): '" x "'")))))]
+    [py/radix-conv
+     ;; hex, oct, bin: sign, prefix, magnitude; no digit limit applies
+     (fn [x base prefix]
+       (if (py/int? x)
+         (let [n (py/num x)]
+           (py/str (data/str-concat
+                     (if (< (integer/compare n 0) 0) "-" "")
+                     (data/str-concat
+                       prefix
+                       (py/int-result (integer/format (py/abs n) base))))))
+         (py/index-type-error x)))]
+    [py/round-integer
+     ;; n rounded to a multiple of scale, half to even
+     (fn [n scale]
+       (let [qr (py/int-result (integer/floor-div-mod n scale))
+             q (get qr 0)
+             cmp (integer/compare (py/int-result (integer/mul (get qr 1) 2))
+                                  scale)
+             up (if (> cmp 0)
+                  true
+                  (if (= cmp 0) (= (integer/bit-and q 1) 1) false))]
+         (py/int-result
+           (integer/mul (if up (py/int-result (integer/add q 1)) q)
+                        scale))))]
+    [py/round-float
+     ;; round(v) for a double: half to even, exactly; |v - trunc(v)| is
+     ;; exact, so the half test is too
+     (fn [x]
+       (let [n (py/float-to-int (py/num x))
+             v (py/num x)
+             frac (py/float-abs (- v (py/as-float n)))
+             half (data/float-value 0.5)]
+         (if (if (> frac half)
+               true
+               (if (= frac half) (= (integer/bit-and n 1) 1) false))
+           (py/int-result (integer/add n (if (< v 0) -1 1)))
+           n)))]
+    [py/round-conv
+     (fn [x ndigits]
+       (if (py/int? x)
+         (if (= ndigits :py/None)
+           (py/num x)
+           (if (py/int? ndigits)
+             (if (>= (integer/compare (py/num ndigits) 0) 0)
+               (py/num x)
+               (py/round-integer
+                 (py/num x)
+                 (py/int-result
+                   (integer/pow 10 (py/int-result
+                                     (integer/neg (py/num ndigits)))))))
+             (py/index-type-error ndigits)))
+         (if (py/float? x)
+           (if (= ndigits :py/None)
+             (py/round-float x)
+             (py/raise-new
+               py.b/NotImplementedError
+               {:py/str "round(float, ndigits) is not supported"}))
+           (py/type-error
+             (py/type-text "type " x " doesn't define __round__ method")))))]
 
     ;; ---------------------------------------------------------- module
     [py/run-module
@@ -2266,6 +2830,57 @@
     [py.b/all
      (py/make-function "all" {:params ["iterable"], :no-kw true} [] []
                        (fn [args] (py/all-of (py/iterable (py/arg args 0)) 0)))]
+    [py.b/int
+     (py/make-function "int" {:params ["x" "base"]}
+                       [0 :py/missing] []
+                       (fn [args]
+                         (py/int-conv (py/arg args 0) (py/arg args 1))))]
+    [py.b/float
+     (py/make-function "float" {:params ["x"], :no-kw true}
+                       (py/conj [] (py/float (data/float-value 0))) []
+                       (fn [args] (py/float-conv (py/arg args 0))))]
+    [py.b/str
+     (py/make-function "str" {:params ["x"], :no-kw true}
+                       (py/conj [] (py/str "")) []
+                       (fn [args] (py/str-conv (py/arg args 0) false)))]
+    [py.b/repr
+     (py/make-function "repr" {:params ["x"], :no-kw true}
+                       [] []
+                       (fn [args] (py/str-conv (py/arg args 0) true)))]
+    [py.b/bool
+     (py/make-function "bool" {:params ["x"], :no-kw true}
+                       [false] []
+                       (fn [args] (py/truthy (py/arg args 0))))]
+    [py.b/abs
+     (py/make-function "abs" {:params ["x"], :no-kw true}
+                       [] []
+                       (fn [args] (py/abs-conv (py/arg args 0))))]
+    [py.b/pow
+     (py/make-function "pow" {:params ["base" "exp" "mod"]}
+                       [:py/None] []
+                       (fn [args]
+                         (if (= (py/arg args 2) :py/None)
+                           (py/pow (py/arg args 0) (py/arg args 1))
+                           (py/raise-new
+                             py.b/NotImplementedError
+                             {:py/str "pow() modulus is not supported"}))))]
+    [py.b/round
+     (py/make-function "round" {:params ["number" "ndigits"]}
+                       [:py/None] []
+                       (fn [args]
+                         (py/round-conv (py/arg args 0) (py/arg args 1))))]
+    [py.b/hex
+     (py/make-function "hex" {:params ["x"], :no-kw true}
+                       [] []
+                       (fn [args] (py/radix-conv (py/arg args 0) 16 "0x")))]
+    [py.b/oct
+     (py/make-function "oct" {:params ["x"], :no-kw true}
+                       [] []
+                       (fn [args] (py/radix-conv (py/arg args 0) 8 "0o")))]
+    [py.b/bin
+     (py/make-function "bin" {:params ["x"], :no-kw true}
+                       [] []
+                       (fn [args] (py/radix-conv (py/arg args 0) 2 "0b")))]
     [py.b/list-append
      (py/make-function "append" {:params ["self" "x"], :no-kw true} [] []
                        (fn [args] (py/list-append (py/arg args 0) (py/arg args 1))))]
@@ -2364,7 +2979,18 @@
          "any" 'py.b/any,
          "all" 'py.b/all,
          "next" 'py.b/next,
-         "iter" 'py.b/iter}
+         "iter" 'py.b/iter,
+         "int" 'py.b/int,
+         "float" 'py.b/float,
+         "str" 'py.b/str,
+         "repr" 'py.b/repr,
+         "bool" 'py.b/bool,
+         "abs" 'py.b/abs,
+         "pow" 'py.b/pow,
+         "round" 'py.b/round,
+         "hex" 'py.b/hex,
+         "oct" 'py.b/oct,
+         "bin" 'py.b/bin}
         (map (fn [[nm key _]] [nm key]))
         builtin-classes))
 

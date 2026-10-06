@@ -168,6 +168,28 @@
              (parser-run (source batch))) (str "v3 fixture batch " i)))))
 
 
+(deftest conversion-builtins-source-test
+  ;; S4's builtins from source; a module-level def shadows a builtin
+  (e2e/every-vm=
+    {:py/out ["-31 5 105.0 3.5e-05 'a' False 2.5 0.5 0xff 0o10 -0b101 2 1200"
+              "(\"invalid literal for int() with base 10: 'x'\",)"
+              (str "('Exceeds the limit (4300 digits) for integer string"
+                   " conversion',)")
+              "1e+16 -0.0 -inf 290000000000000000000"
+              "shadow 1.5"]
+     :py/exception nil}
+    (str "print(int(' -0x_1f ', 0), int('101', 2), float('1_0.5e1'),"
+         " str(3.5e-05), repr('a'), bool([]), abs(-2.5), pow(2, -1),"
+         " hex(255), oct(8), bin(-5), round(2.5), round(1234, -2))\n"
+         "try:\n    int('x')\nexcept ValueError as e:\n    print(e.args)\n"
+         "x = 10 ** 4300\n"
+         "try:\n    print(1, [x])\nexcept ValueError as e:\n"
+         "    print(e.args)\n"
+         "print(repr(1e16), str(-0.0), float('-inf'), int(2.9e20))\n"
+         "def str(x):\n    return 'shadow'\n"
+         "print(str(1), repr(1.5))\n")))
+
+
 (deftest augmented-bitwise-shifts-test
   (e2e/every-vm=
     {:py/out ["5 [18446744073709551617]" "True True False 1"]

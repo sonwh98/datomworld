@@ -22,6 +22,9 @@
     {::integer/max-bits 100000 ::integer/max-digits 4300}))
 
 
+(declare code-points->text)
+
+
 (defn value
   "A token as bool, tagged float, exception or integer/tuple descriptor.
    Integers use hex reconstruction so no big carrier enters an AST row."
@@ -31,6 +34,8 @@
     (= s "True") true
     (= s "False") false
     (str/starts-with? s "!") s
+    (str/starts-with? s "s:")
+    {:py/str (code-points->text (subs s 2))}
     (str/starts-with? s "t:")
     {:tuple (mapv value (str/split (subs s 2) #","))}
     (str/starts-with? s "f:")
@@ -38,20 +43,20 @@
     :else {:int ((get exact 'format) ((get exact 'parse) s) 16)}))
 
 
-(defn- code-points->text
-  "Comma-separated hex code points, each in the BMP, as a string."
+(defn code-points->text
+  "Comma-separated hex code points, astral ones included, as a string."
   [s]
   (let [units (mapv (fn [h]
                       (let [u ((get exact 'parse) h 16)]
-                        (when-not (< u 0x10000)
-                          (throw (ex-info "astral code point" {:cp h})))
+                        (when-not (<= u 0x10ffff)
+                          (throw (ex-info "invalid code point" {:cp h})))
                         u))
                     (remove str/blank? (str/split s #",")))]
     #?(:cljd (.toString (reduce (fn [sb u] (.writeCharCode sb u) sb)
                                 (StringBuffer)
                                 units))
-       :clj (apply str (map char units))
-       :cljs (apply str (map #(.fromCharCode js/String %) units)))))
+       :clj (apply str (map #(String. (Character/toChars (int %))) units))
+       :cljs (apply str (map #(.fromCodePoint js/String %) units)))))
 
 
 (defn- float-text-row
@@ -72,22 +77,35 @@
       (throw (ex-info "bad float text op" {:line line})))))
 
 
+(defn- conversion-row
+  [line]
+  (let [[op a b expected message :as fields] (str/split line #"\t")]
+    (when-not (or (= 4 (count fields))
+                  (and (= 5 (count fields))
+                       (str/starts-with? expected "!")))
+      (throw (ex-info "bad conversion row" {:line line})))
+    [op (value a) (value b)
+     (if message {:error (subs expected 1), :message message}
+         (value expected))]))
+
+
 (defn parse
   "Parse rows, ignoring all blank lines (including Dart's trailing one)."
   [text]
   (let [[magic version & rows] (remove str/blank? (str/split-lines text))]
     (when-not (and (contains? #{"int-ops-v1" "int-ops-v2" "int-ops-v3"
-                                "float-text-v1"}
+                                "float-text-v1" "int-conv-v1"}
                               magic)
                    (= "CPython 3.9.6" version))
       (throw (ex-info "wrong integer operator corpus" {:magic magic})))
-    (if (= "float-text-v1" magic)
-      (mapv float-text-row rows)
-      (mapv (fn [line]
-              (let [[op a b expected :as fields] (str/split line #"\t")]
-                (when-not (= 4 (count fields))
-                  (throw (ex-info "bad operator row" {:line line})))
-                [op (value a) (value b) (value expected)])) rows))))
+    (cond
+      (= "float-text-v1" magic) (mapv float-text-row rows)
+      (= "int-conv-v1" magic) (mapv conversion-row rows)
+      :else (mapv (fn [line]
+                    (let [[op a b expected :as fields] (str/split line #"\t")]
+                      (when-not (= 4 (count fields))
+                        (throw (ex-info "bad operator row" {:line line})))
+                      [op (value a) (value b) (value expected)])) rows))))
 
 
 (defn read-file

@@ -294,12 +294,15 @@
              (fn [] :value))))
 
 
-(def ^:private guest-outcome
-  "What the guest sees of each module outcome (S3a, `py/int-result`)."
+(defn- guest-outcome
+  "What the guest sees of each module outcome (S3a, `py/int-result`)
+   under a profile of `max-digits`: the message names the limit (S4)."
+  [max-digits]
   {"value" :value,
    "bit-limit" ["MemoryError"],
    "digit-limit" ["ValueError"
-                  {:py/str "Exceeds the limit for integer string conversion"}]})
+                  {:py/str (str "Exceeds the limit (" max-digits
+                                " digits) for integer string conversion")}]})
 
 
 (defn- operand
@@ -356,7 +359,7 @@
   (testing "every frozen outcome, run as a guest call through
             py/int-result: a value stays a value, bit-limit is a
             MemoryError, digit-limit a ValueError, on every VM"
-    (doseq [[p max-bits] (map (juxt first second) f/profiles)]
+    (doseq [[p max-bits max-digits] f/profiles]
       (let [fits? (fn [s]
                     (<= (f/call (f/module 64 64) 'parse
                                 (f/column @fixture s "bits"))
@@ -377,7 +380,8 @@
                 (pr-str result))
             (when (vector? result)
               (doseq [[[label _ expected] got] (map vector calls result)]
-                (is (= (guest-outcome expected) got) label)))))))))
+                (is (= ((guest-outcome max-digits) expected) got)
+                    label)))))))))
 
 
 (deftest ^:slow guest-limit-reasons-on-every-vm-test

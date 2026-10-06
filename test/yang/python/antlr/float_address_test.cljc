@@ -222,8 +222,8 @@
             host (JVM goldens)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "fa7c2f55f95d9d2ae1fc1f9fa0ffde75"
-                  "456c4cd9ff9e65e96be3d202ec78b394"))
+                  "460cf5b82b70e68ead45c4e06bc8800f"
+                  "78cfc7a3a5184db10a437dbf9a7bcb92"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-2d60190887dc1ca388d7a7b75467757c3f0e6c4b2d909603735c9a9852b0e3e3
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
@@ -245,25 +245,25 @@
     (testing "A, A' and the record: one address on every host (JVM goldens)"
       (is (= (keyword
                (str "segment/blake3-"
-                    "df6863cb5e4acd1f24f115b0ab458515"
-                    "aaeef4cc0798581a48941711b488cf21"))
+                    "82164d40f545634e1de7aa52fc0a2cd8"
+                    "0a03cf3895e411bd083da43635e5deac"))
              (:root a)))
       (is (= (keyword
                (str "segment/blake3-"
-                    "345e3ebf6abb6f70c58fb47016ba68df"
-                    "a1087c6eb0aacdc4853c304beac7f4a9"))
+                    "fef78124fb0ea5ffdc6686cf8247e7b1"
+                    "b39c8d21ece9458d871e2ef0ca97ebd1"))
              (:root a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "548aaabac40d9a6718713a07d5912af0"
-                    "108c730fc30e5f51f81c3d4886d6e124"))
+                    "958a2cf2503a350552c1833df1b7f2e1"
+                    "053939b9b2a9ed4e8b2d87a24b967ce7"))
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "dacce2211060f97c7d57d212577c13ae"
-                    "2f21307eb9be2213f0229827ef3d304b"))
+                    "3c8681d9f4eb872981f2fcfafdda15f6"
+                    "a21225861f4dde0f749b87ebbe8f4433"))
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]

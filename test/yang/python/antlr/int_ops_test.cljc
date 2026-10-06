@@ -14,6 +14,8 @@
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
     [yin.vm.integer :as integer]
+    [yin.vm.integer-v3-fixtures :as fx]
+    [yin.vm.integer.host :as integer-host]
     [yin.vm.linearize :as linearize]
     [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]
@@ -57,12 +59,12 @@
                      (assoc opts :contract vm/register-contract)))))})
 
 
-(def ^:private runners
+(def runners
   (runners-under (opts-under {::integer/max-bits 100000,
                               ::integer/max-digits 4300})))
 
 
-(def ^:private small-runners
+(def small-runners
   "Runners under limits a float key or hash breaches: 60 bits (2^-1074
    needs 1075, P = 2^61 - 1 needs 61) and 5 decimal digits."
   (runners-under (opts-under {::integer/max-bits 60,
@@ -89,7 +91,7 @@
              (fn [] :py/None))))
 
 
-(defn- host-floats
+(defn host-floats
   "`x` with every {:py/float v} holding the host double of v: on JS a
   rendered integral float is a float64 wrapper and an expected one is
   a bare number, so compare them unwrapped."
@@ -102,13 +104,62 @@
     x))
 
 
+(defn exact-literals
+  "`form` with every integer literal of magnitude 2^53 or more as an
+   (integer/parse text): a bare one is not a canonical carrier on JS. A
+   float literal such as 1.0E20 is also an integer there, so callers
+   skip the float-only rows."
+  [form]
+  (walk/postwalk (fn [x]
+                   (if (and (integer? x) (>= (abs x) 9007199254740992))
+                     (list 'integer/parse (str x))
+                     x))
+                 form))
+
+
+(defn canon-ints
+  "`x` with every integer, host number or big carrier, as its decimal
+   text, so a result compares equal across hosts. An integral double is
+   one too: py/floor answers -3.0 on Dart, and a float's own type is
+   carried by its {:py/float} wrapper. An integral double at or past
+   2^62 stays a number: no host long holds it, and it is a float there."
+  [x]
+  (walk/postwalk (fn [n]
+                   (cond
+                     (integer-host/big-carrier? n) (str n)
+                     (integer? n) (str n)
+                     ;; magnitude first: rem of an infinity throws
+                     (and (number? n) (< (abs n) 4611686018427387904)
+                          (zero? (rem n 1)))
+                     (str (long n))
+                     :else n))
+                 x))
+
+
+(defn float-bits
+  "`x` with every {:py/float v} holding v's IEEE bits as hex, so -0.0 is
+   not 0.0 (host `=` says it is); every NaN is :nan, the one NaN."
+  [x]
+  (walk/postwalk
+    (fn [n]
+      (if (and (map? n) (= [:py/float] (keys n)))
+        (let [v (data/float-value (:py/float n))]
+          {:py/float (if (<= v v) (fx/double->bits v) :nan)})
+        n))
+    x))
+
+
 (defn check-cases
+  "Run `cases`, [form expected], as one program on each runner; floats
+   compare by bits, integers by decimal text."
   [rs cases]
   (let [form (list 'let ['caught caught]
-                   (reduce (fn [acc [form _]] (list 'py/conj acc form))
+                   (reduce (fn [acc [form _]]
+                             (list 'py/conj acc (exact-literals form)))
                            [] cases))]
     (doseq [[k result] (run-with-prelude rs prelude/uast form)]
-      (is (= (host-floats (mapv second cases)) (host-floats result))
+      (is (= (canon-ints (float-bits (mapv second cases)))
+             (canon-ints (float-bits result)))
           (str k)))))
 
 
@@ -426,11 +477,13 @@
                  (py/pow -2 (py/int-lit "10000000000000001"))))
       "MemoryError"]
      ['(py/pow -1 (py/int-lit "10000000000000001")) -1]
+     ;; a float power uses the exponent as a double, as CPython does:
+     ;; 2^64 + 1 rounds to the even 2^64 (S4)
      ['(py/pow -1 (py/neg (py/int-lit "10000000000000001")))
-      {:py/float (data/float-value -1)}]
+      {:py/float (data/float-value 1)}]
      ['(py/pow (py/float (data/float-value -1))
                (py/int-lit "10000000000000001"))
-      {:py/float (data/float-value -1)}]
+      {:py/float (data/float-value 1)}]
      ['(caught (fn [] (py/pow 0 -1))) "ZeroDivisionError"]
      ['(caught (fn [] (py/pow (integer/pow 10 400) -1)))
       "OverflowError"]
@@ -568,25 +621,31 @@
 
 
 (deftest float-power-exponent-limit-test
-  (check-cases
-    runners
-    [['(caught (fn []
-                 (py/pow (py/float (data/float-value 1))
-                         (integer/pow 2 1024)))) "OverflowError"]
-     ['(caught (fn []
-                 (py/pow (py/float (data/float-value 1))
-                         (integer/neg (integer/pow 2 1024)))))
-      "OverflowError"]
-     ['(py/pow (py/float (data/float-value 1))
-               (integer/pow 2 1023))
-      {:py/float (data/float-value 1)}]
-     ['(py/try
-         (fn []
-           (py/pow (py/float (data/float-value 1))
-                   (integer/pow 2 1024)))
-         (fn [e] (get (get (get (cell/get e) :attrs) "args") :items))
-         (fn [] :py/None))
-      [{:py/str "int too large to convert to float"}]]]))
+  ;; The exponent converts to float as CPython's does: it overflows from
+  ;; 2^1024 - 2^970, the first integer that rounds past the largest double
+  (let [edge '(integer/sub (integer/pow 2 1024) (integer/pow 2 970))]
+    (check-cases
+      runners
+      [[(list 'caught (list 'fn [] (list 'py/pow '(py/float
+                                                    (data/float-value 1))
+                                         edge)))
+        "OverflowError"]
+       [(list 'caught (list 'fn [] (list 'py/pow '(py/float
+                                                    (data/float-value 1))
+                                         (list 'integer/neg edge))))
+        "OverflowError"]
+       [(list 'py/pow '(py/float (data/float-value 1))
+              (list 'integer/sub edge 1))
+        {:py/float (data/float-value 1)}]
+       [(list 'py/pow '(py/float (data/float-value 1))
+              (list 'integer/sub 1 edge))
+        {:py/float (data/float-value 1)}]
+       [(list 'py/try
+              (list 'fn [] (list 'py/pow '(py/float (data/float-value 1))
+                                 edge))
+              '(fn [e] (get (get (get (cell/get e) :attrs) "args") :items))
+              '(fn [] :py/None))
+        [{:py/str "int too large to convert to float"}]]])))
 
 
 (deftest ^:slow cpython-s3c-fixture-test

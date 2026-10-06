@@ -1974,7 +1974,8 @@ cross-ruling's fourteen converged rulings. Of its slices S0 to S7 below,
 S1 (the exact-integer module, `54536317`) has landed, and so has the
 numeric-key, `hash()` and `is` work of rulings 6 to 8 (`be1f8d06`,
 orchestrated as C3-S2, the S5 row's scope), with its S2b follow-up
-(content `is` and hex keys); the rest are pending. C1
+(content `is` and hex keys), as have S3 and S4 (conversions and the
+eleven conversion builtins); S6 and S7 are pending. C1
 bounded integer arithmetic at +/-2^53; S3-A replaces that bound with
 exact promotion.
 
@@ -2127,9 +2128,34 @@ formats `float-digits` by CPython's rule and no longer uses host text.
   primitives (ruling 10). Float-result powers use the prelude's existing
   squaring loop, `py/fpow`, as the pinned contract: bit-identical across
   hosts and allowed to differ from CPython's `pow` in the last place,
-  documented. A negative exponent converts the base through the checked
-  conversion first, so a huge base raises `OverflowError`. Fractional
-  exponents, complex results, and three-argument `pow` are deferred.
+  documented. Fractional exponents, complex results, and three-argument
+  `pow` are deferred. As amended in S4 (items a to d):
+  - The result is a float when either operand is a float or the
+    exponent is negative. Then, as CPython's `float_pow`, the base and
+    then the exponent convert through the checked conversion before the
+    zero-base check, so a huge base, or an exponent at or past
+    2^1024 - 2^970, raises `OverflowError` ("int too large to convert to
+    float"), and `0 ** -(2**1024)` is that error, not
+    `ZeroDivisionError`. The power is of the exponent as a double:
+    `(-1.0) ** (2**64 + 1)` is `1.0`, since 2^64 + 1 rounds to an even
+    double.
+  - An integral float exponent of any size goes through
+    `integer/from-float`, never `py/floor`. A NaN or infinite exponent
+    follows CPython's table: `1.0 ** nan` is `1.0`, `x ** nan` is NaN,
+    and `x ** inf` goes by `|x|` against 1.
+  - A negative exponent computes `1 / fpow(x, n)` while `fpow` is
+    finite, so every existing exact case holds (`10 ** -2` is `0.01`).
+    Only when it overflows does it use the reciprocals of the two halves,
+    `n >> 1` and the rest, so `2 ** -1074` is `5e-324` and `2 ** -1075`
+    is `0.0`.
+  - A finite base and exponent with an infinite result raise
+    `OverflowError` with args `(34, 'Result too large')`, the macOS errno
+    pair CPython 3.9.6 gave when measured; an infinite base passes
+    through.
+- Float division by zero raises `ZeroDivisionError` with CPython's
+  per-operator text (S4, item f): "float division by zero",
+  "float floor division by zero", "float modulo", "float divmod()".
+  Integer messages are unchanged.
 
 Conversions are acceptance conditions (ruling 9):
 
@@ -2150,8 +2176,40 @@ Conversions are acceptance conditions (ruling 9):
   float is exact over the float's binary rational, never by rounding the
   integer.
 - `int`, `float`, `str`, `repr`, `divmod`, and `hash` do not exist in
-  C1; each is a named C3 deliverable, or its tests are written at
-  prelude level.
+  C1; each is a named C3 deliverable. S4 adds eleven builtin function
+  objects, `int float str repr bool abs pow hex oct bin round`, beside
+  `len`, `divmod` and the others; there are no builtin type classes, so
+  `isinstance(x, int)` stays unsupported. `min`, `max`, `format`, and
+  `round(float, n)` are later.
+- `int(str, base)` and `float(str)` strip `str.isspace` whitespace less
+  code points 28 to 31, which CPython 3.9.6 keeps (measured). Syntax is
+  validated in the prelude before any kernel call: one sign, a prefix
+  matching the base (any prefix for base 0, where a nonzero value may
+  not start with `0`), single underscores between digits or after a
+  prefix. Digits are ASCII only, a recorded departure: CPython accepts
+  other Unicode decimal digits. `float(str)` reads `inf`, `infinity` and
+  `nan` in any case, and otherwise rounds the whole decimal once through
+  `integer/decimal->float`, with no digit limit. An error quotes the
+  unstripped text through `py/str-repr`, except that `float()` of
+  whitespace alone quotes `''`, as CPython does.
+- `str` and `repr` cover scalars only: an int is exact decimal under the
+  digit limit, a float is the renderer's `repr` rule over
+  `integer/float-digits`, `True`, `False` and `None` are their names. A
+  container, function, class, instance or range raises
+  `NotImplementedError`; container text needs builtin type objects.
+  `py/str-repr` escapes as `render/string-repr` does, which is only the
+  ASCII controls: a non-ASCII non-printable character such as U+200B
+  is shown raw where CPython writes `\u200b` (a recorded departure).
+  `hex`, `oct` and `bin` format the magnitude in base 16, 8 or 2 with no
+  digit limit. `round(x)` of a float is exact half to even; `round(n,
+  k)` of an int with negative `k` is half to even through exact powers.
+- The digit-limit `ValueError` reads "Exceeds the limit (N digits) for
+  integer string conversion", N from `integer/max-digits`, for `str`,
+  `repr`, `print` and `int(str)` alike. `print` checks every integer it
+  will show, in the shapes `py/snapshot` walks, before anything is
+  appended to the output, so a breach is catchable and prints nothing.
+- `x in range(...)` for a float answers in constant time: only an
+  integral finite float can be an element (S4, item i).
 
 Python numeric equality, dict-key normalization, and canonical storage
 identity stay three distinct contracts. Numeric dict and set keys are
@@ -2179,6 +2237,16 @@ power-of-two radix is exempt from `::max-digits`.
   and `len({nan, nan2})` is 1 where CPython gives 2. This is the
   float-identity departure, the same family as ruling 8's value-based
   `is`, and a tuple containing a NaN inherits it through `:py/tuple-key`.
+  Container membership and equality (`in`, `==` on lists and tuples)
+  take CPython's identity-then-`==` step through `py/same?` (S4, item
+  h), so `x in [x]` and `[x] == [x]` are true for a NaN, as in CPython;
+  under content identity two separately made NaNs match too, where
+  CPython says false. `float('-nan')` is this one NaN as well, where
+  CPython keeps the sign bit (fff8000000000000): no portable host
+  operation sets a NaN's sign, an arithmetic NaN takes the CPU's
+  default sign, Jing writes every NaN as 7ff8, and no C3 guest operation
+  can observe the sign. The prelude builds NaNs as `inf - inf`, never
+  from a `##NaN` literal, whose row is not equal to itself on JS.
   Jing's private `exact-key` is a storage-layer helper, not the guest key
   contract, and is not reused.
 - Tuple elements normalize recursively under the existing tuple-key
@@ -2234,9 +2302,12 @@ The stream codec is not widened and C3 builds no new adapter (ruling
 canonical Jing bytes through the existing `dao.jing.stream` adapter are
 the only remote form, and printing and re-reading EDN is not a bignum
 transport. CPython NaN object-identity fidelity remains unsupported;
-deterministic NaN key behavior is now specified. Full float rendering
-parity remains a separately tracked limitation, not claimed by C3
-(ruling 13).
+deterministic NaN key behavior is now specified. Float text parity is
+claimed for `repr`, `str` and `print` of every double, as amended in S4
+(ruling 13): the guest `py/float-repr` and the boundary renderer's
+`float-repr` are one rule, bound by a parity law over the CPython
+`float-text-v1` rows on every host. `format`, `%` formatting and
+`round(x, n)` remain unclaimed.
 
 ```text
 +--------+---------------------------------------------------------------------+
@@ -2256,11 +2327,18 @@ parity remains a separately tracked limitation, not claimed by C3
 |        | them, and `py/int-result` raises MemoryError or ValueError.         |
 |        | Landed.                                                             |
 +--------+---------------------------------------------------------------------+
-| S3     | Integer operators, including augmented forms, through the prelude;  |
-|        | C3 S3 operators complete; S4 conversions pending.                   |
+| S3     | Integer operators, including augmented forms, through the prelude.  |
+|        | Landed.                                                             |
 +--------+---------------------------------------------------------------------+
-| S4     | Conversions and comparisons: float bits, exact text, tagged float   |
-|        | results, exceptions; no double rounding.                            |
+| M4     | `integer` version 4: `float-digits`, `decimal->float`,              |
+|        | `max-digits`; the renderer's float `repr` without host text.        |
+|        | Landed.                                                             |
++--------+---------------------------------------------------------------------+
+| S4     | Conversions: `int float str repr bool abs pow hex oct bin round`,   |
+|        | float text both ways rounded once, the digit-limit message and      |
+|        | `print` check, power items a to d, float zero-division messages,    |
+|        | NaN membership, float in range. CPython fixture `int-conv-v1`.      |
+|        | Landed.                                                             |
 +--------+---------------------------------------------------------------------+
 | S5     | Numeric dict and set keys and guest hashes. Landed, with its S2b    |
 |        | follow-up: content `is` and hex keys.                               |
