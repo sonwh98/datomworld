@@ -54,10 +54,8 @@
            ;; The one ClojureDart pin. Compose it with the build aliases:
            ;; clj -M:clojuredart:cljd ..., clj -M:clojuredart:cljd-yin-repl-build ...
            :clojuredart {:extra-deps {sonwh98/clojuredart
-                                      #_{:git/url "https://github.com/sonwh98/ClojureDart.git"
-                                       :sha "15fa5baf500dde74f5df5a4ef5bdcae18e56cf1b"}
                                       {:git/url "https://github.com/sonwh98/ClojureDart.git"
-                                       :sha "23576fbe1b35fa2eb1a70f52c70627c447353bf6"}
+                                       :sha "7d00ee2aa7fa9d990581e78ebc4a66b93cb70a31"}
                                       }}
            :cljd {:extra-paths ["test"]
                   :main-opts ["-m" "cljd.build"]
