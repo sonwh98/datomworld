@@ -2094,7 +2094,17 @@ prelude:
 |                                      | conversion; correctly rounded integer |
 |                                      | ratio to binary64                     |
 +--------------------------------------+---------------------------------------+
+| Float text syntax, sign, whitespace, | Shortest round-trip digits of a       |
+| notation                             | binary64; decimal digits and exponent |
+|                                      | to binary64, rounded once             |
++--------------------------------------+---------------------------------------+
 ```
+
+The module is at version 4 (`yin.vm.integer/module-version`): version 2
+returns limit reasons as data, version 3 adds the float conversions, and
+version 4 adds `float-digits`, `decimal->float` and `max-digits`, every
+version 3 semantic unchanged. The boundary renderer's float `repr`
+formats `float-digits` by CPython's rule and no longer uses host text.
 
 - Guest integers go only through the module, since host `+` on mixed
   carriers throws on JS and Dart. Internal counters, including C2's

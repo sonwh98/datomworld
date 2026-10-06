@@ -5,26 +5,61 @@
    float arrives tagged `{:py/float x}`, so `4/2` prints `2.0` on every
    host, JS included.
 
-   Float repr matches Python for finite values whose magnitude is below
-   1e16 and above 1e-4, and for inf, nan and -0.0. Outside that range the
-   host's shortest form is used, which differs from Python's exponent
-   notation on the JVM."
+   Float repr is CPython's on every host and for every double: the
+   shortest round-trip digits come from the `integer` module's
+   `float-digits` (version 4), never from host `str`, in fixed notation
+   when the decimal exponent is from -4 to 15 and in exponent notation
+   otherwise."
   (:require
     [clojure.string :as str]
     [yin.vm.data :as data]
     [yin.vm.integer :as integer]))
 
 
-(defn- integral?
-  [x]
-  #?(:cljd (== x (.floor ^num x))
-     :clj (== x (Math/floor (double x)))
-     :cljs (== x (js/Math.floor x))))
+(def ^:private exact
+  "The `integer` exports with limits no snapshot reaches: the renderer
+   writes an integer's exact decimal with no digit limit, as CPython
+   3.9.6 prints it (a limit on `print` belongs to guest `str`), and a
+   float's shortest digits."
+  (integer/integer-module {::integer/max-bits 9007199254740991,
+                           ::integer/max-digits 9007199254740991}))
 
 
 (defn- negative-zero?
   [x]
   (and (zero? x) (neg? (/ 1.0 x))))
+
+
+(defn- zeros
+  [n]
+  (apply str (repeat n "0")))
+
+
+(defn- exponent-text
+  "CPython's exponent: `e`, a sign, and at least two digits."
+  [e]
+  (let [digits (str (if (neg? e) (- e) e))]
+    (str (if (neg? e) "e-" "e+")
+         (if (< (count digits) 2) (str "0" digits) digits))))
+
+
+(defn- digits-repr
+  "CPython's `repr` of |v| = d1.d2...dn x 10^`e`: fixed notation when
+   -4 <= e < 16, with `.0` when there is no fraction, else `d[.ddd]`
+   and the exponent."
+  [digits e]
+  (let [n (count digits)]
+    (cond
+      (and (<= 0 e) (< e 16))
+      (if (<= n (inc e))
+        (str digits (zeros (- (inc e) n)) ".0")
+        (str (subs digits 0 (inc e)) "." (subs digits (inc e))))
+      (and (<= -4 e) (< e 0))
+      (str "0." (zeros (dec (- e))) digits)
+      :else
+      (str (subs digits 0 1)
+           (when (> n 1) (str "." (subs digits 1)))
+           (exponent-text e)))))
 
 
 (defn float-repr
@@ -39,18 +74,9 @@
       "nan"
       (= x ##Inf) "inf"
       (= x ##-Inf) "-inf"
-      (negative-zero? x) "-0.0"
-      (and (integral? x) (< -1e16 x 1e16))
-      (str #?(:cljd (.toInt ^num x) :clj (long x) :cljs x) ".0")
-      :else (str x))))
-
-
-(def ^:private exact
-  "The `integer` exports with limits no snapshot reaches: the renderer
-   writes an integer's exact decimal with no digit limit, as CPython
-   3.9.6 prints it (a limit on `print` belongs to guest `str`)."
-  (integer/integer-module {::integer/max-bits 9007199254740991,
-                           ::integer/max-digits 9007199254740991}))
+      (zero? x) (if (negative-zero? x) "-0.0" "0.0")
+      :else (let [[digits e] ((get exact 'float-digits) x)]
+              (str (when (neg? x) "-") (digits-repr digits e))))))
 
 
 (declare repr)

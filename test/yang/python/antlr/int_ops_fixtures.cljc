@@ -1,5 +1,7 @@
 (ns yang.python.antlr.int-ops-fixtures
-  "CPython 3.9.6 operator rows. Reading this corpus never writes files."
+  "CPython 3.9.6 operator rows, and the float text rows of integer
+   module version 4 and the renderer. Reading these corpora never writes
+   files."
   (:require
     [clojure.string :as str]
     [dao.jing.cbor :as cbor]
@@ -8,6 +10,11 @@
 
 
 (def path "test/resources/yang/python/int-ops-v1.txt")
+
+
+(def float-text-path
+  "CPython 3.9.6 `repr(float)` and `float(str)` rows."
+  "test/resources/yang/python/float-text-v1.txt")
 
 
 (def ^:private exact
@@ -31,18 +38,56 @@
     :else {:int ((get exact 'format) ((get exact 'parse) s) 16)}))
 
 
+(defn- code-points->text
+  "Comma-separated hex code points, each in the BMP, as a string."
+  [s]
+  (let [units (mapv (fn [h]
+                      (let [u ((get exact 'parse) h 16)]
+                        (when-not (< u 0x10000)
+                          (throw (ex-info "astral code point" {:cp h})))
+                        u))
+                    (remove str/blank? (str/split s #",")))]
+    #?(:cljd (.toString (reduce (fn [sb u] (.writeCharCode sb u) sb)
+                                (StringBuffer)
+                                units))
+       :clj (apply str (map char units))
+       :cljs (apply str (map #(.fromCharCode js/String %) units)))))
+
+
+(defn- float-text-row
+  "`[op operand nil expected]`: `repr_float` maps a tagged float to its
+   text; `float_str` maps a string to a tagged float, or to
+   `{:error class, :message text}`."
+  [line]
+  (let [[op a _ expected message :as fields] (str/split line #"\t")]
+    (when-not (or (= 4 (count fields))
+                  (and (= 5 (count fields)) (str/starts-with? expected "!")))
+      (throw (ex-info "bad float text row" {:line line})))
+    (case op
+      "repr_float" [op (value a) nil expected]
+      "float_str" [op (code-points->text a) nil
+                   (if message
+                     {:error (subs expected 1), :message message}
+                     (value expected))]
+      (throw (ex-info "bad float text op" {:line line})))))
+
+
 (defn parse
   "Parse rows, ignoring all blank lines (including Dart's trailing one)."
   [text]
   (let [[magic version & rows] (remove str/blank? (str/split-lines text))]
-    (when-not (and (contains? #{"int-ops-v1" "int-ops-v2" "int-ops-v3"} magic)
+    (when-not (and (contains? #{"int-ops-v1" "int-ops-v2" "int-ops-v3"
+                                "float-text-v1"}
+                              magic)
                    (= "CPython 3.9.6" version))
       (throw (ex-info "wrong integer operator corpus" {:magic magic})))
-    (mapv (fn [line]
-            (let [[op a b expected :as fields] (str/split line #"\t")]
-              (when-not (= 4 (count fields))
-                (throw (ex-info "bad operator row" {:line line})))
-              [op (value a) (value b) (value expected)])) rows)))
+    (if (= "float-text-v1" magic)
+      (mapv float-text-row rows)
+      (mapv (fn [line]
+              (let [[op a b expected :as fields] (str/split line #"\t")]
+                (when-not (= 4 (count fields))
+                  (throw (ex-info "bad operator row" {:line line})))
+                [op (value a) (value b) (value expected)])) rows))))
 
 
 (defn read-file

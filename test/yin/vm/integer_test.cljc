@@ -357,8 +357,8 @@
 
 
 (deftest module-version-test
-  (is (= 3 integer/module-version)
-      "version 3: the float exports beside the version 2 contract"))
+  (is (= 4 integer/module-version)
+      "version 4: the float text exports beside the version 3 contract"))
 
 
 (deftest limits-are-explicit-test
@@ -566,6 +566,26 @@
                    ninf)))))
 
 
+(deftest float-text-named-cases-test
+  (is (= ["7120236347223045" -307]
+         (call 'float-digits (fx/bits->double "0060000000000000")))
+      "2^-1017: the interval below a power of two is the narrow one")
+  (is (= ["6189700196426902" 26]
+         (call 'float-digits (fx/bits->double "4580000000000000"))))
+  (is (= ["5" -324] (call 'float-digits (fx/bits->double "0000000000000001"))))
+  (is (= "7fefffffffffffff"
+         (fx/double->bits
+           (call 'decimal->float
+                 (call 'format (call 'sub (call 'shift-left 1 1024)
+                                     (call 'shift-left 1 971)))
+                 0)))
+      "the largest double, 2^1024 - 2^971, reads back exactly")
+  (is (= (refused 'float-digits :wrong-type
+                  {::integer/arg 0, ::integer/expected :finite-nonzero-float})
+         (refusal call 'float-digits (fx/bits->double "0000000000000000"))))
+  (is (= 4300 (call 'max-digits))))
+
+
 (deftest float-refusals-test
   (is (= (refused 'true-div :zero-division {}) (refusal call 'true-div 1 0)))
   (is (= (refused 'true-div :zero-division {})
@@ -602,7 +622,7 @@
   (is (= #{'integer? 'normalize 'add 'sub 'neg 'mul 'compare 'quot-rem
            'floor-div-mod 'pow 'bit-and 'bit-or 'bit-xor 'bit-not 'shift-left
            'shift-right 'bit-length 'parse 'format 'to-float 'compare-float
-           'true-div 'from-float}
+           'true-div 'from-float 'float-digits 'decimal->float 'max-digits}
          (set (keys module-fns))
          (set (keys integer/integer-profiles))))
   (doseq [[sym profile] integer/integer-profiles]

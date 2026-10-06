@@ -48,6 +48,18 @@
      excludes NaN, and an infinity compares by its sign. `from-float`
      truncates a finite float toward zero, exactly. Each is one
      algorithm over the shim, never a host conversion of a big integer.
+   - The float text exports (version 4) use no host float parser or
+     printer. `float-digits` answers `[digits exp10]` for a finite
+     nonzero float `v`: `digits` is the shortest decimal string, no
+     leading or trailing zero, that reads back to `v`, the closest to
+     `v` among the shortest (CPython's `repr` digits), and |v| is
+     d1.d2...dn x 10^exp10; zero, NaN and infinity are the caller's to
+     exclude. `decimal->float` is CPython's `float(str)` after syntax:
+     `digits x 10^exp10` for one or more ASCII digits and any exact
+     integer exponent, rounded once to nearest with ties to even and
+     non-negative; it answers `+inf` past the range and `0.0` below it,
+     never a limit reason, and `::max-digits` never applies to its text.
+     `max-digits` answers the composition's `::max-digits`.
    - `pow` raises to a non-negative exponent exactly, by squaring.
    - `parse` reads an optional `-` and one or more digits of `radix` (2
      to 36, default 10, either letter case) exactly, never through a
@@ -101,8 +113,10 @@
    instead of throwing them; version 3 adds `to-float`, `compare-float`,
    `true-div`, `from-float` and the `::float-overflow` reason, and the
    native fast paths inside `add`, `sub`, `mul` and `compare`, whose
-   results are unchanged."
-  3)
+   results are unchanged; version 4 adds the float text kernels
+   `float-digits` and `decimal->float`, and `max-digits`, every version 3
+   semantic unchanged."
+  4)
 
 
 (def refusal-message
@@ -551,6 +565,37 @@
   (zero? (bit-and r (dec r))))
 
 
+(defn- digit-values!
+  "The value of each digit of `s` in radix `r`, or a `:syntax` refusal
+   of `op`."
+  [op s r]
+  (mapv (fn [i]
+          (let [d (get digit-values (subs s i (inc i)))]
+            (if (and d (< d r))
+              d
+              (refuse! op :syntax {}))))
+        (range (count s))))
+
+
+(defn- digits->big
+  "The big integer of digit values `values` in radix `r`, accumulated
+   natively `chunk-digits` at a time."
+  [values r]
+  (let [n (count values)]
+    (loop [acc zero
+           i 0]
+      (if (< i n)
+        (let [end (min n (+ i chunk-digits))
+              [chunk scale] (reduce (fn [[c s] d]
+                                      [(+ (* c r) d) (* s r)])
+                                    [0 1]
+                                    (subvec values i end))]
+          (recur (host/add (host/mul acc (host/from-native scale))
+                           (host/from-native chunk))
+                 end))
+        acc))))
+
+
 (defn- int-parse
   ([limits s] (int-parse limits s 10))
   ([limits s radix]
@@ -564,25 +609,7 @@
        (refuse! 'parse :syntax {}))
      (if (and (not (power-of-two? r)) (> n (::max-digits limits)))
        ::digit-limit
-       (let [values (mapv (fn [i]
-                            (let [d (get digit-values (subs digits i (inc i)))]
-                              (if (and d (< d r))
-                                d
-                                (refuse! 'parse :syntax {}))))
-                          (range n))
-             magnitude
-             (loop [acc zero
-                    i 0]
-               (if (< i n)
-                 (let [end (min n (+ i chunk-digits))
-                       [chunk scale] (reduce (fn [[c s] d]
-                                               [(+ (* c r) d) (* s r)])
-                                             [0 1]
-                                             (subvec values i end))]
-                   (recur (host/add (host/mul acc (host/from-native scale))
-                                    (host/from-native chunk))
-                          end))
-                 acc))]
+       (let [magnitude (digits->big (digit-values! 'parse digits r) r)]
          (out limits
               (if negative? (host/sub zero magnitude) magnitude)))))))
 
@@ -612,6 +639,172 @@
                   (> (- (count text) (if (neg? (sign x)) 1 0)) max-digits))
            ::digit-limit
            text))))))
+
+
+;; =============================================================================
+;; Float text (version 4)
+;; =============================================================================
+
+(def ^:private ten (host/from-native 10))
+
+
+(def ^:private small-powers-of-ten
+  "10^0 to 10^400 as big integers: every power `float-digits` needs."
+  (vec (take 401 (iterate #(host/mul % ten) one))))
+
+
+(defn- pow10
+  "10^`k` as a big integer, for a native `k >= 0`."
+  [k]
+  (if (< k 401)
+    (nth small-powers-of-ten k)
+    (loop [result one
+           base ten
+           k k]
+      (if (zero? k)
+        result
+        (recur (if (odd? k) (host/mul result base) result)
+               (if (> k 1) (host/mul base base) base)
+               (quot k 2))))))
+
+
+(defn- scaled
+  "`[num den]` with num / den = (x / y) * 10^`k`, for native `k`."
+  [x y k]
+  (if (neg? k)
+    [x (host/mul y (pow10 (- k)))]
+    [(host/mul x (pow10 k)) y]))
+
+
+(def ^:private two-64-float (pow2 64))
+(def ^:private two-minus-11-float (pow2 -11))
+
+
+(defn- float-ratio
+  "Finite positive host double `v` as big `[x y]`, `v = x / y` exactly
+   with `y` a power of two. Scaling by a power of two is exact, so `v` is
+   doubled (or multiplied by 2^64 while that stays below 2^53) until it
+   is an integer."
+  [v]
+  (if (>= v two-53-float)
+    [(trunc-big v) one]
+    (loop [m v
+           k 0]
+      (cond (= m (host/native->double (host/trunc-native m)))
+            [(host/from-native (host/trunc-native m))
+             (host/shift-left-big one k)]
+            (< m two-minus-11-float) (recur (* m two-64-float) (+ k 64))
+            :else (recur (* m 2.0) (inc k))))))
+
+
+(defn- decimal-exponent
+  "The `e` with 10^e <= x / y < 10^(e + 1), for big `x, y > 0`: an
+   estimate from the bit lengths, corrected exactly."
+  [x y]
+  (let [below? (fn [e]
+                 (let [[a b] (scaled x y (- e))]
+                   (neg? (host/compare-big a b))))]
+    (loop [e (quot (* (- (bits x) (bits y)) 30103) 100000)]
+      (cond (below? e) (recur (dec e))
+            (not (below? (inc e))) (recur (inc e))
+            :else e))))
+
+
+(defn- strip-trailing-zeros
+  [s]
+  (loop [end (count s)]
+    (if (and (> end 1) (= "0" (subs s (dec end) end)))
+      (recur (dec end))
+      (subs s 0 end))))
+
+
+(defn- int-float-digits
+  [_limits f]
+  (let [v (float! 'float-digits 0 f)]
+    (when (or (host/nan-float? v) (host/infinite-float? v) (zero? v))
+      (wrong-type! 'float-digits 0 :finite-nonzero-float))
+    (let [av (signed (neg? v) v)
+          [x y] (float-ratio av)
+          e (decimal-exponent x y)
+          reads-back? (fn [d k]
+                        ;; d * 10^-k is av
+                        (let [[a b] (scaled d one (- k))]
+                          (= av (ratio->float a b false))))]
+      ;; the n-digit decimals around av are floor and ceiling of
+      ;; av * 10^(n - 1 - e); any n-digit decimal that reads back lies
+      ;; between av and one of them, so they are the only candidates.
+      ;; Nearest alone is not enough: below a power of two the rounding
+      ;; interval is half the one above.
+      (loop [n 1]
+        (let [k (- n 1 e)
+              [num den] (scaled x y k)
+              lo (host/quot-trunc num den)
+              r (host/rem-trunc num den)
+              hi (host/add lo one)
+              lo? (reads-back? lo k)
+              hi? (and (not (zero? (sign r))) (reads-back? hi k))
+              c (host/compare-big (host/shift-left-big r 1) den)
+              d (cond (and lo? hi?)
+                      (cond (neg? c) lo
+                            (pos? c) hi
+                            (zero? (sign (host/bit-and-big lo one))) lo
+                            :else hi)
+                      lo? lo
+                      hi? hi
+                      :else nil)]
+          (if d
+            (let [text (host/to-radix-string d 10)]
+              ;; a ceiling of 10^n has one digit more
+              [(strip-trailing-zeros text) (+ e (- (count text) n))])
+            (recur (inc n))))))))
+
+
+(def ^:private max-significant-digits
+  "Digits `decimal->float` keeps before a sticky digit: a double's
+   midpoint has at most 768 significant digits (the design's 767 was off
+   by one; 800 plus the sticky digit leaves the margin)."
+  800)
+
+
+(defn- int-decimal->float
+  [_limits digits exp10]
+  (when-not (string? digits)
+    (wrong-type! 'decimal->float 0 :string))
+  (let [e (big! 'decimal->float 1 exp10)]
+    (when (zero? (count digits))
+      (refuse! 'decimal->float :syntax {}))
+    (let [values (digit-values! 'decimal->float digits 10)
+          first-nonzero (first (keep-indexed (fn [i d] (when (pos? d) i))
+                                             values))]
+      (if (nil? first-nonzero)
+        0.0
+        (let [last-nonzero (last (keep-indexed (fn [i d] (when (pos? d) i))
+                                               values))
+              sig (subvec values first-nonzero (inc last-nonzero))
+              e (host/add e (host/from-native (- (count values)
+                                                 (inc last-nonzero))))
+              ;; keep 800 digits and one sticky digit for the rest,
+              ;; which is never all zeros once trailing zeros are gone
+              [sig e] (if (> (count sig) max-significant-digits)
+                        [(conj (subvec sig 0 max-significant-digits) 1)
+                         (host/add e (host/from-native
+                                       (- (count sig)
+                                          max-significant-digits 1)))]
+                        [sig e])
+              ;; 10^(s - 1) <= value < 10^s
+              s (host/add e (host/from-native (count sig)))]
+          (cond
+            (pos? (host/compare-big s (host/from-native 310))) ##Inf
+            (neg? (host/compare-big s (host/from-native -326))) 0.0
+            :else
+            (let [[x y] (scaled (digits->big sig 10) one (host/to-native e))
+                  f (ratio->float x y false)]
+              (if (keyword? f) ##Inf f))))))))
+
+
+(defn- int-max-digits
+  [limits]
+  (::max-digits limits))
 
 
 ;; =============================================================================
@@ -657,7 +850,10 @@
    ['to-float [1] int-to-float]
    ['compare-float [2] int-compare-float]
    ['true-div [2] int-true-div]
-   ['from-float [1] int-from-float]])
+   ['from-float [1] int-from-float]
+   ['float-digits [1] int-float-digits]
+   ['decimal->float [2] int-decimal->float]
+   ['max-digits [0] int-max-digits]])
 
 
 (defn- arity-checked
