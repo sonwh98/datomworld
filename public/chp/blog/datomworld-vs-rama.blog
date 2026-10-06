@@ -71,6 +71,14 @@
 
           [:p "In summary, colocation is handled by edge caching and mobile continuations, fanout is bypassed by edge-cached pull queries over single-writer streams, and Rama's live distributed data structures address the same need as Datom.world's published, content-addressed index trees, albeit through a very different consistency and update model. Whether deployed as a trustless P2P DHT or backed by S3/Kafka in a centralized data center, Datom.world's logical abstractions remain identical."]
 
+          [:h2 "Continuations: Reifying Control Flow"]
+
+          [:p "To solve the fundamental problem of distributed computing—how to move data and computation across the network without drowning in callbacks—both Rama and Datom.world independently converge on the same mathematical tool: " [:strong "continuations"] "."]
+
+          [:p [:strong "How Rama does it:"] " Rama's dataflow language is built on continuation-passing style (CPS) and compiled straight to JVM bytecode. Developers write code that looks sequential and imperative, using operators like " [:code ":>"] " to emit values to the next step. Under the hood, Rama's compiler treats these steps as continuations, allowing the platform to serialize the continuation's closure, only the variables the downstream code still uses, and invoke it on a different thread or node in the cluster. This elegantly decouples the \"what\" of the computation from the \"where,\" enabling seamless cross-partition routing without callback hell."]
+
+          [:p [:strong "How Datom.world does it:"] " Datom.world also uses continuations, but makes them explicit and mobile across trust boundaries. Through " [:a {:href "/yin.chp"} [:code "Yin.vm"]] ", a continuation is simply a reified abstract syntax tree (AST)—a pure data structure representing the remaining computation. Instead of pulling massive datasets over the network, a Datom.world peer can send a governed Yin.vm continuation directly to the node hosting the data. The remote node executes the continuation locally and returns only the final result. Rama's continuations are implicit and compiled: they are never first-class values you can inspect, store or send, and only variable values cross the wire between the nodes of its own cluster. Datom.world's continuations are explicit data, ASTs that a peer can inspect, govern and send to the node hosting the data, which is what lets computation move across open, trustless networks."]
+
           [:h2 "Open Protocols vs. Integrated Platforms"]
 
           [:p "Rama offers a highly integrated platform with a generous free tier for small clusters and enterprise options for large-scale deployments. It provides a massive reduction in complexity, but it is a closed-source system that requires adopting its unified engine."]
