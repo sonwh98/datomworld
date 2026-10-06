@@ -37,8 +37,9 @@
    The transfer seam is the same composition pair `yin.vm.ucf.remote`
    defined: `serve!` (the exporter's remote-table entry, so the source
    keeps serving the stream) and `attach!` (the receiver's dispatch).
-   Nothing here moves custody: a resumed task is a fork until stage 2
-   publishes the fenced UCF amendment (section 14.3).
+   Version 0 resumes as a fork. Version 1 restores a running root only
+   with composition-supplied grant evidence and protection declarations;
+   halted results restore ended, and install children carry the gate only.
 
    Halt is a result, never a frame: the halted body carries the result
    and no wait at all.  An explicit park is the no-wait shape: the
@@ -59,6 +60,7 @@
             [yin.vm.module :as module]
             [yin.vm.ucf :as ucf]
             [yin.vm.ucf.checkpoint :as checkpoint]
+            [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.remote :as ucf.remote]
             [yin.vm.values :as values]))
 
@@ -701,7 +703,7 @@
 ;; The install children: a whole child travels, or nothing does
 ;; =============================================================================
 
-(declare export-task validate-body resume-task)
+(declare export-task validate-body resume-task resume-task*)
 
 
 (defn- portable-response?
@@ -1493,13 +1495,14 @@
         (map (fn [[m inst]]
                (let [response (:yin.k/response inst)
                      child-body (:yin.k/child inst)
-                     resumed (resume-task
+                     resumed (resume-task*
                                (if-some [spawn (:child-of opts)]
                                  (spawn recv response m)
                                  (spawn-child-template recv response m))
                                (child-bytes child-body)
                                attach!
-                               (assoc opts ::install-child true))]
+                               opts
+                               true)]
                  (when (not= :ok (:status resumed))
                    (refuse! (:yin.k/status resumed)
                             (dissoc resumed :yin.k/status)))
@@ -1679,7 +1682,106 @@
     r))
 
 
-(defn resume-task
+(defn- task-bodies
+  [body]
+  (tree-seq #(seq (:yin.k/installs %))
+            #(map :yin.k/child (vals (:yin.k/installs %))) body))
+
+
+(defn- accept-grant!
+  [body opts]
+  (let [grant (:grant opts)
+        evidence (:evidence grant)]
+    (when-not (and (or (nil? grant) (map? grant))
+                   (or (nil? evidence) (map? evidence)))
+      (throw (ex-info "Malformed lower grant or evidence" {})))
+    (when-not evidence
+      (refuse! :yin.k/awaiting-grant {}))
+    (when-not (= :yin.k/ready (:yin.k/status evidence))
+      (refuse! (if (= :yin.k/awaiting-grant (:yin.k/status evidence))
+                 :yin.k/awaiting-grant :yin.k/unsatisfied)
+               (dissoc evidence :yin.k/status)))
+    (let [binding (:yin.k/binding evidence)
+          prefix (:yin.k/prefix evidence)
+          tenure (:tenure grant)
+          occurrence (:yin.k/occurrence body)
+          lease (:dao.lease/lease grant)
+          holder (:dao.lease/holder grant)
+          frontier (:yin.k/frontier prefix)
+          records (:yin.k/inputs prefix)]
+      (when-not (and (map? binding) (map? tenure))
+        (throw (ex-info "Malformed lower binding or tenure" {})))
+      (when (or (nil? prefix) (:yin.k/status prefix))
+        (refuse! :yin.k/unsatisfied
+                 {:yin.k/reason (or (:yin.k/reason prefix) :unavailable)}))
+      (when-not (and (some? (:address opts))
+                     (= (:checkpoint grant) (:address opts))
+                     (= occurrence (:yin.k/occurrence binding))
+                     (some? lease) (= lease (:dao.lease/lease binding))
+                     (some? holder) (= holder (:dao.lease/holder binding))
+                     (= (get-in body [:yin.k/arbitration :dao.stream/identity])
+                        (get-in binding [:yin.k/transaction :yin.k/arbitration]))
+                     (custody/exact? (:yin.k/epoch binding))
+                     (true? (:live tenure))
+                     (number? (:now tenure)) (number? (:bound tenure))
+                     (< (:now tenure) (:bound tenure))
+                     (= occurrence (:yin.k/occurrence prefix))
+                     (= lease (:dao.lease/lease prefix))
+                     (custody/exact? frontier) (vector? records)
+                     (= frontier (count records))
+                     (every? true? (map-indexed
+                                     (fn [index record]
+                                       (and (custody/exact? (:yin.k/input-seq record))
+                                            (= index (:yin.k/input-seq record))))
+                                     records)))
+        (refuse! :yin.k/not-holder {}))
+      (let [classes (:protection opts)
+            enrolled (:yin.k/enrolled evidence)]
+        (when-not (and (map? classes)
+                       (every? #{:enrolled :at-least-once :fail-stop} (vals classes))
+                       (set? enrolled))
+          (throw (ex-info "Malformed lower protection or enrollment" {})))
+        (doseq [task (task-bodies body)
+                marker (body-markers task)]
+          (let [identity (:dao.stream/identity marker)
+                class (get classes identity)]
+            (when-not (and class (= (= class :enrolled)
+                                    (contains? enrolled identity)))
+              (unsatisfied! identity))))
+        (doseq [task (task-bodies body)
+                frame (:yin.k/frames task)
+                :let [pending (:yin.k/pending frame)
+                      reason (:yin.k/reason pending)]
+                :when (contains? #{:put :ffi-request :link-request} reason)]
+          (let [marker (if (= :put reason) (:yin.k/stream pending)
+                           (:yin.k/request pending))
+                identity (:dao.stream/identity marker)]
+            (when-not (= (= :enrolled (get classes identity))
+                         (contains? pending :yin.k/op-id))
+              (unsatisfied! identity))))
+        {:yin.k/occurrence occurrence
+         :dao.lease/lease lease :dao.lease/holder holder
+         :yin.k/epoch (:yin.k/epoch binding)
+         :yin.k/arbitration (:yin.k/arbitration body)
+         :yin.k/next-op-seq (:yin.k/next-op-seq body)
+         :protection classes :input {:next 0 :prefix prefix}
+         :tenure {:bound (:bound tenure)}}))))
+
+
+(defn- isolated-receiver
+  [recv]
+  (reduce (fn [machine [module-name entry]]
+            (update machine :modules module/assoc-module module-name
+                    entry))
+          (-> recv
+              (assoc :store {} :module-stores {} :parked {} :installs {})
+              (assoc-in [:modules :modules] {})
+              (dissoc :yin.k/custody :yin.k/gate :yin.k/closes :yin.k/issued))
+          (filter (fn [[_ entry]] (nil? (:address entry)))
+                  (module/module-entries (:modules recv)))))
+
+
+(defn- resume-task*
   "The lower of 14.1.2 behind the version-aware reader of M-next D7:
    `bytes`, a handoff body this namespace minted, resumed into a fresh
    task over `recv` -- a machine of the receiver's own composition.
@@ -1692,7 +1794,15 @@
    recursive grammar of `validate-body`, the contract stamp and the
    restoration itself.  `opts` may name `:exclusive` (a version-0 body
    is then refused; without it such a body still lowers as a fork) and
-   `:address`; install children are resumed as children, their pass
+   `:address`. A blocked or parked version-1 root additionally requires
+   `:grant` (checkpoint, lease, holder, evidence and current tenure) and
+   `:protection` keyed by portable stream identity. Grant consistency and
+   recursive protection checks precede all attachments. Missing evidence
+   answers `:yin.k/awaiting-grant`, invalid binding `:yin.k/not-holder`,
+   and unavailable evidence or protection mismatch `:yin.k/unsatisfied`.
+   Accepted custody restores the body's operation counter exactly and
+   starts input replay at zero. Halted version-1 results need no grant
+   and are gated ended. Install children are resumed as children, their pass
    skipping the custody step their root already ran.  Answers
    `{:status :ok :kind k :vm resumed}` or the first data refusal:
    `:yin.k/undecodable` bytes or grammar, `:yin.k/profile-mismatch`
@@ -1705,14 +1815,14 @@
    fork."
   ([recv bytes attach!]
    (resume-task recv bytes attach! nil))
-  ([recv bytes attach! opts]
+  ([recv bytes attach! opts install-child?]
    (call!
      (fn []
        (let [{:keys [codec body]} (decode-two bytes)
              _ (require-tag! body)
              _ (version-gate! codec body opts)
              _ (when (and (= 1 (:yin.k/version body))
-                          (not (::install-child opts)))
+                          (not install-child?))
                  (custody-inspect! bytes opts))
              _ (validate-body body)
              _ (when-not (= ucf/contract-stamp
@@ -1720,11 +1830,15 @@
                  (refuse! :yin.k/profile-mismatch
                           {:yin.k/contract (:yin.k/contract body)}))
              kind (:yin.k/kind body)
+             version-one? (= 1 (:yin.k/version body))
+             custody-state (when (and version-one? (not install-child?)
+                                      (not= :halted kind))
+                             (accept-grant! body opts))
              cells (:yin.k/cells body)
              pendings (mapv :yin.k/pending
                             (or (:yin.k/frames body) []))
              recv' (reduce (fn [r [_a v]] (module/attach-module r v))
-                           recv
+                           (if version-one? (isolated-receiver recv) recv)
                            (:yin.k/code body))
              handles (attach-all! attach! (body-markers body))
              used (atom (into fixed-resource-keys
@@ -1783,28 +1897,44 @@
                                (decode-registers decode aliases
                                                  (:yin.k/registers frame)))
                              (or (:yin.k/frames body) []))
-             entries (mapv (fn [pending ctx]
-                             (lower-frame! decode streams cells cell-keys
-                                           pending ctx))
-                           pendings registers)
-             machine (-> recv'
-                         (assoc :store store
-                                :module-stores (merge (:module-stores recv')
-                                                      module-stores)
-                                :parked (merge (:parked recv') parked)
-                                :installs (merge (:installs recv') installs)
-                                :resources (merge (:resources recv')
-                                                  resources
-                                                  cell-resources
-                                                  (link-pair-resources
-                                                    streams resources
-                                                    pendings))
-                                :id-counter (max (or (:id-counter recv') 0)
-                                                 (or (:yin.k/id-counter body)
-                                                     0))
-                                :ready-queue []
-                                :control nil
-                                :k nil))]
+             raw-entries (mapv (fn [pending ctx]
+                                 (cond-> (lower-frame! decode streams cells cell-keys
+                                                       pending ctx)
+                                   (and version-one? (contains? pending :yin.k/op-id))
+                                   (assoc :op-id (:yin.k/op-id pending))))
+                               pendings registers)
+             [entries issued] (if version-one?
+                                (reduce (fn [[acc issue] entry]
+                                          (if (= :put (:reason entry))
+                                            [(conj acc (assoc entry :yin.k/issue issue)) (inc issue)]
+                                            [(conj acc entry) issue]))
+                                        [[] 0]
+                                        raw-entries)
+                                [raw-entries nil])
+             machine (cond-> (-> recv'
+                                 (assoc :store store
+                                        :module-stores (merge (:module-stores recv')
+                                                              module-stores)
+                                        :parked (merge (:parked recv') parked)
+                                        :installs (merge (:installs recv') installs)
+                                        :resources (merge (:resources recv')
+                                                          resources
+                                                          cell-resources
+                                                          (link-pair-resources
+                                                            streams resources
+                                                            pendings))
+                                        :id-counter (max (or (:id-counter recv') 0)
+                                                         (or (:yin.k/id-counter body)
+                                                             0))
+                                        :ready-queue []
+                                        :control nil
+                                        :k nil))
+                       version-one?
+                       (assoc :yin.k/issued issued
+                              :yin.k/gate (if (and (not install-child?)
+                                                   (= :halted kind))
+                                            :ended :running))
+                       custody-state (assoc :yin.k/custody custody-state))]
          {:status :ok
           :kind kind
           :vm (case kind
@@ -1826,3 +1956,11 @@
                        :halted? false :blocked? true
                        :value :yin/blocked
                        :wait-set entries))})))))
+
+
+(defn resume-task
+  "Public entry for 14.1.2 lower."
+  ([recv bytes attach!]
+   (resume-task recv bytes attach! nil))
+  ([recv bytes attach! opts]
+   (resume-task* recv bytes attach! (dissoc opts ::install-child) false)))
