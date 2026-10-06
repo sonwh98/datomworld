@@ -1975,8 +1975,8 @@ S1 (the exact-integer module, `54536317`) has landed, and so has the
 numeric-key, `hash()` and `is` work of rulings 6 to 8 (`be1f8d06`,
 orchestrated as C3-S2, the S5 row's scope), with its S2b follow-up
 (content `is` and hex keys); the rest are pending. C1
-restricts integers to [-2^53, 2^53], an intentional limitation C3 replaces
-with exact promotion.
+bounded integer arithmetic at +/-2^53; S3-A replaces that bound with
+exact promotion.
 
 Python integers are untagged exact scalars of any magnitude (ruling 1).
 A bignum is an immutable value, possibly the payload of an existing
@@ -2247,7 +2247,7 @@ parity remains a separately tracked limitation, not claimed by C3
 |        | Landed.                                                             |
 +--------+---------------------------------------------------------------------+
 | S3     | Integer operators, including augmented forms, through the prelude;  |
-|        | every C1 arithmetic regression still passes.                        |
+|        | S3-A landed; S3-B/S3-C pending.                                     |
 +--------+---------------------------------------------------------------------+
 | S4     | Conversions and comparisons: float bits, exact text, tagged float   |
 |        | results, exceptions; no double rounding.                            |

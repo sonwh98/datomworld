@@ -766,36 +766,33 @@
 
 (defn- integer-bound-on-every-host
   []
-  (testing "over the real cell and data modules, results outside
-            [-2^53, 2^53] are a guest OverflowError identically on every VM
-            and host (the JVM would otherwise throw, JS round, Dart wrap):
-            2**53+1, 3**40, 1<<54, -(2**53)-1, (2**53-1)*3"
+  (testing "S3-A arithmetic promotes exactly on every host; power and
+            shifts remain pending slices and use equivalent products here"
     (let [ov '(fn [thunk]
                 (let [r (cell/new :py/None)]
                   (do (py/try (fn [] (cell/set! r (thunk)))
                               (fn [e] (cell/set! r {:py/str "overflow"}))
                               (fn [] :py/None))
                       (cell/get r))))
+          values '[(py/int-lit "20000000000000")
+                   (ov (fn [] (py/add (py/int-lit "20000000000000") 1)))
+                   (ov (fn [] (py/mul 3486784401 3486784401)))
+                   (ov (fn [] (py/mul (py/int-lit "20000000000000") 2)))
+                   (ov (fn []
+                         (py/sub (py/neg (py/int-lit "20000000000000")) 1)))
+                   (ov (fn [] (py/mul 9007199254740991 3)))]
+          items (reduce (fn [acc form] (list 'py/conj acc form)) [] values)
           results (run-with-prelude
                     prelude/uast
                     (list 'py/run-module
                           (list 'fn '[g gf]
                                 (list 'let ['ov ov]
-                                      '(py/print
-                                         (py/conj
-                                           (py/conj
-                                             (py/conj
-                                               (py/conj
-                                                 (py/conj
-                                                   (py/conj [] (py/pow 2 53))
-                                                   (ov (fn [] (py/add (py/pow 2 53) 1))))
-                                                 (ov (fn [] (py/pow 3 40))))
-                                               (ov (fn [] (py/lshift 1 54))))
-                                             (ov (fn [] (py/sub (py/neg (py/pow 2 53)) 1))))
-                                           (ov (fn [] (py/mul 9007199254740991 3)))))))))]
+                                      (list 'py/print items)))))]
       (doseq [[k result] results]
         (testing (str k)
-          (is (= {:py/out ["9007199254740992 overflow overflow overflow overflow overflow"],
+          (is (= {:py/out [(str "9007199254740992 9007199254740993 "
+                                "12157665459056928801 18014398509481984 "
+                                "-9007199254740993 27021597764222973")],
                   :py/exception nil}
                  (if (map? result) (render/output result) result))))))))
 
@@ -1227,7 +1224,7 @@
 (defn- int-defects-stay-host-failures-on-every-host
   []
   (testing "a wrong type or arity at an integer call, and a reason the
-            module version 2 never returns, fail the run: no guest handler
+            module version 3 never returns, fail the run: no guest handler
             sees them"
     (doseq [[form message]
             [['(integer/neg {:py/str "x"}) integer/refusal-message]

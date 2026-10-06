@@ -110,13 +110,14 @@
    float key or hash can need integers of 1075 bits (2^-1074), so the
    composition's `integer` limits must admit at least that.
 
-   The `integer` module (version 2) answers a limit breach as a reason,
+   The `integer` module (version 3) answers a limit breach as a reason,
    not a result, and `py/int-result` wraps every call that can breach:
    `:yin.vm.integer/bit-limit` raises MemoryError, as CPython 3.9.6 does
    when an integer cannot be allocated, and `:yin.vm.integer/digit-limit`
    raises ValueError. CPython 3.9.6 has no digit limit (it arrived in
    3.9.14 and 3.11), so the digit limit is this support profile's
-   restriction, not a 3.9.6 match. Neither is OverflowError. The guest
+   restriction, not a 3.9.6 match. Float overflow raises OverflowError
+   with \"int too large to convert to float\". The guest
    message is the prelude's, never host text. Every other refusal stays
    a host failure of the run: the prelude checks its causes before the
    call, so reaching one is a prelude defect, not a guest error.
@@ -135,7 +136,8 @@
      data/number? data/dissoc data/str-concat data/str-length
      data/str-index-of data/str->code-points data/code-points->str
      data/float64 data/float-value data/content=
-     integer/sub integer/neg integer/mul integer/compare
+     integer/add integer/sub integer/neg integer/mul integer/compare
+     integer/to-float integer/compare-float
      integer/floor-div-mod integer/shift-left integer/format integer/parse})
 
 
@@ -918,15 +920,8 @@
          (py/attr-error name)))]
 
     ;; ---------------------------------------------------------- numbers
-    ;; Integers are bounded to [-2^53, 2^53], the range every host holds
-    ;; exactly: a JVM long would throw past 2^63, a JS double rounds past
-    ;; 2^53, a Dart int wraps. Each check runs before the host operation,
-    ;; so an out-of-range result is a guest OverflowError on every host.
-    ;; The bound is written (* 2 4503599627370496), never as a literal:
-    ;; every literal here is hashed by dao.jing.cbor when the program is
-    ;; projected to rows, and on JS a hashed integer must be a safe integer
-    ;; (|n| <= 2^53 - 1). 2^52 is safe, and the product is exactly 2^53 on
-    ;; every host.
+    ;; Exact integer arithmetic goes through the module's guarded kernels.
+    ;; The bounded helpers below remain for the pending S3-B/S3-C slices.
     [py/overflow
      (fn []
        (py/raise-new py.b/OverflowError
@@ -953,25 +948,51 @@
              (if (< (get (py/divmod-pos (* 2 4503599627370496) x) 0) y)
                (py/overflow)
                (* a b))))))]
+    [py/as-float
+     ;; The integer bridge can refuse before any host float operation.
+     (fn [a]
+       (if (py/float? a)
+         (py/num a)
+         (data/float-value (py/int-result (integer/to-float (py/num a))))))]
     [py/arith
-     ;; op is :add, :sub or :mul; ints are checked, floats are not
      (fn [op a b]
        (if (py/numeric? a)
          (if (py/numeric? b)
-           (let [x (py/num a)
-                 y (py/num b)]
-             (if (if (py/float? a) true (py/float? b))
-               (py/float (if (= op :add) (+ x y) (if (= op :sub) (- x y) (* x y))))
-               (if (= op :add)
-                 (py/checked-add x y)
-                 (if (= op :sub) (py/checked-sub x y) (py/checked-mul x y)))))
+           (if (if (py/float? a) true (py/float? b))
+             (let [x (py/as-float a)
+                   y (py/as-float b)]
+               (py/float (if (= op :add) (+ x y)
+                             (if (= op :sub) (- x y) (* x y)))))
+             (let [x (py/num a)
+                   y (py/num b)]
+               (py/int-result
+                 (if (= op :add) (integer/add x y)
+                     (if (= op :sub) (integer/sub x y)
+                         (integer/mul x y))))))
            (py/type-error {:py/str "unsupported operand type"}))
          (py/type-error {:py/str "unsupported operand type"})))]
+    [py/num-compare
+     ;; nil means unordered (NaN); integers are never rounded to double.
+     (fn [a b]
+       (let [x (py/num a)
+             y (py/num b)]
+         (if (if (py/float? a) (not (<= x x)) false)
+           nil
+           (if (if (py/float? b) (not (<= y y)) false)
+             nil
+             (if (py/float? a)
+               (if (py/float? b)
+                 (if (< x y) -1 (if (> x y) 1 0))
+                 (- 0 (py/int-result (integer/compare-float y x))))
+               (if (py/float? b)
+                 (py/int-result (integer/compare-float x y))
+                 (py/int-result (integer/compare x y))))))))]
     [py/compare
      (fn [op a b]
        (if (py/numeric? a)
          (if (py/numeric? b)
-           (op (py/num a) (py/num b))
+           (let [c (py/num-compare a b)]
+             (if (= c nil) false (op c 0)))
            (py/type-error {:py/str "comparison not supported"}))
          (py/type-error {:py/str "comparison not supported"})))]
     [py/kind
@@ -1006,15 +1027,34 @@
     [py/repeat-str
      (fn [s n acc] (if (< 0 n) (py/repeat-str s (- n 1) (data/str-concat acc s)) acc))]
     [py/repeat
-     ;; sequence * int, int counted as Python does (negative is empty)
+     ;; CPython checks Py_ssize_t even for empty/negative repeats. The
+     ;; portable allocation bound is 2^53-1 items, before host allocation.
      (fn [s n]
        (if (py/int? n)
-         (let [k (py/num n)]
-           (if (py/str? s)
-             (py/str (py/repeat-str (get s :py/str) k ""))
-             (if (= (py/kind s) :list)
-               (py/list (py/repeat-items (get (cell/get s) :items) k []))
-               (py/tuple (py/repeat-items (get s :items) k [])))))
+         (let [k (py/num n)
+               q (get (py/int-result
+                        (integer/floor-div-mod k 4294967296)) 0)]
+           (if (if (> (integer/compare q 2147483647) 0)
+                 true (< (integer/compare q -2147483648) 0))
+             (py/raise-new py.b/OverflowError
+                           (py/str (data/str-concat
+                                     "cannot fit 'int' into an "
+                                     "index-sized integer")))
+             (let [items (if (py/str? s) (get s :py/str)
+                             (if (= (py/kind s) :list)
+                               (get (cell/get s) :items) (get s :items)))
+                   size (if (py/str? s) (data/str-length items)
+                            (data/count items))]
+               (if (if (= size 0) false
+                       (> (integer/compare k 9007199254740991) 0))
+                 (py/int-result :yin.vm.integer/bit-limit)
+                 (let [count (if (if (= size 0) true
+                                     (< (integer/compare k 0) 0)) 0 k)]
+                   (if (py/str? s)
+                     (py/str (py/repeat-str items count ""))
+                     (if (= (py/kind s) :list)
+                       (py/list (py/repeat-items items count []))
+                       (py/tuple (py/repeat-items items count [])))))))))
          (py/type-error {:py/str "can't multiply sequence by non-int"})))]
     [py/sequence?
      (fn [x]
@@ -1251,9 +1291,19 @@
      (fn [a b]
        (if (py/numeric? a)
          (if (py/numeric? b)
-           (if (py/zero? b)
-             (py/raise-new py.b/ZeroDivisionError {:py/str "division by zero"})
-             (py/float (/ (data/float-value (py/num a)) (py/num b))))
+           (if (if (py/float? a) true (py/float? b))
+             ;; CPython converts both operands before its float zero check.
+             (let [x (py/as-float a) y (py/as-float b)]
+               (if (= y (data/float-value 0))
+                 (py/raise-new py.b/ZeroDivisionError
+                               {:py/str "division by zero"})
+                 (py/float (/ x y))))
+             ;; S3-B owns int/int: huge operands can still overflow during
+             ;; conversion even when their exact ratio would be finite.
+             (if (py/zero? b)
+               (py/raise-new py.b/ZeroDivisionError
+                             {:py/str "division by zero"})
+               (py/float (/ (py/as-float a) (py/as-float b)))))
            (py/type-error {:py/str "unsupported operand type"}))
          (py/type-error {:py/str "unsupported operand type"})))]
     ;; unary - and + on a float negate or keep it, so -0.0 and +(-0.0)
@@ -1264,8 +1314,14 @@
      (fn [a]
        (if (py/float? a)
          (py/float (* (data/float-value -1) (py/num a)))
-         (py/arith :sub 0 a)))]
-    [py/pos (fn [a] (if (py/float? a) a (py/arith :add 0 a)))]
+         (if (py/int? a)
+           (py/int-result (integer/neg (py/num a)))
+           (py/type-error {:py/str "bad operand type for unary -"}))))]
+    [py/pos
+     (fn [a]
+       (if (py/numeric? a)
+         (if (py/float? a) a (py/num a))
+         (py/type-error {:py/str "bad operand type for unary +"})))]
     [py/lt (fn [a b] (py/compare < a b))]
     [py/gt (fn [a b] (py/compare > a b))]
     [py/le (fn [a b] (py/compare <= a b))]
@@ -1276,7 +1332,7 @@
      (fn [a b]
        (if (py/numeric? a)
          (if (py/numeric? b)
-           (if (<= (py/num a) (py/num b)) (>= (py/num a) (py/num b)) false)
+           (= (py/num-compare a b) 0)
            false)
          (if (py/cell? a)
            (if (py/cell? b) (py/eq-objects a b) false)
@@ -1326,17 +1382,17 @@
                  (py/seq-contains? (py/to-vector c) x 0)
                  (py/type-error {:py/str "argument of type is not iterable"})))))))]
     [py/range-has?
-     ;; O(1): within the bounds and on the step
      (fn [r x]
        (let [start (get r :start)
              stop (get r :stop)
              step (get r :step)]
-         (if (if (< 0 step)
-               (if (<= start x) (< x stop) false)
-               (if (< stop x) (<= x start) false))
-           ;; on the step: x and start leave the same floor remainder, which
-           ;; needs no (possibly out-of-range) difference x - start
-           (= (py/int-mod x step) (py/int-mod start step))
+         (if (if (< (integer/compare 0 step) 0)
+               (if (<= (integer/compare start x) 0)
+                 (< (integer/compare x stop) 0) false)
+               (if (< (integer/compare stop x) 0)
+                 (<= (integer/compare x start) 0) false))
+           (= (get (py/int-result (integer/floor-div-mod x step)) 1)
+              (get (py/int-result (integer/floor-div-mod start step)) 1))
            false)))]
     [py/in (fn [x c] (py/contains c x))]
     [py/not-in (fn [x c] (not (py/contains c x)))]
@@ -1392,36 +1448,38 @@
              :py/None)))]
     [py/index
      (fn [k n]
-       (if (if (py/numeric? k) (not (py/float? k)) false)
-         (let [i (py/num k)
-               j (if (< i 0) (+ i n) i)]
-           (if (< j 0)
-             (py/raise-new py.b/IndexError {:py/str "list index out of range"})
-             (if (< j n)
-               j
-               (py/raise-new py.b/IndexError
-                             {:py/str "list index out of range"}))))
+       (if (py/int? k)
+         (let [i (py/num k)]
+           ;; Reject before addition, so even a huge negative index does
+           ;; not construct a value outside the integer resource budget.
+           (if (if (< (integer/compare i 0) 0)
+                 (< (integer/compare i (- 0 n)) 0)
+                 (>= (integer/compare i n) 0))
+             (py/raise-new py.b/IndexError
+                           {:py/str "list index out of range"})
+             (if (< (integer/compare i 0) 0)
+               (py/int-result (integer/add i n)) i)))
          (py/type-error {:py/str "list indices must be integers"})))]
 
     ;; ---------------------------------------------------------- exact numbers
-    ;; The one translator of `integer` results (module version 2; see the
-    ;; namespace docstring): a limit reason raises its guest exception, a
-    ;; reason version 2 never returns fails the run as a prelude defect,
-    ;; and any other result, an integer, string or pair, passes.  It
-    ;; recognizes exactly the nine version-2 reasons: any other keyword
-    ;; result is outside the module's contract.
+    ;; Version 3 has ten reasons. Numbers take the cheap first arm;
+    ;; resource/conversion limits raise guest exceptions, defects fail.
     [py/int-result
      (fn [r]
-       (if (= r :yin.vm.integer/bit-limit)
-         ;; CPython raises a bare MemoryError(): no args
-         (py/raise (let [e (py/make-instance py.b/MemoryError)]
-                     (do (py/setattr e "args" (py/tuple [])) e)))
-         (if (= r :yin.vm.integer/digit-limit)
-           (py/raise-new py.b/ValueError
-                         (py/str (data/str-concat
-                                   "Exceeds the limit for integer string "
-                                   "conversion")))
-           (if (py/int-refusal? r) (:py/int-defect r) r))))]
+       (if (data/number? r)
+         r
+         (if (= r :yin.vm.integer/bit-limit)
+           (py/raise (let [e (py/make-instance py.b/MemoryError)]
+                       (do (py/setattr e "args" (py/tuple [])) e)))
+           (if (= r :yin.vm.integer/digit-limit)
+             (py/raise-new py.b/ValueError
+                           (py/str (data/str-concat
+                                     "Exceeds the limit for integer string "
+                                     "conversion")))
+             (if (= r :yin.vm.integer/float-overflow)
+               (py/raise-new py.b/OverflowError
+                             {:py/str "int too large to convert to float"})
+               (if (py/int-refusal? r) (:py/int-defect r) r))))))]
     ;; an integer literal beyond 2^53 - 1, from its canonical hex
     [py/int-lit (fn [s] (py/int-result (integer/parse s 16)))]
     [py/int-refusal?
@@ -1438,7 +1496,9 @@
                  true
                  (if (= r :yin.vm.integer/negative-count)
                    true
-                   (= r :yin.vm.integer/negative-exponent))))))))]
+                   (if (= r :yin.vm.integer/negative-exponent)
+                     true
+                     (= r :yin.vm.integer/float-overflow)))))))))]
 
     ;; Numeric keys and hashes need a float's exact value as integers. The
     ;; decomposition uses only steps that are exact on binary64 (halving
@@ -1681,31 +1741,38 @@
          (py/num x)
          (py/type-error {:py/str "slice indices must be integers or None"})))]
     [py/slice-bound
-     ;; one bound clamped as slice.indices does
+     ;; Clamp before addition: enormous negative bounds need no sum.
      (fn [x n lower upper default]
        (if (= x :py/None)
          default
          (let [i (py/slice-int x)]
-           (if (< i 0)
-             (let [j (+ i n)] (if (< j lower) lower j))
-             (if (> i upper) upper i)))))]
+           (if (< (integer/compare i 0) 0)
+             (if (< (integer/compare i (- lower n)) 0)
+               lower (py/int-result (integer/add i n)))
+             (if (> (integer/compare i upper) 0) upper i)))))]
     [py/slice-walk
      (fn [i stop step acc]
        (if (if (< 0 step) (< i stop) (> i stop))
          (py/slice-walk (+ i step) stop step (conj acc i))
          acc))]
     [py/slice-positions
-     ;; the indices a slice selects from a sequence of length n
+     ;; A step beyond n selects at most one item; cap it before walking.
      (fn [s n]
-       (let [step (if (= (get s :step) :py/None) 1 (py/slice-int (get s :step)))]
-         (if (= step 0)
+       (let [raw (if (= (get s :step) :py/None)
+                   1 (py/slice-int (get s :step)))
+             sign (integer/compare raw 0)
+             step (if (> (integer/compare raw (+ n 1)) 0)
+                    (+ n 1)
+                    (if (< (integer/compare raw (- -1 n)) 0)
+                      (- -1 n) raw))]
+         (if (= sign 0)
            (py/raise-new py.b/ValueError {:py/str "slice step cannot be zero"})
-           (let [lower (if (< step 0) -1 0)
-                 upper (if (< step 0) (- n 1) n)
+           (let [lower (if (< sign 0) -1 0)
+                 upper (if (< sign 0) (- n 1) n)
                  start (py/slice-bound (get s :start) n lower upper
-                                       (if (< step 0) upper lower))
+                                       (if (< sign 0) upper lower))
                  stop (py/slice-bound (get s :stop) n lower upper
-                                      (if (< step 0) lower upper))]
+                                      (if (< sign 0) lower upper))]
              (py/slice-walk start stop step [])))))]
     [py/pick
      (fn [xs idxs i acc]
@@ -1779,73 +1846,111 @@
                (py/type-error {:py/str "object does not support item assignment"}))))))]
 
     ;; ---------------------------------------------------------- iteration
+    [py/range-small?
+     ;; Established once at construction; host arithmetic in range-at
+     ;; then sees only canonical small carriers, including stop.
+     (fn [a b s]
+       (if (<= (integer/compare -4503599627370496 a) 0)
+         (if (<= (integer/compare a 4503599627370496) 0)
+           (if (<= (integer/compare -67108864 s) 0)
+             (if (<= (integer/compare s 67108864) 0)
+               (if (<= (integer/compare -9007199254740991 b) 0)
+                 (<= (integer/compare b 9007199254740991) 0) false)
+               false) false) false) false))]
     [py/range3
-     ;; every argument an int (bools as 0 and 1), checked before any
-     ;; arithmetic
      (fn [a b s]
        (if (if (py/int? a) (if (py/int? b) (py/int? s) false) false)
          (if (py/zero? s)
            (py/raise-new py.b/ValueError {:py/str "range() arg 3 must not be zero"})
-           (assoc (assoc (assoc (assoc {} :py/type :range) :start (py/num a))
-                         :stop (py/num b))
-                  :step (py/num s)))
+           (let [a (py/num a) b (py/num b) s (py/num s)]
+             (assoc (assoc (assoc (assoc (assoc {} :py/type :range)
+                                         :start a) :stop b) :step s)
+                    :small? (py/range-small? a b s))))
          (py/type-error {:py/str "range() arguments must be integers"})))]
     [py/range-count
-     ;; ceil((stop - start) / step) for a non-empty range, from the floor
-     ;; quotients and remainders of each bound: no difference of the bounds
-     ;; (up to 2^54) is formed; only the length itself is range-checked
+     ;; Decompose each bound first: stop-start need not fit the budget.
      (fn [start stop step]
-       (if (< 0 step)
-         (if (< start stop)
-           (py/checked-add (py/checked-sub (py/int-floordiv stop step)
-                                           (py/int-floordiv start step))
-                           (if (< (py/int-mod start step) (py/int-mod stop step)) 1 0))
-           0)
-         (if (< stop start)
-           (let [m (- 0 step)]
-             (py/checked-add (py/checked-sub (py/int-floordiv start m)
-                                             (py/int-floordiv stop m))
-                             (if (< (py/int-mod stop m) (py/int-mod start m)) 1 0)))
+       (if (< (integer/compare step 0) 0)
+         (py/range-count stop start (py/int-result (integer/neg step)))
+         (if (< (integer/compare start stop) 0)
+           (let [a (py/int-result (integer/floor-div-mod start step))
+                 b (py/int-result (integer/floor-div-mod stop step))
+                 extra (if (< (integer/compare (get a 1) (get b 1)) 0) 1 0)]
+             (py/range-size (get a 0) (get b 0) extra))
            0)))]
+    [py/range-size
+     ;; Subtract in base 2^32 to check sys.maxsize before allocating the
+     ;; count. Even a 53-bit profile can distinguish overflow from a
+     ;; valid 64-bit length that breaches its own resource budget.
+     (fn [a b extra]
+       (let [a (py/int-result (integer/floor-div-mod a 4294967296))
+             b (py/int-result (integer/floor-div-mod b 4294967296))
+             high (integer/sub (get b 0) (get a 0))
+             low (+ (- (get b 1) (get a 1)) extra)
+             carry (if (< low 0) -1 (if (>= low 4294967296) 1 0))
+             low (- low (* carry 4294967296))
+             high (if (= high :yin.vm.integer/bit-limit)
+                    high (integer/add (py/int-result high) carry))]
+         (if (if (= high :yin.vm.integer/bit-limit)
+               true (> (integer/compare (py/int-result high) 2147483647) 0))
+           (py/raise-new py.b/OverflowError
+                         (py/str (data/str-concat
+                                   "Python int too large to convert "
+                                   "to C ssize_t")))
+           (py/int-result
+             (integer/add
+               (py/int-result (integer/mul (py/int-result high) 4294967296))
+               low)))))]
     [py/range-elem
-     ;; start + i * step for 0 <= i < len, exactly on every host: by halving
-     ;; i and doubling step, every partial sum is itself an element of the
-     ;; range (so within +-2^53) and every addend a power-of-two multiple of
-     ;; step; i * step (up to 2^54) is never formed
+     ;; Fuse start+i*step without a too-large intermediate product.
+     ;; Choose a quotient toward zero, so product and residual have the
+     ;; same sign. Any bit breach is a never-yielded candidate past stop.
      (fn [start step i]
-       (if (= i 0)
-         start
-         (if (= (py/int-mod i 2) 1)
-           (+ (py/range-elem start step (- i 1)) step)
-           (py/range-elem start (+ step step) (py/int-floordiv i 2)))))]
+       (let [qr (py/int-result (integer/floor-div-mod start step))
+             k (integer/add (get qr 0) i)]
+         (if (= k :yin.vm.integer/bit-limit)
+           k
+           (let [k (py/int-result k)
+                 r (get qr 1)
+                 adjust (if (< (integer/compare k 0) 0)
+                          (not (= r 0)) false)
+                 k (if adjust (py/int-result (integer/add k 1)) k)
+                 r (if adjust (py/int-result (integer/sub r step)) r)
+                 product (integer/mul k step)]
+             (if (= product :yin.vm.integer/bit-limit)
+               product (integer/add (py/int-result product) r))))))]
     [py/range-at
-     ;; with 0 <= i <= 2^26, |step| <= 2^26 and |start| <= 2^52, |i * step|
-     ;; <= 2^52 and start + i * step is within +-2^53, exact on every host
-     ;; in O(1), the one-past element included; otherwise a valid element
-     ;; is exact through range-elem, and the one-past element may exceed
-     ;; 2^53 on JS, but its true value is beyond stop and rounding is
-     ;; monotone, so the bound test still ends the range exactly there
+     ;; The O(1) path is entirely native and small. Its result is tested
+     ;; before acceptance: bare +/-2^53 never becomes a guest integer.
      (fn [r i]
        (let [start (get r :start)
              step (get r :step)
-             x (if (if (<= 0 i)
-                     (if (<= i 67108864)
-                       (if (<= -67108864 step)
-                         (if (<= step 67108864)
-                           (if (<= -4503599627370496 start) (<= start 4503599627370496) false)
-                           false)
-                         false)
-                       false)
-                     false)
-                 (+ start (* i step))
-                 (py/range-elem start step i))]
-         (if (if (< 0 step) (< x (get r :stop)) (> x (get r :stop)))
-           x
-           :py/stop)))]
+             stop (get r :stop)
+             ;; Only a guard is rounded: a canonical big index cannot
+             ;; round into [0, 2^26]. The accepted arithmetic uses i.
+             guard-i (data/float-value i)]
+         (if (if (get r :small?)
+               (if (<= 0 guard-i) (<= guard-i 67108864) false) false)
+           (let [x (+ start (* i step))]
+             (if (if (< 0 step) (< x stop) (> x stop))
+               (if (if (<= -9007199254740991 x)
+                     (<= x 9007199254740991) false)
+                 x (py/range-exact-at start stop step i))
+               :py/stop))
+           (py/range-exact-at start stop step i))))]
+    [py/range-exact-at
+     (fn [start stop step i]
+       (let [x (py/range-elem start step i)]
+         (if (= x :yin.vm.integer/bit-limit)
+           :py/stop
+           (let [x (py/int-result x)]
+             (if (if (< (integer/compare step 0) 0)
+                   (> (integer/compare x stop) 0)
+                   (< (integer/compare x stop) 0)) x :py/stop)))))]
     [py/range-len
-     ;; O(1); a length beyond 2^53 is an OverflowError: CPython's limit is
-     ;; sys.maxsize, 2^53 is this profile's integer domain
-     (fn [r _i] (py/range-count (get r :start) (get r :stop) (get r :step)))]
+     ;; range-count checks sys.maxsize before its resource-limited result.
+     (fn [r _i]
+       (py/range-count (get r :start) (get r :stop) (get r :step)))]
     [py/iter-at
      (fn [it i]
        (if (py/cell? it)

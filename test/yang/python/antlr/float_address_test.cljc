@@ -220,7 +220,10 @@
 (deftest prelude-addresses-test
   (testing "the bundled prelude and the hook prelude: one address on every
             host (JVM goldens)"
-    (is (= :segment/blake3-4854d07971414c048a0caa714a2190ab13753686ffaea57232d48ed04aad06d4
+    (is (= (keyword
+             (str "segment/blake3-"
+                  "793ccea31815bfbe56d80acd56a4bd51"
+                  "c194771a5fbf021a2d9496d60cbc89c1"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-2d60190887dc1ca388d7a7b75467757c3f0e6c4b2d909603735c9a9852b0e3e3
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
@@ -240,15 +243,27 @@
         prelude-id (fn [{:keys [root rows]}] (first (nth (get rows root) 3)))]
     (is (nil? (vm/validate-rows a')))
     (testing "A, A' and the record: one address on every host (JVM goldens)"
-      (is (= :segment/blake3-aa62bc341fa5654aeda294f8215780fab27d846ff7f3c98af6d7550d78ac9b05
+      (is (= (keyword
+               (str "segment/blake3-"
+                    "6f3b0b04345d8df9ffcd152333c736ba"
+                    "3152031b3d705363a996abce34c573d1"))
              (:root a)))
-      (is (= :segment/blake3-1963e3374e27d6ea758ecdd65cb541a5a7deb4a2348565f6edb2f7152da09b41
+      (is (= (keyword
+               (str "segment/blake3-"
+                    "f31572fe7de3275ce75ffee6381ae618"
+                    "e637216116ad4c43a6abc1d74d1ecd30"))
              (:root a')))
-      (is (= :segment/blake3-8c0f7c3399fc925e495b70247331917ad43363eda96dd5214fdf7ab4d0682cdf
+      (is (= (keyword
+               (str "segment/blake3-"
+                    "b0db025d96f1d3b1bc026f018d3cdf43"
+                    "b3067318f809dafdf4f24fc8016fc3d9"))
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
-      (is (= :segment/blake3-7924250dff0aa18fb83a13faf2c719492311452ff9897de08d2c2429744d1cf2
+      (is (= (keyword
+               (str "segment/blake3-"
+                    "3141c726ef699c967b8e6ad74b146981"
+                    "482155fb831280e0cf2d37d5ca8a0685"))
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]

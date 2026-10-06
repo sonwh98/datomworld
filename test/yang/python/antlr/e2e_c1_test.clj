@@ -338,8 +338,7 @@
 
 ;; =============================================================================
 ;; Round 2: the C1 gate's findings. Expected output is CPython 3.9.6's for
-;; the same source, except where an int leaves +-2^53 (a documented
-;; OverflowError here, a big int there).
+;; the same source. S3-A arithmetic now promotes exactly.
 ;; =============================================================================
 
 (deftest ^:slow tuple-of-classes-test
@@ -389,19 +388,27 @@
 
 
 (deftest ^:slow integer-bound-test
-  (testing "an int result outside [-2^53, 2^53] is a guest OverflowError on
-            every VM and host (CPython would give a big int); the boundary
-            itself and everything inside agree with CPython"
-    (every-vm= (prints (str "9007199254740992 overflow overflow 4503599627370496 "
-                            "9007199254740992 overflow overflow")
-                       "overflow overflow 0 -1 overflow 9007199254740992")
+  (testing "S3-A arithmetic promotes exactly; equivalent products cover
+            the old bound while power, shifts and invert await S3-B/C"
+    (every-vm= (prints
+                 (str "9007199254740992 9007199254740993 "
+                      "12157665459056928801 4503599627370496 "
+                      "9007199254740992 18014398509481984 -9007199254740993")
+                 (str "27021597764222973 -9007199254740993 0 -1 "
+                      "-9007199254740993 9007199254740992"))
                (lines "def ov(f):"
                       "    try:"
                       "        return f()"
                       "    except OverflowError:"
                       "        return 'overflow'"
-                      "print(2 ** 53, ov(lambda: 2 ** 53 + 1), ov(lambda: 3 ** 40), 1 << 52, 1 << 53, ov(lambda: 1 << 54), ov(lambda: -(2 ** 53) - 1))"
-                      "print(ov(lambda: 9007199254740991 * 3), ov(lambda: -9007199254740992 - 1), 0 << 100, -1 >> 100, ov(lambda: ~(2 ** 53)), 2 ** 52 * 2)"))))
+                      (str "print(2 ** 53, ov(lambda: 2 ** 53 + 1), "
+                           "ov(lambda: 3486784401 * 3486784401), 1 << 52, "
+                           "1 << 53, ov(lambda: 9007199254740992 * 2), "
+                           "ov(lambda: -(2 ** 53) - 1))")
+                      (str "print(ov(lambda: 9007199254740991 * 3), "
+                           "ov(lambda: -9007199254740992 - 1), "
+                           "0 << 100, -1 >> 100, "
+                           "ov(lambda: -(2 ** 53) - 1), 2 ** 52 * 2)")))))
 
 
 (deftest ^:slow gate-p3-round2-test
