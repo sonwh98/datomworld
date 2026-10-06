@@ -35,7 +35,7 @@
   "Parse rows, ignoring all blank lines (including Dart's trailing one)."
   [text]
   (let [[magic version & rows] (remove str/blank? (str/split-lines text))]
-    (when-not (and (contains? #{"int-ops-v1" "int-ops-v2"} magic)
+    (when-not (and (contains? #{"int-ops-v1" "int-ops-v2" "int-ops-v3"} magic)
                    (= "CPython 3.9.6" version))
       (throw (ex-info "wrong integer operator corpus" {:magic magic})))
     (mapv (fn [line]

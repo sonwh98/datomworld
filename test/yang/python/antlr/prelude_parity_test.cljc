@@ -193,8 +193,9 @@
     [(py/slice-positions (py/slice 1 :py/None 2) 6) [1 3 5]]
     [(integer/format (py/pow 2 53)) "9007199254740992"]
     [(py/lshift 1 52) 4503599627370496]
-    ;; (py/lshift 1 53) returns, on JS, a bare 2^53 the module refuses:
-    ;; S3-C makes shifts exact and restores this row
+    [(py/lshift 1 53) 9007199254740992]
+    [(py/lshift 1 54) 18014398509481984]
+    [(py/lshift 0 100) 0]
     [(py/add 9007199254740991 1) 9007199254740992]
     [(py/sub -9007199254740991 1) -9007199254740992]
     [(py/mul 4503599627370496 2) 9007199254740992]
@@ -798,8 +799,7 @@
 
 (defn- integer-bound-on-every-host
   []
-  (testing "S3-A/B arithmetic and power promote exactly on every host;
-            shifts await S3-C and use equivalent products here"
+  (testing "S3 arithmetic, power and shifts promote exactly on every host"
     (let [ov '(fn [thunk]
                 (let [r (cell/new :py/None)]
                   (do (py/try (fn [] (cell/set! r (thunk)))
@@ -809,7 +809,7 @@
           values '[(py/int-lit "20000000000000")
                    (ov (fn [] (py/add (py/int-lit "20000000000000") 1)))
                    (ov (fn [] (py/pow 3 40)))
-                   (ov (fn [] (py/mul (py/int-lit "20000000000000") 2)))
+                   (ov (fn [] (py/lshift 1 54)))
                    (ov (fn []
                          (py/sub (py/neg (py/int-lit "20000000000000")) 1)))
                    (ov (fn [] (py/mul 9007199254740991 3)))]

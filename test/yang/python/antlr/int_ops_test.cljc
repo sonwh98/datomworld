@@ -1,5 +1,5 @@
 (ns yang.python.antlr.int-ops-test
-  "C3 S3-A/B exact operators and range/index audit on all four VMs."
+  "C3 S3-A/B/C exact operators and range/index audit on all four VMs."
   (:require
     [clojure.test :refer [deftest is]]
     [clojure.walk :as walk]
@@ -255,13 +255,22 @@
 
 (def operate
   '(fn [op a b]
-     (let [division
+     (let [bits
+           (fn [op a b]
+             (if (= op "bitand") (py/bitand a b)
+                 (if (= op "bitor") (py/bitor a b)
+                     (if (= op "bitxor") (py/bitxor a b)
+                         (if (= op "invert") (py/invert a)
+                             (if (= op "lshift") (py/lshift a b)
+                                 (py/rshift a b)))))))
+           division
            (fn [op a b]
              (if (= op "truediv") (py/truediv a b)
                  (if (= op "floordiv") (py/floordiv a b)
                      (if (= op "mod") (py/mod a b)
                          (if (= op "divmod") (py/divmod a b)
-                             (py/pow a b))))))
+                             (if (= op "pow") (py/pow a b)
+                                 (bits op a b)))))))
            comparison
            (fn [op a b]
              (if (= op "lt") (py/lt a b)
@@ -509,3 +518,93 @@
                  (py/pow false
                          (py/neg (py/int-lit "10000000000000001")))))
       "ZeroDivisionError"]]))
+
+
+(deftest exact-bitwise-shifts-test
+  (check-cases
+    runners
+    [['(py/bitand true true) true]
+     ['(py/bitor false true) true]
+     ['(py/bitxor true true) false]
+     ['(py/bitand true 3) 1]
+     ['(py/bitand -6 3) 2]
+     ['(integer/format (py/bitand -1 (py/int-lit "10000000000000001")))
+      "18446744073709551617"]
+     ['(integer/format (py/invert (py/int-lit "10000000000000000")))
+      "-18446744073709551617"]
+     ['(integer/format (py/invert (py/neg (py/int-lit "10000000000000000"))))
+      "18446744073709551615"]
+     ['(integer/format (py/lshift 1 54)) "18014398509481984"]
+     ['(integer/format (py/lshift (py/int-lit "10000000000000001") 0))
+      "18446744073709551617"]
+     ['(integer/format (py/rshift (py/int-lit "10000000000000001") 0))
+      "18446744073709551617"]
+     ['(py/rshift -5 1) -3]
+     ['(py/lshift 0 (py/int-lit "10000000000000000")) 0]
+     ['(py/rshift -5 (py/int-lit "10000000000000000")) -1]
+     ['(py/rshift 5 (py/int-lit "10000000000000000")) 0]
+     ['(caught (fn [] (py/lshift 0 -1))) "ValueError"]
+     ['(caught (fn []
+                 (py/rshift 0 (py/neg (py/int-lit "10000000000000000")))))
+      "ValueError"]
+     ['(py/try (fn [] (py/lshift 1 -1))
+               (fn [e] (get (get (get (cell/get e) :attrs) "args") :items))
+               (fn [] :py/None)) [{:py/str "negative shift count"}]]
+     ['(caught (fn [] (py/bitand (py/float 0.5) 1))) "TypeError"]
+     ['(caught (fn [] (py/bitor 1 :py/None))) "TypeError"]
+     ['(caught (fn [] (py/bitxor :py/None 1))) "TypeError"]
+     ['(caught (fn [] (py/invert :py/None))) "TypeError"]
+     ['(caught (fn [] (py/lshift :py/None -1))) "TypeError"]
+     ['(caught (fn [] (py/rshift 1 (py/float 0.5)))) "TypeError"]]))
+
+
+(deftest shift-bit-limit-test
+  (check-cases
+    small-runners
+    [['(caught (fn [] (py/lshift 1 60))) "MemoryError"]
+     ['(caught (fn [] (py/lshift 1 (py/int-lit "800000000000000"))))
+      "MemoryError"]
+     ['(py/lshift 0 (py/int-lit "800000000000000")) 0]]))
+
+
+(deftest float-power-exponent-limit-test
+  (check-cases
+    runners
+    [['(caught (fn []
+                 (py/pow (py/float (data/float-value 1))
+                         (integer/pow 2 1024)))) "OverflowError"]
+     ['(caught (fn []
+                 (py/pow (py/float (data/float-value 1))
+                         (integer/neg (integer/pow 2 1024)))))
+      "OverflowError"]
+     ['(py/pow (py/float (data/float-value 1))
+               (integer/pow 2 1023))
+      {:py/float (data/float-value 1)}]
+     ['(py/try
+         (fn []
+           (py/pow (py/float (data/float-value 1))
+                   (integer/pow 2 1024)))
+         (fn [e] (get (get (get (cell/get e) :attrs) "args") :items))
+         (fn [] :py/None))
+      [{:py/str "int too large to convert to float"}]]]))
+
+
+(deftest ^:slow cpython-s3c-fixture-test
+  (slow/guard
+    "cpython-s3c-fixture-test"
+    (fn []
+      (let [rows (fixtures/read-file
+                   "test/resources/yang/python/int-ops-v3.txt")]
+        (doseq [[i batch] (map-indexed vector (partition-all 100 rows))
+                [k result] (run-with-prelude prelude/uast
+                                             (fixture-form (vec batch)))]
+          (is (= [] result) (str k " v3 batch " i " rows " result)))))))
+
+
+(deftest small-profile-hash-zero-test
+  (check-cases
+    small-runners
+    [['(caught (fn [] (py/hash 0))) "MemoryError"]
+     ['(caught (fn [] (py/hash false))) "MemoryError"]
+     ['(caught (fn [] (py/hash (* -1 0)))) "MemoryError"]
+     ['(py/hash (py/float (data/float-value 0))) 0]]))

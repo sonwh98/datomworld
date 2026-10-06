@@ -388,8 +388,7 @@
 
 
 (deftest ^:slow integer-bound-test
-  (testing "S3-A/B arithmetic and power promote exactly; equivalent products
-            cover shifts while shifts and invert await S3-C"
+  (testing "S3 arithmetic, power, shifts and invert promote exactly"
     (every-vm= (prints
                  (str "9007199254740992 9007199254740993 "
                       "12157665459056928801 4503599627370496 "
@@ -403,12 +402,12 @@
                       "        return 'overflow'"
                       (str "print(2 ** 53, ov(lambda: 2 ** 53 + 1), "
                            "ov(lambda: 3 ** 40), 1 << 52, "
-                           "1 << 53, ov(lambda: 9007199254740992 * 2), "
+                           "1 << 53, ov(lambda: 1 << 54), "
                            "ov(lambda: -(2 ** 53) - 1))")
                       (str "print(ov(lambda: 9007199254740991 * 3), "
                            "ov(lambda: -9007199254740992 - 1), "
                            "0 << 100, -1 >> 100, "
-                           "ov(lambda: -(2 ** 53) - 1), 2 ** 52 * 2)")))))
+                           "ov(lambda: ~(2 ** 53)), 1 << 53)")))))
 
 
 (deftest ^:slow gate-p3-round2-test

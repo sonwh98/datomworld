@@ -98,10 +98,9 @@
    calls, so the call depth is restored, never decremented, and it is
    restored relative to the activation it runs in. Only crossings rebase.
 
-   Integer `//`, `%`, `**`, bitwise operators and float floor have no
-   portable host primitive; they are exact algorithms here over + - * <
-   (doubling division, binary-descent floor, two's-complement recursion),
-   valid within 2^53.
+   Integer arithmetic, bitwise operators and shifts are exact through
+   the integer module, subject to the composition's resource limits.
+   Float floor uses binary descent within its supported float range.
 
    Numeric dict and set keys and `hash()` are exact (C3 rulings 6 and 7):
    a finite number keys as its reduced rational in lowercase hex text,
@@ -139,6 +138,7 @@
      integer/add integer/sub integer/neg integer/mul integer/compare
      integer/to-float integer/compare-float integer/true-div
      integer/pow integer/shift-right integer/bit-and
+     integer/bit-or integer/bit-xor integer/bit-not integer/from-float
      integer/floor-div-mod integer/shift-left integer/format integer/parse})
 
 
@@ -922,33 +922,6 @@
 
     ;; ---------------------------------------------------------- numbers
     ;; Exact integer arithmetic goes through the module's guarded kernels.
-    ;; The bounded helpers below remain for the pending S3-B/S3-C slices.
-    [py/overflow
-     (fn []
-       (py/raise-new py.b/OverflowError
-                     {:py/str "integer result outside the supported range (2**53)"}))]
-    [py/checked-add
-     (fn [a b]
-       (if (< 0 a)
-         (if (< 0 b)
-           (if (< (- (* 2 4503599627370496) b) a) (py/overflow) (+ a b))
-           (+ a b))
-         (if (< b 0)
-           (if (< a (- (* -2 4503599627370496) b)) (py/overflow) (+ a b))
-           (+ a b))))]
-    [py/checked-sub (fn [a b] (py/checked-add a (- 0 b)))]
-    [py/checked-mul
-     ;; |a * b| <= 2^53 exactly when |b| <= floor(2^53 / |a|)
-     (fn [a b]
-       (let [x (py/abs a)
-             y (py/abs b)]
-         (if (if (< x 67108864) (< y 67108864) false)
-           (* a b)
-           (if (= x 0)
-             0
-             (if (< (get (py/divmod-pos (* 2 4503599627370496) x) 0) y)
-               (py/overflow)
-               (* a b))))))]
     [py/as-float
      ;; The integer bridge can refuse before any host float operation.
      (fn [a]
@@ -1077,44 +1050,15 @@
 
     ;; ---------------------------------------------------------- integer ops
     ;; Exact guest integer arithmetic goes through the integer module.
-    ;; The bounded helpers below remain only for S3-C bitwise and shifts.
     [py/int? (fn [x] (if (py/numeric? x) (not (py/float? x)) false))]
     [py/abs
      (fn [x]
        (if (< (integer/compare x 0) 0)
          (py/int-result (integer/neg x)) x))]
     [py/float-abs (fn [x] (if (< x 0) (- 0 x) x))]
-    [py/divmod-pos
-     ;; [q r] for a >= 0, b > 0, by doubling the divisor
-     (fn [a b]
-       (if (< a b)
-         (py/conj (py/conj [] 0) a)
-         (let [qr (py/divmod-pos a (+ b b))
-               q (+ (get qr 0) (get qr 0))
-               r (get qr 1)]
-           (if (< r b)
-             (py/conj (py/conj [] q) r)
-             (py/conj (py/conj [] (+ q 1)) (- r b))))))]
-    [py/int-floordiv
-     ;; floor(a / b), Python's sign rule
-     (fn [a b]
-       (let [qr (py/divmod-pos (py/abs a) (py/abs b))
-             q (get qr 0)]
-         (if (= (< a 0) (< b 0))
-           q
-           (if (= (get qr 1) 0) (- 0 q) (- (- 0 q) 1)))))]
-    [py/int-mod
-     ;; the remainder with the divisor's sign, from the exact |a| mod |b|
-     (fn [a b]
-       (let [r (get (py/divmod-pos (py/abs a) (py/abs b)) 1)]
-         (if (= r 0)
-           0
-           (if (= (< a 0) (< b 0))
-             (if (< a 0) (- 0 r) r)
-             (if (< b 0) (- r (py/abs b)) (- (py/abs b) r))))))]
     ;; |x| < Inf, not |x| <= Double.MAX_VALUE: on JS that literal is an
     ;; integral number past 2^53, which dao.jing.cbor refuses to hash (see
-    ;; py/overflow); NaN is false either way
+    ;; the safe integer literal range); NaN is false either way
     [py/finite? (fn [x] (< (py/float-abs x) (data/float-value ##Inf)))]
     [py/fmod-pos
      ;; fmod for doubles x >= 0, y > 0, exactly: each subtraction is of
@@ -1182,7 +1126,7 @@
            (py/floor-descend x n (/ p 2)))))]
     [py/floor
      ;; floor of a finite real within 2^53, as an integer (the bound is
-     ;; built, not written: see py/overflow)
+     ;; built from safe integer literals)
      (fn [x]
        (if (if (< x (* 2 4503599627370496)) (> x (* -2 4503599627370496)) false)
          (if (< x 0)
@@ -1237,14 +1181,6 @@
              qr
              (py/conj (py/conj [] (py/float (get qr 0)))
                       (py/float (get qr 1)))))))]
-    [py/ipow
-     ;; S3-C shifts still use this bounded helper.
-     (fn [base e]
-       (if (= e 0)
-         1
-         (let [h (py/ipow base (py/int-floordiv e 2))
-               hh (py/checked-mul h h)]
-           (if (= (py/int-mod e 2) 0) hh (py/checked-mul hh base)))))]
     [py/fpow
      ;; float base ** e for an integer e >= 0
      (fn [base e]
@@ -1267,62 +1203,57 @@
                          (if (< f 0)
                            (py/int-result (integer/neg (py/int-of (- 0 f))))
                            (py/int-of f))) y)]
-               (if (< (integer/compare e 0) 0)
-                 (if (py/zero? a)
-                   (py/raise-new py.b/ZeroDivisionError
-                                 {:py/str "0.0 cannot be raised to a negative power"})
-                   (py/float (/ (data/float-value 1)
-                                (py/fpow (py/as-float a)
-                                         (py/int-result (integer/neg e))))))
-                 (if floaty
-                   (py/float (py/fpow (py/as-float a) e))
-                   (py/int-result (integer/pow x e)))))))
+               (do
+                 ;; |e| >= 2^1024 iff its 1024-bit right shift is > 0.
+                 ;; Compare that quotient: a 1025-bit threshold literal
+                 ;; would itself breach a small composition's bit limit.
+                 (if (if floaty
+                       (> (integer/compare
+                            (py/int-result
+                              (integer/shift-right (py/abs e) 1024)) 0) 0)
+                       false)
+                   (py/raise-new py.b/OverflowError
+                                 {:py/str "int too large to convert to float"})
+                   :py/None)
+                 (if (< (integer/compare e 0) 0)
+                   (if (py/zero? a)
+                     (py/raise-new py.b/ZeroDivisionError
+                                   (py/str (data/str-concat
+                                             "0.0 cannot be raised to "
+                                             "a negative power")))
+                     (py/float (/ (data/float-value 1)
+                                  (py/fpow (py/as-float a)
+                                           (py/int-result (integer/neg e))))))
+                   (if floaty
+                     (py/float (py/fpow (py/as-float a) e))
+                     (py/int-result (integer/pow x e))))))))
          (py/type-error {:py/str "unsupported operand type for **"})))]
-    [py/bit1
-     (fn [op x y]
-       (if (= op :and)
-         (if (= x 1) (if (= y 1) 1 0) 0)
-         (if (= op :or) (if (= x 1) 1 (if (= y 1) 1 0)) (if (= x y) 0 1))))]
-    [py/bit-op
-     ;; two's complement of unbounded width: once both operands are 0 or -1
-     ;; the remaining bits are their sign bits
-     (fn [op a b]
-       (if (if (if (= a 0) true (= a -1)) (if (= b 0) true (= b -1)) false)
-         (- 0 (py/bit1 op (if (= a -1) 1 0) (if (= b -1) 1 0)))
-         (py/checked-add (py/bit1 op (py/int-mod a 2) (py/int-mod b 2))
-                         (py/checked-mul 2 (py/bit-op op (py/int-floordiv a 2)
-                                                      (py/int-floordiv b 2))))))]
     [py/int-op
      (fn [op a b]
        (if (if (py/int? a) (py/int? b) false)
-         (py/bit-op op (py/num a) (py/num b))
-         (py/type-error {:py/str "unsupported operand type for a bitwise operator"})))]
-    [py/bitand (fn [a b] (py/int-op :and a b))]
-    [py/bitor (fn [a b] (py/int-op :or a b))]
-    [py/bitxor (fn [a b] (py/int-op :xor a b))]
+         (let [r (py/int-result (op (py/num a) (py/num b)))]
+           (if (if (if (= a true) true (= a false))
+                 (if (= b true) true (= b false)) false)
+             (= r 1) r))
+         (py/type-error
+           {:py/str "unsupported operand type for a bitwise operator"})))]
+    [py/bitand (fn [a b] (py/int-op integer/bit-and a b))]
+    [py/bitor (fn [a b] (py/int-op integer/bit-or a b))]
+    [py/bitxor (fn [a b] (py/int-op integer/bit-xor a b))]
     [py/invert
      (fn [a]
        (if (py/int? a)
-         (py/checked-sub (- 0 (py/num a)) 1)
+         (py/int-result (integer/bit-not (py/num a)))
          (py/type-error {:py/str "bad operand type for unary ~"})))]
-    [py/shift-check
-     (fn [a n]
+    [py/shift
+     (fn [op a n]
        (if (if (py/int? a) (py/int? n) false)
-         (if (< (py/num n) 0)
+         (if (< (integer/compare (py/num n) 0) 0)
            (py/raise-new py.b/ValueError {:py/str "negative shift count"})
-           true)
+           (py/int-result (op (py/num a) (py/num n))))
          (py/type-error {:py/str "unsupported operand type for a shift"})))]
-    [py/lshift
-     (fn [a n]
-       (do (py/shift-check a n)
-           (if (= (py/num a) 0) 0 (py/checked-mul (py/num a) (py/ipow 2 (py/num n))))))]
-    [py/rshift
-     ;; past 53 places every in-range int is 0 or -1
-     (fn [a n]
-       (do (py/shift-check a n)
-           (if (< 53 (py/num n))
-             (if (< (py/num a) 0) -1 0)
-             (py/int-floordiv (py/num a) (py/ipow 2 (py/num n))))))]
+    [py/lshift (fn [a n] (py/shift integer/shift-left a n))]
+    [py/rshift (fn [a n] (py/shift integer/shift-right a n))]
     [py/truediv
      (fn [a b]
        (if (py/numeric? a)
@@ -1542,16 +1473,10 @@
                      true
                      (= r :yin.vm.integer/float-overflow)))))))))]
 
-    ;; Numeric keys and hashes need a float's exact value as integers. The
-    ;; decomposition uses only steps that are exact on binary64 (halving
-    ;; above 2^53, doubling below it) and builds its integers from integer
-    ;; additions, so the result is a canonical integer carrier on every
-    ;; host, never a double. Bounds are built, not written (see
-    ;; py/overflow).
+    ;; Float reconstruction uses exact binary64 halving/doubling and
+    ;; the module's exact truncation, preserving numeric keys and hashes.
     [py/int-of
-     ;; the exact integer of an integral double 0 <= a < 2^53: the quotient
-     ;; py/divmod-pos builds from 0, doubling and + 1
-     (fn [a] (get (py/divmod-pos a 1) 0))]
+     (fn [a] (py/int-result (integer/from-float (data/float-value a))))]
     [py/float-parts-up
      ;; a >= 2^53 is integral: halve it exactly to below 2^53
      (fn [a e]
@@ -1562,9 +1487,9 @@
      ;; 0 < a < 2^53: double it exactly until integral; the integer is then
      ;; odd whenever e < 0
      (fn [a e]
-       (let [qr (py/divmod-pos a 1)]
-         (if (py/zero? (get qr 1))
-           (py/conj (py/conj [] (get qr 0)) e)
+       (let [m (py/int-of a)]
+         (if (= a (data/float-value m))
+           (py/conj (py/conj [] m) e)
            (py/float-parts-down (+ a a) (- e 1)))))]
     [py/float-parts
      ;; [m e] with x = m * 2^e exactly, for a finite nonzero double x
@@ -1621,7 +1546,8 @@
          (if (py/float? k)
            (py/float-key (py/num k))
            (py/finite-key
-             (py/int-result (integer/format (py/int-canon (py/num k)) 16))
+             (if (py/zero? k) "0"
+                 (py/int-result (integer/format (py/num k) 16)))
              "1"))
          (if (= (get k :py/type) :tuple)
            (assoc {} :py/tuple-key (py/keys-of (get k :items) 0 []))
@@ -1638,7 +1564,7 @@
     ;; Python's numeric hash (C3 ruling 7) modulo P = 2^61 - 1 on every
     ;; host, through the integer module, never a host or Jing hash: equal
     ;; numbers hash equal, and since 2^61 = 1 (mod P), 2^e is 2^(e mod 61)
-    ;; modulo P. P is built, not written (see py/overflow). Only int, bool
+    ;; modulo P. P is built from safe literals. Only int, bool
     ;; and finite float hash. An identity object (any cell) is unhashable,
     ;; since its only identity is a cell id, which is never exposed. A
     ;; tuple is a valid dict key through py/key, but hash() of it, of a
@@ -1664,11 +1590,6 @@
                          (py/mod-p (if (< s 0)
                                      (py/int-result (integer/neg n))
                                      n)))))]
-    [py/int-canon
-     ;; the canonical carrier of a guest integer: a JS -0 from integer
-     ;; arithmetic, such as (* -1 0), is the integer 0, which the integer
-     ;; module requires; host = holds -0 equal to 0 and never a big carrier
-     (fn [n] (if (= n 0) 0 n))]
     [py/hash-float
      ;; a finite nonzero x = m * 2^e: |m| * 2^(e mod 61) modulo P
      (fn [x]
@@ -1691,7 +1612,7 @@
                (if (py/zero? f) 0 (py/hash-float f))
                (py/raise-new py.b/NotImplementedError
                              {:py/str "hash() of a non-finite float is not supported"})))
-           (py/hash-int (py/int-canon (py/num x))))
+           (py/hash-int (if (py/zero? x) 0 (py/num x))))
          (if (py/cell? x)
            (py/type-error {:py/str "unhashable type"})
            (py/raise-new py.b/NotImplementedError

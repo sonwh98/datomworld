@@ -2247,7 +2247,7 @@ parity remains a separately tracked limitation, not claimed by C3
 |        | Landed.                                                             |
 +--------+---------------------------------------------------------------------+
 | S3     | Integer operators, including augmented forms, through the prelude;  |
-|        | S3-A landed; S3-B/S3-C pending.                                     |
+|        | C3 S3 operators complete; S4 conversions pending.                   |
 +--------+---------------------------------------------------------------------+
 | S4     | Conversions and comparisons: float bits, exact text, tagged float   |
 |        | results, exceptions; no double rounding.                            |

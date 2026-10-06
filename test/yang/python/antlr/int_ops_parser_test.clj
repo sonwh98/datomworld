@@ -46,7 +46,8 @@
   [["add" "+"] ["sub" "-"] ["mul" "*"] ["lt" "<"] ["le" "<="]
    ["gt" ">"] ["ge" ">="] ["eq" "=="] ["ne" "!="] ["truediv" "/"]
    ["floordiv" "//"] ["mod" "%"]
-   ["pow" "**"]])
+   ["pow" "**"] ["bitand" "&"] ["bitor" "|"] ["bitxor" "^"]
+   ["lshift" "<<"] ["rshift" ">>"]])
 
 
 (defn- source
@@ -54,8 +55,9 @@
   (let [tokens (into {} binary-ops)]
     (apply str
            (map (fn [[op a b _]]
-                  (let [expr (if (= op "neg")
-                               (str "- (" (source-value a) ")")
+                  (let [expr (if (contains? #{"neg" "invert"} op)
+                               (str (if (= op "neg") "-" "~")
+                                    " (" (source-value a) ")")
                                (if (= op "divmod")
                                  (str "divmod(" (source-value a) ", "
                                       (source-value b) ")")
@@ -65,6 +67,8 @@
                          "    print(" expr ")\n"
                          "except OverflowError:\n"
                          "    print('!OverflowError')\n"
+                         "except ValueError:\n"
+                         "    print('!ValueError')\n"
                          "except ZeroDivisionError:\n"
                          "    print('!ZeroDivisionError')\n"))) rows))))
 
@@ -153,3 +157,23 @@
          "def index():\n    global calls\n    calls += 1\n    return 0\n"
          "a[index()] //= 3\na[index()] %= 7\na[index()] **= 2\n"
          "a[index()] /= 2\nprint(calls, a)\n")))
+
+
+(deftest ^:slow cpython-s3c-parser-test
+  (let [rows (fixtures/read-file
+               "test/resources/yang/python/int-ops-v3.txt")]
+    (doseq [[i batch] (map-indexed vector (partition-all 64 rows))]
+      (is (= {:py/out (mapv (comp expected-text last) batch)
+              :py/exception nil}
+             (parser-run (source batch))) (str "v3 fixture batch " i)))))
+
+
+(deftest augmented-bitwise-shifts-test
+  (e2e/every-vm=
+    {:py/out ["5 [18446744073709551617]" "True True False 1"]
+     :py/exception nil}
+    (str "calls = 0\na = [18446744073709551617]\n"
+         "def index():\n    global calls\n    calls += 1\n    return 0\n"
+         "a[index()] &= -1\na[index()] |= 2\na[index()] ^= 2\n"
+         "a[index()] <<= 54\na[index()] >>= 54\nprint(calls, a)\n"
+         "print(True & True, False | True, True ^ True, True & 3)\n")))
