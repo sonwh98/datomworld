@@ -51,8 +51,6 @@
   (:require #?(:cljd [clojure.edn :as edn]
                :clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
-            #?@(:cljd [["dart:convert" :as convert]
-                       ["dart:io" :as dart-io]])
             [clojure.string :as str]
             [dao.space.dht :as dht]
             [dao.space.index :as space.index]
@@ -67,8 +65,7 @@
             [yin.vm.linker.head :as head]
             [yin.vm.linker.head.ws :as head.ws]
             [yin.vm.linker.sign :as sign]
-            [yin.vm.module :as module])
-  #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
+            [yin.vm.module :as module]))
 
 
 (def default-max-inbound-bytes
@@ -154,117 +151,38 @@
   (str (pr-str records) "\n"))
 
 
-(defn- not-regular
-  []
-  (ex-info "it is not a regular file" {}))
-
-
-(defn- read-bounded
-  "At most `limit` bytes of the file at `path`, one more when it holds
-   more, or nil when no entry exists there.  Never reads the whole of a
-   larger file into memory, and never opens what is not a regular file
-   (a directory, a FIFO, a device), which would block or fail: that is
-   refused first.  A symlink is followed when its target is a regular
-   file; a dangling one is refused."
-  [path limit]
-  ;; On Dart and the JVM the type is checked, then the file is opened:
-  ;; a regular file swapped for a FIFO between the two would still block
-  ;; the open.  Accepted (Architect, H3 round 3): the swap needs write
-  ;; access to this node's own locked store directory, which can already
-  ;; replace HEAD, and the worst outcome is a startup that blocks, never
-  ;; a wrong head.  Node opens non-blocking and checks the opened
-  ;; descriptor, so it is not exposed.
-  #?(:cljd (let [t (.-type (.statSync (dart-io/File. path)))]
-             (cond
-               (= t dart-io/FileSystemEntityType.notFound)
-               ;; a dangling link is an entry, not absence
-               (when (.existsSync (dart-io/Link. path))
-                 (throw (not-regular)))
-
-               (not= t dart-io/FileSystemEntityType.file)
-               (throw (not-regular))
-
-               :else
-               (let [raf (.openSync (dart-io/File. path))]
-                 (try (.readSync raf (inc limit))
-                      (finally (.closeSync raf))))))
-     :clj (let [p (java.nio.file.Paths/get path (make-array String 0))]
-            (cond
-              (java.nio.file.Files/notExists
-                p (into-array java.nio.file.LinkOption
-                              [java.nio.file.LinkOption/NOFOLLOW_LINKS]))
-              nil
-
-              (not (java.nio.file.Files/isRegularFile
-                     p (make-array java.nio.file.LinkOption 0)))
-              (throw (not-regular))
-
-              :else
-              (with-open [in (java.nio.file.Files/newInputStream
-                               p (make-array java.nio.file.OpenOption 0))]
-                (.readNBytes in (int (inc limit))))))
-     :cljs (let [fs (js/require "fs")
-                 entry? (try (.lstatSync fs path) true
-                             (catch :default _ false))]
-             (when entry?
-               (when-not (try (.isFile (.statSync fs path))
-                              (catch :default _ false))
-                 (throw (not-regular)))
-               ;; non-blocking, then the opened resource is checked again
-               (let [fd (.openSync fs path (bit-or (.. fs -constants -O_RDONLY)
-                                                   (.. fs -constants -O_NONBLOCK)))
-                     buf (js/Buffer.alloc (inc limit))]
-                 (try
-                   (when-not (.isFile (.fstatSync fs fd))
-                     (throw (not-regular)))
-                   (loop [off 0]
-                     (let [n (.readSync fs fd buf off (- (inc limit) off) nil)
-                           off' (+ off n)]
-                       (if (and (pos? n) (< off' (inc limit)))
-                         (recur off')
-                         (.subarray buf 0 off'))))
-                   (finally (.closeSync fs fd))))))))
-
-
-(defn- byte-length
-  [bs]
-  #?(:cljd (.-length ^Uint8List bs)
-     :clj (alength ^bytes bs)
-     :cljs (.-length bs)))
-
-
-(defn- decode-utf8
-  "`bs` as text, strictly: invalid UTF-8 throws, never decodes to a
-   replacement character."
-  [bs]
-  ;; Dart's `utf8` codec does not allow malformed input: it throws a
-  ;; FormatException
-  #?(:cljd (.decode convert/utf8 ^Uint8List bs)
-     :clj (str (.decode (doto (.newDecoder java.nio.charset.StandardCharsets/UTF_8)
-                          (.onMalformedInput
-                            java.nio.charset.CodingErrorAction/REPORT)
-                          (.onUnmappableCharacter
-                            java.nio.charset.CodingErrorAction/REPORT))
-                        (java.nio.ByteBuffer/wrap ^bytes bs)))
-     :cljs (.decode (js/TextDecoder. "utf-8" #js {:fatal true}) bs)))
+(defn- without-boms
+  "`text` without its leading byte order marks, every one of them: one
+   policy on every host, whose decoders differ (Node's drops one, the
+   JVM's keeps U+FEFF).  The run is scanned by index and cut once, so a
+   file of marks costs one pass, not one copy per mark."
+  [text]
+  (let [n (count text)
+        i (loop [i 0]
+            (if (and (< i n) (= "\uFEFF" (subs text i (inc i))))
+              (recur (inc i))
+              i))]
+    (if (zero? i) text (subs text i))))
 
 
 (defn read-heads
   "The persisted head records of the store directory `dir`: `{:records
    r}`, an empty version-1 record when no `heads.edn` exists, or
    `{:refusal text}`: a file that cannot be read, holds more than
-   `heads-max-bytes`, is not valid UTF-8, or is not exactly one
-   version-1 record.  Never throws."
+   `heads-max-bytes`, is not valid UTF-8, holds a byte order mark
+   anywhere but at its start, or is not exactly one version-1 record.
+   Never throws."
   [dir]
   (let [path (str dir "/" heads-file)
-        bs (try (read-bounded path heads-max-bytes)
+        bs (try (fs/read-bounded path heads-max-bytes)
                 (catch #?(:cljd Object :clj Throwable :cljs :default) e
                   {::failed (or (ex-message e) (str e))}))
         text (when (and (some? bs) (not (map? bs))
-                        (<= (byte-length bs) heads-max-bytes))
-               (try (decode-utf8 bs)
+                        (<= (fs/byte-length bs) heads-max-bytes))
+               (try (fs/decode-utf8 bs)
                     (catch #?(:cljd Object :clj Throwable :cljs :default) _
-                      ::invalid)))]
+                      ::invalid)))
+        body (when (string? text) (without-boms text))]
     (cond
       (nil? bs) {:records {:version 1 :heads {}}}
       (map? bs) {:refusal (str "heads file " path ": it cannot be read ("
@@ -273,11 +191,14 @@
                                  heads-max-bytes " bytes")}
       (= ::invalid text) {:refusal (str "heads file " path
                                         ": it is not valid UTF-8")}
-      ;; one policy on every host: a leading byte order mark is ignored
-      ;; (Node's decoder drops it, the JVM's keeps U+FEFF)
-      :else (parse-heads path (if (str/starts-with? text "\uFEFF")
-                                (subs text 1)
-                                text)))))
+      ;; a mark past the leading run is refused before the reader sees
+      ;; it: one host's reader takes it for whitespace, another's for a
+      ;; token, and a record never holds one
+      (str/includes? body "\uFEFF")
+      {:refusal (str "heads file " path ": it is not valid: a byte order "
+                     "mark (U+FEFF) follows its start")}
+
+      :else (parse-heads path body))))
 
 
 ;; =============================================================================
@@ -905,12 +826,14 @@
           waiting))
 
 
-(defn- linked-registry
-  "`{name manifest-address}` of the modules the shell's VM linked."
-  [shell]
+(defn linked-registry
+  "`{name manifest-address}` of the modules a VM module `registry` holds
+   linked through the linker: a linked entry carries its manifest's
+   address, a host module none."
+  [registry]
   (into {}
         (keep (fn [[n e]] (when (some? (:address e)) [n (:address e)])))
-        (some-> (get-in shell [:vm :modules]) module/module-entries)))
+        (module/module-entries registry)))
 
 
 (defn moved
@@ -918,31 +841,71 @@
    differs now (`yin.vm.linker.head/moved`): derived, stored nowhere."
   [shell node]
   (head/moved (ld/names node (link/authority (:link-source shell)))
-              (linked-registry shell)))
+              (linked-registry (get-in shell [:vm :modules]))))
 
 
-(defn- moved-lines
-  "The line of 5.7 for each linked name an installed head moved: only
+(defn- movers
+  "Of `installed`, this step's install events, those whose install moved
+   each name of `moves` to where it resolves now in `node`, `{name
+   [event]}`: an install moved a name when, with only that principal's
+   head put back where it stood in `before`, the name resolves elsewhere
+   or not at all.  Derived from the two nodes, stored nowhere.  One
+   install moved every name; a name no single install accounts for is
+   given every install."
+  [shell before node installed moves]
+  (if (< (count installed) 2)
+    (into {} (map (fn [m] [(:name m) installed])) moves)
+    (let [authority (link/authority (:link-source shell))
+          without (fn [{:keys [principal]}]
+                    (let [put-back (get-in before [ld/installed-key principal])]
+                      (:names (ld/names
+                                (if (some? put-back)
+                                  (assoc-in node [ld/installed-key principal]
+                                            put-back)
+                                  (update node ld/installed-key dissoc
+                                          principal))
+                                authority))))
+          envs (mapv without installed)]
+      (into {}
+            (map (fn [{n :name :keys [resolved]}]
+                   (let [mine (into []
+                                    (keep-indexed
+                                      (fn [i e]
+                                        (let [entry (get (nth envs i) n)]
+                                          (when-not (and (= :ok (:status entry))
+                                                         (= resolved
+                                                            (:address entry)))
+                                            e))))
+                                    installed)]
+                     [n (if (seq mine) mine installed)])))
+            moves))))
+
+
+(defn moved-lines
+  "The line of 5.7 for each linked name an installed head moved, naming
+   the head of the principal whose install moved it (`movers`): only
    moves that were not already standing before this step's installs
    (`before`, the node then), so a name is reported once per new
-   address, and nothing is stored."
+   address, and nothing is stored.  `installed` is the step's
+   `:installed` events."
   [shell before node installed]
   (when (seq installed)
-    (let [heads (str/join ", "
-                          (map (fn [{:keys [principal trace]}]
-                                 (str principal " seq "
-                                      (get-in trace [:yin.head/envelope
-                                                     :yin.head/seq])))
-                               installed))
-          standing (set (map (juxt :name :resolved) (moved shell before)))]
-      (into []
-            (comp (remove #(contains? standing [(:name %) (:resolved %)]))
-                  (map (fn [{n :name :keys [linked resolved]}]
-                         (str "dht: " n " moved: linked " linked
-                              ", now resolves to " resolved " (head of "
-                              heads "); (reset) then (require '" n
-                              ") links it"))))
-            (moved shell node)))))
+    (let [standing (set (map (juxt :name :resolved) (moved shell before)))
+          moves (into []
+                      (remove #(contains? standing [(:name %) (:resolved %)]))
+                      (moved shell node))
+          by-name (movers shell before node installed moves)]
+      (mapv (fn [{n :name :keys [linked resolved]}]
+              (str "dht: " n " moved: linked " linked
+                   ", now resolves to " resolved " (head of "
+                   (str/join ", "
+                             (map (fn [{:keys [principal trace]}]
+                                    (str principal " seq "
+                                         (get-in trace [:yin.head/envelope
+                                                        :yin.head/seq])))
+                                  (get by-name n)))
+                   "); (reset) then (require '" n ") links it"))
+            moves))))
 
 
 (defn- step-follow

@@ -858,6 +858,13 @@ the checks below. No design beyond this section is expected.
   `yin.repl.serve` on all three hosts without moving code.
 - That a TCP listener binds at the UDP socket's number on each host,
   including after an ephemeral UDP bind.
+- That a lost request on an attached reflection is detected. On
+  loopback a dead peer closes its connection and the follower reports
+  `:source-lost` on its next poll (an attached dial's own status does
+  not change; only a dial still resolving becomes `:lost`); a live but
+  silent source is "withholding" (section 10) and its liveness is
+  deferred to `dao.lease`. Off loopback a half-open connection is real
+  and the follower would see retryable errors until TCP gives up.
 
 ### 8.4 The assumption cross-machine adds: locality is not trust
 

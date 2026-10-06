@@ -48,8 +48,10 @@
    nothing but the canonical paths of the directories this process
    currently owns.  On Node each worker thread has its own `held`; across
    workers the claim entries decide."
-  (:require #?@(:cljd [["dart:io" :as dart-io]])
-            [clojure.string :as str]))
+  (:require #?@(:cljd [["dart:convert" :as convert]
+                       ["dart:io" :as dart-io]])
+            [clojure.string :as str])
+  #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
 
 
 (def lock-name
@@ -390,3 +392,103 @@
    the store's HEAD parsing uses."
   [dir name]
   (read-text! (str dir "/" name)))
+
+
+(defn- not-regular
+  []
+  (ex-info "it is not a regular file" {}))
+
+
+(defn read-bounded
+  "At most `limit` bytes of the file at `path`, one more when it holds
+   more, or nil when no entry exists there.  Never reads the whole of a
+   larger file into memory, and never opens what is not a regular file
+   (a directory, a FIFO, a device), which would block or fail: that is
+   refused first.  A symlink is followed when its target is a regular
+   file; a dangling one is refused.  The bytes are the host's own: a
+   `Uint8List` on Dart, a `byte[]` on the JVM, a `Buffer` on Node
+   (`byte-length` counts them, `decode-utf8` reads them)."
+  [path limit]
+  ;; On Dart and the JVM the type is checked, then the file is opened:
+  ;; a regular file swapped for a FIFO between the two would still block
+  ;; the open.  Accepted (Architect, H3 round 3): the swap needs write
+  ;; access to this node's own locked store directory, which can already
+  ;; replace HEAD, and the worst outcome is a startup that blocks, never
+  ;; a wrong head.  Node opens non-blocking and checks the opened
+  ;; descriptor, so it is not exposed.
+  #?(:cljd (let [t (.-type (.statSync (dart-io/File. path)))]
+             (cond
+               (= t dart-io/FileSystemEntityType.notFound)
+               ;; a dangling link is an entry, not absence
+               (when (.existsSync (dart-io/Link. path))
+                 (throw (not-regular)))
+
+               (not= t dart-io/FileSystemEntityType.file)
+               (throw (not-regular))
+
+               :else
+               (let [raf (.openSync (dart-io/File. path))]
+                 (try (.readSync raf (inc limit))
+                      (finally (.closeSync raf))))))
+     :clj (let [p (java.nio.file.Paths/get path (make-array String 0))]
+            (cond
+              (java.nio.file.Files/notExists
+                p (into-array java.nio.file.LinkOption
+                              [java.nio.file.LinkOption/NOFOLLOW_LINKS]))
+              nil
+
+              (not (java.nio.file.Files/isRegularFile
+                     p (make-array java.nio.file.LinkOption 0)))
+              (throw (not-regular))
+
+              :else
+              (with-open [in (java.nio.file.Files/newInputStream
+                               p (make-array java.nio.file.OpenOption 0))]
+                (.readNBytes in (int (inc limit))))))
+     :cljs (let [fs (js/require "fs")
+                 entry? (try (.lstatSync fs path) true
+                             (catch :default _ false))]
+             (when entry?
+               (when-not (try (.isFile (.statSync fs path))
+                              (catch :default _ false))
+                 (throw (not-regular)))
+               ;; non-blocking, then the opened resource is checked again
+               (let [fd (.openSync fs path (bit-or (.. fs -constants -O_RDONLY)
+                                                   (.. fs -constants -O_NONBLOCK)))
+                     buf (js/Buffer.alloc (inc limit))]
+                 (try
+                   (when-not (.isFile (.fstatSync fs fd))
+                     (throw (not-regular)))
+                   (loop [off 0]
+                     (let [n (.readSync fs fd buf off (- (inc limit) off) nil)
+                           off' (+ off n)]
+                       (if (and (pos? n) (< off' (inc limit)))
+                         (recur off')
+                         (.subarray buf 0 off'))))
+                   (finally (.closeSync fs fd))))))))
+
+
+(defn byte-length
+  "The number of bytes `bs`, as `read-bounded` answers them, holds."
+  [bs]
+  #?(:cljd (.-length ^Uint8List bs)
+     :clj (alength ^bytes bs)
+     :cljs (.-length bs)))
+
+
+(defn decode-utf8
+  "`bs`, as `read-bounded` answers them, as text, strictly: invalid UTF-8
+   throws, never decodes to a replacement character.  A leading byte
+   order mark is the host's to keep or drop: a caller that ignores one
+   strips it from the text."
+  [bs]
+  ;; Dart's `utf8` codec does not allow malformed input: it throws a
+  ;; FormatException
+  #?(:cljd (.decode convert/utf8 ^Uint8List bs)
+     :clj (str (.decode (doto (.newDecoder java.nio.charset.StandardCharsets/UTF_8)
+                          (.onMalformedInput
+                            java.nio.charset.CodingErrorAction/REPORT)
+                          (.onUnmappableCharacter
+                            java.nio.charset.CodingErrorAction/REPORT))
+                        (java.nio.ByteBuffer/wrap ^bytes bs)))
+     :cljs (.decode (js/TextDecoder. "utf-8" #js {:fatal true}) bs)))

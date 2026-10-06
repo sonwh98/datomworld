@@ -205,7 +205,7 @@
 
 (defn- world
   []
-  {:mesh (mesh/mesh) :ws (ws-net) :now 0 :lines {:a [] :b []}})
+  {:mesh (mesh/mesh) :ws (ws-net) :now 0 :lines {:a [] :b [] :c []}})
 
 
 (defn- tick
@@ -218,7 +218,7 @@
                    (pump! (:ws w))
                    (-> w (assoc k s) (update-in [:lines k] into lines)))
                  w))]
-    (-> w (step :a) (step :b) (assoc :now (+ now 10)))))
+    (-> w (step :a) (step :b) (step :c) (assoc :now (+ now 10)))))
 
 
 (defn- run
@@ -263,7 +263,7 @@
 
 (defn- close!
   [w]
-  (doseq [k [:a :b]]
+  (doseq [k [:a :b :c]]
     (when-some [s (get w k)] (main/close-index-store! s))))
 
 
@@ -825,6 +825,50 @@
         (write-bytes! (str dir "/" repl.dht/heads-file)
                       (into [0xef 0xbb 0xbf] (ascii-codes empty-text)))
         (is (= {:records {:version 1 :heads {}}} (repl.dht/read-heads dir)))))
+    (testing "every leading byte order mark is ignored, on every host"
+      (doseq [n [2 3]]
+        (let [dir (temp-dir)]
+          (mkdirs! dir)
+          (write-bytes! (str dir "/" repl.dht/heads-file)
+                        (into (vec (mapcat identity (repeat n [0xef 0xbb 0xbf])))
+                              (ascii-codes empty-text)))
+          (is (= {:records {:version 1 :heads {}}} (repl.dht/read-heads dir))
+              (str n " marks")))))
+    (testing "a byte order mark past the leading run is refused, on every
+              host: between tokens, before a closer, inside a string"
+      (let [bom [0xef 0xbb 0xbf]]
+        (doseq [codes [(-> (ascii-codes "{:version 1 ") (into bom)
+                           (into (ascii-codes ":heads {}}")))
+                       (-> (ascii-codes "{:version 1 :heads {}") (into bom)
+                           (into (ascii-codes "}")))
+                       (-> (ascii-codes "{:version 1 :heads {} :x \"a")
+                           (into bom) (into (ascii-codes "\"}")))
+                       (-> bom (into (ascii-codes empty-text)) (into bom))]]
+          (let [dir (temp-dir)]
+            (mkdirs! dir)
+            (write-bytes! (str dir "/" repl.dht/heads-file) codes)
+            (is (re-find #"not valid: a byte order mark \(U\+FEFF\) follows its start"
+                         (str (:refusal (repl.dht/read-heads dir))))
+                (pr-str codes))))))
+    (testing "a file of marks is scanned once, in bounded time"
+      (let [now #?(:cljd #(.-millisecondsSinceEpoch (DateTime/now))
+                   :clj #(System/currentTimeMillis)
+                   :cljs #(.getTime (js/Date.)))
+            marks (fn [n] (into [] (comp (take n) cat) (repeat [0xef 0xbb 0xbf])))]
+        (doseq [[label codes ok?]
+                [["only marks, up to the bound" (marks 349525) false]
+                 ["marks, then the record" (into (marks 349000)
+                                                 (ascii-codes empty-text))
+                  true]]]
+          (let [dir (temp-dir)]
+            (mkdirs! dir)
+            (write-bytes! (str dir "/" repl.dht/heads-file) codes)
+            (let [start (now)
+                  r (repl.dht/read-heads dir)
+                  took (- (now) start)]
+              (is (= ok? (= {:records {:version 1 :heads {}}} r))
+                  (str label ": " (pr-str (:refusal r))))
+              (is (< took 3000) (str label ": " took " ms")))))))
     (testing "an overlong encoding and an encoded surrogate stay refused"
       (doseq [bad [[0xc0 0xaf] [0xed 0xa0 0x80]]]
         (let [dir (temp-dir)]
@@ -875,9 +919,149 @@
     (close! w)))
 
 
+(defn- board-trace
+  "The trace on the publisher's board now, or nil."
+  [w]
+  (let [board (get-in w [:a :repl :dht ::repl.dht/publisher :board])
+        c (stream/cursor board :dao.stream/oldest)]
+    (when (= :dao.stream/ok (:dao.stream/outcome c))
+      (:dao.stream/value (stream/next board (:dao.stream/cursor c))))))
+
+
+(deftest a-refused-deposit-is-reported-once-and-fails-nothing
+  ;; The refusal is made real by the board itself: a trace this process
+  ;; did not sign stands on it at a sequence above the next HEAD's, so
+  ;; `yin.vm.linker.head/deposit!` refuses that HEAD :yin.head/seq-regression.
+  (let [key (sign/generate)
+        dir (temp-dir)
+        w (world)
+        w (run (assoc w :a (publisher w key dir)) 2 (fn [_] false))
+        w (publish! w 1)
+        t1 (board-trace w)
+        s1 (get-in t1 [:yin.head/envelope :yin.head/seq])
+        board (get-in w [:a :repl :dht ::repl.dht/publisher :board])
+        forged (keyword (str "segment/blake3-" (apply str (repeat 64 "f"))))
+        _ (stream/append! board (head/trace key forged (+ s1 1000)))
+        ;; one evaluation, one HEAD move
+        w (type! w :a "(def g (fn [] 2))")
+        m2 (get-in w [:a :repl :indexer :manifest-address])
+        answer (last (get-in w [:lines :a]))
+        w (run w 20 (fn [_] false))
+        refused (lines-with w :a "was not deposited")]
+    (testing "the refusal is reported once, with its manifest and reason"
+      (is (= [(str "dht: the head trace of " m2 " was not deposited: "
+                   ":yin.head/seq-regression")]
+             refused)
+          (pr-str (get-in w [:lines :a]))))
+    (testing "the HEAD write did not fail"
+      (is (= "{:type :closure}" answer) "the evaluation answered")
+      (is (str/includes? (str (fs/read-file-text dir "HEAD")) (str m2)))
+      (is (= forged (get-in (board-trace w) [:yin.head/envelope
+                                             :yin.head/manifest]))
+          "a refusal appends nothing"))
+    (testing "a later deposit, once the board admits it, is made"
+      (stream/append! board t1)
+      (let [w (run (publish! w 3) 20 (fn [_] false))
+            m3 (get-in w [:a :repl :indexer :manifest-address])]
+        (is (not= m2 m3))
+        (is (= m3 (get-in (board-trace w) [:yin.head/envelope
+                                           :yin.head/manifest])))
+        (is (= 1 (count (lines-with w :a "was not deposited")))
+            "nothing more is reported")
+        (close! w)))))
+
+
 ;; =============================================================================
 ;; The moved line names only new moves; a dial failure prints once
 ;; =============================================================================
+
+(def ^:private second-pub-port 13)
+
+
+(defn- moved-by-installs
+  "A reader of two publishers, A (`key`, alib from `a-code`) and C
+   (`other`, the module `c-name` from `c-code`), that linked both names;
+   then both republish (`a-code'`, `c-code'`) and the reader installs
+   both heads.  Answers the moved lines `moved-lines` derives for those
+   two installs taken as one step: the reader's node before them, its
+   node after, and both `:installed` events."
+  [key other c-name [a-code a-code'] [c-code c-code']]
+  (let [p1 (sign/principal (:public key))
+        p2 (sign/principal (:public other))
+        w (world)
+        w (assoc w
+                 :a (publisher w key (temp-dir))
+                 :c (shell {:mesh (:mesh w) :ws (:ws w) :dir (temp-dir)
+                            :port second-pub-port :peers [reader-port]
+                            :key other :principals []})
+                 :b (reader w key (temp-dir)
+                            {:peers [pub-port second-pub-port]
+                             :principals [(:public key) (:public other)]
+                             :follow [{:principal (:public key)
+                                       :host "127.0.0.1" :port pub-port}
+                                      {:principal (:public other)
+                                       :host "127.0.0.1"
+                                       :port second-pub-port}]}))
+        publish (fn [w k n code]
+                  (-> w
+                      (type! k (str "(def f (fn [] " code "))"))
+                      (type! k "(require (quote yin.link))")
+                      (type! k (str "(yin.link/publish (quote " n
+                                    ") (quote [f]))"))))
+        newest #(get-in %1 [%2 :repl :indexer :manifest-address])
+        caught-up #(and (= (newest % :a) (:manifest (heads-of % :b key)))
+                        (= (newest % :c) (:manifest (heads-of % :b other))))
+        w (-> w
+              (publish :a "alib" a-code)
+              (publish :c c-name c-code)
+              (run 3000 caught-up)
+              (type! :b "(require (quote alib))")
+              (type! :b (str "(require (quote " c-name "))"))
+              (run 3000 #(not (pending? % :b))))
+        _ (is (= (symbol c-name) (value w :b)) (pr-str (get-in w [:lines :b])))
+        before (get-in w [:b :repl :dht])
+        w (-> w
+              (publish :a "alib" a-code')
+              (publish :c c-name c-code')
+              (run 3000 caught-up))
+        _ (is (caught-up w) (pr-str (get-in w [:lines :b])))
+        installed [{:yin.head/event :installed :principal p1
+                    :trace (:installed (heads-of w :b key))}
+                   {:yin.head/event :installed :principal p2
+                    :trace (:installed (heads-of w :b other))}]
+        lines (repl.dht/moved-lines (get-in w [:b :repl]) before
+                                    (get-in w [:b :repl :dht]) installed)]
+    (close! w)
+    lines))
+
+
+(deftest the-moved-line-names-the-principal-that-moved-each-name
+  (let [key (sign/generate)
+        other (sign/generate)
+        p1 (sign/principal (:public key))
+        p2 (sign/principal (:public other))
+        head-of (fn [line] (re-find #"\(head of [^)]*\)" (str line)))]
+    (testing "two principals installed in one step, each moving its own name"
+      (let [lines (moved-by-installs key other "blib" [1 2] [10 20])
+            line-of (fn [n]
+                      (first (filter #(str/starts-with?
+                                        % (str "dht: " n " moved: "))
+                                     lines)))]
+        (is (= 2 (count lines)) (pr-str lines))
+        (is (str/includes? (str (head-of (line-of "alib"))) p1) (pr-str lines))
+        (is (not (str/includes? (str (head-of (line-of "alib"))) p2))
+            (pr-str lines))
+        (is (str/includes? (str (head-of (line-of "blib"))) p2) (pr-str lines))
+        (is (not (str/includes? (str (head-of (line-of "blib"))) p1))
+            (pr-str lines))))
+    (testing "two principals installed in one step, moving the same name
+              together: both are named"
+      (let [lines (moved-by-installs key other "alib" [1 2] [1 2])]
+        (is (= 1 (count lines)) (pr-str lines))
+        (is (str/includes? (str (head-of (first lines))) p1) (pr-str lines))
+        (is (str/includes? (str (head-of (first lines))) p2)
+            (pr-str lines))))))
+
 
 (deftest a-move-is-reported-once-and-each-name-its-own
   (let [key (sign/generate)

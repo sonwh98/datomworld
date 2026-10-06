@@ -763,10 +763,9 @@
    entry carries its manifest's address -- and the names of its host
    modules, which carry none."
   [registry]
-  (let [entries (module/module-entries registry)]
-    [(into {} (keep (fn [[n e]] (when (some? (:address e)) [n (:address e)])))
-           entries)
-     (set (keep (fn [[n e]] (when (nil? (:address e)) n)) entries))]))
+  [(repl.dht/linked-registry registry)
+   (set (keep (fn [[n e]] (when (nil? (:address e)) n))
+              (module/module-entries registry)))])
 
 
 (defn- link-answer
