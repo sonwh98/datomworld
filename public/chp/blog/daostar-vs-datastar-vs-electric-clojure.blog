@@ -1,0 +1,89 @@
+#:blog{:title "DaoStar vs DataStar vs Electric Clojure"
+       :date #inst "2026-10-05T12:21:39.000-00:00"
+       :abstract [:p "In the datom.world architecture, strict, unyielding axioms apply. This explores how Datastar is not just compatible with the architecture, but is the perfect native browser manifestation of these core axioms."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+                   [:p "In the datom.world architecture, strict, unyielding axioms apply: everything is an append-only stream, semantics are created purely by interpreters, and shared mutable state is banished."]
+                   
+                   [:p "For the backend, these axioms yield incredible malleability and time-traveling determinism. But the browser has always been a notoriously hostile host environment. It is riddled with mutable state, heavy Virtual DOM abstractions, and bloated SPA frameworks that fight the streaming philosophy at every turn."]
+                   
+                   [:p "Enter " [:a {:href "https://data-star.dev/"} "Datastar"] "."]
+                   
+                   [:p "Datastar is a remarkably lightweight (12 KiB) hypermedia frontend framework. It champions a \"Bring Your Own Backend\" philosophy, completely discarding client-side state management in favor of Server-Sent Events (SSE)."]
+                   
+                   [:p "When designing an adapter to bridge datom.world to Datastar, a profound discovery emerged: an adapter is not needed. Datastar is not just compatible with the architecture; it is the perfect native browser manifestation of the core axioms."]
+                   
+                   [:p "Here is how the concepts map together, and how they gave birth to the new web architecture: DaoStar."]
+                   
+                   [:h3 "Mapping Datastar to the Axioms"]
+                   
+                   [:h4 "1. Axiom 1: Everything is a Stream"]
+                   [:p "In datom.world, there is no point-in-time state, only an append-only log of events (dao.stream). Datastar inherently understands this. Instead of fetching static JSON blobs, Datastar relies entirely on text/event-stream (Server-Sent Events). The UI is driven by an append-only stream of declarative patches arriving over an open HTTP socket."]
+                   
+                   [:h4 "2. Axiom 2: Interpretation Creates Semantics"]
+                   [:p "The principle holds that data is just syntax until a peer observer interprets it. Datastar brilliantly applies this to the browser. It does not parse complex JSON payloads into proprietary client-side models; it just interprets declarative data-on attributes to send events, and interprets incoming SSE strings to morph the DOM. The frontend is stripped of all business logic semantics."]
+                   
+                   [:h4 "3. Invariant: No Shared Mutable State"]
+                   [:p "By pushing state derivation entirely to the backend, Datastar eliminates the synchronization nightmares of modern web development. The backend evaluates the business logic and projects the new UI state purely as HTML strings. The frontend holds zero shared mutable state, it is simply a projection of the backend's stream."]
+                   
+                   [:h3 "Echoes of Arc: The Browser as a Dumb Terminal"]
+                   
+                   [:p "To truly understand how Datastar fits into datom.world, it helps to look back at Paul Graham's vision for web development with the Arc language. When Graham built Hacker News, he used continuations to allow developers to write web applications as if they were synchronous console programs. The frontend held zero state and zero business logic. It was purely an I/O device, a dumb terminal rendering HTML."]
+                   
+                   [:p "A traditional terminal emulator like dao.postgraphics operates on the same principle. It knows absolutely nothing about the application's database or business logic. It blindly accepts a stream of syntax, like ANSI escape codes or drawing commands, and interprets them to paint pixels. "]
+                   
+                   [:p [:strong "datastar.js is exactly the same thing, but for the web."]]
+                   
+                   [:p "It is a terminal renderer for the browser. It accepts a stream of HTML rendering commands and interprets them to paint DOM elements. It does not know why the DOM is changing, it just executes the stream instructions sent by the backend."]
+                   
+                   [:p "Datastar shares Arc's exact philosophy, but modernizes the transport. While Arc used continuations to suspend call stacks between standard HTTP page loads, Datastar uses Server-Sent Events (SSE) over a continuous stream."]
+                   
+                   [:p "Interestingly, datom.world with yin.vm supports reified continuations, meaning it can execute the Arc model of web development directly. The divergence lies purely in transparency. In traditional implementations, a continuation captures state as an opaque object hidden in the runtime memory. In datom.world, yin.vm continuations are fully reified as datoms. They are explicit data structures that can be inspected, routed, and queried in real-time using Datalog queries via dao.space.query. The call stack itself is just data on a stream."]
+                   
+                   [:p "This combination unlocks a remarkable capability: Arc's elegant, sequential developer experience paired with Datastar's lightning-fast, reactive performance. When yin.vm requires user input, it suspends execution and pushes an HTML patch down the Datastar SSE stream. Datastar instantly morphs the DOM without a full page reload. When the user submits a response, Datastar sends a silent background request, instantly waking the yin.vm continuation to pick up exactly where it left off. The backend developer writes simple, linear code, while the user experiences a seamless, dynamic interface."]
+                   
+                   [:h3 "Enter DaoStar: The Architecture"]
+                   
+                   [:p "Because Datastar does not invent a proprietary wire protocol or custom transport, it requires zero specialized frontend adapters. It uses standard HTTP requests going in, and standard Server-Sent Events coming out."]
+                   
+                   [:p "The resulting architecture, DaoStar, perfectly leverages existing generic HTTP boundaries."]
+                   
+                   [:p "Here is how the data flows:"]
+                   
+                   [:ol
+                    [:li [:strong "Events In: "] "A user clicks a button in the browser. Datastar fires a standard HTTP request. The generic datom.world HTTP host boundary receives it, assigns a correlation ID (e.g., req-123), and deposits it as a pure, unjudged data tuple into a dao.stream. The boundary does not execute callbacks; it simply holds the HTTP socket open."]
+                    [:li [:strong "Semantics and State: "] "A backend interpreter (like an agent in yin.vm) observes the dao.stream. It reads the request, evaluates the business logic, and derives the new state. Because the design dictates \"Derive, do not persist,\" it projects the new UI state directly into Datastar's SSE string format (e.g., event: datastar-patch-elements, data: <div>...</div>)."]
+                    [:li [:strong "Effects Out: "] "The agent appends this fully-constructed SSE string back to an egress dao.stream as an effect, tagged with req-123."]
+                    [:li [:strong "Dumb Socket Routing: "] "The generic HTTP boundary observes the egress stream. It matches req-123 to the open HTTP socket and flushes the exact, unmodified string payload over the wire. The browser receives the SSE text and morphs the DOM."]
+                   ]
+                   
+                   [:h3 "The Beauty of Doing Nothing"]
+                   
+                   [:p "The elegance of DaoStar lies in complete host isolation."]
+                   
+                   [:p "The HTTP boundary is a dumb pipe that knows nothing of Datastar. yin.vm knows nothing of HTTP sockets; it just authors strings and appends tuples. And the browser is a dumb renderer that knows nothing of streams or backend state."]
+                   
+                   [:p "By resisting the urge to build a specialized abstraction layer, a hypermedia web architecture emerges that flawlessly preserves every single invariant of datom.world."]
+                   
+                   [:h3 "Beyond the Thin Client"]
+                   
+                   [:p "While the DaoStar architecture champions the dumb terminal, DaoStar is not strictly locked into this model. Because reified continuations are pure data, yin.vm's continuation format is designed so that a continuation can cross the network boundary. A continuation can suspend on the server, the runtime lifts it onto the wire, and it resumes execution locally in a yin.vm instance running in the browser (alongside, not inside, Datastar). This allows it to act as an SPA-style fat client for low-latency local interaction. It can then migrate back to the server to finish execution."]
+                   
+                   [:p "Crucially, the \"No Shared Mutable State\" invariant still holds: because custody is exclusive, the state moves to the browser rather than being shared with it. This allows the architecture to mix and match the elegant simplicity of a Datastar thin client with the local responsiveness of a fat client, all without changing the underlying programming model."]
+                   
+                   [:h3 "The Macro Illusion vs. The Data Reality: Electric Clojure"]
+                   
+                   [:p "It is tempting to compare this unified execution model to reactive frameworks like Electric Clojure. Both systems allow developers to write unified programs that seamlessly span the client and server. But architecturally, their approaches are diametrically opposed."]
+                   
+                   [:p "Electric Clojure is an undeniable engineering marvel. It uses a deep macro compiler (via constructs like " [:code "e/defn"] ", " [:code "e/client"] ", and " [:code "e/server"] ") to allow a developer to write a single cohesive Clojure file. The compiler analyzes the code at build time, statically slices it into frontend and backend dependency graphs (DAGs), and automatically wires them together using an invisible, reactive websocket. It provides a truly magical developer experience for building synchronized user interfaces."]
+                   
+                   [:p "However, this magic comes at a steep architectural cost: it hides the network behind a compiler boundary. Electric creates a tightly coupled, static distributed system. The compiler must know the execution topology at build time, and the network stream itself is treated as a proprietary implementation detail to be hidden. If the websocket drops, the execution state is in jeopardy, because the state exists as ephemeral closures in memory."]
+                   
+                   [:p "datom.world fundamentally rejects this. Axiom 1 dictates that everything is a stream, and streams must be explicit, visible, and queryable primitives. DaoStar solves the distributed execution problem without compile-time macro magic by solving it dynamically at runtime using pure data."]
+                   
+                   [:p "In DaoStar, there is no static compiler slicing. When yin.vm needs to cross a boundary, it doesn't rely on a pre-compiled dependency graph. Instead, the interpreter physically suspends the call stack, serializes the entire execution state into a pure datom (using the Universal Continuation Format), and appends it to a " [:code "dao.stream"] ". There is no hidden reactive sync; there is only data moving across explicit boundaries."]
+                   
+                   [:p "By exposing the network with data instead of hiding it with a compiler, DaoStar continuations gain properties a static framework could never possess. An Electric Clojure DAG cannot be paused on a Tuesday, saved to a database, and resumed on a different device on Thursday. A DaoStar mobile continuation can. Because it is just a datom on a stream, it can be paused for weeks, stored persistently, queried via Datalog to inspect its blocked dependencies, or routed dynamically to a completely different peer device at runtime."]]]]}
