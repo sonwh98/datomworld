@@ -1,7 +1,8 @@
 (ns yang.python.antlr.int-ops-test
-  "C3 S3-A exact operators and range/index audit on all four VMs."
+  "C3 S3-A/B exact operators and range/index audit on all four VMs."
   (:require
     [clojure.test :refer [deftest is]]
+    [clojure.walk :as walk]
     [dao.test-slow :as slow]
     [yang.python.antlr.int-ops-fixtures :as fixtures]
     [yang.python.antlr.prelude :as prelude]
@@ -88,13 +89,27 @@
              (fn [] :py/None))))
 
 
+(defn- host-floats
+  "`x` with every {:py/float v} holding the host double of v: on JS a
+  rendered integral float is a float64 wrapper and an expected one is
+  a bare number, so compare them unwrapped."
+  [x]
+  (walk/postwalk
+    (fn [n]
+      (if (and (map? n) (= [:py/float] (keys n)))
+        {:py/float (data/float-value (:py/float n))}
+        n))
+    x))
+
+
 (defn check-cases
   [rs cases]
   (let [form (list 'let ['caught caught]
                    (reduce (fn [acc [form _]] (list 'py/conj acc form))
                            [] cases))]
     (doseq [[k result] (run-with-prelude rs prelude/uast form)]
-      (is (= (mapv second cases) result) (str k)))))
+      (is (= (host-floats (mapv second cases)) (host-floats result))
+          (str k)))))
 
 
 (deftest exact-operators-test
@@ -224,32 +239,50 @@
       "MemoryError"]]))
 
 
-(def decode
+(def decode-number
   '(fn [x]
      (if (= (get x :int) nil) x
          (py/int-result (integer/parse (get x :int) 16)))))
 
 
+(def decode
+  '(fn [x]
+     (if (= (get x :tuple) nil) (decode-number x)
+         (py/tuple
+           (py/conj (py/conj [] (decode-number (get (get x :tuple) 0)))
+                    (decode-number (get (get x :tuple) 1)))))))
+
+
 (def operate
   '(fn [op a b]
-     (if (= op "add") (py/add a b)
-         (if (= op "sub") (py/sub a b)
-             (if (= op "mul") (py/mul a b)
-                 (if (= op "neg") (py/neg a)
-                     (if (= op "lt") (py/lt a b)
-                         (if (= op "le") (py/le a b)
-                             (if (= op "gt") (py/gt a b)
-                                 (if (= op "ge") (py/ge a b)
-                                     (if (= op "eq") (py/eq a b)
-                                         (if (= op "ne") (py/ne a b)
-                                             (py/truediv a b)))))))))))))
+     (let [division
+           (fn [op a b]
+             (if (= op "truediv") (py/truediv a b)
+                 (if (= op "floordiv") (py/floordiv a b)
+                     (if (= op "mod") (py/mod a b)
+                         (if (= op "divmod") (py/divmod a b)
+                             (py/pow a b))))))
+           comparison
+           (fn [op a b]
+             (if (= op "lt") (py/lt a b)
+                 (if (= op "le") (py/le a b)
+                     (if (= op "gt") (py/gt a b)
+                         (if (= op "ge") (py/ge a b)
+                             (if (= op "eq") (py/eq a b)
+                                 (if (= op "ne") (py/ne a b)
+                                     (division op a b))))))))]
+       (if (= op "add") (py/add a b)
+           (if (= op "sub") (py/sub a b)
+               (if (= op "mul") (py/mul a b)
+                   (if (= op "neg") (py/neg a)
+                       (comparison op a b))))))))
 
 
 (defn fixture-form
   "A guest loop evaluates every row, returning only mismatch indices."
   [rows]
   (list 'let
-        ['decode decode 'operate operate
+        ['decode-number decode-number 'decode decode 'operate operate
          'rows rows
          'loop
          '(fn [self i failures]
@@ -271,7 +304,11 @@
                         (fn [] :py/None))
                     result (cell/get answer)]
                 (self self (+ i 1)
-                      (if (data/content= result (decode (get row 3)))
+                      (if (let [expected (decode (get row 3))]
+                            (if (= (py/kind expected) :tuple)
+                              (data/content= (get result :items)
+                                             (get expected :items))
+                              (data/content= result expected)))
                         failures (conj failures i))))
               failures))]
         '(loop loop 0 [])))
@@ -292,8 +329,9 @@
       ;; still runs
       (let [rows (fixtures/read-file)]
         (doseq [[i batch] (map-indexed vector (partition-all 400 rows))
-                [k result] (run-with-prelude prelude/uast
-                                             (fixture-form (vec batch)))]
+                [k result] (do (println "CPython batch" i)
+                               (run-with-prelude prelude/uast
+                                                 (fixture-form (vec batch))))]
           (is (= [] result)
               (str k " batch " i " mismatched fixture rows " result)))))))
 
@@ -330,3 +368,144 @@
       "OverflowError"]
      ['(caught (fn [] (py/truediv (py/float 1.5) (integer/pow 10 400))))
       "OverflowError"]]))
+
+
+(deftest exact-division-power-test
+  (check-cases
+    runners
+    [['(integer/format (py/floordiv (py/neg (py/int-lit
+                                              "10000000000000001")) 3))
+      "-6148914691236517206"]
+     ['(py/mod (py/neg (py/int-lit "10000000000000001")) 3) 1]
+     ['(integer/format
+         (py/mod 7 (py/neg (py/int-lit "10000000000000000"))))
+      "-18446744073709551609"]
+     ['(let [qr (get (py/divmod
+                       (py/neg (py/int-lit "10000000000000001"))
+                       (py/int-lit "10000000000000000")) :items)]
+         (py/conj (py/conj [] (get qr 0)) (integer/format (get qr 1))))
+      [-2 "18446744073709551615"]]
+     ['(py/floordiv true true) 1]
+     ['(py/floordiv (py/neg (py/int-lit "10000000000000000"))
+                    (py/float (* (data/float-value 1) 4294967296)))
+      {:py/float (data/float-value -4294967296)}]
+     ['(py/mod (py/neg (py/int-lit "10000000000000001"))
+               (py/float (data/float-value 3)))
+      {:py/float (data/float-value 2)}]
+     ['(py/floordiv (py/float 0.5)
+                    (py/neg (py/int-lit "10000000000000000")))
+      {:py/float (data/float-value -1)}]
+     ['(py/mod true true) 0]
+     ['(caught (fn [] (py/divmod (integer/pow 10 400) false)))
+      "ZeroDivisionError"]
+     ['(caught (fn [] (py/floordiv (integer/pow 10 400) 0)))
+      "ZeroDivisionError"]
+     ['(caught (fn [] (py/mod 1 0))) "ZeroDivisionError"]
+     ['(py/floordiv (py/int-lit "10000000000000000")
+                    (py/float (* (data/float-value 1) 4294967296)))
+      {:py/float (data/float-value 4294967296)}]
+     ['(py/mod (py/float 0.5) (py/int-lit "10000000000000000"))
+      {:py/float 0.5}]
+     ['(caught (fn [] (py/mod (integer/pow 10 400) (py/float 0.5))))
+      "OverflowError"]
+     ['(integer/format (py/pow -2 100))
+      "1267650600228229401496703205376"]
+     ['(py/pow 0 0) 1]
+     ['(py/pow true (py/int-lit "10000000000000001")) 1]
+     ['(py/pow -2 -3) {:py/float -0.125}]
+     ['(caught (fn []
+                 (py/pow -2 (py/int-lit "10000000000000001"))))
+      "MemoryError"]
+     ['(py/pow -1 (py/int-lit "10000000000000001")) -1]
+     ['(py/pow -1 (py/neg (py/int-lit "10000000000000001")))
+      {:py/float (data/float-value -1)}]
+     ['(py/pow (py/float (data/float-value -1))
+               (py/int-lit "10000000000000001"))
+      {:py/float (data/float-value -1)}]
+     ['(caught (fn [] (py/pow 0 -1))) "ZeroDivisionError"]
+     ['(caught (fn [] (py/pow (integer/pow 10 400) -1)))
+      "OverflowError"]
+     ['(py/truediv 5 2) {:py/float 2.5}]
+     ['(py/truediv (py/int-lit "20000000000001") 2)
+      {:py/float (data/float-value 4503599627370496)}]
+     ['(py/truediv (py/int-lit "20000000000003") 2)
+      {:py/float (data/float-value 4503599627370498)}]
+     ['(py/truediv (integer/pow 2 1074) (integer/pow 2 1075))
+      {:py/float 0.5}]
+     ['(py/truediv (integer/pow 10 400) (integer/pow 10 398))
+      {:py/float (data/float-value 100)}]
+     ['(py/truediv (py/int-lit "20000000000001") 1)
+      {:py/float (* (data/float-value 1) 4503599627370496 2)}]
+     ['(py/truediv (py/int-lit "20000000000001")
+                   (py/int-lit "20000000000003"))
+      {:py/float 0.9999999999999998}]
+     ['(caught (fn [] (py/truediv (integer/pow 10 400) 0)))
+      "ZeroDivisionError"]
+     ['(caught (fn [] (py/truediv (integer/pow 10 400) 1)))
+      "OverflowError"]
+     ['(integer/format (py/abs (py/neg (py/int-lit "10000000000000000"))))
+      "18446744073709551616"]]))
+
+
+(deftest power-bit-limit-test
+  (check-cases small-runners
+               [['(caught (fn [] (py/pow 2 60))) "MemoryError"]]))
+
+
+(deftest ^:slow cpython-s3b-fixture-test
+  (slow/guard
+    "cpython-s3b-fixture-test"
+    (fn []
+      (let [rows (fixtures/read-file
+                   "test/resources/yang/python/int-ops-v2.txt")]
+        (doseq [[i batch] (map-indexed vector (partition-all 100 rows))
+                [k result] (do (println "CPython batch" i)
+                               (run-with-prelude prelude/uast
+                                                 (fixture-form (vec batch))))]
+          (is (= [] result) (str k " v2 batch " i " rows " result)))))))
+
+
+(deftest float-division-edge-test
+  (check-cases
+    runners
+    [['(py/eq (py/mod (py/float 0.5)
+                      (py/float (data/float-value ##NaN))) 0) false]
+     ['(py/eq (py/floordiv (py/float 0.5)
+                           (py/float (data/float-value ##NaN))) 0) false]
+     ['(py/floordiv (py/float (* (data/float-value 1) 4294967296
+                                 4294967296)) true)
+      {:py/float (* (data/float-value 1) 4294967296 4294967296)}]
+     ['(caught (fn []
+                 (py/floordiv (integer/pow 10 400)
+                              (py/float (data/float-value 0)))))
+      "OverflowError"]
+     ['(caught (fn []
+                 (py/mod (integer/pow 10 400)
+                         (py/float (data/float-value 0)))))
+      "OverflowError"]
+     ['(caught (fn []
+                 (py/divmod (integer/pow 10 400)
+                            (py/float (data/float-value 0)))))
+      "OverflowError"]]))
+
+
+(deftest division-errors-test
+  (check-cases
+    runners
+    [['(py/try
+         (fn [] (py/floordiv (py/int-lit "10000000000000000") 0))
+         (fn [e] (get (get (get (cell/get e) :attrs) "args") :items))
+         (fn [] :py/None))
+      [{:py/str "integer division or modulo by zero"}]]
+     ['(py/try
+         (fn [] (py/truediv (integer/pow 10 400) 0))
+         (fn [e] (get (get (get (cell/get e) :attrs) "args") :items))
+         (fn [] :py/None)) [{:py/str "division by zero"}]]
+     ['(caught (fn [] (py/floordiv {:py/str "x"} 1))) "TypeError"]
+     ['(caught (fn [] (py/mod 1 :py/None))) "TypeError"]
+     ['(caught (fn [] (py/divmod :py/None 0))) "TypeError"]
+     ['(caught (fn [] (py/pow {:py/str "x"} 1))) "TypeError"]
+     ['(caught (fn []
+                 (py/pow false
+                         (py/neg (py/int-lit "10000000000000001")))))
+      "ZeroDivisionError"]]))

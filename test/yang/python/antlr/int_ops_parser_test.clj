@@ -37,12 +37,16 @@
 (defn- expected-text
   [v]
   (if (string? v) v
-      (render/repr (if (:int v) ((get exact 'parse) (:int v) 16) v))))
+      (if (:tuple v)
+        (str "(" (str/join ", " (map expected-text (:tuple v))) ")")
+        (render/repr (if (:int v) ((get exact 'parse) (:int v) 16) v)))))
 
 
 (def ^:private binary-ops
   [["add" "+"] ["sub" "-"] ["mul" "*"] ["lt" "<"] ["le" "<="]
-   ["gt" ">"] ["ge" ">="] ["eq" "=="] ["ne" "!="] ["truediv" "/"]])
+   ["gt" ">"] ["ge" ">="] ["eq" "=="] ["ne" "!="] ["truediv" "/"]
+   ["floordiv" "//"] ["mod" "%"]
+   ["pow" "**"]])
 
 
 (defn- source
@@ -52,8 +56,11 @@
            (map (fn [[op a b _]]
                   (let [expr (if (= op "neg")
                                (str "- (" (source-value a) ")")
-                               (str "(" (source-value a) ") " (get tokens op)
-                                    " (" (source-value b) ")"))]
+                               (if (= op "divmod")
+                                 (str "divmod(" (source-value a) ", "
+                                      (source-value b) ")")
+                                 (str "(" (source-value a) ") " (get tokens op)
+                                      " (" (source-value b) ")")))]
                     (str "try:\n"
                          "    print(" expr ")\n"
                          "except OverflowError:\n"
@@ -119,3 +126,30 @@
          "b = [1, 2, 3]\n"
          "print(b[-18446744073709551616:18446744073709551616],"
          " b[:: -18446744073709551616])\n")))
+
+
+(deftest ^:slow cpython-s3b-parser-test
+  (let [rows (fixtures/read-file
+               "test/resources/yang/python/int-ops-v2.txt")]
+    (doseq [[i rows] (map-indexed vector (partition-all 64 rows))]
+      (is (= {:py/out (mapv (comp expected-text last) rows) :py/exception nil}
+             (parser-run (source rows))) (str "v2 fixture batch " i)))))
+
+
+(deftest divmod-builtin-test
+  (e2e/every-vm=
+    {:py/out ["(-3, 2) (2.0, 1.5)" "TypeError" "TypeError"]
+     :py/exception nil}
+    (str "f = divmod\nprint(f(-7, 3), f(7.5, 3))\n"
+         "try:\n    f(1)\nexcept TypeError:\n    print('TypeError')\n"
+         "try:\n    f(x=1, y=2)\n"
+         "except TypeError:\n    print('TypeError')\n")))
+
+
+(deftest augmented-division-power-test
+  (e2e/every-vm=
+    {:py/out ["4 [12.5]"] :py/exception nil}
+    (str "calls = 0\na = [18446744073709551617]\n"
+         "def index():\n    global calls\n    calls += 1\n    return 0\n"
+         "a[index()] //= 3\na[index()] %= 7\na[index()] **= 2\n"
+         "a[index()] /= 2\nprint(calls, a)\n")))

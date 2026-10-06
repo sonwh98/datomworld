@@ -18,6 +18,11 @@ ops = {"add": operator.add, "sub": operator.sub, "mul": operator.mul,
        "ne": operator.ne, "truediv": operator.truediv}
 
 
+# Frozen v1 owns S3-A. S3-B's integer division rows live in v2.
+integer_ops = ["add", "sub", "mul", "lt", "le", "gt", "ge", "eq", "ne"]
+mixed_ops = integer_ops + ["truediv"]
+
+
 def encode(v):
     if isinstance(v, bool):
         return str(v)
@@ -43,15 +48,13 @@ for a in values:
     row("neg", a)
     # Neighbours, cancellation, promotion and boolean coercion.
     for b in [0, 1, -1, a, -a, True, False]:
-        for op in list(ops)[:10]:
-            if op != "neg":
-                row(op, a, b)
+        for op in integer_ops:
+            row(op, a, b)
     for b in [float(2**53), float(2**63), 0.5, -0.0,
               math.inf, -math.inf, math.nan]:
-        for op in ops:
-            if op != "neg":
-                row(op, a, b)
-                row(op, b, a)
+        for op in mixed_ops:
+            row(op, a, b)
+            row(op, b, a)
 for a in [float(2**53), float(2**63), 0.5, -0.0,
           math.inf, -math.inf, math.nan]:
     row("neg", a)

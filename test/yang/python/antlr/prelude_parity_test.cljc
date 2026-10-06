@@ -21,6 +21,7 @@
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
     [yin.vm.integer :as integer]
+    [yin.vm.integer.host :as integer-host]
     [yin.vm.linearize :as linearize]
     [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]
@@ -101,6 +102,33 @@
                  form))
 
 
+(defn- exact-literals
+  "`form` with every integer literal of magnitude 2^53 or more as an
+   (integer/parse text): a bare one is not a canonical carrier on JS. A
+   float literal such as 1.0E20 is also an integer there, so callers
+   skip the float-only rows."
+  [form]
+  (walk/postwalk (fn [x]
+                   (if (and (integer? x) (>= (abs x) 9007199254740992))
+                     (list 'integer/parse (str x))
+                     x))
+                 form))
+
+
+(defn- canon-ints
+  "`x` with every integer, host number or big carrier, as its decimal
+   text, so a result compares equal across hosts. An integral double is
+   one too: py/floor answers -3.0 on Dart, and a float's own type is
+   carried by its {:py/float} wrapper."
+  [x]
+  (walk/postwalk (fn [n]
+                   (if (or (integer-host/big-carrier? n)
+                           (and (number? n) (zero? (rem n 1))))
+                     (str (if (number? n) (long n) n))
+                     n))
+                 x))
+
+
 (def ^:private cases
   "[form expected], evaluated as one vector on each VM."
   '[[(py/add 1 {:py/float 2.5}) {:py/float 3.5}]
@@ -163,9 +191,10 @@
     [(py/slice-positions (py/slice :py/None :py/None -1) 5) [4 3 2 1 0]]
     [(py/slice-positions (py/slice -2 100 :py/None) 5) [3 4]]
     [(py/slice-positions (py/slice 1 :py/None 2) 6) [1 3 5]]
-    [(py/pow 2 53) 9007199254740992]
+    [(integer/format (py/pow 2 53)) "9007199254740992"]
     [(py/lshift 1 52) 4503599627370496]
-    [(py/lshift 1 53) 9007199254740992]
+    ;; (py/lshift 1 53) returns, on JS, a bare 2^53 the module refuses:
+    ;; S3-C makes shifts exact and restores this row
     [(py/add 9007199254740991 1) 9007199254740992]
     [(py/sub -9007199254740991 1) -9007199254740992]
     [(py/mul 4503599627370496 2) 9007199254740992]
@@ -223,14 +252,17 @@
 (defn- prelude-semantics-on-every-vm
   []
   (let [form (reduce (fn [acc [f _]]
-                       (list 'py/conj acc (with-float64 f)))
+                       (list 'py/conj acc
+                             (if (= 'py/float-mod (first f))
+                               (with-float64 f)
+                               (exact-literals (with-float64 f)))))
                      []
                      cases)
-        expected (mapv (comp with-float64 second) cases)
+        expected (canon-ints (mapv (comp with-float64 second) cases))
         results (run-with-prelude prelude/functions-uast form)]
     (doseq [[k result] results]
       (testing (str k)
-        (is (= expected result))))))
+        (is (= expected (canon-ints result)))))))
 
 
 (deftest ^:slow prelude-semantics-on-every-vm-test
@@ -766,8 +798,8 @@
 
 (defn- integer-bound-on-every-host
   []
-  (testing "S3-A arithmetic promotes exactly on every host; power and
-            shifts remain pending slices and use equivalent products here"
+  (testing "S3-A/B arithmetic and power promote exactly on every host;
+            shifts await S3-C and use equivalent products here"
     (let [ov '(fn [thunk]
                 (let [r (cell/new :py/None)]
                   (do (py/try (fn [] (cell/set! r (thunk)))
@@ -776,7 +808,7 @@
                       (cell/get r))))
           values '[(py/int-lit "20000000000000")
                    (ov (fn [] (py/add (py/int-lit "20000000000000") 1)))
-                   (ov (fn [] (py/mul 3486784401 3486784401)))
+                   (ov (fn [] (py/pow 3 40)))
                    (ov (fn [] (py/mul (py/int-lit "20000000000000") 2)))
                    (ov (fn []
                          (py/sub (py/neg (py/int-lit "20000000000000")) 1)))

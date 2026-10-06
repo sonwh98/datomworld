@@ -137,7 +137,8 @@
      data/str-index-of data/str->code-points data/code-points->str
      data/float64 data/float-value data/content=
      integer/add integer/sub integer/neg integer/mul integer/compare
-     integer/to-float integer/compare-float
+     integer/to-float integer/compare-float integer/true-div
+     integer/pow integer/shift-right integer/bit-and
      integer/floor-div-mod integer/shift-left integer/format integer/parse})
 
 
@@ -1075,10 +1076,14 @@
          (py/mul a b)))]
 
     ;; ---------------------------------------------------------- integer ops
-    ;; No host primitive floors or takes remainders portably, so these are
-    ;; exact algorithms over + - * <, valid for integers within 2^53.
+    ;; Exact guest integer arithmetic goes through the integer module.
+    ;; The bounded helpers below remain only for S3-C bitwise and shifts.
     [py/int? (fn [x] (if (py/numeric? x) (not (py/float? x)) false))]
-    [py/abs (fn [x] (if (< x 0) (- 0 x) x))]
+    [py/abs
+     (fn [x]
+       (if (< (integer/compare x 0) 0)
+         (py/int-result (integer/neg x)) x))]
+    [py/float-abs (fn [x] (if (< x 0) (- 0 x) x))]
     [py/divmod-pos
      ;; [q r] for a >= 0, b > 0, by doubling the divisor
      (fn [a b]
@@ -1110,7 +1115,7 @@
     ;; |x| < Inf, not |x| <= Double.MAX_VALUE: on JS that literal is an
     ;; integral number past 2^53, which dao.jing.cbor refuses to hash (see
     ;; py/overflow); NaN is false either way
-    [py/finite? (fn [x] (< (py/abs x) (data/float-value ##Inf)))]
+    [py/finite? (fn [x] (< (py/float-abs x) (data/float-value ##Inf)))]
     [py/fmod-pos
      ;; fmod for doubles x >= 0, y > 0, exactly: each subtraction is of
      ;; values within a factor of two (Sterbenz), as in long division
@@ -1135,20 +1140,20 @@
      ;; x % y as CPython computes it: the exact fmod, sign-corrected toward
      ;; y. No quotient is formed, so a large finite quotient is fine.
      (fn [x y]
-       (if (if (py/finite? x) (= y y) false)
-         (let [m0 (py/fmod-pos (py/abs x) (py/abs y))
+       (if (if (py/finite? x) (<= y y) false)
+         (let [m0 (py/fmod-pos (py/float-abs x) (py/float-abs y))
                m (if (< x 0) (- 0 m0) m0)]
            (if (py/zero? m)
              (py/zero-like y)
              (if (= (< y 0) (< m 0)) m (+ m y))))
-         (- x x)))]
+         (+ (- x x) (- y y))))]
     [py/float-divmod
      ;; [floor-quotient remainder] as CPython's float_divmod computes them:
-     ;; the remainder from the exact fmod, then sign-corrected; the quotient
-     ;; is floored, so it is bounded to +-2^53
+     ;; The remainder is exact fmod, sign-corrected. Above 2^53 a finite
+     ;; double is already integral; a non-finite quotient passes through.
      (fn [x y]
-       (if (if (py/finite? x) (= y y) false)
-         (let [m0 (py/fmod-pos (py/abs x) (py/abs y))
+       (if (if (py/finite? x) (<= y y) false)
+         (let [m0 (py/fmod-pos (py/float-abs x) (py/float-abs y))
                m (if (< x 0) (- 0 m0) m0)
                adjust (if (py/zero? m) false (not (= (< y 0) (< m 0))))
                mod (if (py/zero? m) (py/zero-like y) (if adjust (+ m y) m))
@@ -1157,10 +1162,16 @@
                ;; so x / y is finite and 0.0 * (x / y) carries its sign
                fd (if (py/zero? div)
                     (* (data/float-value 0) (/ x y))
-                    (let [f (py/floor div)]
+                    (let [f (py/float-floor div)]
                       (if (< (data/float-value 0.5) (- div f)) (+ f 1) f)))]
            (py/conj (py/conj [] fd) mod))
-         (py/conj (py/conj [] (- x x)) (- x x))))]
+         (let [nan (+ (- x x) (- y y))]
+           (py/conj (py/conj [] nan) nan))))]
+    [py/float-floor
+     (fn [x]
+       (if (if (< x (* 2 4503599627370496))
+             (> x (* -2 4503599627370496)) false)
+         (data/float-value (py/floor x)) x))]
     [py/pow2-above (fn [x k] (if (> k x) k (py/pow2-above x (+ k k))))]
     [py/floor-descend
      (fn [x n p]
@@ -1191,23 +1202,43 @@
              true)
            (py/type-error {:py/str "unsupported operand type"}))
          (py/type-error {:py/str "unsupported operand type"})))]
+    [py/division-operands
+     (fn [a b]
+       (if (if (py/numeric? a) (py/numeric? b) false)
+         (if (if (py/int? a) (py/int? b) false)
+           (do (py/division-check a b)
+               (py/conj (py/conj [] (py/num a)) (py/num b)))
+           (let [x (py/as-float a) y (py/as-float b)]
+             (do (py/division-check x y)
+                 (py/conj (py/conj [] x) y))))
+         (py/type-error {:py/str "unsupported operand type"})))]
+    [py/divmod-values
+     (fn [a b]
+       (let [xy (py/division-operands a b)]
+         (if (if (py/int? a) (py/int? b) false)
+           (py/int-result (integer/floor-div-mod (get xy 0) (get xy 1)))
+           (py/float-divmod (get xy 0) (get xy 1)))))]
     [py/floordiv
      (fn [a b]
-       (do (py/division-check a b)
-           (if (if (py/int? a) (py/int? b) false)
-             (py/int-floordiv (py/num a) (py/num b))
-             (py/float (get (py/float-divmod (data/float-value (py/num a))
-                                             (data/float-value (py/num b)))
-                            0)))))]
+       (let [q (get (py/divmod-values a b) 0)]
+         (if (if (py/int? a) (py/int? b) false) q (py/float q))))]
     [py/mod
      (fn [a b]
-       (do (py/division-check a b)
+       (let [xy (py/division-operands a b)]
+         (if (if (py/int? a) (py/int? b) false)
+           (get (py/int-result
+                  (integer/floor-div-mod (get xy 0) (get xy 1))) 1)
+           (py/float (py/float-mod (get xy 0) (get xy 1))))))]
+    [py/divmod
+     (fn [a b]
+       (let [qr (py/divmod-values a b)]
+         (py/tuple
            (if (if (py/int? a) (py/int? b) false)
-             (py/int-mod (py/num a) (py/num b))
-             (py/float (py/float-mod (data/float-value (py/num a))
-                                     (data/float-value (py/num b)))))))]
+             qr
+             (py/conj (py/conj [] (py/float (get qr 0)))
+                      (py/float (get qr 1)))))))]
     [py/ipow
-     ;; int base ** e for an integer e >= 0, by squaring, bound-checked
+     ;; S3-C shifts still use this bounded helper.
      (fn [base e]
        (if (= e 0)
          1
@@ -1219,9 +1250,9 @@
      (fn [base e]
        (if (= e 0)
          (data/float-value 1)
-         (let [h (py/fpow base (py/int-floordiv e 2))
+         (let [h (py/fpow base (py/int-result (integer/shift-right e 1)))
                hh (* h h)]
-           (if (= (py/int-mod e 2) 0) hh (* hh base)))))]
+           (if (= (integer/bit-and e 1) 0) hh (* hh base)))))]
     [py/pow
      (fn [a b]
        (if (if (py/numeric? a) (py/numeric? b) false)
@@ -1231,16 +1262,21 @@
            (if (if (py/float? b) (< (py/floor y) y) false)
              (py/raise-new py.b/NotImplementedError
                            {:py/str "non-integer exponents are not supported"})
-             (let [e (if (py/float? b) (py/floor y) y)]
-               (if (< e 0)
+             (let [e (if (py/float? b)
+                       (let [f (py/floor y)]
+                         (if (< f 0)
+                           (py/int-result (integer/neg (py/int-of (- 0 f))))
+                           (py/int-of f))) y)]
+               (if (< (integer/compare e 0) 0)
                  (if (py/zero? a)
                    (py/raise-new py.b/ZeroDivisionError
                                  {:py/str "0.0 cannot be raised to a negative power"})
                    (py/float (/ (data/float-value 1)
-                                (py/fpow (data/float-value x) (- 0 e)))))
+                                (py/fpow (py/as-float a)
+                                         (py/int-result (integer/neg e))))))
                  (if floaty
-                   (py/float (py/fpow (data/float-value x) e))
-                   (py/ipow x e))))))
+                   (py/float (py/fpow (py/as-float a) e))
+                   (py/int-result (integer/pow x e)))))))
          (py/type-error {:py/str "unsupported operand type for **"})))]
     [py/bit1
      (fn [op x y]
@@ -1298,12 +1334,18 @@
                  (py/raise-new py.b/ZeroDivisionError
                                {:py/str "division by zero"})
                  (py/float (/ x y))))
-             ;; S3-B owns int/int: huge operands can still overflow during
-             ;; conversion even when their exact ratio would be finite.
              (if (py/zero? b)
                (py/raise-new py.b/ZeroDivisionError
                              {:py/str "division by zero"})
-               (py/float (/ (py/as-float a) (py/as-float b)))))
+               (let [r (integer/true-div (py/num a) (py/num b))
+                     message
+                     {:py/str "integer division result too large for a float"}]
+                 (if (= r :yin.vm.integer/float-overflow)
+                   (py/raise-new py.b/OverflowError message)
+                   (let [f (py/int-result r)]
+                     (if (py/finite? f)
+                       (py/float f)
+                       (py/raise-new py.b/OverflowError message)))))))
            (py/type-error {:py/str "unsupported operand type"}))
          (py/type-error {:py/str "unsupported operand type"})))]
     ;; unary - and + on a float negate or keep it, so -0.0 and +(-0.0)
@@ -1527,7 +1569,7 @@
     [py/float-parts
      ;; [m e] with x = m * 2^e exactly, for a finite nonzero double x
      (fn [x]
-       (let [a (py/abs x)
+       (let [a (py/float-abs x)
              p (if (< a (* 2 4503599627370496))
                  (py/float-parts-down a 0)
                  (py/float-parts-up a 0))]
@@ -2268,6 +2310,10 @@
     [py.b/isinstance
      (py/make-function "isinstance" {:params ["obj" "cls"], :no-kw true} [] []
                        (fn [args] (py/isinstance (py/arg args 0) (py/arg args 1))))]
+    [py.b/divmod
+     (py/make-function "divmod" {:params ["x" "y"], :no-kw true} [] []
+                       (fn [args]
+                         (py/divmod (py/arg args 0) (py/arg args 1))))]
     [py.b/hash
      (py/make-function "hash" {:params ["obj"], :no-kw true} [] []
                        (fn [args] (py/hash (py/arg args 0))))]
@@ -2387,6 +2433,7 @@
   (into {"len" 'py.b/len,
          "isinstance" 'py.b/isinstance,
          "hash" 'py.b/hash,
+         "divmod" 'py.b/divmod,
          "print" 'py.b/print,
          "range" 'py.b/range,
          "list" 'py.b/list,
