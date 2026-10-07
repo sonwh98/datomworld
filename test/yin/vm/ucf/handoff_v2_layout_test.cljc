@@ -19,6 +19,7 @@
             [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn.register :as register]
             [yin.vm.debruijn.stack :as stack]
+            [yin.vm.ucf.handoff :as handoff]
             [yin.vm.ucf.v2-support :as s]
             [yin.vm.values :as values]))
 
@@ -91,6 +92,24 @@
     :register (register/layout m)))
 
 
+(defn- stale-receiver
+  "A fresh receiver of `engine` whose own layout is [C A]: the module C
+   image loaded, the root program's image A attached after it."
+  [engine attach!]
+  (let [m (s/new-machine engine {:attach-stream attach!})]
+    (case engine
+      :stack (stack/attach-image
+               (stack/load-image m (s/module-image :stack module-c)
+                                 vm/stack-contract)
+               (:image (dl/adapt (vm/ast->datoms program)))
+               vm/stack-contract)
+      :register (register/attach-image
+                  (register/load-image m (s/module-image :register module-c)
+                                       vm/register-contract)
+                  (:image (rc/adapt (vm/ast->datoms program)))
+                  vm/register-contract))))
+
+
 (defn- frame-registers
   "Every reified continuation's register map inside `x`."
   [x]
@@ -111,11 +130,14 @@
             peer (s/served-peer t)
             export (s/lift m t peer)
             body (:body export)
-            poisoned (let [base (s/load-ast engine (s/new-machine engine)
-                                            (s/lit 99))]
-                       base)
-            [r _] (s/read! engine t (:bytes export)
-                           {:address (:address export)})]
+            [a _ c] source-layout
+            attach! (s/attacher t)
+            stale (stale-receiver engine attach!)
+            r (handoff/resume-task stale (:bytes export) attach!
+                                   {:address (:address export)})
+            src (s/stream-of m)
+            reference (do (stream/append! src "B")
+                          (s/drive-local m))]
         (is (= :ok (:status export)) (pr-str export))
         (is (= 3 (count source-layout)) (pr-str source-layout))
         (is (= source-layout (:yin.k/layout body))
@@ -131,10 +153,20 @@
             (is (every? #(= % (subvec source-layout 0 (count %))) prefixes))
             (is (some #(< (count %) 3) prefixes)
                 "captured before C was attached")))
-        (is (= :ok (:status r)) (pr-str r))
-        (is (= source-layout (layout-of engine (:vm r)))
-            "the receiver's old layout is replaced by the source's")
-        (is (some? poisoned))))))
+        (testing "the receiver's stale layout [C A] is wholly replaced"
+          (is (= [c a] (layout-of engine stale))
+              "the stale layout holds two of the body's own images, out of order")
+          (is (= :ok (:status r)) (pr-str r))
+          (is (= source-layout (layout-of engine (:vm r)))
+              "the source's layout, in the source's order")
+          (is (= (:hash m) (:hash (:vm r)))
+              "the code space is the source's concatenation, nothing of the
+               stale one beside it")
+          (is (= (:images m) (:images (:vm r))) "the source's offset table")
+          (let [done (s/drive (:vm r) peer)]
+            (is (= (vm/blocked? reference) (vm/blocked? done)))
+            (is (= (vm/value reference) (vm/value done))
+                "the task runs on as the source's does")))))))
 
 
 (defn- restored

@@ -35,6 +35,17 @@
             [yin.vm.ucf.lift-support :as s]))
 
 
+(deftest split-public-entries-test
+  (let [state {:phase :stalled :status :yin.k/unsatisfied}
+        stopped (driver/stop state)]
+    (is (= state (driver/control-step state)))
+    (is (= state (driver/program-step state)))
+    (is (= stopped (driver/stop stopped)))
+    (is (= stopped (driver/program-step stopped)))
+    (is (false? (driver/owed-control-write? state)))
+    (is (false? (driver/owed-control-write? nil)))))
+
+
 (deftest stalled-public-entries-do-not-progress-test
   (let [state {:phase :stalled :status :yin.k/unsatisfied}]
     (is (= state (driver/abort state)))
@@ -236,16 +247,23 @@
                 {:dao.stream/outcome :dao.stream/ok})))))))
 
 
-(defn- reader-over
-  "A composition-supplied reader over handle `h`: the next [author
-  record] until the tail, attributing the stream to `author`."
-  [h author]
-  (let [c (atom (oldest h))]
-    (fn []
-      (let [r (stream/next h @c)]
-        (when (= :dao.stream/ok (:dao.stream/outcome r))
-          (reset! c (:dao.stream/cursor r))
-          [author (:dao.stream/value r)])))))
+(defn- inbox-over
+  "Complete-retention positional reads over the test log. Reconstructing
+   this descriptor over the same backing data simulates process recovery."
+  [handle author]
+  {:version 1
+   :identity (stream-id handle)
+   :read-at! (fn [position]
+               (loop [cursor (oldest handle) remaining position]
+                 (let [answer (stream/next handle cursor)]
+                   (case (:dao.stream/outcome answer)
+                     :dao.stream/ok
+                     (if (zero? remaining)
+                       {:status :record :position position :author author
+                        :record (:dao.stream/value answer)}
+                       (recur (:dao.stream/cursor answer) (dec remaining)))
+                     :dao.stream/blocked {:status :empty}
+                     {:status :unavailable}))))})
 
 
 (defn- attach-over
@@ -372,6 +390,9 @@
   ([frames author] (mapv (fn [r] [author r]) (records frames))))
 
 
+(declare fresh-journal)
+
+
 (defn- world
   "A real authority over fresh frames, one front per named holder (its
   inbound from `:inbound`, a fresh ring by default), a lease-fact
@@ -402,7 +423,8 @@
         identities (into {} (map (fn [[h r]] [h (stream-id r)])) inbounds)
         resolver (fn [identity _]
                    (some (fn [[h i]] (when (= identity i) h)) identities))
-        replies (into {} (map (fn [h] [h (ring 16)])) holders)
+        reply-journals (into {} (map (fn [holder] [holder (fresh-journal)])) holders)
+        replies (into {} (map (fn [[holder entry]] [holder (:journal entry)])) reply-journals)
         fronts (into {}
                      (map (fn [h]
                             [h (atom (front/front
@@ -430,6 +452,7 @@
      :media media
      :inbounds inbounds
      :replies replies
+     :reply-frames (into {} (map (fn [[holder entry]] [holder (:frames entry)])) reply-journals)
      :fronts fronts
      :judge judge
      :ticks ticks
@@ -524,6 +547,19 @@
                ((:dao.stream.journal/write-frame! inner) bs))))))
 
 
+(defn- cut-record-backend
+  [frames predicate cut]
+  (let [inner (journal/memory-backend frames nil)
+        armed (atom true)]
+    (assoc inner :dao.stream.journal/write-frame!
+           (fn [bytes]
+             (if (and @armed (predicate (:dao.stream.journal/value (cbor/decode bytes))))
+               (do (reset! armed false)
+                   (when (= :after-frame-before-visible cut) (swap! frames conj bytes))
+                   (throw (ex-info "simulated journal cut" {})))
+               ((:dao.stream.journal/write-frame! inner) bytes))))))
+
+
 (defn- driver-for
   "The candidate's step state for `holder` over variant `v` of
   `sources` (or the raw {:keys bytes address]} of `:raw`).  `:ledger`
@@ -557,8 +593,8 @@
                :append-request! (fn [request]
                                   (stream/append!
                                     (get (:inbounds w) holder) request))
-               :read-reply! (reader-over (get (:replies w) holder) arb)
-               :read-outcome! (reader-over (:outcomes w) arb)
+               :reply-inbox (inbox-over (get (:replies w) holder) arb)
+               :outcome-inbox (inbox-over (:outcomes w) arb)
                :read-ledger! (fn []
                                (let [rs (attributed (:frames w))]
                                  (if ledger (ledger rs) rs)))
@@ -615,6 +651,887 @@
   (let [driver (drive w (drive w (driver-for w "holder-a" sources variant)))]
     (grant-direct! w "lease-1" "holder-a" (get-in driver [:state :proposal :id]))
     driver))
+
+
+(defn- split-grant
+  [world' sources]
+  (let [record (driver-for world' "holder-a" sources "v1")
+        validated (driver/program-step (:state record))
+        proposed (driver/control-step validated)]
+    (carry! world')
+    (judge! world' {:s 2})
+    (assoc record :state (driver/control-step proposed))))
+
+
+(defn- reopen-config
+  [state]
+  (merge (select-keys state [:me :bytes :address :protection :renewal-interval :units :receiver])
+         (:seams state)
+         {:store (get-in state [:seams :content-store])}))
+
+
+(defn- retained-record
+  [lane identity position author record binding]
+  (cond-> {:yin.k/journal :yin.k/inbox :yin.k/lane lane
+           :yin.k/identity identity :yin.k/position position
+           :yin.k/author author :yin.k/record record}
+    binding (assoc :yin.k/binding binding)))
+
+
+(deftest paused-grant-and-delayed-activation-test
+  (doseq [expired? [false true]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          accepted (split-grant world' sources)
+          state (:state accepted)]
+      (is (= :activating (:phase state)))
+      (is (nil? (:machine state)))
+      (is (zero? @(:attaches accepted)))
+      (reset! (:clock accepted) (if expired? {:s 31} {:s 2}))
+      (let [resumed (driver/program-step state)]
+        (if expired?
+          (do (is (= :releasing (:phase resumed)))
+              (is (zero? @(:attaches accepted)))
+              (is (nil? (:machine resumed))))
+          (do (is (= :running (:phase resumed)))
+              (is (pos? @(:attaches accepted)))
+              (is (= {:s 1} (get-in resumed [:holder :granted-at])))))))))
+
+
+(defn- inbox-obstructed-tick
+  [state split?]
+  (if split?
+    (driver/program-step (driver/control-step state))
+    (driver/step state)))
+
+
+(deftest unavailable-outcomes-preserve-renewal-and-suspend-program-test
+  (doseq [split? [false true]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (split-grant world' sources)
+          running (driver/program-step (:state record))
+          machine (:machine running)
+          attachments @(:attaches record)
+          _ (stream/append! (get (:replies world') "holder-a")
+                            {:yin.k/reply :yin.k/input :yin.k/request-id :deferred})
+          original (get-in running [:seams :outcome-inbox :read-at!])
+          blocked (assoc-in running [:seams :outcome-inbox :read-at!]
+                            (constantly {:status :unavailable}))
+          _ (reset! (:clock record) {:s 11})
+          sent (inbox-obstructed-tick blocked split?)
+          _ (carry! world')
+          renewed (inbox-obstructed-tick sent split?)]
+      (is (some? (:renewal sent)))
+      (is (true? (driver/owed-control-write? sent)))
+      (is (= 1 (:renewals renewed)))
+      (is (= {:s 11} (get-in renewed [:holder :last-renewal-at])))
+      (is (nil? (:renewal renewed)))
+      (is (= machine (:machine renewed)))
+      (is (= attachments @(:attaches record)))
+      (is (zero? @(:observations record)))
+      (is (= 0 (get-in renewed [:inbox :positions :outcome])))
+      (is (= 1 (count (get-in renewed [:inbox :program]))))
+      (is (= :inbox-unavailable (:yin.k/reason (:detail renewed))))
+      (is (false? (driver/owed-control-write? renewed)))
+      (let [available (driver/control-step
+                        (assoc-in renewed [:seams :outcome-inbox :read-at!] original))]
+        (is (not (:inbox-unavailable? available)))
+        (is (= :yin.k/ok (:status available)))))))
+
+
+(deftest unavailable-replies-retry-renewal-without-credit-test
+  (doseq [split? [false true]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (split-grant world' sources)
+          running (driver/program-step (:state record))
+          outcome-reads (atom 0)
+          blocked (-> running
+                      (assoc-in [:seams :reply-inbox :read-at!]
+                                (constantly {:status :unavailable}))
+                      (assoc-in [:seams :outcome-inbox :read-at!]
+                                (fn [_] (swap! outcome-reads inc) {:status :empty})))
+          _ (reset! (:clock record) {:s 11})
+          sent (inbox-obstructed-tick blocked split?)
+          _ (carry! world')
+          _ (reset! (:clock record) {:s 12})
+          retried (inbox-obstructed-tick sent split?)
+          _ (carry! world')
+          requests (requests-of world' "holder-a" :yin.k/renewal)]
+      (is (= 2 (count requests)))
+      (is (= 1 (count (distinct requests))))
+      (is (= (:renewal sent) (:renewal retried)))
+      (is (= {:s 11} (get-in retried [:renewal :reading])))
+      (is (= (:holder running) (:holder retried)))
+      (is (zero? (:renewals retried)))
+      (is (= (:machine running) (:machine retried)))
+      (is (zero? @outcome-reads))
+      (is (= (get-in running [:inbox :positions]) (get-in retried [:inbox :positions])))
+      (is (true? (driver/owed-control-write? retried)))
+      (is (= :inbox-unavailable (:yin.k/reason (:detail retried))))
+      (let [records (driver/journal-records (get-in retried [:seams :journal]))]
+        (is (= 2 (count (filter #(and (= :yin.k/renewal (:yin.k/action %))
+                                      (= :yin.k/attempt (:yin.k/journal %))) records))))
+        (is (empty? (filter #(and (= :yin.k/renewal (:yin.k/action %))
+                                  (= :yin.k/ack (:yin.k/journal %))) records)))))))
+
+
+(deftest unavailable-reply-recovery-cannot-revive-expired-tenure-test
+  (doseq [split? [false true] late? [false true]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (split-grant world' sources)
+          running (driver/program-step (:state record))
+          reply (get-in running [:seams :reply-inbox :read-at!])
+          blocked (assoc-in running [:seams :reply-inbox :read-at!]
+                            (constantly {:status :unavailable}))
+          _ (reset! (:clock record) {:s 11})
+          sent (inbox-obstructed-tick blocked split?)
+          _ (carry! world')
+          _ (reset! (:clock record) {:s (if late? 31 12)})
+          recovered (inbox-obstructed-tick
+                      (assoc-in sent [:seams :reply-inbox :read-at!] reply) split?)]
+      (if late?
+        (do (is (= :releasing (:phase recovered)))
+            (is (= :ended (vm/gate-mode (:machine recovered))))
+            (is (zero? (:renewals recovered)))
+            (is (nil? (get-in recovered [:holder :last-renewal-at])))
+            (is (= :lease-bound (:cause (:detail recovered)))))
+        (do (is (= 1 (:renewals recovered)))
+            (is (= {:s 11} (get-in recovered [:holder :last-renewal-at])))
+            (is (nil? (:renewal recovered))))))))
+
+
+(deftest unavailable-inboxes-expire-and-recover-durable-cleanup-test
+  (doseq [split? [false true] lane [:reply :outcome]]
+    (let [{:keys [sources]} (reader-source)
+          medium (bounded-stream "lease-a" 1)
+          world' (world :holders ["holder-a"] :sources sources
+                        :lease-media {"holder-a" medium})
+          record (split-grant world' sources)
+          running (driver/program-step (:state record))
+          key (if (= :reply lane) :reply-inbox :outcome-inbox)
+          descriptor (get-in running [:seams key])
+          blocked (assoc-in running [:seams key :read-at!]
+                            (constantly {:status :unavailable}))
+          _ (stream/append! medium :full)
+          _ (reset! (:clock record) {:s 31})
+          ended (inbox-obstructed-tick blocked split?)
+          _ (carry! world')
+          retried (inbox-obstructed-tick ended split?)
+          _ (carry! world')
+          records (driver/journal-records (get-in retried [:seams :journal]))
+          recovered (driver/stop
+                      (driver/reopen (assoc (reopen-config retried)
+                                            :journal (reopened-journal (:journal-frames record)))))
+          resent (inbox-obstructed-tick recovered split?)
+          _ (carry! world')]
+      (is (= :releasing (:phase ended)))
+      (is (= :ended (vm/gate-mode (:machine ended))))
+      (is (= 1 (count (read-all (:diagnostics record)))))
+      (is (= (get-in ended [:release :request]) (get-in retried [:release :request])))
+      (is (= (get-in ended [:release :request]) (get-in resent [:release :request])))
+      (is (true? (driver/owed-control-write? resent)))
+      (is (nil? (:machine resent)))
+      (is (nil? (:holder resent)))
+      (is (= 1 (count (distinct (requests-of world' "holder-a" :yin.k/release)))))
+      (is (not (true? (get-in resent [:release :carried]))))
+      (let [actions (filter #(= :yin.k/release (:yin.k/action %)) records)]
+        (is (= [:yin.k/intent :yin.k/attempt :yin.k/intent :yin.k/attempt]
+               (mapv :yin.k/journal actions))))
+      (judge! world' {:s 32})
+      (let [pending (inbox-obstructed-tick resent split?)
+            _ (carry! world')
+            acknowledged (inbox-obstructed-tick pending split?)
+            available (assoc-in acknowledged [:seams key] descriptor)
+            finished (inbox-obstructed-tick available split?)]
+        (when (= :reply lane)
+          (is (= :releasing (:phase acknowledged)))
+          (is (true? (driver/owed-control-write? acknowledged))))
+        (is (= :failed (:phase finished)))
+        (is (true? (get-in finished [:release :carried])))
+        (is (= 1 (count (read-all (:diagnostics record)))))
+        (is (zero? @(:observations record)))))))
+
+
+(deftest unavailable-inboxes-block-activation-but-not-custody-test
+  (doseq [split? [false true] lane [:reply :outcome]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (split-grant world' sources)
+          key (if (= :reply lane) :reply-inbox :outcome-inbox)
+          descriptor (get-in record [:state :seams key])
+          blocked (assoc-in (:state record) [:seams key :read-at!]
+                            (constantly {:status :unavailable}))
+          _ (reset! (:clock record) {:s 11})
+          sent (inbox-obstructed-tick blocked split?)
+          _ (carry! world')
+          waiting (inbox-obstructed-tick sent split?)
+          attachments @(:attaches record)
+          available (inbox-obstructed-tick (assoc-in waiting [:seams key] descriptor) split?)]
+      (is (= :activating (:phase waiting)))
+      (is (zero? attachments))
+      (is (nil? (:machine waiting)))
+      (is (= :inbox-unavailable (:yin.k/reason (:detail waiting))))
+      (is (= (if (= :outcome lane) 1 0) (:renewals waiting)))
+      (is (= :running (:phase available)))
+      (is (some? (:machine available)))
+      (is (= 1 (:renewals available)))
+      (is (= {:s 11} (get-in available [:holder :last-renewal-at]))))))
+
+
+(deftest unavailable-inbox-does-not-waive-control-evidence-test
+  (doseq [split? [false true] obstruction [:ledger :malformed]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (split-grant world' sources)
+          running (driver/program-step (:state record))
+          blocked (case obstruction
+                    :ledger (-> running
+                                (assoc-in [:seams :outcome-inbox :read-at!]
+                                          (constantly {:status :unavailable}))
+                                (assoc-in [:seams :read-ledger!] (constantly nil)))
+                    :malformed (assoc-in running [:seams :reply-inbox :read-at!]
+                                         (constantly {:status :unavailable :extra true})))
+          _ (reset! (:clock record) {:s 11})
+          checked (inbox-obstructed-tick blocked split?)]
+      (is (nil? (:renewal checked)))
+      (is (empty? (requests-of world' "holder-a" :yin.k/renewal)))
+      (is (= (:machine running) (:machine checked)))
+      (is (zero? @(:observations record)))
+      (is (false? (driver/owed-control-write? checked))))))
+
+
+(deftest unavailable-cleanup-reconciliation-refuses-conflicting-history-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        record (split-grant world' sources)
+        state (assoc-in (:state record) [:seams :reply-inbox :read-at!]
+                        (constantly {:status :unavailable}))
+        recovered (driver/reopen (assoc (reopen-config state)
+                                        :journal (reopened-journal (:journal-frames record))))
+        attempts (atom [])
+        damaged (-> recovered
+                    (assoc-in [:seams :append-request!]
+                              (fn [request]
+                                (swap! attempts conj request)
+                                {:dao.stream/outcome :dao.stream/ok}))
+                    (assoc-in [:seams :reply-inbox :read-at!]
+                              (fn [position]
+                                {:status :record :position position
+                                 :author arb :record {:changed true}})))
+        refused (driver/control-step damaged)]
+    (is (= :releasing (:phase recovered)))
+    (is (true? (:inbox-unavailable? recovered)))
+    (is (= :inbox-conflict (:yin.k/reason (:detail refused))))
+    (is (true? (:inbox-refused? refused)))
+    (is (empty? @attempts))
+    (is (false? (driver/owed-control-write? refused)))
+    (is (nil? (:machine refused)))
+    (is (zero? @(:attaches record)))))
+
+
+(deftest unavailable-inbox-release-journal-uncertainty-is-a-hard-stall-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        record (split-grant world' sources)
+        attempts (atom [])
+        original (get-in record [:state :seams :append-request!])
+        progress (cut-record-backend (:journal-frames record)
+                                     #(and (= :yin.k/intent (:yin.k/journal %))
+                                           (= :yin.k/release (:yin.k/action %)))
+                                     :after-frame-before-visible)
+        state (-> (:state record)
+                  (assoc-in [:seams :reply-inbox :read-at!]
+                            (constantly {:status :unavailable}))
+                  (assoc-in [:seams :journal] (:dao.stream/handle (journal/open! progress)))
+                  (assoc-in [:seams :append-request!]
+                            (fn [request] (swap! attempts conj request) (original request))))
+        _ (reset! (:clock record) {:s 31})
+        stalled (driver/step state)
+        recovered (driver/stop
+                    (driver/reopen (assoc (reopen-config state)
+                                          :journal (reopened-journal (:journal-frames record)))))
+        resent (driver/control-step recovered)]
+    (is (= :stalled (:phase stalled)))
+    (is (= stalled (driver/control-step stalled)))
+    (is (= stalled (driver/program-step stalled)))
+    (is (false? (driver/owed-control-write? stalled)))
+    (is (= 1 (count @attempts)))
+    (is (= (get-in recovered [:release :request]) (first @attempts)))
+    (is (= :releasing (:phase resent)))
+    (is (nil? (:machine resent)))
+    (is (zero? @(:attaches record)))))
+
+
+(deftest control-isolation-and-renewal-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        accepted (split-grant world' sources)
+        activated (driver/program-step (:state accepted))
+        sink (int-stream "isolated-write")
+        original (:machine activated)
+        pending (-> (first (:wait-set original))
+                    (dissoc :cursor-ref)
+                    (assoc :reason :put :stream-id :isolated-write
+                           :datom :must-not-emit :yin.k/issue 0))
+        activated (assoc activated :machine
+                         (-> (s/load-ast original (s/lit :must-not-execute))
+                             (update :wait-set conj pending)
+                             (assoc-in [:resources :isolated-write] sink)
+                             (assoc-in [:yin.k/custody :protection "isolated-write"] :at-least-once)))
+        machine (:machine activated)
+        attached @(:attaches accepted)
+        _ (stream/append! (:prog accepted) :ready-input)
+        _ (reset! (:clock accepted) {:s 11})
+        renewed (driver/control-step activated)
+        _ (carry! world')
+        carried (driver/control-step renewed)]
+    (is (= machine (:machine carried)))
+    (is (empty? (read-all sink)))
+    (is (nil? (:value (:machine carried))))
+    (is (= attached @(:attaches accepted)))
+    (is (zero? @(:observations accepted)))
+    (is (= 1 (:renewals carried)))
+    (is (nil? (:renewal carried)))
+    (is (false? (driver/owed-control-write? carried)))
+    (let [stopped (driver/stop carried)
+          cleaned (driver/control-step stopped)]
+      (is (= stopped (driver/program-step stopped)))
+      (is (= :releasing (:phase cleaned)))
+      (is (= attached @(:attaches accepted)))
+      (is (empty? (read-all sink)))
+      (is (zero? @(:observations accepted))))))
+
+
+(deftest paused-grant-renewal-keeps-the-original-observation-basis-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        record (split-grant world' sources)
+        _ (reset! (:clock record) {:s 11})
+        renewed (driver/control-step (:state record))
+        _ (carry! world')
+        acknowledged (driver/control-step renewed)
+        _ (reset! (:clock record) {:s 35})
+        activated (driver/program-step acknowledged)]
+    (is (= {:s 1} (get-in activated [:holder :granted-at])))
+    (is (= {:s 11} (get-in activated [:holder :last-renewal-at])))
+    (is (= :running (:phase activated)))
+    (is (pos? @(:attaches record)))))
+
+
+(deftest independent-program-tenure-test
+  (doseq [change [:expired :unavailable :replaced]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          accepted (split-grant world' sources)
+          activated (driver/program-step (:state accepted))
+          machine (:machine activated)
+          state (case change
+                  :expired (do (reset! (:clock accepted) {:s 31}) activated)
+                  :unavailable (assoc-in activated [:seams :read-ledger!] (constantly nil))
+                  :replaced (do (lapse-direct! world' (:lease activated) :release) activated))
+          next-state (driver/program-step state)]
+      (is (zero? @(:observations accepted)))
+      (if (= :unavailable change)
+        (do (is (= machine (:machine next-state)))
+            (is (= :yin.k/unsatisfied (:status next-state))))
+        (is (= :releasing (:phase next-state)))))))
+
+
+(deftest shutdown-before-grant-never-lowers-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        record (driver-for world' "holder-a" sources "v1")
+        proposed (driver/control-step (driver/program-step (:state record)))
+        stopped (driver/stop proposed)
+        _ (carry! world')
+        _ (judge! world' {:s 2})
+        cleanup (driver/control-step stopped)
+        _ (carry! world')
+        finished (driver/control-step cleanup)]
+    (is (zero? @(:attaches record)))
+    (is (nil? (:machine finished)))
+    (is (= :failed (:phase finished)))
+    (is (= 1 (:proposals finished)))
+    (is (= finished (driver/program-step finished)))
+    (is (false? (driver/owed-control-write? finished)))))
+
+
+(deftest unavailable-inbox-candidate-waits-to-propose-test
+  (doseq [split? [false true] lane [:reply :outcome]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (driver-for world' "holder-a" sources "v1")
+          key (if (= :reply lane) :reply-inbox :outcome-inbox)
+          validated (driver/program-step (:state record))
+          descriptor (get-in validated [:seams key])
+          unavailable #(assoc-in % [:seams key :read-at!] (constantly {:status :unavailable}))
+          fresh (inbox-obstructed-tick (unavailable validated) split?)
+          proposed (driver/control-step validated)
+          pending (inbox-obstructed-tick (unavailable proposed) split?)
+          waiting (inbox-obstructed-tick pending split?)
+          sent (count (requests-of world' "holder-a" :yin.k/proposal))
+          resumed (inbox-obstructed-tick (assoc-in waiting [:seams key] descriptor) split?)
+          requests (requests-of world' "holder-a" :yin.k/proposal)]
+      (is (nil? (:proposal fresh)))
+      (is (false? (driver/owed-control-write? fresh)))
+      (is (= :proposing (:phase waiting)))
+      (is (= :inbox-unavailable (:yin.k/reason (:detail waiting))))
+      (is (= (:proposal proposed) (:proposal waiting)))
+      (is (false? (driver/owed-control-write? pending)))
+      (is (false? (driver/owed-control-write? waiting)))
+      (is (= 1 sent))
+      (is (= 2 (count requests)))
+      (is (= 1 (count (distinct requests))))
+      (is (= 1 (:proposals resumed)))
+      (is (true? (driver/owed-control-write? resumed)))
+      (is (zero? @(:attaches record))))))
+
+
+(deftest stopped-candidate-releases-a-late-grant-test
+  (doseq [lane [nil :reply :outcome]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (driver-for world' "holder-a" sources "v1")
+          key (case lane :reply :reply-inbox :outcome :outcome-inbox nil)
+          proposed (driver/control-step (driver/program-step (:state record)))
+          descriptor (when key (get-in proposed [:seams key]))
+          stopped (cond-> (driver/stop proposed)
+                    key (assoc-in [:seams key :read-at!] (constantly {:status :unavailable})))
+          quiet (driver/control-step stopped)
+          _ (carry! world')
+          _ (judge! world' {:s 2})
+          released (driver/control-step quiet)
+          _ (carry! world')
+          finished (driver/control-step (cond-> released key (assoc-in [:seams key] descriptor)))]
+      (is (false? (driver/owed-control-write? stopped)))
+      (is (false? (driver/owed-control-write? quiet)))
+      (is (= :releasing (:phase released)))
+      (is (= {:cause :stopped} (:detail released)))
+      (is (true? (driver/owed-control-write? released)))
+      (is (= 1 (count (requests-of world' "holder-a" :yin.k/release))))
+      (is (= 1 (count (requests-of world' "holder-a" :yin.k/proposal))))
+      (is (= 1 (:proposals finished)))
+      (is (= :failed (:phase finished)))
+      (is (true? (get-in finished [:detail :dao.lease/released])))
+      (is (false? (driver/owed-control-write? finished)))
+      (is (nil? (:machine finished)))
+      (is (zero? @(:attaches record)))
+      (is (zero? @(:observations record))))))
+
+
+(deftest mixed-inbox-defers-program-results-in-journal-order-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        accepted (split-grant world' sources)
+        activated (driver/program-step (:state accepted))
+        _ (stream/append! (:prog accepted) :input)
+        requested (driver/program-step activated)
+        _ (carry! world')
+        controlled (driver/control-step requested)
+        machine (:machine requested)
+        deferred (get-in controlled [:inbox :program])]
+    (is (seq deferred))
+    (is (= machine (:machine controlled)))
+    (is (= (mapv :yin.k/position deferred)
+           (sort (map :yin.k/position deferred))))
+    (let [applied (driver/program-step controlled)
+          again (driver/program-step applied)]
+      (is (empty? (get-in applied [:inbox :program])))
+      (is (= :done (get-in applied [:machine :value])))
+      (is (= :done (get-in again [:machine :value]))))
+    (let [recovered (driver/reopen (assoc (reopen-config controlled)
+                                          :journal (reopened-journal (:journal-frames accepted))))]
+      (is (= :releasing (:phase recovered)))
+      (is (nil? (:machine recovered)))
+      (is (= deferred (get-in recovered [:inbox :program]))))))
+
+
+(deftest positional-inbox-retention-cuts-test
+  (doseq [lane [:reply :outcome]
+          cut [:before-frame :after-frame-before-visible]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (driver-for world' "holder-a" sources "v1")
+          validating (driver/program-step (:state record))
+          frames (:journal-frames record)
+          source {:version 1 :identity (str "retained-" (name lane))
+                  :read-at! (fn [position]
+                              (if (zero? position)
+                                {:status :record :position 0 :author arb
+                                 :record {:yin.k/reply :yin.k/input :yin.k/request-id :held}}
+                                {:status :empty}))}
+          state (-> validating
+                    (assoc-in [:seams (if (= :reply lane) :reply-inbox :outcome-inbox)] source)
+                    (assoc-in [:seams :journal]
+                              (:dao.stream/handle (journal/open! (cut-backend frames 1 cut)))))
+          stalled (driver/control-step state)]
+      (is (= :stalled (:phase stalled)))
+      (is (= stalled (driver/control-step stalled)))
+      (is (= stalled (driver/program-step stalled)))
+      (is (false? (driver/owed-control-write? stalled)))
+      (let [recovered (driver/reopen (assoc (reopen-config state) :journal (reopened-journal frames)))
+            selected (driver/control-step recovered)
+            retained (filter #(= :yin.k/inbox (:yin.k/journal %))
+                             (driver/journal-records (get-in selected [:seams :journal])))]
+        (is (= 1 (count retained)))
+        (is (= 1 (get-in selected [:inbox :positions lane])))
+        (is (= 1 (count (get-in selected [:inbox :program]))))))))
+
+
+(deftest inbox-result-families-and-refusals-test
+  (doseq [lane [:reply :outcome]
+          answer [{:status :empty} {:status :unavailable}
+                  {:status :record :position 1 :author arb :record {}}
+                  {:status :record :position 0 :author arb :record {} :extra true}]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (driver-for world' "holder-a" sources "v1")
+          state (assoc-in (driver/program-step (:state record))
+                          [:seams (if (= :reply lane) :reply-inbox :outcome-inbox) :read-at!]
+                          (constantly answer))
+          advanced (driver/control-step state)]
+      (is (= 0 (get-in advanced [:inbox :positions lane])))
+      (is (empty? (get-in advanced [:inbox :program])))
+      (if (= :empty (:status answer))
+        (is (= :yin.k/awaiting-grant (:status advanced)))
+        (do (is (= :yin.k/unsatisfied (:status advanced)))
+            (is (zero? (:proposals advanced))))))))
+
+
+(deftest retained-inbox-dedup-and-conflict-test
+  (let [record (retained-record :reply "stable" 0 arb {:yin.k/reply :yin.k/input} nil)
+        duplicate (driver/fold-journal [record record])]
+    (is (= [record] (:inbox duplicate)))
+    (doseq [corrupt [(assoc record :yin.k/record {:other true})
+                     (assoc record :yin.k/identity "changed")
+                     (assoc record :yin.k/position 2)]]
+      (is (some? (try (driver/fold-journal [record corrupt]) nil
+                      (catch #?(:cljd Object :clj Throwable :cljs :default) failure failure)))))))
+
+
+(deftest malformed-next-record-preserves-earlier-durable-receipts-test
+  (doseq [lane [:reply :outcome]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (driver-for world' "holder-a" sources "v1")
+          state (assoc-in (driver/program-step (:state record))
+                          [:seams (if (= :reply lane) :reply-inbox :outcome-inbox)]
+                          {:version 1 :identity :ordered
+                           :read-at! (fn [position]
+                                       (if (zero? position)
+                                         {:status :record :position 0 :author arb
+                                          :record {:yin.k/reply :yin.k/input}}
+                                         {:status :empty :extra :invalid}))})
+          refused (driver/control-step state)]
+      (is (= :yin.k/unsatisfied (:status refused)))
+      (is (= 1 (get-in refused [:inbox :positions lane])))
+      (is (= 1 (count (get-in refused [:inbox :program]))))
+      (is (zero? (:proposals refused))))))
+
+
+(deftest post-cycle-inbox-refusal-survives-result-normalization-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        record (split-grant world' sources)
+        running (driver/program-step (:state record))
+        reads (atom 0)
+        state (assoc-in running [:seams :outcome-inbox :read-at!]
+                        (fn [_]
+                          (if (= 1 (swap! reads inc))
+                            {:status :empty}
+                            {:status :empty :extra :invalid})))
+        refused (driver/step state)
+        observations @(:observations record)]
+    (is (= :yin.k/unsatisfied (:status refused)))
+    (is (true? (:inbox-refused? refused)))
+    (is (= refused (driver/program-step refused)))
+    (is (= observations @(:observations record)))))
+
+
+(deftest inbox-reopen-reconciles-source-identity-and-content-test
+  (doseq [change [:identity :content :missing]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (driver-for world' "holder-a" sources "v1")
+          state (:state record)
+          identity (get-in state [:seams :reply-inbox :identity])
+          saved (retained-record :reply identity 0 arb {:yin.k/reply :yin.k/input} nil)
+          _ (driver/journal! state saved)
+          config (reopen-config state)
+          config (case change
+                   :identity (assoc-in config [:reply-inbox :identity] "changed")
+                   :content (assoc-in config [:reply-inbox :read-at!]
+                                      (fn [_] {:status :record :position 0 :author arb :record {}}))
+                   :missing (assoc-in config [:reply-inbox :read-at!] (constantly {:status :unavailable})))
+          failure (try (driver/reopen config) nil
+                       (catch #?(:cljd Object :clj Throwable :cljs :default) failure failure))]
+      (is (some? failure))
+      (is (zero? @(:attaches record))))))
+
+
+(deftest legacy-reader-assembly-is-rejected-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        config (-> (reopen-config (:state (driver-for world' "holder-a" sources "v1")))
+                   (dissoc :reply-inbox :outcome-inbox)
+                   (assoc :read-reply! (constantly nil) :read-outcome! (constantly nil)))]
+    (is (some? (try (driver/initial config) nil
+                    (catch #?(:cljd Object :clj Throwable :cljs :default) failure failure))))))
+
+
+(deftest fork-source-does-not-retain-custody-inbox-noise-test
+  (let [{:keys [sources machine]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        record (driver-for world' "holder-a" sources "v1")
+        source-log (log)
+        _ (stream/append! source-log {:yin.k/reply :noise})
+        state (driver/source (assoc (reopen-config (:state record))
+                                    :machine machine :arbitration nil
+                                    :reply-inbox (inbox-over source-log arb)))
+        controlled (driver/control-step state)
+        lifted (nth (iterate driver/step state) 3)]
+    (is (= state controlled))
+    (is (= :lifted (:phase lifted)))
+    (is (empty? (driver/journal-records (get-in state [:seams :journal]))))))
+
+
+(deftest unavailable-inbox-control-cadence-test
+  (is (false? (driver/owed-control-write? {:phase :proposing :inbox-unavailable? true})))
+  (is (false? (driver/owed-control-write? {:phase :proposing :inbox-unavailable? true
+                                           :proposal {:request {} :carried false}})))
+  (is (false? (driver/owed-control-write? {:phase :proposing :stopped? true
+                                           :proposal {:request {} :carried false}})))
+  (is (false? (driver/owed-control-write? {:phase :running :inbox-unavailable? true})))
+  (is (true? (driver/owed-control-write? {:phase :running :inbox-unavailable? true
+                                          :renewal {:request {}}})))
+  (is (true? (driver/owed-control-write? {:phase :releasing :inbox-unavailable? true
+                                          :release {:request {} :carried false}}))))
+
+
+(deftest owed-control-write-families-test
+  (doseq [state [{:phase :proposing}
+                 {:phase :proposing :proposal {:request {} :carried false}}
+                 {:phase :running :renewal {:request {}}}
+                 {:phase :safepoint :exit {:address :body :report {:answer {:yin.k/status :report-conflict}}}}
+                 {:phase :releasing :release {:request {} :sent true}}
+                 {:phase :exporting :export {:occurrence :source :address :body}}
+                 {:phase :safepoint :exit {:occurrence :successor :address :body :role :yin.k/result}}]]
+    (is (true? (driver/owed-control-write? state)))
+    (is (false? (driver/owed-control-write? (assoc state :phase :stalled)))))
+  (doseq [state [nil {} {:phase :running}
+                 {:phase :proposing :stopped? true}
+                 {:phase :proposing :proposal {:carried true}}
+                 {:phase :releasing :release {:carried true}}
+                 {:phase :safepoint :exit {:address :body :role :yin.k/successor
+                                           :offer {:answer {:yin.k/status :awaiting-completion}}
+                                           :report {:answer {:yin.k/status :committed}}}
+                  :release {:carried true}}]]
+    (is (false? (driver/owed-control-write? state)))))
+
+
+(deftest selection-before-retention-is-reproducible-test
+  (doseq [lane [:reply :outcome]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (driver-for world' "holder-a" sources "v1")
+          source-backing (fresh-journal)
+          source-log (:journal source-backing)
+          _ (stream/append! source-log {:yin.k/reply :yin.k/input :yin.k/request-id :saved})
+          descriptor (inbox-over source-log arb)
+          read-at (:read-at! descriptor)
+          key (if (= :reply lane) :reply-inbox :outcome-inbox)
+          selected (atom nil)
+          state (-> (driver/program-step (:state record))
+                    (assoc-in [:seams key] descriptor)
+                    (assoc-in [:seams key :read-at!]
+                              (fn [position]
+                                (reset! selected (read-at position))
+                                (throw (ex-info "simulated process death before retention" {})))))
+          failure (try (driver/control-step state) nil
+                       (catch #?(:cljd Object :clj Throwable :cljs :default) failure failure))
+          rebuilt (inbox-over (reopened-journal (:frames source-backing)) arb)
+          recovered (driver/reopen (assoc (reopen-config state) key rebuilt))
+          retained (driver/control-step recovered)]
+      (is (some? failure))
+      (is (= @selected ((:read-at! rebuilt) 0)))
+      (is (= 1 (get-in retained [:inbox :positions lane])))
+      (is (= 1 (count (get-in retained [:inbox :program])))))))
+
+
+(deftest inbox-position-exhaustion-and-descriptor-shapes-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        record (driver-for world' "holder-a" sources "v1")
+        config (reopen-config (:state record))]
+    (doseq [descriptor [nil {:version 2 :identity :stable :read-at! (constantly {:status :empty})}
+                        {:version 1 :read-at! (constantly {:status :empty})}
+                        {:version 1 :identity :stable :read-at! :not-callable}]]
+      (is (some? (try (driver/initial (assoc config :reply-inbox descriptor)) nil
+                      (catch #?(:cljd Object :clj Throwable :cljs :default) failure failure)))))
+    (doseq [lane [:reply :outcome]
+            position [custody/max-exact (inc custody/max-exact) -1 1.5]]
+      (let [state (assoc-in (driver/program-step (:state record)) [:inbox :positions lane] position)
+            refused (driver/control-step state)]
+        (is (= :yin.k/unsatisfied (:status refused)))
+        (is (zero? (:proposals refused)))
+        (is (= position (get-in refused [:inbox :positions lane])))))))
+
+
+(deftest deferred-program-order-does-not-block-renewal-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        record (split-grant world' sources)
+        activated (driver/program-step (:state record))
+        outcome-source (fresh-journal)
+        _ (stream/append! (:journal outcome-source)
+                          {:yin.k/admission :committed :yin.k/request-id :third})
+        running (assoc-in activated [:seams :outcome-inbox]
+                          (inbox-over (:journal outcome-source) arb))
+        replies (get-in world' [:replies "holder-a"])
+        _ (doseq [request-id [:first :second]]
+            (stream/append! replies {:yin.k/reply :yin.k/input :yin.k/request-id request-id}))
+        _ (reset! (:clock record) {:s 11})
+        renewed (driver/control-step running)
+        _ (carry! world')
+        acknowledged (driver/control-step renewed)
+        receipts (get-in acknowledged [:inbox :program])
+        recovered (driver/reopen (assoc (reopen-config acknowledged)
+                                        :reply-inbox (inbox-over (reopened-journal (get-in world' [:reply-frames "holder-a"])) arb)
+                                        :outcome-inbox (inbox-over (reopened-journal (:frames outcome-source)) arb)
+                                        :journal (reopened-journal (:journal-frames record))))]
+    (is (= [:first :second :third] (mapv #(get-in % [:yin.k/record :yin.k/request-id]) receipts)))
+    (is (= 1 (:renewals acknowledged)))
+    (is (= (:machine running) (:machine acknowledged)))
+    (is (= receipts (get-in recovered [:inbox :program])))
+    (is (= (get-in acknowledged [:inbox :positions]) (get-in recovered [:inbox :positions])))))
+
+
+(deftest old-run-results-are-not-applied-to-a-new-run-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        record (split-grant world' sources)
+        running (driver/program-step (:state record))
+        receipt (retained-record :reply :source 0 arb {:yin.k/reply :yin.k/input}
+                                 {:yin.k/occurrence occurrence :dao.lease/lease "old-lease" :yin.k/epoch 0})
+        queued (assoc-in running [:inbox :program] [receipt])
+        advanced (driver/program-step queued)]
+    (is (empty? (get-in advanced [:inbox :program])))
+    (is (= (mapv #(dissoc % :yin.k/held) (:wait-set (:machine running)))
+           (mapv #(dissoc % :yin.k/held) (:wait-set (:machine advanced)))))
+    (is (not (:halted? (:machine advanced))))))
+
+
+(deftest control-does-not-apply-a-real-regrant-prefix-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a" "holder-b"] :sources sources)
+        first-holder (to-running world' (driver-for world' "holder-a" sources "v1"))
+        _ (stream/append! (:prog first-holder) :carried-input)
+        _ (driver/program-step (:state first-holder))
+        _ (carry! world')
+        _ (judge! world' {:s 40})
+        second-holder (driver-for world' "holder-b" sources "v1")
+        proposed (driver/control-step (driver/program-step (:state second-holder)))
+        _ (carry! world')
+        _ (judge! world' {:s 41})
+        accepted (driver/control-step proposed)
+        activated (driver/program-step accepted)
+        controlled (nth (iterate driver/control-step activated) 3)
+        programmed (nth (iterate driver/program-step controlled) 2)]
+    (is (= 1 (get-in controlled [:machine :yin.k/custody :input :prefix :yin.k/frontier])))
+    (is (= (:machine activated) (:machine controlled)))
+    (is (zero? @(:observations second-holder)))
+    (is (= :done (get-in programmed [:machine :value])))))
+
+
+(deftest bounded-stop-drain-and-recovery-test
+  (doseq [eventually-accept? [false true]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (split-grant world' sources)
+          attempts (atom [])
+          original (get-in record [:state :seams :append-request!])
+          stopped (driver/stop (assoc-in (:state record) [:seams :append-request!]
+                                         (fn [request]
+                                           (is (= :yin.k/intent
+                                                  (:yin.k/journal (last (driver/journal-records
+                                                                          (get-in record [:state :seams :journal]))))))
+                                           (swap! attempts conj request)
+                                           (if (and eventually-accept? (> (count @attempts) 2))
+                                             (original request)
+                                             {:dao.stream/outcome :dao.stream/full}))))
+          drained (loop [state stopped budget 5]
+                    (if (zero? budget) state
+                        (let [next-state (driver/control-step state)]
+                          (carry! world')
+                          (recur next-state (dec budget)))))
+          recovered (driver/stop (driver/reopen (assoc (reopen-config drained)
+                                                       :journal (reopened-journal (:journal-frames record)))))]
+      (is (<= (count @attempts) 5))
+      (is (= 1 (count (distinct @attempts))))
+      (is (zero? @(:attaches record)))
+      (if eventually-accept?
+        (is (= :failed (:phase drained)))
+        (do (is (= :releasing (:phase drained)))
+            (is (= (get-in drained [:release :request]) (get-in recovered [:release :request])))))
+      (is (= recovered (driver/program-step recovered))))))
+
+
+(deftest split-and-convenience-program-cycles-agree-test
+  (let [{:keys [sources]} (reader-source)
+        outcomes (for [split? [false true]]
+                   (let [world' (world :holders ["holder-a"] :sources sources)
+                         record (driver-for world' "holder-a" sources "v1")
+                         tick (fn [state]
+                                (if split?
+                                  (driver/program-step (driver/control-step state))
+                                  (driver/step state)))
+                         running (loop [state (:state record) budget 8]
+                                   (if (or (= :running (:phase state)) (zero? budget)) state
+                                       (let [next-state (tick state)]
+                                         (carry! world') (judge! world' {:s 2})
+                                         (recur next-state (dec budget)))))
+                         _ (stream/append! (:prog record) :input)
+                         halted (loop [state running budget 8]
+                                  (if (or (= :safepoint (:phase state)) (zero? budget)) state
+                                      (let [next-state (tick state)]
+                                        (carry! world')
+                                        (recur next-state (dec budget)))))]
+                     [(get-in halted [:machine :value]) @(:observations record)
+                      @(:attaches record) (count (requests-of world' "holder-a" :yin.k/input))]))]
+    (is (= (first outcomes) (second outcomes)))
+    (is (= :done (first (first outcomes))))))
+
+
+(deftest split-brackets-stop-on-uncertain-journal-append-test
+  (doseq [action [:yin.k/grant :yin.k/renewal :yin.k/release]
+          cut [:before-frame :after-frame-before-visible]]
+    (let [{:keys [sources]} (reader-source)
+          world' (world :holders ["holder-a"] :sources sources)
+          record (if (= :yin.k/grant action)
+                   (own-grant-driver world' sources "v1")
+                   (split-grant world' sources))
+          state (case action
+                  :yin.k/grant (:state record)
+                  :yin.k/renewal (do (reset! (:clock record) {:s 11}) (:state record))
+                  :yin.k/release (driver/stop (:state record)))
+          frames (:journal-frames record)
+          journal' (:dao.stream/handle
+                     (journal/open! (cut-record-backend frames #(= action (:yin.k/action %)) cut)))
+          state (assoc-in state [:seams :journal] journal')
+          sent-before (inbound world' "holder-a")
+          stalled (driver/control-step state)]
+      (is (= :stalled (:phase stalled)))
+      (is (= sent-before (inbound world' "holder-a")))
+      (is (nil? (:machine stalled)))
+      (is (zero? @(:attaches record)))
+      (is (= stalled (driver/program-step stalled)))
+      (is (= stalled (driver/control-step stalled)))
+      (let [recovered (driver/reopen (assoc (reopen-config state) :journal (reopened-journal frames)))]
+        (is (nil? (:machine recovered)))
+        (is (contains? #{:proposing :releasing} (:phase recovered)))))))
 
 
 ;; =============================================================================
@@ -1030,6 +1947,61 @@
             "the judge had no fresh proposal to refuse")))))
 
 
+(deftest passive-held-candidate-owes-no-control-write-test
+  (let [{:keys [sources]} (reader-source)
+        w (world :holders ["holder-a" "holder-b"] :sources sources)
+        _ (to-running w (driver-for w "holder-a" sources "v1"))
+        candidate (driver/program-step (:state (driver-for w "holder-b" sources "v1")))
+        state (driver/control-step candidate)]
+    (is (true? (driver/owed-control-write? candidate)))
+    (is (= :proposing (:phase state)))
+    (is (= :yin.k/not-holder (:status state)))
+    (is (nil? (:proposal state)))
+    (is (empty? (requests-of w "holder-b" :yin.k/proposal)))
+    (is (false? (driver/owed-control-write? state)))))
+
+
+(deftest passive-closed-candidate-owes-no-control-write-test
+  (let [{:keys [sources]} (reader-source)
+        w (world :holders ["holder-a" "holder-b"] :sources sources)
+        _ (to-running w (driver-for w "holder-a" sources "v1"))
+        origin-lease (get-in (authority/projection (:a w))
+                             [:occurrences occurrence :dao.lease/lease])
+        result (lift-under (s/halted-machine)
+                           (assoc (header-of 0)
+                                  :yin.k/origin {:yin.k/occurrence occurrence
+                                                 :dao.lease/lease origin-lease
+                                                 :yin.k/emitter "holder-a"})
+                           (serve-as "halted"))
+        answer (completion/report! (:a w) "holder-a"
+                                   (completion/resumed occurrence origin-lease
+                                                       (:address result))
+                                   (:bytes result))
+        _ (lapse-direct! w origin-lease :release)
+        state (driver/control-step
+                (driver/program-step (:state (driver-for w "holder-b" sources "v1"))))]
+    (is (= :committed (:yin.k/status answer)))
+    (is (= :proposing (:phase state)))
+    (is (= :yin.k/not-holder (:status state)))
+    (is (true? (:yin.k/closed (:detail state))))
+    (is (nil? (:proposal state)))
+    (is (empty? (requests-of w "holder-b" :yin.k/proposal)))
+    (is (false? (driver/owed-control-write? state)))))
+
+
+(deftest passive-unavailable-ledger-candidate-owes-no-control-write-test
+  (let [{:keys [sources]} (reader-source)
+        w (world :holders ["holder-a"] :sources sources)
+        record (driver-for w "holder-a" sources "v1" :ledger (constantly nil))
+        state (driver/control-step (driver/program-step (:state record)))]
+    (is (= :proposing (:phase state)))
+    (is (= :yin.k/unsatisfied (:status state)))
+    (is (= :no-arbitration (:yin.k/reason (:detail state))))
+    (is (nil? (:proposal state)))
+    (is (empty? (requests-of w "holder-a" :yin.k/proposal)))
+    (is (false? (driver/owed-control-write? state)))))
+
+
 (deftest a-closed-occurrence-answers-not-holder-past-the-gap-test
   (let [{:keys [sources]} (reader-source)
         w (world :holders ["holder-a"] :sources sources)
@@ -1281,16 +2253,16 @@
         ;; moment, the way a clock that advanced during the cycle would
         ;; read; the between-step atom clocks of this world cannot fire
         ;; the arm at all
-        reply-reader (get-in renewed [:state :seams :read-reply!])
+        reply-reader (get-in renewed [:state :seams :reply-inbox :read-at!])
         past-bound (atom false)
         armed (-> renewed
-                  (assoc-in [:state :seams :read-reply!]
+                  (assoc-in [:state :seams :reply-inbox :read-at!]
                             (let [served (atom false)]
-                              (fn []
+                              (fn [position]
                                 (if @served
                                   (do (reset! past-bound true)
-                                      (reply-reader))
-                                  (do (reset! served true) nil)))))
+                                      (reply-reader position))
+                                  (do (reset! served true) {:status :empty})))))
                   (assoc-in [:state :seams :clock]
                             (fn [] (if @past-bound {:s 31} {:s 11}))))
         st (driver/step (:state armed))]
@@ -1639,22 +2611,22 @@
   (let [{:keys [sources]} (reader-source)
         w (world :holders ["holder-a"] :sources sources)
         original (driver-for w "holder-a" sources "v1")
-        reply-reader (get-in original [:state :seams :read-reply!])
-        lost (assoc-in original [:state :seams :read-reply!]
-                       (fn [] (reply-reader) nil))
+        reply-reader (get-in original [:state :seams :reply-inbox :read-at!])
+        lost (assoc-in original [:state :seams :reply-inbox :read-at!]
+                       (fn [_] {:status :empty}))
         proposed (drive w (drive w lost))
         retried (drive w proposed)
         _ (is (= 2 (count (requests-of w "holder-a" :yin.k/proposal))))
         _ (is (= 1 (count (distinct (requests-of w "holder-a" :yin.k/proposal)))))
-        running (to-running w (assoc-in retried [:state :seams :read-reply!] reply-reader))
+        running (to-running w (assoc-in retried [:state :seams :reply-inbox :read-at!] reply-reader))
         _ (reset! (:clock running) {:s 31})
-        ending (drive w (assoc-in running [:state :seams :read-reply!]
-                                  (fn [] (reply-reader) nil)))
+        ending (drive w (assoc-in running [:state :seams :reply-inbox :read-at!]
+                                  (fn [_] {:status :empty})))
         retrying (drive w ending)]
     (is (= :releasing (get-in retrying [:state :phase])))
     (is (= 2 (count (requests-of w "holder-a" :yin.k/release))))
     (is (= 1 (count (distinct (requests-of w "holder-a" :yin.k/release)))))
-    (let [released (drive w (assoc-in retrying [:state :seams :read-reply!] reply-reader))]
+    (let [released (drive w (assoc-in retrying [:state :seams :reply-inbox :read-at!] reply-reader))]
       (is (= :failed (get-in released [:state :phase])))
       (is (true? (get-in released [:state :release :carried]))))))
 
@@ -1769,17 +2741,17 @@
         renewed (drive w running)
         _ (is (some? (get-in renewed [:state :renewal])))
         l (:lease (:state renewed))
-        reply-reader (get-in renewed [:state :seams :read-reply!])
+        reply-reader (get-in renewed [:state :seams :reply-inbox :read-at!])
         past-bound (atom false)
         armed (-> renewed
                   (assoc-in [:state :machine] fail-stop)
-                  (assoc-in [:state :seams :read-reply!]
+                  (assoc-in [:state :seams :reply-inbox :read-at!]
                             (let [served (atom false)]
-                              (fn []
+                              (fn [position]
                                 (if @served
                                   (do (reset! past-bound true)
-                                      (reply-reader))
-                                  (do (reset! served true) nil)))))
+                                      (reply-reader position))
+                                  (do (reset! served true) {:status :empty})))))
                   (assoc-in [:state :seams :clock]
                             (fn [] (if @past-bound {:s 31} {:s 11}))))
         st (driver/step (:state armed))]
@@ -1847,14 +2819,15 @@
           d (driver-for w "holder-a" {"v1" lifted} "v1"
                         :protection-as {"prog-r" :at-least-once target :enrolled}
                         :attach-table {target sink})
-          reply-reader (get-in d [:state :seams :read-reply!])
+          reply-reader (get-in d [:state :seams :reply-inbox :read-at!])
           d (if projected?
-              (assoc-in d [:state :seams :read-reply!]
-                        (fn []
-                          (loop [] (when-let [pair (reply-reader)]
-                                     (if (= :yin.k/admit (:yin.k/reply (second pair)))
-                                       (recur) pair)))))
-              (assoc-in d [:state :seams :read-outcome!] (constantly nil)))
+              (assoc-in d [:state :seams :reply-inbox :read-at!]
+                        (fn [position]
+                          (let [answer (reply-reader position)]
+                            (if (= :yin.k/admit (get-in answer [:record :yin.k/reply]))
+                              (assoc answer :record {:yin.k/reply :ignored})
+                              answer))))
+              (assoc-in d [:state :seams :outcome-inbox :read-at!] (constantly {:status :empty})))
           running (to-running w d)
           _ (stream/append! (:prog running) "input")
           done (drive-to w running (phase-of :safepoint) 12)
@@ -1924,8 +2897,8 @@
               :append-request! (fn [request]
                                  (stream/append!
                                    (get (:inbounds w) holder) request))
-              :read-reply! (reader-over (get (:replies w) holder) arb)
-              :read-outcome! (reader-over (:outcomes w) arb)
+              :reply-inbox (inbox-over (get (:replies w) holder) arb)
+              :outcome-inbox (inbox-over (:outcomes w) arb)
               :read-ledger! (fn [] (attributed (:frames w)))
               :clock (fn [] @clock)
               :observe! (fn [h op arg]
@@ -1973,7 +2946,8 @@
   "The :yin.k/journal dispatch keys, in order."
   [frames]
   (mapv :yin.k/journal
-        (remove #(contains? #{:yin.k/serve :yin.k/store} (:yin.k/action %))
+        (remove #(or (= :yin.k/inbox (:yin.k/journal %))
+                     (contains? #{:yin.k/serve :yin.k/store} (:yin.k/action %)))
                 (journal-of frames))))
 
 
@@ -2172,8 +3146,9 @@
              (kinds-of (:journal-frames candidacy)))
           "mint before prepare, fence before offer, intent before the
            send, attempt after it, the acknowledgment after evidence")
-      (let [[mint fence intent _ ack] (remove #(contains? #{:yin.k/serve :yin.k/store}
-                                                          (:yin.k/action %))
+      (let [[mint fence intent _ ack] (remove #(or (= :yin.k/inbox (:yin.k/journal %))
+                                                   (contains? #{:yin.k/serve :yin.k/store}
+                                                              (:yin.k/action %)))
                                               (journal-of (:journal-frames candidacy)))]
         (is (= (:yin.k/occurrence mint) (:yin.k/occurrence fence)))
         (is (= (:yin.k/occurrence mint)
@@ -2369,7 +3344,7 @@
   (let [{:keys [sources]} (reader-source)
         world' (world :holders ["holder-a"] :sources sources)
         frames (atom [])
-        progress (:dao.stream/handle (journal/open! (cut-backend frames 4 :after-frame-before-visible)))
+        progress (:dao.stream/handle (journal/open! (cut-backend frames 5 :after-frame-before-visible)))
         configured (driver-for world' "holder-a" sources "v1"
                                :journal-as {:journal progress :frames frames})
         stalled (drive-to world' configured (phase-of :stalled) 8 :judge {:s 2})]
@@ -2812,7 +3787,7 @@
         o (:occurrence (:state d))
         captured (atom nil)
         append-request (get-in d [:state :seams :append-request!])
-        armed (assoc-in (assoc-in d [:state :seams :read-outcome!] (constantly nil))
+        armed (assoc-in (assoc-in d [:state :seams :outcome-inbox :read-at!] (constantly {:status :empty}))
                         [:state :seams :append-request!]
                         (fn [request]
                           (if (= :yin.k/admit (:yin.k/request request))
@@ -3000,27 +3975,62 @@
   [world' answer]
   (let [original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
         append-request (get-in original [:state :seams :append-request!])
-        read-reply (get-in original [:state :seams :read-reply!])
-        replies (atom [])
         reports (atom [])
-        state (-> (:state original)
-                  (assoc-in [:seams :append-request!]
-                            (fn [request]
-                              (if (= :yin.k/resumed (:yin.k/request request))
-                                (do (swap! reports conj request)
-                                    (swap! replies conj
-                                           [arb {:yin.k/reply :yin.k/resumed
+        state (assoc-in (:state original) [:seams :append-request!]
+                        (fn [request]
+                          (if (= :yin.k/resumed (:yin.k/request request))
+                            (do (swap! reports conj request)
+                                (stream/append! (get-in world' [:replies "holder-a"])
+                                                {:yin.k/reply :yin.k/resumed
                                                  :yin.k/request-id (:yin.k/request-id request)
-                                                 :yin.k/answer answer}])
-                                    {:dao.stream/outcome :dao.stream/ok})
-                                (append-request request))))
-                  (assoc-in [:seams :read-reply!]
-                            (fn []
-                              (if-some [reply (first @replies)]
-                                (do (swap! replies #(vec (rest %))) reply)
-                                (read-reply)))))
+                                                 :yin.k/answer answer})
+                                {:dao.stream/outcome :dao.stream/ok})
+                            (append-request request))))
         sent (nth (iterate #(step-source world' %) (assoc original :state state)) 5)]
     {:driver sent :reports reports}))
+
+
+(deftest split-exit-preserves-control-order-test
+  (let [world' (world :holders ["holder-a"])
+        record (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+        served (atom 0)
+        original-serve (get-in record [:state :seams :serve!])
+        initial (assoc-in (:state record) [:seams :serve!]
+                          (fn [handle] (swap! served inc) (original-serve handle)))
+        finished (loop [state initial budget 16]
+                   (if (or (= :exited (:phase state)) (zero? budget)) state
+                       (let [before @served
+                             controlled (driver/control-step state)
+                             _ (is (= before @served))
+                             next-state (driver/program-step controlled)]
+                         (carry! world') (judge! world' {:s 2})
+                         (recur next-state (dec budget)))))
+        actions (mapv :yin.k/action
+                      (filter #(= :yin.k/intent (:yin.k/journal %))
+                              (journal-of (:journal-frames record))))
+        offer-index (first (keep-indexed #(when (= :yin.k/offer %2) %1) actions))
+        report-index (first (keep-indexed #(when (= :yin.k/resumed %2) %1) actions))
+        release-index (first (keep-indexed #(when (= :yin.k/release %2) %1) actions))]
+    (is (= :exited (:phase finished)))
+    (is (pos? @served))
+    (is (< offer-index report-index release-index))
+    (is (false? (driver/owed-control-write? finished)))))
+
+
+(deftest split-terminal-report-cleanup-test
+  (doseq [answer [:ended-lease :quarantined :report-conflict :counter-regression]]
+    (let [world' (world :holders ["holder-a"])
+          {:keys [driver]} (exit-with-report-answer world' {:yin.k/status answer})
+          cleaned (driver/control-step (:state driver))]
+      (is (= :releasing (:phase cleaned)))
+      (is (= :yin.k/ended (:status cleaned)))
+      (is (= :ended (vm/gate-mode (:machine cleaned))))
+      (is (= 1 (count (:diagnostics cleaned))))
+      (is (true? (driver/owed-control-write? cleaned)))
+      (carry! world')
+      (let [finished (driver/control-step cleaned)]
+        (is (= :failed (:phase finished)))
+        (is (false? (driver/owed-control-write? finished)))))))
 
 
 (deftest suspended-report-retries-the-identical-request-test

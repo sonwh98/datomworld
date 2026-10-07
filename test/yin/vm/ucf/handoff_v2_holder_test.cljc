@@ -9,8 +9,11 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [dao.jing.cbor :as cbor]
+            [dao.jing.cbor-fixtures :as fx]
             [dao.stream :as stream]
             [yin.vm :as vm]
+            [yin.vm.debruijn.register :as register]
+            [yin.vm.debruijn.stack :as stack]
             [yin.vm.ucf.handoff :as handoff]
             [yin.vm.ucf.holder.export :as export]
             [yin.vm.ucf.v2-support :as s]))
@@ -47,7 +50,13 @@
    [:unminted-cursor
     #(assoc-in % [:resources :yin/unminted]
                {:stream-id :yin/none :cursor nil :yin.k/unminted true})]
-   [:pending-close #(assoc % :yin.k/closes [{:close :pending}])]])
+   [:pending-close #(assoc % :yin.k/closes [{:close :pending}])]
+   ;; a :link-request wait whose response cursor was never installed
+   [:link-cursor-not-installed
+    #(update-in % [:wait-set 0]
+                (fn [entry]
+                  (dissoc (assoc entry :reason :link-request)
+                          :cursor)))]])
 
 
 (deftest every-hold-refuses-the-lift-in-root-and-child
@@ -97,17 +106,84 @@
         (is (= (:yin.k/cells (:body ea)) (:yin.k/cells (:body eb))))))))
 
 
+(defn- observed
+  "Everything a program could see of stream `h`: the outcome and value
+   at its first positions.  Equal before and after means no program IO
+   appended to it."
+  [h]
+  (mapv #(select-keys (stream/next h %) [:dao.stream/outcome
+                                         :dao.stream/value])
+        (range 3)))
+
+
+(defn- cells-of
+  "Each wait of `waits`, resolved through `machine`'s own resources: its
+   reason, the stream handle it polls and the cell's position, plus the
+   entry's keys but for the recovery's issue mark."
+  [machine waits]
+  (mapv (fn [e]
+          [(:reason e)
+           (get-in machine [:resources (:stream-id e)])
+           (get-in machine [:resources (get-in e [:cursor-ref :id]) :cursor])
+           (disj (set (keys e)) :yin.k/issue)])
+        waits))
+
+
+(defn- resolved
+  "`x` with every stream and cursor reference replaced by what it names
+   in `machine`'s own resources -- the stream handle, the handle and the
+   cell's position -- so records held under receiver-owned ids and seals
+   compare by content."
+  [machine x]
+  (walk/postwalk
+    (fn [n]
+      (if (and (map? n) (contains? #{:stream-ref :cursor-ref} (:type n)))
+        (let [r (get-in machine [:resources (:id n)])]
+          (if (= :stream-ref (:type n))
+            [:stream r]
+            [:cursor (get-in machine [:resources (:stream-id r)]) (:cursor r)]))
+        n))
+    x))
+
+
+(defn- sources
+  "The machines the recovery row freezes, by label: a reader parked on a
+   wait (cells), and an explicit park whose record holds a cursor (a
+   parked record).  Each answers [machine stream]."
+  [engine]
+  [["reader" (s/parked-reader engine)]
+   ["explicit park" (let [m (s/parked-explicit engine)]
+                      [m (get-in m [:resources (some (fn [[_ r]]
+                                                       (:stream-id r))
+                                                     (:resources m))])])]])
+
+
+;; A genuinely fresh process is not portable across the three test
+;; hosts, so this row stands in for one in process: the frozen object
+;; crosses only as text (lowercase hex of its bytes and the address's
+;; string), the receiver is a new machine of the composition that shares
+;; nothing with the source, and the one capability it gets -- `attach`,
+;; answering a descriptor by its identity -- is what a fresh process's
+;; transport would offer.  `rehydrate-fenced` reads nothing else, so
+;; what it can reach is exactly what a fresh process could.
 (deftest a-version-2-recovery-snapshot-freezes-and-rehydrates-fenced
   (doseq [engine s/engines
+          [what [source src]] (sources engine)
           [label header] [["fork" nil]
                           ["exclusive" (s/header 0 nil #{})]]]
-    (testing (str (name engine) " " label)
-      (let [[source _] (s/parked-reader engine)
+    (testing (str (name engine) " " what " " label)
+      (let [before (observed src)
             {machine :machine record :record} (export/enter source
                                                             {:version 2})
             {:keys [serve! table]} (served-table)
-            prepared (export/prepare machine record serve! header)
+            serves (atom 0)
+            prepared (export/prepare machine record
+                                     (fn [h] (swap! serves inc) (serve! h))
+                                     header)
+            served @serves
             frozen (export/freeze machine (:record prepared))
+            wire {:hex (fx/bytes->hex (:bytes frozen))
+                  :address (str (:address frozen))}
             by-identity (into {} (map (fn [[handle descriptor]]
                                         [(:dao.stream/identity descriptor)
                                          handle]))
@@ -115,8 +191,8 @@
             attached (atom 0)
             restored (export/rehydrate-fenced
                        (s/new-machine engine)
-                       (:bytes frozen)
-                       {:address (:address frozen)
+                       (fx/hex->bytes (:hex wire))
+                       {:address (keyword (subs (:address wire) 1))
                         :attach (fn [descriptor]
                                   (swap! attached inc)
                                   {:dao.stream/outcome :dao.stream/ok
@@ -135,8 +211,38 @@
         (is (= :ok (:status restored)) (pr-str restored))
         (is (= :exporting (vm/gate-mode (:machine restored))))
         (is (empty? (:wait-set (:machine restored))))
-        (is (= (count (:wait-set record))
-               (count (get-in restored [:record :wait-set]))))
+        (testing "zero program IO during freeze and rehydrate"
+          (is (= served @serves) "no stream served after prepare")
+          (is (= before (observed src))
+              "the task's stream reads exactly as it did before the lift"))
+        (testing "the cells and parked records come back whole"
+          (is (= (count (:wait-set record))
+                 (count (get-in restored [:record :wait-set]))))
+          (is (= (cells-of source (:wait-set record))
+                 (cells-of (:machine restored)
+                           (get-in restored [:record :wait-set])))
+              "each wait polls the same stream from the same position")
+          (is (= (resolved source (:parked record))
+                 (resolved (:machine restored)
+                           (get-in restored [:record :parked])))
+              "every parked record whole: registers, code and the streams
+               and positions its references name")
+          (is (= (keys (:parked record))
+                 (keys (:parked (:record prepared))))
+              "the parked records are the ones the source entered with")
+          (is (every? #(and (some? (nth % 1)) (some? (nth % 2)))
+                      (cells-of (:machine restored)
+                                (get-in restored [:record :wait-set])))
+              "each restored wait names a live stream and a position")
+          (when (= "explicit park" what)
+            (is (seq (:parked record)) "a parked record crosses")
+            (is (some #(and (vector? %) (= :cursor (first %))
+                            (some? (second %)) (some? (nth % 2)))
+                      (tree-seq coll? seq
+                                (resolved (:machine restored)
+                                          (get-in restored
+                                                  [:record :parked]))))
+                "the record's cursor resolves to a live stream and position")))
         (is (pos? @attached))
         (is (= (vec (:body-bytes frozen)) (vec (:bytes encoded)))
             "the published bytes are reproduced exactly")
@@ -150,6 +256,12 @@
             (is (zero? n))))))))
 
 
+(def ^:private code-keys
+  "Where each profile holds its code: the semantic segment table, the
+   walker's rows, the stack and register segment, layout and hash."
+  [:code :code-aliases :rows :row-index :row-nodes :segment :images :hash])
+
+
 (deftest a-poisoned-receiver-behaves-as-a-clean-one
   (doseq [engine s/engines]
     (testing (name engine)
@@ -159,8 +271,19 @@
             export (s/lift parked t peer)
             reference (do (stream/append! src "B")
                           (vm/value (s/drive-local parked)))
-            poisoned (assoc (s/load-ast engine (s/new-machine engine)
-                                        (s/lit 99))
+            own-code (s/load-ast engine (s/new-machine engine) (s/lit 99))
+            ;; the receiver's own code: its loaded program, and under
+            ;; stack and register a second image grown onto its layout
+            own-code (case engine
+                       :stack (stack/attach-image
+                                own-code (s/module-image :stack (s/lit 77))
+                                vm/stack-contract)
+                       :register (register/attach-image
+                                   own-code
+                                   (s/module-image :register (s/lit 77))
+                                   vm/register-contract)
+                       own-code)
+            poisoned (assoc own-code
                             :store {'poison :wrong}
                             :module-stores {:segment/poison {'x 1}}
                             :parked {:poison {:type :parked-continuation}}
@@ -173,8 +296,20 @@
             r (handoff/resume-task poisoned (:bytes export) attach
                                    {:address (:address export)})
             recv (:vm r)
+            [clean _] (s/read! engine t (:bytes export)
+                               {:address (:address export)})
+            code-of #(select-keys % code-keys)
             done (s/drive recv peer)]
         (is (= :ok (:status r)) (pr-str r))
+        (is (seq (code-of poisoned)) "the receiver held code of its own")
+        (is (not= (code-of poisoned) (code-of recv)))
+        (is (= (code-of (:vm clean)) (code-of recv))
+            "the code the task runs is a clean receiver's: nothing of the
+             receiver's own program, layout or segment remains")
+        (when (contains? #{:stack :register} engine)
+          (is (= 2 (count (:images poisoned))) "a grown stale layout")
+          (is (= (:images parked) (:images recv)))
+          (is (= (:hash parked) (:hash recv))))
         (is (not (contains? (:store recv) 'poison)))
         (is (empty? (:module-stores recv)))
         (is (not (contains? (:parked recv) :poison)))

@@ -5,10 +5,14 @@
    no initialization reruns on lower; numeric carrier classes (float64
    integral content, negative zero) survive in code and value positions
    without recomputing a code hash after coercion."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [dao.jing.cbor :as jing.cbor]
+            [dao.jing.cbor-fixtures :as fx]
             [dao.stream :as stream]
             [yin.vm :as vm]
+            [yin.vm.ucf.handoff :as handoff]
+            [yin.vm.ucf.lift-support :as support]
             [yin.vm.ucf.v2-support :as s]
             [yin.vm.values :as values]))
 
@@ -134,3 +138,131 @@
         (is (jing.cbor/float64? (nth value 0)))
         (is (jing.cbor/float64? (nth value 1)))
         (is (not (jing.cbor/float64? (nth value 2))))))))
+
+
+;; =============================================================================
+;; Row 10: carriers in a code row, and one body pinned across the hosts
+;; =============================================================================
+
+(def ^:private enc
+  "A value's canonical bytes as hex: float64 1.0 and -0.0 compare by
+   their bits on every host, never by host numeric equality."
+  (comp fx/bytes->hex jing.cbor/encode))
+
+
+(defn- float-literal-program
+  "Blocks on one read, then answers a literal whose carriers live only in
+   the code: nothing has evaluated it when the task is lifted."
+  []
+  (s/let1 's {:type :stream/make, :buffer 4}
+          (s/let1 'c (s/cursor-of (s/v 's))
+                  (s/then (s/next-of (s/v 'c))
+                          (s/lit [(jing.cbor/float64 1)
+                                  (jing.cbor/float64 -0.0)
+                                  1])))))
+
+
+(defn- pinned-server
+  "The exporter's `serve!` with identities by order of service, not by
+   gensym: the same task lifts to the same bytes on every run and host."
+  [peer chan]
+  (fn [h]
+    (if-let [existing (some (fn [[id e]] (when (= h (:handle e)) id))
+                            @(:table peer))]
+      {:dao.stream/identity existing, :dao.stream/channel chan}
+      (let [id (str "s" (count @(:table peer)))]
+        (swap! (:table peer) assoc id {:handle h, :surface #{:reader}})
+        {:dao.stream/identity id, :dao.stream/channel chan}))))
+
+
+(defn- lift-float-literal
+  "[export src t peer] of the float-literal task under `engine`."
+  [engine]
+  (let [t (s/toy)
+        peer (s/served-peer t)
+        ;; a made stream with no random identity: its cursor's position
+        ;; is in the bytes
+        made {:make-stream (fn [_capacity]
+                             {:dao.stream/outcome :dao.stream/ok
+                              :dao.stream/handle
+                              (support/one-slot-stream "made-1")})}
+        parked (vm/run (s/load-ast engine (s/new-machine engine made)
+                                   (float-literal-program)))
+        export (handoff/export-task parked
+                                    (pinned-server peer (:channel t))
+                                    {:version 2})]
+    [export (s/stream-of parked) t peer]))
+
+
+(defn- code-floats
+  "The canonical hex of every float carrier inside the body's code rows."
+  [body]
+  (into #{} (comp (filter jing.cbor/float64?) (map enc))
+        (tree-seq coll? seq (:yin.k/code body))))
+
+
+(defn- carriers-ok
+  "The resumed task's answer keeps both carriers and the integer."
+  [value]
+  (is (vector? value) (pr-str value))
+  (when (vector? value)
+    (is (= (enc (jing.cbor/float64 1)) (enc (nth value 0))))
+    (is (= (enc (jing.cbor/float64 -0.0)) (enc (nth value 1))))
+    (is (= (enc 1) (enc (nth value 2))))))
+
+
+(deftest numeric-carrier-classes-survive-a-code-row
+  (doseq [engine s/engines]
+    (testing (name engine)
+      (let [[export src t peer] (lift-float-literal engine)
+            body (jing.cbor/decode (:bytes export))
+            [r _] (s/read! engine t (:bytes export)
+                           {:address (:address export)})]
+        (is (= :ok (:status export)) (pr-str export))
+        (is (= :blocked (:kind export)) "the literal has not run")
+        (is (contains? (code-floats body) (enc (jing.cbor/float64 1)))
+            "integral float64 content stays float64 inside the code row")
+        (is (contains? (code-floats body) (enc (jing.cbor/float64 -0.0)))
+            "negative zero stays itself inside the code row")
+        (is (not= (enc (jing.cbor/float64 -0.0)) (enc (jing.cbor/float64 0))))
+        (is (= :ok (:status r)) (pr-str r))
+        (stream/append! src "B")
+        (carriers-ok (vm/value (s/drive (:vm r) peer)))))))
+
+
+(def ^:private golden-path
+  "The pinned version-2 body: name, segment address, then its bytes as
+   lowercase hex in lines of 64 digits.  Regenerate with `golden-text`."
+  "test/resources/yin/vm/ucf/handoff-v2.txt")
+
+
+(defn- golden-text
+  [export]
+  (let [h (fx/bytes->hex (:bytes export))]
+    (str "handoff-v2-stack-float-literal\n"
+         (subs (str (:address export)) 1) "\n"
+         (apply str (map #(str (subs h % (min (count h) (+ % 64))) "\n")
+                         (range 0 (count h) 64))))))
+
+
+(deftest a-version-2-body-is-the-same-bytes-on-every-host
+  (let [[export src t peer] (lift-float-literal :stack)
+        [n address & hex] (str/split-lines (fx/read-path golden-path))
+        pinned (fx/hex->bytes (apply str hex))
+        [r _] (s/read! :stack t pinned
+                       {:address (keyword "segment"
+                                          (subs address (count "segment/")))})]
+    (is (= :ok (:status export)) (pr-str export))
+    (is (= "handoff-v2-stack-float-literal" n))
+    (is (= address (subs (str (:address export)) 1))
+        (str "this host's lift differs from the pinned address; were the
+              change intended, regenerate:\n" (golden-text export)))
+    (is (= (apply str hex) (fx/bytes->hex (:bytes export)))
+        "this host lifts the pinned bytes exactly")
+    (is (= 2 (:yin.k/version (jing.cbor/decode pinned))))
+    (is (contains? (code-floats (jing.cbor/decode pinned))
+                   (enc (jing.cbor/float64 -0.0))))
+    (is (= :ok (:status r)) "the pinned bytes lower on this host")
+    (when (:vm r)
+      (stream/append! src "B")
+      (carriers-ok (vm/value (s/drive (:vm r) peer))))))

@@ -6,9 +6,16 @@
    whole observable -- the data outcome with its path, zero attach
    calls and no machine."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
+            [yin.vm.debruijn-code :as dcode]
+            [yin.vm.debruijn-linearize :as dl]
+            [yin.vm.debruijn-register-code :as rcode]
+            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.debruijn.register :as register]
+            [yin.vm.debruijn.stack :as stack]
             [yin.vm.ucf :as ucf]
             [yin.vm.test-utils :as tu]
             [yin.vm.ucf.handoff :as handoff]
@@ -102,6 +109,81 @@
         (is (= :parked (:kind rp)))
         (is (= :halted (:kind halted)) (pr-str halted))
         (is (= 42 (vm/value (:vm rh))))))))
+
+
+(defn- stream-blind
+  "`body` with every served stream identity and channel replaced by a
+   placeholder: two lifts over different served tables compare by the
+   census alone."
+  [body]
+  (walk/postwalk (fn [x]
+                   (if (and (map? x) (contains? x :dao.stream/identity))
+                     (assoc x :dao.stream/identity :served
+                            :dao.stream/channel :served)
+                     x))
+                 body))
+
+
+(defn- run-beside
+  "Run `ast` on `m` keeping its code: the semantic and walker profiles
+   load beside what they hold; stack and register attach the program's
+   image to the current layout (a load would replace it, and a parked
+   record names rows of the layout it was parked under) and start there."
+  [engine m ast]
+  (vm/run
+    (case engine
+      (:semantic :walker) (s/load-ast engine m ast)
+      :stack
+      (let [img (:image (dl/adapt (vm/ast->datoms ast)))
+            attached (stack/attach-image m img vm/stack-contract)]
+        (assoc attached
+               :pc (stack/absolute-pc attached [(dcode/image-hash img) 0])
+               :frames [] :stack [] :continuation []
+               :halted? false :blocked? false :value nil))
+      :register
+      (let [img (:image (rc/adapt (vm/ast->datoms ast)))
+            attached (register/attach-image m img vm/register-contract)
+            pc (register/absolute-pc attached [(rcode/register-hash img) 0])
+            body (some #(when (= pc (:start %)) %)
+                       (:bodies (:segment attached)))]
+        (assoc attached
+               :pc pc :frames [] :continuation []
+               :registers (vec (repeat (:registers body) nil))
+               :halted? false :blocked? false :value nil)))))
+
+
+(deftest an-explicit-park-keeps-its-record-identity-and-census-then-resumes
+  (doseq [engine engines]
+    (testing (name engine)
+      (let [t (s/toy)
+            peer (s/served-peer t)
+            parked (s/parked-explicit engine)
+            pid (:id (vm/value parked))
+            export (lift parked t peer)
+            [r _] (read! engine t (:bytes export)
+                         {:address (:address export)})
+            recv (:vm r)
+            t2 (s/toy)
+            relift (lift recv t2 (s/served-peer t2))
+            resume {:type :vm/resume, :parked-id pid, :val (s/lit "back")}
+            reference (run-beside engine parked resume)
+            done (run-beside engine recv resume)]
+        (is (= :parked (:kind export)) (pr-str export))
+        (is (= :ok (:status r)) (pr-str r))
+        (is (= pid (:id (vm/value recv)))
+            "the active park is the source's record, by its own id")
+        (is (= (set (keys (:parked parked))) (set (keys (:parked recv))))
+            "the same parked records, under the same ids")
+        (is (= (vm/value recv) (get (:parked recv) pid)))
+        (is (= :ok (:status relift)) (pr-str relift))
+        (is (= (stream-blind (:body export)) (stream-blind (:body relift)))
+            "the lowered task's census is the source's: cells, parked
+             records, store and code")
+        (is (vm/halted? reference))
+        (is (vm/halted? done))
+        (is (= "back" (vm/value reference)))
+        (is (= (vm/value reference) (vm/value done))
+            "the controlled :vm/resume answers what the source's does")))))
 
 
 (deftest a-blocked-write-retries-its-retained-value-in-every-profile

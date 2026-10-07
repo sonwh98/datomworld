@@ -10,8 +10,8 @@
 
    The driver reaches the authority through exactly the three remote
    paths of r3 1.5, all composition-supplied functions: the front's
-   request and reply streams (`append-request!` and `read-reply!`), the
-   outcome projection (`read-outcome!`), and the authenticated ledger
+   request stream (`append-request!`), the version-1 positional
+   `reply-inbox` and `outcome-inbox`, and the authenticated ledger
    reader (`read-ledger!`, whose attributed records D3's
    `read-evidence` and `custody/binding-evidence` fold).  The lease
    clock (`clock`) is the composition's too, and dao.lease's own holder
@@ -50,6 +50,10 @@
    the grant evidence; a lower failure is after the grant, and releases
    first.  A regrant replays from the checkpoint: the lower starts
    input at zero under the evidence's prefix.
+
+   :activating -- an authenticated grant is retained with its original
+   observation basis, without a machine. Control ticks may renew it;
+   only a program tick revalidates and lowers it.
 
    :running -- run under the gate and drive the writer's and reader's
    steps: tenure rechecked, the renewal sent through D2's
@@ -117,6 +121,7 @@
             [yin.vm.ucf.handoff :as handoff]
             [yin.vm.ucf.holder.evidence :as evidence]
             [yin.vm.ucf.holder.export :as export]
+            [yin.vm.ucf.holder.inbox :as inbox]
             [yin.vm.ucf.holder.reader :as reader]
             [yin.vm.ucf.holder.writer :as writer]
             [yin.vm.ucf.ledger :as ledger]))
@@ -133,7 +138,7 @@
 
 (def ^:private seams
   "The composition-supplied functions the driver steps through."
-  [:append-request! :read-reply! :read-outcome! :read-ledger!
+  [:append-request! :read-ledger!
    :clock :observe! :append-diagnostic! :attach! :serve!])
 
 
@@ -185,6 +190,8 @@
   (check-interval! units (:renewal-interval config))
   (doseq [s seams]
     (check! (fn? (get config s)) (str "the seam " (name s)) {}))
+  (doseq [key (vals inbox/lanes)]
+    (inbox/check-descriptor! (get config key)))
   (doseq [s optional-seams
           :when (some? (get config s))]
     (check! (fn? (get config s)) (str "the seam " (name s)) {}))
@@ -212,7 +219,7 @@
    :units units
    :receiver (:receiver config)
    :export-version (:export-version config)
-   :seams (-> (select-keys config (into seams optional-seams))
+   :seams (-> (select-keys config (into (into seams optional-seams) (vals inbox/lanes)))
               (assoc :journal (:journal config)
                      :content-store (:store config)
                      :medium (:medium config)))
@@ -231,7 +238,12 @@
    :release nil
    :diagnostics []
    :export nil
-   :exit nil})
+   :exit nil
+   :stopped? false
+   :inbox {:positions {:reply 0 :outcome 0} :program [] :control []}})
+
+
+(declare journal-records fold-journal restore-inbox)
 
 
 (defn initial
@@ -250,9 +262,14 @@
      :attach!           the receiver's :dao.stream/attach dispatch
      :append-request!   (fn [request] append-outcome), the holder's
                         inbound stream
-     :read-reply!       (fn [] [author reply] | nil), the front's replies
-     :read-outcome!     (fn [] [author outcome] | nil), the outcome
-                        projection
+     :reply-inbox       {:version 1 :identity stable-id :read-at! f},
+                        the completely retained front reply source
+     :outcome-inbox     the same descriptor for admission outcomes;
+                        f takes a dense portable position, without
+                        consuming, and returns {:status :record
+                        :position n :author a :record r}, {:status :empty}
+                        at the tail, or {:status :unavailable} for
+                        inaccessible history. No destructive fallback.
      :read-ledger!      (fn [] [[author record] ...] | nil), the
                         authority's ledger records from the origin, or
                         nil when the arbitration medium cannot be
@@ -283,7 +300,8 @@
     (check! (some? address) "the address the bytes were fetched under"
             {:address address})
     (check-common! config units)
-    (bare-state config units)))
+    (restore-inbox (bare-state config units)
+                   (:inbox (fold-journal (journal-records (:journal config)))))))
 
 
 (defn source
@@ -320,30 +338,21 @@
             "an arbitration medium: a map naming the identity, or nil for the fork"
             {:arbitration (:arbitration config)})
     (check-common! config units)
-    (assoc (bare-state config units)
-           :phase :exporting
-           :bytes nil
-           :address nil
-           :arbitration (get-in config [:arbitration :dao.stream/identity])
-           :export {:role (if (some? (:arbitration config))
-                            :yin.k/first nil)
-                    :machine machine
-                    :arbitration (:arbitration config)})))
+    (restore-inbox (assoc (bare-state config units)
+                          :phase :exporting
+                          :bytes nil
+                          :address nil
+                          :arbitration (get-in config [:arbitration :dao.stream/identity])
+                          :export {:role (if (some? (:arbitration config))
+                                           :yin.k/first nil)
+                                   :machine machine
+                                   :arbitration (:arbitration config)})
+                   (:inbox (fold-journal (journal-records (:journal config)))))))
 
 
 (defn- append-request!
   [state request]
   ((get-in state [:seams :append-request!]) request))
-
-
-(defn- read-reply!
-  [state]
-  ((get-in state [:seams :read-reply!])))
-
-
-(defn- read-outcome!
-  [state]
-  ((get-in state [:seams :read-outcome!])))
 
 
 (defn- read-ledger!
@@ -424,6 +433,7 @@
            :yin.k/fenced (and (some? (:yin.k/occurrence record))
                               (keyword? (:yin.k/address record)) (keyword? (:yin.k/record record)))
            :yin.k/aborted (some? (:yin.k/occurrence record))
+           :yin.k/inbox (inbox/retention? record)
            :yin.k/intent (and (contains? actions action)
                               (if (= :yin.k/enroll action)
                                 (some? (:yin.k/derived record))
@@ -500,6 +510,8 @@
   (reduce
     (fn [f [index record]]
       (case (get record :yin.k/journal)
+        :yin.k/inbox
+        (update f :inbox inbox/retain record)
         :yin.k/minted
         (assoc f :mint {:role (get record :yin.k/role)
                         :index index
@@ -546,7 +558,7 @@
           (update f :action-attempts (fnil conj []) record))
         f))
     {:mint nil :fences {} :intents {} :ordered-intents [] :acked #{} :answers {}
-     :attempts {} :offered #{} :grant nil}
+     :attempts {} :offered #{} :grant nil :inbox []}
     (map-indexed vector records)))
 
 
@@ -1052,9 +1064,10 @@
 
 (defn- step-exporting
   [state]
-  (let [state (drain-control state)
+  (let [state (if (nil? (get-in state [:export :role])) state (drain-control state))
         cell (:export state)]
     (cond
+      (:inbox-unavailable? state) state
       (nil? (:role cell)) (fork-step state)
       (nil? (:occurrence cell)) (source-mint state)
       (not (:prepared? cell)) (export-prepare-step state :export)
@@ -1244,7 +1257,7 @@
                    :yin.k/address (:address cell)
                    :yin.k/occurrence o1
                    :dao.lease/lease (:dao.lease/lease closed)})
-          (export-offer-step state :exit))))))
+          (export-offer-step (assoc-in state [:exit :closure] closed) :exit))))))
 
 
 (defn- step-exit-body
@@ -1298,6 +1311,7 @@
                          (fold (:arbitration state) mine-records))
             o1 (:occurrence state)]
         (cond
+          (:inbox-refused? state) state
           (or (some? defect) (nil? projection))
           (unsatisfied state (or defect :fold-defect) {})
 
@@ -1421,44 +1435,57 @@
    answer the state after it: while it is unanswered the step answers
    `:yin.k/awaiting-grant`.  A minted id's intent record is durable in
    the journal before its first send, so a resent proposal keeps its
-   stable id across a reopen."
+   stable id across a reopen.  A stopped candidate never proposes
+   again, and an unavailable inbox holds the proposal until a scan
+   succeeds: either way the outstanding proposal waits passively, and
+   a late grant to it is still observed from the ledger."
   [state projection]
-  (let [refused? (= :dao.lease/rejected
-                    (get-in projection [:answered [(:me state)
-                                                   (:id (:proposal state))]]))
-        mint? (or (nil? (:proposal state)) refused?)
-        proposal (if mint?
-                   (let [pid (fresh-pid state)
-                         request (proposal-request (:occurrence state) pid)]
-                     {:id pid :request request :sent false})
-                   (:proposal state))
-        sent? (true? (:sent proposal))
-        outcome (when-not (:carried proposal)
-                  (journal! state {:yin.k/journal :yin.k/intent :yin.k/action :yin.k/proposal
-                                   :yin.k/occurrence (:occurrence state)
-                                   :yin.k/request (:request proposal)})
-                  (let [answer (append-request! state (:request proposal))]
-                    (journal! state {:yin.k/journal :yin.k/attempt :yin.k/action :yin.k/proposal
+  (cond
+    (and (:stopped? state)
+         (or (nil? (:proposal state))
+             (= :dao.lease/rejected (get-in projection [:answered [(:me state) (get-in state [:proposal :id])]]))))
+    (with-status state :yin.k/ended {:cause :stopped})
+
+    (or (:stopped? state) (:inbox-unavailable? state))
+    state
+
+    :else
+    (let [refused? (= :dao.lease/rejected
+                      (get-in projection [:answered [(:me state)
+                                                     (:id (:proposal state))]]))
+          mint? (or (nil? (:proposal state)) refused?)
+          proposal (if mint?
+                     (let [pid (fresh-pid state)
+                           request (proposal-request (:occurrence state) pid)]
+                       {:id pid :request request :sent false})
+                     (:proposal state))
+          sent? (true? (:sent proposal))
+          outcome (when-not (:carried proposal)
+                    (journal! state {:yin.k/journal :yin.k/intent :yin.k/action :yin.k/proposal
                                      :yin.k/occurrence (:occurrence state)
-                                     :yin.k/request-id (get-in proposal [:request :yin.k/request-id])
-                                     :yin.k/append (:dao.stream/outcome answer)})
-                    answer))
-        proposal' (assoc proposal
-                         :sent (or sent?
-                                   (= :dao.stream/ok
-                                      (:dao.stream/outcome outcome))))]
-    (-> state
-        (update :sent-proposals
-                (fn [ids]
-                  (if (= :dao.stream/ok (:dao.stream/outcome outcome))
-                    (conj ids (:id proposal)) ids)))
-        (assoc :proposal proposal'
-               :proposals (if mint?
-                            (inc (or (:proposals state) 0))
-                            (or (:proposals state) 0)))
-        (with-status :yin.k/awaiting-grant
-          {:yin.k/occurrence (:occurrence state)
-           :dao.lease/proposal (:id proposal')}))))
+                                     :yin.k/request (:request proposal)})
+                    (let [answer (append-request! state (:request proposal))]
+                      (journal! state {:yin.k/journal :yin.k/attempt :yin.k/action :yin.k/proposal
+                                       :yin.k/occurrence (:occurrence state)
+                                       :yin.k/request-id (get-in proposal [:request :yin.k/request-id])
+                                       :yin.k/append (:dao.stream/outcome answer)})
+                      answer))
+          proposal' (assoc proposal
+                           :sent (or sent?
+                                     (= :dao.stream/ok
+                                        (:dao.stream/outcome outcome))))]
+      (-> state
+          (update :sent-proposals
+                  (fn [ids]
+                    (if (= :dao.stream/ok (:dao.stream/outcome outcome))
+                      (conj ids (:id proposal)) ids)))
+          (assoc :proposal proposal'
+                 :proposals (if mint?
+                              (inc (or (:proposals state) 0))
+                              (or (:proposals state) 0)))
+          (with-status :yin.k/awaiting-grant
+            {:yin.k/occurrence (:occurrence state)
+             :dao.lease/proposal (:id proposal')})))))
 
 
 (defn- lower
@@ -1486,7 +1513,12 @@
                :dao.lease/lease l
                :dao.lease/holder (:me state)
                :tenure {:now (base reading)
-                        :bound (+ (base basis) (base duration))
+                        :bound (let [duration-bound (+ (max (base basis)
+                                                            (base (or (:last-renewal-at holder) basis)))
+                                                       (base duration))]
+                                 (if-some [cap (:dao.lease/max grant)]
+                                   (min duration-bound (+ (base basis) (base cap)))
+                                   duration-bound))
                         :live true}
                :evidence E}})))
 
@@ -1551,8 +1583,11 @@
       ;; proposal minted here would be minted and refused each pass
       ;; forever
       (and stale? (nil? (:dao.lease/lease entry)))
-      (if (never-granted-again? entry)
+      (cond
+        (never-granted-again? entry)
         (with-status state :yin.k/not-holder (occurrence-state projection o))
+        (:stopped? state) (with-status state :yin.k/ended {:cause :stopped})
+        :else
         (propose (if (= (:dao.lease/proposal fact) (get-in state [:proposal :id]))
                    (assoc state :proposal nil) state) projection))
 
@@ -1579,21 +1614,13 @@
                    :yin.k/action :yin.k/grant
                    :yin.k/occurrence o
                    :dao.lease/lease l})
-        (let [current-reading (clock state)]
-          (if-not (lease/holding? holder' current-reading)
-            (releasing state :yin.k/ended {:cause :lease-bound :dao.lease/lease l} l)
-            (let [r (lower state l holder' E current-reading)]
-              (if (= :ok (:status r))
-                (-> state
-                    (assoc :phase :running
-                           :machine (:vm r)
-                           :lease l
-                           :holder holder'
-                           :evidence E)
-                    (with-status :yin.k/ok
-                      {:yin.k/occurrence o :dao.lease/lease l}))
-                (releasing state (:yin.k/status r)
-                           (dissoc r :yin.k/status) l)))))))))
+        (let [accepted (-> state
+                           (assoc :phase :activating :lease l :holder holder' :evidence E)
+                           (with-status :yin.k/ok
+                             {:yin.k/occurrence o :dao.lease/lease l}))]
+          (if (:stopped? accepted)
+            (releasing accepted :yin.k/ended {:cause :stopped} l)
+            accepted))))))
 
 
 (defn- ack!
@@ -1687,7 +1714,7 @@
               (ack! state :yin.k/resumed (:occurrence state) rid answer)
               state))
 
-          (and (contains? #{:running :safepoint} (:phase state))
+          (and (contains? #{:activating :running :safepoint} (:phase state))
                (map? (:renewal state))
                (= :yin.k/renewal (get record :yin.k/reply))
                (= (get-in state [:renewal :request :yin.k/request-id]) rid)
@@ -1707,54 +1734,130 @@
           :else state)))))
 
 
-(defn- drain-control
-  "Every reply the front has answered that is this driver's own, read
-   dry.  During the candidate loop no program record can exist; during
-   a run `drain` reads these beside the program's."
+(defn- run-binding
   [state]
-  (loop [state state]
-    (if-some [pair (read-reply! state)]
-      (recur (control-reply state (first pair) (second pair)))
-      state)))
+  (when (:lease state)
+    {:yin.k/occurrence (:occurrence state)
+     :dao.lease/lease (:lease state)
+     :yin.k/epoch (get-in state [:evidence :yin.k/binding :yin.k/epoch])}))
+
+
+(defn- program-record?
+  [record]
+  (and (map? record)
+       (or (contains? #{:yin.k/admit :yin.k/input} (:yin.k/reply record))
+           (and (nil? (:yin.k/reply record)) (contains? record :yin.k/admission)))))
+
+
+(defn- restore-inbox
+  [state receipts]
+  (let [receipts (inbox/reconcile! (:seams state) receipts)]
+    (assoc state :inbox {:positions (inbox/positions receipts)
+                         :identities (inbox/identities receipts)
+                         :program (filterv #(program-record? (:yin.k/record %)) receipts)
+                         :control (filterv #(not (program-record? (:yin.k/record %))) receipts)})))
+
+
+(defn- dispatch-receipt
+  [state receipt]
+  (if (program-record? (:yin.k/record receipt))
+    (update-in state [:inbox :program] conj receipt)
+    (control-reply state (:yin.k/author receipt) (:yin.k/record receipt))))
+
+
+(defn- reconcile-cleanup-inbox
+  [state]
+  (if-not (contains? state :inbox-reconciliation)
+    state
+    (try
+      (inbox/reconcile! (:seams state) (:inbox-reconciliation state))
+      (dissoc state :inbox-reconciliation)
+      (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+        (if-some [reason (::inbox/refusal (ex-data failure))]
+          (cond-> (-> state
+                      (assoc :inbox-unavailable? true)
+                      (unsatisfied reason {}))
+            (not= :inbox-unavailable reason) (assoc :inbox-refused? true))
+          (throw failure))))))
+
+
+(defn- collect-inbox
+  "Select reply-first, retaining the complete attributed record before dispatch.
+   A selected but unretained observation remains reproducible at its position."
+  [state]
+  (let [state (reconcile-cleanup-inbox state)]
+    (if (contains? state :inbox-reconciliation)
+      state
+      (let [state (reduce dispatch-receipt state (get-in state [:inbox :control]))
+            state (-> state (assoc-in [:inbox :control] []) (dissoc :inbox-unavailable? :inbox-refused?))]
+        (loop [state state lane :reply]
+          (let [descriptor (get-in state [:seams (get inbox/lanes lane)])
+                position (get-in state [:inbox :positions lane])
+                selection (try
+                            (when (and (contains? (get-in state [:inbox :identities]) lane)
+                                       (not (inbox/same-data? (:identity descriptor)
+                                                              (get-in state [:inbox :identities lane]))))
+                              (throw (ex-info "Changed holder inbox identity" {::inbox/refusal :inbox-identity})))
+                            {:answer (inbox/read-at descriptor position)}
+                            (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+                              (if-some [reason (::inbox/refusal (ex-data failure))]
+                                {:refusal reason}
+                                (throw failure))))
+                answer (:answer selection)]
+            (if-some [reason (:refusal selection)]
+              (-> state
+                  (assoc :inbox-unavailable? true :inbox-refused? true)
+                  (unsatisfied reason {:yin.k/lane lane}))
+              (case (:status answer)
+                :empty (if (= :reply lane) (recur state :outcome) state)
+                :unavailable (-> state
+                                 (assoc :inbox-unavailable? true)
+                                 (unsatisfied :inbox-unavailable {:yin.k/lane lane}))
+                :record
+                (let [receipt (cond-> {:yin.k/journal :yin.k/inbox
+                                       :yin.k/lane lane :yin.k/identity (:identity descriptor)
+                                       :yin.k/position position :yin.k/author (:author answer)
+                                       :yin.k/record (:record answer)}
+                                (run-binding state) (assoc :yin.k/binding (run-binding state)))]
+                  (journal! state receipt)
+                  (recur (dispatch-receipt (-> state
+                                               (update-in [:inbox :positions lane] inc)
+                                               (assoc-in [:inbox :identities lane] (:identity descriptor))) receipt)
+                         :reply))))))))))
+
+
+(defn- drain-control
+  [state]
+  (collect-inbox state))
 
 
 (defn- step-proposing
+  "Observe the grant from the ledger even while the inbox is
+   unavailable -- a late grant to a stopped candidate is accepted and
+   released, never lowered -- and leave the proposal to `propose`."
   [state]
-  (let [records (read-ledger! state)]
-    (if (nil? records)
-      (unsatisfied state :no-arbitration
-                   {:dao.stream/identity (:arbitration state)})
-      (let [arb (:arbitration state)
-            mine-records (vec (mine arb records))
-            defect (history-defect mine-records)
-            grants (filterv #(contains? (:sent-proposals state) (:dao.lease/proposal %))
-                            (grants-to arb (:me state) (:occurrence state) records))]
-        (if (seq grants)
-          (accept (drain-control state) records defect (peek grants))
-          (if (some? defect)
-            (unsatisfied state defect {})
-            (let [projection (fold arb mine-records)]
-              (if (nil? projection)
-                (unsatisfied state :fold-defect {})
-                (let [entry (get-in projection
-                                    [:occurrences (:occurrence state)])]
-                  (cond
-                    ;; held by another lease: not the holder; nothing
-                    ;; was acquired and nothing is released
-                    (some? (:dao.lease/lease entry))
-                    (with-status (drain-control state)
-                      :yin.k/not-holder
-                      (occurrence-state
-                        projection (:occurrence state)))
-
-                    (never-granted-again? entry)
-                    (with-status (drain-control state)
-                      :yin.k/not-holder
-                      (occurrence-state
-                        projection (:occurrence state)))
-
-                    :else (propose (drain-control state)
-                                   projection)))))))))))
+  (let [state (drain-control state)]
+    (if (:inbox-refused? state)
+      state
+      (let [records (read-ledger! state)]
+        (if (nil? records)
+          (unsatisfied state :no-arbitration {:dao.stream/identity (:arbitration state)})
+          (let [arbitration (:arbitration state)
+                own-records (vec (mine arbitration records))
+                defect (history-defect own-records)
+                grants (filterv #(contains? (:sent-proposals state) (:dao.lease/proposal %))
+                                (grants-to arbitration (:me state) (:occurrence state) records))]
+            (if (seq grants)
+              (accept state records defect (peek grants))
+              (if defect
+                (unsatisfied state defect {})
+                (if-some [projection (fold arbitration own-records)]
+                  (let [entry (get-in projection [:occurrences (:occurrence state)])]
+                    (if (or (:dao.lease/lease entry) (never-granted-again? entry))
+                      (with-status state :yin.k/not-holder
+                        (occurrence-state projection (:occurrence state)))
+                      (propose state projection)))
+                  (unsatisfied state :fold-defect {}))))))))))
 
 
 ;; =============================================================================
@@ -1801,39 +1904,78 @@
       [(assoc state :renewal pending :renewal-pending? true) holder])))
 
 
-(defn- drain
-  "Fold every attributed record the composition's two readers answer --
-  the front's replies and the outcome projection -- into the machine,
-  routing each to the writer's `discharge`, the reader's `settle` or
-  this driver's own control arm.  A record that matches nothing changes
-  nothing, and draining continues past a run end, for the readers are
-  read dry either way."
+(defn- binding-check
+  "Fresh complete evidence and the same live occurrence, lease and epoch.
+   Availability suspends; contradiction ends the run through its existing cleanup."
+  [state]
+  (if-not (lease/holding? (:holder state) (clock state))
+    {:state (end-run state :lease-bound {:dao.lease/lease (:lease state)})}
+    (let [records (read-ledger! state)
+          arbitration (:arbitration state)
+          attributed (when records (vec (mine arbitration records)))
+          defect (when records (history-defect attributed))
+          projection (when (and records (nil? defect)) (fold arbitration attributed))
+          binding (when projection (custody/binding-evidence arbitration records (:lease state)))
+          proof (when projection (evidence/read-evidence arbitration records (:lease state)))
+          entry (get-in projection [:occurrences (:occurrence state)])]
+      (cond
+        (or (nil? records) defect (nil? projection))
+        {:state (unsatisfied state (or defect :no-arbitration) {})}
+        (or (::custody/no-evidence binding)
+            (not= (run-binding state)
+                  (select-keys binding [:yin.k/occurrence :dao.lease/lease :yin.k/epoch]))
+            (not= (:lease state) (:dao.lease/lease entry))
+            (not= (get-in state [:evidence :yin.k/binding :yin.k/epoch]) (:yin.k/epoch entry)))
+        {:state (end-run state :stale {:dao.lease/lease (:lease state)
+                                       :dao.lease/observed-lease (:dao.lease/lease entry)})}
+        (not= :yin.k/ready (:yin.k/status proof))
+        {:state (unsatisfied state (or (:yin.k/reason proof) :no-evidence) {})}
+        (not (lease/holding? (:holder state) (clock state)))
+        {:state (end-run state :lease-bound {:dao.lease/lease (:lease state)})}
+        :else {:state state :projection projection :proof proof}))))
+
+
+(defn- apply-program-inbox
   [state]
   (loop [state state]
-    (if-some [pair (or (when-some [p (read-reply! state)] [:reply p])
-                       (when-some [p (read-outcome! state)] [:outcome p]))]
-      (let [[author record] (second pair)
-            m (:machine state)
-            kind (get record :yin.k/reply)
-            r (cond
-                ;; the writer's: an admit reply, or a projected
-                ;; admission outcome with no request wrapper
-                (or (= :yin.k/admit kind)
-                    (and (nil? kind) (contains? record :yin.k/admission)))
-                (writer/discharge m author record)
-
-                ;; the reader's: an input acknowledgment
-                (= :yin.k/input kind)
-                (reader/settle m author record)
-
-                ;; this driver's own
-                :else {:machine m})]
-        (recur (control-reply
-                 (assoc state
-                        :machine (:machine r)
-                        :run-end (or (:run-end state) (:run-end r)))
-                 author record)))
+    (if-some [receipt (first (get-in state [:inbox :program]))]
+      (if (not= (run-binding state) (:yin.k/binding receipt))
+        (recur (update-in state [:inbox :program] #(vec (rest %))))
+        (let [{checked :state projection :projection} (binding-check state)]
+          (if-not projection
+            (assoc checked :program-suspended? true)
+            (let [record (:yin.k/record receipt)
+                  result (if (= :yin.k/input (:yin.k/reply record))
+                           (reader/settle (:machine checked) (:yin.k/author receipt) record)
+                           (writer/discharge (:machine checked) (:yin.k/author receipt) record))]
+              (recur (-> checked
+                         (assoc :machine (:machine result)
+                                :run-end (or (:run-end checked) (:run-end result)))
+                         (update-in [:inbox :program] #(vec (rest %)))))))))
       state)))
+
+
+(defn- drain
+  [state mode]
+  (let [state (if (contains? #{:program :control-buffered} mode) state (collect-inbox state))]
+    (if (or (contains? #{:control :control-buffered} mode) (:stopped? state) (:inbox-unavailable? state)
+            (not (contains? #{:running :safepoint} (:phase state))))
+      state
+      (apply-program-inbox state))))
+
+
+(defn- activate
+  [state]
+  (let [{checked :state projection :projection proof :proof} (binding-check state)]
+    (if-not projection
+      checked
+      (let [checked (assoc checked :evidence proof)
+            result (lower checked (:lease checked) (:holder checked)
+                          proof (clock checked))]
+        (if (= :ok (:status result))
+          (assoc checked :phase :running :machine (:vm result))
+          (releasing checked (:yin.k/status result)
+                     (dissoc result :yin.k/status) (:lease checked)))))))
 
 
 (defn- require-tenure!
@@ -1899,6 +2041,7 @@
         m1 (if (and (= :running (vm/gate-mode m0)) (not (:halted? m0)))
              (vm/run m0)
              m0)
+        _ (require-tenure! state)
         replay (reader/replay m1 {:control-outstanding?
                                   (control-outstanding? state)})
         m2 (:machine replay)
@@ -1941,110 +2084,78 @@
        (true? (get-in state [:release :carried]))))
 
 
-(defn- step-active-held
-  "The step of :running and :safepoint alike: tenure is rechecked
-   before any execution or IO is scheduled (the D10 ruling); not
-   holding ends the run and releases; then the renewal, the program
-   cycle and the drains -- or, once the exit is armed, the exit body,
-   under the same tenure.  A halted result published without custody
-   steps to itself.  An exit whose release has been carried no longer
-   spends tenure: it only watches the ledger for the closure."
+(defn- cycle-result
   [state]
-  (if (nil? (:lease state))
-    state
-    (let [_ (when-not (exit-settled? state) (require-tenure! state))
-          state (drain state)]
-      (if (exit-settled? state)
-        ;; the release has left: read the ledger and wait out the
-        ;; closure, however the lease it ran under has since ended
-        (step-exiting state)
-        (if-not (lease/holding? (:holder state) (clock state))
-          (end-run state :lease-bound {:dao.lease/lease (:lease state)})
-          (let [records (read-ledger! state)]
-            (if (= :releasing (:phase state))
-              ;; the pre-cycle drain ended the run: its answer stands, and
-              ;; the state carries no run end, as the post-cycle path's
-              (dissoc state :run-end)
-              (if-some [end (:run-end state)]
-                (end-run (dissoc state :run-end) (:cause end)
-                         (dissoc end :cause))
-                (if (nil? records)
-                  (unsatisfied state :no-arbitration
-                               {:dao.stream/identity (:arbitration state)})
-                  (let [arb (:arbitration state)
-                        mine-records (vec (mine arb records))
-                        defect (history-defect mine-records)
-                        projection (when (nil? defect) (fold arb mine-records))
-                        o (:occurrence state)
-                        l (:lease state)
-                        entry (get-in projection [:occurrences o])]
-                    (cond
-                      ;; unknown tenure: no execution and no IO scheduled
-                      (or (some? defect) (nil? projection) (nil? entry))
-                      (unsatisfied state (or defect :fold-defect) {})
+  (let [run-end (:run-end state)
+        unsatisfied-step (:step-unsatisfied state)
+        base (dissoc state :run-end :step-unsatisfied)]
+    (cond
+      (= :releasing (:phase base)) base
+      run-end (end-run base (:cause run-end) (dissoc run-end :cause))
+      (:inbox-unavailable? base) base
+      unsatisfied-step (with-status base :yin.k/unsatisfied
+                         (dissoc unsatisfied-step :yin.k/status))
+      (at-safepoint? (:machine base))
+      (let [{:keys [state refusal]} (arm-exit base :yin.k/result)]
+        (cond-> (assoc state :phase :safepoint)
+          (nil? refusal)
+          (assoc :status :yin.k/ok
+                 :detail {:yin.k/occurrence (:occurrence state)
+                          :dao.lease/lease (:lease state)})))
+      :else (with-status base :yin.k/ok
+              {:yin.k/occurrence (:occurrence base) :dao.lease/lease (:lease base)}))))
 
-                      ;; the lease is no longer the occurrence's live lease
-                      (or (not= l (:dao.lease/lease entry))
-                          (not= (get-in state
-                                        [:evidence :yin.k/binding :yin.k/epoch])
-                                (:yin.k/epoch entry)))
-                      (end-run state :stale
-                               {:dao.lease/lease l
-                                :dao.lease/observed-lease
-                                (:dao.lease/lease entry)})
 
-                      :else
-                      (let [holder (:holder state)
-                            reading (clock state)]
-                        (if-not (lease/holding? holder reading)
-                          ;; at the bound: all IO stops, and the lease may
-                          ;; still be live, so it is released
-                          (end-run state :lease-bound {:dao.lease/lease l})
-                          (let [[state' holder'] (renew state holder reading)
-                                armed? (map? (get state' :exit))]
-                            (if armed?
-                              ;; the exit body under tenure: the renewal
-                              ;; and the recheck continue while it runs
-                              (drain (step-exit-body
-                                       (assoc state' :holder holder')
-                                       projection))
-                              (let [state'' (drain (run-cycle
-                                                     (assoc state'
-                                                            :holder holder')))
-                                    end (:run-end state'')
-                                    unsat (:step-unsatisfied state'')
-                                    base (dissoc state'' :run-end
-                                                 :step-unsatisfied)]
-                                (cond
-                                  ;; the post-cycle drain can itself have
-                                  ;; ended the run -- a renewal carriage
-                                  ;; accepted only after the clock crossed
-                                  ;; the bound: its answer stands, never
-                                  ;; re-labelled below
-                                  (= :releasing (:phase base))
-                                  base
-
-                                  (some? end)
-                                  (end-run base (:cause end)
-                                           (dissoc end :cause))
-
-                                  (some? unsat)
-                                  (with-status base :yin.k/unsatisfied
-                                    (dissoc unsat :yin.k/status))
-
-                                  (at-safepoint? (:machine base))
-                                  (let [{:keys [state refusal]}
-                                        (arm-exit base :yin.k/result)]
-                                    (if (nil? refusal)
-                                      (assoc state :phase :safepoint
-                                             :status :yin.k/ok
-                                             :detail {:yin.k/occurrence o
-                                                      :dao.lease/lease l})
-                                      (assoc state :phase :safepoint)))
-
-                                  :else (with-status base :yin.k/ok
-                                          {:yin.k/occurrence o
-                                           :dao.lease/lease l}))))))))))))))))))
+(defn- step-active-held
+  "Share binding validation and tenure between control and program scheduling.
+   Only program scheduling applies retained results or prepares an export."
+  [state mode]
+  (let [state (if (or (= :program mode) (nil? (:lease state))) state (collect-inbox state))]
+    (cond
+      (:inbox-refused? state) state
+      (= :releasing (:phase state)) state
+      (nil? (:lease state)) state
+      (and (:stopped? state) (nil? (get-in state [:exit :address])))
+      (end-run state :stopped {:dao.lease/lease (:lease state)})
+      (exit-settled? state)
+      (if (= :program mode) state (step-exiting state))
+      :else
+      (let [{checked :state projection :projection} (binding-check state)]
+        (if-not projection
+          checked
+          (let [drained (drain (dissoc checked :program-suspended?)
+                               (if (= :control mode) :control-buffered :program))]
+            (cond
+              (= :releasing (:phase drained)) (dissoc drained :run-end)
+              (:program-suspended? drained) (dissoc drained :program-suspended?)
+              (:run-end drained) (end-run (dissoc drained :run-end)
+                                          (get-in drained [:run-end :cause])
+                                          (dissoc (:run-end drained) :cause))
+              :else
+              (let [reading (clock drained)
+                    _ (require-tenure! drained)
+                    [renewed holder] (if (= :program mode)
+                                       [drained (:holder drained)]
+                                       (renew drained (:holder drained) reading))
+                    state (assoc renewed :holder holder)
+                    armed? (some? (:exit state))
+                    preparing? (nil? (get-in state [:exit :address]))]
+                (cond
+                  (:inbox-unavailable? state)
+                  (if (and armed? (not preparing?) (not= :program mode))
+                    (let [progressed (drain (step-exit-body state projection) mode)]
+                      (if (and (:inbox-unavailable? progressed) (= :yin.k/ok (:status progressed)))
+                        (with-status progressed (:status state) (:detail state))
+                        progressed))
+                    state)
+                  (and armed?
+                       (or (and (= :control mode) preparing?)
+                           (and (= :program mode) (not preparing?)))) state
+                  armed? (drain (step-exit-body state projection) mode)
+                  (or (= :control mode) (= :activating (:phase state)))
+                  (with-status state :yin.k/ok
+                    {:yin.k/occurrence (:occurrence state) :dao.lease/lease (:lease state)})
+                  :else (cycle-result (drain (run-cycle state) mode)))))))))))
 
 
 (defn- step-active
@@ -2054,10 +2165,10 @@
    a program effect -- and it ends the run.  An uncertain journal
    append is none of these: it unwinds untouched, and `step` stalls
    everything on it."
-  [state]
-  (try (step-active-held state)
+  [state mode]
+  (try (step-active-held state mode)
        (catch #?(:cljd Object :clj Throwable :cljs :default) failure
-         (if (::journal-uncertain (ex-data failure))
+         (if (or (::journal-uncertain (ex-data failure)) (::inbox/refusal (ex-data failure)))
            (throw failure)
            (if (= :lease-bound (::cause (ex-data failure)))
              (end-run state :lease-bound {:dao.lease/lease (:lease state)})
@@ -2079,17 +2190,19 @@
   [state]
   (let [state (drain-control state)
         release (:release state)]
-    (if (true? (:carried release))
-      (if (:re-propose? release)
-        (-> state
-            (dissoc :release :holder :evidence)
-            (assoc :phase :proposing :proposal nil)
-            (with-status :yin.k/awaiting-grant
-              {:yin.k/occurrence (:occurrence state)}))
-        (-> state
-            (assoc :phase :failed)
-            (update :detail assoc :dao.lease/released true)))
-      (release! state (:lease release)))))
+    (if (:inbox-refused? state)
+      state
+      (if (true? (:carried release))
+        (if (and (:re-propose? release) (not (:stopped? state)))
+          (-> state
+              (dissoc :release :holder :evidence)
+              (assoc :phase :proposing :proposal nil)
+              (with-status :yin.k/awaiting-grant
+                {:yin.k/occurrence (:occurrence state)}))
+          (-> state
+              (assoc :phase :failed)
+              (update :detail assoc :dao.lease/released true)))
+        (release! state (:lease release))))))
 
 
 ;; =============================================================================
@@ -2131,33 +2244,109 @@
 ;; The step
 ;; =============================================================================
 
-(defn step
-  "Advance `state` by one explicit step and answer the next state.  The
-   composition reads `:phase` (:validating, :exporting, :proposing,
-   :running, :safepoint, :exiting, :releasing, :exited, :lifted,
-   :aborted, :stalled or :failed), `:status` (:yin.k/ok,
-   :yin.k/awaiting-grant, :yin.k/not-holder, :yin.k/unsatisfied or
-   :yin.k/ended) and `:detail`; the lowered task, once a grant is
-   accepted whole, is `:machine`.  A terminal state steps to itself; a
-   safepoint still renews and rechecks tenure, and runs the exit half
-   under it; a pending release is retried.  An uncertain journal append
-   stalls everything: the answer is the state gated :stalled, stepping
-   to itself until the composition reopens the journal and reconciles
-   through `reopen`."
+(defn stop
+  "Irreversibly stop local program progression. Control cleanup remains eligible."
   [state]
-  (try
-    (case (:phase state)
-      :validating (step-validating state)
-      :exporting (step-exporting state)
-      :proposing (step-proposing state)
-      (:running :safepoint) (step-active state)
-      :exiting (step-exiting state)
-      :releasing (step-releasing state)
-      state)
-    (catch #?(:cljd Object :clj Throwable :cljs :default) failure
-      (if (::journal-uncertain (ex-data failure))
-        (stalled state)
-        (throw failure)))))
+  (assoc state :stopped? true))
+
+
+(defn- advance
+  [state mode]
+  (if (or (= :stalled (:phase state))
+          (and (= :program mode) (:stopped? state)))
+    state
+    (try
+      (case (:phase state)
+        :validating (if (or (= :control mode) (:stopped? state)) state (step-validating state))
+        :exporting (if (and (= :control mode) (nil? (get-in state [:export :role])))
+                     state
+                     (if (or (and (= :control mode) (nil? (get-in state [:export :address])))
+                             (and (:stopped? state) (nil? (get-in state [:export :address])))
+                             (and (= :program mode) (some? (get-in state [:export :address]))))
+                       (if (= :program mode) state (drain-control state))
+                       (step-exporting state)))
+        :proposing (if (= :program mode) state
+                       (let [observed (step-proposing state)]
+                         (if (and (= :combined mode) (= :activating (:phase observed))
+                                  (not (:inbox-unavailable? observed))
+                                  (not (:stopped? observed)))
+                           (activate observed) observed)))
+        :activating (cond
+                      (= :control mode) (step-active state mode)
+                      (= :program mode) (if (:inbox-unavailable? state) state (activate state))
+                      :else (let [observed (step-active state :control)]
+                              (if (and (= :activating (:phase observed))
+                                       (not (:inbox-unavailable? observed))
+                                       (not (:stopped? observed)))
+                                (activate observed)
+                                observed)))
+        (:running :safepoint) (step-active state mode)
+        :exiting (if (= :program mode) state (step-exiting state))
+        :releasing (if (= :program mode) state (step-releasing state))
+        state)
+      (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+        (cond
+          (::journal-uncertain (ex-data failure)) (stalled state)
+          (::inbox/refusal (ex-data failure))
+          (unsatisfied state (::inbox/refusal (ex-data failure)) {})
+          :else (throw failure))))))
+
+
+(defn control-step
+  "Custody-only progress: retain inbox observations, authenticate control replies,
+   renew, reconcile grants, and finish established control brackets. Never lower,
+   execute, apply program results, attach, observe or prepare program exports."
+  [state]
+  (advance state :control))
+
+
+(defn program-step
+  "Activate or advance the program under independently revalidated custody.
+   A stopped or journal-stalled driver performs no program work."
+  [state]
+  (advance state :program))
+
+
+(defn step
+  "Normal-operation convenience over the shared split machinery, preserving
+   one renewal and one program cycle per tick. No destructive inbox fallback."
+  [state]
+  (if (:stopped? state) (control-step state) (advance state :combined)))
+
+
+(defn owed-control-write?
+  "Pure total cadence query. Inbound acceptance does not discharge a bracket;
+   passive ledger waits and uncertain-journal stalls owe no executable write."
+  [state]
+  (boolean
+    (and (map? state) (not (:inbox-refused? state))
+         (not (contains? #{:stalled :failed :exited :aborted :lifted} (:phase state)))
+         (or (and (= :proposing (:phase state))
+                  (not (:stopped? state))
+                  (not (:inbox-unavailable? state))
+                  (if (:proposal state)
+                    (not (true? (get-in state [:proposal :carried])))
+                    (and (not= :yin.k/not-holder (:status state))
+                         (not= :no-arbitration (get-in state [:detail :yin.k/reason])))))
+             (some? (:renewal state))
+             (and (:release state) (not (true? (get-in state [:release :carried]))))
+             (and (:stopped? state) (:lease state) (nil? (:exit state)) (nil? (:release state)))
+             (let [cell (or (:exit state) (:export state))
+                   report-answer (get-in cell [:report :answer])]
+               (and (:address cell)
+                    (if (:exit state)
+                      (or (and (= :yin.k/successor (:role cell))
+                               (nil? (:offer cell)))
+                          (nil? report-answer)
+                          (= :suspended (:yin.k/status report-answer))
+                          (and report-answer (not (admitted? report-answer)))
+                          (and (admitted? report-answer)
+                               (not (true? (get-in state [:release :carried]))))
+                          (and (= :yin.k/successor (:role cell))
+                               (true? (get-in state [:release :carried]))
+                               (:closure cell)
+                               (not (offer-done? cell))))
+                      (not (offer-done? cell)))))))))
 
 
 ;; =============================================================================
@@ -2421,30 +2610,46 @@
                          (> (:index mint) (get-in folded [:grant :index])))
                      (contains? #{:yin.k/successor :yin.k/result}
                                 (:role mint))
-                     (contains? (:fences folded) (:occurrence mint)))]
-      (assoc (cond
-               (and (get-in folded [:aborted (:occurrence mint)])
-                    (= :yin.k/first (:role mint)))
-               (assoc (bare-state config units) :phase :aborted :status :yin.k/ok
-                      :detail {:yin.k/aborted (:occurrence mint)})
+                     (contains? (:fences folded) (:occurrence mint)))
+          reconciliation (try
+                           {:receipts (inbox/reconcile! (:seams (bare-state config units)) (:inbox folded))}
+                           (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+                             (if (and (:grant folded)
+                                      (= :inbox-unavailable (::inbox/refusal (ex-data failure))))
+                               {:receipts (:inbox folded) :unavailable? true}
+                               (throw failure))))
+          receipts (:receipts reconciliation)]
+      (cond-> (assoc (cond
+                       (and (get-in folded [:aborted (:occurrence mint)])
+                            (= :yin.k/first (:role mint)))
+                       (assoc (bare-state config units) :phase :aborted :status :yin.k/ok
+                              :detail {:yin.k/aborted (:occurrence mint)})
 
-               (and (some? mint) (not (contains? (:fences folded) (:occurrence mint)))
-                    (or (= :yin.k/first (:role mint)) (nil? (:grant folded))))
-               (assoc (bare-state config units) :phase :stalled :status :yin.k/unsatisfied
-                      :detail {:yin.k/reason :incomplete-preparation
-                               :yin.k/occurrence (:occurrence mint)})
+                       (and (some? mint) (not (contains? (:fences folded) (:occurrence mint)))
+                            (or (= :yin.k/first (:role mint)) (nil? (:grant folded))))
+                       (assoc (bare-state config units) :phase :stalled :status :yin.k/unsatisfied
+                              :detail {:yin.k/reason :incomplete-preparation
+                                       :yin.k/occurrence (:occurrence mint)})
 
-               (and exit? (not (get-in folded [:aborted (:occurrence mint)])))
-               (reopen-exit config units folded)
+                       (and exit? (not (get-in folded [:aborted (:occurrence mint)])))
+                       (reopen-exit config units folded)
 
-               (some? (:grant folded))
-               (reopen-holder config units folded)
+                       (some? (:grant folded))
+                       (reopen-holder config units folded)
 
-               (some? mint)
-               (reopen-source config units folded)
+                       (some? mint)
+                       (reopen-source config units folded)
 
-               :else (reopen-candidate config folded))
-             :enroll (:enroll folded)))))
+                       :else (reopen-candidate config folded))
+                     :enroll (:enroll folded)
+                     :inbox {:positions (inbox/positions receipts)
+                             :identities (inbox/identities receipts)
+                             :program (filterv #(program-record? (:yin.k/record %)) receipts)
+                             :control (filterv #(not (program-record? (:yin.k/record %))) receipts)})
+        (:unavailable? reconciliation)
+        (assoc :inbox-reconciliation receipts :inbox-unavailable? true)
+        (:unavailable? reconciliation)
+        (unsatisfied :inbox-unavailable {})))))
 
 
 ;; =============================================================================

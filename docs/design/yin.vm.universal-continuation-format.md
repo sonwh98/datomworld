@@ -2681,6 +2681,99 @@ the review's named architectural obligations; they are blockers to
   and its failure/retry paths, tested specifically against the
   poll-a-blocked-writer-appends hazard of §7.7.4.
 
+### Holder driver scheduling and retained inboxes (D15a)
+
+The holder exposes four composition-local entries over the existing driver
+state: `control-step`, `program-step`, `stop`, and `owed-control-write?`.
+`step` remains the normal-operation convenience entry, using the same machinery
+with one renewal and one program cycle per tick. These entries change no
+handoff body, authority fact, lease fact, or DaoStream outcome vocabulary.
+
+`control-step` retains incoming observations and handles authenticated custody
+answers, renewals, retries, reports, releases, and closure evidence. It never
+lowers a newly granted checkpoint, attaches program resources, applies program
+results, executes guest code, replays inputs, emits program effects, observes
+program streams, or prepares an export. A newly accepted grant remains in
+`:activating` with its original lease observation basis and no machine.
+
+`program-step` independently checks complete authenticated evidence, the same
+live occurrence/lease/epoch, and fresh `lease/holding?` before activation,
+execution, and retained-result application. Unavailable evidence suspends;
+contradiction or expiry uses the existing diagnostic/cleanup run end. The
+per-effect tenure guards remain in force, including across computation and
+before replay. Export preparation and capture belong here; established
+offer/report/release/closure brackets belong to control progress. Activation
+uses fresh evidence without refreshing the original tenure basis; authenticated
+renewals and the maximum cap still determine the current bound.
+
+Assembly requires both `:reply-inbox` and `:outcome-inbox`, each:
+
+```clojure
+{:version 1 :identity portable-stable-identity
+ :read-at! (fn [position] result)}
+```
+
+The operation is non-destructive over dense exact portable positions. Its
+closed result union is `{:status :record :position n :author a :record r}`,
+`{:status :empty}` at the currently available tail, or
+`{:status :unavailable}` for missing, gapped, or inaccessible history. Empty
+does not advance. Positions cannot wrap or advance beyond the journal bound.
+This version requires complete retention throughout recovery; it has no
+truncation or acknowledgment protocol. Legacy destructive readers are rejected,
+not automatically spooled after consumption.
+
+Either lane's unavailable answer suspends program progress and new activation,
+not valid custody control or cleanup. Complete authenticated ledger evidence
+and the same live binding remain necessary to schedule renewal. An unavailable
+reply position ends that tick's reply-first scan without consuming the outcome
+lane; due renewals and pending requests still send or retry unchanged. Inbound
+acceptance credits no renewal: the request identity and original pre-send
+reading remain pending until authenticated carriage passes the before-and-after
+tenure checks. A delayed reply cannot revive a run past its local bound.
+Expiry still gates the machine ended and emits one run-end diagnostic, with a
+durable release intent before sending and unchanged cleanup retries until
+authenticated carriage. Availability obstruction remains observable until a
+successful scan; malformed/conflicting evidence and journal uncertainty are
+not this permissive case. Reopening a journaled holder may recover cleanup
+while receipt-source reconciliation is unavailable, retaining the receipts
+without dispatch until reconciliation succeeds. It never restores execution.
+
+Selection is reply-first. Before dispatch or source advancement the driver
+durably appends `:yin.k/journal :yin.k/inbox`, carrying `:yin.k/lane`,
+`:yin.k/identity`, `:yin.k/position`, `:yin.k/author`, `:yin.k/record`, and,
+when present, `:yin.k/binding` naming the local occurrence, lease, and epoch.
+The journal position is the merge order; there is no second persisted ordering
+counter. Control records may pass earlier deferred program records. Deferred
+program order and selected control order are preserved independently.
+
+An uncertain append stalls both step entries until reopen reconciles it.
+Receipt reconciliation deduplicates identical lane/identity/position records
+and rejects conflicting canonical contents, changed sources, and gaps. Source
+positions and queues are derived from those records; a surviving machine
+consumes each queued observation once. There is no persisted VM-applied bit.
+After process restart the existing checkpoint/regrant/replay rules still govern;
+old-lease receipts never authorize a fresh run. Persisted clock readings do not
+re-establish tenure.
+
+`stop` is an irreversible, idempotent local latch, not a machine gate or an
+export abort. Program steps thereafter do nothing. Control ticks authenticate
+late grants and release them without lower, suppress fresh/replacement/recovery
+candidacy, and drain already established control obligations. An unfinished
+program/export cannot invent a completion to keep its lease alive. Cleanup
+attempts retain their request identity and intent-before-send journal brackets.
+The composition owns the bounded drain budget, judge/front progress, and
+reapplying the local latch when reopening during shutdown.
+
+`owed-control-write?` is pure and total: proposals, pending renewals, releases,
+eligible offers/reports, and required diagnostic/cleanup remain owed until the
+appropriate authenticated evidence discharges them. Inbound acceptance alone
+does not discharge a bracket. Future renewal deadlines, passive ledger waits,
+and uncertain-journal stalls are not executable writes.
+Pending eligible renewal or release remains owed during inbox unavailability;
+unavailable history alone is not an owed write. D15 owns production
+positional adapters and REPL integration; memory-backed test reconstruction is
+simulated process recovery, not proof of durable media.
+
 ### 7.11.1 Blocker-closure acceptance matrix
 
 These are observable test contracts, not a declaration that the blockers
