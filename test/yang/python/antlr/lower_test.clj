@@ -64,9 +64,10 @@
 
 
 (defn- builtin
-  "A builtin name read: the module binding if present, else the builtin."
+  "A builtin name read: the module dict, then the task's builtins dict, an
+   ordinary global read."
   [nm]
-  (py 'py/global-or (u/v '%globals) (u/lit {:py/str nm}) (u/v (symbol "py.b" nm))))
+  (gget nm))
 
 
 (defn- fobj
@@ -343,8 +344,7 @@
           x (sym "x" src "exprlist")]
       (is (= (u/then
                (py 'py/call
-                   (py 'py/global-or (u/v '%globals) (u/lit {:py/str "sum"})
-                       (u/v 'py.b/sum))
+                   (gget "sum")
                    (py 'py/conj (u/lit [])
                        (u/let1 fst (py 'py/iter (gget "y"))
                                (py 'py/make-generator (u/lit "<genexpr>")
@@ -407,7 +407,14 @@
       (is (not (re-find #"yin/def" (pr-str (-> program :operands second))))))
     (testing "the batch passes the Universal AST's own checks"
       (is (nil? (vm/ast-reserved-defect program)))
-      (is (vector? (vm/ast->datoms program))))))
+      (is (vector? (vm/ast->datoms program)))))
+  (testing "the lowering names no builtin store key: print(len([])) reads
+            both names through the module dict and the builtins dict"
+    (is (= []
+           (->> (tree-seq coll? seq (body "print(len([]))\n"))
+                (filter #(and (map? %) (= :variable (:type %))
+                              (= "py.b" (namespace (:name %)))))
+                vec)))))
 
 
 (deftest tail-marks-test

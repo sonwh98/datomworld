@@ -4,7 +4,13 @@
    cross-type equality, dict key normalization, numeric hash and integer
    `is` (C3 slice S2), ranges, and a run through
    `py/run-module` over the real cell and data modules whose printed output
-   is rendered at the boundary."
+   is rendered at the boundary.
+
+   C4 slice P1: `py/init!` is idempotent, the builtins dict is seeded from
+   the tables and is what a global read falls back to, and a mutated entry
+   never changes an interpreter-generated exception's class. Cross-module
+   exception identity is not tested here: it needs two units sharing one
+   task's prelude, which arrives with P2."
   (:require
     [clojure.test :refer [deftest is testing]]
     [clojure.walk :as walk]
@@ -46,24 +52,30 @@
                         vm/ast-contract))
 
 
+(defn- vm-runners-under
+  "Each VM's runner over the composition `opts`, answering the finished VM."
+  [opts]
+  {:ast-walker (fn [ast] (vm/eval (tu/create-vm opts) ast)),
+   :semantic (fn [ast]
+               (vm/run (load-semantic-ast (semantic/create-vm opts)
+                                          (vm/ast->datoms ast)))),
+   :stack (fn [ast]
+            (vm/run (dvm/create-vm
+                      (:image (dl/lower-stack (tu/resolved-of ast)))
+                      (assoc opts :contract vm/stack-contract)))),
+   :register (fn [ast]
+               (vm/run
+                 (rvm/create-vm
+                   (:image (rc/lower-register (tu/resolved-of ast)))
+                   (assoc opts :contract vm/register-contract))))})
+
+
 (defn- runners-under
   "Each VM's runner over the composition `opts`."
   [opts]
-  {:ast-walker (fn [ast] (vm/value (vm/eval (tu/create-vm opts) ast))),
-   :semantic (fn [ast]
-               (vm/value (vm/run (load-semantic-ast (semantic/create-vm opts)
-                                                    (vm/ast->datoms ast))))),
-   :stack (fn [ast]
-            (vm/value
-              (vm/run (dvm/create-vm
-                        (:image (dl/lower-stack (tu/resolved-of ast)))
-                        (assoc opts :contract vm/stack-contract))))),
-   :register (fn [ast]
-               (vm/value
-                 (vm/run
-                   (rvm/create-vm
-                     (:image (rc/lower-register (tu/resolved-of ast)))
-                     (assoc opts :contract vm/register-contract)))))})
+  (into {}
+        (map (fn [[k run]] [k (fn [ast] (vm/value (run ast)))]))
+        (vm-runners-under opts)))
 
 
 (def ^:private runners
@@ -260,7 +272,7 @@
                                      (if (= k 'py/range-elem)
                                        '(fn [start step i] -12345)
                                        form))))
-                         prelude/function-definitions))
+                         prelude/definitions))
           results (run-with-prelude
                     stubbed
                     '(py/conj
@@ -1513,11 +1525,141 @@
          (render/repr [1 "a" {:py/float 2.5} nil {:py/tuple [1]}]))))
 
 
+(deftest definition-inside-lambda-probe-test
+  (testing "a definition inside a lambda body writes the store, and a later
+            free read sees the redefinition (py/init!'s engine assumptions)"
+    (let [ast (u/mark-tails
+                (u/sexp->uast
+                  '(do (yin/def (quote py.rt/probe) :u)
+                       ((fn [] (if (= py.rt/probe :u) (yin/def (quote py.rt/probe) :r) :py/None)))
+                       ((fn [] (if (= py.rt/probe :u) (yin/def (quote py.rt/probe) :x) :py/None)))
+                       py.rt/probe)))]
+      (doseq [[k run] runners]
+        (testing (str k)
+          (is (= :r (run ast))))))))
+
+
+(deftest functions-load-without-cells-test
+  (testing "with no cell, data or integer module, the single definition list
+            loads and halts: the literal state slot and the py/init! lambda
+            allocate nothing"
+    (let [bare {:make-stream tu/make-stream,
+                :capability-secret tu/secret,
+                :primitives vm/primitives,
+                :modules (module/empty-registry)}
+          ast (u/mark-tails prelude/functions-uast)]
+      (doseq [[k run] (vm-runners-under bare)]
+        (testing (str k)
+          (is (= [true false]
+                 (try (let [vm (run ast)] [(vm/halted? vm) (vm/blocked? vm)])
+                      (catch #?(:cljd Object :clj Exception :cljs :default) e
+                        [:thrown (ex-message e)])))))))))
+
+
+(deftest init-is-idempotent-test
+  (testing "after the bundled prelude has run py/init! once, two more calls
+            reallocate nothing: every class, function, dict and runtime cell
+            is the same cell ref, and the slot reads ready"
+    (doseq [[k result]
+            (run-with-prelude
+              prelude/uast
+              (list 'let '[c1 py.b/ValueError
+                           f1 py.b/len
+                           b1 py.b/builtins
+                           ctx1 py.rt/ctx
+                           out1 py.rt/out
+                           lim1 py.rt/limit
+                           s1 py.rt/state
+                           _ (py/init!)
+                           _ (py/init!)]
+                    (conj-all '[(= c1 py.b/ValueError)
+                                (= f1 py.b/len)
+                                (= b1 py.b/builtins)
+                                (= ctx1 py.rt/ctx)
+                                (= out1 py.rt/out)
+                                (= lim1 py.rt/limit)
+                                (= s1 :py/ready)
+                                (= (py/global-get (py/dict-new) {:py/str "ValueError"}) c1)])))]
+      (testing (str k)
+        (is (= [true true true true true true true true] result)))))
+  (testing "before any py/init!, the slot is the literal :py/uninit"
+    (doseq [[k result] (run-with-prelude prelude/functions-uast 'py.rt/state)]
+      (testing (str k)
+        (is (= :py/uninit result))))))
+
+
+(deftest shadow-then-delete-builtin-test
+  (testing "a module key shadows the builtin; deleting it restores the
+            builtin; a name in neither is NameError"
+    (doseq [[k result]
+            (run-with-prelude
+              prelude/uast
+              '(let [g (py/dict-new)
+                     a (py/global-get g {:py/str "len"})
+                     _ (py/global-set g {:py/str "len"} 1)
+                     b (py/global-get g {:py/str "len"})
+                     _ (py/global-del-quiet g {:py/str "len"})
+                     c (py/global-get g {:py/str "len"})
+                     d (py/try (fn [] (py/global-get g {:py/str "nosuch"}))
+                               (fn [e] (py/isinstance e py.b/NameError))
+                               (fn [] :no))]
+                 (py/conj (py/conj (py/conj (py/conj [] (= a py.b/len)) b)
+                                   (= c py.b/len))
+                          d)))]
+      (testing (str k)
+        (is (= [true 1 true true] result))))))
+
+
+(deftest builtin-mutation-test
+  (testing "a mutated builtins entry is what a global read falls back to,
+            while the prelude's own functions and interpreter-generated
+            exceptions keep the canonical store keys (ruling 2)"
+    (doseq [[k result]
+            (run-with-prelude
+              prelude/uast
+              '(let [_ (py/dict-set py.b/builtins {:py/str "len"} 7)
+                     a (py/global-get (py/dict-new) {:py/str "len"})
+                     b (py/len (py/list [1]))
+                     c (= :function (get (cell/get py.b/len) :py/type))
+                     _ (py/dict-set py.b/builtins {:py/str "TypeError"} py.b/ValueError)
+                     d (py/try (fn [] (py/type-error {:py/str "x"}))
+                               (fn [e] (py/isinstance e py.b/TypeError))
+                               (fn [] :no))
+                     e (= py.b/ValueError
+                          (py/global-get (py/dict-new) {:py/str "TypeError"}))]
+                 (py/conj (py/conj (py/conj (py/conj (py/conj [] a) b) c) d) e)))]
+      (testing (str k)
+        (is (= [7 1 true true true] result))))))
+
+
+(def ^:private builtin-function-names
+  "The twenty-five Python-visible builtin functions."
+  ["len" "isinstance" "hash" "divmod" "print" "range" "list" "tuple" "set"
+   "sum" "any" "all" "next" "iter" "int" "float" "str" "repr" "bool" "abs"
+   "pow" "round" "hex" "oct" "bin"])
+
+
+(deftest seeded-builtins-test
+  (testing "py.b/builtins holds exactly the class names and the twenty-five
+            function names, keyed as a module dict is, in table order"
+    (let [table-order (mapv (fn [row] {:py/str (first row)})
+                            (concat prelude/builtin-classes prelude/builtin-functions))]
+      (is (= (set (map (fn [nm] {:py/str nm})
+                       (concat (map first prelude/builtin-classes)
+                               builtin-function-names)))
+             (set table-order)))
+      (is (= 25 (count prelude/builtin-functions)))
+      (doseq [[k result] (run-with-prelude prelude/uast
+                                           '(get (cell/get py.b/builtins) :keys))]
+        (testing (str k)
+          (is (= table-order result)))))))
+
+
 (deftest prelude-notation-test
   (testing "the prelude is canonical Universal AST: no reserved-name defect,
             and every definition key is a literal symbol"
     (is (nil? (vm/ast-reserved-defect prelude/uast)))
-    (is (every? symbol? (map first prelude/function-definitions))))
+    (is (every? symbol? (map first prelude/definitions))))
   (testing "sexp->uast"
     (is (= (u/app (u/lam ['x] (u/if-node (u/v 'x) (u/lit 1) (u/lit {:a 1})))
                   u/capture)

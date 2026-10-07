@@ -2639,7 +2639,7 @@ two land serially, not concurrently.
 This section records the C4 design as amended by the C4 cross-ruling's
 nineteen converged rulings; where they differ from the design's own
 recommendations, the converged rulings govern. Its implementation is
-pending, in slices F2, F3, P1 to P3, and I1 to I7 below; F1 has landed.
+pending, in slices F2, F3, P1 to P3, and I1 to I7 below; F1 and P1 have landed.
 
 Install delivers code; instantiation is the importing task's own
 evaluation (ruling 1). A linked Python-side module (the base prelude,
@@ -2861,7 +2861,9 @@ The linked prelude:
   emitter strips the module's own namespace from keys and internal
   references, because export keys are bare.
 - Runtime state moves from module-level definitions into `py/init!`,
-  which writes one state slot.
+  which writes one state slot (`py.rt/state`, a literal `:py/uninit`
+  until `py/init!` flips it to `:py/ready` as its last write; the cells
+  and classes stay store keys the body defines).
 - The linked entry wrapper is
   `(do (require 'py) (py/init!) (py/run-main (fn [%globals %globals-fn]
   ...)))`.

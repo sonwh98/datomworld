@@ -1,0 +1,15 @@
+The specification is written to `collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md`.
+
+**What it specifies**
+
+- `py/init!` is a prelude function whose body performs every definition today's load-time `state-definitions` performs, then seeds a per-task builtins dict, then flips a literal slot `py.rt/state` from `:py/uninit` to `:py/ready` as its last write. The slot is the idempotence guard and allocates nothing at load, so P2's empty-heap install child needs no change to the body.
+- The single source is one `definitions` vector: today's `core-definitions`, the literal slot, and a generated `py/init!` row built from three tables (`builtin-classes`, a new `builtin-functions` table of Python-visible functions, and `method-implementations` for the internal ones). `functions-uast` is that whole list. `uast` is functions, then `(py/init!)`. Every current consumer of both trees keeps working unchanged.
+- `py/global-get` becomes module dict, then builtins dict, then NameError. `py/global-or` stays for the one per-module name, `globals`. The lowering drops `builtin-names` and all `py.b/*` reads.
+- Section 4 maps the four acceptance bullets at lines 3099 to 3102 to concrete tests, adds ruling 2's builtin-mutation test, and lists the only four existing tests that may change and how.
+
+**Two facts from the code that shaped the design**
+
+- The engine's store write is an overwriting `assoc` and definitions are legal inside lambda bodies, so run-time definition inside `py/init!` is the mechanism the design's own sentence "initializes the prelude's own active module store" names. Step 0 of the engineer brief probes this on all four VMs before any prelude edit.
+- `sexp->uast` has no `yin/def` arm despite its docstring, so a definition key in generated code must be written `(quote key)`. The spec's generator sketch and probe use that form.
+
+**Carried forward, not blocking**: cross-module `isinstance` identity (P2), `py/run-module`'s resets versus a persistent `__main__` (F3), the hook prelude's load-time cell (P3). The brief ends with lane commands, golden re-pin rules, the commit message, and the report path for the Implementation Engineer.

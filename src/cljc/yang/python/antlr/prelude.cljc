@@ -48,7 +48,8 @@
      range           {:py/type :range :start a :stop b :step s}
      module globals  a dict (owner decision 1): the module body receives it
                      as `%globals` and every function closes over it, which
-                     is Python's own `__globals__`; a miss is NameError
+                     is Python's own `__globals__`; a miss falls back to the
+                     builtins dict, and a miss there is NameError
 
    Calling convention: a function's `:code` takes one vector of arguments
    laid out as the parameters are written. `py/call-kw` (and `py/call`,
@@ -56,8 +57,13 @@
    `*args` and `**kwargs` from the function's static spec; every binding
    failure is a Python TypeError.
 
-   Runtime state is three cells, reached through the store (`yin/def` is
-   reserved for the prelude and builtins):
+   Runtime state is allocated by `py/init!`, once per task, under the slot
+   `py.rt/state` (the literal `:py/uninit` until `py/init!` flips it to
+   `:py/ready` as its last write; a second call allocates nothing): the
+   three cells below, the builtin classes and functions as `py.b/*` keys,
+   and the builtins namespace dict `py.b/builtins`, which `py/global-get`
+   falls back to. All of it is reached through the store (`yin/def`
+   appears only in the prelude):
      py.rt/ctx       the dynamic context, one record
                      {:handlers :depth :base :frame}:
                      :handlers  the handler stack: frames
@@ -680,17 +686,24 @@
                                    "' where it is not associated with a value")))
            x)))]
     [py/global-get
+     ;; a module-level read: the module dict, then the task's builtins, then
+     ;; NameError (Python's LOAD_GLOBAL)
      (fn [g n]
        (let [c (cell/get g)
              slot (get (get c :index) n :py/missing)]
          (if (= slot :py/missing)
-           (py/raise-new py.b/NameError
-                         (py/str (data/str-concat "name '" (get n :py/str)
-                                                  "' is not defined")))
+           (let [b (cell/get py.b/builtins)
+                 bslot (get (get b :index) n :py/missing)]
+             (if (= bslot :py/missing)
+               (py/raise-new py.b/NameError
+                             (py/str (data/str-concat "name '" (get n :py/str)
+                                                      "' is not defined")))
+               (get (get b :vals) bslot)))
            (get (get c :vals) slot))))]
     [py/global-set (fn [g n x] (do (py/dict-set g n x) :py/None))]
     [py/global-or
-     ;; a builtin name: the module's binding when present, else the builtin
+     ;; the module's binding when present, else `builtin`: used for
+     ;; `globals`, whose value is per module and so not in the builtins dict
      (fn [g n builtin]
        (let [c (cell/get g)
              slot (get (get c :index) n :py/missing)]
@@ -2800,77 +2813,78 @@
    ["StopIteration" 'py.b/StopIteration 'py.b/Exception]])
 
 
-(def ^:private builtin-function-definitions
-  "Builtin functions are function objects like any guest function, so they
-   can be passed, stored, called with keywords and checked for arity
-   through `py/call-kw`."
-  '[[py.b/len
+(def builtin-functions
+  "The Python-visible builtin functions, `[name store-key form]`. Builtin
+   functions are function objects like any guest function, so they can be
+   passed, stored, called with keywords and checked for arity through
+   `py/call-kw`."
+  '[["len" py.b/len
      (py/make-function "len" {:params ["obj"], :no-kw true} [] []
                        (fn [args] (py/len (py/arg args 0))))]
-    [py.b/isinstance
+    ["isinstance" py.b/isinstance
      (py/make-function "isinstance" {:params ["obj" "cls"], :no-kw true} [] []
                        (fn [args] (py/isinstance (py/arg args 0) (py/arg args 1))))]
-    [py.b/divmod
+    ["divmod" py.b/divmod
      (py/make-function "divmod" {:params ["x" "y"], :no-kw true} [] []
                        (fn [args]
                          (py/divmod (py/arg args 0) (py/arg args 1))))]
-    [py.b/hash
+    ["hash" py.b/hash
      (py/make-function "hash" {:params ["obj"], :no-kw true} [] []
                        (fn [args] (py/hash (py/arg args 0))))]
-    [py.b/print
+    ["print" py.b/print
      (py/make-function "print" {:params [], :star? true, :no-kw true} [] []
                        (fn [args] (py/print (get (py/arg args 0) :items))))]
-    [py.b/range
+    ["range" py.b/range
      (py/make-function "range" {:params ["start"], :star? true, :no-kw true} [] []
                        (fn [args] (py/range-args (py/arg args 0) (py/arg args 1))))]
-    [py.b/list
+    ["list" py.b/list
      (py/make-function "list" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
                        (fn [args] (py/list (py/to-vector (py/arg args 0)))))]
-    [py.b/tuple
+    ["tuple" py.b/tuple
      (py/make-function "tuple" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
                        (fn [args] (py/tuple (py/to-vector (py/arg args 0)))))]
-    [py.b/set
+    ["set" py.b/set
      (py/make-function "set" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
                        (fn [args]
                          (py/set-fill-at (py/set-new) (py/iterable (py/arg args 0))
                                          0)))]
-    [py.b/sum
+    ["sum" py.b/sum
      (py/make-function "sum" {:params ["iterable" "start"]} [0] []
                        (fn [args]
                          (py/sum-from (py/iterable (py/arg args 0)) 0
                                       (py/arg args 1))))]
-    [py.b/any
+    ["any" py.b/any
      (py/make-function "any" {:params ["iterable"], :no-kw true} [] []
                        (fn [args] (py/any-of (py/iterable (py/arg args 0)) 0)))]
-    [py.b/all
+    ["all" py.b/all
      (py/make-function "all" {:params ["iterable"], :no-kw true} [] []
                        (fn [args] (py/all-of (py/iterable (py/arg args 0)) 0)))]
-    [py.b/int
+    ["int" py.b/int
      (py/make-function "int" {:params ["x" "base"]}
                        [0 :py/missing] []
                        (fn [args]
                          (py/int-conv (py/arg args 0) (py/arg args 1))))]
-    [py.b/float
+    ["float" py.b/float
      (py/make-function "float" {:params ["x"], :no-kw true}
                        (py/conj [] (py/float (data/float-value 0))) []
                        (fn [args] (py/float-conv (py/arg args 0))))]
-    [py.b/str
+    ["str" py.b/str
      (py/make-function "str" {:params ["x"], :no-kw true}
                        (py/conj [] (py/str "")) []
                        (fn [args] (py/str-conv (py/arg args 0) false)))]
-    [py.b/repr
+    ["repr" py.b/repr
      (py/make-function "repr" {:params ["x"], :no-kw true}
                        [] []
                        (fn [args] (py/str-conv (py/arg args 0) true)))]
-    [py.b/bool
+    ["bool" py.b/bool
      (py/make-function "bool" {:params ["x"], :no-kw true}
                        [false] []
                        (fn [args] (py/truthy (py/arg args 0))))]
-    [py.b/abs
+    ["abs" py.b/abs
      (py/make-function "abs" {:params ["x"], :no-kw true}
                        [] []
                        (fn [args] (py/abs-conv (py/arg args 0))))]
-    [py.b/pow
+    ["pow" py.b/pow
      (py/make-function "pow" {:params ["base" "exp" "mod"]}
                        [:py/None] []
                        (fn [args]
@@ -2879,24 +2893,36 @@
                            (py/raise-new
                              py.b/NotImplementedError
                              {:py/str "pow() modulus is not supported"}))))]
-    [py.b/round
+    ["round" py.b/round
      (py/make-function "round" {:params ["number" "ndigits"]}
                        [:py/None] []
                        (fn [args]
                          (py/round-conv (py/arg args 0) (py/arg args 1))))]
-    [py.b/hex
+    ["hex" py.b/hex
      (py/make-function "hex" {:params ["x"], :no-kw true}
                        [] []
                        (fn [args] (py/radix-conv (py/arg args 0) 16 "0x")))]
-    [py.b/oct
+    ["oct" py.b/oct
      (py/make-function "oct" {:params ["x"], :no-kw true}
                        [] []
                        (fn [args] (py/radix-conv (py/arg args 0) 8 "0o")))]
-    [py.b/bin
+    ["bin" py.b/bin
      (py/make-function "bin" {:params ["x"], :no-kw true}
                        [] []
                        (fn [args] (py/radix-conv (py/arg args 0) 2 "0b")))]
-    [py.b/list-append
+    ["next" py.b/next
+     (py/make-function "next" {:params ["iterator" "default"], :no-kw true} [:py/missing] []
+                       (fn [args] (py/next (py/arg args 0) (py/arg args 1))))]
+    ["iter" py.b/iter
+     (py/make-function "iter" {:params ["object"], :no-kw true} [] []
+                       (fn [args] (py/iter (py/arg args 0))))]])
+
+
+(def ^:private method-implementations
+  "The function objects `py/getattr` and `py/gen-attr` hand out for a
+   method, `[store-key form]`: not Python names, so never seeded into the
+   builtins dict."
+  '[[py.b/list-append
      (py/make-function "append" {:params ["self" "x"], :no-kw true} [] []
                        (fn [args] (py/list-append (py/arg args 0) (py/arg args 1))))]
     [py.b/set-add
@@ -2917,12 +2943,6 @@
                          (if (py/dict-has? (py/arg args 0) (py/arg args 1))
                            (py/getitem (py/arg args 0) (py/arg args 1))
                            (py/arg args 2))))]
-    [py.b/next
-     (py/make-function "next" {:params ["iterator" "default"], :no-kw true} [:py/missing] []
-                       (fn [args] (py/next (py/arg args 0) (py/arg args 1))))]
-    [py.b/iter
-     (py/make-function "iter" {:params ["object"], :no-kw true} [] []
-                       (fn [args] (py/iter (py/arg args 0))))]
     [py.b/gen-send
      (py/make-function "send" {:params ["self" "value"], :no-kw true} [] []
                        (fn [args] (py/gen-send (py/arg args 0) (py/arg args 1))))]
@@ -2943,24 +2963,53 @@
                        (fn [args] (py/arg args 0)))]])
 
 
-(def ^:private state-definitions
-  "Definitions that allocate: the three runtime cells, the builtin classes
-   and the builtin functions. These are the only prelude forms that run at
-   load."
-  (-> '[[py.rt/ctx (cell/new (py/ctx nil 0 0 nil))]
-        ;; CPython's default sys.getrecursionlimit()
-        [py.rt/limit (cell/new 1000)]
-        [py.rt/out (cell/new [])]]
-      (into (map (fn [[nm key base]]
-                   [key (cond->> (list 'py/make-class nm (or base :py/None))
-                          (= "StopIteration" nm) (list 'py/stop-iteration-class))]))
-            builtin-classes)
-      (into builtin-function-definitions)))
+(defn- define
+  "`(yin/def (quote key) form)` in prelude notation: the key quoted, so
+   `sexp->uast` reads it as the literal symbol Rule R requires."
+  [key form]
+  (list 'yin/def (list 'quote key) form))
 
 
-(def function-definitions
-  "Every prelude function as `[store-key form]`, in definition order."
-  core-definitions)
+(defn- init-form
+  "`py/init!`'s body: the three runtime cells, every builtin class,
+   function and method implementation, then the builtins dict seeded from
+   the tables, then the ready flag, under the uninit guard."
+  []
+  (list 'fn []
+        (list 'if (list '= 'py.rt/state :py/uninit)
+              (concat
+                ['do
+                 (define 'py.rt/ctx '(cell/new (py/ctx nil 0 0 nil)))
+                 ;; CPython's default sys.getrecursionlimit()
+                 (define 'py.rt/limit '(cell/new 1000))
+                 (define 'py.rt/out '(cell/new []))]
+                (mapv (fn [[nm key base]]
+                        (define key
+                          (cond->> (list 'py/make-class nm (or base :py/None))
+                            (= "StopIteration" nm) (list 'py/stop-iteration-class))))
+                      builtin-classes)
+                (mapv (fn [[_ key form]] (define key form)) builtin-functions)
+                (mapv (fn [[key form]] (define key form)) method-implementations)
+                [(define 'py.b/builtins '(py/dict-new))]
+                (mapv (fn [[nm key _]]
+                        (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
+                      builtin-classes)
+                (mapv (fn [[nm key _]]
+                        (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
+                      builtin-functions)
+                ;; last, so a failed init never reports ready
+                [(define 'py.rt/state :py/ready)
+                 :py/None])
+              :py/None)))
+
+
+(def definitions
+  "The single definition list, `[store-key form]` in definition order:
+   every prelude function, the literal state slot, then `py/init!`. Defining
+   them runs nothing."
+  (into core-definitions
+        [['py.rt/state :py/uninit]
+         ['py/init! (init-form)]]))
 
 
 (defn- definitions->uast
@@ -2969,45 +3018,15 @@
 
 
 (def functions-uast
-  "Only the function definitions: defining lambdas runs nothing, so this
-   loads on any composition, with or without cells."
-  (definitions->uast function-definitions))
+  "Every definition: lambdas and the literal state slot. Defining them
+   runs nothing, so this loads on any composition, with or without cells."
+  (definitions->uast definitions))
 
 
 (def uast
-  "The whole prelude: function definitions, then runtime state."
-  (u/then functions-uast (definitions->uast state-definitions)))
-
-
-(def builtin-names
-  "Python builtin name -> the prelude store key holding it."
-  (into {"len" 'py.b/len,
-         "isinstance" 'py.b/isinstance,
-         "hash" 'py.b/hash,
-         "divmod" 'py.b/divmod,
-         "print" 'py.b/print,
-         "range" 'py.b/range,
-         "list" 'py.b/list,
-         "tuple" 'py.b/tuple,
-         "set" 'py.b/set,
-         "sum" 'py.b/sum,
-         "any" 'py.b/any,
-         "all" 'py.b/all,
-         "next" 'py.b/next,
-         "iter" 'py.b/iter,
-         "int" 'py.b/int,
-         "float" 'py.b/float,
-         "str" 'py.b/str,
-         "repr" 'py.b/repr,
-         "bool" 'py.b/bool,
-         "abs" 'py.b/abs,
-         "pow" 'py.b/pow,
-         "round" 'py.b/round,
-         "hex" 'py.b/hex,
-         "oct" 'py.b/oct,
-         "bin" 'py.b/bin}
-        (map (fn [[nm key _]] [nm key]))
-        builtin-classes))
+  "The bundled prelude: every definition, then the task's runtime state
+   allocated by `py/init!`."
+  (u/then functions-uast (u/sexp->uast '(py/init!))))
 
 
 (def min-integer-bits

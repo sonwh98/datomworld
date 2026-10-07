@@ -1,0 +1,3184 @@
+OpenAI Codex v0.159.3
+--------
+workdir: /Users/sto/workspace/datomworld-p1
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 01a1185c-38d2-7e82-8245-8144ff4b8e55
+--------
+user
+Created-GMT: 2026-10-08 04:55:00 GMT
+Created-Local: 2026-10-08 04:55:00 ICT
+
+# Task: Track A Slice P1 Architectural Sign-Off Review
+
+Role: Lead System Architect
+Model: Codex (gpt-6-astra)
+Repository root: /Users/sto/workspace/datomworld-p1
+Branch: yang-python-c4-p1
+
+Perform a read-only architecture review and sign-off evaluation of Track A Phase C4 Slice P1: "Linked Prelude Decoupling, py/init!, builtins dict".
+
+Read first:
+- docs/design/datom.world.md
+- docs/design/yang.antlr.md §8.5.6
+- collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md
+- collab/1791397000000-engineer-c4-p1.claude-opus-5-5.findings.md
+- collab/1791401000000-reviewer-c4-p1.codex.findings.md (Adversarial review verdict: ACCEPT)
+
+Evaluate:
+1. Foundational invariants (explicit state, no hidden globals, cell allocation under explicit py/init! lifecycle).
+2. Architectural decisions A1 through A6 from §2 of the spec:
+   - A1: Single definitions list; pure lambda definitions do not allocate; py/init! allocates cells, classes, functions, methods, seeds py.b/builtins, flips py.rt/state to :py/ready.
+   - A2: py/init! idempotence and uninit guard.
+   - A3: Builtin functions vs method implementations separation; methods omitted from builtins dict.
+   - A4: Dynamic global lookup: %globals dict -> py.b/builtins dict -> NameError.
+   - A5: Four-VM parity (walker, semantic, stack, register).
+   - A6: Removal of static builtin-names map from compiler and runtime.
+3. Verification evidence across test lanes.
+
+Begin the final response exactly with:
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+
+Then report:
+- Architectural Evaluation per decision/invariant
+- Defect / Gap findings (if any)
+- Sign-Off Verdict: ACCEPTED or REJECTED
+
+Write your report to `collab/1791401500000-architect-c4-p1-signoff.codex.findings.md`.
+codex
+I’ll read the architecture and review reports, then check the implementation and verification evidence before writing the sign-off report.
+exec
+/bin/zsh -lc 'cat docs/design/datom.world.md' in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is a stream boundary, never a function call. The one
+sanctioned function-shaped contact is a `dao.stream` handle operation, whose
+exhaustive outcome map is stream protocol, not an application callback.
+
+**Effects out.** Portable code appends an effect value describing what must
+happen. A host interpreter consumes that stream, performs the operation, and
+appends the outcome. Portable code reads the outcome. Correlation is by
+identity in the data; neither side holds a reference to the other. A host with
+no implementation for an effect emits a qualified unsupported result. That is a
+correct outcome, not a gap to be filled.
+
+**Events in.** When the host initiates (a socket receives, a connection drops,
+a timer fires) the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**Adapters.** An adapter is a map of those transform functions. That is all an
+adapter is. It is a value, not a namespace, and it is general: sockets, files,
+timers and windows all deliver events by calling something, and an adapter is
+what they call. Each entry takes the host's arguments and returns one value;
+the append is the adapter's, not the entry's, so an entry cannot return a value
+to the host and cannot invoke application code. The adapter is handed only the
+deposit operation and its own host resource. If its deposit channel fails, it
+may close that resource to make the boundary observably gone; this is teardown,
+not an upward callback.
+
+Host types are classified into plain data in the transform: it is the last
+place holding a host error object, and no host type crosses onto the stream. A
+transport may use a qualified envelope to preserve correlation, lifecycle, and
+additive evolution; that envelope remains plain data and creates no separate
+event mechanism. A composition may likewise define its own qualified vocabulary
+for facts it owns.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read. This keeps
+the layering one-way: a boundary depends on nothing above it, because whoever
+constructs the adapter supplies the stream.
+
+A transform deposits every event admitted by the boundary protocol and judges
+none of them semantically. Wire framing, decoding, and protocol validation
+happen below the transform: malformed wire input is transport machinery, not an
+event. Once the transport has produced a valid host event, data is syntax
+(axiom 2): an event that is noise to one interpreter is signal to another that
+does not exist yet, and filtering at the depositing layer destroys perspectives
+not yet taken. Retention is the medium's operational policy; meaning is
+interpretation. Neither is the depositor's decision.
+
+Two things are not adapters. One that exposes a function for portable code to
+call isolates the host library but keeps the coupling, and the effect never
+appears as an emission. One that takes a function to invoke has relocated the
+callback, not removed it, even when every value it passes is plain data; if
+that callback has a meaningful return value, it is a synchronous call in both
+directions wearing the shape of an event.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+exec
+/bin/zsh -lc 'git status --short; git branch --show-current; cat collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md collab/1791397000000-engineer-c4-p1.claude-opus-5-5.findings.md collab/1791401000000-reviewer-c4-p1.codex.findings.md' in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+ M docs/design/yang.antlr.md
+ M src/cljc/yang/python/antlr/lower.cljc
+ M src/cljc/yang/python/antlr/prelude.cljc
+ M test/yang/python/antlr/e2e_test.clj
+ M test/yang/python/antlr/float_address_test.cljc
+ M test/yang/python/antlr/int_conv_test.cljc
+ M test/yang/python/antlr/lower_test.clj
+ M test/yang/python/antlr/prelude_parity_test.cljc
+ M test/yang/python/antlr/safepoint_test.cljc
+?? collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md
+?? collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.stdout.log
+?? collab/1791397000000-architect-c4-p1-spec.claude.prompt.md
+?? collab/1791397000000-engineer-c4-p1.claude-opus-5-5.findings.md
+?? collab/1791397000000-engineer-c4-p1.claude-opus-5-5.stdout.log
+?? collab/1791397000000-engineer-c4-p1.claude.prompt.md
+?? collab/1791401000000-reviewer-c4-p1.codex.findings.md
+?? collab/1791401000000-reviewer-c4-p1.codex.prompt.md
+?? collab/1791401000000-reviewer-c4-p1.codex.stdout.log
+?? collab/1791401500000-architect-c4-p1-signoff.codex.prompt.md
+?? collab/1791401500000-architect-c4-p1-signoff.codex.stdout.log
+?? node_modules
+yang-python-c4-p1
+# C4 Track A Slice P1: single-source prelude, `py/init!`, builtins dict; still bundled
+
+Architect: Claude Fable 5.1. Date: 2026-10-08.
+Branch: `yang-python-c4-p1` (rebased onto master @ 802d9ee2).
+Governing text: `docs/design/yang.antlr.md` section 8.5.6 (rulings 1, 2,
+5, 7; slice table row P1; acceptance row P1, lines 3099 to 3102), read
+with section 8.5.1's amended note on prelude identity.
+
+Status of the code this spec was written against:
+
+- `src/cljc/yang/python/antlr/prelude.cljc` (3054 lines): `core-definitions`
+  (pure lambdas, keys `py/*`), `builtin-classes` (a table of
+  `[name key base-key]`), `builtin-function-definitions` (keys `py.b/*`,
+  each a `py/make-function` call), `state-definitions` (the three cells
+  `py.rt/ctx`, `py.rt/limit`, `py.rt/out`, then every class, then every
+  builtin function; "the only prelude forms that run at load"),
+  `function-definitions` (= `core-definitions`), `functions-uast`, `uast`
+  (= functions then state), `builtin-names` (a hand-kept map Python name
+  to store key), `host-names`, `min-integer-bits`, `register-integer-module`,
+  `admit`.
+- `src/cljc/yang/python/antlr/lower.cljc`: `read-global` emits
+  `(py/global-or %globals "n" py.b/n)` when `n` is in
+  `prelude/builtin-names`, `(py/global-or %globals "globals" %globals-fn)`
+  for `globals`, else `(py/global-get %globals "n")`; `lower-packet` is
+  `(then prelude/uast (py/run-module (fn [%globals %globals-fn] body)))`.
+- `src/cljc/yang/python/antlr/safepoint.cljc` (the hook prelude) reads
+  `py.rt/ctx`, `py.rt/limit`, `py.b/KeyboardInterrupt`,
+  `py.b/RecursionError`, `py.b/ValueError` by store key inside hook
+  bodies. P1 does not touch it (P3 links it).
+- The engine: a definition `(yin/def k v)` is legal wherever an
+  application is legal (the AST walker's `:eval-define` transition fires
+  at any depth; `int_heap_test` already defines inside a `let` body), and
+  the one store write, `engine/store-put`, is an overwriting `assoc`:
+  nothing refuses a second definition of a key. Free store reads are
+  late-bound on all four VMs (every prelude function reads `py.rt/ctx`,
+  which today is defined after the function). Rule R only reserves the
+  name `yin/def` itself.
+
+## 1. Foundations, invariants and boundaries
+
+### 1.1 What P1 is
+
+P1 changes when and by whom the prelude's runtime state is allocated, and
+where guest code finds the builtins. It does not change what any Python
+program prints. The bundled profile stays the only profile (ruling 5):
+every program tree still carries its own prelude copy, and `isinstance`
+across units still fails, as section 8.5.1 records. P1 is the last
+reshaping of `prelude.cljc` before P2's module emitter, so its one
+structural promise is that P2 adds an emitter and changes nothing in the
+definition list.
+
+### 1.2 Invariants P1 must keep
+
+- I1, output parity. Every C1, C2, C3 and safepoint program prints the
+  same text and raises the same exception on every VM (AST walker,
+  semantic, stack, register) on JVM, Node and Dart. Rendered output is
+  the only guest-visible surface; addresses are not.
+- I2, defining runs nothing. `functions-uast` loads on a composition with
+  no `cell`, `data` or `integer` module and halts ok. After P1 it
+  contains one more kind of form than lambdas: literal definitions
+  (section 3.2). A literal allocates nothing.
+- I3, canonical references inside the interpreter. Prelude bodies and the
+  hook prelude keep reading builtin classes by store key (`py.b/TypeError`
+  and so on). Rebinding or mutating a builtin name from guest code never
+  changes which class an interpreter-generated exception carries
+  (ruling 2).
+- I4, Python's own lookup order. A module-level name resolves in the
+  module dict, then in the builtins dict, then is `NameError`. A present
+  module key always wins. Deleting the module key restores the builtin.
+- I5, one Python process is one task. The builtins dict, the three
+  runtime cells and the class cells are allocated once per task by
+  `py/init!`, never per module and never per call.
+- I6, idempotence. A second `(py/init!)` in the same task observes the
+  flag the first set and allocates nothing: the same class cells, the
+  same function cells, the same builtins dict, the same three runtime
+  cells, by cell-ref identity.
+- I7, no new host seam. `host-names` is unchanged. `py/init!` needs only
+  `cell/new` and the `py/*` functions. `admit` still proves the
+  composition before any program runs (ruling 7's end-to-end profile
+  enforcement is L-a, P2's prerequisite; P1 adds nothing to it and
+  removes nothing from `admit`).
+- I8, no lowering knowledge of builtins. After P1 the lowering has no
+  table of builtin names and emits no `py.b/*` variable. Adding a builtin
+  class or function touches one table in `prelude.cljc` and no other
+  file (section 8.5.6, "a new builtin class no longer touches the
+  lowering").
+- I9, `yin/def` discipline. `yin/def` appears only inside the prelude
+  tree (the lowering's `program-shape-test` keeps asserting it), and
+  only with a literal symbol key (Rule R).
+
+### 1.3 Boundaries
+
+- Below the prelude: the VMs, the encoder, the linker and the
+  `yang.safepoint` stage are untouched. If a VM turns out to refuse or
+  mis-handle a definition inside a lambda body or a redefinition of a
+  key, that is a VM defect to report, not something to route around in
+  the prelude (section 5, step 0 probes it first).
+- Beside the prelude: `safepoint.cljc` is untouched. Its reads of
+  `py.rt/*` and `py.b/*` resolve at hook run time, after `py/init!` has
+  defined them (the wrapper calls `py/init!` before `py/run-module`, and
+  every hook site is inside the module body).
+- Above the prelude: the REPL is not involved (F2 and F3). No `import`,
+  no `sys`, no `builtins` module (I1 and later). No `del` statement
+  (still refused by the lowering); the only module-level unbinding the
+  lowering emits is the `except E as name` cleanup, which P1 uses as its
+  Python-level shadow-then-delete probe.
+- Not in P1: the module emitter, namespace stripping, publication, the
+  linked wrapper's `require`, `py/run-main`, `sys.modules`, the hook
+  prelude's `attach!`, cross-module exception identity (its test is P2's,
+  because it needs two units sharing one task's prelude).
+
+## 2. Semantics
+
+### 2.1 `py/init!`
+
+Signature: `(py/init!)`, a prelude function of no arguments, value
+`:py/None`.
+
+Precondition: `functions-uast` has loaded (every `py/*` function and the
+literal slot `py.rt/state` are defined) and the composition supplies the
+cell module. The wrapper guarantees the first; `admit` the second.
+
+Effect, when `py.rt/state` reads `:py/uninit`:
+
+1. Define the three runtime cells, with today's initial contents:
+   `py.rt/ctx` as `(cell/new (py/ctx nil 0 0 nil))`, `py.rt/limit` as
+   `(cell/new 1000)`, `py.rt/out` as `(cell/new [])`.
+2. Define every builtin class, in `builtin-classes` order, each as
+   `(yin/def py.b/<Name> (py/make-class "<Name>" <base-key-or-None>))`,
+   `StopIteration` wrapped in `py/stop-iteration-class` as today. Order
+   matters: a base is defined before its subclass, as the table already
+   guarantees.
+3. Define every builtin function and every method implementation, in
+   table order, each `(yin/def py.b/<key> (py/make-function ...))` with
+   today's forms.
+4. Define `py.b/builtins` as a fresh Python dict (`py/dict-new`) and seed
+   it, in order: every Python-visible class from `builtin-classes`, then
+   every Python-visible function from `builtin-functions`
+   (section 3.1), by `(py/dict-set py.b/builtins {:py/str "<name>"}
+   py.b/<key>)`. Method implementations (`list-append`, `set-add`,
+   `dict-*`, `gen-*`) are not Python names and are not seeded.
+5. Define `py.rt/state` as `:py/ready`. This is the last write, so a
+   host failure part-way through (a composition that passed `admit` but
+   whose cell module refuses, say) leaves the slot at `:py/uninit`; the
+   task has failed anyway, and no half-initialized prelude ever reports
+   ready.
+
+Effect, when `py.rt/state` reads anything else: none. Value `:py/None`.
+
+Failure behavior (the design's "defined failure behavior"): `py/init!`
+has no guest-catchable failure. Every failure is a host failure of the
+run, before any guest statement executes, and the only reachable one is
+a missing host export, which `admit` refuses earlier by name. There is
+no partial-success state visible to guest code because no guest code
+runs before the wrapper's `(py/init!)` returns.
+
+Where the writes land: each `yin/def` inside the `py/init!` body goes
+through `engine/put-active`, which writes the task's own store today
+(bundled, no `:store-of`) and the prelude's own module store under P2
+(a closure carrying `:yin.k/store-of py`). This is the design's sentence
+"`py/init!` initializes the prelude's own active module store once,
+idempotently" taken literally, and it is why P2 can reuse the P1 body
+unchanged.
+
+### 2.2 The state slot
+
+`py.rt/state` is the single slot the design names ("writes one state
+slot"). It is defined in the pure definition list as the literal
+`:py/uninit`, which allocates nothing (I2, and P2's empty-heap install
+child), and `py/init!` redefines it to `:py/ready` as its final act. The
+runtime cells and class cells stay separate store keys rather than
+fields of a record in the slot, for three reasons: every prelude body,
+the hook prelude and several tests already read them by key; a free
+store read is cheaper than a record lookup on every handler push and
+every raise; and section 8.5.6 itself says `py/init!` initializes the
+module store, which is a set of keys. The slot is the idempotence flag,
+not a container.
+
+### 2.3 The builtins namespace dict
+
+`py.b/builtins` is an ordinary Python dict cell (`{:py/type :dict :index
+:keys :vals}`), one per task, created and seeded by `py/init!`. Its keys
+are `{:py/str name}` values, the same key shape as a module dict, so
+`py/global-get` reads both with the same index lookup and no
+normalization difference can arise.
+
+Insertion order is the seeding order (classes in table order, then
+functions in table order), deterministic on every host, so a later
+`dir(builtins)` or `builtins.__dict__` (I1 or later) renders the same
+text everywhere.
+
+Guest mutation: nothing in P1's Python surface reaches the dict (no
+`builtins` module, no `__builtins__`). The prelude-notation tests mutate
+it directly to prove ruling 2's two claims: a mutated entry is what
+`py/global-get` falls back to, and interpreter-generated exceptions keep
+their canonical class regardless (I3).
+
+### 2.4 Global lookup
+
+`py/global-get g n` becomes:
+
+```clojure
+[py/global-get
+ ;; a module-level read: the module dict, then the task's builtins, then
+ ;; NameError (Python's LOAD_GLOBAL)
+ (fn [g n]
+   (let [c (cell/get g)
+         slot (get (get c :index) n :py/missing)]
+     (if (= slot :py/missing)
+       (let [b (cell/get py.b/builtins)
+             bslot (get (get b :index) n :py/missing)]
+         (if (= bslot :py/missing)
+           (py/raise-new py.b/NameError
+                         (py/str (data/str-concat "name '" (get n :py/str)
+                                                  "' is not defined")))
+           (get (get b :vals) bslot)))
+       (get (get c :vals) slot))))]
+```
+
+`py/global-or g n fallback` keeps its three-argument shape and its
+meaning (module dict, else `fallback`) and is used for exactly one name
+after P1: `globals`, whose value is the per-module function object
+`%globals-fn` that `py/run-module` builds. `globals` cannot live in the
+shared builtins dict because its value differs per module. The lowering
+special case for `globals` therefore stays; it is not a `py.b/*` read.
+
+`py/global-set` and `py/global-del-quiet` are unchanged: they write and
+delete module dict keys only. The builtins dict is never written by a
+module-level assignment or unbinding, which is what makes shadow then
+delete restore the builtin (I4): the assignment adds a module key that
+wins; the deletion removes it; the next read misses the module dict and
+finds the builtin again.
+
+`py/class-ns-get cls name fallback` is unchanged; its `fallback` thunk is
+the lowered `read-global`, which now ends in the dict path.
+
+### 2.5 The lowering
+
+`read-global` loses its first branch:
+
+```clojure
+(defn- read-global
+  "A module-level read at run time: the module dict, then the task's
+   builtins (`py/global-get`); `globals` is the module's own function
+   object, so it is the one name read with a fallback the lowering
+   supplies."
+  [_n name]
+  (if (= "globals" name)
+    (app* 'py/global-or (u/v globals-sym) (global-key name) (u/v globals-fn-sym))
+    (app* 'py/global-get (u/v globals-sym) (global-key name))))
+```
+
+`prelude/builtin-names` is deleted; nothing else in `lower.cljc` changes.
+`lower-packet` keeps its shape `(then prelude/uast (py/run-module ...))`
+because `prelude/uast` itself becomes "functions, then `(py/init!)`"
+(section 3.3), which is the bundled reading of the design's linked
+wrapper `(do (require 'py) (py/init!) (py/run-main ...))`.
+
+`py/run-module` is unchanged in P1. It still resets `py.rt/out` and
+`py.rt/ctx` on entry; those resets are redundant after `py/init!` for a
+fresh task and harmless, and F3's persistent `__main__` is the slice
+that revisits them.
+
+### 2.6 What the guest observes
+
+| Program | Before P1 | After P1 |
+|---|---|---|
+| `print(len([]))` | `global-or` reads store key `py.b/len` | `global-get` misses the module dict, finds `len` in the builtins dict |
+| `len = 1; print(len)` | module key wins | module key wins |
+| `except E as len: ...` then `print(len([]))` | handler exit deletes module key `len`; next read is `global-or` with the store builtin | handler exit deletes module key `len`; next read falls back to the dict |
+| `print(map)` (not provided) | `global-get` raises `NameError` | `global-get` raises `NameError` from the dict miss, same text |
+| `class C: x = len` | class dict, then `read-global` | class dict, then `read-global` via the dict |
+
+No row changes its output. Section 4 pins each.
+
+## 3. Data structures and the refactoring plan
+
+### 3.1 Tables in `prelude.cljc`
+
+Keep `builtin-classes` as it is: `[["object" py.b/object nil] ...]`, each
+row `[python-name store-key base-store-key-or-nil]`. Every row is
+Python-visible.
+
+Split today's `builtin-function-definitions` into two tables by
+visibility, since the single definition list must know which keys become
+Python names without a second hand-kept map:
+
+- `builtin-functions`: rows `[python-name store-key form]`, the
+  twenty-five Python-visible functions today's `builtin-names` lists
+  (`len`, `isinstance`, `hash`, `divmod`, `print`, `range`, `list`,
+  `tuple`, `set`, `sum`, `any`, `all`, `next`, `iter`, `int`, `float`,
+  `str`, `repr`, `bool`, `abs`, `pow`, `round`, `hex`, `oct`, `bin`), with
+  their existing `py/make-function` forms moved verbatim.
+- `method-implementations`: rows `[store-key form]`, the function objects
+  `py/getattr` and `py/gen-attr` hand out (`list-append`, `set-add`,
+  `dict-items`, `dict-keys`, `dict-values`, `dict-get`, `gen-send`,
+  `gen-throw`, `gen-close`, `gen-next`, `gen-iter`), forms verbatim.
+
+A sanity check in the parity test derives the set of seeded names from
+these two tables and compares it with the twenty-five plus the class
+names, so the split cannot silently drop a builtin.
+
+### 3.2 The single definition list
+
+`definitions` (public; rename of `function-definitions`, keep the old
+name as nothing more than an alias only if a test outside this slice's
+reach still reads it, otherwise rename the two test reads) is one vector
+of `[store-key form]` in this order:
+
+1. every row of `core-definitions` (unchanged, still a quoted literal);
+2. `[py.rt/state :py/uninit]`, the literal slot;
+3. `[py/init! <generated form>]`.
+
+Item 3 is built by a private Clojure function `init-form` from the three
+tables:
+
+```clojure
+(defn- define
+  "`(yin/def (quote key) form)` in prelude notation: the key quoted, so
+   `sexp->uast` reads it as the literal symbol Rule R requires."
+  [key form]
+  (list 'yin/def (list 'quote key) form))
+
+(defn- init-form
+  "`py/init!`'s body: every definition `state-definitions` held, then
+   the builtins dict seeded from the tables, then the ready flag, under
+   the uninit guard."
+  []
+  (list 'fn []
+        (list 'if (list '= 'py.rt/state :py/uninit)
+              (concat
+                ['do
+                 (define 'py.rt/ctx '(cell/new (py/ctx nil 0 0 nil)))
+                 (define 'py.rt/limit '(cell/new 1000))
+                 (define 'py.rt/out '(cell/new []))]
+                (mapv (fn [[nm key base]]
+                        (define key
+                          (cond->> (list 'py/make-class nm (or base :py/None))
+                            (= "StopIteration" nm) (list 'py/stop-iteration-class))))
+                      builtin-classes)
+                (mapv (fn [[_ key form]] (define key form)) builtin-functions)
+                (mapv (fn [[key form]] (define key form)) method-implementations)
+                [(define 'py.b/builtins '(py/dict-new))]
+                (mapv (fn [[nm key _]]
+                        (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
+                      builtin-classes)
+                (mapv (fn [[nm key _]]
+                        (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
+                      builtin-functions)
+                [(define 'py.rt/state :py/ready)
+                 :py/None])
+              :py/None)))
+```
+
+Notes for whoever types this. `u/sexp->uast` has no `yin/def` arm
+despite its docstring: `(yin/def k v)` is read as an application of the
+variable `yin/def` to the *variable* `k`, which Rule R's definition-shape
+check refuses. The key must be `(quote k)`, as `int_heap_test` already
+writes it; `define` above does that. Do not add a `yin/def` arm to
+`sexp->uast` in this slice (it would have to accept both spellings and
+is not needed). The `:py/str` literal maps and the `:py/uninit` keywords
+fall through `sexp->uast`'s `:else` to literals; `mapv`, not `for`,
+because this Clojure runs on Dart at load (the `for` over a chunked seq
+trap). The outer `if` has an explicit `:py/None` alternate because
+`sexp->uast`'s `if` takes three forms. The top-level rows of
+`definitions` still go through `definitions->uast`, which uses `u/def!`
+and needs no quoting.
+
+`state-definitions` is deleted. `definitions->uast` stays as it is.
+
+### 3.3 The two trees
+
+```clojure
+(def functions-uast
+  "Every definition: lambdas and the literal state slot. Defining them
+   runs nothing, so this loads on any composition, with or without cells."
+  (definitions->uast definitions))
+
+(def uast
+  "The bundled prelude: every definition, then the task's runtime state
+   allocated by `py/init!`."
+  (u/then functions-uast (u/sexp->uast '(py/init!))))
+```
+
+`functions-uast` is what P2's module emitter will take (with the `py`
+namespace stripped from keys and internal references); `uast` is the
+bundled emitter's output, and `(py/init!)` is the call the linked entry
+wrapper makes. One source, two emitters, as section 8.5.6 says.
+
+Every consumer of `prelude/uast` (the lowering, `int_ops_test`,
+`int_conv_test`, `int_literal_test`, `int_contract_test`,
+`prelude_parity_test`, `lower_test`, `float_address_test`, `e2e_test`'s
+`closed-names`) keeps working unchanged: after `uast` loads, the store
+holds `py.rt/ctx`, `py.rt/out`, `py.b/ValueError`, and every other key
+those tests name, exactly as before. Every consumer of `functions-uast`
+(`int_heap_test`, `prelude_parity_test`, `float_address_test`) keeps
+working: the forms they run do not raise, so they never reach a `py.b/*`
+key.
+
+### 3.4 `builtin-names` and `host-names`
+
+Delete `builtin-names`. `host-names` is unchanged (I7). `min-integer-bits`,
+`register-integer-module`, `admit` are unchanged.
+
+### 3.5 Docstrings and the design document
+
+- The prelude namespace docstring: the "Runtime state is three cells"
+  paragraph becomes "Runtime state is allocated by `py/init!`, once per
+  task, under the slot `py.rt/state`: the three cells (...as today...),
+  the builtin classes and functions as `py.b/*` keys, and the builtins
+  namespace dict `py.b/builtins`, which `py/global-get` falls back to."
+- `lower.cljc` line 17: replace "`yin/def` is reserved for the prelude
+  and builtins" with "`yin/def` appears only in the prelude; builtins
+  are read through the task's builtins dict".
+- `docs/design/yang.antlr.md` section 8.5.6, line 2642: "F1 has landed"
+  becomes "F1 and P1 have landed", and the bullet "Runtime state moves
+  from module-level definitions into `py/init!`, which writes one state
+  slot" gains "(`py.rt/state`, a literal `:py/uninit` until `py/init!`
+  flips it to `:py/ready` as its last write; the cells and classes stay
+  store keys the body defines)". Nothing else in the design changes.
+- Owner policy: `collab/` is never staged.
+
+### 3.6 What moves and what does not
+
+| Item | P1 |
+|---|---|
+| `core-definitions` | unchanged text; becomes the head of `definitions` |
+| `builtin-classes` | unchanged |
+| `builtin-function-definitions` | split into `builtin-functions` and `method-implementations`, forms verbatim |
+| `state-definitions` | deleted; its content is `py/init!`'s body |
+| `builtin-names` | deleted |
+| `function-definitions` | renamed `definitions`, now including the slot and `py/init!` |
+| `functions-uast` | now the whole single source |
+| `uast` | functions, then `(py/init!)` |
+| `py/global-get` | module dict, builtins dict, NameError |
+| `py/global-or` | unchanged; one caller left (`globals`) |
+| `read-global` in `lower.cljc` | two arms instead of three |
+| `py/run-module` | unchanged |
+| `safepoint.cljc` | unchanged |
+| prelude address goldens | re-pinned once |
+| lowering goldens naming `py.b/*` | re-pinned once |
+
+## 4. Acceptance criteria and test obligations
+
+Every test below runs on all four VMs; `.cljc` tests run on JVM, Node and
+Dart. The four acceptance bullets of section 8.5.6 row P1 (lines 3099 to
+3102) are A1 to A4.
+
+### A1. Full corpus output unchanged on every VM and host
+
+Obligation: every existing test in `test/yang/python/antlr/` passes with
+no change to any expected `{:py/out :py/exception}` value. The only
+permitted edits to existing tests are the four structural ones listed in
+section 4.6. Evidence: `bb test` green on all three lanes, plus
+`clojure -M:test -i :slow -n <ns>` for each changed Python namespace
+(the slow e2e, e2e-c1, prelude-parity, safepoint, float-address and
+int-contract sets), per `docs/agents/build-n-test.md`.
+
+### A2. A composition with no cell module halts ok on `functions-uast`
+
+New test, `prelude_parity_test.cljc`, `functions-load-without-cells-test`:
+build each of the four VMs over `{:modules (module/empty-registry)
+:primitives vm/primitives ...}` (no cell, data or integer module; model
+it on `safepoint_test/hook-prelude-loads-alone-test` and `on-every-vm`),
+run `prelude/functions-uast`, and assert `[(vm/halted? vm)
+(vm/blocked? vm)]` is `[true false]` and nothing throws. This proves the
+literal slot and the `py/init!` lambda allocate nothing at load.
+
+### A3. `py/init!` twice yields one set of class cells
+
+New test, `prelude_parity_test.cljc`, `init-is-idempotent-test`, in
+prelude notation after `prelude/uast` (so `py/init!` has already run
+once by the wrapper):
+
+```clojure
+(let [c1 py.b/ValueError
+      f1 py.b/len
+      b1 py.b/builtins
+      ctx1 py.rt/ctx
+      out1 py.rt/out
+      lim1 py.rt/limit
+      s1 py.rt/state
+      _ (py/init!)
+      _ (py/init!)]
+  (py/conj ... [(= c1 py.b/ValueError) (= f1 py.b/len) (= b1 py.b/builtins)
+                (= ctx1 py.rt/ctx) (= out1 py.rt/out) (= lim1 py.rt/limit)
+                (= s1 :py/ready)
+                (= (py/global-get (py/dict-new) {:py/str "ValueError"}) c1)]))
+```
+
+Expected: every element `true`, on every VM. Cell refs compare by
+identity through `=`, so a re-allocation would show as `false`. Add a
+second clause: the state slot read before any `py/init!` (run under
+`functions-uast` alone) is `:py/uninit`.
+
+### A4. Shadowing then deleting a builtin name makes the builtin visible again
+
+Two tests, one at each level.
+
+Prelude level, `prelude_parity_test.cljc`, `shadow-then-delete-builtin-test`:
+
+```clojure
+(let [g (py/dict-new)
+      a (py/global-get g {:py/str "len"})
+      _ (py/global-set g {:py/str "len"} 1)
+      b (py/global-get g {:py/str "len"})
+      _ (py/global-del-quiet g {:py/str "len"})
+      c (py/global-get g {:py/str "len"})
+      d (py/try (fn [] (py/global-get g {:py/str "nosuch"}))
+                (fn [e] (py/isinstance e py.b/NameError))
+                (fn [] :no))]
+  [(= a py.b/len) b (= c py.b/len) d])
+```
+
+Expected `[true 1 true true]`.
+
+Python level, `e2e_test.clj`, `shadow-then-delete-builtin-test` (tag
+`^:slow` like its neighbours; `del` is unsupported, so the unbinding the
+lowering emits for `except ... as name` is the probe):
+
+```python
+print(len([1, 2]))
+try:
+    raise ValueError
+except ValueError as len:
+    print(len)
+print(len([1, 2, 3]))
+```
+
+Expected output: `2`, then the rendered exception instance line as the
+corpus renders a `ValueError()` (match it from an existing golden), then
+`3`. The third line is the acceptance: after the handler's exit unbinds
+`len`, the builtin is visible again. Also assert the canonical program
+is closed (`every-vm=` does this).
+
+### A5. Ruling 2's remaining tests (initialization twice is A3)
+
+- Builtin mutation, `prelude_parity_test.cljc`, `builtin-mutation-test`:
+  after `prelude/uast`, `(py/dict-set py.b/builtins {:py/str "len"} 7)`,
+  then `(py/global-get (py/dict-new) {:py/str "len"})` is `7`, while
+  `(py/len (py/list [1]))` is still `1` (the prelude's own `py/len` is not
+  a dict read) and `py.b/len` is still the function cell. Then
+  `(py/dict-set py.b/builtins {:py/str "TypeError"} py.b/ValueError)` and
+  `(py/try (fn [] (py/type-error {:py/str "x"})) (fn [e] (py/isinstance e py.b/TypeError)) ...)`
+  is `true`: an interpreter-generated exception keeps its canonical class
+  (I3).
+- Cross-module exception identity: deferred to P2, where two units can
+  share one task's prelude. Record this in the test namespace docstring
+  so the gap is visible.
+
+### A6. Lookup-order and closure tests
+
+- `e2e_test.clj`, `builtin-lookup-order-test` (Python, every VM):
+  `print(len([])); len = 1; print(len)` prints `0` then `1` (already in the
+  lowering's docstring; make it a corpus line if it is not one yet), and
+  `class C:\n    x = len\nprint(C.x([1]))` prints `1` (class-body
+  fallback reaches the dict).
+- `e2e_test.clj` `canonical-is-closed` keeps passing with `closed-names`
+  derived from `(definition-keys prelude/uast)`: the keys inside
+  `py/init!`'s body are found by that tree walk. Add one assertion to
+  `lower_test.clj`: the lowered program for `print(len([]))` contains no
+  variable whose namespace is `py.b` (I8).
+- `prelude_parity_test.cljc`, `seeded-builtins-test`: the set of
+  `{:py/str name}` keys of `py.b/builtins` after `prelude/uast` equals
+  the twenty-five function names plus the class names of
+  `builtin-classes`, and its `:keys` vector is in table order.
+
+### 4.6 Existing tests that must change, and how
+
+| Test | Why it changes | Change |
+|---|---|---|
+| `lower_test.clj` `builtin-read` helper (line 69) and the `sum` golden (line 346) | emit `py/global-get`, no `py.b/sum` | re-pin the expected tree |
+| `float_address_test.cljc` `prelude-addresses-test` | the prelude tree changed | re-pin the base prelude's blake3 root once (the hook prelude's is unchanged) |
+| `safepoint_test.cljc` `fail-closed` second clause (lines 465 to 471) | the naive guest program no longer names `py.b/KeyboardInterrupt`; the prelude defines it inside `py/init!` | assert the guest reads `{:py/str "KeyboardInterrupt"}` via `py/global-get`, that `py.b/KeyboardInterrupt` is still a definition key of the tree, and (unchanged) that no `py.sp` name appears |
+| `prelude_parity_test.cljc` `prelude-notation-test` | `function-definitions` renamed | read `prelude/definitions` |
+| `e2e_test.clj` `closed-names` | none required | verify it still passes; it walks the whole tree |
+
+Any other existing test that needs an edit is a finding to report, not
+an edit to make silently.
+
+### 4.7 Lanes
+
+Iterate with `clojure -M:test -n yang.python.antlr.prelude-parity-test`
+and `bb test:clj`; run `bb test` once at landing, one lane set at a time;
+run the slow sets for the changed Python namespaces. Node needs
+`npm ci` in a fresh worktree; run `mise trust` there first. Report the
+numbers from each lane's output, not a summary word.
+
+## 5. Instructions for the Implementation Engineer
+
+Model: Claude Opus 5.5. Work in the worktree at
+`/Users/sto/workspace/datomworld-p1`, branch `yang-python-c4-p1`. Read
+`docs/agents/build-n-test.md` before running anything. Run test lanes in
+the foreground. Do not stage anything under `collab/`.
+
+Step 0, probe the VMs before touching the prelude (red phase for the
+engine assumptions this design rests on). Add to
+`prelude_parity_test.cljc` a test that runs, on all four VMs over the
+`runners` composition, the hand-built UAST
+
+```clojure
+(do (yin/def (quote py.rt/probe) :u)
+    ((fn [] (if (= py.rt/probe :u) (yin/def (quote py.rt/probe) :r) :py/None)))
+    ((fn [] (if (= py.rt/probe :u) (yin/def (quote py.rt/probe) :x) :py/None)))
+    py.rt/probe)
+```
+
+(Written in prelude notation through `u/sexp->uast`, hence the quoted
+keys; see the note under section 3.2.)
+
+and expects `:r`. This proves a definition inside a lambda body writes
+the store and a later free read sees the redefinition on the AST walker,
+semantic, stack and register VMs. If any VM fails it, stop and report
+with the output: that is a VM finding for the Architect, and the slice
+does not proceed on a workaround.
+
+Step 1, tests first (red). Add A2, A3, A4 (both levels), A5's mutation
+test, A6's three tests, and apply the four edits of section 4.6 with
+their new expectations. Run the parity namespace; it must fail on the
+missing names (`py/init!`, `py.b/builtins`, `prelude/definitions`).
+
+Step 2, `prelude.cljc`. In this order, each followed by
+`clojure -M:test -n yang.python.antlr.prelude-parity-test`:
+
+1. Split `builtin-function-definitions` into `builtin-functions`
+   (`[name key form]`) and `method-implementations` (`[key form]`), forms
+   moved verbatim. Nothing else yet; `state-definitions` consumes both
+   for now.
+2. Add `init-form` (section 3.2) and the two rows to the definition list;
+   rename `function-definitions` to `definitions`; redefine
+   `functions-uast` and `uast` (section 3.3); delete `state-definitions`.
+3. Replace `py/global-get` with the section 2.4 body.
+4. Delete `builtin-names`.
+5. Update the namespace docstring.
+
+Step 3, `lower.cljc`: `read-global` per section 2.5; the docstring line
+17 edit. Run `clojure -M:test -n yang.python.antlr.lower-test`, then the
+e2e namespaces with `-i :slow`.
+
+Step 4, re-pin the two goldens (section 4.6) with the values the JVM
+prints; do not pin from Node or Dart.
+
+Step 5, lint: `clj -M:kondo --lint src/cljc/yang/python/antlr test/yang/python/antlr`.
+
+Step 6, lanes: `bb test:clj`, then `bb test:cljs`, then `bb test:cljd`,
+one at a time, then the slow Python sets:
+`clojure -M:test -i :slow -n yang.python.antlr.e2e-test -n yang.python.antlr.e2e-c1-test -n yang.python.antlr.e2e-c2-test -n yang.python.antlr.prelude-parity-test -n yang.python.antlr.safepoint-test -n yang.python.antlr.float-address-test -n yang.python.antlr.int-contract-test`,
+and the Node and Dart slow lanes (`bb test:slow:cljs`, `bb test:slow:cljd`).
+
+Step 7, the design document edit of section 3.5.
+
+Step 8, report. Write
+`collab/1791397000000-engineer-c4-p1.<model>.report.md` with: the diff
+summary by file; each lane's pass, fail and error counts copied from the
+output; the two re-pinned golden values; any test outside section 4.6
+that needed an edit and why; anything in this spec that turned out
+wrong. No commit until the Architect signs the report off; the commit
+message is `feat(yang.python): single-source prelude, py/init!, builtins
+dict; still bundled (C4 slice P1)` with no Co-Authored-By line.
+
+Portability reminders for the Clojure that generates forms (it runs on
+Dart at namespace load): `mapv` or `keep`, never `for`, over the tables;
+never `assoc` several keys onto a value that could be `nil`; no `#?(:clj
+...)` branch in `prelude.cljc`; the EDN reader on Dart refuses whitespace
+before a closer in a string being read, which does not affect quoted
+code but does affect any EDN fixture you add.
+
+Things that look like shortcuts and are not:
+
+- Keeping `builtin-names` "for the tests". Delete it; A6's seeded-names
+  test derives the set from the tables.
+- Putting the builtins dict seeding into `py/run-module`. It is per task,
+  not per module; `py/init!` owns it.
+- Allocating `py.rt/state` as a cell at load. P2's install child must
+  have an empty heap; the literal slot is the design.
+- Flipping `py.rt/state` first "so re-entrancy is safe". No guest code
+  runs inside `py/init!`; flipping last is what makes a failed init
+  honest.
+- Reading `py.b/builtins` through `py/global-or`'s fallback argument from
+  the lowering. The lowering must not name `py.b/*` (I8).
+
+## Appendix: open items carried forward, none blocking P1
+
+- Cross-module `isinstance` identity test: P2.
+- `py/run-module`'s resets of `py.rt/out` and `py.rt/ctx` versus a
+  persistent `__main__`: F3.
+- The hook prelude's load-time cell and cursor: P3 (`attach!`).
+- Whether the register VM's `[:load-free]` resolution has any per-image
+  caching that step 0 would expose: step 0 answers it empirically; if it
+  does, that is a VM finding.
+# Track A Slice P1: Implementation Engineer Completion Report
+
+Engineer: claude-opus-5-5 (orchestrator-assembled from verified execution). Date: 2026-10-08.
+Repository: `/Users/sto/workspace/datomworld-p1`.
+Branch: `yang-python-c4-p1` (rebased on master `802d9ee2`).
+
+Spec: `collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md`.
+
+---
+
+## 1. Summary of Changes
+
+### `src/cljc/yang/python/antlr/prelude.cljc`
+- **A1 Function/Method Split**: Split `builtin-function-definitions` into `builtin-functions` (triplets `[py-name store-key form]`) and `method-implementations` (pairs `[store-key form]`). Methods are omitted from the builtins dict.
+- **A1 Initialization Function**: Implemented `init-form` defining `py/init!`, guarded by `(= py.rt/state :py/uninit)`. On initial run, it defines the 3 runtime cells, classes, functions, methods, seeds `py.b/builtins` with all classes and functions, and flips `py.rt/state` to `:py/ready`.
+- **A1 Global Lookup**: `py/global-get` updated to resolve module globals dict first, then `py.b/builtins` dict second, raising `NameError` if absent from both.
+- **A1 Single Definitions List**: Replaced `state-definitions` and `function-definitions` with `definitions` containing all functions, the literal `['py.rt/state :py/uninit]`, and `['py/init! (init-form)]`.
+- **A1 Removed `builtin-names`**: Removed static `builtin-names` map; global lookup is now fully dynamic via the dictionary.
+- **`uast` Composition**: `uast` updated to `(u/then functions-uast (u/sexp->uast '(py/init!)))`.
+
+### `src/cljc/yang/python/antlr/lower.cljc`
+- **A1 Global Read Lowering**: Updated `read-global` to generate a 2-arm lookup:
+  - If module globals dict contains variable, return it;
+  - Else invoke `(py/global-get %globals "x")`.
+  - Removed all compile-time references to `builtin-names`.
+
+### Tests & Documentation
+- **Golden Re-pins**: Re-pinned UAST and AST goldens in `test/yang/python/antlr/lower_test.clj` and `test/yang/python/antlr/float_address_test.cljc`.
+- **Pre-probe Test**: Added 4-VM probe test (`walker`, `semantic`, `stack`, `register`) in `test/yang/python/antlr/prelude_parity_test.cljc` confirming prelude loads and executes consistently.
+- **New Coverage**: Added tests for `py/init!` idempotence, `builtins` dict inspection, builtin shadowing via `%globals`, dynamic builtins monkeypatching, and lookup failure `NameError`.
+- **Design Doc**: Updated `docs/design/yang.antlr.md` §8.5.6 to record P1 completion and `py.rt/state` lifecycle.
+
+---
+
+## 2. Multi-Host Verification Evidence
+
+| Lane / Test Suite | Scope | Result |
+|-------------------|-------|--------|
+| JVM Fast Suite (`prelude-parity`, `lower`, `float-address`, `e2e`, `safepoint`) | Focused | **135 tests, 1414 assertions, 0 failures, 0 errors** |
+| JVM Slow Suite (`clojure -M:test -i :slow ...`) | E2E & Contracts | **76 tests, 2645 assertions, 0 failures, 0 errors** |
+| Node Slow Suite (`bb test:slow:cljs`) | CLJS Parity | **354 tests, 43202 assertions, 0 failures, 0 errors** |
+| Linter (`clj -M:kondo --lint src/cljc/yang/python/antlr test/yang/python/antlr`) | Static Analysis | **0 errors, 0 warnings** |
+| Formatter (`cljstyle check`) | Formatting | **Clean (exit 0)** |
+
+---
+
+## 3. Deviations from Specification
+
+None. All steps 0 through 7 in the Lead Architect specification were implemented verbatim.
+Awaiting independent adversarial review and Lead Architect sign-off.
+# Independent Adversarial Review — Track A Slice P1
+
+Reviewer: Codex (gpt-6.1-sol). Date: 2026-10-08.
+Repository: `/Users/sto/workspace/datomworld-p1`.
+Branch: `yang-python-c4-p1`; HEAD/base: `802d9ee2dfb32ff1c3552427d8e2963225ae4edc`.
+Scope: all nine tracked working-tree changes against that base; architect specification and engineer completion report read as context. No implementation files changed by this review.
+
+## Verdict: ACCEPT
+
+No revision-worthy implementation defect found.
+
+## Invariant review
+
+- **Initialization and idempotence:** `definitions` installs only lambdas and the literal `py.rt/state = :py/uninit`. `uast` then calls `py/init!`. The initializer creates runtime cells, classes in base-before-subclass order, functions, methods and the namespace dictionary, and writes `:py/ready` last. Subsequent calls return `:py/None` without allocating or reseeding. Existing identity tests pass on all four VMs; independent comparisons also found identical heap allocation keys after two extra calls.
+- **Safe re-entry within the specified execution model:** initialization invokes allocation/data helpers and constructs function objects; it does not call guest function bodies. The StopIteration setup installs its constructor without executing it. Dictionary seeding uses string keys and no guest dispatch. Thus there is no supported recursive entry while state remains uninitialized. The guard handles calls after initialization. This is not a general concurrent or externally injected recursive-init lock; those behaviors are outside P1's single-task specification. Keeping readiness as the final write follows the specified failure semantics.
+- **Builtin visibility:** `builtin-functions` contains exactly 25 Python-visible functions. `method-implementations` is allocated but never seeded. The seeded dictionary test checks exact ordered keys, excluding all method entries. Independent lookup of `list-append` raises canonical NameError on every VM. Mechanical comparison with the base confirmed all 36 function/method implementation forms are unchanged.
+- **Dynamic lookup:** module-key presence determines precedence, including false-valued bindings. A miss checks the current builtins dictionary; deletion restores fallback; a miss in both raises canonical `py.b/NameError`. Builtin monkeypatching affects guest lookup while runtime exception creation retains canonical store references. Extra probes verified a `:py/None` builtin value survives another `py/init!`, deletion of an existing builtin causes NameError, and a false module binding wins.
+- **Lowering:** `read-global` has the specified `globals` special case and ordinary `py/global-get` arm. There is no remaining prelude `builtin-names` or old `function-definitions` consumer. Guest lowering emits no builtin store reads. The per-module `globals` function remains supplied by the module runner.
+- **Four-VM semantics:** walker, semantic, stack and register all pass the definition/redefinition probe, pure-definition load, initialization identity, exact builtin seeding, shadow/delete, monkeypatch and canonical-exception tests. Independent adversarial probes produced `[false :py/None true true]` on each VM.
+- **Documentation and goldens:** the state-slot description agrees with the implementation. Address changes follow the altered prelude and lowered global reads; the focused JVM golden checks pass. Hook prelude remains unchanged. The documentation's P1 completion statement should be read with the verification limitations below, not as independent proof of all host gates.
+
+## Independent verification
+
+- Focused JVM fast suite: `clojure -M:test -n yang.python.antlr.prelude-parity-test -n yang.python.antlr.lower-test -n yang.python.antlr.float-address-test -n yang.python.antlr.e2e-test -n yang.python.antlr.safepoint-test -n yang.python.antlr.int-conv-test -e :slow` — **92 tests, 820 assertions, 0 failures, 0 errors**.
+- Focused JVM slow suite: `clojure -M:test -i :slow -n yang.python.antlr.prelude-parity-test -n yang.python.antlr.e2e-test -n yang.python.antlr.safepoint-test -n yang.python.antlr.float-address-test -n yang.python.antlr.e2e-c1-test -n yang.python.antlr.int-contract-test` — **72 tests, 2551 assertions, 0 failures, 0 errors**. Includes the new guest shadow/delete and class-body builtin lookup checks.
+- Kondo: `clj -M:kondo --lint src/cljc/yang/python/antlr test/yang/python/antlr` — **0 errors, 0 warnings**.
+- Cljstyle: installed binary `/Users/sto/.local/share/mise/installs/cljstyle/0.17.642/cljstyle check src/cljc/yang/python/antlr/prelude.cljc src/cljc/yang/python/antlr/lower.cljc test/yang/python/antlr` — **exit 0**.
+- `git diff --check` — **exit 0**.
+- Temporary independent probes outside the repository verified lookup edge cases on all four VMs, unchanged function/method forms against base, and unchanged heap allocation keys after repeated initialization — **passed**.
+
+## Verification limitations
+
+The engineer's reported Node results are prior evidence, not independently reproduced here. The review's focused Node build succeeded after selecting Java 21 (the default Java 17 could not load Shadow). Node test execution then failed before tests started with `Cannot find module '@noble/hashes/blake3.js'`. The existing untracked `node_modules` symlink points to `/Users/sto/workspace/datomworld/node_modules`; traversing its dependencies reports `Too many levels of symbolic links`. Shadow returned exit 0 despite this runtime failure, so that exit code is not counted as a test pass. This is a local dependency setup limitation, not an observed defect in the reviewed changes. Dart was not rerun. Consequently this review establishes all-four-VM parity on JVM, not an independent three-host release gate.
+
+exec
+/bin/zsh -lc "sed -n '100,280p' collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md; sed -n '2920,3130p' docs/design/yang.antlr.md; git diff --stat" in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+  defined them (the wrapper calls `py/init!` before `py/run-module`, and
+  every hook site is inside the module body).
+- Above the prelude: the REPL is not involved (F2 and F3). No `import`,
+  no `sys`, no `builtins` module (I1 and later). No `del` statement
+  (still refused by the lowering); the only module-level unbinding the
+  lowering emits is the `except E as name` cleanup, which P1 uses as its
+  Python-level shadow-then-delete probe.
+- Not in P1: the module emitter, namespace stripping, publication, the
+  linked wrapper's `require`, `py/run-main`, `sys.modules`, the hook
+  prelude's `attach!`, cross-module exception identity (its test is P2's,
+  because it needs two units sharing one task's prelude).
+
+## 2. Semantics
+
+### 2.1 `py/init!`
+
+Signature: `(py/init!)`, a prelude function of no arguments, value
+`:py/None`.
+
+Precondition: `functions-uast` has loaded (every `py/*` function and the
+literal slot `py.rt/state` are defined) and the composition supplies the
+cell module. The wrapper guarantees the first; `admit` the second.
+
+Effect, when `py.rt/state` reads `:py/uninit`:
+
+1. Define the three runtime cells, with today's initial contents:
+   `py.rt/ctx` as `(cell/new (py/ctx nil 0 0 nil))`, `py.rt/limit` as
+   `(cell/new 1000)`, `py.rt/out` as `(cell/new [])`.
+2. Define every builtin class, in `builtin-classes` order, each as
+   `(yin/def py.b/<Name> (py/make-class "<Name>" <base-key-or-None>))`,
+   `StopIteration` wrapped in `py/stop-iteration-class` as today. Order
+   matters: a base is defined before its subclass, as the table already
+   guarantees.
+3. Define every builtin function and every method implementation, in
+   table order, each `(yin/def py.b/<key> (py/make-function ...))` with
+   today's forms.
+4. Define `py.b/builtins` as a fresh Python dict (`py/dict-new`) and seed
+   it, in order: every Python-visible class from `builtin-classes`, then
+   every Python-visible function from `builtin-functions`
+   (section 3.1), by `(py/dict-set py.b/builtins {:py/str "<name>"}
+   py.b/<key>)`. Method implementations (`list-append`, `set-add`,
+   `dict-*`, `gen-*`) are not Python names and are not seeded.
+5. Define `py.rt/state` as `:py/ready`. This is the last write, so a
+   host failure part-way through (a composition that passed `admit` but
+   whose cell module refuses, say) leaves the slot at `:py/uninit`; the
+   task has failed anyway, and no half-initialized prelude ever reports
+   ready.
+
+Effect, when `py.rt/state` reads anything else: none. Value `:py/None`.
+
+Failure behavior (the design's "defined failure behavior"): `py/init!`
+has no guest-catchable failure. Every failure is a host failure of the
+run, before any guest statement executes, and the only reachable one is
+a missing host export, which `admit` refuses earlier by name. There is
+no partial-success state visible to guest code because no guest code
+runs before the wrapper's `(py/init!)` returns.
+
+Where the writes land: each `yin/def` inside the `py/init!` body goes
+through `engine/put-active`, which writes the task's own store today
+(bundled, no `:store-of`) and the prelude's own module store under P2
+(a closure carrying `:yin.k/store-of py`). This is the design's sentence
+"`py/init!` initializes the prelude's own active module store once,
+idempotently" taken literally, and it is why P2 can reuse the P1 body
+unchanged.
+
+### 2.2 The state slot
+
+`py.rt/state` is the single slot the design names ("writes one state
+slot"). It is defined in the pure definition list as the literal
+`:py/uninit`, which allocates nothing (I2, and P2's empty-heap install
+child), and `py/init!` redefines it to `:py/ready` as its final act. The
+runtime cells and class cells stay separate store keys rather than
+fields of a record in the slot, for three reasons: every prelude body,
+the hook prelude and several tests already read them by key; a free
+store read is cheaper than a record lookup on every handler push and
+every raise; and section 8.5.6 itself says `py/init!` initializes the
+module store, which is a set of keys. The slot is the idempotence flag,
+not a container.
+
+### 2.3 The builtins namespace dict
+
+`py.b/builtins` is an ordinary Python dict cell (`{:py/type :dict :index
+:keys :vals}`), one per task, created and seeded by `py/init!`. Its keys
+are `{:py/str name}` values, the same key shape as a module dict, so
+`py/global-get` reads both with the same index lookup and no
+normalization difference can arise.
+
+Insertion order is the seeding order (classes in table order, then
+functions in table order), deterministic on every host, so a later
+`dir(builtins)` or `builtins.__dict__` (I1 or later) renders the same
+text everywhere.
+
+Guest mutation: nothing in P1's Python surface reaches the dict (no
+`builtins` module, no `__builtins__`). The prelude-notation tests mutate
+it directly to prove ruling 2's two claims: a mutated entry is what
+`py/global-get` falls back to, and interpreter-generated exceptions keep
+their canonical class regardless (I3).
+
+### 2.4 Global lookup
+
+`py/global-get g n` becomes:
+
+```clojure
+[py/global-get
+ ;; a module-level read: the module dict, then the task's builtins, then
+ ;; NameError (Python's LOAD_GLOBAL)
+ (fn [g n]
+   (let [c (cell/get g)
+         slot (get (get c :index) n :py/missing)]
+     (if (= slot :py/missing)
+       (let [b (cell/get py.b/builtins)
+             bslot (get (get b :index) n :py/missing)]
+         (if (= bslot :py/missing)
+           (py/raise-new py.b/NameError
+                         (py/str (data/str-concat "name '" (get n :py/str)
+                                                  "' is not defined")))
+           (get (get b :vals) bslot)))
+       (get (get c :vals) slot))))]
+```
+
+`py/global-or g n fallback` keeps its three-argument shape and its
+meaning (module dict, else `fallback`) and is used for exactly one name
+after P1: `globals`, whose value is the per-module function object
+`%globals-fn` that `py/run-module` builds. `globals` cannot live in the
+shared builtins dict because its value differs per module. The lowering
+special case for `globals` therefore stays; it is not a `py.b/*` read.
+
+`py/global-set` and `py/global-del-quiet` are unchanged: they write and
+delete module dict keys only. The builtins dict is never written by a
+module-level assignment or unbinding, which is what makes shadow then
+delete restore the builtin (I4): the assignment adds a module key that
+wins; the deletion removes it; the next read misses the module dict and
+finds the builtin again.
+
+`py/class-ns-get cls name fallback` is unchanged; its `fallback` thunk is
+the lowered `read-global`, which now ends in the dict path.
+
+### 2.5 The lowering
+
+`read-global` loses its first branch:
+
+```clojure
+(defn- read-global
+  "A module-level read at run time: the module dict, then the task's
+   builtins (`py/global-get`); `globals` is the module's own function
+   object, so it is the one name read with a fallback the lowering
+   supplies."
+  [_n name]
+  (if (= "globals" name)
+    (app* 'py/global-or (u/v globals-sym) (global-key name) (u/v globals-fn-sym))
+    (app* 'py/global-get (u/v globals-sym) (global-key name))))
+```
+
+`prelude/builtin-names` is deleted; nothing else in `lower.cljc` changes.
+`lower-packet` keeps its shape `(then prelude/uast (py/run-module ...))`
+because `prelude/uast` itself becomes "functions, then `(py/init!)`"
+(section 3.3), which is the bundled reading of the design's linked
+wrapper `(do (require 'py) (py/init!) (py/run-main ...))`.
+
+`py/run-module` is unchanged in P1. It still resets `py.rt/out` and
+`py.rt/ctx` on entry; those resets are redundant after `py/init!` for a
+fresh task and harmless, and F3's persistent `__main__` is the slice
+that revisits them.
+
+### 2.6 What the guest observes
+
+| Program | Before P1 | After P1 |
+|---|---|---|
+| `print(len([]))` | `global-or` reads store key `py.b/len` | `global-get` misses the module dict, finds `len` in the builtins dict |
+| `len = 1; print(len)` | module key wins | module key wins |
+| `except E as len: ...` then `print(len([]))` | handler exit deletes module key `len`; next read is `global-or` with the store builtin | handler exit deletes module key `len`; next read falls back to the dict |
+| `print(map)` (not provided) | `global-get` raises `NameError` | `global-get` raises `NameError` from the dict miss, same text |
+| `class C: x = len` | class dict, then `read-global` | class dict, then `read-global` via the dict |
+
+No row changes its output. Section 4 pins each.
+
+## 3. Data structures and the refactoring plan
+
+### 3.1 Tables in `prelude.cljc`
+
+Keep `builtin-classes` as it is: `[["object" py.b/object nil] ...]`, each
+- Atomicity: prelude internals stay unmarked, so section 8.11's
+  runtime-internal atomicity holds, but an import runs guest code that
+  can contain effects and safepoints. The import operation as a whole is
+  not atomic.
+- Site marks live in the frontend-metadata side table, not rows, so a
+  published tree carries none. Ruling 14: keep sites outside canonical
+  rows, but publish a content-addressed site set with a pinned
+  association to the exact source root, frontend revision, and
+  transformation profile, with retrieval and verification obligations,
+  as datoms. A separate publication record may avoid a module manifest
+  schema change, conditional on complete discovery; a schema change is
+  not ruled out in advance.
+- Until site sets are published, an imported `while True` is not
+  interruptible. Uninstrumented imports are permitted only under an
+  explicitly noninterruptible profile; a profile requiring hooks refuses
+  a missing site set.
+
+Bundled mode (ruling 5). The bundled profile stays selectable until two
+gates pass, then it is deleted, with no compatibility shim:
+
+- The migration gate: the linked corpus on all four evaluators on JVM,
+  Node, and Dart, twelve lanes, covering publication, parserless
+  consumption, runtime initialization, and exception parity, not merely
+  local evaluation; the AST walker is included (ruling 6).
+- The float64 address gate of section 8.5.5. Carrier preservation and
+  the execution bridge complete first; affected rows, derived images,
+  manifests, and references are then rebuilt. The linked migration
+  changes bundled roots separately, and neither transition aliases old
+  integer-misclassified content to corrected float content.
+
+The float fix is also a hard prerequisite for P2: the prelude manifest
+must have one address on every host.
+
+The REPL frontend catalog (ruling 16). `yin/repl.cljc` today has a
+closed `case` over three languages, language special cases, and static
+requires of all three frontends; its `:python` is the legacy
+`yang.python`, and the ANTLR parser exists only on the JVM. The design
+realizes sections 3.3 and 3.6 for the REPL:
+
+- `yang.frontend`, new and pure cljc: manifest validation,
+  `install catalog manifest binding => catalog'`, and selection by
+  `[id revision]`. The catalog is a value; a manifest carrying a
+  function or handle is rejected.
+- The REPL takes the catalog from its composition as a `create-state`
+  option; each host's `main` builds it and `yin.repl` requires no
+  frontend. A session pins an immutable catalog snapshot, and each
+  request pins the selected revision and installed binding. Shell
+  commands stay the shell's own syntax.
+- The installed binding is a pair of stages over supplied streams, parse
+  and lower, plus an optional completeness probe; the REPL steps them to
+  an outcome. Language-specific parsing and completeness logic stay out
+  of REPL core. An explicit parser service, worker or remote, has the
+  same shape; a slow one needs a pending-compile state like the existing
+  pending-require.
+- No fallback between frontends: `:yang.python/antlr` and
+  `:yang.python/legacy` are distinct ids, and legacy retires at its own
+  migration gate. Selecting a frontend answers unavailable-parser only
+  when neither a local parser nor an explicitly configured service is
+  available, on any host (section 4.1).
+- Support claims derive from explicit semantic and runtime declarations
+  and tests, not solely from the syntactic `unsupported-rules` list.
+- A second language (JavaScript, parked) installs as parser artifacts,
+  a lowering namespace, a published prelude module, a manifest, and one
+  `install` call in the composition, with no edit to `yin.repl`, Yang
+  core, or the evaluator.
+
+Python's frontend profile pins:
+
+```text
++-----------+------------------------------------------------------------------+
+| Part      | Pin                                                              |
++===========+==================================================================+
+| Grammar   | `grammar-id`, entry rules, export profile `:yang.cst/v1`         |
++-----------+------------------------------------------------------------------+
+| Lowering  | An immutable implementation revision tied to source or           |
+|           | build-artifact digests, its dependencies and options, and a      |
+|           | content-addressed lowering-profile descriptor (ruling 17). A     |
+|           | golden-corpus digest is supplementary evidence, not identity;    |
+|           | host code needs no executable UAST to have artifact identity.    |
++-----------+------------------------------------------------------------------+
+| Runtime   | `py` and `pysp` manifest addresses, the safepoint profile map,   |
+|           | host-module profile addresses (cell, data, integer with limits,  |
+|           | stream poll), and permitted effects                              |
++-----------+------------------------------------------------------------------+
+| Support   | Explicit declarations and tests (ruling 16); reference runtime   |
+|           | CPython 3.9.6                                                    |
++-----------+------------------------------------------------------------------+
+```
+
+The REPL `__main__` persists across submissions (ruling 18): its module
+object, globals dict, builtin namespace, and import cache. `(reset)` is a
+new Python process: fresh task-owned runtime state, handler stacks and
+hook attachments included, while immutable verified code may be reused.
+Runtime state never merges across frontend revisions, and late results
+from the old process cannot mutate the new one.
+
+Foreign-principal imports are not claimed until D7 slice B lands with
+its tests (ruling 19), verifying closure origin and store ownership
+recursively through exports, re-exports, and transitive dependency
+slices before any executable value is exposed. B is necessary, not
+sufficient: the claim also needs authenticated publication,
+dependency-pin checks, primitive and effect admission, and working
+store-context transitions on all four VMs. Until B lands, a forged
+`:store-of` could reach the prelude's state. Corrected float publication
+rebuilds affected derivations, manifests, and dependency pins before any
+cross-principal address is accepted.
+
+Linker prerequisites, the linker seat's to build:
+
+```text
++------+-----------------------------------------------------+-----------------+
+| Item | Scope                                               | Blocks          |
++======+=====================================================+=================+
+| L-a  | Host-export profile requirements in published       | P2              |
+|      | manifests, enforced end to end (ruling 7)           |                 |
++------+-----------------------------------------------------+-----------------+
+| L-b  | Module-level sibling reads in the tree format       | The walker      |
+|      | (ruling 6)                                          | under the       |
+|      |                                                     | linked profile  |
++------+-----------------------------------------------------+-----------------+
+| L-c  | Registry nesting fix                                | Optional;       |
+|      |                                                     | mangling covers |
+|      |                                                     | it              |
++------+-----------------------------------------------------+-----------------+
+| L-d  | `module/try-require` plus deferred dependency       | I4              |
+|      | admission (ruling 8)                                |                 |
++------+-----------------------------------------------------+-----------------+
+| L-e  | D7 slice B, the origin and store check (ruling 19)  | Foreign-        |
+|      |                                                     | principal       |
+|      |                                                     | imports         |
++------+-----------------------------------------------------+-----------------+
+```
+
+```text
++-------+----------------------------------------------------------------------+
+| Slice | Scope                                                                |
++=======+======================================================================+
+| F1    | `yang.frontend` catalog and manifest validation; landed in           |
+|       | `src/cljc/yang/frontend.cljc`                                        |
++-------+----------------------------------------------------------------------+
+| F2    | The REPL selects through the catalog; `yin.repl` drops its frontend  |
+|       | requires                                                             |
++-------+----------------------------------------------------------------------+
+| P1    | Single-source prelude, `py/init!`, builtins dict; still bundled      |
++-------+----------------------------------------------------------------------+
+| P2    | Module emitter, publication, linked profile; needs L-a and the       |
+|       | float fix                                                            |
++-------+----------------------------------------------------------------------+
+| P3    | `pysp` linked, `attach!`                                             |
++-------+----------------------------------------------------------------------+
+| F3    | The Python ANTLR frontend in the catalog (JVM); persistent           |
+|       | `__main__`; needs P2                                                 |
++-------+----------------------------------------------------------------------+
+| I1    | Static absolute imports of single modules, `py/import`, module       |
+|       | objects, `sys.modules`, `__name__`                                   |
++-------+----------------------------------------------------------------------+
+| I2    | Packages, mangling, relative imports, `as`, `*`, `__package__`       |
++-------+----------------------------------------------------------------------+
+| I3    | Publication and DHT import; needs L-e for foreign principals         |
++-------+----------------------------------------------------------------------+
+| I4    | Catchable `ImportError`; needs L-d                                   |
++-------+----------------------------------------------------------------------+
+| I5    | SCC units and alias modules                                          |
++-------+----------------------------------------------------------------------+
+| I6    | Literal `import_module`, same-image `reload`; hooks refused          |
++-------+----------------------------------------------------------------------+
+| I7    | Published site sets for imported modules                             |
++-------+----------------------------------------------------------------------+
+```
+
+Acceptance, each on all three hosts unless stated (Node and Dart consume
+precompiled CST packets or rows, since the parser is JVM-only):
+
+- F1: two revisions of one id installed into an empty catalog are both
+  selectable and the original catalog is unchanged; a manifest holding a
+  function is rejected with a qualified outcome.
+- F2: a toy frontend defined in a test namespace installs, is selected,
+  and evaluates on every VM with no `src` edit; a newer revision
+  installed under a live session leaves it unchanged; on Node and Dart
+  with no parser or configured service, the ANTLR id answers
+  unavailable-parser with no legacy fallback.
+- P1: the full corpus output is unchanged on every VM and host; a
+  composition with no cell module halts ok on `functions-uast`;
+  `py/init!` twice yields one set of class cells; shadowing then
+  deleting a builtin name makes the builtin visible again.
+- P2: `py` publishes to one pinned manifest address on each host; the
+  linked corpus output equals bundled; one source under two prelude
+  revisions keeps one program root; an exception raised in one unit is
+  `isinstance` of `Exception` read in another unit of the same task; an
+  install child at `validated` has an empty heap and no `:cell` lift
+  refusal; a wrong host-module profile is refused by name; a missing
+  name-environment entry is refused with no bundled fallback.
+- P3: safepoint slice 1's acceptance re-runs under the linked profile on
+  every VM; stage input contains no prelude row; a derived program with
+  no `pysp` binding reports the unresolved hook name.
+- F3: at the REPL, `x = 1` then `print(x)` prints `1`; the probe answers
+  incomplete until a multi-line `def` closes.
+- I1: `print("a"); import m; print("b")` orders `a`, `m`'s output, `b`;
+  a second import does not re-execute; `m.x = 5; del m.y` is visible
+  through `m.__dict__` and to `m`'s functions; a raising body removes
+  its entry and propagates; a handler in the importer catches an
+  exception from a function in `m` on every VM; one image as main and as
+  import sees different `__name__` values.
+- I2: `import a.b.c` runs three bodies once, in order, with attributes
+  set; a relative import in a packageless unit raises an `ImportError`
+  caught by `except`; `from pkg import sub` with no explicit import and
+  no attribute raises the documented error.
+- I3: a JVM-published `pym.m` imports parserless on Node and Dart with
+  the same output; a republished dependency is refused as a dependency
+  binding with no install; a cyclic pair is refused at publication by
+  name.
+ docs/design/yang.antlr.md                       |   6 +-
+ src/cljc/yang/python/antlr/lower.cljc           |  19 ++-
+ src/cljc/yang/python/antlr/prelude.cljc         | 205 +++++++++++++-----------
+ test/yang/python/antlr/e2e_test.clj             |  23 +++
+ test/yang/python/antlr/float_address_test.cljc  |  20 +--
+ test/yang/python/antlr/int_conv_test.cljc       |   9 +-
+ test/yang/python/antlr/lower_test.clj           |  17 +-
+ test/yang/python/antlr/prelude_parity_test.cljc | 176 ++++++++++++++++++--
+ test/yang/python/antlr/safepoint_test.cljc      |  11 +-
+ 9 files changed, 341 insertions(+), 145 deletions(-)
+
+exec
+/bin/zsh -lc 'git diff -- src/cljc/yang/python/antlr/prelude.cljc src/cljc/yang/python/antlr/lower.cljc' in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+diff --git a/src/cljc/yang/python/antlr/lower.cljc b/src/cljc/yang/python/antlr/lower.cljc
+index 1f993c2f..882a3beb 100644
+--- a/src/cljc/yang/python/antlr/lower.cljc
++++ b/src/cljc/yang/python/antlr/lower.cljc
+@@ -14,7 +14,8 @@
+      Reads are `py/local-get` (unbound -> UnboundLocalError), writes
+      `cell/set!`. Module names and `global` names live in the module's
+      namespace dict, `%globals` (`py/global-get`, a miss is NameError;
+-     `py/global-set`); `yin/def` is reserved for the prelude and builtins.
++     `py/global-set`); `yin/def` appears only in the prelude; builtins
++     are read through the task's builtins dict.
+    - A `def` or `lambda` is a function object (`py/make-function`) whose
+      code takes one argument vector; every call is `(py/call f [args])` or,
+      with keywords, `(py/call-kw f [args] [[name value] ...])`; the callee
+@@ -443,17 +444,15 @@
+ 
+ 
+ (defn- read-global
+-  "A module-level read at run time: the module dict, then, for a builtin
+-   name, the builtin. A present module key always wins, so
+-   `print(len([])); len = 1` reads the builtin first and the global after."
++  "A module-level read at run time: the module dict, then the task's
++   builtins (`py/global-get`). A present module key always wins, so
++   `print(len([])); len = 1` reads the builtin first and the global after.
++   `globals` is the module's own function object, so it is the one name
++   read with a fallback the lowering supplies."
+   [_n name]
+-  (cond
+-    (contains? prelude/builtin-names name)
+-    (app* 'py/global-or (u/v globals-sym) (global-key name)
+-          (u/v (get prelude/builtin-names name)))
+-    (= "globals" name)
++  (if (= "globals" name)
+     (app* 'py/global-or (u/v globals-sym) (global-key name) (u/v globals-fn-sym))
+-    :else (app* 'py/global-get (u/v globals-sym) (global-key name))))
++    (app* 'py/global-get (u/v globals-sym) (global-key name))))
+ 
+ 
+ (defn- read-name
+diff --git a/src/cljc/yang/python/antlr/prelude.cljc b/src/cljc/yang/python/antlr/prelude.cljc
+index 9635df0f..330b61c5 100644
+--- a/src/cljc/yang/python/antlr/prelude.cljc
++++ b/src/cljc/yang/python/antlr/prelude.cljc
+@@ -48,7 +48,8 @@
+      range           {:py/type :range :start a :stop b :step s}
+      module globals  a dict (owner decision 1): the module body receives it
+                      as `%globals` and every function closes over it, which
+-                     is Python's own `__globals__`; a miss is NameError
++                     is Python's own `__globals__`; a miss falls back to the
++                     builtins dict, and a miss there is NameError
+ 
+    Calling convention: a function's `:code` takes one vector of arguments
+    laid out as the parameters are written. `py/call-kw` (and `py/call`,
+@@ -56,8 +57,13 @@
+    `*args` and `**kwargs` from the function's static spec; every binding
+    failure is a Python TypeError.
+ 
+-   Runtime state is three cells, reached through the store (`yin/def` is
+-   reserved for the prelude and builtins):
++   Runtime state is allocated by `py/init!`, once per task, under the slot
++   `py.rt/state` (the literal `:py/uninit` until `py/init!` flips it to
++   `:py/ready` as its last write; a second call allocates nothing): the
++   three cells below, the builtin classes and functions as `py.b/*` keys,
++   and the builtins namespace dict `py.b/builtins`, which `py/global-get`
++   falls back to. All of it is reached through the store (`yin/def`
++   appears only in the prelude):
+      py.rt/ctx       the dynamic context, one record
+                      {:handlers :depth :base :frame}:
+                      :handlers  the handler stack: frames
+@@ -680,17 +686,24 @@
+                                    "' where it is not associated with a value")))
+            x)))]
+     [py/global-get
++     ;; a module-level read: the module dict, then the task's builtins, then
++     ;; NameError (Python's LOAD_GLOBAL)
+      (fn [g n]
+        (let [c (cell/get g)
+              slot (get (get c :index) n :py/missing)]
+          (if (= slot :py/missing)
+-           (py/raise-new py.b/NameError
+-                         (py/str (data/str-concat "name '" (get n :py/str)
+-                                                  "' is not defined")))
++           (let [b (cell/get py.b/builtins)
++                 bslot (get (get b :index) n :py/missing)]
++             (if (= bslot :py/missing)
++               (py/raise-new py.b/NameError
++                             (py/str (data/str-concat "name '" (get n :py/str)
++                                                      "' is not defined")))
++               (get (get b :vals) bslot)))
+            (get (get c :vals) slot))))]
+     [py/global-set (fn [g n x] (do (py/dict-set g n x) :py/None))]
+     [py/global-or
+-     ;; a builtin name: the module's binding when present, else the builtin
++     ;; the module's binding when present, else `builtin`: used for
++     ;; `globals`, whose value is per module and so not in the builtins dict
+      (fn [g n builtin]
+        (let [c (cell/get g)
+              slot (get (get c :index) n :py/missing)]
+@@ -2800,77 +2813,78 @@
+    ["StopIteration" 'py.b/StopIteration 'py.b/Exception]])
+ 
+ 
+-(def ^:private builtin-function-definitions
+-  "Builtin functions are function objects like any guest function, so they
+-   can be passed, stored, called with keywords and checked for arity
+-   through `py/call-kw`."
+-  '[[py.b/len
++(def builtin-functions
++  "The Python-visible builtin functions, `[name store-key form]`. Builtin
++   functions are function objects like any guest function, so they can be
++   passed, stored, called with keywords and checked for arity through
++   `py/call-kw`."
++  '[["len" py.b/len
+      (py/make-function "len" {:params ["obj"], :no-kw true} [] []
+                        (fn [args] (py/len (py/arg args 0))))]
+-    [py.b/isinstance
++    ["isinstance" py.b/isinstance
+      (py/make-function "isinstance" {:params ["obj" "cls"], :no-kw true} [] []
+                        (fn [args] (py/isinstance (py/arg args 0) (py/arg args 1))))]
+-    [py.b/divmod
++    ["divmod" py.b/divmod
+      (py/make-function "divmod" {:params ["x" "y"], :no-kw true} [] []
+                        (fn [args]
+                          (py/divmod (py/arg args 0) (py/arg args 1))))]
+-    [py.b/hash
++    ["hash" py.b/hash
+      (py/make-function "hash" {:params ["obj"], :no-kw true} [] []
+                        (fn [args] (py/hash (py/arg args 0))))]
+-    [py.b/print
++    ["print" py.b/print
+      (py/make-function "print" {:params [], :star? true, :no-kw true} [] []
+                        (fn [args] (py/print (get (py/arg args 0) :items))))]
+-    [py.b/range
++    ["range" py.b/range
+      (py/make-function "range" {:params ["start"], :star? true, :no-kw true} [] []
+                        (fn [args] (py/range-args (py/arg args 0) (py/arg args 1))))]
+-    [py.b/list
++    ["list" py.b/list
+      (py/make-function "list" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
+                        (fn [args] (py/list (py/to-vector (py/arg args 0)))))]
+-    [py.b/tuple
++    ["tuple" py.b/tuple
+      (py/make-function "tuple" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
+                        (fn [args] (py/tuple (py/to-vector (py/arg args 0)))))]
+-    [py.b/set
++    ["set" py.b/set
+      (py/make-function "set" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
+                        (fn [args]
+                          (py/set-fill-at (py/set-new) (py/iterable (py/arg args 0))
+                                          0)))]
+-    [py.b/sum
++    ["sum" py.b/sum
+      (py/make-function "sum" {:params ["iterable" "start"]} [0] []
+                        (fn [args]
+                          (py/sum-from (py/iterable (py/arg args 0)) 0
+                                       (py/arg args 1))))]
+-    [py.b/any
++    ["any" py.b/any
+      (py/make-function "any" {:params ["iterable"], :no-kw true} [] []
+                        (fn [args] (py/any-of (py/iterable (py/arg args 0)) 0)))]
+-    [py.b/all
++    ["all" py.b/all
+      (py/make-function "all" {:params ["iterable"], :no-kw true} [] []
+                        (fn [args] (py/all-of (py/iterable (py/arg args 0)) 0)))]
+-    [py.b/int
++    ["int" py.b/int
+      (py/make-function "int" {:params ["x" "base"]}
+                        [0 :py/missing] []
+                        (fn [args]
+                          (py/int-conv (py/arg args 0) (py/arg args 1))))]
+-    [py.b/float
++    ["float" py.b/float
+      (py/make-function "float" {:params ["x"], :no-kw true}
+                        (py/conj [] (py/float (data/float-value 0))) []
+                        (fn [args] (py/float-conv (py/arg args 0))))]
+-    [py.b/str
++    ["str" py.b/str
+      (py/make-function "str" {:params ["x"], :no-kw true}
+                        (py/conj [] (py/str "")) []
+                        (fn [args] (py/str-conv (py/arg args 0) false)))]
+-    [py.b/repr
++    ["repr" py.b/repr
+      (py/make-function "repr" {:params ["x"], :no-kw true}
+                        [] []
+                        (fn [args] (py/str-conv (py/arg args 0) true)))]
+-    [py.b/bool
++    ["bool" py.b/bool
+      (py/make-function "bool" {:params ["x"], :no-kw true}
+                        [false] []
+                        (fn [args] (py/truthy (py/arg args 0))))]
+-    [py.b/abs
++    ["abs" py.b/abs
+      (py/make-function "abs" {:params ["x"], :no-kw true}
+                        [] []
+                        (fn [args] (py/abs-conv (py/arg args 0))))]
+-    [py.b/pow
++    ["pow" py.b/pow
+      (py/make-function "pow" {:params ["base" "exp" "mod"]}
+                        [:py/None] []
+                        (fn [args]
+@@ -2879,24 +2893,36 @@
+                            (py/raise-new
+                              py.b/NotImplementedError
+                              {:py/str "pow() modulus is not supported"}))))]
+-    [py.b/round
++    ["round" py.b/round
+      (py/make-function "round" {:params ["number" "ndigits"]}
+                        [:py/None] []
+                        (fn [args]
+                          (py/round-conv (py/arg args 0) (py/arg args 1))))]
+-    [py.b/hex
++    ["hex" py.b/hex
+      (py/make-function "hex" {:params ["x"], :no-kw true}
+                        [] []
+                        (fn [args] (py/radix-conv (py/arg args 0) 16 "0x")))]
+-    [py.b/oct
++    ["oct" py.b/oct
+      (py/make-function "oct" {:params ["x"], :no-kw true}
+                        [] []
+                        (fn [args] (py/radix-conv (py/arg args 0) 8 "0o")))]
+-    [py.b/bin
++    ["bin" py.b/bin
+      (py/make-function "bin" {:params ["x"], :no-kw true}
+                        [] []
+                        (fn [args] (py/radix-conv (py/arg args 0) 2 "0b")))]
+-    [py.b/list-append
++    ["next" py.b/next
++     (py/make-function "next" {:params ["iterator" "default"], :no-kw true} [:py/missing] []
++                       (fn [args] (py/next (py/arg args 0) (py/arg args 1))))]
++    ["iter" py.b/iter
++     (py/make-function "iter" {:params ["object"], :no-kw true} [] []
++                       (fn [args] (py/iter (py/arg args 0))))]])
++
++
++(def ^:private method-implementations
++  "The function objects `py/getattr` and `py/gen-attr` hand out for a
++   method, `[store-key form]`: not Python names, so never seeded into the
++   builtins dict."
++  '[[py.b/list-append
+      (py/make-function "append" {:params ["self" "x"], :no-kw true} [] []
+                        (fn [args] (py/list-append (py/arg args 0) (py/arg args 1))))]
+     [py.b/set-add
+@@ -2917,12 +2943,6 @@
+                          (if (py/dict-has? (py/arg args 0) (py/arg args 1))
+                            (py/getitem (py/arg args 0) (py/arg args 1))
+                            (py/arg args 2))))]
+-    [py.b/next
+-     (py/make-function "next" {:params ["iterator" "default"], :no-kw true} [:py/missing] []
+-                       (fn [args] (py/next (py/arg args 0) (py/arg args 1))))]
+-    [py.b/iter
+-     (py/make-function "iter" {:params ["object"], :no-kw true} [] []
+-                       (fn [args] (py/iter (py/arg args 0))))]
+     [py.b/gen-send
+      (py/make-function "send" {:params ["self" "value"], :no-kw true} [] []
+                        (fn [args] (py/gen-send (py/arg args 0) (py/arg args 1))))]
+@@ -2943,24 +2963,53 @@
+                        (fn [args] (py/arg args 0)))]])
+ 
+ 
+-(def ^:private state-definitions
+-  "Definitions that allocate: the three runtime cells, the builtin classes
+-   and the builtin functions. These are the only prelude forms that run at
+-   load."
+-  (-> '[[py.rt/ctx (cell/new (py/ctx nil 0 0 nil))]
+-        ;; CPython's default sys.getrecursionlimit()
+-        [py.rt/limit (cell/new 1000)]
+-        [py.rt/out (cell/new [])]]
+-      (into (map (fn [[nm key base]]
+-                   [key (cond->> (list 'py/make-class nm (or base :py/None))
+-                          (= "StopIteration" nm) (list 'py/stop-iteration-class))]))
+-            builtin-classes)
+-      (into builtin-function-definitions)))
++(defn- define
++  "`(yin/def (quote key) form)` in prelude notation: the key quoted, so
++   `sexp->uast` reads it as the literal symbol Rule R requires."
++  [key form]
++  (list 'yin/def (list 'quote key) form))
++
+ 
++(defn- init-form
++  "`py/init!`'s body: the three runtime cells, every builtin class,
++   function and method implementation, then the builtins dict seeded from
++   the tables, then the ready flag, under the uninit guard."
++  []
++  (list 'fn []
++        (list 'if (list '= 'py.rt/state :py/uninit)
++              (concat
++                ['do
++                 (define 'py.rt/ctx '(cell/new (py/ctx nil 0 0 nil)))
++                 ;; CPython's default sys.getrecursionlimit()
++                 (define 'py.rt/limit '(cell/new 1000))
++                 (define 'py.rt/out '(cell/new []))]
++                (mapv (fn [[nm key base]]
++                        (define key
++                          (cond->> (list 'py/make-class nm (or base :py/None))
++                            (= "StopIteration" nm) (list 'py/stop-iteration-class))))
++                      builtin-classes)
++                (mapv (fn [[_ key form]] (define key form)) builtin-functions)
++                (mapv (fn [[key form]] (define key form)) method-implementations)
++                [(define 'py.b/builtins '(py/dict-new))]
++                (mapv (fn [[nm key _]]
++                        (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
++                      builtin-classes)
++                (mapv (fn [[nm key _]]
++                        (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
++                      builtin-functions)
++                ;; last, so a failed init never reports ready
++                [(define 'py.rt/state :py/ready)
++                 :py/None])
++              :py/None)))
+ 
+-(def function-definitions
+-  "Every prelude function as `[store-key form]`, in definition order."
+-  core-definitions)
++
++(def definitions
++  "The single definition list, `[store-key form]` in definition order:
++   every prelude function, the literal state slot, then `py/init!`. Defining
++   them runs nothing."
++  (into core-definitions
++        [['py.rt/state :py/uninit]
++         ['py/init! (init-form)]]))
+ 
+ 
+ (defn- definitions->uast
+@@ -2969,45 +3018,15 @@
+ 
+ 
+ (def functions-uast
+-  "Only the function definitions: defining lambdas runs nothing, so this
+-   loads on any composition, with or without cells."
+-  (definitions->uast function-definitions))
++  "Every definition: lambdas and the literal state slot. Defining them
++   runs nothing, so this loads on any composition, with or without cells."
++  (definitions->uast definitions))
+ 
+ 
+ (def uast
+-  "The whole prelude: function definitions, then runtime state."
+-  (u/then functions-uast (definitions->uast state-definitions)))
+-
+-
+-(def builtin-names
+-  "Python builtin name -> the prelude store key holding it."
+-  (into {"len" 'py.b/len,
+-         "isinstance" 'py.b/isinstance,
+-         "hash" 'py.b/hash,
+-         "divmod" 'py.b/divmod,
+-         "print" 'py.b/print,
+-         "range" 'py.b/range,
+-         "list" 'py.b/list,
+-         "tuple" 'py.b/tuple,
+-         "set" 'py.b/set,
+-         "sum" 'py.b/sum,
+-         "any" 'py.b/any,
+-         "all" 'py.b/all,
+-         "next" 'py.b/next,
+-         "iter" 'py.b/iter,
+-         "int" 'py.b/int,
+-         "float" 'py.b/float,
+-         "str" 'py.b/str,
+-         "repr" 'py.b/repr,
+-         "bool" 'py.b/bool,
+-         "abs" 'py.b/abs,
+-         "pow" 'py.b/pow,
+-         "round" 'py.b/round,
+-         "hex" 'py.b/hex,
+-         "oct" 'py.b/oct,
+-         "bin" 'py.b/bin}
+-        (map (fn [[nm key _]] [nm key]))
+-        builtin-classes))
++  "The bundled prelude: every definition, then the task's runtime state
++   allocated by `py/init!`."
++  (u/then functions-uast (u/sexp->uast '(py/init!))))
+ 
+ 
+ (def min-integer-bits
+
+exec
+/bin/zsh -lc "rg -n '8.5.6|P1:|tests,|failures|Dart|test:clj' docs/design/yang.antlr.md collab/1791397000000-engineer-c4-p1.claude-opus-5-5.stdout.log; sed -n '2790,2922p' docs/design/yang.antlr.md; git diff -- test/yang/python/antlr/prelude_parity_test.cljc test/yang/python/antlr/int_conv_test.cljc test/yang/python/antlr/float_address_test.cljc; cat docs/agents/build-n-test.md" in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+docs/design/yang.antlr.md:20:slices 3 and 4 (tracing, threads), C4 (section 8.5.6 records the design
+docs/design/yang.antlr.md:24:true when written; sections 8.5.2 to 8.5.6 and section 12 carry the
+docs/design/yang.antlr.md:62:  `collab/1790875860000-architect-c3-bignum-crossruling.claude-fable-5-1.findings.md`.
+docs/design/yang.antlr.md:90:They amend section 8.5.1 and add section 8.5.6. None of them has landed:
+docs/design/yang.antlr.md:106:ClojureScript, ClojureDart, and the rest) is a reference example of a
+docs/design/yang.antlr.md:326:- Generated JVM classes, JavaScript modules, or Dart libraries.
+docs/design/yang.antlr.md:497:Java, JavaScript, TypeScript, and Dart. Target feature parity is not
+docs/design/yang.antlr.md:516:| Dart / CLJD   | Optional generated Dart       | Sidecar where supported, |
+docs/design/yang.antlr.md:553:| CLJD      | -Dlanguage=Dart        | antlr4 (pub.dev)                 |
+docs/design/yang.antlr.md:1189:|                        |                            | ClojureDart,     |
+docs/design/yang.antlr.md:1222:- Object identity, null behavior, arrays, and bounds failures.
+docs/design/yang.antlr.md:1422:   when the prelude becomes a linked module. C4 ruling 15 (section 8.5.6)
+docs/design/yang.antlr.md:1461:  section 8.5.6). This supersedes the per-receiving-task copy (mob D1)
+docs/design/yang.antlr.md:1949:- Every slice runs on all four evaluators on JVM, Node, and Dart;
+docs/design/yang.antlr.md:2005:| Dart VM    | Signed `int`, [-2^63, 2^63-1]    | `BigInt`                     |
+docs/design/yang.antlr.md:2007:| Dart to JS | Not claimed                      | Not claimed                  |
+docs/design/yang.antlr.md:2013:`(= 1 (js/BigInt 1))` is false and on Dart `int` and `BigInt` are
+docs/design/yang.antlr.md:2045:  encoder refuses a JS or Dart bigint. Every literal thus stays inside
+docs/design/yang.antlr.md:2058:`vm/machine-data?` (ruling 4). On JS and Dart a bignum fails host
+docs/design/yang.antlr.md:2077:(section 8.5.6), refusing by the same names. An image carries no
+docs/design/yang.antlr.md:2084:failures are returned as qualified data for the prelude to translate.
+docs/design/yang.antlr.md:2126:  carriers throws on JS and Dart. Internal counters, including C2's
+docs/design/yang.antlr.md:2351:the JVM and verified on Node and Dart. CPython NaN object-identity
+docs/design/yang.antlr.md:2405:- All four VMs on JVM, Node, and Dart VM, twelve lanes; Dart compiled to
+docs/design/yang.antlr.md:2407:  parserless forms on Node and Dart.
+docs/design/yang.antlr.md:2456:  and float64 on JVM and Dart.
+docs/design/yang.antlr.md:2467:integers already describes Node; extending it to JVM and Dart violates
+docs/design/yang.antlr.md:2488:  `cbor/float64` of the value: the identity on JVM and Dart, the carrier
+docs/design/yang.antlr.md:2559:Dart. Generic arithmetic over decoded carriers is therefore not
+docs/design/yang.antlr.md:2574:| Dart                             |                                           |
+docs/design/yang.antlr.md:2576:| Python literal rows, Node        | Re-minted to match JVM and Dart           |
+docs/design/yang.antlr.md:2608:on JVM, Node, and Dart establish identical canonical bytes and A and A'
+docs/design/yang.antlr.md:2615:derivation record, asserted unchanged on Node and Dart; NaN repr, the
+docs/design/yang.antlr.md:2637:#### 8.5.6 Imports, the linked prelude, and the frontend catalog (phase C4)
+docs/design/yang.antlr.md:2941:  Node, and Dart, twelve lanes, covering publication, parserless
+docs/design/yang.antlr.md:2980:  and tests, not solely from the syntactic `unsupported-rules` list.
+docs/design/yang.antlr.md:3090:Acceptance, each on all three hosts unless stated (Node and Dart consume
+docs/design/yang.antlr.md:3098:  installed under a live session leaves it unchanged; on Node and Dart
+docs/design/yang.antlr.md:3101:- P1: the full corpus output is unchanged on every VM and host; a
+docs/design/yang.antlr.md:3127:- I3: a JVM-published `pym.m` imports parserless on Node and Dart with
+docs/design/yang.antlr.md:3223:reader rather than through ANTLR. ClojureScript and ClojureDart are
+docs/design/yang.antlr.md:3418:  Dart, while Python requires `1`, `1.0`, and `True` to be one key. The
+docs/design/yang.antlr.md:3549:libraries, and Dart platform channels are effect packages declared in
+docs/design/yang.antlr.md:3584:4. Catch recognized parsing failures at the host boundary.
+docs/design/yang.antlr.md:3605:- Lowering failures: unhandled CST constructs, grammar/profile mismatch,
+docs/design/yang.antlr.md:3607:- Operational failures: worker crash, timeout, cancellation, resource
+docs/design/yang.antlr.md:3888:7. **Diagnostic integrity:** expected failures become data without
++---------------------------+--------------------------------------------------+
+| `importlib.import_module` | Only statically recognized calls with a literal  |
+|                           | name; dynamic forms get an explicit diagnostic.  |
+|                           | Rebinding or aliasing `import_module` must not   |
+|                           | make the compiler recognize the wrong callable   |
+|                           | (ruling 10).                                     |
++---------------------------+--------------------------------------------------+
+| `importlib.reload`        | Re-runs the same image against the same dict;    |
+|                           | the module object and dict are retained, names   |
+|                           | not overwritten survive, external bindings are   |
+|                           | unchanged, and a failure propagates without      |
+|                           | being treated as a failed first import (ruling   |
+|                           | 11).                                             |
++---------------------------+--------------------------------------------------+
+| Finders, loaders,         | Refused with an explicit unsupported error       |
+| `meta_path`,              | (ruling 11).                                     |
+| `path_hooks`, `sys.path`, |                                                  |
+| `__import__` override     |                                                  |
++---------------------------+--------------------------------------------------+
+```
+
+The literal-name restriction is a C4 scope restriction, not a proof that
+a computed name must be an unpinned dependency; a future resolver could
+interpret computed names against an immutable catalog. Reload cannot
+replace a live task's cached image, since the registry hit answers for
+the task's lifetime and switching a name snapshot is insufficient; a code
+upgrade needs a fresh process or a separately designed replacement
+protocol (ruling 11).
+
+Future plan: a virtual POSIX guest library (`yang.posix` or guest-level
+`os`/`io` adapters) may emulate paths, file descriptors, and stream-backed
+directory trees over `dao.space.store` and `dao.stream` without introducing
+ambient host syscalls or new host seams, preserving continuation mobility
+and replay determinism.
+
+Catchable imports (ruling 8). A link refusal is raised as the effect's
+error, which the VM has no guest-catchable form of. Refusal-as-data
+linking (`module/try-require`, following the `stream/poll!` precedent of
+decision 5) is adopted, but alone it does not make
+`try: import x / except ImportError` work: a hoisted eager dependency
+can fail before the body reaches the `try`. The claim also needs
+deferred dependency admission with statement-time resolution: check
+`sys.modules` first, attempt delivery at the import statement under the
+pinned resolution environment, and read exports only after success. I4
+stays gated until publication and free-name validation can represent
+such deferred dependencies, absent names included, without weakening
+address verification or admission. Until then an absent dependency
+refuses the dependent's link before any Python runs, and the support
+profile records it.
+
+Cycles (ruling 9). Python-level cycle semantics follow from
+insert-before-execute, including "cannot import name" on a partially
+initialized module. A code-delivery cycle cannot be pinned by content,
+and the linker refuses `:require-cycle`:
+
+- First, the publisher refuses a delivery cycle with a diagnostic naming
+  it.
+- Later (I5), it publishes one deterministic unit per strongly connected
+  component. Intra-SCC `require` edges are eliminated in favor of
+  internal body references; one thin alias module per member re-exports
+  its body and depends on the SCC unit, never the reverse. Member order
+  is deterministic, export names are collision-free, and outgoing pins
+  are explicit. Members keep separate Python module objects and lazy
+  initialization. No SCC identity primitive is needed, but the canonical
+  construction needs a published contract with byte and address
+  fixtures.
+
+The linked prelude:
+
+- One source, two emitters. The definition list in `prelude.cljc` stays
+  the single source; the bundled emitter is today's, and the module
+  emitter strips the module's own namespace from keys and internal
+  references, because export keys are bare.
+- Runtime state moves from module-level definitions into `py/init!`,
+  which writes one state slot (`py.rt/state`, a literal `:py/uninit`
+  until `py/init!` flips it to `:py/ready` as its last write; the cells
+  and classes stay store keys the body defines).
+- The linked entry wrapper is
+  `(do (require 'py) (py/init!) (py/run-main (fn [%globals %globals-fn]
+  ...)))`.
+- The lowering drops `builtin-names` and direct `py.b/*` reads, so a new
+  builtin class no longer touches the lowering, and the hand-kept host
+  name sets become derivable from the tree.
+- Imports require the linked prelude. A module closure's free reads never
+  see the ambient store, so a bundled importer's `py/*` definitions are
+  invisible to an imported body.
+
+Addresses. Every golden moves once, since the wrapper and builtin reads
+change. Afterward a linked user program's code root stays stable across
+prelude revisions only while its emitted rows and ABI references stay
+unchanged. Its published module manifest does not: `:yin.module/requires`
+is part of the addressed manifest, so a changed prelude pin changes the
+package identity. Code-root stability and executable package identity
+are distinct, and both the float carrier correction and the linked
+migration preserve the distinction. The note in section 8.5.3 that each
+prelude change moves every bundled unit's address stays true of the
+bundled profile.
+
+Host-export profiles (ruling 7). Publish refuses the prelude today: a
+free name bound by a host module is refused, and the prelude calls the
+`cell`, `data`, and later `integer` modules. Linker prerequisite L-a has
+the prelude manifest declare its host modules (cell, data, integer, and
+stream poll) by semantic profile address, and covers publication,
+requirement discovery, installation matching, effect declarations, and
+qualified host-export resolution, not merely a manifest field. Integer
+limits and semantic versions are part of the matched profile identity;
+the descriptive `module-version` (section 8.5.4) is insufficient. The
+ability to execute and re-encode float64 carriers is checked without
+changing Jing's numeric bytes or adding Python-aware codec logic.
+
+The AST walker (ruling 6). A module whose exported lambda reads a sibling
+definition is refused `:undeclared-free` in the tree format, so the
+walker cannot link the prelude today. L-b admits the linked prelude's
+declared sibling reads through the same verification and store-isolation
+contract as the other evaluators. Three-VM intermediate development is
+acceptable; three-VM completion is not. Python raises across module
+boundaries by continuation invoke, so I1's cross-module raise test probes
+store-context restoration, and D7 slice C is a prerequisite wherever that
+test exposes incorrect restoration on any VM.
+
+Safepoints. Linked, `pysp` requires `py`, inverting today's load order.
+Its cursor cannot be created at install and a module closure cannot read
+an ambient signal stream, so the wrapper passes the stream to
+`(pysp/attach! signals)`.
+
+- Frontend marks stay (ruling 15; decision 6 settled). Occurrence-scoped
+  marks are preserved through publication and transformation, and loop
+  or function meaning is never inferred from generic lambda structure.
+  Imported Python bodies are marked; runtime internals are excluded under
+  the selected policy.
+- Atomicity: prelude internals stay unmarked, so section 8.11's
+  runtime-internal atomicity holds, but an import runs guest code that
+  can contain effects and safepoints. The import operation as a whole is
+diff --git a/test/yang/python/antlr/float_address_test.cljc b/test/yang/python/antlr/float_address_test.cljc
+index a2a969e8..217a17d0 100644
+--- a/test/yang/python/antlr/float_address_test.cljc
++++ b/test/yang/python/antlr/float_address_test.cljc
+@@ -222,8 +222,8 @@
+             host (JVM goldens)"
+     (is (= (keyword
+              (str "segment/blake3-"
+-                  "f0213124a9c6dd28d9865499d690a003"
+-                  "30523a158549fbbfc807632792bff9a5"))
++                  "09131b20d81c468468c952051974373c"
++                  "8963dd82f17c4154c8bc974158a06976"))
+            (:root (vm/ast->semantic-bytecode prelude/uast))))
+     (is (= :segment/blake3-2d60190887dc1ca388d7a7b75467757c3f0e6c4b2d909603735c9a9852b0e3e3
+            (:root (vm/ast->semantic-bytecode hooks/uast))))))
+@@ -245,25 +245,25 @@
+     (testing "A, A' and the record: one address on every host (JVM goldens)"
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "cfa7f7879d51140e3691cc81ad44f845"
+-                    "5c6d44fb99c8bf171fc8d7b240c1afba"))
++                    "8b09d94fd093759cf7a6f58c69c01a9b"
++                    "f6a47ed89f42174a5367b1b2461cf30e"))
+              (:root a)))
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "26a323f7743b82d7c58b1b269457664b"
+-                    "653c304b0618e2b0493f42b16a7fd76a"))
++                    "26b026cf477c69abebb975397ddae0eb"
++                    "4d7eb2c5f417ded8218c25208600aabc"))
+              (:root a')))
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "673e40dce999692a08e7cb773797deb4"
+-                    "f14619ca6a1358f604f8c56957b7b4ca"))
++                    "f0de9df6e0f5bd4e8d1de106d3618231"
++                    "83b290674b18d252ac7ab49fe891cf32"))
+              record-address)))
+     (testing "the bundled prelude is the same subtree in A and A'"
+       (is (= (prelude-id a) (prelude-id a')))
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "e773c533595e7df4d1dd1a0b1ce4e823"
+-                    "03ea208fa41f60024755af8de362bbee"))
++                    "91b76c3c80254abf5407f850a8311cb6"
++                    "d5f613ecfb94f5c6e525121dfed1b7ec"))
+              (prelude-id a))))
+     (testing "decoding A and projecting it again keeps every address"
+       (let [decoded (cbor/decode (jing/canonical-bytes a))]
+diff --git a/test/yang/python/antlr/int_conv_test.cljc b/test/yang/python/antlr/int_conv_test.cljc
+index 148eb16a..58ccdd7f 100644
+--- a/test/yang/python/antlr/int_conv_test.cljc
++++ b/test/yang/python/antlr/int_conv_test.cljc
+@@ -356,10 +356,9 @@
+ 
+ 
+ (deftest string-literal-lint-test
+-  "Scope: prelude/function-definitions, the core helpers only. The
+-   builtin function definitions are private and are not walked: that
+-   every {:py/str x} literal there holds a string rests on review, not
+-   on this test."
++  "Scope: prelude/definitions, which now holds the builtin function and
++   method forms inside py/init!'s body, so every {:py/str x} literal there
++   is walked too."
+   (let [bad (atom [])]
+     (walk/postwalk
+       (fn [x]
+@@ -367,7 +366,7 @@
+                    (not (string? (:py/str x))))
+           (swap! bad conj x))
+         x)
+-      prelude/function-definitions)
++      prelude/definitions)
+     (is (= [] @bad))))
+ 
+ 
+diff --git a/test/yang/python/antlr/prelude_parity_test.cljc b/test/yang/python/antlr/prelude_parity_test.cljc
+index a82e45a1..ad6d5349 100644
+--- a/test/yang/python/antlr/prelude_parity_test.cljc
++++ b/test/yang/python/antlr/prelude_parity_test.cljc
+@@ -4,7 +4,13 @@
+    cross-type equality, dict key normalization, numeric hash and integer
+    `is` (C3 slice S2), ranges, and a run through
+    `py/run-module` over the real cell and data modules whose printed output
+-   is rendered at the boundary."
++   is rendered at the boundary.
++
++   C4 slice P1: `py/init!` is idempotent, the builtins dict is seeded from
++   the tables and is what a global read falls back to, and a mutated entry
++   never changes an interpreter-generated exception's class. Cross-module
++   exception identity is not tested here: it needs two units sharing one
++   task's prelude, which arrives with P2."
+   (:require
+     [clojure.test :refer [deftest is testing]]
+     [clojure.walk :as walk]
+@@ -46,24 +52,30 @@
+                         vm/ast-contract))
+ 
+ 
+-(defn- runners-under
+-  "Each VM's runner over the composition `opts`."
++(defn- vm-runners-under
++  "Each VM's runner over the composition `opts`, answering the finished VM."
+   [opts]
+-  {:ast-walker (fn [ast] (vm/value (vm/eval (tu/create-vm opts) ast))),
++  {:ast-walker (fn [ast] (vm/eval (tu/create-vm opts) ast)),
+    :semantic (fn [ast]
+-               (vm/value (vm/run (load-semantic-ast (semantic/create-vm opts)
+-                                                    (vm/ast->datoms ast))))),
++               (vm/run (load-semantic-ast (semantic/create-vm opts)
++                                          (vm/ast->datoms ast)))),
+    :stack (fn [ast]
+-            (vm/value
+-              (vm/run (dvm/create-vm
+-                        (:image (dl/lower-stack (tu/resolved-of ast)))
+-                        (assoc opts :contract vm/stack-contract))))),
++            (vm/run (dvm/create-vm
++                      (:image (dl/lower-stack (tu/resolved-of ast)))
++                      (assoc opts :contract vm/stack-contract)))),
+    :register (fn [ast]
+-               (vm/value
+-                 (vm/run
+-                   (rvm/create-vm
+-                     (:image (rc/lower-register (tu/resolved-of ast)))
+-                     (assoc opts :contract vm/register-contract)))))})
++               (vm/run
++                 (rvm/create-vm
++                   (:image (rc/lower-register (tu/resolved-of ast)))
++                   (assoc opts :contract vm/register-contract))))})
++
++
++(defn- runners-under
++  "Each VM's runner over the composition `opts`."
++  [opts]
++  (into {}
++        (map (fn [[k run]] [k (fn [ast] (vm/value (run ast)))]))
++        (vm-runners-under opts)))
+ 
+ 
+ (def ^:private runners
+@@ -260,7 +272,7 @@
+                                      (if (= k 'py/range-elem)
+                                        '(fn [start step i] -12345)
+                                        form))))
+-                         prelude/function-definitions))
++                         prelude/definitions))
+           results (run-with-prelude
+                     stubbed
+                     '(py/conj
+@@ -1513,11 +1525,141 @@
+          (render/repr [1 "a" {:py/float 2.5} nil {:py/tuple [1]}]))))
+ 
+ 
++(deftest definition-inside-lambda-probe-test
++  (testing "a definition inside a lambda body writes the store, and a later
++            free read sees the redefinition (py/init!'s engine assumptions)"
++    (let [ast (u/mark-tails
++                (u/sexp->uast
++                  '(do (yin/def (quote py.rt/probe) :u)
++                       ((fn [] (if (= py.rt/probe :u) (yin/def (quote py.rt/probe) :r) :py/None)))
++                       ((fn [] (if (= py.rt/probe :u) (yin/def (quote py.rt/probe) :x) :py/None)))
++                       py.rt/probe)))]
++      (doseq [[k run] runners]
++        (testing (str k)
++          (is (= :r (run ast))))))))
++
++
++(deftest functions-load-without-cells-test
++  (testing "with no cell, data or integer module, the single definition list
++            loads and halts: the literal state slot and the py/init! lambda
++            allocate nothing"
++    (let [bare {:make-stream tu/make-stream,
++                :capability-secret tu/secret,
++                :primitives vm/primitives,
++                :modules (module/empty-registry)}
++          ast (u/mark-tails prelude/functions-uast)]
++      (doseq [[k run] (vm-runners-under bare)]
++        (testing (str k)
++          (is (= [true false]
++                 (try (let [vm (run ast)] [(vm/halted? vm) (vm/blocked? vm)])
++                      (catch #?(:cljd Object :clj Exception :cljs :default) e
++                        [:thrown (ex-message e)])))))))))
++
++
++(deftest init-is-idempotent-test
++  (testing "after the bundled prelude has run py/init! once, two more calls
++            reallocate nothing: every class, function, dict and runtime cell
++            is the same cell ref, and the slot reads ready"
++    (doseq [[k result]
++            (run-with-prelude
++              prelude/uast
++              (list 'let '[c1 py.b/ValueError
++                           f1 py.b/len
++                           b1 py.b/builtins
++                           ctx1 py.rt/ctx
++                           out1 py.rt/out
++                           lim1 py.rt/limit
++                           s1 py.rt/state
++                           _ (py/init!)
++                           _ (py/init!)]
++                    (conj-all '[(= c1 py.b/ValueError)
++                                (= f1 py.b/len)
++                                (= b1 py.b/builtins)
++                                (= ctx1 py.rt/ctx)
++                                (= out1 py.rt/out)
++                                (= lim1 py.rt/limit)
++                                (= s1 :py/ready)
++                                (= (py/global-get (py/dict-new) {:py/str "ValueError"}) c1)])))]
++      (testing (str k)
++        (is (= [true true true true true true true true] result)))))
++  (testing "before any py/init!, the slot is the literal :py/uninit"
++    (doseq [[k result] (run-with-prelude prelude/functions-uast 'py.rt/state)]
++      (testing (str k)
++        (is (= :py/uninit result))))))
++
++
++(deftest shadow-then-delete-builtin-test
++  (testing "a module key shadows the builtin; deleting it restores the
++            builtin; a name in neither is NameError"
++    (doseq [[k result]
++            (run-with-prelude
++              prelude/uast
++              '(let [g (py/dict-new)
++                     a (py/global-get g {:py/str "len"})
++                     _ (py/global-set g {:py/str "len"} 1)
++                     b (py/global-get g {:py/str "len"})
++                     _ (py/global-del-quiet g {:py/str "len"})
++                     c (py/global-get g {:py/str "len"})
++                     d (py/try (fn [] (py/global-get g {:py/str "nosuch"}))
++                               (fn [e] (py/isinstance e py.b/NameError))
++                               (fn [] :no))]
++                 (py/conj (py/conj (py/conj (py/conj [] (= a py.b/len)) b)
++                                   (= c py.b/len))
++                          d)))]
++      (testing (str k)
++        (is (= [true 1 true true] result))))))
++
++
++(deftest builtin-mutation-test
++  (testing "a mutated builtins entry is what a global read falls back to,
++            while the prelude's own functions and interpreter-generated
++            exceptions keep the canonical store keys (ruling 2)"
++    (doseq [[k result]
++            (run-with-prelude
++              prelude/uast
++              '(let [_ (py/dict-set py.b/builtins {:py/str "len"} 7)
++                     a (py/global-get (py/dict-new) {:py/str "len"})
++                     b (py/len (py/list [1]))
++                     c (= :function (get (cell/get py.b/len) :py/type))
++                     _ (py/dict-set py.b/builtins {:py/str "TypeError"} py.b/ValueError)
++                     d (py/try (fn [] (py/type-error {:py/str "x"}))
++                               (fn [e] (py/isinstance e py.b/TypeError))
++                               (fn [] :no))
++                     e (= py.b/ValueError
++                          (py/global-get (py/dict-new) {:py/str "TypeError"}))]
++                 (py/conj (py/conj (py/conj (py/conj (py/conj [] a) b) c) d) e)))]
++      (testing (str k)
++        (is (= [7 1 true true true] result))))))
++
++
++(def ^:private builtin-function-names
++  "The twenty-five Python-visible builtin functions."
++  ["len" "isinstance" "hash" "divmod" "print" "range" "list" "tuple" "set"
++   "sum" "any" "all" "next" "iter" "int" "float" "str" "repr" "bool" "abs"
++   "pow" "round" "hex" "oct" "bin"])
++
++
++(deftest seeded-builtins-test
++  (testing "py.b/builtins holds exactly the class names and the twenty-five
++            function names, keyed as a module dict is, in table order"
++    (let [table-order (mapv (fn [row] {:py/str (first row)})
++                            (concat prelude/builtin-classes prelude/builtin-functions))]
++      (is (= (set (map (fn [nm] {:py/str nm})
++                       (concat (map first prelude/builtin-classes)
++                               builtin-function-names)))
++             (set table-order)))
++      (is (= 25 (count prelude/builtin-functions)))
++      (doseq [[k result] (run-with-prelude prelude/uast
++                                           '(get (cell/get py.b/builtins) :keys))]
++        (testing (str k)
++          (is (= table-order result)))))))
++
++
+ (deftest prelude-notation-test
+   (testing "the prelude is canonical Universal AST: no reserved-name defect,
+             and every definition key is a literal symbol"
+     (is (nil? (vm/ast-reserved-defect prelude/uast)))
+-    (is (every? symbol? (map first prelude/function-definitions))))
++    (is (every? symbol? (map first prelude/definitions))))
+   (testing "sexp->uast"
+     (is (= (u/app (u/lam ['x] (u/if-node (u/v 'x) (u/lit 1) (u/lit {:a 1})))
+                   u/capture)
+---
+description: Build, lint, test commands, TDD guidelines, and bracket debugging for Clojure, ClojureScript, Node.js, and ClojureDart
+---
+
+# BUILD & TEST
+
+## Commands
+
+```sh
+# Tests (Babashka runner)
+bb test              # All three lanes (JVM, Node, Dart), fast default form: no slow tests
+bb test:all          # Every test on every lane, slow ones included (JVM takes 20+ min)
+bb test:slow         # Only the slow tests, on every lane
+# One lane alone: <task>:clj, <task>:cljs, <task>:cljd
+bb test:clj          # JVM, fast: skips ^:slow (bare `clj -M:test` runs them too)
+bb test:cljs         # Node (shadow-cljs :cljs alias), fast: guarded slow bodies print SKIP
+bb test:cljd         # Dart (needs flutter on PATH), fast: guarded slow bodies print SKIP
+bb test:all:clj      # JVM, no filter: `clojure -M:test`
+bb test:all:cljs     # Node with DATOM_SLOW_TESTS=1
+bb test:all:cljd     # Dart with DATOM_SLOW_TESTS=1
+bb test:slow:clj     # JVM: `-i :slow` (long-loops-test, ~14 min)
+bb test:slow:cljs    # Node: only the namespaces that use dao.test-slow/guard, DATOM_SLOW_TESTS=1
+bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_TESTS=1
+# Slow tests: tag a deftest ^:slow. The JVM runner then excludes it from `bb test:clj`.
+# Node and Dart have no tag filter, so a .cljc slow test also wraps its body in
+# (dao.test-slow/guard "name" (fn [] ...)); it prints SKIP unless DATOM_SLOW_TESTS=1.
+# Node and Dart select slow tests by NAMESPACE (derived by grepping `slow/guard`
+# under test/), so the non-slow tests inside those namespaces also run there.
+# On Node, shadow also runs the test namespaces those nine require (about
+# seven more, e.g. lower-portable-test); on Dart only the nine namespaces run.
+# Run test:slow / test:all before a big merge or a commit that touches many parts.
+# Run one Dart lane at a time repo-wide.
+#
+# When to tag a test slow: when it takes more than about 5 s on any lane (the
+# Python e2e tests sit on a ~3 s floor, so their JVM cut is 3.0 s). The
+# default lanes must stay in minutes; 22 JVM tests (0.75% of the suite) were
+# 81% of its test time. Tag it ^:slow on the JVM; if it is a .cljc test, also
+# wrap its body in dao.test-slow/guard so Node and Dart skip it by default. A
+# test that is slow only on Dart (dao.jing.dht-test/unproven-chunks-... takes
+# 72 s there, 3.6 s on the JVM) is a candidate for a speed investigation first.
+# Python slow set (2026-10-06): 65 ^:slow and 15 guard-only tests in the
+# yang.python.antlr e2e, e2e-c1, prelude-parity, safepoint, float-address
+# and int-contract tests; a Python slice landing runs `clojure -M:test -i :slow -n <ns>` for
+# its changed Python namespaces.
+# While iterating, run only `bb test:clj` (or one namespace: `clojure -M:test -n
+# <ns>`), not the full `bb test`. Run the full three-lane `bb test` once per
+# slice, before landing, and one lane set at a time: overlapping runs slow each
+# other down. Cross-host bugs show only on Node or Dart, so the full run is
+# still the gate before a commit.
+# Measured fast-lane times (2026-10-03): bb test about 14 min = JVM 5.5 + Node
+# 3.8 + Dart 4.3, plus builds. test:slow: Node and Dart about 5 min each (mostly
+# compile); the JVM half is estimated at 17 min (long-loops-test alone is 14),
+# not yet run end to end. test:all: JVM 20+ min, also an estimate.
+npm test             # Node.js tests
+
+# Cross-host peers the JVM lane spawns. `bb test` builds both. A bare
+# `bb test:clj` builds only the Node REPL (it depends on build:yin-repl-node);
+# without build:yin-repl-peer first, the Dart-peer tests skip with a printed notice.
+bb build:yin-repl-peer   # Dart exe build/yin-repl-peer (yin.repl R5 pairs)
+bb build:yin-repl-node   # Node REPL target/yin-repl.js; REQUIRED by
+                         # yin.repl.dht-process-test (JVM-to-Node DHT reader,
+                         # and the linker L5 Node reader that requires a module
+                         # by name): `clojure -M:test` without it fails that test
+```
+
+### Changed-only tests: `bb test:changed`
+
+`bb test:changed` (src/dev/affected.clj) runs the fast tests a change can
+reach: the reverse require closure of the files changed since the
+merge-base with master, plus fixtures that mention a changed resource path,
+tests that walk a changed tree, and each src file's `_test` by convention.
+A walker is a file calling file-seq, fs/glob, fs/list-dir,
+fs/walk-file-tree or .listFiles; each string literal argument of its
+io/file, fs/file, fs/path, fs/glob, java.io.File. or File. calls is a root
+(let-bound roots count), and a change under a root selects it. The three
+lanes run in parallel (logs: target/profile/changed-<lane>.log) after the
+needed builds. `test:changed:list` shows what and why; `:clj`/`:cljs`/
+`:cljd` run one lane; `--base REF`; `--changed FILE...` (absolute OK; a
+typo, an empty list or the wrong cwd exits 1). Use it to iterate and to
+land a slice confined to a package. Exit 2 (from :list too) is a wide
+change (deps.edn bb.edn shadow-cljs.edn mise.toml .cljstyle src/dev/
+antlr/ .clj-kondo/ package*/pubspec*): it runs nothing; run `bb test`,
+as for a change to the core everything requires (yin.vm engine,
+dao.stream, codecs) and before a big merge. Not seen: dynamic loads
+(`requiring-resolve`, `resolve`), paths or walk roots built at run time,
+and spawned programs that changed (target/yin-repl.js, Dart peers).
+
+The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
+slice L5) is two tests:
+
+- `yin.repl.dht-process-test` (JVM lane only): real `yin.repl.main`
+  processes over real loopback UDP. A JVM publisher with a key file
+  publishes modules by name, and JVM and Node readers require them by
+  name on all four VMs. Plain Clojure in the test JVM takes the same path
+  and checks each section 9 failure as data. Ports are ephemeral, and
+  every wait is bounded. A run takes a few minutes. Run it alone with
+  `clojure -M:test -n yin.repl.dht-process-test`, after
+  `bb build:yin-repl-node`.
+- `yin.vm.linker.dht-end-to-end-test` (all three lanes): the same
+  scenario in process, over the `dao.jing.dht` test mesh seam. Dart's
+  signed-name leg runs here, because no Dart `yin.repl.main` process
+  exists to spawn. `build/yin-repl-peer` is the R5 slice peer, not a
+  REPL.
+
+```sh
+# ClojureScript / shadow-cljs (always via deps.edn :cljs alias, never npx)
+clj -M:cljs -m shadow.cljs.devtools.cli watch <build-id>    # e.g. watch demo
+clj -M:cljs -m shadow.cljs.devtools.cli compile <build-id>  # e.g. compile demo
+clj -M:cljs -m shadow.cljs.devtools.cli release <build-id>  # production release
+
+# ClojureDart
+clj -M:clojuredart:cljd compile
+
+# Linting
+clj -M:kondo --lint <path>
+```
+
+The Dart `bb` lanes run `src/dev/cljd_agg.clj` (`bb src/dev/cljd_agg.clj
+[--slow-only | --slow-regex]`), not `cljd test`. `--slow-only` runs only the
+namespaces that use `dao.test-slow/guard` and fails if one has no generated
+Dart file. `--slow-regex` prints those namespaces as an anchored alternation
+with its dots already escaped for an EDN string (bb.edn feeds it to shadow-cljs
+`--config-merge` for `test:slow:cljs`); it is not a ready-to-use regex, and it
+exits 1 when no namespace uses the guard. `flutter test` spends about 7.5 s loading
+each of the ~166 generated `test/cljd-out/**/*_test.dart` files, so the
+script compiles every test namespace via `clojure -M:clojuredart:cljd compile
+<namespaces>`, writes up to min(8, cores) shard files under `build/cljd-agg/`
+(greedy by file size; each imports its files and calls their `main`), runs
+`flutter test --concurrency N` on the shards, and deletes them. Shards never sit
+under `test/`, so plain `clojure -M:clojuredart:cljd test` still works. Tests of
+different namespaces share an isolate per shard. Failures stay attributable:
+package:test names are ns-qualified (`dao.foo-test/bar-test`).
+
+`flutter test`/`cljd test` globs everything under `test/cljd-out/`, and the
+compile does not prune it when a source file is deleted or renamed. The
+aggregated lanes only run namespaces that still exist under `test/`, but a
+stale file can silently pass a plain `cljd test`. Run `rm -rf test/cljd-out`
+before relying on that to prove a deletion or rename took effect.
+
+## Testing Philosophy & TDD
+
+Write tests before implementing features (TDD).
+
+Tests define the contract and expected behavior. Implementation follows from the tests, not the other way around.
+
+When implementing a feature or fix:
+1. **Red phase**: Write the test first — define what should happen.
+2. **Green phase**: Implement the minimum code to pass the test.
+3. **Refactor phase**: Refactor if needed while keeping tests green.
+
+This ensures code is testable by design and implementation matches actual requirements.
+
+## Debugging Malformed CLJ / EDN / CLJS
+
+A single missing bracket can silently break an entire file. The compiler may still succeed, with subsequent forms nesting inside the broken one.
+
+1. **Run clj-kondo first**:
+   ```sh
+   clj -M:kondo --lint path/to/file.cljs
+   ```
+
+2. **If clj-kondo reports a mismatch, write a bracket-tracing script**:
+   Do NOT try to eyeball-count brackets. Track a stack of `(char, line, col)` for every opener. Handle: string literals, escaped chars, and `;;` line comments.
+
+3. **Fix one bracket at a time, re-run checker after each fix**:
+   Common patterns:
+   - Hiccup vector missing `]` causes siblings to become extra arguments.
+   - `defn`/`let` missing `)` causes subsequent top-level forms to nest inside.
+   - Both can coexist while total bracket count is zero-sum.
+
+4. **After brackets balance**, rerun `clj-kondo`, then rebuild with `clj -M:cljs -m shadow.cljs.devtools.cli compile <build>`.
+
+codex
+The implementation matches the intended lifecycle and lookup design. The sign-off gap is verification: §8.5.6 requires every VM on all three hosts, but the reports provide no Dart results or full fast-lane results. I’ll check for additional recorded evidence before setting the verdict.
+exec
+/bin/zsh -lc "sed -n '2637,2792p' docs/design/yang.antlr.md; sed -n '3088,3109p' docs/design/yang.antlr.md; rg --files target collab | rg '(p1|c4|test.*log|cljd.*log|cljs.*log)' | head -70; rg -n 'builtin-names|function-definitions|state-definitions' src/cljc/yang/python test/yang/python; git diff --check; wc -c collab/1791397000000-engineer-c4-p1.claude-opus-5-5.stdout.log" in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+#### 8.5.6 Imports, the linked prelude, and the frontend catalog (phase C4)
+
+This section records the C4 design as amended by the C4 cross-ruling's
+nineteen converged rulings; where they differ from the design's own
+recommendations, the converged rulings govern. Its implementation is
+pending, in slices F2, F3, P1 to P3, and I1 to I7 below; F1 and P1 have landed.
+
+Install delivers code; instantiation is the importing task's own
+evaluation (ruling 1). A linked Python-side module (the base prelude,
+the hook prelude, any Python module) exports only closures and immutable
+specification data. Its install child defines lambdas and halts. Python
+namespaces, class objects, hook state, and runtime cells are allocated
+later by an explicit initialization in the consuming task. This is
+section 8.5.1's "the linker delivers content-addressed code images,
+never Python namespaces" taken literally. Running a module body inside
+the install child fails four ways against the landed linker:
+
+- The lift refuses. A heap cell ref is non-portable, and every Python
+  function, class, dict, and module is a cell, so no body-executed
+  module could reach `linked`.
+- Output vanishes. Import-time `print` writes the child's output, which
+  is never published.
+- Identities duplicate. The child lowers its own copy of each
+  dependency, so builtin classes in the export slice would be fresh cells
+  and `isinstance` would fail.
+- First link wins. The parent discards the child's writes to a
+  dependency's store.
+
+So C4 needs no heap-slice lift, and nothing is copied per receiving task
+(section 8.5.1, amended). `py/init!` initializes the prelude's own
+active module store once, idempotently, with defined failure behavior;
+entry wrappers call it and install children never do. An imported body
+runs under the importing task's declared effects and may itself suspend:
+"no code-delivery wait inside `py/import`" is not a promise that body
+execution cannot park.
+
+Module shape. A Python unit compiled as module `a.b` becomes one linker
+module:
+
+```clojure
+(do (require 'py)              ; hoisted: code delivery only
+    (require 'pym.c)           ; one per static import in the unit
+    (yin/def spec {:name "a.b" :package? false})
+    (yin/def body (fn [%globals %globals-fn] <lowered module body>)))
+;; :yin.module/exports #{spec body}
+```
+
+- Hoisted, pinned requires are an explicit eager-dependency restriction,
+  not an invisible transformation (ruling 4). `if False: import
+  missing`, a caught failed import, and a pre-populated `sys.modules`
+  all tell it apart from Python's statement-time import, and the support
+  profile says so. The required module names are derivable from rows;
+  their manifest addresses additionally need the pinned resolution
+  snapshot.
+- Body execution stays lazy. `import c` lowers at the statement to
+  `(py/import "c" pym.c/spec pym.c/body)` plus the binding, and the body
+  runs in the importing task, in statement order.
+- `__package__` comes from `spec`: package-ness is source layout, not
+  derivable from rows.
+
+Names (ruling 3). The registry nests dotted names, so a module `a`
+presumably shadows `a.b` (inferred by the design, untested). Until the
+linker seat fixes that, no linker module name is a dotted prefix of
+another:
+
+```text
++---------------------+--------------------------------------------------------+
+| Module              | Linker module name                                     |
++=====================+========================================================+
+| Base prelude        | `py` (reserved)                                        |
++---------------------+--------------------------------------------------------+
+| Hook prelude        | `pysp` (reserved)                                      |
++---------------------+--------------------------------------------------------+
+| Python module       | `pym.a$b$c`; `$` is valid EDN and never in a Python    |
+| `a.b.c`             | identifier, so the mapping is injective. The original  |
+|                     | Python name stays in module metadata. Nothing is ever  |
+|                     | installed at the `pym` root.                           |
++---------------------+--------------------------------------------------------+
+```
+
+The registry-prefix defect is filed with the linker seat, with tests for
+both installation orders.
+
+Resolution, in order:
+
+1. `sys.modules`, a heap dict in prelude state; a hit returns the module
+   object.
+2. Runtime-synthesized modules, `sys` and `builtins`, pre-seeded by
+   `py/init!`.
+3. The linker: a task registry hit, else name environment, manifest,
+   verify, pure install, receive.
+4. Refusal (see catchable imports below).
+
+There is no `sys.path` and there are no finders; the search path is the
+reader's snapshot set and declared principals, and a dependency edge
+names a content address (section 9.6).
+
+`py/import`, prelude code, on a miss creates the module object, sets
+`__name__` and `__package__`, inserts it into `sys.modules` before
+running the body, and runs the body; on an exception it removes the entry
+and re-raises. `py/run-main` instantiates the same code image as
+`"__main__"`, so the code address does not depend on the role and
+`if __name__ == '__main__'` needs nothing else. `__file__` is absent;
+`__spec__` and `__loader__` are `None`.
+
+The module store does not back the namespace:
+
+- The module store holds `spec` and `body`, immutable after install.
+- The module object is a heap cell `{:py/type :module :name s :dict d}`,
+  where `d` is the dict the body receives as `%globals`.
+- `setattr`, `del`, and `globals()` writes are heap dict operations; the
+  linker's store model (literal keys, no delete, first link wins) is
+  untouched.
+- Two tasks importing one module get independent namespaces, one Python
+  process being one task. The linker's open cross-task module-store
+  decision is not needed, and module state migrates only when heap lift
+  lands.
+
+Builtins (ruling 2). `py/init!` builds one builtin namespace dict per
+Python task, shared by that task's modules. A global lookup checks the
+module namespace, then falls back to the builtins, Python's own model, at
+the cost of a second lookup on a global miss. Interpreter-generated
+exceptions keep canonical builtin class references even when guest code
+rebinds the name. Tests cover initialization twice, builtin mutation,
+global shadow and delete, and cross-module exception identity.
+
+Import forms:
+
+```text
++---------------------------+--------------------------------------------------+
+| Form                      | C4 treatment                                     |
++===========================+==================================================+
+| `import a.b.c`            | Imports `a`, `a.b`, `a.b.c` in order, each body  |
+|                           | once, and sets each as an attribute of its       |
+|                           | parent (ruling 13).                              |
++---------------------------+--------------------------------------------------+
+| `from pkg import name`    | Succeeds when `pkg` already exposes the          |
+|                           | attribute. Raises only when lookup fails and the |
+|                           | unsupported submodule auto-import would be       |
+|                           | needed (ruling 13).                              |
++---------------------------+--------------------------------------------------+
+| `from m import *`         | Respects `__all__`; without it, excludes         |
+|                           | underscore-prefixed names. Copying every key is  |
+|                           | insufficient (ruling 13).                        |
++---------------------------+--------------------------------------------------+
+| Relative imports          | Resolved statically at lowering from the         |
+|                           | declared module name and package status:         |
+|                           | package `a.b` and module `a.b` have different    |
+|                           | bases. A packageless or beyond-top-level case    |
+|                           | raises `ImportError` at the executed statement.  |
+|                           | Rebinding `__package__` or a different runtime   |
+|                           | package does not retarget them, a disclosed      |
+|                           | restriction (ruling 12).                         |
++---------------------------+--------------------------------------------------+
+| `importlib.import_module` | Only statically recognized calls with a literal  |
+|                           | name; dynamic forms get an explicit diagnostic.  |
+```
+
+Acceptance, each on all three hosts unless stated (Node and Dart consume
+precompiled CST packets or rows, since the parser is JVM-only):
+
+- F1: two revisions of one id installed into an empty catalog are both
+  selectable and the original catalog is unchanged; a manifest holding a
+  function is rejected with a qualified outcome.
+- F2: a toy frontend defined in a test namespace installs, is selected,
+  and evaluates on every VM with no `src` edit; a newer revision
+  installed under a live session leaves it unchanged; on Node and Dart
+  with no parser or configured service, the ANTLR id answers
+  unavailable-parser with no legacy fallback.
+- P1: the full corpus output is unchanged on every VM and host; a
+  composition with no cell module halts ok on `functions-uast`;
+  `py/init!` twice yields one set of class cells; shadowing then
+  deleting a builtin name makes the builtin visible again.
+- P2: `py` publishes to one pinned manifest address on each host; the
+  linked corpus output equals bundled; one source under two prelude
+  revisions keeps one program root; an exception raised in one unit is
+  `isinstance` of `Exception` read in another unit of the same task; an
+  install child at `validated` has an empty heap and no `:cell` lift
+collab/1791401000000-reviewer-c4-p1.codex.stdout.log
+collab/1791397000000-engineer-c4-p1.claude-opus-5-5.stdout.log
+collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md
+collab/1791397000000-engineer-c4-p1.claude.prompt.md
+collab/1791401000000-reviewer-c4-p1.codex.prompt.md
+collab/1791397000000-engineer-c4-p1.claude-opus-5-5.findings.md
+collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.stdout.log
+collab/1791397000000-architect-c4-p1-spec.claude.prompt.md
+collab/1791401500000-architect-c4-p1-signoff.codex.prompt.md
+collab/1791401500000-architect-c4-p1-signoff.codex.stdout.log
+collab/1791401000000-reviewer-c4-p1.codex.findings.md
+target/test-dht-head-dbed7a59-8db2-4838-93c4-dabea859f64d/heads.edn
+target/test-state-82c3ff6d-0cc4-4524-a8b6-abc321e10df7/state.edn
+target/test-state-82c3ff6d-0cc4-4524-a8b6-abc321e10df7/lock
+target/test-state-82c3ff6d-0cc4-4524-a8b6-abc321e10df7/content.jing
+target/test-state-c45a16b5-5c4b-4f5a-ab86-cccd85e64efa/state.edn
+target/test-dht-head-4d8ad650-a7d6-4d5e-ac45-6002b69d13aa/heads.edn
+target/test-dht-local-be2079b2-4b2d-451f-b1d2-26a39e8014b7.log
+target/test-dht-head-9a658818-1c41-4621-ba14-d6bf0eccb276/content.jing
+target/test-store-fs-eafa9226-8c48-4f26-bf20-0372e8483140/f
+target/test-dht-local-9e48d2d4-6c6a-486c-920f-e6290e63daca.log
+target/test-dht-head-6b4dd48f-28de-4901-ae01-ec1eed165cc4/HEAD
+target/test-dht-head-6b4dd48f-28de-4901-ae01-ec1eed165cc4/lock
+target/test-dht-head-6b4dd48f-28de-4901-ae01-ec1eed165cc4/content.jing
+target/test-state-167dc463-8422-4f20-80fd-d234c15eb297/state.edn
+target/p1-slow-cljs.log
+target/test-dht-head-5329ce63-ba09-4fa4-ad60-eaf39f7dc4aa/HEAD
+target/test-dht-head-5329ce63-ba09-4fa4-ad60-eaf39f7dc4aa/lock
+target/test-dht-head-5329ce63-ba09-4fa4-ad60-eaf39f7dc4aa/content.jing
+target/p1-test-cljd.log
+target/p1-test-cljs.log
+target/test-dht-head-d08167e2-8c74-48d1-a4a1-44f53c44f32e/lock
+target/test-dht-head-d08167e2-8c74-48d1-a4a1-44f53c44f32e/content.jing
+target/test-dht-head-1cfa74c0-ecd9-4dc4-b5e4-d72f9d94581f/heads.edn
+target/test-dht-local-1ef6b06d-f174-4967-9a84-d3ce24db8a74.log
+target/test-state-f65c4dd4-c1a0-4c31-be9f-4695209d1a5a/state.edn
+target/test-dht-head-558c9af5-ac29-4fdb-98ee-b28ac4fa2cdd/lock
+target/test-dht-head-558c9af5-ac29-4fdb-98ee-b28ac4fa2cdd/content.jing
+target/test-dht-head-558c9af5-ac29-4fdb-98ee-b28ac4fa2cdd/heads.edn
+target/test-dht-local-642cd5a2-9441-4084-a942-34666e078689.log
+target/test-dht-head-02498dec-b11d-4723-9d64-42fadc49e3f9/HEAD
+target/test-dht-head-02498dec-b11d-4723-9d64-42fadc49e3f9/lock
+target/test-dht-head-02498dec-b11d-4723-9d64-42fadc49e3f9/content.jing
+target/test-dht-head-02498dec-b11d-4723-9d64-42fadc49e3f9/heads.edn
+target/p1-slow-clj.log
+target/test-dht-head-a8080acb-0335-413e-bc46-de1496f6fa27/HEAD
+target/test-dht-head-a8080acb-0335-413e-bc46-de1496f6fa27/lock
+target/test-dht-head-a8080acb-0335-413e-bc46-de1496f6fa27/content.jing
+target/test-store-fs-c4d43f65-dfc9-44bb-abe8-de8d05582666/f
+target/test-state-95840310-d5b7-45d5-896b-ec78281c48dc/state.edn
+target/test-state-c4ca82bf-f1e6-462d-9b21-12b7f2c66d84/state.edn
+target/test-dht-local-ed763631-0e65-4d81-928d-b5d5432ed400.log
+target/test-store-fs-0137dbdb-1799-44ef-ac4b-211714a55a2d/f
+target/p1-test-clj.log
+target/test-dht-head-a865a7c4-1c60-46e8-bf95-bf067a480f58/lock
+target/test-dht-head-a865a7c4-1c60-46e8-bf95-bf067a480f58/content.jing
+target/test-dht-head-a865a7c4-1c60-46e8-bf95-bf067a480f58/heads.edn
+target/test-dht-head-3c849805-0839-4c47-8a9f-3a40950a24fa/HEAD
+target/test-dht-head-3c849805-0839-4c47-8a9f-3a40950a24fa/lock
+target/test-dht-head-3c849805-0839-4c47-8a9f-3a40950a24fa/content.jing
+target/test-state-bb92a2d0-f7b8-436e-8b31-79ceb77dc4c2/state.edn
+target/test-state-4e471c15-be2b-4784-9a72-c482c8dc1dfe/state.edn
+target/test-store-fs-1c4136b2-6bbd-42a7-90ac-0db963e1e8e6/f
+target/test-dht-head-eab9ae9f-9c48-41d4-84c2-e4a3b43cd086/content.jing
+target/test-dht-head-eab9ae9f-9c48-41d4-84c2-e4a3b43cd086/heads.edn
+target/test-dht-head-a0417a58-6fc0-4326-840e-f2c4a5a626f2/content.jing
+target/test-dht-head-3362b3af-2a96-49d6-96de-6f6c446a8c16/lock
+target/test-dht-head-3362b3af-2a96-49d6-96de-6f6c446a8c16/content.jing
+target/test-dht-head-3362b3af-2a96-49d6-96de-6f6c446a8c16/heads.edn
+target/test-dht-head-3362b3af-2a96-49d6-96de-6f6c446a8c16/heads.edn.tmp-c26a1e07-1779-485f-8123-f2ff32ff56e5
+src/cljc/yang/python/antlr/safepoint.cljc:66:(def ^:private function-definitions
+src/cljc/yang/python/antlr/safepoint.cljc:115:(def ^:private state-definitions
+src/cljc/yang/python/antlr/safepoint.cljc:127:  (u/mark-tails (u/then (definitions->uast function-definitions)
+src/cljc/yang/python/antlr/safepoint.cljc:128:                        (definitions->uast state-definitions))))
+      61 collab/1791397000000-engineer-c4-p1.claude-opus-5-5.stdout.log
+
+exec
+/bin/zsh -lc 'ls -l target/p1*; tail -n 12 target/p1-test-clj.log; tail -n 12 target/p1-test-cljs.log; tail -n 15 target/p1-test-cljd.log; tail -n 8 target/p1-slow-clj.log; tail -n 8 target/p1-slow-cljs.log' in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+-rw-r--r--@ 1 sto  staff     555 Oct  8 03:58 target/p1-slow-clj.log
+-rw-r--r--@ 1 sto  staff    3047 Oct  8 04:31 target/p1-slow-cljs.log
+-rw-r--r--@ 1 sto  staff   19899 Oct  8 03:16 target/p1-test-clj.log
+-rw-r--r--@ 1 sto  staff  572164 Oct  8 03:36 target/p1-test-cljd.log
+-rw-r--r--@ 1 sto  staff   20102 Oct  8 03:28 target/p1-test-cljs.log
+
+Testing yin.vm.ucf.remote-test
+
+Testing yin.vm.ucf.scalar-round-trip-test
+
+Testing yin.vm.ucf-test
+
+Testing yin.vm-test
+
+Ran 3754 tests containing 239163 assertions.
+0 failures, 1 errors.
+Error while executing task: test:clj
+[2m 182 | ;; The board and the deposit (5.1, 5.2, 5.4)[0m
+[2m 183 | ;; =============================================================================[0m
+[2m 184 | [0m
+[1m 185 | (defn board[0m
+-------^------------------------------------------------------------------------
+ [33;1mNamespace yin.vm.linker.head.board clashes with var yin.vm.linker.head/board[0m
+--------------------------------------------------------------------------------
+[2m 186 |   "A head board: a `dao.stream.ringbuffer` of capacity 1, the latest head[0m
+[2m 187 |    winning.  Answers the ring's handle, which a reader may be handed[0m
+[2m 188 |    directly."[0m
+[2m 189 |   [][0m
+--------------------------------------------------------------------------------
+04:05 +3551 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/a-halted-result-lift-is-repeatable-test
+04:05 +3552 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/a-malformed-header-is-a-caller-defect-test
+04:05 +3553 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/a-transient-install-phase-refuses-test
+04:05 +3554 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/a-nil-header-is-the-version-0-lift-unchanged-test
+04:05 +3555 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/a-result-only-module-closure-completes-its-dependencies-test
+04:05 +3556 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/a-result-with-distinct-cursors-is-two-cells-test
+04:05 +3557 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/cursor-referenced-store-keys-order-nothing-test
+04:05 +3558 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/an-unprotected-pending-refuses-in-the-root-and-in-a-child-test
+04:05 +3559 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/a-halted-root-takes-its-origin-and-nothing-else-test
+04:05 +3560 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.vm.ucf.lift-v1-test/the-record-round-trips-the-canonical-codec-test
+04:05 +3561 -1: Some tests failed.
+
+Failing tests:
+  /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_2_test.dart: null yin.vm.ucf.handoff-v2-census-test/a-version-2-body-is-the-same-bytes-on-every-host
+Error while executing task: test:cljd
+Testing yang.python.antlr.int-contract-test
+
+Testing yang.python.antlr.prelude-parity-test
+
+Testing yang.python.antlr.safepoint-test
+
+Ran 76 tests containing 2645 assertions.
+0 failures, 0 errors.
+-------^------------------------------------------------------------------------
+ [33;1mNamespace yin.vm.linker.head.board clashes with var yin.vm.linker.head/board[0m
+--------------------------------------------------------------------------------
+[2m 186 |   "A head board: a `dao.stream.ringbuffer` of capacity 1, the latest head[0m
+[2m 187 |    winning.  Answers the ring's handle, which a reader may be handed[0m
+[2m 188 |    directly."[0m
+[2m 189 |   [][0m
+--------------------------------------------------------------------------------
+
+exec
+/bin/zsh -lc "rg -n -A 12 -B 3 'ERROR in|Ran [0-9]|failures|\\[E\\]|Expected:|Actual:|definition-inside-lambda|functions-load-without-cells|init-is-idempotent|seeded-builtins|shadow-then-delete|builtin-mutation' target/p1-test-clj.log target/p1-test-cljs.log target/p1-slow-cljs.log target/p1-test-cljd.log" in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+target/p1-slow-cljs.log-96-
+target/p1-slow-cljs.log-97-Testing yin.vm.parity-test
+target/p1-slow-cljs.log-98-
+target/p1-slow-cljs.log:99:Ran 354 tests containing 43202 assertions.
+target/p1-slow-cljs.log:100:0 failures, 0 errors.
+target/p1-slow-cljs.log-101-===============================================
+target/p1-slow-cljs.log-102-[:test] Build completed. (240 files, 3 compiled, 1 warnings, 1967.29s)
+target/p1-slow-cljs.log-103-
+target/p1-slow-cljs.log-104-[1m------ WARNING #1 - :ns-var-clash ----------------------------------------------[0m
+target/p1-slow-cljs.log-105- File: /Users/sto/workspace/datomworld-p1/src/cljc/yin/vm/linker/head.cljc:185:1
+target/p1-slow-cljs.log-106---------------------------------------------------------------------------------
+target/p1-slow-cljs.log-107-[2m 182 | ;; The board and the deposit (5.1, 5.2, 5.4)[0m
+target/p1-slow-cljs.log-108-[2m 183 | ;; =============================================================================[0m
+target/p1-slow-cljs.log-109-[2m 184 | [0m
+target/p1-slow-cljs.log-110-[1m 185 | (defn board[0m
+target/p1-slow-cljs.log-111--------^------------------------------------------------------------------------
+target/p1-slow-cljs.log-112- [33;1mNamespace yin.vm.linker.head.board clashes with var yin.vm.linker.head/board[0m
+--
+target/p1-test-clj.log-536-
+target/p1-test-clj.log-537-Testing yin.vm.ucf.handoff-v2-census-test
+target/p1-test-clj.log-538-
+target/p1-test-clj.log:539:ERROR in (a-version-2-body-is-the-same-bytes-on-every-host) (FileInputStream.java:-2)
+target/p1-test-clj.log-540-Uncaught exception, not in assertion.
+target/p1-test-clj.log-541-expected: nil
+target/p1-test-clj.log-542-  actual: java.io.FileNotFoundException: test/resources/yin/vm/ucf/handoff-v2.txt (No such file or directory)
+target/p1-test-clj.log-543- at java.io.FileInputStream.open0 (FileInputStream.java:-2)
+target/p1-test-clj.log-544-    java.io.FileInputStream.open (FileInputStream.java:213)
+target/p1-test-clj.log-545-    java.io.FileInputStream.<init> (FileInputStream.java:152)
+target/p1-test-clj.log-546-    clojure.java.io$fn__11659.invokeStatic (io.clj:232)
+target/p1-test-clj.log-547-    clojure.java.io/fn (io.clj:232)
+target/p1-test-clj.log-548-    clojure.java.io$fn__11611$G__11565__11618.invoke (io.clj:72)
+target/p1-test-clj.log-549-    clojure.java.io$fn__11671.invokeStatic (io.clj:261)
+target/p1-test-clj.log-550-    clojure.java.io/fn (io.clj:257)
+target/p1-test-clj.log-551-    clojure.java.io$fn__11611$G__11565__11618.invoke (io.clj:72)
+--
+target/p1-test-clj.log-651-
+target/p1-test-clj.log-652-Testing yin.vm-test
+target/p1-test-clj.log-653-
+target/p1-test-clj.log:654:Ran 3754 tests containing 239163 assertions.
+target/p1-test-clj.log:655:0 failures, 1 errors.
+target/p1-test-clj.log-656-Error while executing task: test:clj
+--
+target/p1-test-cljs.log-262-SKIP slow test big-integer-keys-past-the-digit-limit-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-263-SKIP slow test int-limits-are-catchable-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-264-SKIP slow test failed-key-normalization-leaves-containers-unchanged-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log:265:SKIP slow test int-defects-stay-host-failures-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-266-SKIP slow test preserved-key-arms-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-267-SKIP slow test unhashable-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-268-SKIP slow test signed-zero-floats-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-269-
+target/p1-test-cljs.log-270-Testing yang.python.antlr.safepoint-test
+target/p1-test-cljs.log-271-SKIP slow test no-op-hooks-are-transparent-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-272-SKIP slow test interrupt-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-273-SKIP slow test no-park-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-274-SKIP slow test registered-handler-runs-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-275-SKIP slow test fail-closed-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-276-SKIP slow test tail-preservation-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log-277-SKIP slow test recursion-error-test (set DATOM_SLOW_TESTS=1 to run)
+--
+target/p1-test-cljs.log-546-
+target/p1-test-cljs.log-547-Testing yin.vm.ucf.handoff-v2-census-test
+target/p1-test-cljs.log-548-
+target/p1-test-cljs.log:549:ERROR in (a-version-2-body-is-the-same-bytes-on-every-host) (Error:NaN:NaN)
+target/p1-test-cljs.log-550-Uncaught exception, not in assertion.
+target/p1-test-cljs.log-551-expected: nil
+target/p1-test-cljs.log-552-  actual: #object[Error Error: ENOENT: no such file or directory, open 'test/resources/yin/vm/ucf/handoff-v2.txt']
+target/p1-test-cljs.log-553-
+target/p1-test-cljs.log-554-Testing yin.vm.ucf.handoff-v2-custody-test
+target/p1-test-cljs.log-555-
+target/p1-test-cljs.log-556-Testing yin.vm.ucf.handoff-v2-gates-test
+target/p1-test-cljs.log-557-
+target/p1-test-cljs.log-558-Testing yin.vm.ucf.handoff-v2-holder-test
+target/p1-test-cljs.log-559-
+target/p1-test-cljs.log-560-Testing yin.vm.ucf.handoff-v2-layout-test
+target/p1-test-cljs.log-561-
+--
+target/p1-test-cljs.log-587-
+target/p1-test-cljs.log-588-Testing yin.vm.ucf.scalar-round-trip-test
+target/p1-test-cljs.log-589-
+target/p1-test-cljs.log:590:Ran 3610 tests containing 103554 assertions.
+target/p1-test-cljs.log:591:0 failures, 1 errors.
+target/p1-test-cljs.log-592-===============================================
+target/p1-test-cljs.log-593-[:test] Build completed. (514 files, 513 compiled, 1 warnings, 670.86s)
+target/p1-test-cljs.log-594-
+target/p1-test-cljs.log-595-[1m------ WARNING #1 - :ns-var-clash ----------------------------------------------[0m
+target/p1-test-cljs.log-596- File: /Users/sto/workspace/datomworld-p1/src/cljc/yin/vm/linker/head.cljc:185:1
+target/p1-test-cljs.log-597---------------------------------------------------------------------------------
+target/p1-test-cljs.log-598-[2m 182 | ;; The board and the deposit (5.1, 5.2, 5.4)[0m
+target/p1-test-cljs.log-599-[2m 183 | ;; =============================================================================[0m
+target/p1-test-cljs.log-600-[2m 184 | [0m
+target/p1-test-cljs.log-601-[1m 185 | (defn board[0m
+target/p1-test-cljs.log-602--------^------------------------------------------------------------------------
+target/p1-test-cljs.log-603- [33;1mNamespace yin.vm.linker.head.board clashes with var yin.vm.linker.head/board[0m
+--
+target/p1-test-cljd.log-2089-01:34 +1661 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_4_test.dart: null yang.python.antlr.safepoint-test/marks-reach-the-side-table-only-test
+target/p1-test-cljd.log-2090-01:34 +1662 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_4_test.dart: null yang.python.antlr.safepoint-test/marks-reach-the-side-table-only-test
+target/p1-test-cljd.log-2091-01:34 +1663 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_4_test.dart: null yang.python.antlr.safepoint-test/marks-reach-the-side-table-only-test
+target/p1-test-cljd.log:2092:01:34 +1663 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_2_test.dart: null yin.vm.ucf.handoff-v2-census-test/a-version-2-body-is-the-same-bytes-on-every-host [E]
+target/p1-test-cljd.log-2093-  PathNotFoundException: Cannot open file, path = 'test/resources/yin/vm/ucf/handoff-v2.txt' (OS Error: No such file or directory, errno = 2)
+target/p1-test-cljd.log-2094-  dart:io                                                            _File.readAsStringSync
+target/p1-test-cljd.log-2095-  lib/cljd-out/dao/jing/cbor-fixtures.dart 1109:41                   read_path
+target/p1-test-cljd.log-2096-  test/cljd-out/yin/vm/ucf/handoff-v2-census-test_test.dart 959:71   a_version_2_body_is_the_same_bytes_on_every_host.thunk$13533_$AUTO_$1.maybe_f$1
+target/p1-test-cljd.log-2097-  dart:async                                                         runZoned
+target/p1-test-cljd.log-2098-  test/cljd-out/yin/vm/ucf/handoff-v2-census-test_test.dart 1500:11  a_version_2_body_is_the_same_bytes_on_every_host.thunk$13533_$AUTO_$1
+target/p1-test-cljd.log-2099-  test/cljd-out/yin/vm/ucf/handoff-v2-census-test_test.dart 1508:8   a_version_2_body_is_the_same_bytes_on_every_host.<fn>.<fn>.maybe_f$2
+target/p1-test-cljd.log-2100-  dart:async                                                         runZoned
+target/p1-test-cljd.log-2101-  test/cljd-out/yin/vm/ucf/handoff-v2-census-test_test.dart 1541:11  a_version_2_body_is_the_same_bytes_on_every_host.<fn>.<fn>
+target/p1-test-cljd.log-2102-  
+target/p1-test-cljd.log-2103-01:34 +1664 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_4_test.dart: null yang.python.antlr.safepoint-test/marks-reach-the-side-table-only-test
+target/p1-test-cljd.log-2104-01:34 +1665 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_4_test.dart: null yang.python.antlr.safepoint-test/marks-reach-the-side-table-only-test
+--
+target/p1-test-cljd.log-3387-03:21 +2810 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yang.python.antlr.int-conv-test/departure-pins-test
+target/p1-test-cljd.log-3388-03:21 +2811 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yang.python.antlr.int-conv-test/departure-pins-test
+target/p1-test-cljd.log-3389-03:21 +2812 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yang.python.antlr.int-conv-test/departure-pins-test
+target/p1-test-cljd.log:3390:03:21 +2813 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log-3391-03:21 +2813 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yang.python.antlr.int-conv-test/sequence-repetition-boundary-test
+target/p1-test-cljd.log-3392-SKIP slow test sequence-repetition-boundary-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljd.log:3393:03:21 +2814 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3394:03:21 +2815 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3395:03:21 +2816 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3396:03:21 +2817 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3397:03:21 +2818 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3398:03:21 +2819 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3399:03:21 +2820 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3400:03:21 +2821 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3401:03:21 +2822 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3402:03:21 +2823 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3403:03:21 +2824 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3404:03:21 +2825 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3405:03:21 +2826 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3406:03:21 +2827 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3407:03:21 +2828 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3408:03:21 +2829 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3409:03:21 +2830 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3410:03:21 +2831 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3411:03:21 +2832 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3412:03:21 +2833 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3413:03:21 +2834 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3414:03:21 +2835 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3415:03:21 +2836 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log:3416:03:21 +2837 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/builtin-mutation-test
+target/p1-test-cljd.log-3417-03:21 +2838 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log-3418-03:21 +2839 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log-3419-03:21 +2840 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log-3420-03:21 +2840 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/generator-expression-admission-on-every-host-test
+target/p1-test-cljd.log-3421-SKIP slow test generator-expression-admission-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljd.log-3422-03:21 +2841 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log-3423-03:21 +2842 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log-3424-03:21 +2842 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/delegation-stop-and-sticky-dict-iterator-on-every-host-test
+target/p1-test-cljd.log-3425-SKIP slow test delegation-stop-and-sticky-dict-iterator-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljd.log-3426-03:21 +2843 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log:3427:03:21 +2843 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_6_test.dart: null yang.python.antlr.prelude-parity-test/int-defects-stay-host-failures-on-every-host-test
+target/p1-test-cljd.log:3428:SKIP slow test int-defects-stay-host-failures-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljd.log-3429-03:21 +2844 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log-3430-03:21 +2845 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log-3431-03:21 +2846 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log-3432-03:21 +2847 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.holder.driver-test/invalid-bindings-answer-not-holder-and-release-test
+target/p1-test-cljd.log-3433-03:21 +2848 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.repl.dht-head-test/the-moved-line-names-the-principal-that-moved-each-name
+target/p1-test-cljd.log-3434-03:21 +2849 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.repl.dht-head-test/the-moved-line-names-the-principal-that-moved-each-name
+target/p1-test-cljd.log-3435-03:21 +2850 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.repl.dht-head-test/the-moved-line-names-the-principal-that-moved-each-name
+target/p1-test-cljd.log-3436-03:21 +2851 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.repl.dht-head-test/the-moved-line-names-the-principal-that-moved-each-name
+target/p1-test-cljd.log-3437-03:21 +2852 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.repl.dht-head-test/the-moved-line-names-the-principal-that-moved-each-name
+target/p1-test-cljd.log-3438-03:21 +2853 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.repl.dht-head-test/the-moved-line-names-the-principal-that-moved-each-name
+target/p1-test-cljd.log-3439-03:21 +2854 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.repl.dht-head-test/the-moved-line-names-the-principal-that-moved-each-name
+target/p1-test-cljd.log-3440-03:21 +2855 -1: /Users/sto/workspace/datomworld-p1/build/cljd-agg/shard_3_test.dart: null yin.repl.dht-head-test/the-moved-line-names-the-principal-that-moved-each-name
+
+exec
+/bin/zsh -lc "rg -n 'definition-inside-lambda|functions-load-without-cells|init-is-idempotent|seeded-builtins|shadow-then-delete' target/p1-test-cljd.log; git diff -- test/yang/python/antlr/e2e_test.clj test/yang/python/antlr/lower_test.clj test/yang/python/antlr/safepoint_test.cljc; git rev-parse HEAD; date '+%Y-%m-%d %H:%M:%S %Z'; date -u '+%Y-%m-%d %H:%M:%S GMT'" in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+diff --git a/test/yang/python/antlr/e2e_test.clj b/test/yang/python/antlr/e2e_test.clj
+index a5496fd0..1b72dd40 100644
+--- a/test/yang/python/antlr/e2e_test.clj
++++ b/test/yang/python/antlr/e2e_test.clj
+@@ -324,6 +324,29 @@
+                     "print(f())\n"))))
+ 
+ 
++(deftest ^:slow shadow-then-delete-builtin-test
++  (testing "the handler's exit unbinds the module name `len` (the lowering's
++            only module-level unbinding; `del` is unsupported), and the next
++            read finds the builtin again"
++    (every-vm= (prints "2" "<ValueError object>" "3")
++               (str "print(len([1, 2]))\n"
++                    "try:\n"
++                    "    raise ValueError\n"
++                    "except ValueError as len:\n"
++                    "    print(len)\n"
++                    "print(len([1, 2, 3]))\n"))))
++
++
++(deftest ^:slow builtin-lookup-order-test
++  (testing "module dict, then builtins: a module binding wins once made"
++    (every-vm= (prints "0" "1")
++               "print(len([]))\nlen = 1\nprint(len)\n"))
++  (testing "a class-body read the class namespace misses falls back to the
++            builtins dict"
++    (every-vm= (prints "1")
++               "class C:\n    x = len\nprint(C.x([1]))\n")))
++
++
+ (deftest ^:slow class-body-reads-class-namespace-then-globals-test
+   (testing "a class-body read before the body assigns the name falls back to
+             the global; after, it reads the class namespace"
+diff --git a/test/yang/python/antlr/lower_test.clj b/test/yang/python/antlr/lower_test.clj
+index 77f7de34..2e961885 100644
+--- a/test/yang/python/antlr/lower_test.clj
++++ b/test/yang/python/antlr/lower_test.clj
+@@ -64,9 +64,10 @@
+ 
+ 
+ (defn- builtin
+-  "A builtin name read: the module binding if present, else the builtin."
++  "A builtin name read: the module dict, then the task's builtins dict, an
++   ordinary global read."
+   [nm]
+-  (py 'py/global-or (u/v '%globals) (u/lit {:py/str nm}) (u/v (symbol "py.b" nm))))
++  (gget nm))
+ 
+ 
+ (defn- fobj
+@@ -343,8 +344,7 @@
+           x (sym "x" src "exprlist")]
+       (is (= (u/then
+                (py 'py/call
+-                   (py 'py/global-or (u/v '%globals) (u/lit {:py/str "sum"})
+-                       (u/v 'py.b/sum))
++                   (gget "sum")
+                    (py 'py/conj (u/lit [])
+                        (u/let1 fst (py 'py/iter (gget "y"))
+                                (py 'py/make-generator (u/lit "<genexpr>")
+@@ -407,7 +407,14 @@
+       (is (not (re-find #"yin/def" (pr-str (-> program :operands second))))))
+     (testing "the batch passes the Universal AST's own checks"
+       (is (nil? (vm/ast-reserved-defect program)))
+-      (is (vector? (vm/ast->datoms program))))))
++      (is (vector? (vm/ast->datoms program)))))
++  (testing "the lowering names no builtin store key: print(len([])) reads
++            both names through the module dict and the builtins dict"
++    (is (= []
++           (->> (tree-seq coll? seq (body "print(len([]))\n"))
++                (filter #(and (map? %) (= :variable (:type %))
++                              (= "py.b" (namespace (:name %)))))
++                vec)))))
+ 
+ 
+ (deftest tail-marks-test
+diff --git a/test/yang/python/antlr/safepoint_test.cljc b/test/yang/python/antlr/safepoint_test.cljc
+index 599e8ea6..e0ef554e 100644
+--- a/test/yang/python/antlr/safepoint_test.cljc
++++ b/test/yang/python/antlr/safepoint_test.cljc
+@@ -462,10 +462,15 @@
+                            (tree-of (:derived (derive* while-true-pass hooks/profile))))
+                          identity
+                          outcome)))
+-  (testing "the naive program reads KeyboardInterrupt as a builtin its own
+-            base prelude defines, and names nothing in py.sp"
++  (testing "the naive program reads KeyboardInterrupt by name through the
++            builtins dict its own base prelude seeds, and names nothing in
++            py.sp"
+     (let [ast (tree-of (envelope caught))]
+-      (is (contains? (names-in ast) 'py.b/KeyboardInterrupt))
++      (is (some #(and (= :application (:type %))
++                      (= 'py/global-get (:name (:operator %)))
++                      (= {:py/str "KeyboardInterrupt"}
++                         (:value (second (:operands %)))))
++                (nodes ast)))
+       (is (some #(= 'py.b/KeyboardInterrupt (:value (first (:operands %))))
+                 (definitions ast)))
+       (is (not-any? #(= "py.sp" (namespace %)) (filter symbol? (names-in ast)))))))
+802d9ee2dfb32ff1c3552427d8e2963225ae4edc
+2026-10-08 04:55:15 +07
+2026-10-07 21:55:15 GMT
+
+codex
+Additional logs show all three fast lanes ended with an error for the same missing UCF fixture. The Node slow log confirms the reported pass. I found no Dart slow result, and the Dart fast log does not name the new initialization tests. I’ll withhold sign-off for incomplete acceptance evidence; I found no architectural implementation defect.
+exec
+/bin/zsh -lc "python3 - <<'PY'
+from pathlib import Path
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+now=datetime.now(timezone.utc)
+stamp=f\"Completed-GMT: {now.strftime('%Y-%m-%d %H:%M:%S GMT')}\\nCompleted-Local: {now.astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).strftime('%Y-%m-%d %H:%M:%S ICT')}\"
+report=stamp+'''
+
+# Track A Phase C4 Slice P1 Architectural Sign-Off Review
+
+Role: Lead System Architect — Codex.
+Branch: "'`yang-python-c4-p1`; HEAD: `802d9ee2dfb32ff1c3552427d8e2963225ae4edc`.
+Scope: nine tracked working-tree changes, governing architecture, P1 specification, engineer report, adversarial review, and available P1 lane logs. Read-only review; only this requested report was written. No test suites were rerun, dependencies repaired, implementation changed, or commit made. Timestamps use the actual system clock and Asia/Ho_Chi_Minh (UTC+07).
+
+## Architectural Evaluation
+
+The implementation is architecturally consistent with the P1 specification. Overall completion sign-off is withheld because the required verification gate is not established.
+
+| Decision / invariant | Evaluation |
+|---|---|
+| Explicit state; no hidden globals or shared host mutable state | PASS. Runtime state is represented by task-owned store bindings and explicit cell operations. Host-level tables are immutable code-generation data, not ambient Python process state. The change introduces no host callbacks, new host exports, or implicit initialization. Existing stream/VM boundaries remain intact. |
+| A1 — single definitions list and explicit allocation | PASS. `prelude.cljc:3006` assembles `definitions` from core lambda forms, literal `py.rt/state = :py/uninit`, and the `py/init!` lambda. `functions-uast` emits that list without executing the initializer. `init-form` creates the three runtime cells, classes in base-first order, builtin functions, method objects, and the builtins dict; seeds classes then functions; writes `:py/ready` last. Bundled `uast` explicitly invokes `py/init!` before the module body. No runtime cells are allocated merely by defining the base prelude. |
+| A2 — idempotence and uninit guard | PASS. Allocation is exclusively under equality with `:py/uninit`; other states return `:py/None` without allocation or reseeding. Readiness is the final write, so a failed initialization cannot advertise success. Initialization executes no guest bodies, making this sufficient for the specified single-task execution model. It is not a concurrent initialization lock. Identity tests cover representative class/function objects, builtins and all three runtime cells; the adversarial review additionally reports unchanged heap allocation keys. |
+| A3 — builtin functions versus methods | PASS. The 25 Python-visible functions occupy `builtin-functions`; method implementations occupy a separate table and are allocated but omitted from namespace seeding. The exact ordered-key test checks class/function visibility and excludes methods. Canonical interpreter exception references remain `py.b/*` store references, independent of dictionary mutation. |
+| A4 — dynamic global lookup | PASS. `py/global-get` checks module dictionary key presence, then current builtins dictionary key presence, then raises canonical `py.b/NameError`. Presence checks preserve false/None values. Assignment and cleanup affect only the module dictionary, restoring builtin fallback after deletion. Class-body fallback follows this path. The specified `globals` exception retains the per-module `%globals-fn` via `py/global-or`. |
+| A5 — walker, semantic, stack, register parity | IMPLEMENTED; ACCEPTANCE EVIDENCE INCOMPLETE. Tests enumerate all four VMs for definition/redefinition, definition-only load, initialization identity, seeding, shadow/delete and mutation. The independent reviewer reports passing JVM execution and additional probes on all four. This establishes the bundled JVM mechanism; it does not establish the required current full-corpus result on every host. See gaps below. |
+| A6 — static builtin-name map removal | PASS. The base prelude'"'s "'`builtin-names` map and compiler references are removed. Ordinary lowering emits `py/global-get` and no `py.b/*` variable. Production seeding derives from the class/function tables. The test-only list of expected function names is an independent visibility assertion, not a runtime lookup map. |
+
+Other specification invariants: Rule R literal definition keys are retained; guest lowering introduces no `yin/def`; `host-names` and admission remain unchanged. The safepoint prelude is untouched. Its separate load-time state is explicitly P3 scope, not a violation of P1'"'s base-prelude lifecycle. P1 remains bundled: cross-unit identity, module-store ownership under linking, empty-heap linked installation, publication and persistent REPL state remain P2/P3/F3 obligations and are not certified here. Calling "'`py/init!` repeatedly is idempotent; reinstalling the complete bundled definitions would reset the literal flag and is not the promised linked lifecycle.
+
+## Verification Evidence
+
+These are prior recorded runs, not new executions by this review. Unversioned target logs do not prove that each run used the exact final working-tree contents.
+
+| Evidence | Recorded result |
+|---|---|
+| Engineer focused JVM suite | 135 tests, 1,414 assertions; 0 failures, 0 errors (report only). |
+| `target/p1-test-clj.log:654` | 3,754 tests, 239,163 assertions; 0 failures, **1 error**. |
+| `target/p1-test-cljs.log:590` | 3,610 tests, 103,554 assertions; 0 failures, **1 error**. |
+| `target/p1-test-cljd.log` | Final runner count **+3561 -1**, “Some tests failed.” Assertion count not supplied. |
+| `target/p1-slow-clj.log` | 76 tests, 2,645 assertions; 0 failures, 0 errors. |
+| `target/p1-slow-cljs.log:99` | 354 tests, 43,202 assertions; 0 failures, 0 errors. |
+| Dart slow lane | No result located in the supplied reports or available P1 logs. |
+| Independent adversarial JVM fast / slow | 92 tests / 820 assertions and 72 tests / 2,551 assertions respectively; both 0 failures, 0 errors. |
+| Independent adversarial static checks | Kondo 0 errors/0 warnings; cljstyle exit 0; diff check exit 0. This review also ran `git diff --check`: exit 0. |
+
+All three full fast-lane logs identify the same failing test, `yin.vm.ucf.handoff-v2-census-test/a-version-2-body-is-the-same-bytes-on-every-host`, due to missing `test/resources/yin/vm/ucf/handoff-v2.txt`. This is outside the changed Python files; the logs do not implicate the P1 architecture. They nevertheless are failed lane results, not clean passes.
+
+The Dart fast log contains builtin mutation coverage but does not name the new definition-inside-lambda, definition-only-load, init-idempotence, seeded-builtins or shadow/delete tests. It therefore cannot certify those final P1 additions. Its slow tests explicitly skip. The reviewer also records that its later Node attempt failed before execution because of the local dependency symlink/missing `@noble/hashes/blake3.js`; that failed attempt does not invalidate the earlier successful Node slow log, but cannot supplement it.
+
+## Defect / Gap Findings
+
+1. **Blocking — acceptance verification incomplete.** `docs/design/yang.antlr.md:3090–3104` requires P1 acceptance on all three hosts and unchanged full-corpus output on every VM/host. Specification sections 4.7 and 5 require the lane runs, including Dart slow. No current complete Dart evidence is supplied; the available full fast runs fail on the missing fixture. Before sign-off, provide passing required lanes against the final reviewed tree, including all four VMs'"' new P1 acceptance tests and Dart slow coverage. Resolve the fixture/setup issue or obtain an explicit authorized baseline exception with evidence; this review grants no implicit waiver. This is a completion-evidence gap, not an observed Python implementation defect.
+
+2. **Reporting gap — engineer completion overstates conformance.** The report says “None” under deviations and that all steps were implemented verbatim, but omits the three failed full fast-lane results and Dart slow status. It also fails to explain the extra "'`int_conv_test.cljc` consumer rename and additional address-golden changes required by the specification'"'s reporting rule. Those edits are reasonable on inspection: the renamed definitions list expands the string-literal lint's coverage, and bundled prelude changes alter dependent addresses. Record these facts and the actual lane outcomes. The design document's “P1 have landed” statement is premature as a completion claim while sign-off evidence is unresolved.
+
+No revision-worthy architectural implementation defect was found. The adversarial ACCEPT remains credible for its stated code-review scope; it expressly disclaims an independent three-host release gate and cannot substitute for the architectural acceptance criteria.
+
+## Sign-Off Verdict: REJECTED
+
+Rejected for incomplete mandatory verification and inaccurate completion reporting. A1–A4, A6 and the foundational design are satisfactory; A5's full host acceptance remains unproven. Re-review can focus on corrected evidence/reporting unless implementation changes in the meantime. No architectural redesign is requested.
+'''
+Path('collab/1791401500000-architect-c4-p1-signoff.codex.findings.md').write_text(report)
+print(stamp)
+PY" in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+Completed-GMT: 2026-10-07 21:56:17 GMT
+Completed-Local: 2026-10-08 04:56:17 ICT
+
+codex
+Completed-GMT: 2026-10-07 21:56:17 GMT
+Completed-Local: 2026-10-08 04:56:17 ICT
+
+Architectural evaluation: foundational invariants and A1–A4/A6 pass. A5’s complete cross-host verification remains unproven.
+
+Gaps: all three recorded fast lanes contain a missing-fixture error; Dart slow evidence is absent; completion reporting omits these limitations. No architectural implementation defect found.
+
+**Sign-Off Verdict: REJECTED** pending verification evidence.
+
+[Full report](collab/1791401500000-architect-c4-p1-signoff.codex.findings.md)
+tokens used
+70,666
+Completed-GMT: 2026-10-07 21:56:17 GMT
+Completed-Local: 2026-10-08 04:56:17 ICT
+
+Architectural evaluation: foundational invariants and A1–A4/A6 pass. A5’s complete cross-host verification remains unproven.
+
+Gaps: all three recorded fast lanes contain a missing-fixture error; Dart slow evidence is absent; completion reporting omits these limitations. No architectural implementation defect found.
+
+**Sign-Off Verdict: REJECTED** pending verification evidence.
+
+[Full report](collab/1791401500000-architect-c4-p1-signoff.codex.findings.md)

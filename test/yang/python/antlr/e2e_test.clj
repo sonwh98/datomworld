@@ -324,6 +324,29 @@
                     "print(f())\n"))))
 
 
+(deftest ^:slow shadow-then-delete-builtin-test
+  (testing "the handler's exit unbinds the module name `len` (the lowering's
+            only module-level unbinding; `del` is unsupported), and the next
+            read finds the builtin again"
+    (every-vm= (prints "2" "<ValueError object>" "3")
+               (str "print(len([1, 2]))\n"
+                    "try:\n"
+                    "    raise ValueError\n"
+                    "except ValueError as len:\n"
+                    "    print(len)\n"
+                    "print(len([1, 2, 3]))\n"))))
+
+
+(deftest ^:slow builtin-lookup-order-test
+  (testing "module dict, then builtins: a module binding wins once made"
+    (every-vm= (prints "0" "1")
+               "print(len([]))\nlen = 1\nprint(len)\n"))
+  (testing "a class-body read the class namespace misses falls back to the
+            builtins dict"
+    (every-vm= (prints "1")
+               "class C:\n    x = len\nprint(C.x([1]))\n")))
+
+
 (deftest ^:slow class-body-reads-class-namespace-then-globals-test
   (testing "a class-body read before the body assigns the name falls back to
             the global; after, it reads the class namespace"

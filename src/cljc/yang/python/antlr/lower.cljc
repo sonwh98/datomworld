@@ -14,7 +14,8 @@
      Reads are `py/local-get` (unbound -> UnboundLocalError), writes
      `cell/set!`. Module names and `global` names live in the module's
      namespace dict, `%globals` (`py/global-get`, a miss is NameError;
-     `py/global-set`); `yin/def` is reserved for the prelude and builtins.
+     `py/global-set`); `yin/def` appears only in the prelude; builtins
+     are read through the task's builtins dict.
    - A `def` or `lambda` is a function object (`py/make-function`) whose
      code takes one argument vector; every call is `(py/call f [args])` or,
      with keywords, `(py/call-kw f [args] [[name value] ...])`; the callee
@@ -443,17 +444,15 @@
 
 
 (defn- read-global
-  "A module-level read at run time: the module dict, then, for a builtin
-   name, the builtin. A present module key always wins, so
-   `print(len([])); len = 1` reads the builtin first and the global after."
+  "A module-level read at run time: the module dict, then the task's
+   builtins (`py/global-get`). A present module key always wins, so
+   `print(len([])); len = 1` reads the builtin first and the global after.
+   `globals` is the module's own function object, so it is the one name
+   read with a fallback the lowering supplies."
   [_n name]
-  (cond
-    (contains? prelude/builtin-names name)
-    (app* 'py/global-or (u/v globals-sym) (global-key name)
-          (u/v (get prelude/builtin-names name)))
-    (= "globals" name)
+  (if (= "globals" name)
     (app* 'py/global-or (u/v globals-sym) (global-key name) (u/v globals-fn-sym))
-    :else (app* 'py/global-get (u/v globals-sym) (global-key name))))
+    (app* 'py/global-get (u/v globals-sym) (global-key name))))
 
 
 (defn- read-name

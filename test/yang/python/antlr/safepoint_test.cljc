@@ -462,10 +462,15 @@
                            (tree-of (:derived (derive* while-true-pass hooks/profile))))
                          identity
                          outcome)))
-  (testing "the naive program reads KeyboardInterrupt as a builtin its own
-            base prelude defines, and names nothing in py.sp"
+  (testing "the naive program reads KeyboardInterrupt by name through the
+            builtins dict its own base prelude seeds, and names nothing in
+            py.sp"
     (let [ast (tree-of (envelope caught))]
-      (is (contains? (names-in ast) 'py.b/KeyboardInterrupt))
+      (is (some #(and (= :application (:type %))
+                      (= 'py/global-get (:name (:operator %)))
+                      (= {:py/str "KeyboardInterrupt"}
+                         (:value (second (:operands %)))))
+                (nodes ast)))
       (is (some #(= 'py.b/KeyboardInterrupt (:value (first (:operands %))))
                 (definitions ast)))
       (is (not-any? #(= "py.sp" (namespace %)) (filter symbol? (names-in ast)))))))

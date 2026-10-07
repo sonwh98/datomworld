@@ -356,10 +356,9 @@
 
 
 (deftest string-literal-lint-test
-  "Scope: prelude/function-definitions, the core helpers only. The
-   builtin function definitions are private and are not walked: that
-   every {:py/str x} literal there holds a string rests on review, not
-   on this test."
+  "Scope: prelude/definitions, which now holds the builtin function and
+   method forms inside py/init!'s body, so every {:py/str x} literal there
+   is walked too."
   (let [bad (atom [])]
     (walk/postwalk
       (fn [x]
@@ -367,7 +366,7 @@
                    (not (string? (:py/str x))))
           (swap! bad conj x))
         x)
-      prelude/function-definitions)
+      prelude/definitions)
     (is (= [] @bad))))
 
 

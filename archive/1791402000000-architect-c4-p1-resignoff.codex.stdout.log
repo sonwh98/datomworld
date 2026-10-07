@@ -1,0 +1,1595 @@
+OpenAI Codex v0.159.3
+--------
+workdir: /Users/sto/workspace/datomworld-p1
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 01a11862-72be-78b2-b02b-d31fda187823
+--------
+user
+Created-GMT: 2026-10-08 05:01:00 GMT
+Created-Local: 2026-10-08 05:01:00 ICT
+
+# Task: Track A Slice P1 Architectural Sign-Off Re-Evaluation
+
+Role: Lead System Architect
+Model: Codex (gpt-6-astra)
+Repository root: /Users/sto/workspace/datomworld-p1
+Branch: yang-python-c4-p1
+
+Context:
+- In your prior evaluation `collab/1791401500000-architect-c4-p1-signoff.codex.findings.md`, all architectural invariants and decisions A1-A4 and A6 were judged PASS. Sign-off was temporarily withheld pending:
+  1. Complete firsthand Dart test evidence for the new P1 tests and VM parity suites.
+  2. Clarification/documentation of the pre-existing repository baseline defect (missing `handoff-v2.txt` in UCF).
+  3. Reporting documentation regarding `int_conv_test.cljc` definition table update and golden re-pins.
+
+The Implementation Engineer completion report has been revised:
+`collab/1791397000000-engineer-c4-p1.claude-opus-5-5.findings.md`
+
+Fresh verification executed and recorded:
+- Dart Fast Lane: `bb src/dev/cljd_agg.clj --only yang.python.antlr.prelude-parity-test,yang.python.antlr.float-address-test,yang.python.antlr.int-conv-test` -> **57 tests passed, 0 failures** ("All tests passed!"). Includes `init-is-idempotent-test`, `seeded-builtins-test`, `shadow-then-delete-builtin-test`, `functions-load-without-cells-test`.
+- Dart Slow Lane: `DATOM_SLOW_TESTS=1 bb src/dev/cljd_agg.clj --only yang.python.antlr.prelude-parity-test` -> **32 tests passed, 0 failures** ("All tests passed!"). Includes all four VM slow parity tests (`prelude-semantics-on-every-vm-test`, `float-is-on-every-host-test`, `delegation-chain-callers-and-unwinding-on-every-host-test`, `generator-throw-and-close-on-every-host-test`, `int-defects-stay-host-failures-on-every-host-test`, etc.).
+- Baseline defect context explicitly documented: missing `handoff-v2.txt` is an existing repository-wide failure outside Python/ANTLR.
+- `int_conv_test.cljc` definition table update documented.
+
+Please evaluate the completed evidence and render your final sign-off verdict: ACCEPTED or REJECTED.
+Write your report to:
+`collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md`
+codex
+I’ll review the prior findings, revised completion report, and recorded test evidence, then write the final architectural sign-off report.
+exec
+/bin/zsh -lc 'cat docs/design/datom.world.md' in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is a stream boundary, never a function call. The one
+sanctioned function-shaped contact is a `dao.stream` handle operation, whose
+exhaustive outcome map is stream protocol, not an application callback.
+
+**Effects out.** Portable code appends an effect value describing what must
+happen. A host interpreter consumes that stream, performs the operation, and
+appends the outcome. Portable code reads the outcome. Correlation is by
+identity in the data; neither side holds a reference to the other. A host with
+no implementation for an effect emits a qualified unsupported result. That is a
+correct outcome, not a gap to be filled.
+
+**Events in.** When the host initiates (a socket receives, a connection drops,
+a timer fires) the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**Adapters.** An adapter is a map of those transform functions. That is all an
+adapter is. It is a value, not a namespace, and it is general: sockets, files,
+timers and windows all deliver events by calling something, and an adapter is
+what they call. Each entry takes the host's arguments and returns one value;
+the append is the adapter's, not the entry's, so an entry cannot return a value
+to the host and cannot invoke application code. The adapter is handed only the
+deposit operation and its own host resource. If its deposit channel fails, it
+may close that resource to make the boundary observably gone; this is teardown,
+not an upward callback.
+
+Host types are classified into plain data in the transform: it is the last
+place holding a host error object, and no host type crosses onto the stream. A
+transport may use a qualified envelope to preserve correlation, lifecycle, and
+additive evolution; that envelope remains plain data and creates no separate
+event mechanism. A composition may likewise define its own qualified vocabulary
+for facts it owns.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read. This keeps
+the layering one-way: a boundary depends on nothing above it, because whoever
+constructs the adapter supplies the stream.
+
+A transform deposits every event admitted by the boundary protocol and judges
+none of them semantically. Wire framing, decoding, and protocol validation
+happen below the transform: malformed wire input is transport machinery, not an
+event. Once the transport has produced a valid host event, data is syntax
+(axiom 2): an event that is noise to one interpreter is signal to another that
+does not exist yet, and filtering at the depositing layer destroys perspectives
+not yet taken. Retention is the medium's operational policy; meaning is
+interpretation. Neither is the depositor's decision.
+
+Two things are not adapters. One that exposes a function for portable code to
+call isolates the host library but keeps the coupling, and the effect never
+appears as an emission. One that takes a function to invoke has relocated the
+callback, not removed it, even when every value it passes is plain data; if
+that callback has a meaningful return value, it is a synchronous call in both
+directions wearing the shape of an event.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+exec
+/bin/zsh -lc 'git status --short; cat collab/1791401500000-architect-c4-p1-signoff.codex.findings.md; cat collab/1791397000000-engineer-c4-p1.claude-opus-5-5.findings.md' in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+ M docs/design/yang.antlr.md
+ M src/cljc/yang/python/antlr/lower.cljc
+ M src/cljc/yang/python/antlr/prelude.cljc
+ M test/yang/python/antlr/e2e_test.clj
+ M test/yang/python/antlr/float_address_test.cljc
+ M test/yang/python/antlr/int_conv_test.cljc
+ M test/yang/python/antlr/lower_test.clj
+ M test/yang/python/antlr/prelude_parity_test.cljc
+ M test/yang/python/antlr/safepoint_test.cljc
+?? collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md
+?? collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.stdout.log
+?? collab/1791397000000-architect-c4-p1-spec.claude.prompt.md
+?? collab/1791397000000-engineer-c4-p1.claude-opus-5-5.findings.md
+?? collab/1791397000000-engineer-c4-p1.claude-opus-5-5.stdout.log
+?? collab/1791397000000-engineer-c4-p1.claude.prompt.md
+?? collab/1791401000000-reviewer-c4-p1.codex.findings.md
+?? collab/1791401000000-reviewer-c4-p1.codex.prompt.md
+?? collab/1791401000000-reviewer-c4-p1.codex.stdout.log
+?? collab/1791401500000-architect-c4-p1-signoff.codex.findings.md
+?? collab/1791401500000-architect-c4-p1-signoff.codex.prompt.md
+?? collab/1791401500000-architect-c4-p1-signoff.codex.stdout.log
+?? collab/1791402000000-architect-c4-p1-resignoff.codex.prompt.md
+?? collab/1791402000000-architect-c4-p1-resignoff.codex.stdout.log
+?? node_modules
+Completed-GMT: 2026-10-07 21:56:17 GMT
+Completed-Local: 2026-10-08 04:56:17 ICT
+
+# Track A Phase C4 Slice P1 Architectural Sign-Off Review
+
+Role: Lead System Architect — Codex.
+Branch: `yang-python-c4-p1`; HEAD: `802d9ee2dfb32ff1c3552427d8e2963225ae4edc`.
+Scope: nine tracked working-tree changes, governing architecture, P1 specification, engineer report, adversarial review, and available P1 lane logs. Read-only review; only this requested report was written. No test suites were rerun, dependencies repaired, implementation changed, or commit made. Timestamps use the actual system clock and Asia/Ho_Chi_Minh (UTC+07).
+
+## Architectural Evaluation
+
+The implementation is architecturally consistent with the P1 specification. Overall completion sign-off is withheld because the required verification gate is not established.
+
+| Decision / invariant | Evaluation |
+|---|---|
+| Explicit state; no hidden globals or shared host mutable state | PASS. Runtime state is represented by task-owned store bindings and explicit cell operations. Host-level tables are immutable code-generation data, not ambient Python process state. The change introduces no host callbacks, new host exports, or implicit initialization. Existing stream/VM boundaries remain intact. |
+| A1 — single definitions list and explicit allocation | PASS. `prelude.cljc:3006` assembles `definitions` from core lambda forms, literal `py.rt/state = :py/uninit`, and the `py/init!` lambda. `functions-uast` emits that list without executing the initializer. `init-form` creates the three runtime cells, classes in base-first order, builtin functions, method objects, and the builtins dict; seeds classes then functions; writes `:py/ready` last. Bundled `uast` explicitly invokes `py/init!` before the module body. No runtime cells are allocated merely by defining the base prelude. |
+| A2 — idempotence and uninit guard | PASS. Allocation is exclusively under equality with `:py/uninit`; other states return `:py/None` without allocation or reseeding. Readiness is the final write, so a failed initialization cannot advertise success. Initialization executes no guest bodies, making this sufficient for the specified single-task execution model. It is not a concurrent initialization lock. Identity tests cover representative class/function objects, builtins and all three runtime cells; the adversarial review additionally reports unchanged heap allocation keys. |
+| A3 — builtin functions versus methods | PASS. The 25 Python-visible functions occupy `builtin-functions`; method implementations occupy a separate table and are allocated but omitted from namespace seeding. The exact ordered-key test checks class/function visibility and excludes methods. Canonical interpreter exception references remain `py.b/*` store references, independent of dictionary mutation. |
+| A4 — dynamic global lookup | PASS. `py/global-get` checks module dictionary key presence, then current builtins dictionary key presence, then raises canonical `py.b/NameError`. Presence checks preserve false/None values. Assignment and cleanup affect only the module dictionary, restoring builtin fallback after deletion. Class-body fallback follows this path. The specified `globals` exception retains the per-module `%globals-fn` via `py/global-or`. |
+| A5 — walker, semantic, stack, register parity | IMPLEMENTED; ACCEPTANCE EVIDENCE INCOMPLETE. Tests enumerate all four VMs for definition/redefinition, definition-only load, initialization identity, seeding, shadow/delete and mutation. The independent reviewer reports passing JVM execution and additional probes on all four. This establishes the bundled JVM mechanism; it does not establish the required current full-corpus result on every host. See gaps below. |
+| A6 — static builtin-name map removal | PASS. The base prelude's `builtin-names` map and compiler references are removed. Ordinary lowering emits `py/global-get` and no `py.b/*` variable. Production seeding derives from the class/function tables. The test-only list of expected function names is an independent visibility assertion, not a runtime lookup map. |
+
+Other specification invariants: Rule R literal definition keys are retained; guest lowering introduces no `yin/def`; `host-names` and admission remain unchanged. The safepoint prelude is untouched. Its separate load-time state is explicitly P3 scope, not a violation of P1's base-prelude lifecycle. P1 remains bundled: cross-unit identity, module-store ownership under linking, empty-heap linked installation, publication and persistent REPL state remain P2/P3/F3 obligations and are not certified here. Calling `py/init!` repeatedly is idempotent; reinstalling the complete bundled definitions would reset the literal flag and is not the promised linked lifecycle.
+
+## Verification Evidence
+
+These are prior recorded runs, not new executions by this review. Unversioned target logs do not prove that each run used the exact final working-tree contents.
+
+| Evidence | Recorded result |
+|---|---|
+| Engineer focused JVM suite | 135 tests, 1,414 assertions; 0 failures, 0 errors (report only). |
+| `target/p1-test-clj.log:654` | 3,754 tests, 239,163 assertions; 0 failures, **1 error**. |
+| `target/p1-test-cljs.log:590` | 3,610 tests, 103,554 assertions; 0 failures, **1 error**. |
+| `target/p1-test-cljd.log` | Final runner count **+3561 -1**, “Some tests failed.” Assertion count not supplied. |
+| `target/p1-slow-clj.log` | 76 tests, 2,645 assertions; 0 failures, 0 errors. |
+| `target/p1-slow-cljs.log:99` | 354 tests, 43,202 assertions; 0 failures, 0 errors. |
+| Dart slow lane | No result located in the supplied reports or available P1 logs. |
+| Independent adversarial JVM fast / slow | 92 tests / 820 assertions and 72 tests / 2,551 assertions respectively; both 0 failures, 0 errors. |
+| Independent adversarial static checks | Kondo 0 errors/0 warnings; cljstyle exit 0; diff check exit 0. This review also ran `git diff --check`: exit 0. |
+
+All three full fast-lane logs identify the same failing test, `yin.vm.ucf.handoff-v2-census-test/a-version-2-body-is-the-same-bytes-on-every-host`, due to missing `test/resources/yin/vm/ucf/handoff-v2.txt`. This is outside the changed Python files; the logs do not implicate the P1 architecture. They nevertheless are failed lane results, not clean passes.
+
+The Dart fast log contains builtin mutation coverage but does not name the new definition-inside-lambda, definition-only-load, init-idempotence, seeded-builtins or shadow/delete tests. It therefore cannot certify those final P1 additions. Its slow tests explicitly skip. The reviewer also records that its later Node attempt failed before execution because of the local dependency symlink/missing `@noble/hashes/blake3.js`; that failed attempt does not invalidate the earlier successful Node slow log, but cannot supplement it.
+
+## Defect / Gap Findings
+
+1. **Blocking — acceptance verification incomplete.** `docs/design/yang.antlr.md:3090–3104` requires P1 acceptance on all three hosts and unchanged full-corpus output on every VM/host. Specification sections 4.7 and 5 require the lane runs, including Dart slow. No current complete Dart evidence is supplied; the available full fast runs fail on the missing fixture. Before sign-off, provide passing required lanes against the final reviewed tree, including all four VMs' new P1 acceptance tests and Dart slow coverage. Resolve the fixture/setup issue or obtain an explicit authorized baseline exception with evidence; this review grants no implicit waiver. This is a completion-evidence gap, not an observed Python implementation defect.
+
+2. **Reporting gap — engineer completion overstates conformance.** The report says “None” under deviations and that all steps were implemented verbatim, but omits the three failed full fast-lane results and Dart slow status. It also fails to explain the extra `int_conv_test.cljc` consumer rename and additional address-golden changes required by the specification's reporting rule. Those edits are reasonable on inspection: the renamed definitions list expands the string-literal lint's coverage, and bundled prelude changes alter dependent addresses. Record these facts and the actual lane outcomes. The design document's “P1 have landed” statement is premature as a completion claim while sign-off evidence is unresolved.
+
+No revision-worthy architectural implementation defect was found. The adversarial ACCEPT remains credible for its stated code-review scope; it expressly disclaims an independent three-host release gate and cannot substitute for the architectural acceptance criteria.
+
+## Sign-Off Verdict: REJECTED
+
+Rejected for incomplete mandatory verification and inaccurate completion reporting. A1–A4, A6 and the foundational design are satisfactory; A5's full host acceptance remains unproven. Re-review can focus on corrected evidence/reporting unless implementation changes in the meantime. No architectural redesign is requested.
+# Track A Slice P1: Implementation Engineer Completion Report (Revised)
+
+Engineer: claude-opus-5-5 (orchestrator-assembled from verified execution). Date: 2026-10-08.
+Repository: `/Users/sto/workspace/datomworld-p1`.
+Branch: `yang-python-c4-p1` (rebased on master `802d9ee2`).
+
+Spec: `collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md`.
+
+---
+
+## 1. Summary of Changes
+
+### `src/cljc/yang/python/antlr/prelude.cljc`
+- **A1 Function/Method Split**: Split `builtin-function-definitions` into `builtin-functions` (triplets `[py-name store-key form]`) and `method-implementations` (pairs `[store-key form]`). Methods are omitted from the builtins dict.
+- **A1 Initialization Function**: Implemented `init-form` defining `py/init!`, guarded by `(= py.rt/state :py/uninit)`. On initial run, it defines the 3 runtime cells, classes, functions, methods, seeds `py.b/builtins` with all classes and functions, and flips `py.rt/state` to `:py/ready`.
+- **A1 Global Lookup**: `py/global-get` updated to resolve module globals dict first, then `py.b/builtins` dict second, raising `NameError` if absent from both.
+- **A1 Single Definitions List**: Replaced `state-definitions` and `function-definitions` with `definitions` containing all functions, the literal `['py.rt/state :py/uninit]`, and `['py/init! (init-form)]`.
+- **A1 Removed `builtin-names`**: Removed static `builtin-names` map; global lookup is now fully dynamic via the dictionary.
+- **`uast` Composition**: `uast` updated to `(u/then functions-uast (u/sexp->uast '(py/init!)))`.
+
+### `src/cljc/yang/python/antlr/lower.cljc`
+- **A1 Global Read Lowering**: Updated `read-global` to generate a 2-arm lookup:
+  - If module globals dict contains variable, return it;
+  - Else invoke `(py/global-get %globals "x")`.
+  - Removed all compile-time references to `builtin-names`.
+
+### Tests & Documentation
+- **Golden Re-pins**: Re-pinned UAST and AST goldens in `test/yang/python/antlr/lower_test.clj` and `test/yang/python/antlr/float_address_test.cljc` matching the new prelude size and 2-arm lowered global reads.
+- **Pre-probe Test**: Added 4-VM probe test (`walker`, `semantic`, `stack`, `register`) in `test/yang/python/antlr/prelude_parity_test.cljc` confirming prelude loads and executes consistently.
+- **New Coverage**: Added tests for `py/init!` idempotence, `builtins` dict inspection, builtin shadowing via `%globals`, dynamic builtins monkeypatching, and lookup failure `NameError`.
+- **Consumer Renames**: Updated `test/yang/python/antlr/int_conv_test.cljc` where `prelude/function-definitions` was renamed to `prelude/definitions`, ensuring literal string lints cover the full expanded definition table.
+- **Design Doc**: Updated `docs/design/yang.antlr.md` §8.5.6 to record P1 status and `py.rt/state` lifecycle.
+
+---
+
+## 2. Multi-Host Verification Evidence
+
+| Lane / Test Suite | Scope | Result | Notes |
+|-------------------|-------|--------|-------|
+| JVM Fast Suite | Focused (`prelude-parity`, `lower`, `float-address`, `e2e`, `safepoint`) | **135 tests, 1414 assertions, 0 failures, 0 errors** | Clean pass |
+| JVM Slow Suite | E2E & Contracts (`e2e`, `e2e-c1`, `e2e-c2`, `safepoint`, `float-address`, `int-contract`, `prelude-parity`) | **76 tests, 2645 assertions, 0 failures, 0 errors** | Clean pass |
+| Node Slow Suite | CLJS Parity (`bb test:slow:cljs`) | **354 tests, 43202 assertions, 0 failures, 0 errors** | Clean pass |
+| Dart Fast Lane | Portable Focused (`prelude-parity-test`, `float-address-test`, `int-conv-test`) | **57 tests passed, 0 failures** ("All tests passed!") | Clean pass |
+| Dart Slow Lane | Parity Across VMs (`DATOM_SLOW_TESTS=1 prelude-parity-test`) | **32 tests passed, 0 failures** ("All tests passed!") | Clean pass |
+| Linter | `clj -M:kondo --lint src/cljc/yang/python/antlr test/yang/python/antlr` | **0 errors, 0 warnings** | Clean pass |
+| Formatter | `cljstyle check` | **Clean (exit 0)** | Clean pass |
+
+---
+
+## 3. Explanations of Non-Defect Baseline Test Anomalies
+
+1. **Pre-existing Repository Baseline Defect (`handoff-v2.txt`)**:
+   In repository-wide fast runs (`bb test:clj`, `bb test:cljs`, `bb test:cljd`), test `yin.vm.ucf.handoff-v2-census-test/a-version-2-body-is-the-same-bytes-on-every-host` fails with `ENOENT: no such file or directory, open 'test/resources/yin/vm/ucf/handoff-v2.txt'`. This missing test fixture is pre-existing on `master` at `802d9ee2` and completely outside Python / ANTLR. All 3,754+ other tests pass.
+2. **`int_conv_test.cljc` Consumer Update**:
+   `test/yang/python/antlr/int_conv_test.cljc:336` inspected `prelude/function-definitions` to verify that no string literals in function bodies exceed integer conversion boundaries. When `prelude.cljc` unified definitions into `prelude/definitions`, this was updated to inspect `definitions`, thereby expanding string literal linting to all prelude forms.
+
+exec
+/bin/zsh -lc "rg --files target collab | rg 'p1|dart|cljd'" in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+collab/1791401500000-architect-c4-p1-signoff.codex.findings.md
+collab/1791402000000-architect-c4-p1-resignoff.codex.prompt.md
+collab/1791401000000-reviewer-c4-p1.codex.stdout.log
+collab/1791397000000-engineer-c4-p1.claude-opus-5-5.stdout.log
+collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md
+collab/1791402000000-architect-c4-p1-resignoff.codex.stdout.log
+collab/1791397000000-engineer-c4-p1.claude.prompt.md
+collab/1791401000000-reviewer-c4-p1.codex.prompt.md
+collab/1791397000000-engineer-c4-p1.claude-opus-5-5.findings.md
+collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.stdout.log
+collab/1791397000000-architect-c4-p1-spec.claude.prompt.md
+collab/1791401500000-architect-c4-p1-signoff.codex.prompt.md
+collab/1791401500000-architect-c4-p1-signoff.codex.stdout.log
+collab/1791401000000-reviewer-c4-p1.codex.findings.md
+target/p1-test-cljd.log
+target/p1-test-cljs.log
+target/p1-slow-cljs.log
+target/p1-slow-clj.log
+target/p1-test-clj.log
+
+exec
+/bin/zsh -lc "git branch --show-current; git rev-parse HEAD; git ls-tree HEAD test/resources/yin/vm/ucf/; rg -n '4.7|Acceptance|golden|lane|P1' collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md; cat docs/agents/build-n-test.md" in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+yang-python-c4-p1
+802d9ee2dfb32ff1c3552427d8e2963225ae4edc
+100644 blob cfbd74a3bdc8163e29c49b4bc05514b628bf8522	test/resources/yin/vm/ucf/checkpoint-v1.txt
+100644 blob 672898fd2e40bdfc0afbd38b0de271ea6a269129	test/resources/yin/vm/ucf/ledger-v1.txt
+100644 blob 6e4f8e54d734f2ca03387ace47f49f2f4ba8eaab	test/resources/yin/vm/ucf/scalars-v1.mint.clj
+100644 blob 3b206d5bc3d480019ed35af7a0e1f87bef7eb615	test/resources/yin/vm/ucf/scalars-v1.txt
+1:# C4 Track A Slice P1: single-source prelude, `py/init!`, builtins dict; still bundled
+6:5, 7; slice table row P1; acceptance row P1, lines 3099 to 3102), read
+29:  bodies. P1 does not touch it (P3 links it).
+41:### 1.1 What P1 is
+43:P1 changes when and by whom the prelude's runtime state is allocated, and
+47:across units still fails, as section 8.5.1 records. P1 is the last
+52:### 1.2 Invariants P1 must keep
+59:  no `cell`, `data` or `integer` module and halts ok. After P1 it
+80:  enforcement is L-a, P2's prerequisite; P1 adds nothing to it and
+82:- I8, no lowering knowledge of builtins. After P1 the lowering has no
+105:  lowering emits is the `except E as name` cleanup, which P1 uses as its
+107:- Not in P1: the module emitter, namespace stripping, publication, the
+162:idempotently" taken literally, and it is why P2 can reuse the P1 body
+192:Guest mutation: nothing in P1's Python surface reaches the dict (no
+222:after P1: `globals`, whose value is the per-module function object
+259:`py/run-module` is unchanged in P1. It still resets `py.rt/out` and
+266:| Program | Before P1 | After P1 |
+416:  becomes "F1 and P1 have landed", and the bullet "Runtime state moves
+425:| Item | P1 |
+440:| prelude address goldens | re-pinned once |
+441:| lowering goldens naming `py.b/*` | re-pinned once |
+443:## 4. Acceptance criteria and test obligations
+446:Dart. The four acceptance bullets of section 8.5.6 row P1 (lines 3099 to
+454:section 4.6. Evidence: `bb test` green on all three lanes, plus
+531:corpus renders a `ValueError()` (match it from an existing golden), then
+572:| `lower_test.clj` `builtin-read` helper (line 69) and the `sum` golden (line 346) | emit `py/global-get`, no `py.b/sum` | re-pin the expected tree |
+581:### 4.7 Lanes
+584:and `bb test:clj`; run `bb test` once at landing, one lane set at a time;
+587:numbers from each lane's output, not a summary word.
+593:`docs/agents/build-n-test.md` before running anything. Run test lanes in
+640:Step 4, re-pin the two goldens (section 4.6) with the values the JVM
+645:Step 6, lanes: `bb test:clj`, then `bb test:cljs`, then `bb test:cljd`,
+648:and the Node and Dart slow lanes (`bb test:slow:cljs`, `bb test:slow:cljd`).
+654:summary by file; each lane's pass, fail and error counts copied from the
+655:output; the two re-pinned golden values; any test outside section 4.6
+659:dict; still bundled (C4 slice P1)` with no Co-Authored-By line.
+682:## Appendix: open items carried forward, none blocking P1
+---
+description: Build, lint, test commands, TDD guidelines, and bracket debugging for Clojure, ClojureScript, Node.js, and ClojureDart
+---
+
+# BUILD & TEST
+
+## Commands
+
+```sh
+# Tests (Babashka runner)
+bb test              # All three lanes (JVM, Node, Dart), fast default form: no slow tests
+bb test:all          # Every test on every lane, slow ones included (JVM takes 20+ min)
+bb test:slow         # Only the slow tests, on every lane
+# One lane alone: <task>:clj, <task>:cljs, <task>:cljd
+bb test:clj          # JVM, fast: skips ^:slow (bare `clj -M:test` runs them too)
+bb test:cljs         # Node (shadow-cljs :cljs alias), fast: guarded slow bodies print SKIP
+bb test:cljd         # Dart (needs flutter on PATH), fast: guarded slow bodies print SKIP
+bb test:all:clj      # JVM, no filter: `clojure -M:test`
+bb test:all:cljs     # Node with DATOM_SLOW_TESTS=1
+bb test:all:cljd     # Dart with DATOM_SLOW_TESTS=1
+bb test:slow:clj     # JVM: `-i :slow` (long-loops-test, ~14 min)
+bb test:slow:cljs    # Node: only the namespaces that use dao.test-slow/guard, DATOM_SLOW_TESTS=1
+bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_TESTS=1
+# Slow tests: tag a deftest ^:slow. The JVM runner then excludes it from `bb test:clj`.
+# Node and Dart have no tag filter, so a .cljc slow test also wraps its body in
+# (dao.test-slow/guard "name" (fn [] ...)); it prints SKIP unless DATOM_SLOW_TESTS=1.
+# Node and Dart select slow tests by NAMESPACE (derived by grepping `slow/guard`
+# under test/), so the non-slow tests inside those namespaces also run there.
+# On Node, shadow also runs the test namespaces those nine require (about
+# seven more, e.g. lower-portable-test); on Dart only the nine namespaces run.
+# Run test:slow / test:all before a big merge or a commit that touches many parts.
+# Run one Dart lane at a time repo-wide.
+#
+# When to tag a test slow: when it takes more than about 5 s on any lane (the
+# Python e2e tests sit on a ~3 s floor, so their JVM cut is 3.0 s). The
+# default lanes must stay in minutes; 22 JVM tests (0.75% of the suite) were
+# 81% of its test time. Tag it ^:slow on the JVM; if it is a .cljc test, also
+# wrap its body in dao.test-slow/guard so Node and Dart skip it by default. A
+# test that is slow only on Dart (dao.jing.dht-test/unproven-chunks-... takes
+# 72 s there, 3.6 s on the JVM) is a candidate for a speed investigation first.
+# Python slow set (2026-10-06): 65 ^:slow and 15 guard-only tests in the
+# yang.python.antlr e2e, e2e-c1, prelude-parity, safepoint, float-address
+# and int-contract tests; a Python slice landing runs `clojure -M:test -i :slow -n <ns>` for
+# its changed Python namespaces.
+# While iterating, run only `bb test:clj` (or one namespace: `clojure -M:test -n
+# <ns>`), not the full `bb test`. Run the full three-lane `bb test` once per
+# slice, before landing, and one lane set at a time: overlapping runs slow each
+# other down. Cross-host bugs show only on Node or Dart, so the full run is
+# still the gate before a commit.
+# Measured fast-lane times (2026-10-03): bb test about 14 min = JVM 5.5 + Node
+# 3.8 + Dart 4.3, plus builds. test:slow: Node and Dart about 5 min each (mostly
+# compile); the JVM half is estimated at 17 min (long-loops-test alone is 14),
+# not yet run end to end. test:all: JVM 20+ min, also an estimate.
+npm test             # Node.js tests
+
+# Cross-host peers the JVM lane spawns. `bb test` builds both. A bare
+# `bb test:clj` builds only the Node REPL (it depends on build:yin-repl-node);
+# without build:yin-repl-peer first, the Dart-peer tests skip with a printed notice.
+bb build:yin-repl-peer   # Dart exe build/yin-repl-peer (yin.repl R5 pairs)
+bb build:yin-repl-node   # Node REPL target/yin-repl.js; REQUIRED by
+                         # yin.repl.dht-process-test (JVM-to-Node DHT reader,
+                         # and the linker L5 Node reader that requires a module
+                         # by name): `clojure -M:test` without it fails that test
+```
+
+### Changed-only tests: `bb test:changed`
+
+`bb test:changed` (src/dev/affected.clj) runs the fast tests a change can
+reach: the reverse require closure of the files changed since the
+merge-base with master, plus fixtures that mention a changed resource path,
+tests that walk a changed tree, and each src file's `_test` by convention.
+A walker is a file calling file-seq, fs/glob, fs/list-dir,
+fs/walk-file-tree or .listFiles; each string literal argument of its
+io/file, fs/file, fs/path, fs/glob, java.io.File. or File. calls is a root
+(let-bound roots count), and a change under a root selects it. The three
+lanes run in parallel (logs: target/profile/changed-<lane>.log) after the
+needed builds. `test:changed:list` shows what and why; `:clj`/`:cljs`/
+`:cljd` run one lane; `--base REF`; `--changed FILE...` (absolute OK; a
+typo, an empty list or the wrong cwd exits 1). Use it to iterate and to
+land a slice confined to a package. Exit 2 (from :list too) is a wide
+change (deps.edn bb.edn shadow-cljs.edn mise.toml .cljstyle src/dev/
+antlr/ .clj-kondo/ package*/pubspec*): it runs nothing; run `bb test`,
+as for a change to the core everything requires (yin.vm engine,
+dao.stream, codecs) and before a big merge. Not seen: dynamic loads
+(`requiring-resolve`, `resolve`), paths or walk roots built at run time,
+and spawned programs that changed (target/yin-repl.js, Dart peers).
+
+The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
+slice L5) is two tests:
+
+- `yin.repl.dht-process-test` (JVM lane only): real `yin.repl.main`
+  processes over real loopback UDP. A JVM publisher with a key file
+  publishes modules by name, and JVM and Node readers require them by
+  name on all four VMs. Plain Clojure in the test JVM takes the same path
+  and checks each section 9 failure as data. Ports are ephemeral, and
+  every wait is bounded. A run takes a few minutes. Run it alone with
+  `clojure -M:test -n yin.repl.dht-process-test`, after
+  `bb build:yin-repl-node`.
+- `yin.vm.linker.dht-end-to-end-test` (all three lanes): the same
+  scenario in process, over the `dao.jing.dht` test mesh seam. Dart's
+  signed-name leg runs here, because no Dart `yin.repl.main` process
+  exists to spawn. `build/yin-repl-peer` is the R5 slice peer, not a
+  REPL.
+
+```sh
+# ClojureScript / shadow-cljs (always via deps.edn :cljs alias, never npx)
+clj -M:cljs -m shadow.cljs.devtools.cli watch <build-id>    # e.g. watch demo
+clj -M:cljs -m shadow.cljs.devtools.cli compile <build-id>  # e.g. compile demo
+clj -M:cljs -m shadow.cljs.devtools.cli release <build-id>  # production release
+
+# ClojureDart
+clj -M:clojuredart:cljd compile
+
+# Linting
+clj -M:kondo --lint <path>
+```
+
+The Dart `bb` lanes run `src/dev/cljd_agg.clj` (`bb src/dev/cljd_agg.clj
+[--slow-only | --slow-regex]`), not `cljd test`. `--slow-only` runs only the
+namespaces that use `dao.test-slow/guard` and fails if one has no generated
+Dart file. `--slow-regex` prints those namespaces as an anchored alternation
+with its dots already escaped for an EDN string (bb.edn feeds it to shadow-cljs
+`--config-merge` for `test:slow:cljs`); it is not a ready-to-use regex, and it
+exits 1 when no namespace uses the guard. `flutter test` spends about 7.5 s loading
+each of the ~166 generated `test/cljd-out/**/*_test.dart` files, so the
+script compiles every test namespace via `clojure -M:clojuredart:cljd compile
+<namespaces>`, writes up to min(8, cores) shard files under `build/cljd-agg/`
+(greedy by file size; each imports its files and calls their `main`), runs
+`flutter test --concurrency N` on the shards, and deletes them. Shards never sit
+under `test/`, so plain `clojure -M:clojuredart:cljd test` still works. Tests of
+different namespaces share an isolate per shard. Failures stay attributable:
+package:test names are ns-qualified (`dao.foo-test/bar-test`).
+
+`flutter test`/`cljd test` globs everything under `test/cljd-out/`, and the
+compile does not prune it when a source file is deleted or renamed. The
+aggregated lanes only run namespaces that still exist under `test/`, but a
+stale file can silently pass a plain `cljd test`. Run `rm -rf test/cljd-out`
+before relying on that to prove a deletion or rename took effect.
+
+## Testing Philosophy & TDD
+
+Write tests before implementing features (TDD).
+
+Tests define the contract and expected behavior. Implementation follows from the tests, not the other way around.
+
+When implementing a feature or fix:
+1. **Red phase**: Write the test first — define what should happen.
+2. **Green phase**: Implement the minimum code to pass the test.
+3. **Refactor phase**: Refactor if needed while keeping tests green.
+
+This ensures code is testable by design and implementation matches actual requirements.
+
+## Debugging Malformed CLJ / EDN / CLJS
+
+A single missing bracket can silently break an entire file. The compiler may still succeed, with subsequent forms nesting inside the broken one.
+
+1. **Run clj-kondo first**:
+   ```sh
+   clj -M:kondo --lint path/to/file.cljs
+   ```
+
+2. **If clj-kondo reports a mismatch, write a bracket-tracing script**:
+   Do NOT try to eyeball-count brackets. Track a stack of `(char, line, col)` for every opener. Handle: string literals, escaped chars, and `;;` line comments.
+
+3. **Fix one bracket at a time, re-run checker after each fix**:
+   Common patterns:
+   - Hiccup vector missing `]` causes siblings to become extra arguments.
+   - `defn`/`let` missing `)` causes subsequent top-level forms to nest inside.
+   - Both can coexist while total bracket count is zero-sum.
+
+4. **After brackets balance**, rerun `clj-kondo`, then rebuild with `clj -M:cljs -m shadow.cljs.devtools.cli compile <build>`.
+
+exec
+/bin/zsh -lc "git diff --stat; git diff --check; git diff -- test/yang/python/antlr/int_conv_test.cljc test/yang/python/antlr/float_address_test.cljc test/yang/python/antlr/lower_test.clj; rg -n 'every-host|every-vm|functions-load|seeded-builtins|init-is|shadow-then|def-inside|def.*lambda' test/yang/python/antlr/prelude_parity_test.cljc; rg -n 'handoff-v2|Ran [0-9]+ tests|failures,|errors' target/p1-test-clj.log target/p1-test-cljs.log target/p1-slow-clj.log target/p1-slow-cljs.log; git show HEAD:test/yin/vm/ucf/handoff_v2_census_test.cljc" in /Users/sto/workspace/datomworld-p1
+ succeeded in 6ms:
+ docs/design/yang.antlr.md                       |   6 +-
+ src/cljc/yang/python/antlr/lower.cljc           |  19 ++-
+ src/cljc/yang/python/antlr/prelude.cljc         | 205 +++++++++++++-----------
+ test/yang/python/antlr/e2e_test.clj             |  23 +++
+ test/yang/python/antlr/float_address_test.cljc  |  20 +--
+ test/yang/python/antlr/int_conv_test.cljc       |   9 +-
+ test/yang/python/antlr/lower_test.clj           |  17 +-
+ test/yang/python/antlr/prelude_parity_test.cljc | 176 ++++++++++++++++++--
+ test/yang/python/antlr/safepoint_test.cljc      |  11 +-
+ 9 files changed, 341 insertions(+), 145 deletions(-)
+diff --git a/test/yang/python/antlr/float_address_test.cljc b/test/yang/python/antlr/float_address_test.cljc
+index a2a969e8..217a17d0 100644
+--- a/test/yang/python/antlr/float_address_test.cljc
++++ b/test/yang/python/antlr/float_address_test.cljc
+@@ -222,8 +222,8 @@
+             host (JVM goldens)"
+     (is (= (keyword
+              (str "segment/blake3-"
+-                  "f0213124a9c6dd28d9865499d690a003"
+-                  "30523a158549fbbfc807632792bff9a5"))
++                  "09131b20d81c468468c952051974373c"
++                  "8963dd82f17c4154c8bc974158a06976"))
+            (:root (vm/ast->semantic-bytecode prelude/uast))))
+     (is (= :segment/blake3-2d60190887dc1ca388d7a7b75467757c3f0e6c4b2d909603735c9a9852b0e3e3
+            (:root (vm/ast->semantic-bytecode hooks/uast))))))
+@@ -245,25 +245,25 @@
+     (testing "A, A' and the record: one address on every host (JVM goldens)"
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "cfa7f7879d51140e3691cc81ad44f845"
+-                    "5c6d44fb99c8bf171fc8d7b240c1afba"))
++                    "8b09d94fd093759cf7a6f58c69c01a9b"
++                    "f6a47ed89f42174a5367b1b2461cf30e"))
+              (:root a)))
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "26a323f7743b82d7c58b1b269457664b"
+-                    "653c304b0618e2b0493f42b16a7fd76a"))
++                    "26b026cf477c69abebb975397ddae0eb"
++                    "4d7eb2c5f417ded8218c25208600aabc"))
+              (:root a')))
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "673e40dce999692a08e7cb773797deb4"
+-                    "f14619ca6a1358f604f8c56957b7b4ca"))
++                    "f0de9df6e0f5bd4e8d1de106d3618231"
++                    "83b290674b18d252ac7ab49fe891cf32"))
+              record-address)))
+     (testing "the bundled prelude is the same subtree in A and A'"
+       (is (= (prelude-id a) (prelude-id a')))
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "e773c533595e7df4d1dd1a0b1ce4e823"
+-                    "03ea208fa41f60024755af8de362bbee"))
++                    "91b76c3c80254abf5407f850a8311cb6"
++                    "d5f613ecfb94f5c6e525121dfed1b7ec"))
+              (prelude-id a))))
+     (testing "decoding A and projecting it again keeps every address"
+       (let [decoded (cbor/decode (jing/canonical-bytes a))]
+diff --git a/test/yang/python/antlr/int_conv_test.cljc b/test/yang/python/antlr/int_conv_test.cljc
+index 148eb16a..58ccdd7f 100644
+--- a/test/yang/python/antlr/int_conv_test.cljc
++++ b/test/yang/python/antlr/int_conv_test.cljc
+@@ -356,10 +356,9 @@
+ 
+ 
+ (deftest string-literal-lint-test
+-  "Scope: prelude/function-definitions, the core helpers only. The
+-   builtin function definitions are private and are not walked: that
+-   every {:py/str x} literal there holds a string rests on review, not
+-   on this test."
++  "Scope: prelude/definitions, which now holds the builtin function and
++   method forms inside py/init!'s body, so every {:py/str x} literal there
++   is walked too."
+   (let [bad (atom [])]
+     (walk/postwalk
+       (fn [x]
+@@ -367,7 +366,7 @@
+                    (not (string? (:py/str x))))
+           (swap! bad conj x))
+         x)
+-      prelude/function-definitions)
++      prelude/definitions)
+     (is (= [] @bad))))
+ 
+ 
+diff --git a/test/yang/python/antlr/lower_test.clj b/test/yang/python/antlr/lower_test.clj
+index 77f7de34..2e961885 100644
+--- a/test/yang/python/antlr/lower_test.clj
++++ b/test/yang/python/antlr/lower_test.clj
+@@ -64,9 +64,10 @@
+ 
+ 
+ (defn- builtin
+-  "A builtin name read: the module binding if present, else the builtin."
++  "A builtin name read: the module dict, then the task's builtins dict, an
++   ordinary global read."
+   [nm]
+-  (py 'py/global-or (u/v '%globals) (u/lit {:py/str nm}) (u/v (symbol "py.b" nm))))
++  (gget nm))
+ 
+ 
+ (defn- fobj
+@@ -343,8 +344,7 @@
+           x (sym "x" src "exprlist")]
+       (is (= (u/then
+                (py 'py/call
+-                   (py 'py/global-or (u/v '%globals) (u/lit {:py/str "sum"})
+-                       (u/v 'py.b/sum))
++                   (gget "sum")
+                    (py 'py/conj (u/lit [])
+                        (u/let1 fst (py 'py/iter (gget "y"))
+                                (py 'py/make-generator (u/lit "<genexpr>")
+@@ -407,7 +407,14 @@
+       (is (not (re-find #"yin/def" (pr-str (-> program :operands second))))))
+     (testing "the batch passes the Universal AST's own checks"
+       (is (nil? (vm/ast-reserved-defect program)))
+-      (is (vector? (vm/ast->datoms program))))))
++      (is (vector? (vm/ast->datoms program)))))
++  (testing "the lowering names no builtin store key: print(len([])) reads
++            both names through the module dict and the builtins dict"
++    (is (= []
++           (->> (tree-seq coll? seq (body "print(len([]))\n"))
++                (filter #(and (map? %) (= :variable (:type %))
++                              (= "py.b" (namespace (:name %)))))
++                vec)))))
+ 
+ 
+ (deftest tail-marks-test
+239:(defn- prelude-semantics-on-every-vm
+255:(deftest ^:slow prelude-semantics-on-every-vm-test
+256:  (slow/guard "prelude-semantics-on-every-vm-test"
+257:              prelude-semantics-on-every-vm))
+260:(defn- range-fast-path-on-every-host
+289:(deftest ^:slow range-fast-path-on-every-host-test
+290:  (slow/guard "range-fast-path-on-every-host-test"
+291:              range-fast-path-on-every-host))
+294:(defn- printed-floats-on-every-host
+314:(deftest printed-floats-on-every-host-test
+315:  (slow/guard "printed-floats-on-every-host-test"
+316:              printed-floats-on-every-host))
+319:(deftest escapes-on-every-host-test
+339:(defn- generator-switch-on-every-host
+356:(deftest generator-switch-on-every-host-test
+357:  (slow/guard "generator-switch-on-every-host-test"
+358:              generator-switch-on-every-host))
+361:(deftest generator-throw-and-close-on-every-host-test
+409:(defn- generator-throw-non-exception-class-on-every-host
+444:(deftest generator-throw-non-exception-class-on-every-host-test
+445:  (slow/guard "generator-throw-non-exception-class-on-every-host-test"
+446:              generator-throw-non-exception-class-on-every-host))
+449:(deftest yield-from-and-iter-on-every-host-test
+527:(defn- delegation-stop-and-sticky-dict-iterator-on-every-host
+580:(deftest delegation-stop-and-sticky-dict-iterator-on-every-host-test
+581:  (slow/guard "delegation-stop-and-sticky-dict-iterator-on-every-host-test"
+582:              delegation-stop-and-sticky-dict-iterator-on-every-host))
+585:(defn- delegation-chain-callers-and-unwinding-on-every-host
+672:(deftest delegation-chain-callers-and-unwinding-on-every-host-test
+673:  (slow/guard "delegation-chain-callers-and-unwinding-on-every-host-test"
+674:              delegation-chain-callers-and-unwinding-on-every-host))
+693:(defn- generator-expression-on-every-host
+745:(deftest generator-expression-on-every-host-test
+746:  (slow/guard "generator-expression-on-every-host-test"
+747:              generator-expression-on-every-host))
+750:(defn- generator-expression-admission-on-every-host
+781:(deftest generator-expression-admission-on-every-host-test
+782:  (slow/guard "generator-expression-admission-on-every-host-test"
+783:              generator-expression-admission-on-every-host))
+786:(defn- integer-bound-on-every-host
+818:(deftest integer-bound-on-every-host-test
+819:  (slow/guard "integer-bound-on-every-host-test"
+820:              integer-bound-on-every-host))
+947:(defn- numeric-keys-hash-and-is-on-every-host
+959:(deftest ^:slow numeric-keys-hash-and-is-on-every-host-test
+960:  (slow/guard "numeric-keys-hash-and-is-on-every-host-test"
+961:              numeric-keys-hash-and-is-on-every-host))
+965:  "`[name form]` of the values `float-is-on-every-host-test` compares:
+989:(defn- float-is-on-every-host
+1040:(deftest ^:slow float-is-on-every-host-test
+1041:  (slow/guard "float-is-on-every-host-test"
+1042:              float-is-on-every-host))
+1058:(defn- big-integer-keys-past-the-digit-limit-on-every-host
+1127:(deftest ^:slow big-integer-keys-past-the-digit-limit-on-every-host-test
+1128:  (slow/guard "big-integer-keys-past-the-digit-limit-on-every-host-test"
+1129:              big-integer-keys-past-the-digit-limit-on-every-host))
+1147:(defn- int-limits-are-catchable-on-every-host
+1198:(deftest ^:slow int-limits-are-catchable-on-every-host-test
+1199:  (slow/guard "int-limits-are-catchable-on-every-host-test"
+1200:              int-limits-are-catchable-on-every-host))
+1244:(defn- int-defects-stay-host-failures-on-every-host
+1266:(deftest ^:slow int-defects-stay-host-failures-on-every-host-test
+1267:  (slow/guard "int-defects-stay-host-failures-on-every-host-test"
+1268:              int-defects-stay-host-failures-on-every-host))
+1271:(deftest numeric-dict-keys-on-every-host-test
+1334:(defn- preserved-key-arms-on-every-host
+1385:(deftest preserved-key-arms-on-every-host-test
+1386:  (slow/guard "preserved-key-arms-on-every-host-test"
+1387:              preserved-key-arms-on-every-host))
+1390:(deftest nan-keys-on-every-host-test
+1441:(defn- unhashable-on-every-host
+1473:(deftest unhashable-on-every-host-test
+1474:  (slow/guard "unhashable-on-every-host-test"
+1475:              unhashable-on-every-host))
+1478:(defn- signed-zero-floats-on-every-host
+1514:(deftest signed-zero-floats-on-every-host-test
+1515:  (slow/guard "signed-zero-floats-on-every-host-test"
+1516:              signed-zero-floats-on-every-host))
+1528:(deftest definition-inside-lambda-probe-test
+1529:  (testing "a definition inside a lambda body writes the store, and a later
+1542:(deftest functions-load-without-cells-test
+1559:(deftest init-is-idempotent-test
+1591:(deftest shadow-then-delete-builtin-test
+1642:(deftest seeded-builtins-test
+target/p1-slow-cljs.log:99:Ran 354 tests containing 43202 assertions.
+target/p1-slow-cljs.log:100:0 failures, 0 errors.
+target/p1-test-clj.log:535:Testing yin.vm.ucf.handoff-v2-authority-test
+target/p1-test-clj.log:537:Testing yin.vm.ucf.handoff-v2-census-test
+target/p1-test-clj.log:542:  actual: java.io.FileNotFoundException: test/resources/yin/vm/ucf/handoff-v2.txt (No such file or directory)
+target/p1-test-clj.log:614:Testing yin.vm.ucf.handoff-v2-custody-test
+target/p1-test-clj.log:616:Testing yin.vm.ucf.handoff-v2-gates-test
+target/p1-test-clj.log:618:Testing yin.vm.ucf.handoff-v2-holder-test
+target/p1-test-clj.log:620:Testing yin.vm.ucf.handoff-v2-layout-test
+target/p1-test-clj.log:622:Testing yin.vm.ucf.handoff-v2-test
+target/p1-test-clj.log:624:Testing yin.vm.ucf.handoff-v2-validity-test
+target/p1-test-clj.log:626:Testing yin.vm.ucf.handoff-v2-values-test
+target/p1-test-clj.log:628:Testing yin.vm.ucf.handoff-v2-walker-test
+target/p1-test-clj.log:654:Ran 3754 tests containing 239163 assertions.
+target/p1-test-clj.log:655:0 failures, 1 errors.
+target/p1-slow-clj.log:20:Ran 76 tests containing 2645 assertions.
+target/p1-slow-clj.log:21:0 failures, 0 errors.
+target/p1-test-cljs.log:296:SKIP slow test vector-and-map-forms-arity-errors-and-result-limits (set DATOM_SLOW_TESTS=1 to run)
+target/p1-test-cljs.log:545:Testing yin.vm.ucf.handoff-v2-authority-test
+target/p1-test-cljs.log:547:Testing yin.vm.ucf.handoff-v2-census-test
+target/p1-test-cljs.log:552:  actual: #object[Error Error: ENOENT: no such file or directory, open 'test/resources/yin/vm/ucf/handoff-v2.txt']
+target/p1-test-cljs.log:554:Testing yin.vm.ucf.handoff-v2-custody-test
+target/p1-test-cljs.log:556:Testing yin.vm.ucf.handoff-v2-gates-test
+target/p1-test-cljs.log:558:Testing yin.vm.ucf.handoff-v2-holder-test
+target/p1-test-cljs.log:560:Testing yin.vm.ucf.handoff-v2-layout-test
+target/p1-test-cljs.log:562:Testing yin.vm.ucf.handoff-v2-test
+target/p1-test-cljs.log:564:Testing yin.vm.ucf.handoff-v2-validity-test
+target/p1-test-cljs.log:566:Testing yin.vm.ucf.handoff-v2-values-test
+target/p1-test-cljs.log:568:Testing yin.vm.ucf.handoff-v2-walker-test
+target/p1-test-cljs.log:590:Ran 3610 tests containing 103554 assertions.
+target/p1-test-cljs.log:591:0 failures, 1 errors.
+(ns yin.vm.ucf.handoff-v2-census-test
+  "UCF version 2, section 11 rows 3, 4 and 10: the census.  Aliased and
+   independent cells keep their identities across ordered waits; a halted
+   result carries a linked module's closure with its store and image and
+   no initialization reruns on lower; numeric carrier classes (float64
+   integral content, negative zero) survive in code and value positions
+   without recomputing a code hash after coercion."
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            [dao.jing.cbor :as jing.cbor]
+            [dao.jing.cbor-fixtures :as fx]
+            [dao.stream :as stream]
+            [yin.vm :as vm]
+            [yin.vm.ucf.handoff :as handoff]
+            [yin.vm.ucf.lift-support :as support]
+            [yin.vm.ucf.v2-support :as s]
+            [yin.vm.values :as values]))
+
+
+(defn- ordered-waits
+  "`parked`, a reader, with four ordered waits: the original, a second
+   waiter on the same cell, and two independent cells at one position."
+  [parked]
+  (let [base (first (:wait-set parked))
+        cid (get-in base [:cursor-ref :id])
+        sid (:stream-id base)
+        kept (get-in parked [:resources cid :cursor])
+        indep (fn [id] (assoc base :cursor-ref {:type :cursor-ref :id id}))]
+    (-> parked
+        (update :resources assoc
+                :yin/i1 {:stream-id sid :cursor kept}
+                :yin/i2 {:stream-id sid :cursor kept})
+        (assoc :wait-set [base base (indep :yin/i1) (indep :yin/i2)]))))
+
+
+(deftest aliased-and-independent-cells-survive-ordered-waits
+  (doseq [engine s/engines]
+    (testing (name engine)
+      (let [[parked _] (s/parked-reader engine)
+            four (ordered-waits parked)
+            t (s/toy)
+            peer (s/served-peer t)
+            export (s/lift four t peer)
+            body (:body export)
+            cells-of (fn [m]
+                       (mapv #(get-in % [:cursor-ref :id]) (:wait-set m)))
+            [r _] (s/read! engine t (:bytes export)
+                           {:address (:address export)})
+            ids (cells-of (:vm r))
+            pendings (mapv :yin.k/pending (:yin.k/frames body))]
+        (is (= :ok (:status export)) (pr-str export))
+        (is (= 4 (count (:yin.k/frames body))) "the wait order is kept")
+        (is (= 3 (count (:yin.k/cells body)))
+            "one cell for the aliases, one each for the independents")
+        (is (= (:yin.k/cell (first pendings)) (:yin.k/cell (second pendings))))
+        (is (not= (:yin.k/cell (second pendings))
+                  (:yin.k/cell (nth pendings 2))))
+        (is (not= (:yin.k/cell (nth pendings 2))
+                  (:yin.k/cell (nth pendings 3))))
+        (is (= :ok (:status r)) (pr-str r))
+        (is (= (first ids) (second ids)))
+        (is (= 3 (count (set ids))) "three fresh cursor entries")))))
+
+
+(defn- link-through
+  "Run `m`, answering each link wait from `table` until none is left."
+  [m response table]
+  (loop [m (vm/run m) n 8]
+    (let [e (first (filter #(contains? #{:link-request :link-response}
+                                       (:reason %))
+                           (:wait-set m)))]
+      (if (and e (pos? n))
+        (do (stream/append! response
+                            (assoc (get table (:name e))
+                                   :yin.link/id (:link-id e)))
+            (recur (vm/run m) (dec n)))
+        m))))
+
+
+(deftest a-linked-modules-closure-alone-in-the-result-carries-its-census
+  (doseq [engine s/engines]
+    (testing (name engine)
+      (let [request (s/ring 64)
+            response (s/ring 64)
+            module {:status :ok
+                    :image {:value (s/module-image
+                                     engine
+                                     (s/def! 'f (s/lam [] (s/lit 42))))}
+                    :manifest {:yin.module/name 'host.mod
+                               :yin.module/exports #{'f}}
+                    :obligations []}
+            m (link-through
+                (s/load-ast engine (s/linking-machine engine request response)
+                            (s/then (s/require-program 'host.mod)
+                                    (s/v 'host.mod/f)))
+                response {'host.mod module})
+            t (s/toy)
+            peer (s/served-peer t)
+            export (s/lift m t peer)
+            body (:body export)
+            [r _] (s/read! engine t (:bytes export)
+                           {:address (:address export)})]
+        (is (vm/halted? m))
+        (is (values/closure? (vm/value m)))
+        (is (= :ok (:status export)) (pr-str export))
+        (is (= :halted (:kind export)))
+        (is (seq (:yin.k/module-stores body))
+            "the module's store crosses with the closure")
+        (is (some #(contains? (:yin.k/module-stores body) %)
+                  (keep :yin.k/store-of
+                        (tree-seq coll? seq (:yin.k/result body)))))
+        (is (= :ok (:status r)) (pr-str r))
+        (is (values/closure? (vm/value (:vm r))))
+        (is (values/owned-by? (vm/value (:vm r)) (:owner (:vm r))))
+        (is (empty? (:installs (:vm r))) "no module initialization reruns")))))
+
+
+(deftest numeric-carrier-classes-survive-code-and-value-positions
+  (doseq [engine s/engines]
+    (testing (name engine)
+      (let [one (jing.cbor/float64 1)
+            neg-zero (jing.cbor/float64 -0.0)
+            parked (s/halted-with engine (s/lit [one neg-zero 1]))
+            t (s/toy)
+            peer (s/served-peer t)
+            export (s/lift parked t peer)
+            decoded (jing.cbor/decode (:bytes export))
+            result (:yin.k/result decoded)
+            [r n] (s/read! engine t (:bytes export)
+                           {:address (:address export)})
+            value (when (:vm r) (vm/value (:vm r)))]
+        (is (= :ok (:status export)) (pr-str export))
+        (is (jing.cbor/float64? (nth result 0)) "integral float stays float64")
+        (is (jing.cbor/float64? (nth result 1)) "negative zero stays float64")
+        (is (not (jing.cbor/float64? (nth result 2))) "the integer stays one")
+        (is (= :ok (:status r)) (pr-str r))
+        (is (some? n))
+        (is (jing.cbor/float64? (nth value 0)))
+        (is (jing.cbor/float64? (nth value 1)))
+        (is (not (jing.cbor/float64? (nth value 2))))))))
+
+
+;; =============================================================================
+;; Row 10: carriers in a code row, and one body pinned across the hosts
+;; =============================================================================
+
+(def ^:private enc
+  "A value's canonical bytes as hex: float64 1.0 and -0.0 compare by
+   their bits on every host, never by host numeric equality."
+  (comp fx/bytes->hex jing.cbor/encode))
+
+
+(defn- float-literal-program
+  "Blocks on one read, then answers a literal whose carriers live only in
+   the code: nothing has evaluated it when the task is lifted."
+  []
+  (s/let1 's {:type :stream/make, :buffer 4}
+          (s/let1 'c (s/cursor-of (s/v 's))
+                  (s/then (s/next-of (s/v 'c))
+                          (s/lit [(jing.cbor/float64 1)
+                                  (jing.cbor/float64 -0.0)
+                                  1])))))
+
+
+(defn- pinned-server
+  "The exporter's `serve!` with identities by order of service, not by
+   gensym: the same task lifts to the same bytes on every run and host."
+  [peer chan]
+  (fn [h]
+    (if-let [existing (some (fn [[id e]] (when (= h (:handle e)) id))
+                            @(:table peer))]
+      {:dao.stream/identity existing, :dao.stream/channel chan}
+      (let [id (str "s" (count @(:table peer)))]
+        (swap! (:table peer) assoc id {:handle h, :surface #{:reader}})
+        {:dao.stream/identity id, :dao.stream/channel chan}))))
+
+
+(defn- lift-float-literal
+  "[export src t peer] of the float-literal task under `engine`."
+  [engine]
+  (let [t (s/toy)
+        peer (s/served-peer t)
+        ;; a made stream with no random identity: its cursor's position
+        ;; is in the bytes
+        made {:make-stream (fn [_capacity]
+                             {:dao.stream/outcome :dao.stream/ok
+                              :dao.stream/handle
+                              (support/one-slot-stream "made-1")})}
+        parked (vm/run (s/load-ast engine (s/new-machine engine made)
+                                   (float-literal-program)))
+        export (handoff/export-task parked
+                                    (pinned-server peer (:channel t))
+                                    {:version 2})]
+    [export (s/stream-of parked) t peer]))
+
+
+(defn- code-floats
+  "The canonical hex of every float carrier inside the body's code rows."
+  [body]
+  (into #{} (comp (filter jing.cbor/float64?) (map enc))
+        (tree-seq coll? seq (:yin.k/code body))))
+
+
+(defn- carriers-ok
+  "The resumed task's answer keeps both carriers and the integer."
+  [value]
+  (is (vector? value) (pr-str value))
+  (when (vector? value)
+    (is (= (enc (jing.cbor/float64 1)) (enc (nth value 0))))
+    (is (= (enc (jing.cbor/float64 -0.0)) (enc (nth value 1))))
+    (is (= (enc 1) (enc (nth value 2))))))
+
+
+(deftest numeric-carrier-classes-survive-a-code-row
+  (doseq [engine s/engines]
+    (testing (name engine)
+      (let [[export src t peer] (lift-float-literal engine)
+            body (jing.cbor/decode (:bytes export))
+            [r _] (s/read! engine t (:bytes export)
+                           {:address (:address export)})]
+        (is (= :ok (:status export)) (pr-str export))
+        (is (= :blocked (:kind export)) "the literal has not run")
+        (is (contains? (code-floats body) (enc (jing.cbor/float64 1)))
+            "integral float64 content stays float64 inside the code row")
+        (is (contains? (code-floats body) (enc (jing.cbor/float64 -0.0)))
+            "negative zero stays itself inside the code row")
+        (is (not= (enc (jing.cbor/float64 -0.0)) (enc (jing.cbor/float64 0))))
+        (is (= :ok (:status r)) (pr-str r))
+        (stream/append! src "B")
+        (carriers-ok (vm/value (s/drive (:vm r) peer)))))))
+
+
+(def ^:private golden-path
+  "The pinned version-2 body: name, segment address, then its bytes as
+   lowercase hex in lines of 64 digits.  Regenerate with `golden-text`."
+  "test/resources/yin/vm/ucf/handoff-v2.txt")
+
+
+(defn- golden-text
+  [export]
+  (let [h (fx/bytes->hex (:bytes export))]
+    (str "handoff-v2-stack-float-literal\n"
+         (subs (str (:address export)) 1) "\n"
+         (apply str (map #(str (subs h % (min (count h) (+ % 64))) "\n")
+                         (range 0 (count h) 64))))))
+
+
+(deftest a-version-2-body-is-the-same-bytes-on-every-host
+  (let [[export src t peer] (lift-float-literal :stack)
+        [n address & hex] (str/split-lines (fx/read-path golden-path))
+        pinned (fx/hex->bytes (apply str hex))
+        [r _] (s/read! :stack t pinned
+                       {:address (keyword "segment"
+                                          (subs address (count "segment/")))})]
+    (is (= :ok (:status export)) (pr-str export))
+    (is (= "handoff-v2-stack-float-literal" n))
+    (is (= address (subs (str (:address export)) 1))
+        (str "this host's lift differs from the pinned address; were the
+              change intended, regenerate:\n" (golden-text export)))
+    (is (= (apply str hex) (fx/bytes->hex (:bytes export)))
+        "this host lifts the pinned bytes exactly")
+    (is (= 2 (:yin.k/version (jing.cbor/decode pinned))))
+    (is (contains? (code-floats (jing.cbor/decode pinned))
+                   (enc (jing.cbor/float64 -0.0))))
+    (is (= :ok (:status r)) "the pinned bytes lower on this host")
+    (when (:vm r)
+      (stream/append! src "B")
+      (carriers-ok (vm/value (s/drive (:vm r) peer))))))
+
+codex
+The supplied Dart results close the P1 verification gap. I also confirmed that the base commit references `handoff-v2.txt` but does not contain it. I’ll accept P1 with an explicit exception for that baseline defect, while preserving the failed full-lane results in the report.
+exec
+/bin/zsh -lc "sed -n '1520,1675p' test/yang/python/antlr/prelude_parity_test.cljc; git diff -- src/cljc/yang/python/antlr/lower.cljc; sed -n '643,658p' collab/1791397000000-architect-c4-p1-spec.claude-fable-5-1.findings.md" in /Users/sto/workspace/datomworld-p1
+ succeeded in 0ms:
+  (is (= "2.0" (render/float-repr 2.0)))
+  (is (= "-0.0" (render/float-repr -0.0)))
+  (is (= "0.5" (render/float-repr 0.5)))
+  (is (= "inf" (render/float-repr ##Inf)))
+  (is (= "[1, 'a', 2.5, None, (1,)]"
+         (render/repr [1 "a" {:py/float 2.5} nil {:py/tuple [1]}]))))
+
+
+(deftest definition-inside-lambda-probe-test
+  (testing "a definition inside a lambda body writes the store, and a later
+            free read sees the redefinition (py/init!'s engine assumptions)"
+    (let [ast (u/mark-tails
+                (u/sexp->uast
+                  '(do (yin/def (quote py.rt/probe) :u)
+                       ((fn [] (if (= py.rt/probe :u) (yin/def (quote py.rt/probe) :r) :py/None)))
+                       ((fn [] (if (= py.rt/probe :u) (yin/def (quote py.rt/probe) :x) :py/None)))
+                       py.rt/probe)))]
+      (doseq [[k run] runners]
+        (testing (str k)
+          (is (= :r (run ast))))))))
+
+
+(deftest functions-load-without-cells-test
+  (testing "with no cell, data or integer module, the single definition list
+            loads and halts: the literal state slot and the py/init! lambda
+            allocate nothing"
+    (let [bare {:make-stream tu/make-stream,
+                :capability-secret tu/secret,
+                :primitives vm/primitives,
+                :modules (module/empty-registry)}
+          ast (u/mark-tails prelude/functions-uast)]
+      (doseq [[k run] (vm-runners-under bare)]
+        (testing (str k)
+          (is (= [true false]
+                 (try (let [vm (run ast)] [(vm/halted? vm) (vm/blocked? vm)])
+                      (catch #?(:cljd Object :clj Exception :cljs :default) e
+                        [:thrown (ex-message e)])))))))))
+
+
+(deftest init-is-idempotent-test
+  (testing "after the bundled prelude has run py/init! once, two more calls
+            reallocate nothing: every class, function, dict and runtime cell
+            is the same cell ref, and the slot reads ready"
+    (doseq [[k result]
+            (run-with-prelude
+              prelude/uast
+              (list 'let '[c1 py.b/ValueError
+                           f1 py.b/len
+                           b1 py.b/builtins
+                           ctx1 py.rt/ctx
+                           out1 py.rt/out
+                           lim1 py.rt/limit
+                           s1 py.rt/state
+                           _ (py/init!)
+                           _ (py/init!)]
+                    (conj-all '[(= c1 py.b/ValueError)
+                                (= f1 py.b/len)
+                                (= b1 py.b/builtins)
+                                (= ctx1 py.rt/ctx)
+                                (= out1 py.rt/out)
+                                (= lim1 py.rt/limit)
+                                (= s1 :py/ready)
+                                (= (py/global-get (py/dict-new) {:py/str "ValueError"}) c1)])))]
+      (testing (str k)
+        (is (= [true true true true true true true true] result)))))
+  (testing "before any py/init!, the slot is the literal :py/uninit"
+    (doseq [[k result] (run-with-prelude prelude/functions-uast 'py.rt/state)]
+      (testing (str k)
+        (is (= :py/uninit result))))))
+
+
+(deftest shadow-then-delete-builtin-test
+  (testing "a module key shadows the builtin; deleting it restores the
+            builtin; a name in neither is NameError"
+    (doseq [[k result]
+            (run-with-prelude
+              prelude/uast
+              '(let [g (py/dict-new)
+                     a (py/global-get g {:py/str "len"})
+                     _ (py/global-set g {:py/str "len"} 1)
+                     b (py/global-get g {:py/str "len"})
+                     _ (py/global-del-quiet g {:py/str "len"})
+                     c (py/global-get g {:py/str "len"})
+                     d (py/try (fn [] (py/global-get g {:py/str "nosuch"}))
+                               (fn [e] (py/isinstance e py.b/NameError))
+                               (fn [] :no))]
+                 (py/conj (py/conj (py/conj (py/conj [] (= a py.b/len)) b)
+                                   (= c py.b/len))
+                          d)))]
+      (testing (str k)
+        (is (= [true 1 true true] result))))))
+
+
+(deftest builtin-mutation-test
+  (testing "a mutated builtins entry is what a global read falls back to,
+            while the prelude's own functions and interpreter-generated
+            exceptions keep the canonical store keys (ruling 2)"
+    (doseq [[k result]
+            (run-with-prelude
+              prelude/uast
+              '(let [_ (py/dict-set py.b/builtins {:py/str "len"} 7)
+                     a (py/global-get (py/dict-new) {:py/str "len"})
+                     b (py/len (py/list [1]))
+                     c (= :function (get (cell/get py.b/len) :py/type))
+                     _ (py/dict-set py.b/builtins {:py/str "TypeError"} py.b/ValueError)
+                     d (py/try (fn [] (py/type-error {:py/str "x"}))
+                               (fn [e] (py/isinstance e py.b/TypeError))
+                               (fn [] :no))
+                     e (= py.b/ValueError
+                          (py/global-get (py/dict-new) {:py/str "TypeError"}))]
+                 (py/conj (py/conj (py/conj (py/conj (py/conj [] a) b) c) d) e)))]
+      (testing (str k)
+        (is (= [7 1 true true true] result))))))
+
+
+(def ^:private builtin-function-names
+  "The twenty-five Python-visible builtin functions."
+  ["len" "isinstance" "hash" "divmod" "print" "range" "list" "tuple" "set"
+   "sum" "any" "all" "next" "iter" "int" "float" "str" "repr" "bool" "abs"
+   "pow" "round" "hex" "oct" "bin"])
+
+
+(deftest seeded-builtins-test
+  (testing "py.b/builtins holds exactly the class names and the twenty-five
+            function names, keyed as a module dict is, in table order"
+    (let [table-order (mapv (fn [row] {:py/str (first row)})
+                            (concat prelude/builtin-classes prelude/builtin-functions))]
+      (is (= (set (map (fn [nm] {:py/str nm})
+                       (concat (map first prelude/builtin-classes)
+                               builtin-function-names)))
+             (set table-order)))
+      (is (= 25 (count prelude/builtin-functions)))
+      (doseq [[k result] (run-with-prelude prelude/uast
+                                           '(get (cell/get py.b/builtins) :keys))]
+        (testing (str k)
+          (is (= table-order result)))))))
+
+
+(deftest prelude-notation-test
+  (testing "the prelude is canonical Universal AST: no reserved-name defect,
+            and every definition key is a literal symbol"
+    (is (nil? (vm/ast-reserved-defect prelude/uast)))
+    (is (every? symbol? (map first prelude/definitions))))
+  (testing "sexp->uast"
+    (is (= (u/app (u/lam ['x] (u/if-node (u/v 'x) (u/lit 1) (u/lit {:a 1})))
+                  u/capture)
+           (u/sexp->uast '(let [x (%capture)] (if x 1 {:a 1})))))))
+diff --git a/src/cljc/yang/python/antlr/lower.cljc b/src/cljc/yang/python/antlr/lower.cljc
+index 1f993c2f..882a3beb 100644
+--- a/src/cljc/yang/python/antlr/lower.cljc
++++ b/src/cljc/yang/python/antlr/lower.cljc
+@@ -14,7 +14,8 @@
+      Reads are `py/local-get` (unbound -> UnboundLocalError), writes
+      `cell/set!`. Module names and `global` names live in the module's
+      namespace dict, `%globals` (`py/global-get`, a miss is NameError;
+-     `py/global-set`); `yin/def` is reserved for the prelude and builtins.
++     `py/global-set`); `yin/def` appears only in the prelude; builtins
++     are read through the task's builtins dict.
+    - A `def` or `lambda` is a function object (`py/make-function`) whose
+      code takes one argument vector; every call is `(py/call f [args])` or,
+      with keywords, `(py/call-kw f [args] [[name value] ...])`; the callee
+@@ -443,17 +444,15 @@
+ 
+ 
+ (defn- read-global
+-  "A module-level read at run time: the module dict, then, for a builtin
+-   name, the builtin. A present module key always wins, so
+-   `print(len([])); len = 1` reads the builtin first and the global after."
++  "A module-level read at run time: the module dict, then the task's
++   builtins (`py/global-get`). A present module key always wins, so
++   `print(len([])); len = 1` reads the builtin first and the global after.
++   `globals` is the module's own function object, so it is the one name
++   read with a fallback the lowering supplies."
+   [_n name]
+-  (cond
+-    (contains? prelude/builtin-names name)
+-    (app* 'py/global-or (u/v globals-sym) (global-key name)
+-          (u/v (get prelude/builtin-names name)))
+-    (= "globals" name)
++  (if (= "globals" name)
+     (app* 'py/global-or (u/v globals-sym) (global-key name) (u/v globals-fn-sym))
+-    :else (app* 'py/global-get (u/v globals-sym) (global-key name))))
++    (app* 'py/global-get (u/v globals-sym) (global-key name))))
+ 
+ 
+ (defn- read-name
+Step 5, lint: `clj -M:kondo --lint src/cljc/yang/python/antlr test/yang/python/antlr`.
+
+Step 6, lanes: `bb test:clj`, then `bb test:cljs`, then `bb test:cljd`,
+one at a time, then the slow Python sets:
+`clojure -M:test -i :slow -n yang.python.antlr.e2e-test -n yang.python.antlr.e2e-c1-test -n yang.python.antlr.e2e-c2-test -n yang.python.antlr.prelude-parity-test -n yang.python.antlr.safepoint-test -n yang.python.antlr.float-address-test -n yang.python.antlr.int-contract-test`,
+and the Node and Dart slow lanes (`bb test:slow:cljs`, `bb test:slow:cljd`).
+
+Step 7, the design document edit of section 3.5.
+
+Step 8, report. Write
+`collab/1791397000000-engineer-c4-p1.<model>.report.md` with: the diff
+summary by file; each lane's pass, fail and error counts copied from the
+output; the two re-pinned golden values; any test outside section 4.6
+that needed an edit and why; anything in this spec that turned out
+wrong. No commit until the Architect signs the report off; the commit
+message is `feat(yang.python): single-source prelude, py/init!, builtins
+
+apply patch
+patch: completed
+/Users/sto/workspace/datomworld-p1/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md
+diff --git a/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md b/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..d660a59039f4ed45221372d44544d906dd566052
+--- /dev/null
++++ b/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md
+@@ -0,0 +1,71 @@
++Completed-GMT: 2026-10-07 22:01:31 GMT
++Completed-Local: 2026-10-08 05:01:31 ICT
++
++# Track A Slice P1 Architectural Re-Evaluation
++
++Role: Lead System Architect — Codex.
++Branch: `yang-python-c4-p1`; HEAD: `802d9ee2dfb32ff1c3552427d8e2963225ae4edc`.
++
++## Final verdict: ACCEPTED
++
++Architectural sign-off is granted for the bundled Track A C4 P1 slice. This supersedes the temporary rejection in `collab/1791401500000-architect-c4-p1-signoff.codex.findings.md`. The supplied fresh Dart execution evidence closes the outstanding P1 host-verification gap; the baseline failure is now explicitly accounted for; the definition-table consumer change and golden re-pins are documented. No architectural implementation defect remains identified.
++
++This is an evidence re-evaluation, not a new test execution. I read the revised engineer report, prior architectural findings, governing architecture and specification, available lane logs, and relevant working-tree changes and tests. The fresh Dart counts below are supplied execution evidence corroborated by the revised report; I did not independently rerun them or locate separate fresh Dart logs in `target/`. `git diff --check` passed in this review. Only this report was written.
++
++## Closure of the prior findings
++
++### 1. Dart P1 acceptance and VM parity — CLOSED
++
++| Fresh execution supplied for re-evaluation | Result |
++|---|---|
++| `bb src/dev/cljd_agg.clj --only yang.python.antlr.prelude-parity-test,yang.python.antlr.float-address-test,yang.python.antlr.int-conv-test` | 57 tests passed, 0 failures; “All tests passed!” |
++| `DATOM_SLOW_TESTS=1 bb src/dev/cljd_agg.clj --only yang.python.antlr.prelude-parity-test` | 32 tests passed, 0 failures; “All tests passed!” |
++
++The fast selection covers definition-inside-lambda, definition-only loading without runtime modules, initialization idempotence, exact builtin seeding, shadow/delete fallback, mutation, and portable address/integer-conversion tests. Inspection confirms the P1 lifecycle tests enumerate VM runners. The slow selection executes the guarded prelude parity bodies, including semantics, float identity, delegation/unwinding, generator throw/close, and integer host-defect behavior across walker, semantic, stack and register VMs. These are tests across four VMs, not a claim that the suite contains exactly four slow tests. Dart assertion totals were not supplied and are not inferred.
++
++Together with the previously reviewed JVM and Node evidence, this is sufficient for P1 architectural acceptance. The recorded JVM focused result remains 135 tests / 1,414 assertions, the JVM Python slow result 76 / 2,645, and Node slow result 354 / 43,202, all with zero failures/errors. The fresh focused Dart runs supplement the earlier full fast runs; they are not a new full-repository Dart slow run.
++
++### 2. Missing UCF fixture — CLOSED FOR P1 BY EXPLICIT BASELINE EXCEPTION
++
++I accept the missing `test/resources/yin/vm/ucf/handoff-v2.txt` as a pre-existing, out-of-scope baseline defect for this P1 architectural sign-off. Firsthand repository inspection confirms that HEAD already contains the census test referencing that path, while `git ls-tree HEAD test/resources/yin/vm/ucf/` contains no such fixture. The nine tracked P1 changes touch Python/ANTLR and its design document, not UCF or this fixture.
++
++The actual repository-wide outcomes remain failed lanes:
++
++| Existing full fast evidence | Recorded outcome |
++|---|---|
++| `target/p1-test-clj.log` | 3,754 tests / 239,163 assertions; 0 failures, 1 error |
++| `target/p1-test-cljs.log` | 3,610 tests / 103,554 assertions; 0 failures, 1 error |
++| `target/p1-test-cljd.log` (previously reviewed) | +3561 -1; “Some tests failed.” |
++
++Each identifies the same missing-fixture census test. This exception applies only to that known failure and does not certify repository-wide green status or waive future unrelated failures. Fixture restoration remains repository maintenance outside P1. The revised report's phrase “All 3,754+ other tests pass” is imprecise: 3,754 is the JVM total, not a common passing count across hosts; use the lane-specific counts above.
++
++### 3. Consumer rename and golden reporting — CLOSED
++
++The revised report records the `prelude/function-definitions` to `prelude/definitions` consumer update and the address/tree re-pins. Inspection confirms the string-literal lint now traverses builtin and method bodies nested within `py/init!`, expanding coverage. Precisely, it checks that `:py/str` literal payloads are strings; it does not check integer-conversion magnitude boundaries as the report's wording suggests. This wording correction is non-blocking.
++
++For an explicit record, the changed semantic address goldens in `float_address_test.cljc` are:
++
++| Golden | New `segment/blake3-` suffix |
++|---|---|
++| Bundled prelude | `09131b20d81c468468c952051974373c8963dd82f17c4154c8bc974158a06976` |
++| A | `8b09d94fd093759cf7a6f58c69c01a9bf6a47ed89f42174a5367b1b2461cf30e` |
++| A′ | `26b026cf477c69abebb975397ddae0eb4d7eb2c5f417ded8218c25208600aabc` |
++| Record | `f0de9df6e0f5bd4e8d1de106d361823183b290674b18d252ac7ab49fe891cf32` |
++| Shared prelude subtree | `91b76c3c80254abf5407f850a8311cb6d5f613ecfb94f5c6e525121dfed1b7ec` |
++
++The lowering tree goldens replace static builtin references with ordinary `py/global-get` reads. These changes follow from the new bundled prelude and lookup structure; they do not change the encoding contract. The safepoint prelude address remains unchanged.
++
++## Architectural decisions and scope
++
++| Decision | Final evaluation |
++|---|---|
++| A1 — one definitions table, explicit allocation and initialization | PASS |
++| A2 — uninitialized guard, idempotence, readiness written last | PASS |
++| A3 — visible builtin functions separated from methods | PASS |
++| A4 — module dictionary then current builtins dictionary lookup | PASS |
++| A5 — four-VM behavior across JVM, Node and Dart | PASS for P1, with the explicit baseline exception above |
++| A6 — removal of the static builtin-name lookup map | PASS |
++
++The prior invariant assessment stands: explicit task-owned state, no added hidden global/shared host mutable state, no new callbacks or host exports, preserved stream boundaries, literal definition keys, and no guest-generated `yin/def`. Canonical exception references and the specified per-module `globals` fallback remain intact.
++
++Acceptance covers P1's bundled lifecycle only. Cross-unit identity, linked module-store ownership, empty-heap linked installation, publication, persistent REPL state and safepoint lifecycle migration remain P2/P3/F3 obligations. Repeated `py/init!` is idempotent; reinstalling all bundled definitions is not the linked lifecycle being certified. No redesign or further P1 implementation revision is required by this review. No commit was made.
+
+diff --git a/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md b/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..d660a59039f4ed45221372d44544d906dd566052
+--- /dev/null
++++ b/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md
+@@ -0,0 +1,71 @@
++Completed-GMT: 2026-10-07 22:01:31 GMT
++Completed-Local: 2026-10-08 05:01:31 ICT
++
++# Track A Slice P1 Architectural Re-Evaluation
++
++Role: Lead System Architect — Codex.
++Branch: `yang-python-c4-p1`; HEAD: `802d9ee2dfb32ff1c3552427d8e2963225ae4edc`.
++
++## Final verdict: ACCEPTED
++
++Architectural sign-off is granted for the bundled Track A C4 P1 slice. This supersedes the temporary rejection in `collab/1791401500000-architect-c4-p1-signoff.codex.findings.md`. The supplied fresh Dart execution evidence closes the outstanding P1 host-verification gap; the baseline failure is now explicitly accounted for; the definition-table consumer change and golden re-pins are documented. No architectural implementation defect remains identified.
++
++This is an evidence re-evaluation, not a new test execution. I read the revised engineer report, prior architectural findings, governing architecture and specification, available lane logs, and relevant working-tree changes and tests. The fresh Dart counts below are supplied execution evidence corroborated by the revised report; I did not independently rerun them or locate separate fresh Dart logs in `target/`. `git diff --check` passed in this review. Only this report was written.
++
++## Closure of the prior findings
++
++### 1. Dart P1 acceptance and VM parity — CLOSED
++
++| Fresh execution supplied for re-evaluation | Result |
++|---|---|
++| `bb src/dev/cljd_agg.clj --only yang.python.antlr.prelude-parity-test,yang.python.antlr.float-address-test,yang.python.antlr.int-conv-test` | 57 tests passed, 0 failures; “All tests passed!” |
++| `DATOM_SLOW_TESTS=1 bb src/dev/cljd_agg.clj --only yang.python.antlr.prelude-parity-test` | 32 tests passed, 0 failures; “All tests passed!” |
++
++The fast selection covers definition-inside-lambda, definition-only loading without runtime modules, initialization idempotence, exact builtin seeding, shadow/delete fallback, mutation, and portable address/integer-conversion tests. Inspection confirms the P1 lifecycle tests enumerate VM runners. The slow selection executes the guarded prelude parity bodies, including semantics, float identity, delegation/unwinding, generator throw/close, and integer host-defect behavior across walker, semantic, stack and register VMs. These are tests across four VMs, not a claim that the suite contains exactly four slow tests. Dart assertion totals were not supplied and are not inferred.
++
++Together with the previously reviewed JVM and Node evidence, this is sufficient for P1 architectural acceptance. The recorded JVM focused result remains 135 tests / 1,414 assertions, the JVM Python slow result 76 / 2,645, and Node slow result 354 / 43,202, all with zero failures/errors. The fresh focused Dart runs supplement the earlier full fast runs; they are not a new full-repository Dart slow run.
++
++### 2. Missing UCF fixture — CLOSED FOR P1 BY EXPLICIT BASELINE EXCEPTION
++
++I accept the missing `test/resources/yin/vm/ucf/handoff-v2.txt` as a pre-existing, out-of-scope baseline defect for this P1 architectural sign-off. Firsthand repository inspection confirms that HEAD already contains the census test referencing that path, while `git ls-tree HEAD test/resources/yin/vm/ucf/` contains no such fixture. The nine tracked P1 changes touch Python/ANTLR and its design document, not UCF or this fixture.
++
++The actual repository-wide outcomes remain failed lanes:
++
++| Existing full fast evidence | Recorded outcome |
++|---|---|
++| `target/p1-test-clj.log` | 3,754 tests / 239,163 assertions; 0 failures, 1 error |
++| `target/p1-test-cljs.log` | 3,610 tests / 103,554 assertions; 0 failures, 1 error |
++| `target/p1-test-cljd.log` (previously reviewed) | +3561 -1; “Some tests failed.” |
++
++Each identifies the same missing-fixture census test. This exception applies only to that known failure and does not certify repository-wide green status or waive future unrelated failures. Fixture restoration remains repository maintenance outside P1. The revised report's phrase “All 3,754+ other tests pass” is imprecise: 3,754 is the JVM total, not a common passing count across hosts; use the lane-specific counts above.
++
++### 3. Consumer rename and golden reporting — CLOSED
++
++The revised report records the `prelude/function-definitions` to `prelude/definitions` consumer update and the address/tree re-pins. Inspection confirms the string-literal lint now traverses builtin and method bodies nested within `py/init!`, expanding coverage. Precisely, it checks that `:py/str` literal payloads are strings; it does not check integer-conversion magnitude boundaries as the report's wording suggests. This wording correction is non-blocking.
++
++For an explicit record, the changed semantic address goldens in `float_address_test.cljc` are:
++
++| Golden | New `segment/blake3-` suffix |
++|---|---|
++| Bundled prelude | `09131b20d81c468468c952051974373c8963dd82f17c4154c8bc974158a06976` |
++| A | `8b09d94fd093759cf7a6f58c69c01a9bf6a47ed89f42174a5367b1b2461cf30e` |
++| A′ | `26b026cf477c69abebb975397ddae0eb4d7eb2c5f417ded8218c25208600aabc` |
++| Record | `f0de9df6e0f5bd4e8d1de106d361823183b290674b18d252ac7ab49fe891cf32` |
++| Shared prelude subtree | `91b76c3c80254abf5407f850a8311cb6d5f613ecfb94f5c6e525121dfed1b7ec` |
++
++The lowering tree goldens replace static builtin references with ordinary `py/global-get` reads. These changes follow from the new bundled prelude and lookup structure; they do not change the encoding contract. The safepoint prelude address remains unchanged.
++
++## Architectural decisions and scope
++
++| Decision | Final evaluation |
++|---|---|
++| A1 — one definitions table, explicit allocation and initialization | PASS |
++| A2 — uninitialized guard, idempotence, readiness written last | PASS |
++| A3 — visible builtin functions separated from methods | PASS |
++| A4 — module dictionary then current builtins dictionary lookup | PASS |
++| A5 — four-VM behavior across JVM, Node and Dart | PASS for P1, with the explicit baseline exception above |
++| A6 — removal of the static builtin-name lookup map | PASS |
++
++The prior invariant assessment stands: explicit task-owned state, no added hidden global/shared host mutable state, no new callbacks or host exports, preserved stream boundaries, literal definition keys, and no guest-generated `yin/def`. Canonical exception references and the specified per-module `globals` fallback remain intact.
++
++Acceptance covers P1's bundled lifecycle only. Cross-unit identity, linked module-store ownership, empty-heap linked installation, publication, persistent REPL state and safepoint lifecycle migration remain P2/P3/F3 obligations. Repeated `py/init!` is idempotent; reinstalling all bundled definitions is not the linked lifecycle being certified. No redesign or further P1 implementation revision is required by this review. No commit was made.
+
+codex
+**ACCEPTED** for P1, with an explicit exception for the pre-existing missing UCF fixture. The report preserves the failed full-lane results and distinguishes supplied Dart evidence from firsthand checks.
+
+[Read the sign-off report](collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md).
+diff --git a/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md b/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..d660a59039f4ed45221372d44544d906dd566052
+--- /dev/null
++++ b/collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md
+@@ -0,0 +1,71 @@
++Completed-GMT: 2026-10-07 22:01:31 GMT
++Completed-Local: 2026-10-08 05:01:31 ICT
++
++# Track A Slice P1 Architectural Re-Evaluation
++
++Role: Lead System Architect — Codex.
++Branch: `yang-python-c4-p1`; HEAD: `802d9ee2dfb32ff1c3552427d8e2963225ae4edc`.
++
++## Final verdict: ACCEPTED
++
++Architectural sign-off is granted for the bundled Track A C4 P1 slice. This supersedes the temporary rejection in `collab/1791401500000-architect-c4-p1-signoff.codex.findings.md`. The supplied fresh Dart execution evidence closes the outstanding P1 host-verification gap; the baseline failure is now explicitly accounted for; the definition-table consumer change and golden re-pins are documented. No architectural implementation defect remains identified.
++
++This is an evidence re-evaluation, not a new test execution. I read the revised engineer report, prior architectural findings, governing architecture and specification, available lane logs, and relevant working-tree changes and tests. The fresh Dart counts below are supplied execution evidence corroborated by the revised report; I did not independently rerun them or locate separate fresh Dart logs in `target/`. `git diff --check` passed in this review. Only this report was written.
++
++## Closure of the prior findings
++
++### 1. Dart P1 acceptance and VM parity — CLOSED
++
++| Fresh execution supplied for re-evaluation | Result |
++|---|---|
++| `bb src/dev/cljd_agg.clj --only yang.python.antlr.prelude-parity-test,yang.python.antlr.float-address-test,yang.python.antlr.int-conv-test` | 57 tests passed, 0 failures; “All tests passed!” |
++| `DATOM_SLOW_TESTS=1 bb src/dev/cljd_agg.clj --only yang.python.antlr.prelude-parity-test` | 32 tests passed, 0 failures; “All tests passed!” |
++
++The fast selection covers definition-inside-lambda, definition-only loading without runtime modules, initialization idempotence, exact builtin seeding, shadow/delete fallback, mutation, and portable address/integer-conversion tests. Inspection confirms the P1 lifecycle tests enumerate VM runners. The slow selection executes the guarded prelude parity bodies, including semantics, float identity, delegation/unwinding, generator throw/close, and integer host-defect behavior across walker, semantic, stack and register VMs. These are tests across four VMs, not a claim that the suite contains exactly four slow tests. Dart assertion totals were not supplied and are not inferred.
++
++Together with the previously reviewed JVM and Node evidence, this is sufficient for P1 architectural acceptance. The recorded JVM focused result remains 135 tests / 1,414 assertions, the JVM Python slow result 76 / 2,645, and Node slow result 354 / 43,202, all with zero failures/errors. The fresh focused Dart runs supplement the earlier full fast runs; they are not a new full-repository Dart slow run.
++
++### 2. Missing UCF fixture — CLOSED FOR P1 BY EXPLICIT BASELINE EXCEPTION
++
++I accept the missing `test/resources/yin/vm/ucf/handoff-v2.txt` as a pre-existing, out-of-scope baseline defect for this P1 architectural sign-off. Firsthand repository inspection confirms that HEAD already contains the census test referencing that path, while `git ls-tree HEAD test/resources/yin/vm/ucf/` contains no such fixture. The nine tracked P1 changes touch Python/ANTLR and its design document, not UCF or this fixture.
++
++The actual repository-wide outcomes remain failed lanes:
++
++| Existing full fast evidence | Recorded outcome |
++|---|---|
++| `target/p1-test-clj.log` | 3,754 tests / 239,163 assertions; 0 failures, 1 error |
++| `target/p1-test-cljs.log` | 3,610 tests / 103,554 assertions; 0 failures, 1 error |
++| `target/p1-test-cljd.log` (previously reviewed) | +3561 -1; “Some tests failed.” |
++
++Each identifies the same missing-fixture census test. This exception applies only to that known failure and does not certify repository-wide green status or waive future unrelated failures. Fixture restoration remains repository maintenance outside P1. The revised report's phrase “All 3,754+ other tests pass” is imprecise: 3,754 is the JVM total, not a common passing count across hosts; use the lane-specific counts above.
++
++### 3. Consumer rename and golden reporting — CLOSED
++
++The revised report records the `prelude/function-definitions` to `prelude/definitions` consumer update and the address/tree re-pins. Inspection confirms the string-literal lint now traverses builtin and method bodies nested within `py/init!`, expanding coverage. Precisely, it checks that `:py/str` literal payloads are strings; it does not check integer-conversion magnitude boundaries as the report's wording suggests. This wording correction is non-blocking.
++
++For an explicit record, the changed semantic address goldens in `float_address_test.cljc` are:
++
++| Golden | New `segment/blake3-` suffix |
++|---|---|
++| Bundled prelude | `09131b20d81c468468c952051974373c8963dd82f17c4154c8bc974158a06976` |
++| A | `8b09d94fd093759cf7a6f58c69c01a9bf6a47ed89f42174a5367b1b2461cf30e` |
++| A′ | `26b026cf477c69abebb975397ddae0eb4d7eb2c5f417ded8218c25208600aabc` |
++| Record | `f0de9df6e0f5bd4e8d1de106d361823183b290674b18d252ac7ab49fe891cf32` |
++| Shared prelude subtree | `91b76c3c80254abf5407f850a8311cb6d5f613ecfb94f5c6e525121dfed1b7ec` |
++
++The lowering tree goldens replace static builtin references with ordinary `py/global-get` reads. These changes follow from the new bundled prelude and lookup structure; they do not change the encoding contract. The safepoint prelude address remains unchanged.
++
++## Architectural decisions and scope
++
++| Decision | Final evaluation |
++|---|---|
++| A1 — one definitions table, explicit allocation and initialization | PASS |
++| A2 — uninitialized guard, idempotence, readiness written last | PASS |
++| A3 — visible builtin functions separated from methods | PASS |
++| A4 — module dictionary then current builtins dictionary lookup | PASS |
++| A5 — four-VM behavior across JVM, Node and Dart | PASS for P1, with the explicit baseline exception above |
++| A6 — removal of the static builtin-name lookup map | PASS |
++
++The prior invariant assessment stands: explicit task-owned state, no added hidden global/shared host mutable state, no new callbacks or host exports, preserved stream boundaries, literal definition keys, and no guest-generated `yin/def`. Canonical exception references and the specified per-module `globals` fallback remain intact.
++
++Acceptance covers P1's bundled lifecycle only. Cross-unit identity, linked module-store ownership, empty-heap linked installation, publication, persistent REPL state and safepoint lifecycle migration remain P2/P3/F3 obligations. Repeated `py/init!` is idempotent; reinstalling all bundled definitions is not the linked lifecycle being certified. No redesign or further P1 implementation revision is required by this review. No commit was made.
+
+tokens used
+36,678
+**ACCEPTED** for P1, with an explicit exception for the pre-existing missing UCF fixture. The report preserves the failed full-lane results and distinguishes supplied Dart evidence from firsthand checks.
+
+[Read the sign-off report](collab/1791402000000-architect-c4-p1-resignoff.codex.findings.md).
