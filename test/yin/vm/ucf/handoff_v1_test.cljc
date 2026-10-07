@@ -1015,6 +1015,100 @@
       (is (= :ok (:status r)) (pr-str r)))))
 
 
+;; =============================================================================
+;; D16-prep: the clause 1, 2 and 4 fixtures the audit found unwritten
+;; =============================================================================
+
+(deftest an-unsupported-version-on-a-version-1-body-names-the-supported-set
+  ;; version 2 is now a supported version, so the unsupported fixture of
+  ;; clause 1 is the next integer
+  (refused (jing.cbor/encode (assoc (blocked-v1) :yin.k/version 3))
+           :yin.k/profile-mismatch
+           {:yin.k/version 3 :yin.k/supported #{1 2}}))
+
+
+(deftest every-header-key-but-the-origin-refuses-on-a-halted-root
+  (doseq [[k value] [[:yin.k/policy :yin.k/exclusive]
+                     [:yin.k/occurrence occurrence]
+                     [:yin.k/arbitration arbitration]
+                     [:yin.k/next-op-seq 0]]]
+    (testing (str k)
+      (refused (jing.cbor/encode (assoc (halted-v1) k value))
+               :yin.k/undecodable
+               {:yin.k/path [k] :yin.k/kind :halted-header}))))
+
+
+(deftest every-header-key-refuses-on-a-live-child
+  (let [child-path [:yin.k/installs 'host.mod :yin.k/child]]
+    (doseq [[k value] [[:yin.k/policy :yin.k/exclusive]
+                       [:yin.k/occurrence occurrence]
+                       [:yin.k/arbitration arbitration]
+                       [:yin.k/next-op-seq 0]
+                       [:yin.k/origin origin]]]
+      (testing (str k)
+        (refused (jing.cbor/encode (assoc-in (install-v1) (conj child-path k) value))
+                 :yin.k/undecodable
+                 {:yin.k/path (conj child-path k) :yin.k/kind :child-header})))))
+
+
+(deftest a-sequence-above-the-counter-refuses
+  (doseq [n [4 4503599627370495]]       ; the next integer, and 2^52-1
+    (testing (str "seq " n " over a counter of 3")
+      (refused (jing.cbor/encode
+                 (assoc-in (blocked-v1) [:yin.k/frames 0 :yin.k/pending]
+                           (put-pending (op-id n))))
+               :yin.k/undecodable
+               {:yin.k/path [:yin.k/frames 0 :yin.k/pending :yin.k/op-id
+                             :yin.k/seq]
+                :yin.k/kind :op-seq-range}))))
+
+
+(deftest each-phase-crosses-with-a-blocked-and-a-halted-child-on-both-versions
+  ;; the explicitly parked child kind has no real-machine fixture here
+  ;; yet (D16-prep findings): the blocked child is the real one, the
+  ;; halted child the construction of the halted-child row above
+  (let [child-path [:yin.k/installs 'host.mod :yin.k/child]
+        halted (fn [child]
+                 (-> child
+                     (dissoc :yin.k/frames :yin.k/cells)
+                     (assoc :yin.k/kind :halted :yin.k/result 42)))]
+    (doseq [[n encode base opts] [["version 0" cbor/encode install-v0 nil]
+                                  ["version 1" jing.cbor/encode install-v1 ::granted]]
+            phase [:running :parked]
+            [kind child-of] [[:blocked identity] [:halted halted]]]
+      (testing (str n " " phase " over a " kind " child")
+        (let [body (-> (base)
+                       (assoc-in [:yin.k/installs 'host.mod :yin.k/phase] phase)
+                       (update-in child-path child-of))
+              [r] (read! (encode body) opts)
+              inst (get-in r [:vm :installs 'host.mod])]
+          (is (= :ok (:status r)) (pr-str r))
+          (is (= phase (:phase inst)) "the lower preserves the phase")
+          (is (= (get-in body [:yin.k/installs 'host.mod :yin.k/parent])
+                 (:parent inst))
+              "and the parent")
+          (case kind
+            :blocked (is (vm/blocked? (:vm inst)) "the child is still blocked")
+            :halted (do (is (vm/halted? (:vm inst)))
+                        (is (= 42 (vm/value (:vm inst)))))))))))
+
+
+(deftest an-out-of-bound-counter-or-sequence-refuses-at-the-reader
+  ;; 2^52 and -1, on the bytes, through `resume-task` itself
+  (doseq [n [4503599627370496 -1]]
+    (testing (str "next-op-seq " n)
+      (refused (jing.cbor/encode (assoc (blocked-v1) :yin.k/next-op-seq n))
+               :yin.k/undecodable
+               {:yin.k/path [:yin.k/next-op-seq]}))
+    (testing (str "op-id seq " n)
+      (refused (jing.cbor/encode
+                 (assoc-in (blocked-v1) [:yin.k/frames 0 :yin.k/pending]
+                           (put-pending (op-id n))))
+               :yin.k/undecodable
+               {:yin.k/path [:yin.k/frames 0 :yin.k/pending :yin.k/op-id
+                             :yin.k/seq]}))))
+
+
 (deftest v1-public-install-child-option-cannot-bypass-grant
   (let [bytes (jing.cbor/encode (blocked-v1))
         opts (assoc (lower-options bytes) :yin.vm.ucf.handoff/install-child true)

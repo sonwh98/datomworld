@@ -5,7 +5,8 @@
    table of the stage-1 suites, and the reference and resumed drivers.
    Every row runs real source machines the engine itself parked, over a
    fresh receiver of the same composition."
-  (:require [dao.jing :as jing]
+  (:require [clojure.walk :as walk]
+            [dao.jing :as jing]
             [dao.jing.cbor :as jing.cbor]
             [dao.stream :as stream]
             [dao.stream.remote :as remote]
@@ -15,7 +16,9 @@
             [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.ast-walker :as walker]
+            [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-linearize :as dl]
+            [yin.vm.debruijn-register-code :as rcode]
             [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn.register :as register]
             [yin.vm.debruijn.stack :as stack]
@@ -523,3 +526,44 @@
   "The body the export's canonical bytes decode to."
   [export]
   (jing.cbor/decode (:bytes export)))
+
+
+(defn stream-blind
+  "`body` with every served stream identity and channel replaced by a
+   placeholder: two lifts over different served tables compare by the
+   census alone."
+  [body]
+  (walk/postwalk (fn [x]
+                   (if (and (map? x) (contains? x :dao.stream/identity))
+                     (assoc x :dao.stream/identity :served
+                            :dao.stream/channel :served)
+                     x))
+                 body))
+
+
+(defn run-beside
+  "Run `ast` on `m` keeping its code: the semantic and walker profiles
+   load beside what they hold; stack and register attach the program's
+   image to the current layout (a load would replace it, and a parked
+   record names rows of the layout it was parked under) and start there."
+  [engine m ast]
+  (vm/run
+    (case engine
+      (:semantic :walker) (load-ast engine m ast)
+      :stack
+      (let [img (:image (dl/adapt (vm/ast->datoms ast)))
+            attached (stack/attach-image m img vm/stack-contract)]
+        (assoc attached
+               :pc (stack/absolute-pc attached [(dcode/image-hash img) 0])
+               :frames [] :stack [] :continuation []
+               :halted? false :blocked? false :value nil))
+      :register
+      (let [img (:image (rc/adapt (vm/ast->datoms ast)))
+            attached (register/attach-image m img vm/register-contract)
+            pc (register/absolute-pc attached [(rcode/register-hash img) 0])
+            body (some #(when (= pc (:start %)) %)
+                       (:bodies (:segment attached)))]
+        (assoc attached
+               :pc pc :frames [] :continuation []
+               :registers (vec (repeat (:registers body) nil))
+               :halted? false :blocked? false :value nil)))))
