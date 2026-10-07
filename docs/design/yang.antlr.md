@@ -2816,6 +2816,12 @@ the task's lifetime and switching a name snapshot is insufficient; a code
 upgrade needs a fresh process or a separately designed replacement
 protocol (ruling 11).
 
+Future plan: a virtual POSIX guest library (`yang.posix` or guest-level
+`os`/`io` adapters) may emulate paths, file descriptors, and stream-backed
+directory trees over `dao.space.store` and `dao.stream` without introducing
+ambient host syscalls or new host seams, preserving continuation mobility
+and replay determinism.
+
 Catchable imports (ruling 8). A link refusal is raised as the effect's
 error, which the VM has no guest-catchable form of. Refusal-as-data
 linking (`module/try-require`, following the `stream/poll!` precedent of
