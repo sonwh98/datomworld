@@ -1,10 +1,13 @@
 (ns dao.stream.journal-test
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing.cbor :as cbor]
+            [dao.jing.cbor-fixtures :as fx]
             [dao.stream :as stream]
+            [dao.stream.cbor :as transport]
             [dao.stream.chunks :as chunks]
             [dao.stream.conformance :as conformance]
-            [dao.stream.journal :as journal]))
+            [dao.stream.journal :as journal]
+            [yang.python.antlr.int-contract-fixtures :as f]))
 
 
 (defn- open
@@ -344,3 +347,21 @@
 (deftest journal-conformance-test
   (let [result (conformance/run-conformance-suite journal-manifest)]
     (is (:passed? result) (str "Conformance failures: " (:failures result)))))
+
+
+(deftest raw-bignums-are-not-portable
+  (doseq [v [(f/value "2^64") (f/value "-2^64-1")]]
+    (is (= :non-portable-value (:error (transport/validate-portable v))))))
+
+
+(deftest numeric-content-is-journaled-as-jing-content
+  ;; Journal frames are canonical Jing CBOR, not the raw stream codec, so
+  ;; a bignum or a float64 carrier is content here, kept byte-exact.
+  (doseq [v [(f/value "2^64") (f/value "-2^64-1") (cbor/float64 1)]]
+    (let [frames (atom [])
+          h (handle frames)]
+      (is (= :dao.stream/ok (outcome (stream/append! h v))))
+      (is (= [(fx/bytes->hex (cbor/encode v))]
+             (mapv (comp fx/bytes->hex cbor/encode)
+                   (values (handle frames))))
+          "the reopened journal holds the same content"))))

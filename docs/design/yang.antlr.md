@@ -2053,11 +2053,12 @@ kind and no AST tag (ruling 3):
 - `42` and `42.0` stay distinct content although numerically equal.
 
 Exact-integer carriers are recognized as scalars in the encoder, the
-heap trace, `pin-refs`, `values/kind-of`, and `data/number?`, and this
-is tested on Node and Dart before any bignum reaches a cell (ruling 4).
-On JS and Dart a bignum fails host `number?`. UCF gains no marker; its
-scalar number arm covers every Jing exact-integer carrier, and the
-cell-lift refusal is unchanged, so C3 does not establish Python-task
+heap trace, `pin-refs`, `values/kind-of`, `data/number?`, and
+`vm/machine-data?` (ruling 4). On JS and Dart a bignum fails host
+`number?`. UCF gains no marker: its version-1 numeric arm and handoff
+decoder carry Jing exact-integer content unchanged. Four-kernel image
+and Python heap tests exercise these boundaries on all three hosts.
+The cell-lift refusal is unchanged, so C3 does not establish Python-task
 migration.
 
 A separately installed, versioned `:pure` integer module carries the
@@ -2301,7 +2302,11 @@ The stream codec is not widened and C3 builds no new adapter (ruling
 12). A raw remote put of a bignum refuses with a qualified outcome;
 canonical Jing bytes through the existing `dao.jing.stream` adapter are
 the only remote form, and printing and re-reading EDN is not a bignum
-transport. CPython NaN object-identity fidelity remains unsupported;
+transport. Version-0 handoff of a bignum returns `:yin.k/non-portable`
+of kind `:host-object` on every host. The version-1 scalar body bytes
+and address are pinned in `yin/vm/ucf/scalars-v1.txt`, minted once on
+the JVM and verified on Node and Dart. CPython NaN object-identity
+fidelity remains unsupported;
 deterministic NaN key behavior is now specified. Float text parity is
 claimed for `repr`, `str` and `print` of every double, as amended in S4
 (ruling 13): the guest `py/float-repr` and the boundary renderer's
@@ -2344,7 +2349,7 @@ claimed for `repr`, `str` and `print` of every double, as amended in S4
 |        | follow-up: content `is` and hex keys.                               |
 +--------+---------------------------------------------------------------------+
 | S6     | Heap and portability: collection, pinning, scalar UCF round trips,  |
-|        | honest refusal of cell lift and raw transport.                      |
+|        | cell-lift and raw-transport refusals, version-0 refusal. Landed.    |
 +--------+---------------------------------------------------------------------+
 | S7     | Integration gate over the full C1 and C3 corpus, profile mismatch,  |
 |        | and resource-limit fixtures.                                        |

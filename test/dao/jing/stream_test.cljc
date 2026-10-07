@@ -6,9 +6,11 @@
    of what unwraps is the digest `content-hash` computed."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.cbor-fixtures :as fx]
             [dao.jing.stream :as jing-stream]
             [dao.stream.cbor :as cbor]
-            [dao.stream.transit :as transit]))
+            [dao.stream.transit :as transit]
+            [yang.python.antlr.int-contract-fixtures :as f]))
 
 
 (def ^:private payloads
@@ -89,3 +91,12 @@
   (testing "an unknown profile is refused, never a silent downgrade"
     (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default) #"not a known stream codec profile"
           (jing-stream/wrap-bytes {:ws/subprotocol "dao.stream.base64"} nil)))))
+
+
+(deftest big-integer-bytes-cross-the-transport-boundary
+  (let [fixture (f/read-file)]
+    (doseq [s ["2^64" "-2^64-1"]]
+      (let [bs (jing/canonical-bytes (f/value s))]
+        (is (= (f/column fixture s "cbor") (fx/bytes->hex bs)))
+        (is (carried? cbor/profile cbor/encode cbor/decode bs))
+        (is (carried? transit/profile transit/encode transit/decode bs))))))

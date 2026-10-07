@@ -57,6 +57,7 @@
             [yin.vm.code :as code]
             [yin.vm.completion :as completion]
             [yin.vm.engine :as engine]
+            [yin.vm.integer.host :as integer-host]
             [yin.vm.module :as module]
             [yin.vm.ucf :as ucf]
             [yin.vm.ucf.checkpoint :as checkpoint]
@@ -138,8 +139,9 @@
 
 (defn- scalar?
   [x]
-  (or (nil? x) (boolean? x) (number? x) (string? x)
-      (keyword? x) (symbol? x)))
+  (or (nil? x) (boolean? x)
+      (and (number? x) (not (integer-host/big-carrier? x)))
+      (string? x) (keyword? x) (symbol? x)))
 
 
 (defn- local-identity
@@ -1429,6 +1431,7 @@
             [x]
             (cond
               (scalar? x) x
+              (jing.cbor/numeric? x) x
               (map? x)
               (case (:yin.k/tag x)
                 :yin.k/literal

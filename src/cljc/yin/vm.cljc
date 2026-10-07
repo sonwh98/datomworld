@@ -29,6 +29,7 @@
             [dao.space.query :as query]
             [dao.stream :as stream]
             [yin.vm.effect :as effect]
+            [yin.vm.integer.host :as integer-host]
             [yin.vm.values :as values]))
 
 
@@ -982,13 +983,14 @@
   "`plain-data?` for a value inside a machine payload: a closure or a
    continuation, a host type only a kernel mints, counts as its payload,
    as the plain map it was before D7. Rows and code datoms stay
-   `plain-data?`."
+   `plain-data?`, plus the exact-integer big carriers (ruling 4)."
   [x]
   (or (nil? x)
       (if (values/host-typed? x)
         (machine-data? (values/payload x))
-        (and (cond (or (boolean? x) (number? x) (cbor/float64? x) (string? x)
-                       (keyword? x) (symbol? x))
+        (and (cond (or (boolean? x) (number? x)
+                       (integer-host/big-carrier? x) (cbor/float64? x)
+                       (string? x) (keyword? x) (symbol? x))
                    true
                    (map? x) (and (every? machine-data? (keys x))
                                  (every? machine-data? (vals x)))
