@@ -9,7 +9,7 @@
 
    The DHT is the dao.jing.dht test mesh and the WebSocket is an
    in-process loopback net standing in for the host's `listen!` and
-   `connect!` seams (as in yin.vm.linker.head-ws-test), pumped by the
+   `connect!` seams (as in yin.vm.linker.head-board-test), pumped by the
    test, so every host runs the same composition.  Real processes over
    real sockets are yin.repl.dht-process-test."
   (:require [clojure.string :as str]
@@ -204,8 +204,11 @@
 
 
 (defn- world
-  []
-  {:mesh (mesh/mesh) :ws (ws-net) :now 0 :lines {:a [] :b [] :c []}})
+  "A world whose clock advances `:dt` ms per tick (10 by default)."
+  ([] (world {}))
+  ([{:keys [dt] :or {dt 10}}]
+   {:mesh (mesh/mesh) :ws (ws-net) :now 0 :dt dt
+    :lines {:a [] :b [] :c []}}))
 
 
 (defn- tick
@@ -218,7 +221,7 @@
                    (pump! (:ws w))
                    (-> w (assoc k s) (update-in [:lines k] into lines)))
                  w))]
-    (-> w (step :a) (step :b) (step :c) (assoc :now (+ now 10)))))
+    (-> w (step :a) (step :b) (step :c) (assoc :now (+ now (:dt w))))))
 
 
 (defn- run
@@ -744,7 +747,7 @@
 
 
 ;; =============================================================================
-;; The host owns the dial's liveness (H2 sign-off notes 1 to 3)
+;; The channel owns the dial's liveness (H2 sign-off notes 1 to 3, S3a-2)
 ;; =============================================================================
 
 (deftest a-lost-or-silent-dial-is-closed-and-composed-again
@@ -758,19 +761,43 @@
       (is (<= 2 (count dialed) 3) (pr-str dialed))
       (is (= [["127.0.0.1" pub-port]] (distinct dialed)))
       (close! w)))
-  (testing "a board that accepts and never answers: the resolving dial is
-            closed after the delay, then a fresh one is composed"
+  (testing "a board that accepts and never answers: the resolve expires on
+            the link after give-up-after as channel-gone, the dial is
+            closed, then a fresh one is composed"
     (let [key (sign/generate)
-          w (world)
+          w (world {:dt 1000})
           _ (swap! (:ws w) assoc-in [:listeners pub-port]
                    {:accept! (fn [& _] {}) :deposit! (fn [& _] nil)})
           w (assoc w :b (reader w key (temp-dir)))
           w (run w 70 (fn [_] false))
-          conns (:conns @(:ws w))]
+          conns (:conns @(:ws w))
+          failures (lines-with w :b "dht: cannot follow ")]
       (is (<= 2 (count conns)) (pr-str (:dialed @(:ws w))))
       (is (every? #(deref (:closed? %)) (butlast conns))
           "every dial but the newest was closed before the next")
+      (is (= 1 (count failures)) (pr-str (get-in w [:lines :b])))
+      (is (str/includes? (str (first failures))
+                         "the connection was refused, closed, or stopped answering"))
       (close! w))))
+
+
+(deftest close-leaves-no-listener-and-no-dial
+  (let [key (sign/generate)
+        w (world)
+        w (assoc w
+                 :a (publisher w key (temp-dir))
+                 :b (reader w key (temp-dir)))
+        w (run w 100 #(= :attached (get-in % [:b :repl :dht
+                                              ::repl.dht/follow :links
+                                              (sign/principal (:public key))
+                                              :dial :status])))]
+    (is (seq (:listeners @(:ws w))))
+    (is (some #(not @(:closed? %)) (:conns @(:ws w))) "a live connection")
+    (close! w)
+    (pump! (:ws w))
+    (is (empty? (:listeners @(:ws w))) "no listener")
+    (is (every? #(deref (:closed? %)) (:conns @(:ws w)))
+        "every connection closed")))
 
 
 ;; =============================================================================

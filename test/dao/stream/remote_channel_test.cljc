@@ -332,6 +332,23 @@
            (:dao.stream.remote/reason (ask! h c))))))
 
 
+(deftest a-connection-that-never-opens-is-lost-at-give-up-after
+  (let [lnet (net/loopback-net)
+        _ (swap! lnet assoc-in [:listeners (:port spec)]
+                 {:accept! (fn [& _] {}) :deposit! (fn [& _] nil)})
+        d (atom (dial lnet liveness nil))
+        step! (fn [now] (net/pump! lnet) (swap! d rc/dial-step now)
+                (net/pump! lnet))]
+    (step! 1000)
+    (step! 1149)
+    (is (= :resolving (:status @d)) "not before the deadline")
+    (is (true? (:dao.stream/retry? (:outcome @d))))
+    (step! 1150)
+    (is (= :lost (:status @d)))
+    (is (= channel-gone (:outcome @d)))
+    (is (= :closed (:status (rc/close! @d))))))
+
+
 ;; =============================================================================
 ;; Explicit stop
 ;; =============================================================================
@@ -472,14 +489,21 @@
     (net/pump! lnet)
     (is (= 1 (count (filter #(= :pending (:status %))
                             (:slots (ws/endpoint-state (:endpoint server)))))))
-    (dotimes [i 70] ((:deposit! server) :listener-error {:i i}))
-    (let [s (rc/serve-step server 1)]
+    (let [server (rc/serve-step server 1)
+          _ (net/pump! lnet)
+          _ (is (= :starting (:status server)))
+          _ (is (= 1 (count (rc/sessions server)))
+                "a session adopted while starting, before the gap")
+          _ (dotimes [i 70] ((:deposit! server) :listener-error {:i i}))
+          s (rc/serve-step server 2)]
       (is (= :refused (:status s)))
       (is (= ::rc/lifecycle-lost (:reason s)))
       (is (= 1 @calls) "unbind! called")
       (is (every? #(= :free (:status %))
                   (:slots (ws/endpoint-state (:endpoint s))))
-          "the endpoint has no pending slot"))))
+          "the endpoint has no pending slot")
+      (is (every? :closed? (vals (rc/sessions s)))
+          "the session adopted before the gap is closed"))))
 
 
 (deftest a-host-that-stops-under-us-is-stopped-host-stopped

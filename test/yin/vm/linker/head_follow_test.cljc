@@ -15,6 +15,8 @@
             [dao.space.transactor :as transactor]
             [dao.stream :as stream]
             [dao.stream.memory-log :as memory-log]
+            [dao.stream.remote :as remote]
+            [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm.linker.dht :as ld]
             [yin.vm.linker.head :as head]
             [yin.vm.linker.sign :as sign]))
@@ -1072,11 +1074,81 @@
                  lost))
           (is (false? (:source? (status w))))
           (let [w (update w :follower head/attach p (board-of w))
+                _ (testing "a fresh handle has proven nothing"
+                    (is (= [nil nil] ((juxt :polled :answered) (status w)))))
                 w (tick (assoc w :events []))]
             (is (= :duplicate (get-in (status w) [:observed :verdict])))
             (is (= (:trace h0) (get-in (status w) [:observed :trace])))
             (is (= [] (:events w)))))))
     (close! w)))
+
+
+;; =============================================================================
+;; :polled and :answered (S3a-2)
+;; =============================================================================
+
+(defn- reflection
+  "A reflection of `board` over an in-process channel of two rings, and
+   the server's mirror step, which runs only when `serve!` is called:
+   `[handle serve!]`."
+  [board]
+  (let [ab (:dao.stream/handle
+             (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type
+                                  ringbuffer/capacity-key 64}))
+        ba (:dao.stream/handle
+             (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type
+                                  ringbuffer/capacity-key 64}))
+        id (:dao.stream/identity (stream/descriptor board))
+        cd {:dao.stream/type :dao.stream.test/channel
+            :dao.stream/identity "head-follow-channel"}
+        attach! (remote/attacher {:dao.stream.remote/channels
+                                  {cd {:reader ba :writer ab}}})
+        mirror (atom (:dao.stream/cursor (stream/cursor ab :dao.stream/oldest)))]
+    [(:dao.stream/handle (attach! {:dao.stream/type :dao.stream/remote
+                                   :dao.stream/identity id
+                                   :dao.stream/channel cd}))
+     (fn []
+       (swap! mirror #(remote/mirror-step {id {:handle board
+                                               :surface #{:reader}}}
+                                          ab % ba)))]))
+
+
+(deftest blocked-is-polled-not-answered
+  (testing "over a reflection whose link has nothing filed"
+    (let [w (world)
+          p (principal p1)
+          h0 (head-of! w (alib-history p1 0))
+          w (show! w (:trace h0))
+          [h serve!] (reflection (board-of w))
+          w (update w :follower head/attach p h)
+          w (tick w)]
+      (is (= 0 (:polled (status w))) "it asked")
+      (is (nil? (:answered (status w))) "a local blocked proves nothing")
+      (let [w (run w 20 #(get-in (status %) [:observed :trace])
+                   (fn [_] (serve!)))
+            read-at (:answered (status w))]
+        (is (= (:trace h0) (get-in (status w) [:observed :trace]))
+            "the server answered: the value was read")
+        (is (= read-at (:polled (status w))) "at the poll that read it")
+        (let [w (run w 5 (fn [_] false) (fn [_] (serve!)))]
+          (is (< read-at (:polled (status w))) "later empty polls advance
+                                                :polled")
+          (is (= read-at (:answered (status w))) "and only :polled"))
+        (close! w))))
+  (testing "over a plain ring, :answered advances on the value, not on
+            the quiet polls"
+    (let [w (world)
+          h0 (head-of! w (alib-history p1 0))
+          w (run (show! w (:trace h0)) 300 (installed? (:manifest h0)))
+          read-at (:answered (status w))
+          w (run w 10 (fn [_] false))]
+      (is (some? read-at))
+      (is (< read-at (:polled (status w))))
+      (is (= read-at (:answered (status w))))
+      (let [h1 (head-of! w (moved-history p1 (alib-history p1 0) v2))
+            w (run (show! w (:trace h1)) 300 (installed? (:manifest h1)))]
+        (is (< read-at (:answered (status w))) "a new value is an answer")
+        (close! w)))))
 
 
 ;; =============================================================================

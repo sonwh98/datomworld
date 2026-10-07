@@ -147,13 +147,17 @@ reaches it as a `dao.stream` reader handle. That is the whole coupling.**
   `cursor` and `next` on it.** It does not know whether the handle is the
   ring itself, a reflection over WebSocket, or anything else. Section 8
   rests on this sentence.
-- **Exposure in the core: `dao.stream.ws`, on loopback.** The publisher's
-  node composes one WebSocket acceptor (`dao.stream.ws-project`) whose
-  mirror table has one entry, the board, surface `#{:reader}`, **under
-  the ring's own identity**, the random identity every ring is created
-  with. It listens on TCP at **the same port number as the node's UDP
-  socket**, path `/head`, so one `host:port` names both and the token
-  needs no second address.
+- **Exposure in the core: `dao.stream.remote-channel`, on loopback.**
+  The publisher's node serves one table over the stepped channel
+  composition `dao.stream.remote-channel` (`dao.stream.remote.md` 3.1),
+  whose mirror table has one entry, the board, surface `#{:reader}`,
+  **under the ring's own identity**, the random identity every ring is
+  created with. `yin.vm.linker.head.board` hands it a portable endpoint
+  specification `{:host h :port p}` and the host assembly opaquely; the
+  concrete WebSocket descriptor is formatted below dao.stream, and no
+  `:ws/` key is written or read in `yin.*`. It listens on TCP at **the
+  same port number as the node's UDP socket**, path `/head`, so one
+  `host:port` names both and the token needs no second address.
 - **A name is looked up; it is never an identity (C3).** The **board
   name** of a principal is `"yin.head/"` followed by the principal id
   (`yin.vm.linker.dht.md` 6.2). It appears in no descriptor, no cursor
@@ -183,14 +187,17 @@ reaches it as a `dao.stream` reader handle. That is the whole coupling.**
   evaluation.
 - **Loopback only.** The endpoint is composed only when the node's bind
   host is a loopback literal. On any other bind the node serves no
-  board, prints no token and says so. Section 8 says what lifts this.
+  board, prints no token and says so. Section 8 says what lifts this
+  (cross-machine slice S4).
 - **One source per principal**: the address the reader was given. Nothing
   is put in the DHT, which is used as today to fetch the blobs.
 
 **Availability.** Publisher running: the reader asks once per poll
 interval and observes a new head at the first poll that is answered.
 Publisher stopped: the reader keeps the head it installed and everything
-it linked. Nothing times out. A reader that never reached its source has
+it linked. No head times out; the channel to it is lost (at once on a
+close, after `give-up-after` when it stops answering) and redialed with
+the doubling repair delay. A reader that never reached its source has
 no head; 5.6 says what a `require` does then.
 
 Rejected: UDP on the DHT socket as the first exposure (section 8.3); a
@@ -460,9 +467,21 @@ unchanged.
 - Installation replaces the principal's installed manifest in one step.
   No fold sees two heads of one principal, or none.
 
-**A silent publisher** changes nothing. The follower records the node
-tick reading at which its source last answered, as data for a drive
-that wants to judge liveness with `dao.lease`. Nothing here reads it.
+**A silent publisher** changes nothing. The follower records two node
+tick readings per principal: `:polled`, the last poll it ran, and
+`:answered`, the last poll at which the source yielded a positioned
+fact (a cursor `ok`, a `next` `ok` or `gap`). A `blocked` proves
+nothing: a reflection answers its own `blocked` when nothing is filed
+and relays the source's when it is, and the follower cannot and must
+not tell them apart. So over a quiet ring and over a quiet reflection
+`:answered` stands still alike, and `attach` clears both: a fresh
+handle has proven nothing. Liveness is the channel's, not the
+follower's (`dao.stream.remote.md` 2.4, Expiry): a reflection's
+request unanswered for the link's `give-up-after` loses the channel,
+the follower's next read answers `transport-error` naming
+`channel-gone`, and it reports `:source-lost`; the follower reads no
+`:dao.stream.remote/*` key and no transport fact. The follower's own
+poll is the idle probe.
 
 ### 5.6 When `(require 'alib)` refreshes (decision 6)
 
@@ -638,16 +657,21 @@ principal's board. Any handle.</td></tr>
 that trace is written.</td></tr>
 <tr><td><code>(head/moved names registry)</code></td>
 <td>The linked names whose resolved address differs.</td></tr>
-<tr><td><code>yin.vm.linker.head.ws/serve</code>, <code>serve-step</code>,
-<code>dial</code>, <code>dial-step</code></td>
-<td>The board's acceptor (a one-entry table and a one-entry name map)
-and the reader's dial (resolve the name, then attach), thin
-compositions of <code>dao.stream.ws-project</code>; the listener and
-the host's connect seam are arguments (a ws attacher is tied to its own
-traffic medium, and every redial needs a fresh one). <code>serve</code>
-requires a positive bind port and refuses otherwise as data: the board
-binds at the node's UDP port number (5.1), so the number is always
-known. The only namespace here that knows a transport.</td></tr>
+<tr><td><code>yin.vm.linker.head.board/serve</code>,
+<code>serve-step</code>, <code>stop!</code>, <code>dial</code>,
+<code>dial-step</code>, <code>close!</code></td>
+<td>The board's server (a one-entry table and a one-entry name map) and
+the reader's dial (resolve the name, then attach), over
+<code>dao.stream.remote-channel</code>: a portable endpoint
+specification <code>{:host h :port p}</code> and the host assembly
+<code>{:connect! :bind! :unbind!}</code> are arguments, passed down
+opaquely, with the board's bounds profile (<code>board-profile</code>,
+the production profile by default). Every step takes the driver's
+<code>now</code>; <code>stop!</code> initiates and
+<code>serve-step</code> completes an explicit stop. <code>serve</code>
+refuses a bind host that is not a loopback literal as
+<code>:yin.head/not-loopback</code>; every other refusal is the channel
+composition's, as data. Knows no transport.</td></tr>
 </table>
 
 `dao.space.dht` gains `abandon`, the kind-conflict refusal and the
@@ -669,8 +693,13 @@ owns the file, the lines, the flags, and the dial.
 <tr><td>Board capacity</td><td>1</td><td>Fixed.</td></tr>
 <tr><td>Candidates per principal</td><td>1</td><td>Fixed (5.5).</td></tr>
 <tr><td><code>:head-poll-ticks</code></td><td>5000</td>
-<td>Node ticks between two <code>next</code> calls on one source. It
-bounds how often a reader asks, not how late it learns.</td></tr>
+<td>Node ticks between two <code>next</code> calls on one source, in
+the shell's ms clock. It bounds how often a reader asks, not how late
+it learns. The channel's <code>give-up-after</code> (15 s) is at least
+two polls, so one missed answer is loss and never a slow tick; the
+serving side's idle expiry (60 s) exceeds a poll plus
+<code>give-up-after</code>, so a reader that keeps polling is never
+reaped.</td></tr>
 <tr><td>Retry delays (load, write, re-dial)</td>
 <td><code>:repair-ticks</code> to <code>:repair-max-ticks</code></td>
 <td>Doubling, the node's existing bounds.</td></tr>
@@ -721,7 +750,9 @@ verifies every blob against its address.</td></tr>
 <td>They start at the snapshot set.</td></tr>
 </table>
 
-Only `yin.vm.linker.head.ws` and the shell's flags know a transport.
+Only `dao.stream.remote-channel`, below dao.stream, and the shell's
+flags know a transport; `yin.vm.linker.head.board` passes a portable
+endpoint specification down opaquely.
 Slice H1 proves the claim by test: the follower is driven to completion
 over a plain local ring, with no channel at all.
 
@@ -731,9 +762,10 @@ over a plain local ring, with no channel at all.
 <tr><th>Step</th><th>Adds</th><th>Amends</th>
 <th>Changes the core's trace, rule or persistence?</th></tr>
 <tr><td><strong>Serving off loopback</strong> (8.3)</td>
-<td>A bind that is not loopback; a bound on concurrent sessions; a
-banner line.</td>
-<td>This document 5.1 and 5.8; <code>yin.vm.linker.head.ws</code>;
+<td>A bind that is not loopback; a banner line. (A bound on concurrent
+sessions has landed: the production profile's
+<code>:max-sessions</code>, S3a.)</td>
+<td>This document 5.1 and 5.8; <code>yin.vm.linker.head.board</code>;
 <code>yin.repl.main</code>. Nothing in <code>dao.stream.*</code> if the
 unverified items of 8.3 hold.</td>
 <td><strong>No.</strong></td></tr>
@@ -847,24 +879,27 @@ follow each other without a relay.
 **What that step is.** Remove the loopback condition of 5.1, and land
 the checks below. No design beyond this section is expected.
 
-**Unverified, and to be verified by that step before it lands:**
+**Verified, and still open, for that step:**
 
-- That the acceptor bounds concurrent sessions. The handoff has 8
-  slots; whether `:sessions` is bounded under many held connections was
-  not checked.
-- That one connection cannot make a step long: `mirror-step` loops to
-  `blocked`, and the spec's "composition budget" was not found in it.
-- That the listener seams, written for `yin.repl.host`, compose outside
-  `yin.repl.serve` on all three hosts without moving code.
-- That a TCP listener binds at the UDP socket's number on each host,
-  including after an ephemeral UDP bind.
-- That a lost request on an attached reflection is detected. On
-  loopback a dead peer closes its connection and the follower reports
-  `:source-lost` on its next poll (an attached dial's own status does
-  not change; only a dial still resolving becomes `:lost`); a live but
-  silent source is "withholding" (section 10) and its liveness is
-  deferred to `dao.lease`. Off loopback a half-open connection is real
-  and the follower would see retryable errors until TCP gives up.
+- Verified: the acceptor bounds concurrent sessions (`:max-sessions`,
+  S1) and reaps an idle one (`:idle-timeout`, S1), both set by the
+  production profile of `dao.stream.remote-channel` (S3a).
+- Verified: one connection cannot make a step long: the acceptor's
+  `:step-budget`, `:mirror-budget` and `:chase-budget` bound each
+  session's tick (S1, S2a).
+- Verified on the JVM over a real loopback socket, and on Node and
+  Dart over the in-process loopback net only (a real-socket Node twin
+  and the Dart peer case are owed, S4): the listener seams, written
+  for `yin.repl.host`, compose outside `yin.repl.serve`
+  (`dao.stream.remote-channel`, S3a).
+- Open (S4): that a TCP listener binds at the UDP socket's number on
+  each host, including after an ephemeral UDP bind.
+- Verified: a lost request on an attached reflection is detected. The
+  dial composes the link's `give-up-after` and steps it at the
+  driver's `now`; a request, or a resolve over a connection that never
+  opens, unanswered for that long loses the channel as `channel-gone`,
+  the dial is `:lost`, the follower reports `:source-lost` and the
+  shell redials (S2c, S3a).
 
 ### 8.4 The assumption cross-machine adds: locality is not trust
 
@@ -961,7 +996,8 @@ loads at once (5.5).</td><td>-</td></tr>
 <tr><td><code>heads.edn</code> cannot be written</td>
 <td><code>:yin.head/unpersisted</code>; nothing installed; retried.</td>
 <td>No progress while the directory refuses writes.</td></tr>
-<tr><td>The publisher restarts, or the connection drops</td>
+<tr><td>The publisher restarts, or the connection drops, or stops
+answering for <code>give-up-after</code></td>
 <td><code>:source-lost</code>; a fresh handle; <code>:oldest</code>
 again.</td><td>-</td></tr>
 <tr><td>The publisher's directory is lost, the key kept</td>
@@ -1140,7 +1176,8 @@ request in the mirror; the link's `resolve`),
 the dial; `resolve` on a dial before any reflection),
 `test/dao/stream/remote_test.cljc`, new
 `src/cljc/yin/vm/linker/head/ws.cljc`, new
-`test/yin/vm/linker/head_ws_test.cljc`. Amendments carried, all in
+`test/yin/vm/linker/head_ws_test.cljc` (both replaced in cross-machine
+slice S3a-2 by `head/board.cljc` and `head_board_test.cljc`). Amendments carried, all in
 `dao.stream.remote.md`: section 2, the name map as composition data
 beside the table; 2.1, the named request shape, and `not-found`
 carrying the name; 2.3, a step 0 that resolves a name or answers

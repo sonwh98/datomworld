@@ -1,6 +1,7 @@
-(ns yin.vm.linker.head-ws-test
-  "The head board over WebSocket on loopback
-   (docs/design/yin.vm.linker.dht.head.md 5.1, slice H2).
+(ns yin.vm.linker.head-board-test
+  "The head board over `dao.stream.remote-channel`, on loopback
+   (docs/design/yin.vm.linker.dht.head.md 5.1, section 6, slices H2 and
+   S3a-2).
 
    The portable cases run over `dao.stream.loopback-net`, an in-process
    stand-in for the host listener and connect seams.  One JVM case
@@ -14,16 +15,16 @@
             [dao.space.index :as index]
             [dao.space.transactor :as transactor]
             [dao.stream :as stream]
-            [dao.stream.loopback-net :refer [connect-on listen-on loopback-net pump! unlisten!]]
+            [dao.stream.loopback-net :refer [blackhole! connect-on listen-on loopback-net pump! unbind-on unlisten!]]
             [dao.stream.memory-log :as memory-log]
             [dao.stream.remote :as remote]
+            [dao.stream.remote-channel :as rc]
             [dao.stream.ringbuffer :as ringbuffer]
             [dao.stream.transit :as transit]
-            [dao.stream.ws :as ws]
             [dao.stream.ws-project :as ws-project]
             [yin.vm.linker.dht :as ld]
             [yin.vm.linker.head :as head]
-            [yin.vm.linker.head.ws :as head.ws]
+            [yin.vm.linker.head.board :as head.board]
             [yin.vm.linker.sign :as sign]
             #?@(:cljd []
                 :clj [[yin.repl.host :as host]]
@@ -138,37 +139,45 @@
 (def ^:private ws-port 7001)
 
 
+(defn- host-of
+  [net]
+  {:connect! (connect-on net)
+   :bind! (listen-on net)
+   :unbind! (unbind-on net)})
+
+
 (defn- serve-board
   [net board port]
-  (head.ws/serve {:board board
-                  :principal (principal p1)
-                  :bind-host "127.0.0.1"
-                  :bind-port port
-                  :listen! (listen-on net)}))
+  (head.board/serve {:board board
+                     :principal (principal p1)
+                     :spec {:host "127.0.0.1" :port port}
+                     :host (host-of net)}))
 
 
 (defn- dial-board
-  [net port]
-  (head.ws/dial {:principal (principal p1)
-                 :host "127.0.0.1"
-                 :port port
-                 :connect! (connect-on net)}))
+  ([net port] (dial-board net port {}))
+  ([net port bounds]
+   (head.board/dial {:principal (principal p1)
+                     :spec {:host "127.0.0.1" :port port}
+                     :host (host-of net)
+                     :bounds bounds})))
 
 
 (defn- world
-  []
-  (let [net (loopback-net)
-        dht-net (mesh/mesh)
-        board (head/board)
-        a (node-at [2] {:publish? true} (mesh/seam dht-net 1))
-        b (node-at [1] {} (mesh/seam dht-net 2))
-        [f b] (head/follow b {:heads :volatile :poll-ticks 10
-                              :repair-ticks 100 :repair-max-ticks 400
-                              :follow [(principal p1)]})]
-    {:net net :board board :a a :b b :follower f :now 0 :events []
-     :server (serve-board net board ws-port)
-     :dial (dial-board net ws-port)
-     :attached nil}))
+  ([] (world {}))
+  ([bounds]
+   (let [net (loopback-net)
+         dht-net (mesh/mesh)
+         board (head/board)
+         a (node-at [2] {:publish? true} (mesh/seam dht-net 1))
+         b (node-at [1] {} (mesh/seam dht-net 2))
+         [f b] (head/follow b {:heads :volatile :poll-ticks 10
+                               :repair-ticks 100 :repair-max-ticks 400
+                               :follow [(principal p1)]})]
+     {:net net :board board :a a :b b :follower f :now 0 :events []
+      :server (serve-board net board ws-port)
+      :dial (dial-board net ws-port bounds)
+      :attached nil})))
 
 
 (defn- install-confirmed
@@ -189,12 +198,12 @@
   [w]
   (pump! (:net w))
   (let [now (:now w)
-        server (head.ws/serve-step (:server w) now)
-        d (head.ws/dial-step (:dial w))
+        server (head.board/serve-step (:server w) now)
+        d (head.board/dial-step (:dial w) now)
         _ (pump! (:net w))
-        fresh (when (and (head.ws/handle d)
-                         (not (identical? (head.ws/handle d) (:attached w))))
-                (head.ws/handle d))
+        fresh (when (and (head.board/handle d)
+                         (not (identical? (head.board/handle d) (:attached w))))
+                (head.board/handle d))
         f (cond-> (:follower w)
             fresh (head/attach (principal p1) fresh))
         [a _] (dht/step (:a w) now)
@@ -254,7 +263,7 @@
       (is (= (identity-of (:board w)) (identity-of (:attached w)))
           "the reflection reports the ring's own identity")
       (is (= (identity-of (:board w)) (:identity (:server w))))
-      (is (not= (head.ws/board-name (principal p1))
+      (is (not= (head.board/board-name (principal p1))
                 (identity-of (:attached w)))
           "never the name"))
     (testing "the first index deposits sequence 0, and it is installed"
@@ -302,23 +311,22 @@
         board (head/board)
         _ (stream/append! board {:a :head})
         server (atom (serve-board net board ws-port))
-        d (atom (head.ws/dial {:principal (principal p1)
-                               :host "127.0.0.1"
-                               :port ws-port
-                               :connect! (recording (connect-on net))}))
-        n (head.ws/board-name (principal p1))]
+        d (atom (head.board/dial {:principal (principal p1)
+                                  :spec {:host "127.0.0.1" :port ws-port}
+                                  :host {:connect! (recording (connect-on net))}}))
+        n (head.board/board-name (principal p1))]
     (dotimes [i 20]
       (pump! net)
-      (swap! server head.ws/serve-step i)
-      (swap! d head.ws/dial-step)
+      (swap! server head.board/serve-step i)
+      (swap! d head.board/dial-step i)
       (pump! net))
     (is (= :attached (:status @d)))
-    (let [h (head.ws/handle @d)]
+    (let [h (head.board/handle @d)]
       (dotimes [_ 10]
         (stream/next h (:dao.stream/cursor (stream/cursor h :dao.stream/oldest)))
         (pump! net)
-        (swap! server head.ws/serve-step 0)
-        (swap! d head.ws/dial-step)
+        (swap! server head.board/serve-step 20)
+        (swap! d head.board/dial-step 20)
         (pump! net)))
     (let [maps (wire-maps @frames)]
       (is (some #(= n (:dao.stream.remote/name %)) maps)
@@ -391,8 +399,8 @@
   [net servers dials n]
   (dotimes [i n]
     (pump! net)
-    (doseq [s servers] (swap! s head.ws/serve-step i))
-    (doseq [d dials] (swap! d head.ws/dial-step))
+    (doseq [s servers] (swap! s head.board/serve-step i))
+    (doseq [d dials] (swap! d head.board/dial-step i))
     (pump! net)))
 
 
@@ -431,9 +439,9 @@
         "two identities, each its own ring's")
     (is (not= (:identity @d1) (:identity @d2)))
     (is (= :first-node
-           (:dao.stream/value (apply read-first net (conj all (head.ws/handle @d1))))))
+           (:dao.stream/value (apply read-first net (conj all (head.board/handle @d1))))))
     (is (= :second-node
-           (:dao.stream/value (apply read-first net (conj all (head.ws/handle @d2))))))))
+           (:dao.stream/value (apply read-first net (conj all (head.board/handle @d2))))))))
 
 
 (deftest the-table-holds-the-board-and-nothing-else
@@ -443,7 +451,7 @@
         server (atom (serve-board net board ws-port))
         acceptor @(:acceptor @server)
         id (identity-of board)
-        n (head.ws/board-name (principal p1))]
+        n (head.board/board-name (principal p1))]
     (is (= {id {:handle board :surface #{:reader}}} (:table acceptor)))
     (is (= {n id} (:names acceptor)))
     (testing "over the served table and name map: a writer op is
@@ -472,13 +480,13 @@
     (testing "and through a reflection over the endpoint"
       (let [d (atom (dial-board net ws-port))
             _ (drive! net [server] [d] 20)
-            h (head.ws/handle @d)
+            h (head.board/handle @d)
             other (:dao.stream/handle
                     (ws-project/dial-reflect!
                       (:dial @d)
                       {:dao.stream/type :dao.stream/remote
                        :dao.stream/identity "another"
-                       :dao.stream/channel (:channel @d)}))]
+                       :dao.stream/channel (:descriptor @d)}))]
         (is (= :head (:dao.stream/value (read-first net [server] [d] h))))
         (is (= :dao.stream.remote/no-surface
                (:dao.stream.remote/reason (stream/append! h :forged))))
@@ -496,15 +504,14 @@
   (let [net (loopback-net)
         board (head/board)
         server (atom (serve-board net board ws-port))
-        d (atom (head.ws/dial {:principal "ed25519:another"
-                               :host "127.0.0.1"
-                               :port ws-port
-                               :connect! (connect-on net)}))]
+        d (atom (head.board/dial {:principal "ed25519:another"
+                                  :spec {:host "127.0.0.1" :port ws-port}
+                                  :host (host-of net)}))]
     (drive! net [server] [d] 20)
     (is (= :lost (:status @d)))
     (is (= :dao.stream.remote/not-found
            (:dao.stream.remote/reason (:outcome @d))))
-    (is (nil? (head.ws/handle @d)))))
+    (is (nil? (head.board/handle @d)))))
 
 
 ;; =============================================================================
@@ -513,55 +520,66 @@
 
 (deftest a-bind-host-that-is-not-a-loopback-literal-composes-no-endpoint
   (let [calls (atom 0)
-        listen! (fn [_] (swap! calls inc) {:dao.stream/outcome :dao.stream/ok})]
+        host {:bind! (fn [_] (swap! calls inc) {:dao.stream/outcome :dao.stream/ok})}]
     (doseq [h ["0.0.0.0" "192.168.1.5" "10.0.0.1" "128.0.0.1" "127.0.0"
                "127.0.0.256" "127.0.0.1.1" "127.0.0.1." "127.0.0.1.."
                ".127.0.0.1" "localhost" "::" "[::]" "fe80::1"
                "::ffff:127.0.0.1" "" nil]]
       (testing (pr-str h)
-        (is (= {:status :refused :reason :yin.head.ws/not-loopback
-                :bind-host h}
-               (head.ws/serve {:board (head/board) :principal (principal p1)
-                               :bind-host h :bind-port ws-port
-                               :listen! listen!})))))
+        (is (= {:status :refused :reason :yin.head/not-loopback
+                :spec {:host h :port ws-port}}
+               (head.board/serve {:board (head/board) :principal (principal p1)
+                                  :spec {:host h :port ws-port}
+                                  :host host})))))
     (is (= 0 @calls) "nothing listened")
     (doseq [h ["127.0.0.1" "127.1.2.3" "::1" "[::1]"]]
       (testing (pr-str h)
         (is (= :starting
-               (:status (head.ws/serve {:board (head/board)
-                                        :principal (principal p1)
-                                        :bind-host h :bind-port ws-port
-                                        :listen! listen!}))))))
+               (:status (head.board/serve {:board (head/board)
+                                           :principal (principal p1)
+                                           :spec {:host h :port ws-port}
+                                           :host host}))))))
     (is (= 4 @calls))))
 
 
 (deftest a-bind-port-that-is-not-positive-composes-no-endpoint
   (let [calls (atom 0)
-        listen! (fn [_] (swap! calls inc) {:dao.stream/outcome :dao.stream/ok})]
+        host {:bind! (fn [_] (swap! calls inc) {:dao.stream/outcome :dao.stream/ok})}]
     (doseq [p [0 nil -1 "7001"]]
       (testing (pr-str p)
-        (is (= {:status :refused :reason :yin.head.ws/no-port :bind-port p}
-               (head.ws/serve {:board (head/board) :principal (principal p1)
-                               :bind-host "127.0.0.1" :bind-port p
-                               :listen! listen!})))))
+        (let [r (head.board/serve {:board (head/board) :principal (principal p1)
+                                   :spec {:host "127.0.0.1" :port p}
+                                   :host host})]
+          (is (= [:refused ::rc/no-port] [(:status r) (:reason r)])))))
     (is (= 0 @calls) "nothing listened")))
+
+
+(deftest a-host-without-a-listener-or-a-dialer-is-a-refusal
+  (is (= [:refused ::rc/no-transport]
+         ((juxt :status :reason)
+          (head.board/serve {:board (head/board) :principal (principal p1)
+                             :spec {:host "127.0.0.1" :port ws-port}
+                             :host {}}))))
+  (is (= [:refused ::rc/no-transport]
+         ((juxt :status :reason)
+          (head.board/dial {:principal (principal p1)
+                            :spec {:host "127.0.0.1" :port ws-port}
+                            :host {}})))))
 
 
 (deftest the-port-is-named-from-the-start
   (let [net (loopback-net)
         board (head/board)
         server (atom (serve-board net board 7005))
-        expected {:dao.stream/type ws/transport-type
-                  :dao.stream/identity "ws://127.0.0.1:7005/head"
-                  :ws/host "127.0.0.1"
-                  :ws/port 7005
-                  :ws/path "/head"}]
+        expected (rc/descriptor-of {:host "127.0.0.1" :port 7005
+                                    :path head.board/path})]
+    (is (= "ws://127.0.0.1:7005/head" (:dao.stream/identity expected)))
     (is (= expected (:descriptor @server)) "before the bind is reported")
     (let [d (atom (dial-board net 7005))]
       (drive! net [server] [d] 20)
       (is (= :attached (:status @d)))
       (is (= expected (:descriptor @server)) "after it")
-      (let [sessions (ws-project/sessions (:acceptor @server))]
+      (let [sessions (rc/sessions @server)]
         (is (= 1 (count sessions)))
         (doseq [[_ s] sessions]
           (is (= expected
@@ -575,23 +593,101 @@
         refused (serve-board net (head/board) ws-port)
         a (node-at [] {:publish? true} (mesh/seam (mesh/mesh) 1))]
     (is (= :refused (:status refused)))
-    (is (= :yin.head.ws/bind-failed (:reason refused)))
-    (is (= refused (head.ws/serve-step refused 0))
+    (is (= ::rc/bind-failed (:reason refused)))
+    (is (= refused (head.board/serve-step refused 0))
         "a refused server steps as itself")
     (testing "a bind that fails after it started is the same refusal"
-      (let [late (head.ws/serve {:board (head/board) :principal (principal p1)
-                                 :bind-host "127.0.0.1" :bind-port 7009
-                                 :listen! (fn [{:keys [deposit!]}]
-                                            (deposit! :bind-failed {:code :in-use})
-                                            {:dao.stream/outcome :dao.stream/ok})})]
+      (let [late (head.board/serve
+                   {:board (head/board) :principal (principal p1)
+                    :spec {:host "127.0.0.1" :port 7009}
+                    :host {:bind! (fn [{:keys [deposit!]}]
+                                    (deposit! :bind-failed {:code :in-use})
+                                    {:dao.stream/outcome :dao.stream/ok})}})]
         (is (= :starting (:status late)))
-        (is (= {:status :refused :reason :yin.head.ws/bind-failed
-                :detail {:code :in-use}}
-               (head.ws/serve-step late 0)))))
+        (is (= [:refused ::rc/bind-failed {:code :in-use}]
+               ((juxt :status :reason :detail)
+                (head.board/serve-step late 0))))))
     (testing "the node keeps running without a board"
       (let [[a' _] (dht/step a 0)]
         (is (some? a')))
       (dht/close! a))))
+
+
+;; =============================================================================
+;; Explicit stop and stream-side liveness (S3a-2)
+;; =============================================================================
+
+(deftest a-stopped-board-is-a-lost-source-then-reattachable
+  (let [w (world)
+        a-store (dht/local (:a w))
+        m0 (index! a-store (alib-history p1 0))
+        _ (head/deposit! (:board w) p1 m0 (index/read-datoms a-store m0))
+        w (run w 300 (installed? m0))
+        id (identity-of (:attached w))]
+    (is (= m0 (:manifest (status w))))
+    (let [w (update w :server head.board/stop!)]
+      (testing "stop! performs no I/O"
+        (is (= :stopping (:status (:server w))))
+        (is (= 1 (count (rc/sessions (:server w))))))
+      (let [w (run (assoc w :events []) 50
+                   #(seq (events-of (:events %) :source-lost)))
+            w (run w 5 (constantly false))]
+        (testing "serve-step completes the stop; the reader reports
+                  :source-lost once and keeps its installed head"
+          (is (= :stopped (:status (:server w))))
+          (is (= :confirmed (get-in w [:server :stop :outcome])))
+          (is (= 1 (count (events-of (:events w) :source-lost)))
+              (pr-str (:events w)))
+          (is (= :lost (:status (:dial w))))
+          (is (= m0 (:manifest (status w)))))
+        (testing "a new serve on the same port and a fresh dial reattach
+                  and read the same identity"
+          (let [w (assoc w
+                         :server (serve-board (:net w) (:board w) ws-port)
+                         :dial (dial-board (:net w) ws-port)
+                         :events [])
+                w (run w 100 #(= :duplicate
+                                 (get-in (status %) [:observed :verdict])))]
+            (is (= :attached (:status (:dial w))))
+            (is (= id (identity-of (:attached w))))
+            (is (= :duplicate (get-in (status w) [:observed :verdict])))
+            (close! w)))))))
+
+
+(deftest a-blackholed-board-is-source-lost-after-give-up-after
+  (let [w (world {:dao.stream.remote/give-up-after 150})
+        a-store (dht/local (:a w))
+        m0 (index! a-store (alib-history p1 0))
+        _ (head/deposit! (:board w) p1 m0 (index/read-datoms a-store m0))
+        w (run w 300 (installed? m0))
+        answered (:answered (status w))]
+    (is (= m0 (:manifest (status w))))
+    (is (some? answered))
+    (let [w (run (assoc w :events []) 40 (constantly false))]
+      (testing "an idle healthy board: :polled advances, :answered does not,
+                and nothing is lost"
+        (is (= :attached (:status (:dial w))))
+        (is (empty? (events-of (:events w) :source-lost)))
+        (is (< answered (:polled (status w))))
+        (is (= answered (:answered (status w)))))
+      (testing "blackholed toward the reader: lost once give-up-after passes,
+                never before"
+        (blackhole! (:net w) :client)
+        (let [since (:now w)
+              w (run (assoc w :events []) 100
+                     #(seq (events-of (:events %) :source-lost)))
+              lost (first (events-of (:events w) :source-lost))]
+          (is (some? lost) (pr-str (:events w)))
+          (is (= :dao.stream/transport-error (:outcome lost)))
+          (is (<= (+ since 150) (:now w)))
+          (is (< (:now w) (+ since 150 50)) "within a few ticks of it")
+          (is (= :lost (:status (:dial w))))
+          (is (= :dao.stream.remote/channel-gone
+                 (get-in w [:dial :outcome :dao.stream.remote/reason])))
+          (is (= answered (:answered (status w)))
+              "blocked polls answered nothing")
+          (is (= m0 (:manifest (status w))) "the installed head is kept")
+          (close! w))))))
 
 
 ;; =============================================================================
@@ -606,13 +702,12 @@
            _ (stream/append! board {:yin.head/test :real})
            free-port (with-open [s (java.net.ServerSocket. 0)]
                        (.getLocalPort s))
-           server (atom (head.ws/serve {:board board :principal (principal p1)
-                                        :bind-host "127.0.0.1"
-                                        :bind-port free-port
-                                        :listen! (:bind! seam)}))
+           spec {:host "127.0.0.1" :port free-port}
+           server (atom (head.board/serve {:board board :principal (principal p1)
+                                           :spec spec :host seam}))
            deadline (+ (System/currentTimeMillis) 5000)
            step! (fn []
-                   (swap! server head.ws/serve-step
+                   (swap! server head.board/serve-step
                           (System/currentTimeMillis)))]
        (try
          (loop [] (step!)
@@ -620,25 +715,25 @@
                           (< (System/currentTimeMillis) deadline))
                  (Thread/sleep 10) (recur)))
          (is (= :serving (:status @server)))
-         (is (= free-port (get-in @server [:descriptor :ws/port])))
-         (let [port free-port
-               d (atom (head.ws/dial {:principal (principal p1)
-                                      :host "127.0.0.1" :port port
-                                      :connect! (:connect! seam)}))]
-           (loop [] (step!) (swap! d head.ws/dial-step)
+         (is (= (rc/descriptor-of (assoc spec :path head.board/path))
+                (:descriptor @server)))
+         (let [d (atom (head.board/dial {:principal (principal p1)
+                                         :spec spec :host seam}))
+               dial! #(swap! d head.board/dial-step (System/currentTimeMillis))]
+           (loop [] (step!) (dial!)
                  (when (and (= :resolving (:status @d))
                             (< (System/currentTimeMillis) deadline))
                    (Thread/sleep 10) (recur)))
            (is (= :attached (:status @d)) (pr-str (:outcome @d)))
-           (is (= (identity-of board) (identity-of (head.ws/handle @d))))
-           (let [h (head.ws/handle @d)
+           (is (= (identity-of board) (identity-of (head.board/handle @d))))
+           (let [h (head.board/handle @d)
                  settle (fn [op]
                           (loop [r (op)]
                             (if (and (contains? #{:dao.stream/blocked
                                                   :dao.stream/transport-error}
                                                 (:dao.stream/outcome r))
                                      (< (System/currentTimeMillis) deadline))
-                              (do (step!) (swap! d head.ws/dial-step)
+                              (do (step!) (dial!)
                                   (Thread/sleep 10) (recur (op)))
                               r)))
                  c (settle #(stream/cursor h :dao.stream/oldest))]
@@ -646,12 +741,31 @@
                     (:dao.stream/value
                       (settle #(stream/next h (:dao.stream/cursor c)))))))
            (testing "a TCP port already in use is a refusal as data"
-             (let [again (head.ws/serve {:board (head/board)
-                                         :principal (principal p1)
-                                         :bind-host "127.0.0.1" :bind-port port
-                                         :listen! (:bind! seam)})]
+             (let [again (head.board/serve {:board (head/board)
+                                            :principal (principal p1)
+                                            :spec spec :host seam})]
                (is (= :refused (:status again)))
-               (is (= :yin.head.ws/bind-failed (:reason again)))))
-           (head.ws/close! @d))
+               (is (= ::rc/bind-failed (:reason again)))))
+           (testing "stop: confirmed by the host's close completion within
+                     the stop grace, and the dial is lost"
+             (swap! server head.board/stop!)
+             (let [since (System/currentTimeMillis)
+                   grace (get-in @server [:bounds :stop-grace-ms])]
+               (loop [] (step!) (dial!)
+                     (when (and (= :stopping (:status @server))
+                                (< (System/currentTimeMillis) deadline))
+                       (Thread/sleep 10) (recur)))
+               (is (= :stopped (:status @server)))
+               (is (= :confirmed (get-in @server [:stop :outcome])))
+               (is (< (- (System/currentTimeMillis) since) grace)))
+             (loop [] (dial!)
+                   (when (and (= :attached (:status @d))
+                              (< (System/currentTimeMillis) deadline))
+                     (Thread/sleep 10) (recur)))
+             (is (= :lost (:status @d)))
+             (is (= :dao.stream.remote/channel-gone
+                    (get-in @d [:outcome :dao.stream.remote/reason]))))
+           (head.board/close! @d))
          (finally
-           ((:unbind! seam) (:listener @server) (fn [& _] nil)))))))
+           (when (contains? #{:starting :serving} (:status @server))
+             ((:unbind! seam) (:listener @server) (fn [& _] nil))))))))

@@ -519,8 +519,9 @@
    `:bounds` merges over `production-bounds`; `:events`, optional, is
    the link's event writer.  Every dial is fresh: its own traffic
    medium, attacher, cursor and channel ring.  Answers `{:status
-   :resolving :spec :descriptor :name :dial :handle :identity
-   :outcome}`; without `:connect!`, or for a transport other than :ws,
+   :resolving :spec :descriptor :name :policy :dial :handle :identity
+   :outcome :since}`, `:policy` the link policy and `:since` the first
+   step's `now`; without `:connect!`, or for a transport other than :ws,
    `{:status :refused :reason ::no-transport}`.  An invalid bound is
    the composition error the validating layer throws."
   [{:keys [spec host bounds events] n :name}]
@@ -528,6 +529,7 @@
     (if-not (and (ws-transport? spec) (fn? (:connect! host)))
       {:status :refused :reason ::no-transport :spec spec :name n}
       (let [capacity (:capacity b)
+            policy (link-policy b)
             traffic (buffer capacity)
             attach! (ws/make-attacher
                       (merge (select-keys b ws-bound-keys)
@@ -538,8 +540,9 @@
          :spec spec
          :descriptor (descriptor-of spec)
          :name n
+         :policy policy
          :dial (ws-project/dial
-                 (merge (link-policy b)
+                 (merge policy
                         (when events {:dao.stream.remote/events events})
                         {:attach! attach!
                          :traffic (writer-target traffic)
@@ -551,7 +554,8 @@
                          :chase-budget (:chase-budget b)}))
          :handle nil
          :identity nil
-         :outcome nil}))))
+         :outcome nil
+         :since nil}))))
 
 
 (defn- channel-lost?
@@ -582,25 +586,43 @@
       (assoc d :status :lost :outcome r))))
 
 
+(defn- resolve-expired?
+  "A dial still resolving `give-up-after` ms after its first step.  A
+   connection that never opens refuses every send, so the link holds
+   no outstanding request and stamps no deadline; this bound is the
+   connect half of the same liveness."
+  [d now]
+  (let [limit (get-in d [:policy :dao.stream.remote/give-up-after])]
+    (and (= :resolving (:status d))
+         (some? limit)
+         (some? (:since d))
+         (>= (- now (:since d)) limit))))
+
+
 (defn dial-step
   "Advance the dial one tick at the driver's `now`: the projection, the
    link stepped at `now` and the dial's own mirror first.  Resolving: one
    resolve of the name -- ok attaches the descriptor answered through the
    same channel (`:attached`, `:handle` the reflection, `:identity` the
-   source's own); a retryable answer stays; any other answer is `:lost`
-   with `:outcome` that answer.  Attached: a channel whose projection
-   closed, or whose link expired, is `:lost` with outcome transport-error
-   naming channel-gone.  Lost, closed and refused dials are answered
-   unchanged."
+   source's own); a retryable answer stays, until `give-up-after` from
+   the dial's first step, when it is `:lost` naming channel-gone; any
+   other answer is `:lost` with `:outcome` that answer.  Attached: a
+   channel whose projection closed, or whose link expired, is `:lost`
+   with outcome transport-error naming channel-gone.  Lost, closed and
+   refused dials are answered unchanged."
   [d now]
   (if-not (contains? #{:resolving :attached} (:status d))
     d
-    (do (ws-project/dial-step! (:dial d) now)
-        (case (:status d)
-          :resolving (resolve-step d)
-          :attached (if (channel-lost? d)
-                      (assoc d :status :lost :outcome channel-gone)
-                      d)))))
+    (let [d (update d :since #(if (some? %) % now))]
+      (ws-project/dial-step! (:dial d) now)
+      (case (:status d)
+        :resolving (let [d (resolve-step d)]
+                     (if (resolve-expired? d now)
+                       (assoc d :status :lost :outcome channel-gone)
+                       d))
+        :attached (if (channel-lost? d)
+                    (assoc d :status :lost :outcome channel-gone)
+                    d)))))
 
 
 (defn handle

@@ -15,6 +15,7 @@
             [clojure.string :as str]
             [dao.space.store.fs :as fs]
             [dao.stream.datagram :as datagram]
+            [dao.stream.remote-channel :as remote-channel]
             [dao.stream.waitset.cadence :as cadence]
             [dao.stream.waitset.driver :as wake]
             [yin.repl :as shell]
@@ -24,7 +25,6 @@
             [yin.repl.serve :as serve]
             [yin.repl.state :as state]
             [yin.repl.store :as store]
-            [yin.vm.linker.head.ws :as head.ws]
             [yin.vm.linker.sign :as sign]))
 
 
@@ -133,7 +133,7 @@
                            (pr-str text))
                       {:value text}))
 
-      (not (head.ws/loopback? host))
+      (not (remote-channel/loopback-literal? host))
       (throw (ex-info (str "--dht-follow " (pr-str text) ": a head board is "
                            "followed on loopback only (127.0.0.1 or ::1)")
                       {:value text}))

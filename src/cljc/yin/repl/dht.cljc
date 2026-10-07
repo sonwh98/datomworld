@@ -40,8 +40,8 @@
      trace on its board (`yin.vm.linker.head/deposit!`) at every HEAD
      write, after `announce!`, at startup for a recovered HEAD, and once
      when a hydration completes (5.4).  Once its socket is bound on a
-     loopback literal it serves the board over WebSocket at the same
-     port number (`yin.vm.linker.head.ws/serve`) and prints the join
+     loopback literal it serves the board at the same port number
+     (`yin.vm.linker.head.board/serve`) and prints the join
      token `yin:<host:port>/<principal>` when that endpoint is bound.
    * A reader (`:follow`, each `{:principal hex :host h :port p}` with a
      loopback host) restores `<dir>/heads.edn` before any connection
@@ -57,13 +57,14 @@
             [dao.space.store :as durable]
             [dao.space.store.fs :as fs]
             [dao.stream :as stream]
+            [dao.stream.remote-channel :as remote-channel]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.repl.index :as index]
             [yin.repl.link :as link]
             [yin.repl.store :as store]
             [yin.vm.linker.dht :as ld]
             [yin.vm.linker.head :as head]
-            [yin.vm.linker.head.ws :as head.ws]
+            [yin.vm.linker.head.board :as head.board]
             [yin.vm.linker.sign :as sign]
             [yin.vm.module :as module]))
 
@@ -264,7 +265,7 @@
                      (re-matches #"[0-9a-f]{64}" principal))
         (refuse (str "--dht-follow names a principal by 64 lowercase "
                      "hexadecimal characters, not " (pr-str principal))))
-      (when-not (head.ws/loopback? host)
+      (when-not (remote-channel/loopback-literal? host)
         (refuse (str "--dht-follow " principal "@" host ":" port
                      ": the head board is followed on loopback only")))
       (when-not (and (integer? port) (<= 1 port 65535))
@@ -433,15 +434,18 @@
 
 (defn close!
   "Release what the head composition holds on the shell's node: the
-   board's listener and every dial.  Idempotent enough for an exit: a
-   listener is asked to stop once per call."
+   board is stopped (`head.board/stop!`) and its first stopping tick run
+   at the node's last tick reading, which closes every session and
+   pending connection and asks the host to unbind; every dial is closed.
+   The host's `:stopped` completion is not awaited: the board serves a
+   read-only ring that stop does not end, so a reader has nothing to be
+   told but the reattachable close it already has."
   [shell]
   (let [node (:dht shell)]
-    (when-some [listener (get-in node [::publisher :server :listener])]
-      (try ((:unbind! (::ws node)) listener (fn [& _] nil))
-           (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+    (when-some [server (get-in node [::publisher :server])]
+      (head.board/serve-step (head.board/stop! server) (or (::now node) 0)))
     (doseq [[_ {:keys [dial]}] (get-in node [::follow :links])]
-      (when dial (head.ws/close! dial)))
+      (when dial (head.board/close! dial)))
     nil))
 
 
@@ -584,20 +588,17 @@
   "Compose the board's endpoint once the node's socket is bound at
    `host`:`port`: `[pub lines]`."
   [pub ws host port]
-  (let [server (if-some [listen! (:bind! ws)]
-                 (head.ws/serve {:board (:board pub)
-                                 :principal (:principal pub)
-                                 :bind-host host
-                                 :bind-port port
-                                 :listen! listen!})
-                 {:status :refused :reason :yin.head.ws/no-listener})]
+  (let [server (head.board/serve {:board (:board pub)
+                                  :principal (:principal pub)
+                                  :spec {:host host :port port}
+                                  :host ws})]
     [(assoc pub :server server :listen [host port])
      (when (= :refused (:status server))
        [(case (:reason server)
-          :yin.head.ws/not-loopback
+          :yin.head/not-loopback
           (str "dht: the head board is served on loopback only; this node "
                "binds " host ", so it serves no board and prints no token")
-          :yin.head.ws/no-listener
+          :dao.stream.remote-channel/no-transport
           "dht: this host has no WebSocket listener: no head board, no token"
           (str "dht: the head board could not bind TCP "
                (address-text host port) ": no board, no join token; "
@@ -613,7 +614,7 @@
                       (serve-board pub (::ws node) (:host bound) (:port bound))
                       [pub nil])
         before (get-in pub [:server :status])
-        server (when (:server pub) (head.ws/serve-step (:server pub) now))
+        server (when (:server pub) (head.board/serve-step (:server pub) now))
         pub (cond-> pub server (assoc :server server))
         [host port] (:listen pub)
         lines (cond-> (vec lines)
@@ -681,7 +682,7 @@
   "Close the dial of a link and schedule the next one after its delay;
    the last failure reported is kept."
   [follower link now]
-  (when-some [d (:dial link)] (head.ws/close! d))
+  (when-some [d (:dial link)] (head.board/close! d))
   (let [delay (next-delay follower (:delay link))]
     {:due (+ now delay) :delay delay :failed (:failed link)}))
 
@@ -701,41 +702,40 @@
        (case failure
          :dao.stream.remote/not-found
          "that endpoint serves no head board for this principal"
-         :dao.stream.remote/channel-gone "the connection was refused or closed"
-         :yin.head/no-answer "the board did not answer"
-         :yin.head.ws/no-connector "this host has no WebSocket dialer"
+         :dao.stream.remote/channel-gone
+         "the connection was refused, closed, or stopped answering"
+         :dao.stream.remote-channel/no-transport
+         "this host has no WebSocket dialer"
          (str failure))
        "; dialing it again"))
 
 
 (defn- step-link
-  "Advance the dial of `principal`'s board: compose one when due, step
-   it, hand a fresh reflection to the follower, and redial a dial that
-   is lost or still resolving after its delay (the host owns its
-   liveness: `yin.vm.linker.head.ws/dial` composes no resend).  Only
-   the address the principal was given is dialed.  Answers `[follower
-   link failure]`, `failure` the keyword that ended a dial this step,
-   or nil."
+  "Advance the dial of `principal`'s board at `now`: compose one when
+   due, step it, hand a fresh reflection to the follower, and redial a
+   dial that is lost.  Liveness is the channel's: a resolve or a read
+   left unanswered for the link's `give-up-after` is lost as
+   channel-gone.  Only the address the principal was given is dialed.
+   Answers `[follower link failure]`, `failure` the keyword that ended a
+   dial this step, or nil."
   [follower ws source link now]
   (cond
     (and (nil? (:dial link)) (some? (:due link)) (< now (:due link)))
     [follower link nil]
 
     (nil? (:dial link))
-    (let [d (if-some [connect! (:connect! ws)]
-              (head.ws/dial {:principal (sign/principal (:principal source))
-                             :host (:host source)
-                             :port (:port source)
-                             :connect! connect!})
-              {:status :refused :reason :yin.head.ws/no-connector})]
+    (let [d (head.board/dial {:principal (sign/principal (:principal source))
+                              :spec {:host (:host source)
+                                     :port (:port source)}
+                              :host ws})]
       (if (= :refused (:status d))
         [follower (drop-dial follower link now) (:reason d)]
-        [follower (assoc link :dial d :since now :handle nil) nil]))
+        [follower (assoc link :dial d :handle nil) nil]))
 
     :else
-    (let [d (head.ws/dial-step (:dial link))
+    (let [d (head.board/dial-step (:dial link) now)
           link (assoc link :dial d)
-          h (head.ws/handle d)]
+          h (head.board/handle d)]
       (cond
         (and h (not (identical? h (:handle link))))
         [(head/attach follower (sign/principal (:principal source)) h)
@@ -744,10 +744,6 @@
 
         (= :lost (:status d))
         [follower (drop-dial follower link now) (lost-reason d)]
-
-        (and (= :resolving (:status d))
-             (< (+ (:since link) (next-delay follower (:delay link))) now))
-        [follower (drop-dial follower link now) :yin.head/no-answer]
 
         :else [follower link nil]))))
 
@@ -965,6 +961,7 @@
     [node (:dht shell)]
     (let
       [[node events] (dht/step node now)
+       node (assoc node ::now now)
        node (reduce (fn [node {:keys [host port], :as event}]
                       (cond-> node
                         (= :bound (::dht/event event))

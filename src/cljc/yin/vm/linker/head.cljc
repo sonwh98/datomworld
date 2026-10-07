@@ -334,6 +334,7 @@
   {:reader nil
    :cursor nil
    :due nil
+   :polled nil
    :answered nil
    :installed installed
    :candidate nil
@@ -393,11 +394,13 @@
 
 (defn attach
   "Give the follower a `dao.stream` reader handle for `principal`'s board:
-   any handle.  Its next step mints `:dao.stream/oldest` on it."
+   any handle.  Its next step mints `:dao.stream/oldest` on it.  A fresh
+   handle has proven nothing: `:polled` and `:answered` are cleared."
   [follower principal reader]
   (followed! follower principal)
   (update-in follower [:principals principal]
-             assoc :reader reader :cursor nil :due nil))
+             assoc :reader reader :cursor nil :due nil
+             :polled nil :answered nil))
 
 
 ;; -----------------------------------------------------------------------------
@@ -521,7 +524,9 @@
   "Read a source once from `cursor` (nil mints `:dao.stream/oldest`), at
    most `budget` operations: `{:values [...] :cursor c :answered? b}`,
    with `:lost outcome` for a lost source and `:more? true` when the
-   budget ran out."
+   budget ran out.  `:answered?` is true only when the source yielded a
+   positioned fact (cursor ok, next ok or gap): a `blocked` may be the
+   handle's own and proves nothing about the source."
   [reader cursor budget]
   (loop [cursor cursor
          values []
@@ -549,7 +554,8 @@
                                 true
                                 (dec left))
           :dao.stream/gap (recur (:dao.stream/cursor r) values true (dec left))
-          :dao.stream/blocked {:values values :cursor cursor :answered? true}
+          :dao.stream/blocked {:values values :cursor cursor
+                               :answered? answered?}
           (if (retry? r)
             {:values values :cursor cursor :answered? answered?}
             {:values values :lost (:dao.stream/outcome r)
@@ -558,8 +564,9 @@
 
 (defn- poll
   "Poll `principal`'s source when it is due, judging every value it
-   yields in order: `[follower node events]`.  A lost source is dropped
-   with its cursor and reported once."
+   yields in order: `[follower node events]`.  `:polled` is set to `now`
+   on every poll, `:answered` only when the source yielded a positioned
+   fact.  A lost source is dropped with its cursor and reported once."
   [follower node principal now]
   (let [{:keys [reader cursor due]} (get-in follower [:principals principal])]
     (if (or (nil? reader) (and due (< now due)))
@@ -569,6 +576,7 @@
             follower (update-in follower [:principals principal]
                                 (fn [st]
                                   (cond-> (assoc st
+                                                 :polled now
                                                  :cursor (:cursor read)
                                                  :due (if more?
                                                         now
@@ -746,7 +754,8 @@
   "Per followed principal: what is installed (`:installed` the trace,
    `:floor`, `:manifest`), the candidate and its state, the last
    refusal, the last observation (`:observed`, with its verdict), and
-   whether a source is attached and the reading it last answered at."
+   whether a source is attached, the last poll (`:polled`) and the last
+   poll at which the source yielded a positioned fact (`:answered`)."
   [follower]
   (into (sorted-map)
         (map (fn [[p {:keys [installed candidate] :as st}]]
@@ -759,6 +768,7 @@
                    :refusal (:refusal st)
                    :observed (:observed st)
                    :source? (some? (:reader st))
+                   :polled (:polled st)
                    :answered (:answered st)}]))
         (:principals follower)))
 

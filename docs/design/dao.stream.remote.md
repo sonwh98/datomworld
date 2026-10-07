@@ -563,7 +563,11 @@ composition drives at its own cadence, as it drives `endpoint-step`.
 `dao.stream.remote-channel` is the stepped composition over this channel:
 `serve`/`serve-step`/`stop!` and `dial`/`dial-step`/`close!` over a
 portable endpoint specification it formats into the ws descriptor itself,
-with its `production-bounds` profile as the composition data of 3.0.
+with its `production-bounds` profile as the composition data of 3.0. A
+connection that never opens refuses every send (`full`), so the link holds
+no outstanding request to stamp a deadline on; the dial bounds its whole
+resolving phase by the same `give-up-after` from its first step and is then
+lost as `channel-gone`, the connect half of the same liveness.
 
 Direction is establishment, not authority. A WebSocket has a dialer and an
 acceptor because TCP does. Once established the channel is symmetric and
