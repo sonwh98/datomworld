@@ -10674,3 +10674,35 @@ Next:
   - Monitor S3a-1 implementation by Claude Opus 5.5.
   - Run independent adversarial review and architectural sign-off on S3a-1.
   - Land S3a-1 on master, then proceed immediately to S3a-2.
+
+## 2026-10-08 00:48:45 +07 — Track B: Cross-Machine Stream Slice S3a-1 landed on master
+Completed-GMT: 2026-10-07 17:48:45 GMT
+Coding-Agent: agy (interactive orchestrator seat)
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
+Tree: master@1502534a (== origin/master)
+Done:
+  (1) Cross-Machine Stream Track Sub-slice S3a-1 landed on master (1502534a):
+      - `src/cljc/dao/stream/remote_channel.cljc`: generic stepped channel composition, 20-key production bounds profile, explicit stop, and lifecycle observation.
+      - `src/cljc/dao/stream/ws.cljc`: `(endpoint-stop! endpoint)` (slot clearing, 1001 close code, terminal event).
+      - `src/cljc/dao/stream/ws_project.cljc`: `(stop! acceptor)`, `(close-sessions! acceptor)`, and `:gone?` link detection.
+      - Test suite & fixtures: `test/dao/stream/loopback_net.cljc` (public loopback net fixture) and `test/dao/stream/remote_channel_test.cljc` (15 thorough test cases covering D5 evidence: blackhole vs idle, flood defense, lost close event recovery, missing callbacks, lifecycle gaps, and session caps).
+      - Design documents amended: `docs/design/dao.stream.remote.md` and `docs/design/dao.stream.ws.md`.
+  (2) Independent Adversarial Review & Reconciliation:
+      - Independent adversarial review by Claude Opus 5.5 (verdict: ACCEPT).
+      - Cross-check by Qwen 3.8 Max via cmd.
+      - Finding F1 reconciled: released accepted sessions when refused during :starting.
+      - Finding F4 reconciled: ordered reader conditionals `#?(:cljd Object :clj Exception :cljs :default)` for ClojureDart compatibility.
+  (3) Formal Architectural Sign-Off:
+      - Final Architectural Sign-Off granted as ACCEPTED by Lead System Architect (claude-fable-5-1) in `archive/1791391000000-architect-stream-s3a-1-signoff.claude-fable-5-1.findings.md`.
+      - All 15 collaboration artifacts from S3a-1 moved to `archive/` under git tracking.
+Verification:
+  - JVM (`clojure -M:test`): 77 tests / 436 assertions focused remote/ws stream; 3,699 tests / 237,960 assertions full fast suite, 0 failures.
+  - Dart (`bb test:cljd`): 3,507 tests passed, 0 failures, 0 errors.
+  - Node / CLJS (`bb test:cljs`): 3,555 tests / 102,359 assertions, 0 failures, 0 errors.
+  - Linter: `clj -M:kondo --lint` 0 errors, 0 warnings.
+Delegates:
+  - Lead System Architect: claude-fable-5-1 (S3a-1 Sign-Off: ACCEPTED).
+  - Implementation Engineer: claude-opus-5-5 (S3a-1 implementation: complete).
+  - Reviewer: claude-opus-5-5 & qwen/qwen3.8-max.
+Next:
+  - Dispatch Track B Sub-slice S3a-2 (Neutral board composition `yin.vm.linker.head.board`, honest `:answered`, stream-side liveness).
