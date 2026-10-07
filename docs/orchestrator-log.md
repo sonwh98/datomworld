@@ -10787,3 +10787,41 @@ Delegates:
   - Adversarial Reviewer: gpt-6.1-sol (Codex).
 Next:
   - Land Track A Slice P1 (Linked Prelude Decoupling) upon completion of test suite and sign-off.
+
+## 2026-10-08 05:05:00 +07 — Track A: Phase C4 Slice P1 landed on master
+Completed-GMT: 2026-10-07 22:05:00 GMT
+Coding-Agent: agy (interactive orchestrator seat)
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
+Tree: master@94e03ffd (== origin/master)
+Done:
+  (1) Phase C4 Track A Slice P1 (Linked Prelude Decoupling, py/init!, builtins dict) landed on master (94e03ffd):
+      - Decoupled Python prelude runtime allocation from definition, moving toward linked prelude modularity.
+      - `src/cljc/yang/python/antlr/prelude.cljc`:
+        * A1/A2: Introduced unified `definitions` list containing pure lambda definitions, literal `py.rt/state = :py/uninit`, and `py/init!` lambda. `py/init!` allocates runtime cells (`ctx`, `limit`, `out`), classes in base-before-subclass order, functions, and methods; seeds `py.b/builtins` dictionary; and writes `:py/ready` as its final write. Subsequent calls return `:py/None` without allocating.
+        * A3: Separated visible `builtin-functions` (25 Python functions) from `method-implementations`. Method functions are omitted from `builtins` dict.
+        * A4: Reimplemented `py/global-get` with dynamic fallback: checks `%globals` dictionary key presence first, then current `py.b/builtins` dictionary key presence, raising canonical `py.b/NameError` if absent from both.
+        * A6: Completely removed static `builtin-names` lookup map from compiler and runtime.
+      - `src/cljc/yang/python/antlr/lower.cljc`:
+        * Lowered `read-global` into a 2-arm dynamic lookup (checking `%globals` first, then `py/global-get`), eliminating all compile-time `builtin-names` references.
+      - Goldens and consumers:
+        * Re-pinned UAST and AST goldens in `test/yang/python/antlr/lower_test.clj` and `test/yang/python/antlr/float_address_test.cljc`.
+        * Updated `test/yang/python/antlr/int_conv_test.cljc` to inspect `prelude/definitions`, extending literal string linting across all prelude forms.
+      - Design documentation:
+        * Updated `docs/design/yang.antlr.md` §8.5.6 to record P1 completion and `py.rt/state` lifecycle.
+  (2) Independent Adversarial Review:
+      - Independent adversarial review by Codex (`gpt-6.1-sol`): verdict ACCEPT in `archive/1791401000000-reviewer-c4-p1.codex.findings.md`.
+  (3) Formal Architectural Sign-Off:
+      - Final Architectural Sign-Off evaluated and granted as ACCEPTED by Lead System Architect Codex (`gpt-6-astra`) in `archive/1791402000000-architect-c4-p1-resignoff.codex.findings.md`.
+      - Known repository baseline defect (missing `test/resources/yin/vm/ucf/handoff-v2.txt` in UCF census test) documented as an accepted pre-existing failure outside ANTLR/Python.
+      - All P1 collaboration artifacts archived under `archive/` under git tracking.
+Verification (Multi-Host Gate Complete):
+  - JVM (`clojure -M:test`): focused fast suite: 135 tests, 1,414 assertions, 0 failures, 0 errors; slow suite (`clojure -M:test -i :slow ...`): 76 tests, 2,645 assertions, 0 failures, 0 errors.
+  - Node / CLJS (`bb test:slow:cljs`): 354 tests, 43,202 assertions, 0 failures, 0 errors.
+  - Dart (`bb src/dev/cljd_agg.clj`): focused fast lane (57 tests passed, 0 failures); slow lane with `DATOM_SLOW_TESTS=1` (32 tests passed, 0 failures) across walker, semantic, stack, and register VMs.
+  - Formatting / Linter: `cljstyle check` clean (exit 0), `clj -M:kondo --lint` 0 errors, 0 warnings, `git diff --check` clean.
+Delegates:
+  - Lead System Architect: claude-fable-5-1 (specification) & gpt-6-astra (sign-off: ACCEPTED).
+  - Implementation Engineer: claude-opus-5-5 (P1 implementation & verification).
+  - Adversarial Reviewer: gpt-6.1-sol (Codex).
+Next:
+  - Proceed with Phase C4 Slice P2 (Linked Unit Emitter & Module Dicts) or Track B Slice S4 (Cross-Machine Stream off loopback) per project roadmap.
