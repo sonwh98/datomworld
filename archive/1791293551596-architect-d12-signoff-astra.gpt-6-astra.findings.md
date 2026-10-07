@@ -1,0 +1,13 @@
+The tests cover successful recording and replay, but I found a possible live-progress gap: a blocked first waiter remains first after its acknowledgment, so later waiters may never be observed. I’m also checking failed cursor observations before concluding the review.
+
+
+Completed-GMT: 2026-10-06 13:33:50 GMT
+Completed-Local: 2026-10-06 20:33:50 +0700
+
+CHANGES
+
+1. **Prevent a blocked first waiter from starving later observations.** [reader.cljc:491](/Users/sto/workspace/datomworld-d12/src/cljc/yin/vm/ucf/holder/reader.cljc:491) always observes the first candidate. After acknowledging `:dao.stream/blocked`, `apply-next` retains that waiter unchanged; the next step selects it again. An empty first stream therefore prevents a later ready stream—including one in a child—from progressing, while recording blocked outcomes indefinitely. Implement deterministic scan progress across acknowledged observations without reordering wait entries or weakening replay’s first-matching-source rule. Pin an empty first stream and ready second stream: the second must progress, each observation must await acknowledgment, and replay must reproduce the delivery without live reads.
+
+2. **Validate cursor outcomes before installing positions.** [reader.cljc:287](/Users/sto/workspace/datomworld-d12/src/cljc/yin/vm/ucf/holder/reader.cljc:287) unconditionally extracts `:dao.stream/cursor` for both mint kinds. Legal cursor outcomes include `:closed`, `:refused`, `:invalid-anchor`, and `:transport-error`; these carry no successful position. Acknowledging one currently installs a nil cursor, clears the unminted marker or adds the link’s `:cursor` key, and advances input state as though minting succeeded. Apply only validated successful positions; define and implement the failure disposition consistently for live acknowledgment and replay. Pin each failure family and malformed success, proving no invalid cell becomes readable and no link becomes sendable.
+
+The implementation otherwise preserves held requests across recording retries, authenticates acknowledgments, uses the required source shapes, and guards root-path updates correctly. The authored divergence case and opaque request-ID fixture are acceptable test techniques. However, the reported green lanes do not cover these live-progress and cursor-failure paths; both affect the reader’s core contract. No files were edited and no suites were run.

@@ -1,0 +1,128 @@
+Completed-GMT: 2026-09-20 19:09:33 GMT
+Completed-Local: 2026-09-21 02:09:33 +07 (Indochina Time)
+
+# Adversarial code review: de Bruijn projection, D0+D1
+
+I found no P1. There are three P2s and six P3s. Two of the P2s change bytes that D2 and D3 will hash, and one of those also changes the D0 descriptor hash, so they should be fixed before D2 starts. This was a static review: I edited nothing and ran no suites.
+
+## Conformance (items 1–4 and 6)
+
+**§2 framing and validation**
+- **Framing.** `frame-datoms` closes a graph at `:yin/root true` and starts the next one empty, so the fact index resets per frame (`debruijn.cljc:349-368`). `adjacent-rooted-graphs-reset-the-fact-index` shows that both graphs reuse the same temporary ids.
+- **Root count.** `frame-root` requires exactly one root, and separates the missing case from the several case (391-404).
+- **Asserts only.** `check-datom` reads the retract op through `(:db/retract datom/reserved)` and accepts any other `m` (343). The `restamped` test projects identically with `m = 42`.
+- **Attribute namespaces.** Attributes outside the `yin` namespace are ignored (379). An unknown `:yin/*` attribute on a walked node is a diagnostic (418-429).
+- **Tolerated metadata.** `:yin/tail?` and `:yin/macro-name` are in `known-attributes` and appear in no output node. Both have tests.
+- **Unexpanded macros.** A call site is detected when an application's operator is a `:lambda` with `:macro? true` (432-446). The limit of that rule is stated in the ns docstring and the function docstring.
+
+**§2 grammar and §3 scopes**
+- `node-grammar` matches the design's table and the emitter arm for arm, and `:vm/store-put`'s `:yin/value` is a scalar there.
+- Child order is fixed inside `build-node`: operator then operands; test, consequent, alternate; target then value.
+- `resolve-name` searches frames from inner to outer, and positions right-to-left within a frame (537-557).
+- A new frame is pushed at index 0 by `(into [params] stack)` (602).
+- The `bind-params` parity test checks the behaviour itself. It asserts `(nth args bound)` equals the VM's binding, and that the binding is 2.
+
+**Memo**
+- The key is `[eid stack]`, where `stack` is the complete stack of frame parameter vectors.
+- The cached value is a pure function of that key, so the memo cannot change any output.
+- The cycle check runs before the memo lookup (682-686).
+
+**Descriptor (item 2)**
+- It is a d3 subgraph, as `datom.md`'s meta-protocol lays out.
+- Its 22 slots are in §4's order.
+  - `macro-name` is absent.
+  - `:hash` and `:root` carry the `:marker` role and are listed under `:hash-excluded-slots`.
+- `dimension-hash` is `jing/content-hash` of the descriptor. That print is order-normalized, so the descriptor's maps are safe.
+- The numeric bounds in the value table are symbolic, which keeps the descriptor's print the same on every host.
+- Requiring `dao.jing` from `yin.vm.*` already has a precedent in `yin.vm.content`.
+
+**NFC seam (item 3)**
+- `normalize-nfc` is the one seam, with a branch for each of the three hosts.
+- The rest of the namespace never calls it.
+- Scope resolution compares raw symbols, which is correct because the VM does the same.
+
+**Box compliance (item 4)**
+- `git status` shows only `pubspec.yaml`, `pubspec.lock` and the two new files.
+- No existing test file is touched.
+
+**The delegate's store-put concern (item 6): refuted.** The orchestrator's reading is right.
+- The emitter writes `(:val node)` raw (`vm.cljc:599-601`).
+- `datoms->ast` reads it with `get-attr` and no recursion (694-696).
+- The slots table declares `[:val :data]` (807).
+- The walker assocs `(:val node)` into the store without evaluating it (`ast_walker.cljc:419-421`).
+- Scalar treatment is therefore consistent from end to end.
+
+## Findings
+
+**P2 | `debruijn.cljc:357-367` | `frame-datoms` counts datoms from ignored namespaces toward a partial frame.**
+- A stream may carry `:yin.code/*` datoms, or macro-expander event datoms, after the last root marker.
+- §2 says such attributes are "ignored", so a stream that ends there should frame cleanly. Here it ends in `:partial-frame`.
+- `transaction-metadata-and-other-namespaces…` appends its decoration after the root, but it calls `project-datoms`, so the framing path is never exercised.
+- Fix: test `partial` for `:yin/*` datoms only. Add a framing test with trailing datoms from another namespace.
+
+**P2 | `debruijn.cljc:606-610` | `:yin.debruijn/macro?` is copied when present, so an explicit `false` and an absent attribute give different nodes.**
+- A producer that writes `:yin/macro? false` yields a node that differs from the absent form.
+- D2 would hash the two differently for one term. That is dependence on emission history again.
+- Fix: emit the slot only when it is `true`. Add a test that `false` and absent project identically.
+
+**P2 | `debruijn.cljc:59-60, 75, 242` | The `:seq` class merges lists and vectors, and that collision is not among the declared limits.**
+- §5 of the design names no sequence class.
+- The value table sits inside the descriptor, so this decision is part of the dimension hash.
+- A program can tell the two apart with `vector?`.
+- Fix: either split `:vector` from `:list`, or add the collision to `:limits` and to §5 beside the NFC and `1`/`1.0` limits.
+- The choice should be made now. Changing it later re-mints the dimension.
+
+**P3 | `debruijn.cljc:728` | `project-datoms` assocs `:yin.debruijn/root true` into the root node map.**
+- `{:root node}` already marks the root.
+- The extra key makes a root differ from the identical subterm. D2 must then remember to strip it, as `:hash-excluded-slots` already requires.
+- The node would be better left unmarked.
+
+**P3 | `debruijn.cljc:458, 180-184` | On cljd, a non-number in an `:int64` slot may raise a host type error in place of a diagnostic.**
+- `slot-kind-ok? :int64` calls `numeric-class` on any value.
+- On cljd a non-number such as a string `:yin/buffer` reaches `.floorToDouble`. That can raise a host type error where an `:unsupported-value` diagnostic was expected.
+- Fix: guard the call with `(number? v)`.
+
+**P3 | `debruijn.cljc:142-149` | The docstring says the dimension's identity "does not change", but D3 will re-pin the digest.**
+- No test pins the hash as a literal, so agreement across hosts is unproven until D3.
+- This is acceptable for D0.
+- The docstring should say that the descriptor is stable and the digest is transitional.
+
+**P3 | `debruijn.cljc:219` | On a JS-compiled Dart target, `int?` holds for integral doubles.**
+- The safe-integer rule then applies there too.
+- The cljd lane is native today, so a note is enough.
+
+**P3 | tests | Two rows are thinner than they look.**
+- Nothing compares output with the memo against output without it. That the memo cannot affect output rests on the purity argument above.
+- `shared-nodes…` with equal contexts shows equality only. It does not show that the memo was hit.
+
+**P3 | vocabulary note | The walker has a `:vm/store-update` arm that the emitter cannot emit.**
+- The arm is at `ast_walker.cljc:427`.
+- The projection correctly treats that type as unknown.
+- No action is needed.
+
+## §8 rows exercisable at D0+D1 (item 5)
+
+- **Present, by test name:**
+  - renamed binders at one and several levels;
+  - shadowing with `[frame-depth position]` results;
+  - duplicate parameters;
+  - preserved free names;
+  - every node type in grammar order;
+  - fixed child order;
+  - shuffled input;
+  - `t`, `m` and other namespaces kept out of identity;
+  - tolerated emission metadata;
+  - the tail flag;
+  - shared nodes under equal and unequal contexts;
+  - adjacent graphs;
+  - partial frames;
+  - the full diagnostic set: dangling refs, duplicate facts, cycles, root count, unknown types, unknown attributes, retracts, unexpanded macros, unsupported values and malformed inputs;
+  - the numeric classes, including the JS safe-integer rule;
+  - the NFC seam;
+  - the essay example.
+- **Verified by reading:**
+  - the dimension, duplicate-parameter, shuffle, metadata, tail-flag, shared-node, adjacent-graph and partial-frame tests compare against real emitter output, and none is vacuous;
+  - the shared-node test for unequal contexts gives bound `[0 0]` in one and free `x` in the other;
+  - the remaining tests I checked by name only.
+
+READY for architect sign-off. No P1 blocks it. The three P2s should be applied before D2 begins, because the `macro?` and `:seq` decisions change the hashed bytes, and the `:seq` decision also changes the descriptor hash.

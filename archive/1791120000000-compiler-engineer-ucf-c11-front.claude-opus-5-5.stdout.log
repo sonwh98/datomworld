@@ -1,0 +1,29 @@
+C11 is built test-first. The JVM focused run over every `yin.vm.ucf.*` and `dao.stream.journal*` namespace passes: 265 tests, 2043 assertions, 0 failures. I did not run Node or Dart, as you asked, and no git writes were made. cljstyle could not run because the permission gate blocked the binary again, as in C5 to C10; please run `cljstyle fix` and `check` on the two new files.
+
+**What was added** (no shared file was touched):
+- `src/cljc/yin/vm/ucf/authority/front.cljc`, with:
+  - `requests`: the closed set (offer, proposal, resumed report, release, input, admit).
+  - `front`: makes one holder's front state from the authority value and the streams.
+  - `step`: reads at most n requests from the held cursor, answers each, and returns the next state.
+  - `reply-evidence`: the out-attribution rule.
+- `test/yin/vm/ucf/authority/front_test.cljc`: 20 tests. One is JVM-only (the vocabulary guard), wrapped `#?(:cljd nil :clj ...)` with `:cljd` first.
+
+**How it behaves:**
+- **Answers:** offer, report, input and admit go to the landed functions. Their replies carry the direct answer unchanged, and the ledger records equal the direct path's.
+- **Proposal and release:** the front puts the lease fact on the author's lease-fact stream, and the judge decides on its next `grant/step!`. A release goes through C8's completion.
+- **Defective requests:** a malformed request or an unknown kind is a `:malformed` diagnostic; no resolved author is a `:wrong-author` diagnostic. Either commits nothing, carries nothing, sends no reply, and appends exactly one diagnostic. A failed diagnostic append comes back as data.
+- **Poison:** a poisoned authority answers `:suspended` to all six request kinds.
+- **Retry:** a repeated offer, report, input or admit answers `:replayed`; a repeated proposal still produces one grant.
+- **Forged outcomes:** a forged `:committed` or `:intent-conflict` from any other author is no evidence. The evidence survives canonical CBOR and a `dao.stream.remote` reflection.
+- **Step:** never reads past the tail and never loops; a gap on the inbound counts as one read.
+
+**Checks:** all 20 tests failed against a stub before the implementation. Ten mutations, one per key guarantee, each turned the suite red and were reverted, with `cmp` confirming the restore. Adding "transport" to a docstring made the vocabulary guard fail. kondo is clean, and the files are ASCII with no line over 80 columns.
+
+**Decisions you may want to review** (12 questions in the report):
+- **Carriage, not stepping:** the front holds no judge. It appends proposals and releases to the author's lease-fact stream, which the composition supplies. The judge's resolver must attribute that stream to the same author the front resolved, so two resolvers have to agree.
+- **Request id required:** every request needs a holder-chosen `:yin.k/request-id`, echoed in the reply, so reports and carried facts have something to correlate on.
+- **Thrown appends:** a thrown append is reported as `{::threw true}` rather than `:dao.stream/transport-error`, because the vocabulary guard bans that keyword in this namespace.
+- **No position reference:** a `:committed` reply does not reference the outcome projection position; the brief said "may", and I left it out.
+- **Wider guard:** besides transport, apply and rpc, the guard bans the same extra words as `dao.stream.apply-test` (remote, client, server, socket, wire, network). It reads the whole source file, keywords included.
+
+The report is at `collab/1791120000000-compiler-engineer-ucf-c11-front.findings.md`. The mutation script is in the ignored `target/c11mut/`.

@@ -1,0 +1,36 @@
+Completed-GMT: 2026-09-28 12:50:42 GMT
+Completed-Local: 2026-09-28 19:50:42 +07
+Coding-Agent: claude
+Session-ID: 7fcb4501-80b2-43a3-8511-32424dd6f0d4
+
+P1, P2 and the gap ruling are all done, and the focused JVM set and `bb test:cljs` pass with no failures. cljstyle did not run because the permission gate refused it, so formatting is unchecked. The changes stay in the same three files as r1; nothing is staged or committed.
+
+## P1: publications larger than the intake
+- **Fix:** the indexer's intake is now a `dao.stream.memory-log`, which keeps everything, instead of the 4096-payload ring buffer. A publication of any size can be appended in full and then drained into the store. No `dao.space` changes were needed.
+- **Read-back:** after draining, the manifest is read back from the store with `read-manifest` before it is reported as published. A drain problem is recorded as a `:materialize` failure and a throw as a `:publish` failure.
+- **Test:** `a-publication-beyond-the-old-intake-bound-completes` publishes one history of more than 4096 payloads. It checks that the manifest count and every datom read back from the store match what was committed.
+
+## P2: failures are visible
+- **`repl-state :index`** now reports `{:transactions :published? :lost? :gaps :failure}`. It leaves out the manifest address and session token, so every VM reports the same value. `yang.clojure.stream-eval-test` passes unchanged.
+- **Round result:** any round whose code was not committed, not published or not indexed gets one `Warning: …` line after its normal answer. Healthy rounds look exactly as before.
+- **Test:** `a-publication-failure-is-reported-in-the-round-and-repl-state` uses a store that refuses writes. It checks for the warning line and that `repl-state` shows `:published? false` with a `:publish` failure.
+
+## Owner ruling on index gaps
+- **Evaluation continues:** an index-reader gap no longer blocks evaluation. The shell's gap count covers only the evaluator's own readers again, so their existing behaviour is unchanged.
+- **Lost until reset:** a gap marks the indexer lost. From then on it reads past programs but indexes none, and each round carries a warning, until `(reset)` or `(vm …)` rebuilds it.
+- **Tests:** the unit-level test and the updated shell-level test cover this. The shell test checks that evaluation continues with the warning, the indexer stays lost, and reset gives a healthy status with the same store.
+
+## Verification
+- **kondo:** 0 errors, 0 warnings on the three files.
+- **`yin.repl.index-test` alone:** 9 tests, 77 assertions, 0 failures.
+- **Focused JVM** (`yin.repl.index-test`, `dao.space.transactor-test`, `yang.clojure.stream-eval-test`, `yin.repl-test`, the store-write audit and every `yin.repl.*` namespace): 165 tests, 1308 assertions, 0 failures, 0 errors. The main-test flake did not occur this time.
+- **`bb test:cljs`:** 2203 tests, 50041 assertions, 0 failures, including `yin.repl.index-test`.
+- **Not run:** `bb test:cljd` (as instructed) and the full JVM suite.
+
+## Concerns
+- **Memory:** because the intake keeps everything and each round republishes the whole history, intake memory grows roughly quadratically with the number of programs. That adds to the known quadratic publish time.
+  - A bounded fix inside `yin.repl` would be a fresh intake for each publication, calling `publish-index!` directly on the indexer's own log. I didn't do it because it bypasses `transactor/publish!`.
+  - An incremental publish in dao.space would fix both time and memory.
+- **Unverified:** the ClojureDart compile of the changed namespaces, and cljstyle formatting.
+
+The full report is at `/Users/sto/workspace/datomworld/collab/1790597280000-vm-engineer-repl-code-index.claude-opus-5-5.report-r2.md`.

@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-24 13:03:29 GMT
+Completed-Local: 2026-09-24 20:03:29 +07
+Coding-Agent: glm
+Session-ID: a2749e73-2e44-4716-8a1f-6ad0cc1d82d9
+
+`docs/design/yin.vm.linker.md` is now revision r6: 2,257 lines, pure ASCII, no line over 80 columns, uncommitted. Each round-5 finding, and what r6 did:
+
+**1. PARTIAL — Dominance, lambda discharges, scanner signatures — agreed.**
+A body occurrence is now discharged only by an unconditional definition **proven to execute before every application of the enclosing closure** (4.2 step 5a): every application site (`:applications-fn`, including calls of imports and function-argument primitives) is treated as a possible application of every closure; a site inside another body reduces to a dominated main-sequence site or to post-halt; an export-only image with no site discharges against all unconditional definitions, whose post-halt reads run against the module store. r5's "fails in the child at run time" claim is withdrawn with the reason named: `resolve-var` (`yin.vm.engine`) falls through to primitives and the module registry, so an early read can bind an ambient, unchecked name. The format record gains `:applications-fn`; the 4.1 template and all four examples in 5.1–5.4 now return the position-bearing records of the shared scanner shape.
+
+**2. PARTIAL — Attachment, positional hashes, per-task lowering — agreed.**
+Entries record a per-image identity checked against the offset table (whose first row is the base image, making it the kernel's complete inventory); `:hash` is never a restore key, restores write registers and never assign `:segment` — the exact defects in `stack-restore`/`register-restore` today — and lifted continuations carry image-relative `[identity rel-pc]` pairs rebased by the receiving table. The scheduler registry holds the portable lifted slice (`:slice`/`:store`), and each receiving task attaches and lowers against its own coordinates into its own `:modules` entry; 7.2/7.3/I7/8.3 were swept for the single-registry assumption, and criterion 11 restated.
+
+**3. NEW P1 — Module-local store isolation — agreed.**
+The child's halted store crosses as `:yin.k/store` beside the exports (UCF 7.6.2's slice discipline); closure markers carry `:yin.k/store-of` the manifest address (shown in both marker variants); each receiving task lowers an isolated `:module-stores` entry; closure-body free reads and writes resolve through it — module store first, receiver bindings second, ambient store never — shared per task, never across tasks; transitive through re-exports.
+
+Supporting changes: criteria 12/15/17 amended and new criterion 23; M4 tests extended (module store, dominance matrix, pre-attach parked entry, two-waiter lowering); file box updated with a scoped must-not-change amendment for the `:store-of` consult; one new open decision (cross-task module stores); Section 13.1 carries the r6 record, prior rounds shifted to 13.2–13.5.
+
+Next step: hand r6 to `gpt-6-sol` for the round-6 consensus review.

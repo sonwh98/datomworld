@@ -1,0 +1,94 @@
+Completed-GMT: 2026-10-05 16:24:10 GMT
+Completed-Local: 2026-10-05 23:24:10 +07
+Coding-Agent: claude
+Session-ID: 2e396723-5628-413b-b406-88d743d2aa93
+
+## Summary
+
+All five parts of H1 are done, and every bullet under H1 has a test, except one design rule flagged at the end. The focused JVM runs are green. I ran no Node or Dart, no git and no formatter.
+
+## Changed files
+
+- `src/cljc/dao/space/dht.cljc`:
+  - The kind-conflict refusal in `load`.
+  - New `abandon`.
+  - The client is now stepped whenever it holds anything (`client-holds?` in `advance-loads`).
+  - `forget` is untouched.
+- `src/cljc/yin/repl/query.cljc`: a new `refusable-call`. `load-index` and `load-module` in `dht-answer` now answer a refusal of any code as the call's error value. `publication-call` now goes through it.
+- `src/cljc/yin/vm/linker/dht.cljc`: `installed-key`, `installed-heads`, and `snapshots` now includes the installed heads.
+- `src/cljc/yin/vm/linker/head.cljc`: adds `board`, `deposit!`, `follow`, `attach`, `step`, `install`, `heads`, `records`, `moved` and `candidate-kind`. H0's four functions are unchanged.
+- `test/dao/space/dht_test.cljc`: 7 new tests.
+- `test/yin/repl/dht_test.cljc`: 1 new test, `both-load-operations-answer-a-refusal-as-data`.
+- `test/yin/vm/linker/head_follow_test.cljc`: new file, 16 tests.
+- `docs/design/yin.vm.linker.dht.md`: sections 1, 7.2, 9 (two refusal rows plus the host-module sentence), 10 and 13. I also amended section 4.3, which the design does not list: its "left as it is" rule had become false.
+- `docs/design/dao.jing.dht.md`: a pointer in section 1.
+
+## Commands and outcomes
+
+- `clj -M:test -n dao.space.dht-test -n yin.repl.dht-test -n yin.vm.linker.head-test -n yin.vm.linker.head-follow-test -n yin.vm.linker.dht-test`: 128 tests, 38191 assertions, 0 failures.
+- `clj -M:test` over the other test namespaces that use the changed code (ast-query-e2e, index, main, query, require, closure, dht-end-to-end, publish, ucf.handoff): 154 tests, 1747 assertions, 0 failures.
+- `clj -M:kondo --lint` on the 4 sources and 3 test files: 0 errors, 0 warnings.
+- `yin.repl.dht-process-test` (real loopback processes) was not run.
+
+## H1 criteria (all done)
+
+| Criterion | Pinned by |
+|---|---|
+| `forget` untouched; no existing test needed migrating | `forget-clears-…` passes as written. Nothing relied on the old silent no-op across kinds, so I migrated no test. |
+| Host module translates the refusal | `both-load-operations-answer-a-refusal-as-data` |
+| `abandon`: removes the record, no event, refused when not loading | `abandon-is-refused-for-a-record-that-is-not-loading` |
+| Abandon before submission (request ring full) | `abandon-before-submission-retires-the-unsent-request` |
+| Abandon after submission, answer not yet arrived | `abandon-after-submission-retires-the-outstanding-id` |
+| Late answer dropped, no blob stored, no event | `a-late-answer-to-an-abandoned-load-is-dropped` |
+| Same address loaded again gets a new id and completes | `an-abandoned-address-loaded-again-completes-on-its-own-answer` |
+| Two loads on one address, one abandoned, the other completes | `abandoning-one-of-two-loads-fetching-one-address-spares-the-other` |
+| Shared candidates (all four sub-cases) | `shared-candidates-are-one-record-with-two-owners` |
+| A publishes and deposits; B installs and resolves; republish | `a-first-contact-reader-installs-sequence-zero-then-follows` |
+| First transaction: sequence 0, then sequence 1 | same test |
+| Ten deposits between two polls install one head | `ten-deposits-between-two-polls-install-one-head-the-last` |
+| A candidate is not resolvable | `a-candidate-is-in-no-snapshot-set` |
+| Wrong-sequence trace X, both floors, all four orders | `a-wrong-sequence-trace-is-rejected-in-every-order` |
+| An unfinished load does not block | `an-unfinished-load-does-not-block-a-newer-head` |
+| Alternating replay, both phases | `alternating-replay-keeps-safety-without-progress` asserts installs `[10 11 13]`; stable over 3 runs. |
+| Two wrong traces alternating | `two-wrong-traces-alternating-are-walked-locally-and-never-resolve` |
+| Unloadable candidate | `an-unloadable-candidate-keeps-the-head-and-retries-after-the-delay` |
+| Failed load made by hand | `a-failed-load-made-by-hand-is-restarted-as-an-index-load` and `a-load-index-by-hand-of-a-loading-candidate-is-a-kind-conflict` |
+| Durable before used | `a-confirmed-head-is-used-only-after-install` |
+| A lost source (`cursor-mismatch` and `end`) | `a-lost-source-is-reported-once-and-a-fresh-handle-reads-again` |
+| `deposit!` refusals append nothing | `deposit-refuses-and-appends-nothing` |
+| Two nodes following each other reach quiescence | `two-nodes-following-each-other-reach-quiescence` |
+| `moved` | in the first-contact test |
+
+I also added `follow-refuses-a-record-that-fails`, which covers startup refusals (unfollowed, bad proof, not local, sequence mismatch, more than 64).
+
+## Return shapes I chose
+
+- **`deposit!`** answers `{:status :ok :trace t}`. A refusal is `{:status :refused :reason r …}`, with `r` one of `:yin.head/seq-collision`, `:yin.head/seq-regression`, `:yin.head/empty`, `:yin.head/no-key`, or `:yin.head/unappended` if the append fails.
+  - I namespaced the design's bare `:seq-regression`, `:empty` and `:no-key`.
+  - Depositing the same manifest at the same sequence again appends nothing.
+  - "The last signed" is read from the board's current value; no counter is stored.
+- **`follow`** answers `[follower node]`, not just a follower. The installed heads have to be recorded on the node value for `snapshots` to see them. A startup refusal throws `ex-info` with `:yin.head/refused` and the principal.
+- **`step` and `install`** answer `[follower node events]`.
+  - Each event is `{:yin.head/event e :principal p …}`.
+  - `:refused` carries `:reason` and `:trace`, plus `:index-seq` for a sequence mismatch.
+  - `:unloadable` carries `:failure`; `:source-lost` carries `:outcome`.
+  - A refused `install` emits `:refused` with `:yin.head/not-confirmed` and returns the follower and node unchanged.
+- **`heads`** answers a sorted map from principal to `{:installed :floor :manifest :candidate :refusal :observed :source? :answered}`. The `:observed` verdict is what shows a duplicate.
+- **`records`** answers `{:version 1 :heads {p trace}}`.
+- **`moved`** answers `[{:name :linked :resolved}]`.
+- **New `dao.space.dht` refusal codes:** `:dao.space.dht/kind-conflict` (carries `:recorded`) and `:dao.space.dht/not-loading`.
+- **Timing:** `step` uses the owner's `now` reading for both the poll schedule and the retry delays.
+
+## Unresolved concerns
+
+1. **The design contradicts itself here, and I implemented the more specific rule.**
+   - 5.5 says the follower "never forgets or abandons a record that is not of the candidate kind".
+   - The 5.5 Unloadable rule and the H1 "failed load made by hand" test require it to forget a failed index-kind record and restart it.
+   - The architect should reword 5.5.
+2. **Section 7 says "Following never makes the node `busy?`", but a loading candidate does.** `dao.space.dht/busy?` counts every `:loading` record (`dht.cljc:1424`). Fixing it would need `dao.space.dht` to know about candidates, so I left it and wrote no test for it.
+3. **`yin/repl/link.cljc:313` forgets any `:failed` record** when a `require` resolves to that address, including a follower's candidate record. The follower recovers by reloading, but without waiting out the retry delay. That file is outside my scope.
+4. **A late answer never stores a blob through the client, but the DHT's own get may still store it** (`dao/jing/dht.cljc:837`), as the design itself states. The test checks the client path.
+
+## Incomplete work
+
+None of H1. Rendering `heads.edn` to a file is left to H3.

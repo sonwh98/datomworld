@@ -1,0 +1,29 @@
+Completed-GMT: 2026-09-24 08:09:22 GMT
+Completed-Local: 2026-09-24 15:09:22 +07
+
+Both findings are fixed. `(:hash vm)` is again the canonical H (stack) or R (register) over the whole loaded `:segment`, and the doc now says the REPL session owns the program media for all four VMs. Nothing committed.
+
+## Changed files
+- **`src/cljc/yin/repl/core.cljc`**
+  - Removed `chain-hash` and the `dao.jing` require it needed.
+  - `append-stack-image` again passes the full concatenated segment to `stack/load-image`, so `:hash` is H over it.
+  - `append-register-image` again sets `:hash (rcode/register-hash combined)`. The new image alone is still validated by `load-image`.
+  - Both docstrings now state the rule and cite `yin.vm.debruijn.stack.md` / `yin.vm.debruijn.register.md`.
+  - The round-id and gap-budget fixes from the previous round are unchanged.
+- **`test/yin/repl/core_test.cljc`**: renamed the test to `de-bruijn-hash-is-canonical-over-the-loaded-segment`. It runs three evaluations on `:stack` and `:register`:
+  - a `def`, then two calls to it return "2" and "42";
+  - after each load, `:hash` must equal `dcode/image-hash` / `rcode/register-hash` of `:segment`.
+- **`src/cljc/yin/vm/docs/yin.repl.md`** (about line 72): the paragraph now says every program, including a typed datom program, goes into the session's ingress ring (capacity 4096). The expander forwards it to the session's program medium, and whichever VM is selected reads it from there. I replaced the paragraph's em-dash aside with parentheses so the changed lines are ASCII.
+
+## Check outcomes
+- **Tests:** `clj -M:test -n yin.repl-test -n yin.repl.core-test` gives 52 tests, 312 assertions, 0 failures, 0 errors.
+- **Kondo:** `clj -M:kondo --lint src/cljc/yin/repl/core.cljc test/yin/repl_test.cljc test/yin/repl/core_test.cljc` gives 0 errors, 0 warnings.
+- **cljstyle:** `cljstyle check` on the same three files passed with exit 0 and no output.
+- **ASCII / 80 columns:** a perl scan of every added line in the branch's current diff found nothing over 80 columns and no non-ASCII. The scan covers `src` and `test`, so it includes the doc.
+
+## Unresolved concern
+Going back to canonical `:hash` brings back the P2 cost from the last round. Each stack or register input re-hashes the whole concatenated image, so N inputs cost O(N²) hashing in total, and all earlier code stays in memory. The canonical-hash rule means this can't be fixed inside the REPL loaders alone. Two options:
+- Start each input on a fresh image, which needs a separate way for later inputs to reach closures from earlier ones.
+- Change the H/R contract to allow an incremental form.
+
+Either one needs a design decision from the Architect or you.

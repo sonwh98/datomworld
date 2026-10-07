@@ -1,0 +1,30 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-13 14:58:23 GMT
+Completed-Local: 2026-09-13 21:58:23 +07 (ICT)
+
+# Report: index-phase-0-prime
+
+## Changed files (mine, exactly the two owned)
+- `src/cljc/dao/space/index.cljc` — +792/−3: ns docstring paragraph + the session library section (`session`, `fold-batch`, `publish!`, `flush-staged`, `drain`, `db-value`, `watermark`, `coverage`, `checkpoint`, `verify-candidate`, `restore`, `batch-attr`/`tempid-attr`, `mode-matrix`, the outer grammar + admitting element rule). `publish-index!` and everything else untouched except one restored closing paren at its tail.
+- `test/dao/space/index_test.cljc` — +883/−3: new requires (`dao.datom`, `dao.space.query`, `dao.stream.observer`, `clojure.edn`, `clojure.set`) + 31 new deftests + helpers. No existing test weakened or deleted.
+
+Other modified/untracked files in the tree (`yin/vm*`, `yin/vm/code*`, docs) belong to a **concurrent session** (vm-engineer agent, prompt 1789310980394); I did not touch them. Nothing committed or staged.
+
+## Test counts (exact)
+- `clj -M:test -n dao.space.index-test` → **55 tests, 512 assertions, 0 failures, 0 errors** (was 24/308; all 24 originals still present and passing).
+- Full project suite → **1376 tests, 165,156 assertions, 0 failures, 0 errors** (includes the sibling session's 8 new code-test tests).
+- Kondo: **0 errors, 0 warnings** on both files.
+- `git diff --stat` (my files): `2 files changed, 1672 insertions(+), 3 deletions(-)`.
+
+## §7 Phase 0′ checklist — all items implemented and tested
+Parity over a transactor-shaped memory-log (600 rows, branching 4, mixed records/rows, splits forced; equal rows/counts per covered order; equal `q` results over `db-value`; valid restore of what it publishes) · outer grammar (bare record, bare d5 row, vector of both, five-row batch, list, malformed outer at position nil, malformed nested record, valid-prefix+defect with trees/:ids/:max-t unchanged, :rejected +1, one defect event, :batch advanced once) · valid–invalid–valid · empty batch (ordinal only) · reject→drain→checkpoint→restore with :rejected intact · mode matrix cell-by-cell both modes incl. reserved `e` on `:resolved`, plus non-integer declared-ref `v` (classless → defect) · `m` tempids resolved and joined to `e`'s id · deterministic allocation order (within-row e→v→m, cross-row; facts `[δ batch n n op]`/`[δ tempid τ n op]`) · v-only/m-only tempids · gap immediately before checkpoint (recovery cursor + gap count in candidate) · :max-t nil on empty stream, reopened empty checkpoint → watermark 0 · run-on-stream blocked/end · publication ok/full/full/ok · refusal exactly at the manifest (resumes with one append) · terminal after accepted blobs with `:next` preserved and repair-resume appending only the remainder · publish!-while-staged caller error · successful resumption then read failure (run-on-stream carries the completed session; retry appends nothing) · second publish! appends only the delta (counted; see concern 4) · candidate pr-str/read-string round-trip · not promoted when manifest missing · not promoted when manifest present but one leaf absent · restore refuses mode/schema/`:shared` · F2 hazard both ways (`:test` → "missing index segment" throw; `:strong` → no throw) · JVM-gated `restored-indexes` carries `bt/default-ref-type*`.
+
+## Unresolved concerns (spec conflicts — design doc won each time)
+1. **Task item 4 `drain` wording** ("discards the staged tree without publishing") contradicts §2.1/§2.2 (drain clears `:defects` only; `:rejected` never drained) and §4.1 ("a staged publication is never replaced, only resumed"). Implemented the design; the §7 item "reject → drain → checkpoint → restore with `:rejected` intact" only parses under it.
+2. **Task items 1/8 mode wording** — "declared-ref `v` tempids resolve in `:resolved` mode", "user-positive → defect on `:resolved`", "tempid → allocate (`:resolved`) / pass (`:unresolved`)" all contradict the approved §3.1 matrix (tempids resolve in `:unresolved`; `:resolved` allocates nothing; reserved/user-positive pass on `:resolved` — required for `local-datom?` parity and for the task's own "reserved `e` passing on `:resolved`" test). Implemented §3.1 exactly.
+3. **Task item 1 "admission failure … is a reject of that element only"** contradicts §2.2's batch-atomic fold and the task's own "valid prefix + defect → trees unchanged" test. Implemented batch-atomic.
+4. **"Appends only new blobs"** is a count claim, not address-disjointness: a delta node can be content-identical to an old blob of *another* covered order (cross-order coincidence after the recorder drain) and is re-appended harmlessly — §4.1 explicitly makes `materialize!` dedup the second line of defence. Test asserts delta proportionality + identical content on any overlap.
+5. **Additions beyond the named functions**: `session` (constructor), `coverage`, `watermark`, `verify-candidate` (§4.2 makes promotion the composition's job, but Phase 0′ requires testing non-promotion, so the jing/get read-path check is exposed index-side). `publish!` returns `{:status … :state …}` (+`:next` on full) rather than a bare status, since the successor state must thread; documented in the docstring.
+6. **Concurrent session**: the sibling agent's files landed mid-run (one full-suite invocation hit the window before `yin/vm/code.cljc` existed and failed on it); re-run after its landing is fully green.
+
+No §7 checklist items are incomplete.

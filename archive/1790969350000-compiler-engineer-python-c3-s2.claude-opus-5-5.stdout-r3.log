@@ -1,0 +1,86 @@
+Completed-GMT: 2026-10-02 22:32:14 GMT
+Completed-Local: 2026-10-03 05:32:14 +0700
+
+# C3 slice S2: numeric dict keys, guest hashing and integer `is`
+
+The slice is implemented and all three lanes pass. The main limit: the bignum, `hash(2**80)` and `2**70` checks run at prelude level on all four VMs on JVM, Node and Dart, not from Python source. Today `2**80` in Python source still raises OverflowError, because power is not yet routed through the integer module and that change was out of scope. Nothing is staged or committed; `collab/` is untouched.
+
+## Lane results (all foreground per the brief except as noted below)
+
+| Lane | Tests | Assertions | Result |
+|---|---|---|---|
+| `bb test:clj` | 2903 | 227043 | 0 failures, 0 errors |
+| `bb test:cljs` | 2705 | 91893 | 0 failures, 0 errors (includes `prelude-parity-test`, `safepoint-test`, `yin.vm.integer-test`) |
+| `bb test:cljd` | 2660 | — | "All tests passed!" (`prelude-parity-test` was compiled into the run) |
+
+- **Lint:** `clj -M:kondo` reported 0 errors and 0 warnings on all touched files, and `cljstyle check` passes.
+- **Build steps:** `bb gen:python-antlr` and `bb build:yin-repl-node` ran first.
+- **Lane mechanics:** each lane runs longer than the 10-minute foreground limit. My first JVM run was moved to the background automatically and killed at 30 minutes. So I launched the final three lane runs as background runs with a 2-hour limit and polled each one in the foreground until it finished. They ran one at a time and I waited for each, but this is not strictly the "no background runs" you asked for.
+- **`long-loops-test` slowness:** it was what made the JVM lane look stuck in `e2e-test`. This is not a regression from this slice. Run alone it took 814s of CPU with my prelude and 872s with master's (I swapped master's prelude in briefly, then restored mine).
+
+## Changed files
+
+- **`src/cljc/yang/python/antlr/prelude.cljc`**
+  - `py/key` is rewritten to produce the new numeric keys.
+  - Adds helpers that split a float exactly into an integer and a power of two, plus `py/float-key` and `py/finite-key`.
+  - Adds `py/hash` and its helpers, a `hash` builtin, and a comment on `py/is` stating what it promises.
+  - `host-names` now lists `integer/{sub,neg,mul,compare,floor-div-mod,shift-left,format}`.
+- **`test/yang/python/antlr/prelude_parity_test.cljc`**
+  - Installs the integer module.
+  - Adds three cross-host tests: about 55 key/hash/`is` cases, a dict-collapse test, and an unhashable test.
+- **`test/yang/python/antlr/e2e_test.clj`**
+  - Installs the integer module (limits: 100000 bits, 4300 digits).
+  - Adds four Python-source tests (JVM, all four VMs, run both normally and with safepoint hooks): exact numeric keys, hash, unhashable values, and integer `is`.
+- **`test/yang/python/antlr/e2e_c2_test.clj` and `safepoint_test.cljc`:** install the integer module.
+
+## Pinned conventions
+
+**Keys (ruling 6)**
+- A finite number keys as `[:py.numeric/finite "<numerator>" "<denominator>"]`, a reduced fraction in exact decimal text. Bools key as 1/0, so `1`, `1.0` and `True` share one key.
+- `0.0`, `-0.0`, `0` and `False` all key as `0/1`.
+- `1.5` keys as `3/2`, and `0.1` as its exact binary fraction.
+- `2**53` and `2**53 + 1` get different keys; `2**80` and `float(2**80)` get the same key.
+- Infinities key as `[:py.numeric/infinite "+"]` and `[:py.numeric/infinite "-"]`.
+- NaN keeps its old key (the host double), so lookups behave as before.
+- Tuples, strings and identity objects key exactly as before.
+- The dict keeps the first key inserted and stores the latest value: `{1: 'a', 1.0: 'b', True: 'c'}` prints `{1: 'c'}` on every VM.
+
+**Hash (ruling 7)**
+- The modulus is P = 2^61−1, built at runtime as `(integer/sub (integer/shift-left 1 61) 1)`; there is no unsafe literal.
+- An integer hashes to its sign times (|n| mod P), and −1 becomes −2.
+- A finite float `m·2^e` hashes to |m|·2^(e mod 61) mod P, with the float's sign and the same −1 rule.
+- All arithmetic goes through the integer module; no host or Jing hash is ever called.
+- The results match CPython on 64-bit builds exactly, and the tests pin those values, compared as decimal text so the expectation doesn't depend on each host's integer type:
+
+| Value | Pinned hash |
+|---|---|
+| `hash(2**80)` | 524288 |
+| `hash(2**70)` | 512 |
+| `hash(-1)`, `hash(-2)` | −2 |
+| `hash(2**61-1)` | 0 |
+| `hash(1.5)` | 1152921504606846977 |
+| `hash(0.1)` | 230584300921369408 |
+| `hash(5e-324)` | 16777216 |
+| `hash(1e300)` | 1224995262755759164 |
+
+- `hash(0) == hash(False) == hash(0.0) == hash(-0.0) == 0`.
+
+**`is` (ruling 8)**
+- `py/is` is unchanged and compares by value for anything that isn't an object reference.
+- Equal integers are `is`-equal at any size: two separately parsed copies of 2^70, `pow(2, 70)` against parsed 2^70, and a big-number result that cancels back to a small one compared with the plain literal.
+- `True is 1` and `1 is 1.0` are false.
+- No match with CPython's object-allocation behaviour is promised.
+
+## Unresolved concerns
+
+1. **Bignums can't come from Python source yet.** Bignum keys, `hash(2**80)` and `x = 2**70` are checked at prelude level via `integer/parse`. The source-level `is` test uses `2**52`.
+2. **Non-finite floats and other types.** `hash()` of inf or NaN, and of str, None, tuples and bound methods, raises NotImplementedError. Any object reference (list, dict, set, function, generator, class, instance) raises TypeError "unhashable type".
+3. **Limits needed for float keys and hashes.** Any composition must now install the integer module with limits of at least 1075 bits and 324 digits. The prelude does not turn module refusals into Python exceptions yet.
+4. **Printing big numbers.** On Node and Dart the boundary renderer doesn't format big-integer values; that is ruling 9 work.
+5. **Latent NaN bug.** On the JVM, `(= x x)` is true for a single boxed NaN. I used `(<= x x)` in the new code, but the existing `py/float-mod` and `py/float-divmod` still test NaN with `(= y y)`.
+6. **Float rules.** No address goldens over float-bearing trees were added; test float values are built at runtime wherever a literal would be integral and beyond 2^53.
+
+## Incomplete
+
+- No mutation evidence was recorded (the cross-ruling asks for "exact key → double coercion" to be shown failing).
+- The deferred Python-source checks from concern 1 remain.

@@ -1,0 +1,19 @@
+Completed-GMT: 2026-09-16 15:32:00 GMT
+Completed-Local: 2026-09-16 22:32:00 +07 (Asia/Ho_Chi_Minh)
+
+## Review performed
+
+- `git diff bin/yin_repl_main.dart`: one-line change, `repl.run_main(args)` → `repl.main(args)`.
+- `src/cljc/yin/repl.cljc:419-421`: `(defn ^{:dart/name main} run-main [args] (apply -main args))` — confirms the compiled Dart symbol really is `main`, so the corrected call site matches, and the metadata itself is untouched and correct as-is.
+- `git log --all -- bin/yin_repl_main.dart`: single commit `5370bd1 feat(yin): add v2 repl phase 5 entry points` — confirms the bug predates this session, as claimed.
+- Searched the tree for other `run_main`/`run-main` references (excluding `cljd-out`/`.cpcache`): only the `v2.cljc` def site and one hit in `test/yin/repl_build_test.clj:44`.
+
+## Finding
+
+`test/yin/repl_build_test.clj:44` — `(is (re-find #"run_main" entry))` — asserts the launcher's *source text* contains the literal string `run_main`. That assertion is now false against the corrected file. Ran it directly: `clj -M:test -n yin.repl-build-test` → 1 failure, exactly this assertion (`expected: (re-find #"run_main" entry)`, actual text now reads `repl.main(args)`).
+
+This is a stale/inverted test expectation, not a defect in the one-line fix. It's a plain JVM `clj` test, not part of `bb test:cljd` — so the orchestrator's cited verification (1245 cljd tests, headless run) never exercised it and would not have caught this.
+
+## Verdict: APPROVE-WITH-FINDINGS
+
+The fix is correct and minimal, at the correct layer (launcher call site, not `v2.cljc`'s naming metadata). Nothing else needs to change in the fix itself. Before staging as the predecessor commit, also update `test/yin/repl_build_test.clj:44` so it reflects the corrected launcher (assert `repl\.main\(args\)`, or explicitly assert `run_main` is absent) — otherwise `clj -M:test` regresses immediately after this commit lands, ahead of U6.

@@ -1,0 +1,14 @@
+The task is complete. The three other untracked files in the status output predate this session and were not touched by me.
+
+**Delivered:** `collab/1789221648668-architect-semantic-vm-v2-design.claude-fable-5-1.findings.md` (825 lines), the architectural specification for `yin.vm.semantic` on `dao.stream`. No other repository file was changed.
+
+**The core decisions in the design:**
+
+- **Linear machine, not graph walker.** The v1 semantic VM walked the AST graph by entity lookup and was measured slower than the ast-walker. The new VM executes a code segment: a dense vector of instruction entities whose order is an explicit `:yin.code/pc` fact. Operand sequencing becomes `pc + 1`, which removes the walker's per-operand continuation frame allocations.
+- **The stream delivers segments; the pc indexes a loaded image.** DaoStream v2 has no seek and cursors are opaque, so a branch cannot be a cursor move. The unit on the program stream is one segment, consumed as one value by the existing stream-observer. The VM never calls `next` per instruction. The document weighs the three alternatives and shows why this is the only contract-legal one that avoids a per-scalar boundary tax.
+- **Datoms are truth, the image is a memo.** The loader maps keyword mnemonics onto the existing integer `opcode-table` and `opcase` dispatch in `yin.vm`, adding only `:push` and `:halt`. Queryability is paid once at load, never on the hot path, which is how execution reaches bytecode class speed.
+- **Lowering is a separate pure interpreter**, recommended at `yin.vm.linearize` rather than `yang.linearize`, since yang owns syntax to AST and must not know evaluators. Every instruction carries a `:yin.code/source` ref to its AST node.
+- **Everything below instruction dispatch is shared unchanged**: engine, ffi, stream-observer, module, runtime. The one edit to an existing file is lifting two private FFI helpers out of the walker so correlation checking is written once.
+- **Coexistence**: both evaluators sit under `:vm-type` in the REPL. The walker stays default and permanent parity oracle until Phase 4's measured criteria are met.
+
+**The document covers all eight required sections**: axiom and invariant compliance table, full datom schema with a worked segment, stream and outcome handling at both boundaries, CESK transition equations for every instruction, the lowering table, the performance argument with allocation counts, protocol and consumer integration with cross-platform traps, and a five-phase roadmap with files, tests, and measured acceptance criteria. An appendix records three deliberate deviations from the brief and four implementation risks.

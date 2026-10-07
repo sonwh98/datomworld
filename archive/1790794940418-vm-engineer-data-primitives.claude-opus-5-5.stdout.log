@@ -1,0 +1,119 @@
+Completed-GMT: 2026-09-30 19:19:29 GMT
+Completed-Local: 2026-10-01 02:19:29 +07
+Coding-Agent: claude
+Session-ID: 2cce7933-39ab-4cc2-93e3-b194fc58b9de
+
+# Report: pure `data` host module (collections + strings)
+
+The module is built and the JVM and CLJS lanes pass. `cljstyle check` did not run because the command needed an approval this session couldn't give. CLJD was not built here; that is your lane. Nothing is staged or committed. No D4 code or other existing file was changed, and `engine.cljc` and `module.cljc` are untouched, so it should merge cleanly with cell slice 1.
+
+## Changed files (both new)
+
+- `src/cljc/yin/vm/data.cljc`: namespace `yin.vm.data`. It holds `data-module` (export name → function), `data-profiles` (every export `:pure`, effects `#{}`, host-state `:none`), `register-data-module`, `module-name` and `refusal-message`.
+- `test/yin/vm/data_test.cljc`: 19 tests, 304 assertions.
+
+The only registration wiring is `register-data-module`, which calls D4's `module/register-host-module`. No composition installs it yet.
+
+## Module name
+
+I chose `data`; it collides with nothing. The existing host modules are `stream`, `await`, `dao.await` and `dao.space.query`, and nothing in `src/` or `test/` refers to `'data`. Yin source calls the exports as `data/<name>`.
+
+## Exports
+
+These rules apply to every export:
+- **Indexes:** any number with a whole-number value within ±(2^53−1) is an index. So `1.0` is index 1 on the JVM, as it already is on JS and Dart.
+- **Argument count:** each export checks its count against its declared arities, so a wrong count is a qualified refusal, never a host arity exception.
+- **Strings:** all string positions count code points, not UTF-16 units.
+
+**Collections:**
+
+| Export | Semantics |
+|---|---|
+| `count` | Size of a vector, map, set or seq; nil → 0. A string is refused (use `str-length`). |
+| `nth` | Vector element at an index. Out of range, or not a vector, is refused. |
+| `contains?` | Map key, set member, or valid vector index; nil → false. |
+| `dissoc` / `disj` | Map without the keys / set without the members; nil → nil. |
+| `peek` | Last element of a vector; empty or nil → nil. |
+| `pop` | Vector without its last element. Empty is refused; nil → nil. |
+| `subvec` | Copy of `[start, end)` as a plain vector. |
+| `hash-set` | Set of the arguments. |
+| `into` | The target must be a vector or a set. A vector accepts only an ordered source (or nil). A set also accepts a set. |
+
+**Strings:**
+
+| Export | Semantics |
+|---|---|
+| `str-concat` | Joins strings only; no arguments gives "". |
+| `str-length` | Number of code points. |
+| `substring` | Code points `[start, end)`. |
+| `str-index-of` | Code-point index of the first match at or after an optional start, or nil. An empty needle returns the start. |
+| `str-split` | Splits on a literal separator and keeps every empty field, like Python (`"a,,b,"` → `["a" "" "b" ""]`). An empty separator is refused. |
+| `str-join` | Joins an ordered collection of strings with a separator. |
+| `char-at` | The one-code-point string at an index. |
+| `str->code-points` / `code-points->str` | Converts between a string and a vector of code points; code points outside 0–0x10FFFF are refused. |
+| `str-compare` | -1, 0 or 1 by code-point order. |
+
+I added no exports beyond the minimum list. Two of them are narrower than the Clojure functions they're named after:
+- **`into`:** it refuses a set or map as the source into a vector, because hosts iterate those in different orders. Set into set is allowed because the result doesn't depend on order.
+- **`str-compare`:** it doesn't use the host's `compare`. UTF-16 order puts U+1F600 before U+FFFF, which Python doesn't, and a test pins that case.
+
+## Portability
+
+- **Code points:** decoding is written once over UTF-16 code units, which all three hosts store. An unpaired surrogate counts as one code point, as in Python.
+- **Refusals:** every refusal throws the fixed message "data primitive refused" with data under `:yin.vm.data/*`:
+  - `op`: the export's name;
+  - `reason`: `:arity`, `:wrong-type`, `:out-of-range` or `:empty-separator`;
+  - fields for that reason, such as argument position or index and bounds.
+
+  No host exception text appears. The same data reaches the caller unchanged on all four VMs, and a test checks this.
+- **Reader conditionals:** every mixed-host conditional puts `:cljd` first.
+
+## Test outcomes (all run in the foreground)
+
+| Check | Result |
+|---|---|
+| kondo on `data.cljc` and on `data_test.cljc` (run separately) | 0 errors, 0 warnings each |
+| cljstyle check | **Blocked**: the command needed approval; not run |
+| Focused JVM `clj -M:test -n yin.vm.data-test` | 19 tests, 304 assertions, 0 failures, 0 errors |
+| Full `clj -M:test` | 2441 tests, 185386 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | "Testing yin.vm.data-test" appears. 2346 tests, 51786 assertions, 0 failures, 0 errors; build had 0 warnings |
+| `bb test:cljd` | Not run, per the brief |
+
+The first CLJS build gave one compiler warning in my `str-split` (`+` on a value that could be nil). I fixed it by having the internal search return -1 instead of nil. All the results above are from runs after that fix.
+
+The same non-BMP assertions pass on both CLJ and CLJS: `str-length "a😀"` is 2 and its code points are `[97 0x1F600]`. They also cover `char-at`, `substring`, `str-index-of` and `str-split` around the emoji, emoji vs U+FFFF comparison, lone surrogates, and a round trip up to U+10FFFF.
+
+## Mutation proof
+
+I applied each change temporarily, ran the focused JVM namespace, then restored the file. Afterwards `git status` showed only the two new files and the collab files, so `effect.cljc` and `vm.cljc` are back to their original state.
+
+| Mutation | Result |
+|---|---|
+| M1: treat surrogate pairs as two units (UTF-16 indexing) | 36 failures (non-BMP and all-four-VMs tests) |
+| M2: `str-compare` uses the host's `compare` | 7 failures |
+| M3: `register-data-module` installs nothing | 7 failures, 92 errors (registration, all-four-VMs and effect-shaped-map tests) |
+| M4: revert D4 so any map with `:effect` counts as an effect | 8 errors (effect-shaped-map test) |
+| M5: refusals throw host-style errors | 52 failures across 14 tests, including the VM-path refusal |
+| M6: remove the argument-count check | 3 failures |
+| M7: the JVM accepts only true integers as indexes | 1 failure, 2 errors |
+| M8: `into` a vector accepts a set or map source | 2 failures |
+| M9: add `count` to `vm/primitives` | 1 failure (module-only test) |
+| M10: profiles declared effectful instead of `:pure` | 41 failures |
+| M11: `str-split` drops the trailing empty field | 2 failures |
+| M12: `substring` skips its end range check | 1 failure |
+
+## Unresolved concerns
+
+1. **Map keys:** `contains?`, `dissoc`, `disj`, `hash-set` and `into` a set compare keys with the host's `=`. `1` and `1.0` are different keys on the JVM but the same on JS and Dart. As the Architect ruled, the language runtime profile must normalize keys before calling these exports.
+2. **String speed:** every string call decodes the whole string, and search is a simple O(n·m) scan. A prelude that loops `char-at` over a string is therefore O(n²); converting once with `str->code-points` and looping `nth` avoids that. Worth measuring alongside the effect-dispatch cost the Architect flagged.
+3. **`subvec` copies:** it returns a plain vector instead of a view that would keep the parent vector alive.
+4. **Strict ranges:** out-of-range indexes are refused. Python's clamping slices and negative indexes are left to the prelude.
+5. **nil results:** `str-index-of` (no match) and `peek` (empty vector) return host nil. The prelude has to map that to each language's own null value.
+
+## Incomplete work
+
+- `cljstyle check` was not run.
+- CLJD has not been compiled or tested. Its host-specific branches (`StringBuffer`/`writeCharCode`, `.codeUnitAt`, `.-isFinite`, `.round`/`.toInt`) copy idioms already used in `dao/stream/transit.cljc` and `yin/vm/debruijn.cljc`, but no build has checked them.
+- No language runtime profile installs the module yet; wiring it into the Python profile is spike work.
+
+The full report is at `collab/1790794940418-vm-engineer-data-primitives.claude-opus-5-5.report.md`.

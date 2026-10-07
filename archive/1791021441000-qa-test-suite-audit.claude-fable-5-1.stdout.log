@@ -1,0 +1,57 @@
+Completed-GMT: 2026-10-03 10:01:00 GMT
+Completed-Local: 2026-10-03 17:01:00 +07 (+0700)
+
+**Headline:** `^:slow` is only honoured by the JVM lane. Node (`:node-test`) and Dart (`cljd test`) have no filter, and 11 of the slow-tagged tests are unguarded `.cljc`, so both lanes still pay for them in full (about 250 s at JVM speed). Shrinking those tests is the main lever for Node and Dart; the default JVM lane has little pure redundancy left.
+
+Seconds are from the JVM profile. "JVM default" is the saving in `bb test:clj`, "JVM slow" in `bb test:slow`. Node and Dart are unmeasured: the figure is the JVM-speed equivalent, and "—" means the test does not run there (`.clj`). Nothing was run for this audit.
+
+| # | test (file:line) | cat | evidence | action | est. s saved (JVM default / JVM slow / Node, Dart each) | risk |
+|---|---|---|---|---|---|---|
+| 1 | `long-loops-test` (test/yang/python/antlr/e2e_test.clj:528) | 3 | 3000 `while` + 3000 `for` iterations × 4 VMs × 2 modes takes 14 min. Tail growth is measured directly by `tail-preservation-test` (safepoint_test.cljc:488); break/continue by e2e_test.clj:360 and :374. The orchestrator log records it hanging post-rebase, so the cost looks like a product performance problem. | shrink 3000 → 300; keep `^:slow`; investigate the per-iteration cost separately | 0 / ≥700 / — | medium |
+| 2 | `tail-preservation-test` (test/yang/python/antlr/safepoint_test.cljc:488) | 3 | Compares continuation depth parked at safepoint 10 vs 100,000 on 4 VMs. Any per-iteration frame growth shows equally at 10 vs 1,000. | shrink 100000 → 1000; stay `.cljc` (parity claim) | 0 / 61 / 61 | low |
+| 3 | `long-generator-with-break-test` (test/yang/python/antlr/e2e_c2_test.clj:134) | 1, 3 | "No growth per item" is asserted structurally by `resume-continuation-length-is-stable-test` (:606). Generator draining through `while` is covered by `generator-while-loop-test` (:48). | shrink 3000 → 300 | 0 / 51 / — | low |
+| 4 | `a-program-calling-q-without-end-is-stopped-at-the-drive-budget` (test/yin/repl/query_test.cljc:327) | 3 | 2049 `q` calls × 4 VMs. The budget is enforced in the shell drive loop (src/cljc/yin/repl.cljc:1249), not in a VM. Per-VM rollback is already covered by :279 and :310. | run the budget case on one VM; keep the per-VM "next call answers" check via :310 | 0 / 50 / 50 | low |
+| 5 | `every-vm=` double mode (test/yang/python/antlr/e2e_test.clj:210, used by all of e2e_test and e2e_c1_test) | 3 | Every program runs naive and under no-op hooks on 4 VMs (8 runs, about 0.3 s each). Default-lane residue is 62.6 s + 55.4 s. The derived program is an ordinary AST; transparency is pinned cross-host by `no-op-hooks-are-transparent-test` (safepoint_test.cljc:378). e2e_c2's own `every-vm=` (:31) already runs naive only. | run the no-op-hooks pass on one VM (5 runs instead of 8) | 44 / 0 / — | medium |
+| 6 | `rounds-larger-than-the-pending-write-bound-are-acknowledged-never-busy` (test/yin/repl/dht_test.cljc:1809) | 3 | 8 rounds of an 80-deep program. One round already exceeds `max-pending-writes`; two prove queueing. Sustained multi-round pacing is covered at node level by dao/space/dht_test.cljc:753 and :765. | shrink 8 rounds → 2 | 0 / 27 / 27 | low |
+| 7 | `results-over-a-limit-refuse-naming-it` (query_test.cljc:423) and `ast-results-over-a-limit-refuse-naming-it` (:596) | 3 | The shell half evaluates a 1100-literal program on 4 VMs. The limit is enforced host-side in `query/answer`, tested directly in the same deftests with `:row-limit 2`. Error surfacing through each VM's FFI is covered by `unsupported-input-is-refused` (:459). | run the shell half on one VM | 0 / 24 / 24 | low |
+| 8 | `vector-and-map-forms-arity-errors-and-result-limits` (test/yin/repl/ast_query_e2e_test.cljc:474) | 1 | The limit half uses the same lines, query and assertions as query_test.cljc:596-607. Vector/map equality is query_test.cljc:497-536 (`names history map-form`); arity too-few/too-many is :539-553. | delete | 0 / 18 / 18 | low |
+| 9 | Small single-print programs in e2e_test.clj (e.g. :227, :518, :523, :463, :471) and e2e_c1_test.clj | 3 | Each deftest costs 2–3 s of fixed overhead (8 VM runs plus 3 parses) for a one-line program. | merge about 12 one-liners into 3 programs (loses per-test failure granularity) | ~20 / 0 / — | medium |
+| 10 | `keyboard-interrupt-test` (e2e_test.clj:584) | 1, 3 | Blocks 1 and 2a (`while True: pass` interrupted, caught) duplicate `interrupt-test` (safepoint_test.cljc:386). Block 5 (no signal, never blocks) duplicates `no-park-test` (:397) at 300+300 iterations. The `spin()` callee, BaseException, clause-before-safepoint and shadowing cases are unique. | shrink block 5 to 30 iterations; keep the rest | 0 / ~15 / — | medium |
+| 11 | `resume-continuation-length-is-stable-test` (e2e_c2_test.clj:606) | 3 | Compares resume size after 10 vs 1000 items; growth shows at 10 vs 100. | shrink 1000 → 100 | 0 / 14 / — | low |
+| 12 | `sustained-rounds-…` (test/dao/space/dht_test.cljc:765) and `rounds-beyond-the-backlog-bound-…` (:788) | 3 | 8–10 rounds × 500 puts are sized to the default `:max-backlog` of 4096. `world` already takes limits (:1002 passes a custom `:max-backlog`). | pass a small `:max-backlog` and scale rounds down about 8× | 4 / 5 / 9 | medium |
+| 13 | `pure-expressions-and-let-bindings-evaluate-on-every-vm` (test/yang/clojure/stream_eval_test.cljc:121) | 1 | 22 expressions × 4 VMs through the shell. Shell-path VM agreement is `every-vm-answers-the-same-stream-script` (:411). I did not read yin/vm/parity_test.cljc to confirm it covers the pure corpus. | run the corpus on one VM; keep :411 | 0 / 7 / 7 | medium |
+| 14 | `recursion-test` (e2e_test.clj:322) | 3 | fib(10) is 177 Python calls × 8 runs; fib(6) exercises the same double recursion. | shrink to fib(6) | 0 / 5 / — | low |
+| 15 | `yin.vm.debruijn-register-benchmark-test` (test/yin/vm/debruijn_register_benchmark_test.cljc) | 2 | Its docstring says "the numbers gate nothing". Its parity asserts run over `parity/corpus`, the corpus of the dedicated parity tests. `jfr-benchmark-profiling-test` (:379) is `(is true)` on Node and Dart and writes `target/jfr/*.jfr` on JVM. | move to `test/bench/` beside `yin_vm_bench.cljc`, out of all lanes | 2.6 / 0 / 2.6+ | low |
+| 16 | `yin.repl.dht-process-test` (54 s), `yin.vm.linker.cross-host-transfer-test` (28.7 s) | 5 | Real-process gates (L5 loopback UDP; criterion 5a JVM→Dart). The second rebuilds its peer "so this gate cannot skip". Already `^:slow`, JVM-only. | keep | 0 | — |
+| 17 | `dao/gui/event/fixtures_corpus.cljc`, `dao/data/psset_fixtures.cljc`, `dao/jing/cbor_conformance_test.cljc`, `yin/vm/linker/sign_vectors.edn`, `float_address_test.cljc` (`canonical-bytes-test`, `*-addresses-test`), `hash_registry_contract_test.cljc`, `prelude_parity_test.cljc` | 5 | Frozen fixtures, goldens and cross-host parity claims. Not read in full. Any change here is HIGH risk. | keep | 0 | HIGH if touched |
+| 18 | `agent.tzu` | 2 | No file under `test/` references it. | nothing to remove | 0 | — |
+
+**(a) Achievable saving**
+
+| Lane | Low-risk rows | Adding medium rows |
+|---|---|---|
+| JVM default (about 330 s today) | about 3 s (row 15) | about 70 s more (rows 5, 9, 12) |
+| JVM slow (about 460 s plus 14 min) | about 250 s (rows 2, 3, 4, 6, 7, 8, 11, 14) | at least 700 s more from row 1, about 27 s from rows 10, 12, 13 |
+| Node and Dart, each | about 180 s at JVM speed (rows 2, 4, 6, 7, 8, 15) | about 16 s more (rows 12, 13) |
+
+- **JVM default:** once the slow tests are tagged, what remains is the 4-VM × 2-mode Python matrix (118 s of about 306 s of test time), which is a medium-risk change (row 5).
+- **Node and Dart:** the real saving is probably larger than 180 s, since those hosts are slower.
+- **Take-all option:** once rows 2–8 land, most of the shrunk tests could lose `^:slow` and return to the default JVM lane at about 25 s total.
+
+**(b) Coverage**
+
+- **Read in full:** yin/repl/query_test.cljc, yang/python/antlr/safepoint_test.cljc, the e2e_test.clj harness and its slow tests, the benchmark test bodies, bb.edn, the shadow and deps test config, build-n-test.md.
+- **Read in part (slow tests and helpers only):** e2e_c1_test.clj, e2e_c2_test.clj, yin/repl/dht_test.cljc, dao/space/dht_test.cljc, ast_query_e2e_test.cljc, stream_eval_test.cljc, main_test.cljc.
+- **Names only:** dht_process_test.clj, cross_host_transfer_test.clj, linker/dht_end_to_end_test.cljc, float_address and prelude_parity tests.
+- **Not audited:** the other ~195 namespaces (dao.stream, dao.lease, dao.gui, dao.jing, dao.space index/query/schema, yin.vm core and linker, datomworld.demo), the non-test namespaces under test/, and docs/design/datom.world.md. Together they are about 21 s of the 768 s JVM total, so the JVM gain there is small.
+- **Unknown:** their Node and Dart cost. No per-test timing exists for those lanes, and compile time may dominate.
+- **Category 4:** I found no `.cljc` test I can safely call host-independent; row 15 is the only cross-lane removal I can back with evidence.
+- **Method:** I worked read-only and wrote no files (including no plan file, as the brief forbids output outside this response).
+
+**(c) Keeping it fast**
+
+1. **One `^:slow` convention for all three lanes.** Either add a Node/Dart filter, or adopt the rule that a `.cljc` test must be cheap enough not to need the tag and anything that needs it is JVM-only `.clj`.
+2. **Per-test budget.** 2 s on JVM for the default lane; anything over is shrunk or tagged. Add a `bb test:profile` task that prints the top 20 tests, and fail the default lane if an untagged test exceeds 5 s.
+3. **Profile Node and Dart once** (per-namespace wall time) before pruning further; this audit could only price them by JVM proxy.
+4. **VM-matrix rule.** Use the 4-VM `doseq` only where the property lives in the VM. Shell and bridge properties (limits, budgets, argument validation) run on one VM plus one all-VM smoke test.
+5. **Growth tests** compare two small sizes (10 vs 100–1000), never thousands of iterations.

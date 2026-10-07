@@ -1,0 +1,26 @@
+Phase R3 is implemented. Three design docs changed; `docs/jolt-experiment.md` is also dirty but **not from this session** (modified 15:14 by another process — I left it alone).
+
+## What changed
+
+**`docs/design/dao.await.md`** (+82/−36) — the R3 core. Every `dao.runtime` now names `dao.runtime`, and the scheduler prose states the v2 rules:
+- The Runtime Semantics park/resume block no longer describes `IDaoStreamWaitable` transport-local waiters or "stream writes, drains, or closes wake the task." It now says: wait set only, nothing wakes the task, each poll resolves the entry (`next` / `append!`), a reader learns of a close from its own `next` → `end`, a writer from `append!` → `closed`.
+- Layer boundaries now list the v2 ops (`cursor`, `next`, `append!`, `close!`) and note there is no `drain-one!` and no readiness query; `await/>!` lowers to `append!` (AST node stays `:stream/put`).
+- Test cases: the "full write resumes after `ds/drain-one!` frees space" case is replaced by a scripted `full`-once-then-`ok` handle, matching the plan's fixture rule; the checklist's "ringbuffer wakeups" became wait-set polling.
+
+**`docs/design/yin.vm.implementation-plan.md`** — the port table's `:stream/put` row credited `runtime.cljc:114` (v1) with the retry; it now names `dao.runtime`'s `check-wait-set`. Also fixed a status inconsistency: the header says V7 is fully implemented, but the V7 section still read "approved, pending implementation."
+
+**`docs/design/dao.runtime.implementation-plan.md`** — R1 and R2 marked fully implemented (2026-09-06), header records R0–R3 done and R4 gated, census rows for the drivers and design prose marked done, and the R3 section records the VM-plan sweep.
+
+## Verification (all three hosts)
+
+- **clj**: 102 tests / 399 assertions, 0 failures (`test/dao/runtime` + `test/yin/vm`)
+- **cljs/Node**: 1319 tests / 34703 assertions, 0 failures; confirmed `Testing dao.runtime-test` and `Testing dao.runtime.driver-test` in the output per the standing rule
+- **cljd**: `flutter test test/cljd-out/dao/runtime` — 13 tests, all passed (v2 runtime, v2 driver, v1 driver); ran against the existing generated twins rather than regenerating
+- End condition: no `dao.*.v2` / `yin.vm` namespace requires legacy `dao.runtime`
+
+## Two things you should know
+
+1. **The prompt's phrasing was broader than the plan's R3.** It asked me to "scrub out references to the old `dao.runtime`, `make-non-waitable-stream`." The plan scopes R3 to design prose only — `make-non-waitable-stream` lives in v1 test fixtures and `src/cljc/dao/stream.cljc:205,281`, which R3 explicitly does not edit (they go in R4 with v1). I followed the plan.
+2. **`docs/handoff.md` (orchestrator handover) is stale in a way R3 doesn't cover** — it still says `src/cljc/yin/vm/` "does not exist" and lists the VM plan as unstarted. It's dated 2026-09-04 and self-marks "re-derive before acting," so I treated it as the orchestrator's document rather than system design. Worth a refresh before the next orchestration pass.
+
+Changes are uncommitted — say the word if you want them committed.

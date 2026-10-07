@@ -1,0 +1,41 @@
+Completed-GMT: 2026-09-19 19:12:43 GMT
+Completed-Local: 2026-09-20 02:12:43 +07
+
+# Phase 3 r2 confirmation
+
+**The Phase 3 delta is not ready for commit.** One blocker remains, H1: the new `holding?` predicate answers true for a holder past its bound. The eight other fixes hold. I edited nothing and did not rerun suites.
+
+| Finding | Disposition | Evidence | Remaining action |
+|---|---|---|---|
+| P1 bound not terminal | **Fixed for the renew path** | `observe-renewal` latches and moves nothing at the bound (`lease.cljc:1835-1840`). `due-to-renew?` is false at the bound (1863). `r2-bound-is-terminal-test` pins the stall scenario (test:2186-2218). | See H1. |
+| P2 undersized grant | **Fixed** | `:undersized?` is computed against the granted duration, equality included (1776-1781). `at-bound?` and `holding?` honour it. Tests cover both sides (2221 on). | P3 note below. |
+| P2 lease binding | **Fixed** | `:subject` and `:proposal` expectations are matched in `observe-grant` (1767-1770). A grant answering no proposal fails a proposal expectation. | None. |
+| P2 readings unvalidated | **Fixed, one direction questionable** | `reading-ok?` gates all four functions (1705-1721). | See H2. |
+| P2 assembly parity | **Fixed** | The interval gets unit-membership and `quot` checks after `check-units!` (1600-1607). `renewal-interval` validates before any arithmetic (1655-1666). | None. |
+| P2 `stop` not idempotent | **Fixed** | A second call returns `:release nil` (1885-1886). | None. |
+| P3 tick period, reading wording, cap basis | **Fixed; the cap basis is routed to §6** | Four-argument arity (1644-1678). Docstring now says "drained BEFORE the append" (1820-1822). | None. |
+| P3 `holding?` | **Wrong** | — | See H1. |
+
+## Remaining defects
+
+**H1 (P2; fix before commit) | `lease.cljc:1894-1904` | `holding?` answers true for a holder past its bound.**
+- The predicate reads only state, and `:bound-reached?` is set in one place: `observe-renewal`, when it is called at or past the bound.
+- A conforming control flow never makes that call, because `due-to-renew?` is already false there. On the normal path the latch is never set.
+- Scenario: grant observed at 1, duration 10, and the flow stalls until reading 30.
+  - `at-bound?` is true at 30, but `(holding? holder)` is still true.
+  - A flow that asks the one "may I act?" predicate acts on a resource the judge reclaimed at about 12.
+- This is the original P1 outcome, reached through a function whose purpose is to be the single safe question.
+- Every `holding?` assertion for a reached bound first passes through `renewed-at … {:ms 30}`, which sets the latch (test:2198-2206, 2212-2218, 2376-2381). At test:2193-2195 the unlatched holder is at its bound, and `holding?` is never asserted there.
+- Remaining action:
+  - Give `holding?` a reading: `(holding? holder reading)`, false when `(at-bound? holder reading)` is true and false on an invalid reading.
+  - Optionally add `(observe-reading holder reading)` that returns the holder with the latch set, so a flow can persist the terminal state without a renewal.
+  - Add the scenario above with no `observe-renewal` call.
+
+**H2 (P3) | `lease.cljc:1807` | `at-bound?` answers false on an invalid reading even when a grant is held.**
+- A flow that guards with `(when-not (at-bound? …) (act))` and receives a garbage reading will act.
+- Once `holding?` takes a reading and fails closed, this is covered.
+- Until then, say in the `at-bound?` docstring that false on an invalid reading means "unanswerable", not "free to act".
+
+**P3 notes (no action required for commit):**
+- The `:undersized?` check in `observe-grant` ignores the tick period, because the holder state carries none. A grant sized correctly by the four-argument `renewal-interval`, then granted slightly shorter, can pass the check while violating S5. Either carry `:tick-period` in the state or note the gap in §2.5.
+- In `renewal-interval`, `2 × (interval + period)` can reach 2⁵⁴ at magnitudes near the bound, which is past exact precision in ClojureScript. This only happens with absurd configuration.

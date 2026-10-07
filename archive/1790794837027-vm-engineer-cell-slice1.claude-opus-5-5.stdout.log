@@ -1,0 +1,76 @@
+Completed-GMT: 2026-09-30 19:23:12 GMT
+Completed-Local: 2026-10-01 02:23:12 +07
+Coding-Agent: claude
+Session-ID: 82a33a9c-8ccb-4f4a-9aaa-40c4d57a1363
+
+# Cell slice 1: report
+
+Cell slice 1 is implemented and passes on all four VMs, on both CLJ and CLJS. Nothing is staged or committed, and I worked only in `datomworld-cell-slice1`. The full report is at `collab/1790794837027-vm-engineer-cell-slice1.claude-opus-5-5.report.md`.
+
+## Changed files
+
+| File | Change |
+|---|---|
+| `src/cljc/yin/vm/module.cljc` | Adds the `cell` host module: `cell/new`, `cell/get`, `cell/set!`, registered with `register-cell-module`. Each export is `:effectful`, declares one effect kind, and returns a D4 effect minted by `make-effect`. |
+| `src/cljc/yin/vm/engine.cljc` | `authentic-ref?` gets a `:cell-ref` branch: the id must be live in `:heap` (by `contains?`), and the ref's seal is compared with the seal stored at allocation, so get and set compute no hash. Adds `heap-write` and three `handle-effect` arms. The encoder refuses a `:cell-ref` as `:yin.k/non-portable` kind `:cell` (F3). |
+| `src/cljc/yin/vm/completion.cljc` | `abstract-value` refuses a `:cell-ref` by throwing the same non-portable `:cell` error. A completion that reaches a cell therefore never reports `:complete`. |
+| `src/cljc/yin/vm.cljc` | `empty-state` gets `:heap {}`. The semantic and AST-walker constructors and every `spawn-module` child inherit it. |
+| `debruijn/stack.cljc`, `debruijn/register.cljc` | Their constructors get `:heap (:heap base)`. |
+| `src/cljc/yin/vm/ast_walker.cljc` | `heap` is now a declared `ASTWalkerVM` field and is threaded through `cesk-return`. This was required: `cesk-return` rebuilds the record positionally and silently dropped an undeclared `:heap`. |
+| `test/yin/vm/cell_test.cljc` (new) | 17 tests, each run on all four VMs. |
+
+**D4 touch:** none. The only engine function I extended, `authentic-ref?`, predates D4.
+
+**Choices made:**
+- `cell/set!` returns the value it wrote.
+- `cell/get` returns the content as data and never re-dispatches it.
+- A forged, foreign or unknown ref is refused through `check-ref!` with `:reason :forged-resource-reference`, naming the effect and `:kind :cell-ref`.
+
+## Tests
+Every required case is covered on all four VMs:
+- a counter shared by two closures;
+- distinct cells per activation;
+- a mutation surviving multi-shot re-entry and an abortive escape;
+- forged refs: wrong seal, another cell's id, unknown id, nil seal, wrong type tag, and a ref from a task with another secret whose id is live here;
+- a cell holding nil;
+- a cell holding an effect-shaped map;
+- lift refused, for a closure over a cell and for a bare ref;
+- completion not `:complete`;
+- `=` on refs, a ref as a map key and inside nested values, and a self-referential cell;
+- a fresh `:heap` in each constructor and each `spawn-module` child.
+
+## Mutation proof
+Each mutation below made all of its targeted tests fail. The files were restored afterwards, and `git diff` was byte-identical to a snapshot taken before the run.
+
+1. `set!` does not write.
+2. Every `cell/new` gets the same id.
+3. The walker's continuation captures and restores the heap.
+4. The seal is not compared.
+5. Liveness is checked with `some?` instead of `contains?`.
+6. `cell/get` re-dispatches effect-shaped content.
+7. The encoder's `:cell-ref` arm is removed.
+8. Completion's `:cell-ref` arm is removed.
+9. `empty-state` has no `:heap`.
+
+Two limits:
+- Mutation 1 was not run against the multi-shot test, because that program never terminates without writes.
+- Mutation 3 was applied only to the walker, as the representative case. The other three VMs have no heap-capturing code to remove.
+
+## Verification (all foreground)
+- **kondo:** 0 errors on all 8 files. The 5 warnings are pre-existing: the same ones appear when I lint the `HEAD` versions.
+- **cljstyle: blocked.** The command needed an approval this session couldn't grant, so it did not run. I matched the surrounding style by hand. Please run `cljstyle check` on the 8 files.
+- **Focused JVM:** 17 tests, 123 assertions, 0 failures.
+- **Full `clj -M:test`:** 2439 tests, 185168 assertions, 0 failures, 0 errors.
+- **`bb test:cljs`:** 2344 tests, 51605 assertions, 0 failures, 0 errors. `Testing yin.vm.cell-test` appears.
+- **`bb test:cljd`:** not run, as instructed.
+
+## Unresolved concerns
+1. **Completion refuses by throwing.** Completion normally records refusals, and a recorded refusal alone would still report `:complete`. The Architect may prefer a recorded refusal plus a discovery rule in slice 2.
+2. **Two error shapes remain.** The forged-cell error uses the existing unqualified `:reason` shape, while D4's errors use `:yin.k/status`.
+3. **The AST walker drops undeclared state.** Any future VM state field must be added to `ASTWalkerVM` and to `cesk-return`, or the walker loses it silently.
+4. **Cells are never freed.** Reclamation is out of scope.
+5. **CLJD is unverified.**
+
+## Incomplete work
+- cljstyle did not run (blocked, as above).
+- The frontend box-every-local rule was out of scope for this brief.

@@ -1,0 +1,45 @@
+Completed-GMT: 2026-09-15 21:52:42 GMT
+Completed-Local: 2026-09-16 04:52:42 +07 (Asia/Ho_Chi_Minh)
+
+# Architect review r2: comparator fold-in and doc amendment
+
+I re-read the current diff of both source files and the doc, re-ran my r1 probes against the working tree, and ran the jing test namespace on the JVM. No files were edited.
+
+## Finding 2 fold-in: confirmed closed
+
+Sorting by `canonical-print` closes the crack. The tie that dropped a map entry came from the host printer truncating or reordering the sort key under an ambient binding. The sort key is now the same byte string the encoder emits, so a tie in the comparator means byte-identical elements, which the source collection could not have held as distinct keys in the first place. Re-probed on the JVM against the current tree:
+
+| Ambient binding | r1 | r2 |
+|---|---|---|
+| print-length 1 on a map with vector keys | address changed | stable |
+| print-meta true on a map with a metadata-bearing key | address changed | stable |
+| print-level 1 on a set of nested vectors | not probed | stable |
+| print-readably false on a string scalar | collides with the symbol | still collides |
+
+The last row is the disclosed scalar residual. Deferring the default-binding wrapper to the fail-closed follow-up unit is acceptable, since it belongs with the other encoder-boundary hardening and the scalar branch is already documented as delegating to the host printer.
+
+Set and map order-insensitivity re-verified with mixed scalar and vector members, including a map built with a reversed comparator. JVM test run: 38 tests, 227 assertions, 0 failures. I did not run the JS or Dart lanes this round. The r2 change uses no host-specific constructs, so the r1 cross-host results carry, but the orchestrator's usual three-host run before commit still applies.
+
+## Declaration order: safe on all three hosts
+
+Moving `canonical-print` above `order-normalize` is correct and removes a forward reference rather than creating one. The only cycles are self-recursion inside each function, which every host's `defn` supports. `order-normalize` calls `canonical-print` and itself only. `canonical-print` calls itself only. Neither refers to `order-normalized-print` or `content-hash`, which follow them. ClojureScript warns on forward references and ClojureDart rejects them in some positions, so the backward-pointing dependency is the right shape for both.
+
+## Doc amendment: accurate, with two low-severity wording items
+
+The new contract paragraph matches the code line for line: collection metadata significant, four reader-position keys stripped, empty metadata dropped, scalar metadata ignored, list and seq unified, records throw, and the present read-back verified by hash. The two new Open Items on byte arrays and on backends failing closed describe exactly what I found in r1 and correctly scope when the metadata item becomes blocking.
+
+**LOW | `docs/design/dao.jing.md` contract paragraph, "never collide with another"**
+The claim holds for every non-pathological input, and the pathological-symbol residual is recorded a few lines later under Open Items. Correction: add "for any non-pathological scalar" or cross-reference the residual, so a reader of the paragraph alone does not take it as absolute.
+
+**LOW | `docs/design/dao.jing.md` Canonical encoding Open Item**
+The residual list omits that ambient print bindings still reach scalar bytes through the host printer, which is exactly what the deferred default-binding wrapper is for. Correction: one sentence naming it as the third deferred residual, so the follow-up unit has its full checklist in one place. Also, the byte-array item's printed shape is JVM-specific. Say "on the JVM" or drop the example.
+
+## Properties confirmed
+
+- **Finding 5.** Record rejection message is one line.
+- **Finding 6.** The new assertion hashes a vector carrying line and column metadata as its bare value, on all three hosts by construction since it uses `with-meta` rather than reader stamping.
+- **No other behavior change.** Outside the two comparators and the message string, the r1 diff is intact. Invariants, ownership, concurrency, and host isolation assessments from r1 stand.
+
+## Verdict
+
+**APPROVE.** The code diff is ready to commit as is. The two doc wording items are nonblocking and can ride in the separate docs commit already planned.

@@ -1,0 +1,40 @@
+Completed-GMT: 2026-09-25 15:56:19 GMT
+Completed-Local: 2026-09-25 22:56:19 +07
+
+Rule R commit one is implemented in `datomworld-ucf-rule-r` and all three test lanes pass. Nothing is staged or committed. The full report is at `/Users/sto/workspace/datomworld/collab/1790345800000-vm-engineer-yin-def-rule-r-commit-one.claude-opus-5-5.report.md`.
+
+**Lane counts, all with 0 failures:**
+
+| Lane | Baseline (96657a4f) | Final |
+|---|---|---|
+| JVM | 2027 tests / 180638 assertions | 2045 tests / 180913 assertions |
+| Node | 1943 tests / 47718 assertions | 1960 tests / 47956 assertions |
+| Dart | 1905 passed | 1922 passed |
+
+kondo shows 0 errors on the changed files, and its 7 warnings all exist at base. cljstyle is clean. Every added line in source and tests is ASCII and at most 80 columns.
+
+**What changed:**
+- **Name lookup:** `engine/resolve-var` refuses `yin/def` before it looks at env or store. The reserved set is `yin/def` only; `require` is unchanged.
+- **Definitions:** none of the four engines resolves the definition operator any more. The walker uses a new `:eval-define` step. The semantic VM has `[:define name]` (opcode 24) on the value register. The stack VM has `[:define name]`, which pops the value and pushes it back. The register VM has `[:define rd name rs]`. `yin/def` is removed from the primitive registry and its profiles.
+- **Store writes:** program writes now go through a new `engine/store-put`, which refuses the reserved key. A new JVM-only test checks every other store write in `src` against an exact allowlist.
+- **Loading:** every validator and loader applies Rule R. The walker's datom loader and the stack loader now validate, which they did not before. Raw walker control is refused when it steps.
+- **Contract stamps:** the AST and semantic contracts are "v3", stack is "b2" and register is "r2". Every loader requires a stamp and refuses a missing one (`:contract-missing`) or an old one (`:contract-mismatch`) before validation. Fresh-code producers pass the current value themselves.
+- **Other:** the expander refuses `yin/def` in its context store, in batch expansion and in harvest. Constructors refuse env, store or registry maps that bind it. `free-names` never returns it. The docs the design lists are updated; a subagent wrote them and I reviewed them.
+- **Tests:** there is a new cross-host test file, `test/yin/vm/rule_r_test.cljc`. Existing golden H, R and descriptor hashes changed, because the version bumps and the new `:define` mnemonic change the encoding.
+
+**Deviations and findings to review:**
+1. **Allowlist is larger than the design's list.** The design's list of eleven store-write sites misses four engine writes of engine-generated keys (new stream and cursor ids, and two cursor-advance writes) and a JVM demo that copies one VM's store to another. I put all five on the allowlist with their reasons; none can carry a key the program chose.
+2. **Stamp is a required positional argument.** That is my reading of "take a required contract". It means an observer setup whose input stream only carries freshly produced code has to pass the constant itself. If you want the stamp to travel inside each batch instead, that is a design change.
+3. **Contract names are new in code.** "b1" and "r1" existed only in `linker.md`. I added the string constants and bumped the stack lowering version from 1 to 2 and the register version from 3 to 4, so the image hashes change with the contract.
+4. **Completion requirements.** `:define` contributes no effects, the same as `:store-put`. So dependency completion no longer lists `yin/def` or `:vm/store-put` for a definition; I updated that test.
+5. **Tests came after the code.** I did not follow strict red-then-green TDD: most new tests were written after the implementation. They fail at base because the functions they call do not exist there.
+6. **Stale doc text left unchanged:** the UCF header still says "Nothing below is implemented", and `yin-repl-design.md` still says the ast-walker is the only backend.
+7. **One edit after the final lanes:** a docstring in `code.cljc` ("Rule 7" corrected to "Rule 8"). I ran kondo and cljstyle on it but did not rerun the lanes.
+
+**Not run:**
+- There is no separate parity command. The parity tests ran inside the three lanes.
+- New rows in the Markdown grid tables are wider than 80 columns, because a grid row has to span the whole table.
+
+**Housekeeping:** I ran `npm ci` in the worktree because the Node lane cannot run without `node_modules`. `node_modules` is gitignored. My scratch folder `target/rr` is deleted. One stray temp file, `/tmp/defblock.txt`, is outside the working directories, so I left it; deleting it outside the working directories needed approval. Commit two and the M4 items are untouched.
+
+Status: COMPLETE

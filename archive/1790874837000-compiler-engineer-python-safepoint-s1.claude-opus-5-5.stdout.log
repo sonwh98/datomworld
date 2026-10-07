@@ -1,0 +1,41 @@
+Completed-GMT: 2026-10-02 (time not captured; the session could not run `date`)
+Completed-Local: 2026-10-02 +0700
+
+# Python safepoint slice 1: not started, the session can't reach the worktree
+
+None of slice 1 is done. I edited no files and ran no tests or checks.
+
+## What blocked it
+
+This session started in `/Users/sto/workspace/datomworld`, and that path is its only allowed directory. The brief says to work only in `/Users/sto/workspace/datomworld-py-safepoint1` and not to touch the main tree. Every way into the worktree was refused:
+
+- **Shell listing:** `ls` on the worktree was blocked as outside the allowed directories.
+- **Git:** `git -C <worktree> status --short` needed approval.
+- **File read:** reading `<worktree>/deps.edn` was refused for lack of a permission grant.
+- **Switching into the worktree:** this needed an interactive confirmation, which a headless run can't give.
+
+I could not get around this without editing the main tree, which the brief forbids, so I stopped. I read the brief and the Architect findings (`collab/1790849347715-architect-safepoint-interpreter.claude-fable-5-1.findings.md`), both in the main tree. I did not check any of the design's file:line citations against the post-C1 code.
+
+## Changed files
+None.
+
+## Tests and checks
+None ran: `bb gen:python-antlr`, `bb build:yin-repl-node`, `bb test:clj`, `bb test:cljs`, `bb test:cljd`, clj-kondo and cljstyle were all skipped.
+
+## Incomplete work
+All of slice 1:
+1. `stream/poll!` and the `:stream/poll` effect arm in the engine.
+2. `:yang/site` marks and the `source-envelope` in the lowering.
+3. The `yang.safepoint` namespace: insert, shared `mark-tails`, and the `:derive` record.
+4. The Python hook prelude: `py.sp/loop`, `py.sp/call` and a `KeyboardInterrupt` class.
+5. All ten acceptance tests.
+
+## To unblock
+Re-dispatch with the session able to reach the worktree. Either of these works:
+- **Start it in the worktree:** `cd` into `/Users/sto/workspace/datomworld-py-safepoint1` before `claude -p`. Per the worktree-brief-path memory, the brief and report path should then be staged inside the worktree, because the main `collab/` won't be readable from there.
+- **Grant it the directory:** add `--add-dir /Users/sto/workspace/datomworld-py-safepoint1` with permissions that let it edit there and run git and `bb` there.
+
+The session ID in the brief has now been used by this run that did nothing, so a fresh ID may be needed.
+
+## Separate issue: three Google connectors need authorizing
+The claude.ai Gmail, Google Calendar and Google Drive connectors need authorizing in claude.ai's connector settings. They stay unavailable until then; slice 1 doesn't need them.

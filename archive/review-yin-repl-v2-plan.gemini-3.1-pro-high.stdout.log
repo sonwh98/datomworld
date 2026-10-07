@@ -1,0 +1,29 @@
+### Findings ranked most severe first
+
+**Critical** | `docs/design/yin.repl.implementation-plan.md:122`, `:260` | **The claim:** The v2 RPC client is driven by the caller's own loop, avoiding promises/futures on all hosts, and `connect` returns no promise. | **The exact correction:** The REPL operates synchronously on user input (`src/cljc/yin/repl.cljc:703`) and has no background loop. On async hosts (Node/Dart), without returning a Promise/Future (as seen in `src/cljc/yin/repl.cljc:535`), the REPL cannot yield to the event loop to await the remote response. The RPC layer MUST either return a Promise/Future, or the REPL must be fundamentally redesigned to include a background polling loop that mutates state and triggers a callback to print the response.
+
+**High** | `docs/design/yin.repl.implementation-plan.md:173`, `:286` | **The claim:** The endpoint resolves `/repl` and creates "One medium per attachment isolates a flooding client" for the request medium. | **The exact correction:** `docs/design/dao.stream.ws.md:15` states a descriptor reaches the *same stream every time*. If `/repl` wires a new medium per attachment, it is a connection factory, not a stream, violating the spec. `/repl` MUST name a single shared request medium (multiplexing all attachments) for the REPL inbox, OR `/repl` must be the lifecycle stream that announces dynamically created per-attachment streams.
+
+**High** | `docs/design/yin.repl.implementation-plan.md:77` | **The claim:** Roughly 60% of the 1085 lines — including VM construction, reset, and eval paths — touch no stream and can be copied verbatim to `yin.repl.core`. | **The exact correction:** VM construction (`src/cljc/yin/repl.cljc:160` uses `make-local-stream`), the eval path (`src/cljc/yin/repl.cljc:458` uses `ds/append!`), and `reset` all explicitly depend on v1 `dao.stream` operations. They cannot be extracted to a stream-independent core. The true stream-independent code is much smaller, and these core functions must remain in the stream-dependent `yin.repl` namespace.
+
+**Medium** | `docs/design/yin.repl.implementation-plan.md:343` | **The claim:** The `#?(:clj …)` trap requires placing `:cljd` first to avoid silently failing in the tail position, implying this is a design rule for new code. | **The exact correction:** The plan proposes copying the REPL verbatim, but `src/cljc/yin/repl.cljc` is full of `#?(:clj ... :cljs ... :cljd ...)` conditionals where `:cljd` is in the tail position (e.g., lines 398, 528, 580). If copied verbatim, these branches will trigger the exact trap the plan warns about and silently fail on Dart. These conditionals must be rewritten when copied.
+
+**Medium** | `docs/design/yin.repl.implementation-plan.md:261` | **The claim:** "The composition wires the deposit medium before attaching, then builds the RPC client from the ws handle..." | **The exact correction:** `attach!` takes only a portable descriptor (`docs/design/dao.stream.md:204`), which has no place for a local deposit medium. The implementer must dynamically invoke the transport constructor with the deposit medium during `connect`, rather than relying on a static host dispatch table.
+
+---
+
+### What would fail first
+
+If someone started R1 tomorrow, they would immediately hit a wall trying to implement `poll!`'s matching of responses to IDs. R1 claims the RPC layer works over two ring buffers with no socket and is transport-agnostic, but relies on `request!` returning a correlation ID and `poll!` magically matching it. Because the plan completely omits the design of the request/response envelope structure, the implementer would have to invent how correlation IDs are physically encoded in the appended stream values (e.g., `{:req-id id, :op op, :args args}`). 
+
+### What an implementer cannot determine from these documents
+
+1. **The RPC Envelope:** The exact shape of the RPC request and response envelopes needed by `poll!` and `serve-step` to correlate IDs over raw streams.
+2. **Dynamic Wiring:** How the REPL client dynamically passes the deposit medium to the WS transport during `(connect "ws://...")`, given that `attach!` only accepts a portable descriptor.
+3. **Async UI Wakeup:** How to wake up the REPL's synchronous user interface when `poll!` finally receives a response, since no Futures or callbacks are provided.
+
+### Whether the scope is right
+
+The scope is largely correct in its aggressive exclusion of deferred features (Phase 3, UDP, flow control), but fatally too narrow in its omission of the REPL's asynchronous execution requirements. **The plan should not be executed as written.** 
+
+The dogmatic removal of Promises/Futures from the RPC layer breaks the REPL on async hosts (Node/Dart) because the interactive `read-eval-print` loop has no mechanism to yield to the event loop while waiting for a remote response. Without a massive redesign of the REPL to include a background polling loop and state-mutation callbacks, remote evaluation will hang the host.

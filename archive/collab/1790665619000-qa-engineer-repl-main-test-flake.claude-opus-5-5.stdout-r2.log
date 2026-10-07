@@ -1,0 +1,76 @@
+Completed-GMT: 2026-09-29 08:06:06 GMT
+Completed-Local: 2026-09-29 15:06:06 +07
+Coding-Agent: claude
+Session-ID: f9fe29ab-85ec-4a4d-8667-ca972a237a16
+
+# Report: yin.repl.main-test cross-process flake
+
+The flake came from a missed event, not a slow one, and it is fixed in `src/cljc/yin/repl/driver.cljc` (+19/−4). Before the fix, 4 of 20 runs failed; after it, 36 of 36 passed. The Dart peer exe still has the old driver and needs a rebuild (see the end).
+
+## Root cause (shown with instrumentation)
+
+The client could send its eval request before its reply cursor was set. The server then placed that cursor one past the answer, so the answer was never read.
+
+1. `connect/open` creates the RPC client with its response cursor set to the `:dao.stream/newest` anchor. Over a `dao.stream.remote` reflection, process A resolves that anchor when the cursor request reaches it.
+2. `Connected to …` is published straight away, while the WebSocket may still be `:connecting`. Until the socket is `:open`, `WsHandle.append!` answers `:dao.stream/full` (`dao/stream/ws.cljc:207`).
+3. On `:full`, the two requests are handled differently:
+   - The cursor request is dropped and only sent again on the next poll.
+   - The eval request is kept as unsent. `retry-unsent` resends it at the start of the next `repl-step`, before `poll-remote` asks for the cursor again.
+4. So once the socket opens, the eval request goes on the wire first. If A reads it in step N and the cursor request in step N+1, the cursor lands one past the answer. `serve/step` runs the mirror and then `advance-requests` in the same step, so the answer is already appended by then. The test's `remote-value` or `await-event` then returns nil after its timeout.
+
+**Evidence:**
+- **Baseline failures (4 of 4, same shape):** the first `remote-value` after attach returned nil. The peer's history held only `Attaching…` and `Connected…`. The request was still `:outstanding`, the ticker was alive (~2260 ticks, no error), and the parent's pipe had received no reply. That rules out the stdout pump and the time budget.
+- **Instrumented failing run**, peer log by tick:
+  - tick 5: cursor is `:newest`, socket `:connecting`
+  - tick 7: `(def x 10)` gets `:full` and is marked for retry
+  - tick 10: socket `:open`; request `5010736382359540` sent while the cursor is still `:newest`
+  - tick 19: cursor resolves to position 5
+- **A's answers medium at the timeout:** id `5010736382359540` → `"10"` sits at position 4, and the stream ends at position 5. The answer is just behind the cursor, so it can never be read.
+
+## Fix
+
+No remote request is sent while the RPC response cursor is still an unresolved anchor:
+- **New `response-cursor-unminted?`:** true while the cursor is still in `stream/standard-anchors`.
+- **`handle-line`:** while that is true, the line is queued, the same way it waits behind an outstanding, retrying or unsent request.
+- **`release-queue`:** holds queued lines until the cursor is resolved.
+- **`pending-write?`:** also counts a line waiting on the cursor, so a host's tick rate doesn't back off meanwhile.
+
+Reattachment is unaffected because `rpc/rebind` keeps the already-resolved cursor. No timeouts or sleeps were changed.
+
+## Before / after
+
+| | Runs | Failed |
+|---|---|---|
+| Before | 20 | **4** (20%) |
+| After (fix, instrumentation removed) | 36 | **0** |
+
+- The 36 come from two loops: 26/26 before the previous session died mid-loop, then 10/10.
+- At the old 20% rate, 36 clean runs in a row would happen by chance about 0.03% of the time (0.8^36).
+- Each loop runs `run-tests 'yin.repl.main-test` N times in one JVM. Every run spawns fresh peer JVMs, which load the driver from source. Logs are in `target/flake-run{1,3,4}.log`.
+
+## Changed files
+
+- `src/cljc/yin/repl/driver.cljc` (+19/−4).
+- The temporary instrumentation in `main_test.cljc` and `slice_peer.cljc` is removed: `git diff` shows no change to either file, and `grep -rn FLAKE src test/yin` finds nothing.
+- I did not touch `test/dao/lease_composition_test.cljc` (another delegate's change).
+
+## Verification
+
+- **`clj -M:kondo --lint src/cljc/yin/repl/driver.cljc`:** 0 errors, 0 warnings.
+- **`cljstyle check`:** blocked. The command needed approval in this session and was not run.
+- **`clj -M:test -n yin.repl.main-test -n yin.repl.driver-test`:** 30 tests, 173 assertions, 0 failures, 0 errors.
+- **The other yin.repl test namespaces, after the fix:** 84 tests, 390 assertions, 0 failures. These were adapter, connect, driver, embed, serve, serve-connect-wire and `yin.repl-test`.
+- **Full `clj -M:test`:** 2343 tests, 184065 assertions, 0 failures, 0 errors. One skip was already there before this change: `a-dart-dialer-reads-a-jvm-server`, because `build/ws-project-peer` is absent.
+- **`bb test:cljs`:** 2249 tests, 50589 assertions, 0 failures, 0 errors. `yin.repl.main-test` and `yin.repl.driver-test` both ran.
+- **`bb test:cljd`:** not run, as instructed.
+
+## Cross-host and unresolved
+
+- **The Dart peer has the same race.** It runs the same driver, but `build/yin-repl-peer` was built at 11:46, before this change. The cross-host tests passed against that old exe, but they can still flake until it is rebuilt with `bb build:yin-repl-peer`. I did not rebuild it.
+- **The underlying bug also lives in `dao.stream.rpc`,** which is outside my authorized files, so I left it alone. Any caller that passes `anchor-newest` over a remote reflection can call `request!` before the cursor is resolved and lose the answer. Suggested change: `rpc/request!` returns a non-allocating outcome, e.g. `:dao.stream.rpc/cursor-pending`, while the cursor is still an anchor. That would make the driver guard redundant; it needs an Architect or owner decision.
+- **No deterministic regression test yet,** because `driver_test.cljc` is outside the allowed files. Suggested test:
+  1. Give the RPC client a `:newest` cursor and a reader that answers the mint with a retry.
+  2. Submit a remote line and assert nothing is appended and the line is queued.
+  3. Let the mint succeed and assert the line is sent.
+
+The report is written to `collab/1790665619000-qa-engineer-repl-main-test-flake.claude-opus-5-5.report.md`. Nothing is staged or committed.

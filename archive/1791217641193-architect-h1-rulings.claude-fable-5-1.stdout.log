@@ -1,0 +1,66 @@
+Completed-GMT: 2026-10-05 16:30:03 GMT
+Completed-Local: 2026-10-05 23:30:03 +07
+Coding-Agent: claude
+Session-ID: 86570e56-5476-480f-a673-0ec2af4564a5
+
+All three questions rest on real code, and the engineer's choices stand with one correction in `head.cljc`. I edited no file and ran no test; these rulings come from reading the design, the diff and the sources.
+
+## Ruling 1: section 5.5, forgetting a failed index-kind record
+
+**Decision: the engineer's reading is right, but only for the index kind.** The follower may forget and restart a `:failed` index-kind record at its candidate's address, and nothing else that is not its own.
+
+- **Why the index kind is safe:** an index-kind record runs the same covered-index walk the candidate needs, so reading it is sound. The record is terminal, so `forget` is legal. It is restarted in the same step under the same kind, so it never changes owner.
+- **Where the code goes too far:** `walk-of` in `head.cljc` also restarts a failed module-kind record with `closure-walk`. A closure walk can never confirm a head, so the follower would re-run someone else's load indefinitely. Leaving the record alone ends that; the candidate still waits until the record's owner forgets it, which is liveness only (5.9 promises none).
+- **How a module-kind record gets there:** a name bound to an index manifest's address, then a `require` of it before the follower acquires that address.
+
+medium | `src/cljc/yin/vm/linker/head.cljc`, `walk-of` (the `ld/module-kind` branch) and `settle`'s last branch | 5.5 "Candidate records have owners", D3 "kinds do not mix" | Delete the `ld/module-kind` branch of `walk-of`. The existing `nil` path then leaves a failed record of any other kind in place, and `settle`'s `(nil? status)` branch acquires the address once its owner forgets it. Add one test: a failed module-kind record at the candidate's address is still there after the delay, and after a `forget` the candidate loads and installs.
+
+low | `docs/design/yin.vm.linker.dht.head.md:378-381` | self-contradiction with 425-431 and the H1 criterion | Replace the sentence "If the candidate's manifest is already loaded by hand (index kind), the follower starts nothing, owns nothing, and reads that record; it never forgets or abandons a record that is not of the candidate kind." with:
+
+> If the candidate's manifest is already recorded by hand under the index kind, the follower starts nothing, owns nothing, and reads that record. It never abandons a record that is not of the candidate kind, and it forgets one in a single case, the Unloadable rule below: a `:failed` index-kind record at its candidate's address. That record is the user's throughout: once `:loaded` it is in the snapshot set as any index load made by hand is, whatever the follower's verdict on the trace, and no release removes it. A record of any other kind at the candidate's address is neither read, forgotten nor restarted: the candidate is reported `:yin.head/unloadable` once with that record's failure and waits until the record's owner removes it, and then loads as a candidate.
+
+low | `docs/design/yin.vm.linker.dht.head.md:426-430` | same | Replace "After a delay in node ticks, doubling from `:repair-ticks` to `:repair-max-ticks`, the failed record is forgotten and the load started again **under the kind the record had**, so a failed load made by hand at that address is restarted as an index load and stays the user's." with:
+
+> After a delay in node ticks, doubling from `:repair-ticks` to `:repair-max-ticks`, the failed record is forgotten and the load started again in the same step **under the kind the record had, which is the candidate kind or the index kind and no other**, so a failed load made by hand at that address is restarted as an index load and stays the user's. A failed record of any other kind is left to its owner.
+
+## Ruling 2: section 7 and `busy?`
+
+**Decision: (a). Correct the sentence; `busy?` does not change.**
+
+- **Why not (b):** a candidate load is the same fetch work as a load by hand or a module load, and it needs base-cadence steps to finish promptly. Option (b) would put a foreground/background policy into `dao.space.dht` and make head installation up to eight times slower on the idle curve (200 ms against 25 ms).
+- **Cost:** the node is busy only while a candidate record is `:loading`.
+  - Polling, judging, a `:loaded` candidate awaiting install, a `:failed` one waiting out its delay, and an abandoned load's residue in the client do not make it busy.
+  - Under the alternating replay of 5.5 a load is always active, so the tick owner stays at 25 ms instead of backing off to 200 ms for as long as the alternation lasts.
+- **`main.cljc`:** no change. `moved?` already reads `repl.dht/busy?`, so a loading candidate holds the base interval and the idle curve resumes when the load ends. Node ticks are the owner's millisecond reading, so the 5000-tick poll is late by at most the 200 ms ceiling.
+- **Tests:** the four existing `busy?` assertions in `test/dao/space/dht_test.cljc` have no follower and are unaffected. Any H3 test that waits on `(not busy?)` with a follower attached must not use a candidate whose fetch never answers.
+
+low | `docs/design/yin.vm.linker.dht.head.md:660`; `src/cljc/dao/space/dht.cljc:1461-1478` | `busy?` docstring: "holds work: binding, a load, …" | Replace "Following never makes the node `busy?`." with:
+
+> Following alone never makes the node `busy?`: a poll, a judged trace, a loaded candidate awaiting installation, a failed one waiting out its delay and what an abandoned load leaves in the client are not work the node reports. A candidate that is `:loading` is a load like any other and makes the node `busy?` until it ends, so the tick owner holds its base interval while a head is fetched and returns to its idle curve afterwards. Under the alternating replay of 5.5 a load is always active, and the node stays at the base interval for as long as the alternation lasts.
+
+## Ruling 3: `link.cljc` forgetting a failed record
+
+**Decision: acceptable for H1; it is not a safety or ownership violation, and the fix belongs in H3.**
+
+- **Reachability:** a `require` reaches a candidate's address only when a name envelope binds a name to an index manifest's address. That is malformed or hostile, never ordinary.
+- **Why ownership holds:**
+  - `release` re-reads the record's kind and status before removing anything, so a stale owner entry never removes a record the follower did not start.
+  - `settle` re-acquires on a missing record.
+  - A candidate is in no snapshot set at any point.
+- **What is lost:** the retry delay is skipped, at most one extra load per user `require`. There is no amplification beyond what a `require` of any failed address already costs.
+- **The real defect is older:** `dht-attempt` is kind-blind. It also forgets a user's failed index load made by hand, and waits on or tries to link records of other kinds. D3 makes that wrong.
+- **Not checked:** I did not trace what `dht-link` answers for a `:loaded` candidate-kind record; I expect a refusal.
+
+low | `src/cljc/yin/repl/link.cljc:313`, `dht-attempt` | D3 "kinds do not mix"; 5.5 "only when the set is empty is the record removed" (letter only) | Change in H3, which already owns `link.cljc`, not H1. In `dht-attempt`, after the `(nil? status)` branch, add a branch for `(not= linker.dht/module-kind (:kind status))`. It answers `{:status :refused :reason :dao.space.dht/kind-conflict :address address :recorded (:kind status)}` and forgets nothing. H3 also adds that row to the response rows of `yin.vm.linker.dht.md` section 9, and one test: a `require` resolving to a failed candidate's address leaves the record in place and the retry delay intact.
+
+## Ruling 4: the section 4.3 amendment
+
+**Decision: right, keep it.** The old "left as it is" rule is false once `load` refuses across kinds. The new text matches the code: same kind is a no-op, another kind is `kind-conflict`, and the `abandon` paragraph matches `abandon`, `client-holds?` and `advance-loads`. The omission is in the design's list.
+
+low | `docs/design/yin.vm.linker.dht.head.md:993` (H1 "Amendments carried") | the list omits a section the slice had to amend | Replace "`yin.vm.linker.dht.md` 1, 7.2, 9, 10 and 13" with "`yin.vm.linker.dht.md` 1, 4.3, 7.2, 9, 10 and 13".
+
+## Before H1 lands
+
+1. Remove the module-kind branch of `walk-of` and add its test (ruling 1).
+2. Apply the four design text replacements above.
+3. Carry the `link.cljc` change into the H3 brief (ruling 3).

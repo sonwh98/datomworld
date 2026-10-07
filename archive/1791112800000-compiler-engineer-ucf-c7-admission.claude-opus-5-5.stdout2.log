@@ -1,0 +1,34 @@
+C7 is done in the worktree, but I did not run the Node or Dart lanes. My one Node attempt passed the 600 s foreground cap, was moved to the background and died with the session, so it left no counts; those lanes are yours on this tree. cljstyle didn't run either: the permission gate blocked it under both its bare and full path, as in C5 and C6. I made no git writes.
+
+**What did run, in the foreground:**
+- **JVM focused:** every `yin.vm.ucf.*` namespace plus `dao.stream.journal-test` and `dao.stream.journal.file-test`, 12 in all: 193 tests, 1472 assertions, 0 failures, 0 errors.
+- **kondo:** 0 errors and 0 warnings on the six touched files.
+- **ASCII and width:** ASCII only, no line over 80 columns.
+- **C3 cross-host digest fixture:** still passes, so the bytes of the existing fact kinds did not move.
+
+**Test-first evidence:**
+- **Red first:** all 21 first-written tests failed against a stub namespace (125 failures, 8 errors), then went green.
+- **Deliberate breakage:** I broke 17 guarantees one at a time, and each one turned the suite red. They cover the check order, stale beating an existing record, quarantine, the one shared dedup namespace, the diagnostic append, poison on the outcome reader, deciding outside the lock, and the quarantine guards on grants.
+- **Restored:** a byte compare against backups confirmed every file is back to normal.
+
+**Shared-file edits** (all additive; the report has exact post-edit line ranges):
+- **`ledger.cljc`:**
+  - Two new fact kinds at the end of the attribute-order table: `:yin.k/fenced` and `:yin.k/quarantined`.
+  - Their two fold arms, at the end of the fold, plus a helper block of defect checks before it.
+  - One line in `grant-defect` that refuses a grant on a quarantined occurrence.
+  - Docstring lines.
+- **`grant.cljc`:** one line each in the writer and the answer hook, so a quarantined occurrence is never regranted, plus docstrings.
+- **`authority.cljc` and `seam.cljc`:** docstrings only, since `admit!` now exists. The seam code is unchanged.
+
+**Deviations you should know about:**
+- **Intents are digests.** On `:intent-conflict`, the recorded and observed intents are the C3 digests, not the vectors UCF 7.9 asks for. The C3 ledger stores only the digest.
+- **Inherited op ids fail closed** as `:foreign-op-id` until C9 replaces that branch.
+- **The incarnation is in a new fact.** I recorded it in `:yin.k/fenced` rather than adding a key to C3's admitted fact, to keep C3's fact kind and bytes untouched for the merge. The fold does not check that both facts sit in the same record; adding that would mean editing shared fold code.
+- **After a crash, a retry answers `:stale`.** Reopen reclaims every live lease, so the only way to recover a committed result is the outcome stream. A plain reopen without reclaim does replay the recorded result.
+
+The findings report has the full list of smallest choices and seven open questions: `collab/1791112800000-compiler-engineer-ucf-c7-admission.findings.md`.
+
+**For your lanes:**
+- Please run `cljstyle fix` then `check` on the six files listed in the report.
+- In the Node output, confirm that `Testing yin.vm.ucf.authority.admission-test` appears.
+- On Dart, the JVM-only serialization test uses `#?(:clj ...)`, the same form C6's reclaim test uses. If the ClojureDart reader-conditional trap bites, change it to `#?(:cljd nil :clj ...)`.

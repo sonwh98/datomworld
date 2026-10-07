@@ -1,0 +1,29 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Round 3 complete. Report: `collab/1789015301045-stream-jing-remote-phase2-r3.glm-5.3.findings.md`; nothing staged or committed.
+
+## The ninth exit
+
+`connect-content!`'s establishment-loop sleep now honours N2 at every failure exit, in the eighth exit's shape:
+
+1. `stream/close! handle` **first** — no handle, medium or state escapes;
+2. `.interrupt` re-asserted — not swallowed;
+3. throws `{:url url, :reason :dao.jing.remote/interrupted}` — matching the loop's other two throws.
+
+The catch never returns (so the `recur` after the `try` runs only after a full sleep), and the docstring now reads "In all three failure cases `stream/close!` has run…". Nothing needed settling here — no client state exists yet; the handle was the thing at risk.
+
+## The proof
+
+`connect-throws-on-interruption-with-nothing-escaping` — the r2 recipe applied: own-thread flag set before the connect, against the accepts-and-never-writes peer with the r2 slot teardown. Asserts preserved flag (captured in-catch), a `::returned` sentinel so a regression to *returning* also fails, and the exact reason map. On closedness: **said rather than invented** — the handle's `:closed` phase has no external seam (everything is local until the constructor returns, and the stalled peer never sees the close cross the wire); the no-escape assertion is the structural one, and the test's comment records that. **Mutation-checked**: raw sleep restored → 3 failures (raw `InterruptedException`, flag gone, no ex-data) → fix restored → 0, twice.
+
+## Verification
+
+| lane | result | r2 baseline |
+|---|---|---|
+| `clojure -M:test` | **1457 / 165515, 0 failures** | 1456 / 165512 |
+| `bb test:cljs` | **1359 / 35025, 0 failures**; remote-test confirmed | 1358 / 35024 |
+| `bb test:cljd` | **+1313, all passed** | +1312 |
+| demo | **212 files, 0 warnings** | 212 / 0 |
+| kondo | **0 / 0** | 0 / 0 |
+
+Greps stay at zero; `reset! (:rpc` still appears exactly once, inside `settle!`. Scope held: ticker sleep untouched, all r1/r2 work byte-identical, plan and design docs left for your reconciliation — the report names the ninth exit for §5.1's list, N2, and `dao.jing.md`'s exit sentence. This round changed only the two code files; `orchestrator.md` shows fresh parallel edits of yours, untouched by me.

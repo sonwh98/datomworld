@@ -1,0 +1,28 @@
+**Recommendation: the EAV triple, with the node's content address as `e`, and the address computed over the node's map.** Not Ribbit's triple, not the envelope, not cons cells. And leave the segment alone.
+
+## Why EAV wins under datom.world's own constraints
+
+The four candidates are not four different values. A `:lambda` node with children replaced by addresses is one merkle map, `{:ast/type :lambda :lambda/params [x] :lambda/body B}`. The positional row, the envelope triple, and the EAV fact set are three projections of that map, and the §2.3 dictionary converts between them losslessly. So the address can be the same under all of them, and the choice is purely about which shape gets stored, streamed, indexed, and queried. On that question the substrate has already voted.
+
+- **`q` is built for triples.** The fast path engages only on a 3-slot pattern with a fact index (`src/cljc/dao/space/query.cljc:899`). Every n-tuple code row takes the general path by construction. The design doc concedes this by keeping a separate datom projection for attribute-unbound queries, pull, and covered indexes (§6.5). Choosing EAV makes that second projection unnecessary. One shape, one index family, one query path.
+- **The datom contract is already satisfied.** Foreign references only in `v` is exactly a child address in the value slot. A node's tag becomes an ordinary AVET-indexable fact, so "every lambda" is one clause on the fast path instead of an arity-shaped pattern.
+- **Content addressing gets simpler, not harder.** Hash the node map through the existing `segment-key`, whose order normalization already sorts map keys. The fact set of a node and its map are the same canonical value, so `map → address` is one call and the round-trip law reduces to `assoc :type` and `dissoc :type`. The rows-versus-map dictionary stops being load-bearing for identity.
+- **Reconstruction is the incumbent path.** The walker dispatches on maps and always will. Grouping facts by `e` and recursing through child addresses is what `datoms->ast` does today (`src/cljc/yin/vm.cljc:494-559`), with content addresses replacing allocated entity ids. Nothing new to build.
+- **Sharing and occurrences are unchanged.** Identical subtrees still collapse to one `e`. The occurrence relation still names places. The encoder blocker in §4.2 gates identity exactly as before.
+
+Keep the `nodes` slot as one vector-valued fact, `[A :application/operands [D E]]`. Exploding it into indexed facts buys nothing that `member?` did not already require and it breaks the one-fact-per-field symmetry that makes the round trip trivial.
+
+## Why not the others
+
+- **Ribbit's triple is not an AST.** Ribbit compiles straight to ribs and never keeps a tree. The `next` slot bakes the continuation into content, so `(+ x 1)` in two positions gets two addresses, DAG sharing dies, and macro-expansion outputs stop being comparable by hash. Ribs are also a uniform-allocation trick for a four-kilobyte host, which is not our problem. The right home for that idea is the segment, and the segment already has it: pc-as-index is Ribbit's `next` made implicit, with fixed arity per opcode under UCF §7.3.2. Do not triple-ize the segment. Explicit next pointers break jump targets and pc-indexed provenance.
+- **The envelope triple is a triple in name only.** The payload map is opaque to positional unification, so every field access goes through a function clause. It is the map AST with a hash prepended, which is the value we are already hashing. It gives the query layer nothing.
+- **Cons pairs contradict ruling 1.** The owner chose a LISP in maps, not lists. Datalog over pairs is cdr-chasing.
+- **Erlang is a weaker precedent than it sounds.** Its abstract format is a tagged n-tuple with a position annotation in slot two. Only leaves are triples, and the annotation slot is precisely the provenance §2.5 excludes from content.
+
+## The shape, stated once
+
+- Content: per node, facts `[addr a v]` where `a` ranges over `:ast/type` plus the §2.3 slot names namespaced by tag. No `t`, no `m`. The address is the hash of the node map.
+- Storage: `dao.jing` holds the node map under its address, so the loader does one fetch per node. The AST indexer explodes it into triples and stamps its own `t` and `m` when it indexes, which keeps the content layer free of time.
+- Execution: the walker reconstructs maps at load. The semantic VM lowers maps to the positional instruction vector as today. The hot loop never touches a triple.
+
+One sentence to remember it by: the map is the value, the triple is the map one entry at a time, and the bytecode is the segment, not the AST.

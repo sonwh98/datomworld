@@ -1,0 +1,56 @@
+Review complete. Nothing was edited except the plan-mode notes file. Findings below, then the three sections.
+
+## Findings, ranked
+
+1. **CRITICAL** | `yin.repl.implementation-plan.md:76-84, 242-254, 403` | Claim: `yin.repl` runs "requiring no v1 namespace" and R2 creates its local streams with the v2 ring buffer. | Correction: this is impossible without migrating `yin.vm`, which the sibling plan puts out of scope. The VM speaks v1 `dao.stream` throughout: `yin/vm.cljc:6-9,138`, `yin/vm/engine.cljc:6-7,156,192`, `yin/vm/ffi.cljc:11,99,110`, `yin/vm/telemetry.cljc:2,281`, `yin/vm/semantic.cljc:185-191`. The REPL hands the VM its in-stream at `yin/repl.cljc:169-171`, appends to it with v1 at line 458, and reads VM-written telemetry with v1 `next` at line 387. Of the REPL's three local streams only the output stream is REPL-owned at both ends. Rewrite R2: the in-stream and telemetry stream stay v1 until `yin.vm` migrates; only the output stream moves. Rewrite the end condition to "no v1 transport or RPC namespace".
+
+2. **HIGH** | `plan:111-124, 256-271, 299-322, 337-342` | Claim: "the caller's own loop drives both" and on cljd "none of that gets written". | Correction: the REPL has no such loop on two hosts and a blocking one on the third. cljs and cljd read lines in event callbacks (`repl.cljc:891-910`, `1029-1066`); clj blocks in `read-line` (`852-862`). After `request!` something must call `poll!` repeatedly, and something must observe `:ws/opened` to print "Connected to". That driver is a thread or sleep loop on clj, `setTimeout` on Node, `Future.delayed` on Dart, which is v1's trio (`rpc/client.cljc:96-104`, `ws.cljc:496-504`) relocated into the REPL. The contract allows this (cadence belongs to the runtime, `dao.stream.md:178-180`), but the plan must name "the REPL driver" as an R2 deliverable, list what it steps (telemetry drain, output drain, deposit medium, `poll!`, `serve-step`), and retract the claim that host divergence disappears. It must also decide what happens to a line typed while a request is outstanding; v1 has a clobber race there (`repl.cljc:1044-1047`).
+
+3. **HIGH** | `plan:150-175` (D2, D3) | Claim: D2a, with the endpoint forwarding nothing, and D3 unsettleable before the gate. | Correction: as written, `/repl` names no served stream, so a spec-conformant handshake must disclaim it (`dao.stream.ws.md:9-16, 294-300`) and every `connect` deposits `:ws/not-found`. The fix is small: the REPL `create!`s one real ring buffer per endpoint, registers it in the resolution table under the path, and both the client handle and the accepted-connection handle answer `descriptor` with it (`ws.md:38-42`). Replies still travel on the connection handle (D2a stands). Nothing is forwarded from the served stream in this slice, which is composition policy, not a spec violation. The shape can be settled now; only key names wait for the gate. This also makes R5 fact 4 definable: `stop!` closes the served stream and closes each connection with the ended code.
+
+4. **HIGH** | `plan:226-229, 131-137` | Claim: a client is built "from a writer handle plus a reader handle and minted cursor". | Correction: the reader is the per-boundary deposit medium, which carries envelopes for every attachment and every lifecycle event (`ws.md:105-111`, sibling plan 4a line 238), not bare responses. The client also needs `me` and a composition-supplied envelope-to-response decode function, per the contract's "receives the operation as an ordinary argument" (`dao.stream.md:385-393`). R1 tested over two bare ring buffers will pass and then break in R3. The same applies to `serve-step`'s request medium.
+
+5. **HIGH** | `plan:36-39, 131-137` vs `repl.cljc:736-750`, `test/yin/repl_test.cljc:320` | Claim: `serve-step` dispatches against a handler map and appends the response in the same step. | Correction: v1's `:op/eval` handler forwards to the server's own remote endpoint when one is connected, and that chain is tested. Under step-driven polling a handler cannot produce that answer synchronously. Either exclude chain-forwarding by name, or design `serve-step` for deferred responses.
+
+6. **MEDIUM** | `plan:126-129` | Claim: `gap` on the response medium loses pending ids. | Correction: incomplete. Observing `:ws/closed`, `:ws/not-found` or `:ws/transport-error` for `me` also loses every outstanding id, and must be reported as lost, not left to time out. Reattach mints a new attachment id, so "reattach" is a new client value carrying the old cursor.
+
+7. **MEDIUM** | `plan:195-200, 349-352` | Claim: cljd ws over `dart:io`, "the cljd answers come from dart:io". | Correction: the server assumption holds. v1 already runs `HttpServer.bind` plus `WebSocketTransformer.upgrade` (`ws.cljc:369-410`). But the answers are not stated and are not obvious. `bind` returns a Future, so a port-in-use failure arrives after "start" returns and needs a lifecycle stream to land on (Node's `ws` server fails the same way; http-kit throws synchronously). `dart:io` WebSocket exposes no buffered-amount, so transient `full` is undetectable and must be declared excluded with a reason, except while connecting. `add` after close throws `StateError` synchronously and must be classified to `closed`. v1's cljd `listen!` never sets `:socket-close-fn` (`ws.cljc:396-408` vs `184-186`), so server-side `close!` never closes the socket; do not copy that. The codec exists at `src/cljd/dao/stream/transit.cljd`. The step design itself works on the Dart event loop: `poll!` returns on `blocked`, the driver reschedules with a timer, and nothing parks.
+
+8. **MEDIUM** | `plan:67-70, 252-254` | Claim: `:cljs-yin-repl` mirrors the existing alias and proves cljs. | Correction: `deps.edn:74` runs `shadow.cljs.devtools.cli run yin.repl/-main`. shadow's `run` executes a Clojure function on the JVM; it compiles nothing. The actual Node REPL is the `:yin-repl` node-script build in `shadow-cljs.edn:26-28`. The cljs deliverable is a `:yin-repl` node-script build run with `node`. Verify the `run` semantics before relying on this.
+
+9. **MEDIUM** | `plan:76-84` | Claim: roughly 60% copies verbatim, including "the compile and eval paths". | Correction: counted, the stream-free verbatim set is about 350 of 1085 lines, a third: `24-47, 62-111, 139-145, 205-210, 302-341, 427-441, 470-523, 629-649, 809-833, 943-1015`. The eval paths are stream-coupled (`458`, `444-451`). The remaining two thirds are promise or future shaped all the way to `-main` on every host (`526-532, 703-731, 734-766, 836-1085`) or v1-stream shaped (`175-202, 257-299, 381-418`). The split line is sync versus async, not stream versus non-stream. Copying is still the right call under the constraint, since the helpers are `defn-` and var-reaching does not port to cljs or cljd, but budget for rewriting the top half.
+
+10. **MEDIUM** | `plan:285-288` | Claim: one request medium per attachment. | Correction: that shape requires a boundary-level announcement stream (`ws.md:139-143`), which is extra machinery the REPL does not need. One medium per boundary, the sibling's choice, is sufficient.
+
+11. **LOW** | `plan:343-348` | The reader-conditional trap. | The design steps on it at the JVM blocking convenience, the JVM `-main`, R1 and R2 test files on cljd (`deftest` is the documented failure), and every two-branch `#?(:clj … :cljs …)` the sibling writes in `v2/ws.cljc`, where `:cljd` must be prepended, not appended. v1's `#?(:clj (do (defn …)))` blocks compile on cljd today, so plain defns are tolerated.
+
+12. **LOW** | `plan:207-211` | Phase 3 is not a prerequisite. | Its decision gate is, and the sibling forbids 4a on provisional keys (`sibling:187-192`). R3 waits on Phase 3 being done there. Say so.
+
+13. **LOW** | `plan:212-216` | 4c is excluded. | R4 re-derives 4c's list (`sibling:331-353`) minus the forwarder bullet. Acknowledge it rather than calling it skipped.
+
+14. **LOW** | `plan:71-74` | The cljd runner and output dir. | `runner.clj:13` runs `bin/yin_repl_main.dart`, which imports `lib/cljd-out/yin/repl.dart`; the alias's `:output-dir build/yin-repl` (`deps.edn:95-96`) is not what executes. v2 needs its own Dart entry file importing `lib/cljd-out/yin/repl.dart`.
+
+On the RPC diagnosis specifically: it is right. `rpc/client.cljc:39-42` compares `:position`, line 129 seeds `{:position 0}`, lines 60-65 and 108-111 return a Promise or Future, and `call!` at 153-160 reads responses off the same stream it wrote to. Two outstanding requests correlate fine by id with one cursor, as v1 does at 84-94. What breaks with two outstanding is not correlation but finding 6.
+
+## What would fail first
+
+No `dao.stream` exists yet. `src/cljc/dao/stream*` is empty, so R1 cannot compile against anything. The plan's own dependency statement is correct; today it just means nothing can start. The next failure is R2, when the implementer discovers that `make-vm` must hand the VM a v1 stream and that telemetry arrives on a v1 stream.
+
+## What an implementer cannot determine from these documents
+
+- The REPL driver: what runs between prompts on each host, at what cadence, and what it steps.
+- The envelope decode step between the deposit medium and the RPC client, and `me` as a client field.
+- What `/repl` names, and therefore whether a conformant handshake accepts it.
+- Where a bind failure lands on cljd and Node.
+- How cljd detects `full` and `closed` on `dart:io`.
+- Whether chain-forwarding through a server's own remote is in scope.
+- What happens to outstanding ids on `:ws/closed`, and to input typed mid-request.
+- The exact return shape of `request!`, `poll!` and `serve-step`.
+- Which cljs entry actually runs on Node.
+- Capacity numbers for the output stream, the deposit media and the request media.
+
+## Whether the scope is right
+
+Too narrow in two places and mis-stated in one. The narrowing of Phase 5, `retry`, `dedup`, UDP, remote telemetry and the Flutter widget is right; none of those is needed. Excluding 4b is right under D2a. But excluding 4c drops the only place that names drivers and lifecycle, and the plan does not replace it. And the "v1-free" claim makes R2 undeliverable as written. The per-attachment request medium is included and not needed.
+
+The plan should not be executed as written. Fix findings 1 through 5 first: state the v1 dependency through `yin.vm` honestly, name the driver, give `/repl` a real served stream, put envelope decoding and `me` into the client, and settle chain-forwarding. After that the slice is a good one, and the cljd-first-class decision is the strongest part of it.

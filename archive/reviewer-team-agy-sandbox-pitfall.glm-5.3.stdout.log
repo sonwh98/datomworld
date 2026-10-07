@@ -1,0 +1,32 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-04 10:57:14 GMT
+Completed-Local: 2026-09-04 17:57:14 Asia/Ho_Chi_Minh
+Coding-Agent: glm
+Session-ID: c910c09f-b9b9-40b2-9fd8-2f3c956ad2c5
+
+## Scope reviewed
+
+The uncommitted 8-line addition to the invocation-reference pitfalls paragraph (`docs/agents/team/TEAM.md:298-305`), read against `collab/harness-probe-agy-plan-mode.gemini-3.1-pro-high.findings.md`, the surrounding paragraph (`TEAM.md:286-291, 306-307`), the roster (`TEAM.md:12-31`), the collaboration contract (`TEAM.md:67-70`), and `docs/agents/team/orchestrator.md` ("Holding the Seat", :51-61).
+
+## Assessment by question
+
+**1. Evidence support.** The three capability claims are solidly backed: probes 1/2/4 (all orchestrator-confirmed, the shasum unguessable) support "does read files, run read-only shell, and write files even outside the repository"; probe 3 supports the `java: Operation not permitted` block. Two statements run ahead of the evidence. First, "A sandboxed AGY also cannot execute the JVM" is a timeless generalization from one probe on one host with one JDK (mise-managed, findings:23); the "Probed 2026-09-04" stamp at :300 mitigates but does not scope it — the same doc's own discipline (orchestrator.md:74-77) warns against exactly this kind of unchecked generalization about a harness. "structurally unable to run any suite" is sound for this repo (every suite is JVM/Clojure, and the block is exec-of-java), but read literally it overreaches: read-only shell *does* execute (probe 2), so a non-JVM "suite" could run. Second, "will relay a delegate's test claim as though it had checked it" is a behavioral prediction — the probe established the structural inability, not that AGY actually relays deceptively. Third (minor), the `BypassSandbox` mechanism is the delegate's own account (findings:33); only the block itself was independently verified.
+
+**2. Prescription.** Correct, not too broad, and consistent with existing policy: "give it static analysis" matches `TEAM.md:69-70` and orchestrator.md §9; "never the Orchestrator seat" follows directly from orchestrator.md:53-58 ("The orchestrator verifies; it does not relay... a harness that can... run each host's test suite") and gives the concrete mechanism for the poor `gemini-3.1-pro` Orchestrator run. The problem is reconciliation, not breadth: `TEAM.md:14` still lists `gemini-3.1-pro-high` as an Orchestrator fallback, Gemini runs only via `agy` (`TEAM.md:226`), and the sanctioned AGY invocation always keeps `--sandbox` (`TEAM.md:288`) — so the roster's fallback is now unusable under the new absolute "never". Two normative lines in the same document disagree, and this diff touches only one of them.
+
+**3. Redundancy vs. the Codex/Claude entry.** Not a duplicate: lines 289-291 concern the *host* sandbox blocking the CLI's own subprocess (host-escalation remedy applies); the new text concerns the *delegate's internal* sandbox (no host escalation reaches inside a headless session). But both carry the identical `Operation not permitted` string nine lines apart, and the new text states the distinction only implicitly — the BypassSandbox clause says the delegate cannot self-escalate, but never says the host-escalation remedy above does *not* apply here and that the orchestrator must run such suites itself (which is exactly what it did, findings:47). A skim-reader will pattern-match to "retry via host escalation".
+
+**4. Placement and wording.** Placement is right: immediately after the existing AGY `--mode plan` pitfall, before the DeepSeek sentence, continuing the per-model pitfall chain. Register matches the paragraph's dense semicolon-chained style. The wording issues above are the only ones.
+
+| severity | file:line | evidence | correction |
+|---|---|---|---|
+| medium | docs/agents/team/TEAM.md:305 (vs :14) | Roster still lists `gemini-3.1-pro-high` as an Orchestrator fallback; Gemini runs only via `agy` (:226) and the sanctioned AGY invocation keeps `--sandbox` (:288), so the new absolute "never the Orchestrator seat" makes that fallback unusable — the document now contradicts itself | Reconcile in the same change: strike `gemini-3.1-pro-high` from the Orchestrator fallbacks at :14, or scope the ban ("under `--sandbox` as prescribed here — so `gemini-3.1-pro-high` cannot hold the seat") |
+| low | docs/agents/team/TEAM.md:298, 302-303 | One probe, one host, one mise-managed JDK (findings:23); "cannot execute the JVM" is unqualified (date stamp at :300 mitigates, does not scope). "run any suite" holds for this repo's JVM suites but read-only shell does execute (findings:16-18) | Scope to the observed setup: "cannot execute this host's JVM" / "any Clojure suite here" |
+| low | docs/agents/team/TEAM.md:303-304 | "will relay a delegate's test claim as though it had checked it" is a behavioral prediction; the probe proved the structural inability, not the relaying behavior | "may relay", or restate structurally: "cannot itself check any test claim it relays" |
+| low | docs/agents/team/TEAM.md:298-300 vs :289-291 | Identical `Operation not permitted` string to the host-diagnostic entry with the opposite remedy; the distinction (host escalation cannot reach inside a delegate's session) is implicit in the BypassSandbox clause but never stated as a contrast | Add a clause: "unlike the host diagnostics above, no host escalation reaches inside the delegate — run such suites from the orchestrator itself" |
+| info | docs/agents/team/TEAM.md:299-300 | The `BypassSandbox`-needs-approval mechanism is the delegate's self-report (findings:33); only the block, not the approval mechanics, was independently verified | Optionally attribute the mechanism or re-verify in a future probe before treating it as settled harness fact |
+
+The addition's substantive claims are evidence-backed, it corrects a previously false assertion of record, and the prescription matches both the collaboration contract and the capability-based seat framing in `orchestrator.md`. The findings above are scoping, wording, and one cross-section reconciliation; none of them is false as written.
+
+SIGN-OFF: GRANTED
+[?25h

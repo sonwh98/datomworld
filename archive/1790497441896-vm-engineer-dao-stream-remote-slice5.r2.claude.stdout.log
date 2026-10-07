@@ -1,0 +1,9 @@
+I don't have the "5-step order" you're referencing in my context — this looks like a session discontinuity (my context here starts fresh at your message, with no prior turn where I proposed that plan). Before I run anything autonomously, I need to reconstruct or recover the actual plan rather than guess at deletions and doc edits.
+
+I can see from `docs/orchestrator-log.md` and `collab/` that the live thread is dao.stream.remote slices 4-8 (slice 4 round 2 via glm, cross-host proofs, link-policy implementation, then slices 5-8 and fable's final review), plus the yin.repl auto-index design and the pending-link Option C ruling. I also found the `:content-client` docstring you mentioned at `src/cljc/yin/repl.cljc:583` and `src/cljc/yin/repl/link.cljc:111`.
+
+Two options:
+1. You paste the 5-step plan back to me (fastest, no risk of drift).
+2. I reconstruct a plan from the log/collab artifacts and read it back to you for a one-line confirm before executing.
+
+Given this is authorized to run to completion with no intermediate checkpoints, I'd rather not proceed on a guessed plan. Which do you want?

@@ -1,0 +1,33 @@
+All conflict markers are resolved, the four rulings are in, and the JVM run over every `yin.vm.ucf.*` and `dao.stream.journal*` namespace is green: 245 tests, 1872 assertions. I ran no git command that changes state. `ledger.cljc` and `grant.cljc` are resolved on disk but still show as unmerged until you `git add` them and continue the rebase.
+
+**(A) Conflicts** (7 hunks in `ledger.cljc`, 3 in `grant.cljc`)
+- **Kept everything from master:** C6's rejected/refused pair, C7's fenced and quarantined kinds and arms, and C10's input kind and `input-defect`. That covers the attribute-order entries, the docstring lists, the defect functions, the fold arms and the post-record `:rejection-without-refusal` check.
+- **C8 additions:** placed after master's in each spot. Where both sides changed the same `or` (closed vs. quarantined), both conditions stay.
+- **Dropped:** only my side's stale copies of the old C6 refusal shape, which master replaced.
+- **My tests needed two updates for master's shapes:** the renamed `:yin.k/reclaimed-leases` key and the refusal-pair facts. Before the rulings, the merged tree had only those 3 failures, so C6/C7/C10 behavior came through intact.
+
+**(B) Rulings**
+1. **A halted result now completes the occurrence.** The release transaction holds the lapse, the closure, a terminal edge (new constructor `terminated`, carrying `:yin.k/result`) and the epoch change. `:not-a-continuation` is gone, and the ledger fold changes follow the ruling.
+2. **`:yin.k/resumed` is kept as built.** The recorded copy gets `:yin.k/successor` only for a continuation.
+3. **A body whose origin names a predecessor this ledger never saw is now `:orphan`.**
+   - The offer helpers in the reclaim, admission, input and grant tests now offer `first-park`. It has the same occurrence and no origin, so journal positions don't move.
+   - The two grant_test variant tests need the successor's baseline. They use a new helper that completes the fixture's predecessor first, then offers the successor.
+   - The old first-offer test is inverted to expect `:orphan`.
+4. **A quarantined occurrence can't complete.** `closure` returns no facts, so the release is a plain reclaim, and `report!` refuses with `:quarantined`. My tests quarantine through the C3 test seam, not through `admit!`.
+
+**Tests**
+- **Red before green:** 8 of the new tests failed first (22 failures).
+- **Green before:** the two new fold tests passed from the start. I had already applied the ledger change while resolving conflicts. Mutations confirm both catch what they should.
+- **Mutations:** I broke the new code 11 ways, and every mutation turned the tests red.
+
+**(C) Checks**
+- **kondo:** clean on all 9 touched files.
+- **Style rules:** ASCII only, no line over 80 columns, no float literals, no JVM-only tests added.
+- **cljstyle:** blocked by the permission gate again, so please run fix and check on the 9 files.
+- **Node and Dart:** not run, as you asked.
+
+**Your call**
+- The ledger fold now also refuses a closure of a quarantined occurrence. The ruling only asked for the writer-side rule; this is the matching check in the ledger itself. Drop it if you'd rather the fold trust the writer here.
+- The UCF 7.7.2 table from ruling 2 isn't written, because the brief forbids UCF edits.
+
+Every conflict decision is in the new "Rebase and ruling amendments" section of `collab/1791112800000-compiler-engineer-ucf-c8-completion.findings.md`. Its header notes that this section supersedes the earlier statements on halted successors, unknown predecessors and quarantine.

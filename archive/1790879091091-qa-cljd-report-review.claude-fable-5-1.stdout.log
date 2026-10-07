@@ -1,0 +1,68 @@
+Completed-GMT: 2026-10-01 18:28:00 GMT
+Completed-Local: 2026-10-02 01:28:00 +07
+
+# Recommendation: HOLD — do not submit the draft as written
+
+The draft should not go upstream yet: one of the five bugs is already fixed upstream, and nothing has been re-run on upstream's current HEAD. The four reader bugs look real and worth reporting after the edits below.
+
+**What I could and could not verify.** This session is read-only (plan mode) and `dart` is not on PATH, so I did not execute any repro. Everything below comes from reading the pinned source (`81b5c03`) in `~/.gitlibs` and upstream HEAD (`0cbd540`, 2026-10-01, 47 commits ahead of the pin) via the GitHub API.
+
+## Blocking findings
+
+1. **Bug 4 is already fixed upstream.** Commit `0a33cbb` (2026-07-03, "Avoid baking reader meta of empty list literal into cljd.core/list") and `23738b4` changed `list` to seed from `-EMPTY-LIST`. The draft's analysis was correct for the pin (the `:line 3436`, `:column 36`, `:end-column 54` values match the source exactly), but filing it now would be a stale report. The local remedy is to bump the pin.
+
+2. **No repro has been run on current main.** The pin is from 2026-01-07. At HEAD, `reader.cljd` differs from the pin only in `special-form?`/`special-symbol?`, so bugs 1, 2, 3 and 5 are almost certainly still present, but that is a source reading, not a run. A maintainer will ask this first.
+
+3. **Bug 3 is by-design behaviour, misframed as a crash bug.** Upstream's `reader_test.cljd` reads `` `x `` and `::test` under `(binding [r/*resolver* fake-resolver] ...)`. So `cljd.reader` is a full Clojure reader that requires a resolver, and `cljd.edn/read-string` simply delegates to it without binding one. The honest issue is "`cljd.edn/read-string` is not an EDN reader, and a nil `*resolver*` gives a raw protocol error instead of a clean one".
+
+## Per-bug check against source
+
+| Bug | Source confirms? | Severity in draft | My calibration |
+|---|---|---|---|
+| 1 `%` | Yes, all seven outcomes are consistent with the code | high | high is fair (silent wrong values) |
+| 2 duplicates | Yes (`apply hash-map`, `set`, no check) | medium | low to medium; it is leniency, not corruption |
+| 3 syntax-quote | Yes, but by design (see above) | medium | low; error quality / missing EDN mode |
+| 4 `list` meta | Yes at pin, fixed at HEAD | medium | drop |
+| 5 whitespace before closer | Yes (`recur` without `skip-space`) | low to medium | medium; it rejects valid EDN, the draft undersells it |
+
+## Required edits before submission
+
+1. Remove Bug 4, and change the title and scope note to "four runtime-reader bugs". The title and the "every bug below is in `cljd.reader`" note were already wrong with Bug 4 included, since it lived in `cljd.core`.
+2. Re-run all remaining repros at upstream HEAD `0cbd540` and cite that sha alongside or instead of the pin.
+3. Include a complete, copy-pasteable probe: `deps.edn`, one `.cljd` namespace, and the exact compile and run commands. The draft only offers to attach it; the snippets alone are not self-contained.
+4. Fix Bug 1's root cause. The draft says the `%` is "dropped"; more precisely, `dispatch` hands `read-anon-arg` the position after `%`, and `read-token` unconditionally takes the character at that position as the token's first character. Consequences:
+   - A bare `%` swallows the next character, including a closing delimiter or whitespace. That is why the vector repro ends in "Unexpected closing square bracket".
+   - Inside `#()`, the `"%"` and `"%&"` case branches can never match.
+   - Clojure's `ArgReader` passes `'%'` to `readToken`, which is the step missing here.
+5. Add `#(f %&)` to Bug 1 only after running it. Source predicts it throws "arg literal must be %, %& or %integer", but that is unverified.
+6. Correct the `(read-string "%")` line. "Invalid value" is the start of a Dart `RangeError` (index past end of string), not a reader refusal. Quote the full exception type and message.
+7. Replace "refuses" with "throws <ExceptionType>: <message>" throughout; "refuses" is team idiom.
+8. Fix the JVM comparison in Bug 1's `#(f %)` line. The header says JVM lines are `clojure.edn/read-string`, but `clojure.edn` rejects `#(`. Label that line as `clojure.core/read-string`.
+9. Reframe Bug 3 as described above, and consider adding `(read-string "::foo")` after running it. Source predicts the same nil-resolver error at `interpret-token`.
+10. Fix Bug 2's code path: the map and set constructors sit in the `macros` and `dispatch-macros` tables, not inside `mk-read-coll`. Lower the severity to low or low-to-medium.
+11. Raise Bug 5 to medium and drop the "`pr`-style wrapping" justification, which is weak; "valid EDN with a space, newline or comma before a closer throws" is enough.
+12. Fix the closing note "compile-time reader is unaffected by bugs 1, 3 and 5" so it covers bug 2 as well, or drop it.
+13. Strip the internal header lines ("Status: DRAFT for owner review", "Prepared ... by the datom.world team") before posting.
+
+## Privacy check
+
+The draft contains no code, paths, keys or secrets from the repository. It does describe internal architecture in passing:
+- a Datalog front end where `%` names the rule-set input;
+- a content-addressed store with a strict CBOR encoder;
+- wrapping signing-key text in EDN envelopes;
+- REPL reader-parity tests.
+
+None of this is needed for the bug reports. I recommend cutting the signing-key and CBOR sentences (the latter goes away with Bug 4) and keeping at most the generic Datalog `[:in % ...]` example. Whether to name datom.world at all is the owner's call.
+
+## What a maintainer would ask first
+
+- **Does it reproduce on main?** Not yet verified by execution (edit 2).
+- **Is there an existing issue?** I searched upstream issues for read-string, edn, syntax-quote, duplicate key, list meta, `%` and whitespace and found no duplicates. The nearest is #174 ("Reader is slow and synchronous read-string should be supported"), which is unrelated.
+- **Is `cljd.edn` meant to be EDN-only?** The report should ask this directly, since the answer shapes bugs 2 and 3.
+- **Would you send a PR?** Bug 5 looks like a one-line fix (`(recur (skip-space s from to))`, with care for the -1 chunk-boundary return). Offering a PR with tests for 1 and 5 would land better than four issues.
+
+One further source observation, not for inclusion unless run: `interpret-token` constructs `FormatException` without `throw` in two places (lines 131 and 135 at the pin), so some invalid tokens such as `foo:` are probably accepted silently.
+
+No files were edited and no plan file was written; the deliverable is this review.
+
+Status: COMPLETE

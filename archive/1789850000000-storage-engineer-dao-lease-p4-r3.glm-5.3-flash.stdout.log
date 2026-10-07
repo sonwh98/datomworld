@@ -1,0 +1,22 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-19 20:11:20 GMT
+Completed-Local: 2026-09-20 03:11:20 +07
+
+## Dispositions
+
+**F1 (P2) — capacity-vs-budget refusal deleted.** The clause is gone from `check-derived-medium-refusals!` (now the host-values/durable refusal only), whose docstring records the retraction's reasoning: a budget larger than capacity is the safe case (the drain empties the medium within one pass), a smaller one is already covered by the truncated-drain silence-suppression rule, and S3 relates retention to facts-per-cadence, not to the budget. The `[:capacity …]` matrix row is deleted. `standard-medium` is back to an honest `:capacity 8`, matching its 8/16 handle fixtures (which never changed — only the declaration had been inflated). The budget is now validated as a positive integer in `make-judge` **before** the derived check (`:refused :drain-budget`), so no raw host error can escape ahead of `initial-judge`'s own check. The holder-side call site lost its now-unneeded `nil` budget argument.
+
+**F2 (P2) — option 2, recorded as owed.** No `:unwrap` seam added. Both served-connection sketches (the portable envelope-key one and the JVM real-close one) now carry the comment: the flattened shape modelled in the test is **not** the transport's — `ws.cljc` deposits `{:ws/attachment <id> :ws/event … :ws/value <payload>}`, so a real composition unwraps `:ws/value` before the judge sees a lease fact — and the `:ws/attachment` key, as modelled, is **self-asserted**: whoever appends chooses it, while the transport's authoritativeness is the connection's. The §6 row is the orchestrator's to add.
+
+**F3 (P3).** `(get @judge [:ledger])` → `(get-in @judge [:ledger])` — the old form looked up the literal vector key `[:ledger]` and passed vacuously. The both-halves test now **drains `holder-ticks`**: the reading handed to `due-to-renew?` is the newest one drained from the medium, asserted equal to the deposited tick, so the holder's `:tick` wiring is exercised as a medium rather than only appended to.
+
+## Tests changed
+
+`refusal-matrix-test` (−1 row), `composed-both-halves-cycle-test` (drain-derived reading, +1 net assertion, vacuous ledger assert repaired), `standard-medium` (capacity restored). One note: the findings file named in the prompt (`1789849500000-reviewer-dao-lease-p4-r2.claude-fable-5-1.findings.md`) is not in the tree — only the reviewer's prompt is — so I worked from the dispositions, which quote the necessary content in full.
+
+## Lane outcomes
+
+1. `clojure -M:test` — green: **1527 tests, 168550 assertions, 0 failures, 0 errors** (net count unchanged: one matrix assertion removed, one added by the drain).
+2. CLJS — green: exit 0, **1443 tests, 38414 assertions, 0 failures**, 0 warnings, both lease namespaces in the Node output. Same disclosed mise-Java-21 workaround (log `target/cljs-p4-r3.log`). C5 grep over `src/cljc/dao/lease.cljc`: zero.
+
+Nothing staged, nothing committed.

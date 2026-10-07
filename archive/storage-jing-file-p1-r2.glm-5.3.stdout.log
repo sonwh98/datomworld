@@ -1,0 +1,67 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-07 14:46:06 GMT
+Completed-Local: 2026-09-07 21:46:06 +07 (Asia/Bangkok)
+Coding-Agent: glm
+Session-ID: 50d48a71-9ff9-44b7-8dc0-b334e5f42aac
+
+# P1 report — the work as I left it when the host killed the run
+
+## 1. Was P1 finished? No — one proof leg is unresolved, and it may be red
+
+The code and tests were in the state the orchestrator verified, and clj and cljs were green under my own runs. But **the cljd lane was not green at my last complete observation, and I was killed while identifying why.** Specifically, in sequence:
+
+- First `bb test:cljd` run: exit code 1, output truncated by the tool before the summary.
+- Second run (failure-filtered): ended `01:46 +1295 -6: Some tests failed.` — **six failures, names never obtained.** The `-6` counter was already present early in the visible stream, so the failures occurred before the namespaces shown in my tail; I have no information about which tests or namespaces they are in.
+- Third run (grepping for the `[E]` failure lines): this is the run the host killed — exit 137, no output.
+
+So the honest state of the proof: **clj 1430/165264 green, cljs 1349/34882 green with `dao.jing.file-test` confirmed, cljd = 6 unidentified failures, attribution unknown.** I cannot say whether those six are mine. Two things matter for whoever triages: (a) I never personally observed the cljd lane green on this revision *before* my change — the "1290 → 1299 all passed" baseline was reported to me in the P0 review, not run by me — so pre-existing or flaky-lane failures (e.g. cross-host peer tests) are not excluded; (b) if they are mine, suspect #1 is in my test helpers, not the backend (see §5d). When the lane frees, the attribution step is exactly what my third run was attempting: run the lane, grep `[E]`, check whether any failure names `dao.jing.file-test`.
+
+Beyond that, the only unfinished item was the report you are now reading.
+
+## 2. What I had run, and what each said
+
+In order, all before the kill:
+
+1. `clojure -M:test -n dao.jing.file-test` — three development iterations: a compile error (`thrown?` cannot take a function call — my `(thrown-on-host)` wrapper; fixed by inlining the reader-conditional at each site); then 7 failures, all in raw-frame tests, from two helper bugs of mine (§5b); then **13 tests / 62 assertions, 0 failures**.
+2. `clojure -M:test` (full clj) — **1430 / 165264, 0 failures**, matching the orchestrator's verification.
+3. `clj -M:kondo --lint` on `file.cljc`, `file_test.cljc`, `btree_durability_test.cljc` — **0 errors, 0 warnings**.
+4. The cljs build, twice — **1349 / 34882, 0 failures**, `Testing dao.jing.file-test` confirmed in the Node output on both runs.
+5. `bb test:cljd` — three times, as described in §1: exit 1 (truncated), `+1295 -6`, killed.
+6. Two small `clojure -M -e` REPL repros during debugging (§5b) — the second of these localized the `int32-be` bug by showing a hand-built frame appending and reading back correctly while the test helper's did not.
+
+## 3. Invariant map of the 13 tests
+
+| # | test | invariants |
+|---|------|------------|
+| 1 | `round-trip-of-every-payload-kind` | F1, F2, B5 (stored `nil` ≠ not-found sentinel; sentinel only for absent), B7-as-directed (keyword payloads, the former sentinel value `:dao.jing/content-missing` among them), B4 implicitly (stored value is exactly the payload) |
+| 2 | `put-verdicts-and-records-are-the-file` | F1 (verdict vocabulary), F5 (`:present` writes no record; `records` shows every frame in order, duplicates included) |
+| 3 | `invalid-put-writes-nothing` | B6 (non-segment address and hash mismatch throw at the door, nothing written) |
+| 4 | `durability-across-close-and-reopen` | F2, F5 |
+| 5 | `acknowledged-insert-survives-immediate-close` | F1/F5 — the flush-before-acknowledge *observable* (see §4c) |
+| 6 | `equal-duplicate-frames-recover` | F2 (equal duplicate tolerated on replay, visible to `records`, writes nothing new) |
+| 7 | `fail-closed-categories-fail-the-open` | F4 (all four categories: malformed EDN, wrong shape, invalid address, hash mismatch) |
+| 8 | `unequal-duplicate-at-one-address-fails-the-open` | F2's collision case, reached through F4's ground — see §4b |
+| 9–11 | `torn-tail-{overlong-length,shorter-than-prefix,negative-length}-is-truncated` | F3, one test per category, each: truncate → survivor replays → clean put lands → reopen has both records; torn bytes hand-written per host, valid record first |
+| 12 | `close-semantics` | D2, D3, F6 (nil return, idempotence, every entry point throws after close, content neither cleared nor rewritten) |
+| 13 | `contention-writes-exactly-one-record` | D5, F6 (16 futures: 1 `:inserted`, 15 `:present`, one record; clj-only, stubbed elsewhere as v1 did) |
+
+Deliberately not re-tested here, with the reason: **D1** (plain-data handle, missing-fn throws) and **B1–B3** (`materialize!` derivation, verdict vocabulary, `:present` read-back) are the A–D core group's, pinned by the untouched `jing_test`, which ran green and unchanged — re-pinning them in `file_test` would test the core twice and the backend zero additional times. **D4** is dropped per the plan's own `[T✗]` — the atom shape is not pinned; `records` is the file backend's test view, exactly as D4 directs. **E-group** (pool drains, convergence) is P2's; the v1 `observer-convergence-test` was deliberately not carried into the new file.
+
+## 4. What I could not do
+
+- **(a) Complete the cljd proof.** Two hosts green, one unresolved with six observed failures (§1). Until those are attributed, P1's "all three hosts" requirement is not met — adopt the artifact as *code-complete, Dart-unverified*.
+- **(b) Test F2's unequal-collision branch as written in the brief.** It is unreachable through valid frames: B6 forces a frame's address to hash its payload, so two *individually valid* frames at one address are necessarily equal. The brief's "collision on replay fails the open" is satisfied, but on F4's ground — the second frame's hash check fires before the accumulation's collision branch, which is retained as defensive depth and is untestable by construction. The test's docstring says this; flagging it here because it is the one letter-of-the-brief deviation.
+- **(c) Observe F1's flush directly.** "Acknowledged only after the write is flushed" has no portable observable at the syscall level; test 5 is the consequence proxy (an acknowledged insert survives an immediate close) — the same evidence shape the v1 suite used.
+- **(d) Contention off the JVM.** cljs/cljd are single-threaded; those arms assert-true with a message, as the v1 test did.
+
+## 5. What a reviewer will not see in the diff
+
+- **(a) A rejected framing alternative.** I considered and rejected a magic/version file header: the canonical-encoding migration (dao.jing.md's first open item) changes every minted address wholesale, so re-materialization is required regardless and frame versioning buys nothing. The chosen shape — 4-byte big-endian signed length + UTF-8 EDN of `[address payload]` — is the same *form* as v1 but argued, not inherited: F3's three truncation categories are exactly prefix arithmetic; EDN is the only tri-host codec with structural round-trip; and integrity rests on the address-hash check (B6/F4), not the codec. The docstring carries this argument including the rejection.
+- **(b) Two of my own bugs, both instructive.** First: raw appends of `encode-record` output were missing the length prefix (in the new layout `encode-record` yields record bytes only), and the scanner **correctly truncated my own writes as torn tails** — the first live evidence the F3 code works. Second: `int32-be` multiplied already-shift-amount values by eight again (`(* 8 %)` over `[24 16 8 0]`), producing garbage prefixes; I localized it by a REPL repro in which a hand-built frame worked while the helper's didn't. Both fixed; the `frame-of` helper now exists precisely to compose prefix + record bytes.
+- **(c) Implementation shape.** All host code is confined to eight tiny per-host primitives (`open-file!`, `file-length!`, `read-int!`, `read-bytes!`, `truncate-file!`, `append-frame!`, `sync-file!`, `close-file!`), with **one** shared truncation scan and **one** shared replay loop — deliberately eliminating the three duplicated defrecords of v1 (the drift hazard I flagged in earlier plan reviews). Host notes: cljd's `FileMode.append` is read+write+create (reads allowed — v1 relied on this and it holds); Dart's `getInt32`/`setInt32` default to big-endian, so no endian argument appears anywhere; Node's `"a+"` open makes positional writes append regardless of the offset passed, harmless because the only writer computes the end offset under the put lock.
+- **(d) My prime suspect if the six Dart failures are mine.** The cljd arm of `host-bytes` is `(typed/Uint8List.fromList ints)` where `frame-of` feeds it `(concat …)` — a **lazy seq**, and `Uint8List.fromList` wants an indexable List; whether ClojureDart's interop accepts a lazy seq there is exactly the kind of thing that fails only on the Dart lane (clj's `byte-array` accepts any seq, which is why clj was green). Suspect #2 is `(.-length bs)` on the cljd returns. Both are one-line fixes (`vec` the concat) if confirmed — but I was killed before confirming, so treat this as a lead, not a diagnosis.
+- **(e) With more budget:** a unit-level `frame-of` round-trip check (encode → frame-of → the backend's own scanner reads exactly one frame), which would have caught bug (b) at the unit level instead of through seven integration failures; and a fourth `records` consumer check on the *rewritten* file after a torn-tail truncation while another handle holds it open.
+- **(f) Small ergonomic fact:** `thrown?` requires a literal class or keyword — a `(thrown-on-host)` function wrapper does not compile; the sites inline `#?(:clj Exception :cljs :default :cljd Object)`, per the repo's existing convention.
+
+Nothing was staged or committed; scope was respected exactly (the two rewrites, the two deletions, one stale comment in `btree_durability_test.cljc`); and the consumer check (`btree_durability_test`, `dao.space.*`, `dao.jing-test`) passed unchanged on both hosts I completed.

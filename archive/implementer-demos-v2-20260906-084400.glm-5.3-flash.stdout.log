@@ -1,0 +1,15 @@
+Ported all six consumers to `yin.vm` / `dao.stream` as `_v2` copies. Findings in `collab/implementer-demos-v2-20260906-084400.findings.md`.
+
+**Created:** `src/clj/yin/demo_v2.clj`, `src/cljc/datomworld/demo/continuation_handoff_v2.cljc`, `src/cljc/datomworld/demo/continuation_transport_v2.cljc` (extracted so the v2 medium is testable without a browser), `src/cljs/datomworld/demo/{continuation_stream,equation_plotter,compilation_pipeline}_v2.cljs`, `src/cljd/yin/register_bench_cljd_v2.cljd`, plus a Dart wrapper and three demo cards wired into `datomworld.demo`.
+
+**Verified before an R4 sweep hit the tree:** clj 1417 tests / 0 failures; Node 1336 / 0 failures; browser build 0 warnings; cljd bench compiled and ran; and the three demo programs actually execute on v2 — plotter made 400 `:plot/point` bridge calls, `(fact 10 1)` → 3628800, `(sum-to 100)` → 5050.
+
+Three things worth your attention:
+
+**v2 has one evaluator.** The divergence register states `register`, `stack`, `semantic`, `space`, `macro` and `wasm` are not ported. So `continuation_stream_v2` could not keep its premise — "one continuation, two VM backends" — and became "one evaluator's live continuation lifted out, carried over a v2 medium, resumed by another instance." `compilation_pipeline_v2` dropped from four compilation paths to one. Both say so in their docstrings rather than leaving you to infer it.
+
+**The v1 bench was measuring almost nothing.** `(dotimes [_ iterations] (vm/run program))` on a VM that halts after the first run means one real run plus N−1 no-ops. The v2 bench times `vm/run` alone via `(vm/run (vm/reset program))`.
+
+**A second session ran Phase R4 in this tree while I worked.** `docs/orchestrator-log.md` records it: Antigravity-CLI, 16:26 GMT+7, "Mass deleting legacy v1 files" — 57 tracked deletions, including `src/clj/yin/demo.clj` itself, `docs/handoff.md`, and `test/yang/*` edits. It also deleted `test/datomworld/demo/continuation_handoff_v2_test.cljc`, the test file I had just written and gotten green (6 tests / 40 assertions). That file isn't a v1 artifact, so it looks like collateral from a bulk delete, but I didn't recreate it while another agent is actively rewriting the tree — that would be fighting it. Its deletions of record are listed in the findings so it can be rebuilt.
+
+Because of that sweep, the full-suite numbers above are pre-sweep. A `bb test` right now fails on `Could not locate yin/vm.cljc` from `yang.macro-test` — the R4 session's in-flight state, not these ports. My files require only v2 namespaces and all of their dependencies still exist.

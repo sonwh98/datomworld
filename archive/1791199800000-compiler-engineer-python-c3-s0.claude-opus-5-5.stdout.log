@@ -1,0 +1,24 @@
+I've finished S0, and it is green on the JVM: the integer contracts are now frozen in a checked-in fixture. No git writes and no src/ changes. The full report is at `collab/1791199800000-compiler-engineer-python-c3-s0.findings.md`.
+
+**What's new**
+- **`test/resources/yang/python/int-contract-v1.txt`** (306 lines): a one-off CPython 3.9.6 script in gitignored `build/s0/` wrote it. It covers 31 integers, including n−1, n, n+1 and their negatives around 2^53, 2^63 and 2^64, plus `f:2^53` and `f:2^63`. For each value it pins the decimal and hex text, CPython `hash`, the guest dict key, the canonical CBOR bytes, and what the integer module does under two profiles (`wide` 4096/4300, `small` 60/5). It also has 42 rows marking exactly where an operation starts to breach a limit.
+- **`int_contract_fixtures.cljc`**: the loader. It writes nothing and skips blank lines. Its `render` rebuilds the whole file on any host from the integer module and Jing.
+- **`int_contract_test.cljc`**, 10 tests:
+  - Fast tests on every host: the file must equal what the host renders, every value has every column, row-by-row recompute, parse round trips, the codec width pins, and the module outcomes, including the largest shift that fits and the first that doesn't.
+  - Slow tests on all four VMs: the guest's text, hash, key and bytes for each value; the float `is` rows; and limit errors surfacing as MemoryError or ValueError through `py/int-result`.
+  - A JVM-only test that recomputes the CPython columns with python3. If python3 is missing or isn't 3.9.6 it prints a loud SKIP; I checked that path.
+- **`docs/design/yang.antlr.md`**: "Landed." added to the S0 row, nothing else.
+
+**Results**
+- The new test namespace ran 10 tests and 2447 assertions with 0 failures, and the python3 recheck actually ran.
+- The conformance tests you named still pass and no existing fixture changed: `cbor-conformance`, `cbor`, `float-address` and `integer` ran 74 tests with 3368 assertions, and `cbor-fixtures-test` ran 14 with 2705, all 0 failures.
+- kondo is clean, and `cljstyle fix` then `check` passed.
+- Red before the fixture existed: 535 errors. I broke six things once each, and each was caught by the right tests (table in the report). One matters most: changing the renderer and the fixture together so the "file equals render" check stays green. The guest run on all four VMs and the CPython check still catch it.
+
+**Things you should know**
+1. **A JVM pitfall for S4:** `clojure.core/bigint` of a double isn't exact. `(bigint 2^63-as-double)` gives 9223372036854776000. My first render had this bug and the CPython-written fixture caught it. My test helper now uses `(bigint (BigDecimal. x))`. S4's `int(float)` on the JVM must avoid `bigint`/`biginteger` of a double.
+2. **The brief contradicts itself on the profile.** It says 4096 bits is "as in the existing parity runners", but those runners use 100000. I froze 4096/4300 as the brief states.
+3. **Your `bb test:changed` won't run the guest tests on Node or Dart.** I tagged them `^:slow` with the skip guard because they take about 8 s on the JVM, so they'll print SKIP there. To run them, set `DATOM_SLOW_TESTS=1` (the `test:slow` lanes).
+4. **No real cross-host defect** showed up on the JVM. I didn't run Node or Dart, per the rules.
+
+The generator and mutation scripts are still in `build/s0/`. If you want the generator kept next to the fixture, the way `cbor-v1.generate.py` is, that's a one-file move.

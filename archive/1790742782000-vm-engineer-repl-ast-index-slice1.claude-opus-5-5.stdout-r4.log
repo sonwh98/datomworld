@@ -1,0 +1,39 @@
+Completed-GMT: 2026-09-30 05:59:03 GMT
+Completed-Local: 2026-09-30 12:59:03 +07
+Coding-Agent: claude
+Session-ID: 771d73b8-33cb-4277-815e-2b72fe699c1c
+
+# Report r4: fix round 3 (Architect finding: a metadata-distinct row replacing a held row)
+
+The finding is fixed and all required lanes are green. The test was written first and reproduced the bug: a later packet silently replaced a held row that differed only in metadata. Nothing is staged or committed, and every check ran in the foreground. Changed files: `src/cljc/yin/repl/ast_index.cljc` and `test/yin/repl/ast_index_test.cljc`. `src/cljc/yin/repl.cljc` was not touched this round.
+
+## Fix
+- **Held-row check restored.** If an incoming row's address is already held, the two rows must be equal including metadata at every depth. If they aren't, the indexer fails with `:address-conflict` and merges nothing from that packet. Identical rows seen again still merge. The check runs after the content-address check from round 1.
+- **Within one packet:** no new code was needed. The round 1 duplicate check already refuses any repeated address in a packet, so a metadata-distinct pair is refused as `:duplicate-address`. A new assertion pins this.
+- **The comparison is a local private `same-value?`, copied from `yin.vm.macro`.** That one is private, this round was limited to these files, and calling a private function from another namespace fails at runtime on CLJD.
+- **Duplication for you to decide:** this is now the third copy of that comparison (the others are `yin.vm/same-meta?` and `yin.vm.macro/same-value?`). Making the macro one public is a one-word change outside this round's files and would let this copy go.
+
+## Test
+The test uses the macro validator's fixture: `[:literal x]` with `{:line 1}` versus `{:line 2}` metadata, which share one address.
+- **On the old code:** 4 failures. No failure was recorded, the relations were still served, and the held row's metadata had become `{:line 2}`.
+- **After the fix:** the conflict is refused and names the address, the relations are unavailable, and the held row keeps `{:line 1}`. The same row seen twice still merges, and the pair inside one packet is refused.
+- **Nested metadata:** a mutation run showed the fixture didn't cover differences inside metadata-of-metadata, so I added that case. Both rows get the same address and are refused.
+
+## Mutation proof
+Each change was applied, the tests run, and the source restored.
+
+| Mutation | Result |
+|---|---|
+| plain `=` instead of the metadata-aware compare | 4 failures |
+| held-row check disabled | 4 failures |
+| no recursion into metadata-of-metadata | survived at first; 1 failure after adding the nested case |
+
+## Verification
+| Check | Result |
+|---|---|
+| kondo | 0 errors, 0 warnings |
+| Focused JVM (`ast-index-test`, `repl-test`) | 53 tests, 361 assertions, 0 failures |
+| `bb test:cljs` | 2303 tests, 51108 assertions, 0 failures; the new namespace ran |
+| `bb test:cljd` | 2265 tests, all passed |
+
+The CLJD count is the same as last round because the new cases went inside an existing test rather than adding tests. The freshly compiled Dart file contains them.

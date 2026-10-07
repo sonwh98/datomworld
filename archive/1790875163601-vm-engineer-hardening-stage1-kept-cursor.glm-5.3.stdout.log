@@ -1,0 +1,15 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+I can't start the task yet — the prompt file is blocked from this session.
+
+**What's happening:** You asked me to read `/Users/sto/workspace/datomworld/collab/1790875163601-vm-engineer-hardening-stage1-kept-cursor.prompt.md`, but this session is sandboxed to the worktree `/Users/sto/workspace/datomworld-linker-hardening`. Both the Read tool and a `cp` of that file were denied because the path is outside the allowed working directories, and the collab/ directory isn't tracked in git, so I can't get at it through the repo either.
+
+To unblock me, either:
+
+1. **Approve the read** — re-run the request or add read access for `/Users/sto/workspace/datomworld/collab/` (e.g. via `/add-dir /Users/sto/workspace/datomworld/collab`), or
+2. **Copy the file into the worktree** yourself, e.g.:
+   ```
+   cp /Users/sto/workspace/datomworld/collab/1790875163601-vm-engineer-hardening-stage1-kept-cursor.prompt.md /Users/sto/workspace/datomworld-linker-hardening/
+   ```
+   and I'll pick it up from there (I'll exclude it from any commits).
+
+Which would you like?

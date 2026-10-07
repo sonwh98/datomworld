@@ -1,0 +1,33 @@
+**EPIC NOT READY.** Three P2 problems block the D6 check, and I confirmed each one by running the committed `debruijn.cljc` (loaded from /tmp) in a JVM REPL. I didn't rerun the test suites. The full report is in `/Users/sto/.claude/plans/read-collab-1789968388070-reviewer-debru-proud-rossum.md`. Plan mode was on, so I made no changes to the repo.
+
+**Blocking (P2):**
+- **F1 – sets with equal elements collapse silently.** `canonical-value` for sets (line 982) quietly merges elements that canonicalise to the same value, and that merged set is what gets hashed. So `#{1 1.0}` gets the same fingerprint as `#{1}`, and a set holding both spellings of "é" gets the same fingerprint as a set holding one. The map rule throws on the same kind of merge (lines 974–981). This changes how many elements the set has, which goes beyond the documented 1 = 1.0 and NFC collisions. The fix is to copy the map's count check.
+- **F2 – the storage reader checks the hash, not the record.** The hashed bytes tag each slot by its type but never by its name. The reader (lines 1227–1249) also never checks which slots belong to which node type.
+  - Renaming `:free foo` to `:key foo` on a variable is accepted with the same fingerprint.
+  - A stored `:value 1.0` is accepted where `:value 1` belongs. This is the first architect awareness item, and together with the missing slot names it stops being harmless.
+  - Fix without changing any hashes: check each record's slots against its node type in the reader, and require values to be stored in their canonical form.
+- **F3 – hashing is exponential on shared subgraphs.** The resolver's memo reuses shared nodes, but `merkle-node` (lines 1035–1061) walks every child before it checks its cache. The emitter does produce shared graphs through `:eid`. A doubling chain of 75, 85 and 95 datoms took 0.8, 2.0 and 7.0 seconds, and in `forward-step` all of that counts as one unit of work. Fix: carry the hash through the resolver's memo.
+
+**P3 (minor):**
+- **F4:** a known attribute on the wrong node type is ignored, even a dangling `:yin/body` on a literal.
+- **F5:** `projected->datoms` uses three local atoms; nothing outside the function can see them.
+- **F6:** internal errors are reported as `:invalid-input`.
+- **F7:** a batch budget of 0 returns `:continue` forever with no progress.
+- **F8:** macro detection only catches a lambda written directly in operator position.
+- **F9:** nil-valued datoms must survive D5's real storage, or the reader will report a hash mismatch.
+
+**The five questions:**
+1. The `(fn [count] (+ count 1))` example traces correctly to the pinned fingerprint `095c83f7…`. I found no case where the same semantics give different fingerprints. The collisions beyond the documented limits come from F1 and F2. The resolver comparing raw names while the encoder normalises strings is correct, because it matches how the VM binds names.
+2. The §1 invariants hold, apart from the local atoms in F5.
+3. For D6, I mapped each checklist item to the tests that already prove it and to what's missing:
+   - one test comparing the stored datoms of a renamed program pair;
+   - tests for the destination's invalid-value and transport-error outcomes;
+   - the F1 fixture;
+   - a nil round-trip through real storage in D5;
+   - rerunning the "nothing else changed" diff at the D5 commit. So far the epic only touches the two de Bruijn files and `pubspec.*`.
+4. The first awareness item isn't harmless once combined with F2. The §1 state-list wording is harmless; a one-line doc edit would fix it.
+5. F1–F4 only show up when phases are read side by side, so no single-phase review could catch them.
+
+F1–F3 are all in `debruijn.cljc`, which the D5 delegate is editing right now. They should go in as a separate fix round after D5 commits, or be handed to that delegate.
+
+The Gmail, Google Calendar and Google Drive connectors need authorising in your claude.ai connector settings before they can be used. This audit didn't need them.

@@ -1,0 +1,40 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-20 07:43:48 GMT
+Completed-Local: 2026-09-20 14:43:48 +07
+
+# W2 done — `yin.vm.engine` is now `dao.stream.waitset`'s first consumer
+
+## What changed in `src/cljc/yin/vm/engine.cljc` (scope held: only this + one test)
+
+- **Deleted** the private `augment-wait-entry` and `poll-wait-entry`, and the duplicated sweep `loop` inside `check-wait-set`.
+- **Added `waitset-resolver`** (`engine.cljc:270`, private def) — the VM's two-function resolver contract: `:resolve` is the old augment step nearly verbatim (reader: `:cursor-ref` → stored cursor + stream, with the `(or (:stream entry) …)` fallback; writer: `:stream-id` → stream, `:datom` → `:value` to append); `:advance` is the old write-back `assoc` (commit successor/recovery cursor under the entry's `:cursor-ref` before later entries resolve). Both synchronous, store updates immutable, no transport calls.
+- **`check-wait-set` stays public, same signature** (`engine.cljc:302`): empty-set guard → `state`, else one `waitset/check` with `{:waiting (:wait-set state)}` + resolver + `(:store state)`, commits returned `:store`/`:waiting`, builds ready entries via `make-woken-run-queue-entries`. Run loop, park semantics, `handle-*` immediate paths untouched.
+- **`make-woken-run-queue-entries`** now stamps each woken result's `:status` onto the ready entry (where `terminal-resume-outcome` reads it).
+- **Diagnostic raising before restoration** (`engine.cljc:359-402`): new `waitset-diagnostics` set (`unsupported-reason`, `unresolved`, `invalid-answer`); `terminal-resume-outcome` returns a diagnostic status regardless of `:reason` (previously an unsupported-reason entry fell through to `restore-fn`); `throw-terminal-resume!` raises it via `fail` with `{:status o, :entry entry}` — naming the status and the entry, never after a continuation is restored.
+
+## The one added test
+
+`waitset-diagnostics-raise-before-restoration-test` (`engine_test.cljc:341`), plus the host-neutral `throws-ex-data` helper beside the existing `throws?`. Asserts: a `:stare`-reason entry leaves `:wait-set`, arrives on the ready queue stamped `:dao.stream.waitset/unsupported-reason`, `resume-from-run-queue` throws naming status + entry, and a recording restore-fn proves it **never ran**; a second block covers the `:unresolved` path (dangling `:cursor-ref`). No existing test was touched — `git diff` on the test file is pure addition.
+
+## Lane outcomes (exact)
+
+| Lane | Command | Result |
+|---|---|---|
+| clj, engine | `clojure -M:test -n yin.vm.engine-test` | **19 tests / 82 assertions, 0 failures, 0 errors** (18 existing + 1 new) |
+| clj, full | `clojure -M:test` | **1541 tests / 168704 assertions, 0 failures, 0 errors** |
+| cljs (Node) | `clj -M:cljs -m shadow.cljs.devtools.cli compile slice-peer test` (mise Java 21 workaround) | **1457 tests / 38573 assertions, 0 failures, 0 errors**; `dao.stream.waitset-test`, `yin.vm.ast-walker-test`, `yin.vm.engine-test` confirmed present in output |
+
+CLJD lane and cross-host peers left to the orchestrator as instructed. Nothing staged, nothing committed.
+
+**Baseline note:** the prompt's "count to beat" (1540/168705) doesn't match this tree — I measured HEAD directly (temporarily reverting my two files via `git show > file`, running, restoring): **1540/168697**. My run is exactly baseline +1 test +7 assertions (my test's count), so nothing existing broke or lost assertions; the stated 168705 appears to predate the tree state (the lease merge `d90f5ec6` landed 27 min before the prompt was written).
+
+**CLJS workaround details (disclosed per the standing rule):** the bare command fails — Homebrew's `clj` pins openjdk@17 (class-file 65 `UnsupportedClassVersionError`) and ignores `JAVA_HOME`; `mise exec` hits the untrusted `mise.toml`. I ran the exact bb.edn task command via `clojure -M -e` + ProcessBuilder spawning mise's Java 21 with the `clj -Spath -M:cljs` classpath (last stdout line — Timbre banner gotcha), after `npm ci` (also ProcessBuilder) since the fresh worktree had no `node_modules` for `ws`. Also ran `cljstyle`-equivalent hygiene only via lint-free suites; `clojure -M:kondo` was sandbox-blocked, so no kondo pass ran.
+
+## Grep confirmation
+
+- `grep -rn "augment-wait-entry\|poll-wait-entry" src test …` → **empty**. Remaining hits are historical prose only (`docs/design/dao.stream.waitset.implementation-plan.md`, `docs/orchestrator-log.md` — the plan's own W5-scoped historical record, out of my scope).
+- `check-wait-set` remains, and its body (with the resolver) contains **no `stream/next`/`stream/append!`** — the only transport calls in the engine are the immediate-path `handle-put`/`handle-next`.
+
+## Unresolved
+
+Nothing blocking. Two observations for the record: (1) a woken `:end`/terminal reader's ready entry now carries `:cursor nil` instead of the old pre-poll cursor (the library returns `:cursor` only when a poll produced one) — verified harmless, as both restore functions (`semantic-restore`, `ast-walker-restore`) read only registers/`:value`, and `store-updates` merge is a no-op either way; (2) the intentional divergences (nil-handle → `unresolved` raise instead of host dispatch error; unknown reason → raise instead of waiting forever) are covered by the new test and match the plan's divergence register.

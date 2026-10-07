@@ -1,0 +1,24 @@
+Completed-GMT: 2026-09-02 07:36:30 GMT
+Completed-Local: 2026-09-02 14:36:30 Asia/Ho_Chi_Minh
+
+**Severity 1** | Section: *Renewal is evidence, not negotiation* (Line 324) and *Out of scope* (Line ~760)
+**The claim:** The vocabulary demands an interpreter holder to cooperatively cancel by checking its bound ("passed the duration... must cease acting"), but forbids hidden global state and keeps the clock out of lease code. The judge is provided a tick stream to solve this without hidden state, but the holder is not. An interpreter has no "own clock" and cannot measure duration without time-as-data.
+**The exact correction:** The holder must also be supplied a tick stream (or the medium must carry ticks) so the holder's interpreter can measure its bound using data. Change "A holder whose own clock..." to "A holder observing ticks on its medium...".
+
+**Severity 2** | Section: *Lapse is a conclusion; reclaim is an act* (Lines 420-430)
+**The claim:** Step 3 defines "due for reclaim" strictly by interval, release fact, or cap. If a lease is reclaimed early (via `:released` or policy) and enters the pending-reclaim set, but the terminal append in Step 5 fails, it must be retried. But in the next pass, the `:released` fact is gone (drained), and the interval doesn't yet exceed duration, so Step 3 will NOT flag it as "due for reclaim". Steps 4 and 5 are skipped, and the retry never happens until the natural duration expires.
+**The exact correction:** In step 3, add "or when it is in the pending-reclaim set" to the conditions that make a lease due for reclaim. (Also add "policy" to the list of conditions if policy reclaims are evaluated in-band).
+
+**Severity 3** | Section: *Judging lapse* (Lines 521, 547, 625) and *What a lease may never do* (Line 668)
+**The claim:** The document explicitly rejects the "root set" metaphor in line 521 ("It is not a root set in the collector's sense either"), but then unironically uses "root set" to describe the judge's state in lines 547 ("the judge's own root set"), 625 ("so the root set survives"), and 668 ("A grantor's own root set is not one"). This is exactly the contradictory residue warned about.
+**The exact correction:** Replace "root set" with "ledger" in lines 547, 625, and 668.
+
+**Severity 4** | Section: *Lapse is a conclusion; reclaim is an act* (Line 408)
+**The claim:** Step 1 states "The newest tick drained is *now* for this entire pass." If the tick cursor is blocked immediately (yielding zero ticks this pass), there is no "newest tick drained". A literal interpreter has an undefined `now`, crashing or stamping facts with null. Time relocated its defect from "never advances" to "is undefined when ticks are sparse".
+**The exact correction:** Change Step 1 to "The newest tick drained (or the last observed tick if none were drained) is *now* for this entire pass."
+
+**Is this document finishable, or is it accreting faster than it converges?**
+
+It is accreting faster than it converges. Each round of fixes patches a conceptual hole by adding new mechanical state (the 5-step pass, tick streams, pending-reclaim sets, cooperative cancellation) but fails to integrate those mechanisms with the rest of the invariant constraints. The fixes merely relocate the defects from conceptual errors to execution logic errors (undefined variables, dropped state for retries, and missing time-as-data for remote interpreters). 
+
+To stop this trend, the design must stop adding prose to explain away edge cases. It needs to formalize the state machine of the judge and holder into a single table that proves every state transition has all the data it needs to compute the next state.

@@ -1,0 +1,24 @@
+Neither fix fully closes its P0. Findings are also saved to the plan file. ExitPlanMode is not available in this session, so I am reporting directly.
+
+**Fix 1, dao.jing order-normalize: partial.** Commit 5886085 fixes two of the three §4.2 conformance pairs but not the third. I probed the current code on the JVM.
+
+| Pair from code-as-tuples §4.2 | Result now |
+|---|---|
+| vector vs list | distinct |
+| vector vs seq | distinct |
+| `^{:a 1} [1 2]` vs `^{:a 2} [1 2]` | still collide |
+
+- **Why metadata still collides.** The new `with-meta` calls attach metadata to the normalized value, but the encoder then calls plain `pr-str`, which never prints metadata unless `*print-meta*` is bound. The additions are dead weight for the address, and the commit message's "preserve metadata" is untrue of the hash.
+- **Map and set metadata is lost earlier**, at normalization. The map branch rebuilds a sorted map and the set branch emits a list, neither carrying the original metadata. Binding `*print-meta*` alone would not fix these.
+- **The set encoding collides with real data.** A set of 1 and 2 and the literal list `(set (1 2))` hash identically, because the sentinel lives inside the value domain.
+- **Records collapse to maps.** A record and the equal plain map share an address.
+- Consequence: the §10.1 block on rows, DAG sharing, and ID-keyed `$ast` is not lifted. `materialize!` also verifies `:present` with `=`, which ignores metadata, so it must change together with the encoder.
+
+**Fix 2, Combined Atomic Output: solves the producer-side split brain, but is not consumable as written.** One envelope in one append to one medium does eliminate rows-without-datoms, differential duplication, and the cross-medium ordinal drift the index design warns about. Three problems remain.
+
+- **The index cannot admit the envelope.** The index observer's outer grammar in §2.2 step 0 is closed. A map is an element only if it contains a transaction key. Any other map is a whole-batch defect, so every envelope appended to S1 would be rejected, incrementing the rejected count each fold. "Natively plucking" the side table requires the index to know the yin envelope shape, which is the layering inversion that same document forbids. The fix needs a named stateless projection observer between S1 and the index. Since that stream is a pure function of S1 it is replayable and not a dual write, but the plan must say so.
+- **The plan contradicts itself.** The diagram still routes the encoder to S2 and S2 to the index, while section 6 says the index observes S1.
+- **The envelope key uses the index's reserved namespace.** The metadata key is spelled in the namespace §3.2 reserves for resolution facts. It is a map key rather than an attribute, so not a literal violation, but it should be renamed to a yin-owned key.
+- **Idempotency is untouched.** The sentence claiming resolution facts guarantee retry idempotency is still in section 6. Bundling makes retries symmetric across outputs. It does not make a duplicate producer append a no-op, which the third P0 still requires.
+
+**Recommended next steps** are in the plan file: rework the encoder to carry metadata through all branches and print it, move the set tag out of the value domain, add the four collision pairs to the jing tests on all three hosts, and revise the migration plan's diagram, key name, and projection step while keeping the idempotency P0 open.

@@ -1,0 +1,36 @@
+Completed-GMT: 2026-09-25 17:25:20 GMT
+Completed-Local: 2026-09-26 00:25:20 +07
+
+Both re-gate findings are fixed and all three lanes pass; nothing is staged or committed. The full report is at `/Users/sto/workspace/datomworld/collab/1790349600000-vm-engineer-yin-def-rule-r-commit-one-fix2.claude-opus-5-5.report.md`.
+
+| Lane | Last round | Now |
+|---|---|---|
+| JVM | 2,049 / 180,956 | 2,051 tests / 180,998 assertions, 0 failures |
+| Node | 1,963 / 47,972 | 1,964 / 47,987, 0 failures |
+| Dart | 1,925 | 1,926 passed |
+
+kondo shows 0 errors, and its 7 warnings all exist at HEAD. cljstyle is clean. Every added line is ASCII and at most 80 columns, except Markdown grid-table rows.
+
+**P1: macro packets could be relabelled as v3.**
+- Every value in the expander's macro store is now a stamped entry, `(m/macro-entry packet contract)`.
+- The contract is verified before a macro runs, on both the expansion path and direct `invoke`. `make-ctx` and `expand-batch` also check every entry in a supplied store up front.
+- A bare packet or a missing stamp is refused with `:contract-missing`, and an old stamp with `:contract-mismatch`.
+- The expander stamps as current only the packets it harvests itself.
+- **Also closed:** `bounded-row-evaluator` is public and could be called directly with a raw packet. It now receives the entry's verified stamp in its request, checks it before running, and loads under that stamp, never one of its own.
+- New tests cover old, unstamped and nil-contract entries through `make-ctx`, `expand-batch` (with a store attached directly) and direct `invoke`. They also cover the runner on its own, a current-stamped entry passing, and a harvested macro getting the current stamp.
+- **Sweep:** I checked every other place that hands stored or supplied code to a loader; the list is in the report. None of them relabels supplied code. One open design question: the expander's input batches are still unstamped syntax, and packets harvested from them count as the expander's own fresh output.
+
+**P2: the audit missed local aliases.**
+- **Detection added:** the audit now tracks store aliases bound by `let`, `let*`, `loop`, `loop*`, `when-let`, `if-let`, `when-some`, `if-some`, `when-first` and `binding`, including chained aliases and `{heap :store}` destructuring. It also treats `(get-in x [:store ...])` as a store and flags writes in a `->` or `some->` pipeline after it passes `:store`.
+- **Fixtures:** 10 new alias fixtures are all caught, including codex's `(let [heap (:store vm)] (assoc heap 'yin/def v))`. The `src` allowlist is unchanged, because no aliased store write exists in `src` today.
+- **Not tracked:** a function parameter that is passed a store at a call site. I couldn't do that reliably, so it stays in the documented residual.
+- **Stated guarantee:** the test's docstring and `yin.vm.engine.md` §1.1 now say exactly what is detected, and that the allowlist is exact only for that. They also list what is not detected:
+  - a store passed across a function boundary;
+  - a store carried inside another data structure;
+  - `apply`, `partial` and `comp`;
+  - `as->` and `cond->`;
+  - transients and host interop;
+  - macros that expand to a write.
+- **Residual pinned:** a new test pins four of those as undetected, so the docs can't quietly drift from the code. I also reworded the `engine/store-put` docstring and the `datom.world.md` line so neither claims an exact audit.
+
+Status: COMPLETE

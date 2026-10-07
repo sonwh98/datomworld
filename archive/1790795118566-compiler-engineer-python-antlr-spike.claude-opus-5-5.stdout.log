@@ -1,0 +1,99 @@
+Completed-GMT: 2026-09-30 19:46:33 GMT
+Completed-Local: 2026-10-01 02:46:33 +07
+Coding-Agent: claude
+Session-ID: 976059c2-629b-4b91-8b63-7c4d9604d7cf
+
+# Python ANTLR spike, phase A
+
+Phase A is built in `/Users/sto/workspace/datomworld-py-spike` (branch `yang-python-antlr-spike`). Nothing is staged or committed. All tests that can run on this base pass. The 21 end-to-end tests fail as expected, because cell slice 1 and the `data` module are not here yet. cljstyle was not run: it needs approval in this session.
+
+The full report is in `collab/1790795118566-compiler-engineer-python-antlr-spike.claude-opus-5-5.report.md`. It has the rule-to-Universal-AST table, the prelude contents, the grammar digests and a list of known differences from Python.
+
+## What was built
+
+- **Stage 1, parser (JVM):**
+  - Reads source chunk and seal events from one stream and writes one CST packet per sealed unit to another.
+  - Nodes are flat records in preorder, with half-open UTF-8 byte spans.
+  - A syntax error produces a packet with error records and no nodes, never a partial program.
+  - The exporter (`yang.antlr.cst`) knows no Python. Only `yang.python.antlr.parser` names the generated classes, and no ANTLR object leaves the stage.
+- **Stage 2, lowering (portable `.cljc`):**
+  - Runs scope analysis, then one `case` arm per grammar rule.
+  - Writes datom batches to a program stream and diagnostics to a separate stream.
+  - Every grammar rule is either handled, read by a parent rule, or rejected with a diagnostic naming the rule. A rule outside all three fails with an error naming it. A test checks that the three lists together match the grammar's rule names exactly.
+- **Lowering rules as decided:**
+  - Every local and parameter is a cell; globals go through `yin/def py.g/x`.
+  - `return`, `break`, `continue`, `try` and `raise` all use captured continuations.
+  - `finally` is rejected with a diagnostic.
+  - Python semantics live in a prelude written as Universal AST.
+- **Handler stack: I put it in a cell rather than a hidden parameter.** A hidden parameter would change how every guest and prelude function is called. The cost is that every escape (`return`, `break`, `continue`) must restore the handler stack it saw when captured. A test checks that no stale handler is left behind.
+- **Grammar:**
+  - Pinned to grammars-v4 `python/python3` at `8af0d4c26c796ea27c15c3d85418f2d0f77c3adb`, with ANTLR 4.13.2.
+  - `bb gen:python-antlr` fetches the pinned files and checks their SHA-256. It also checks the digests of the generated Java files, so drift fails the build.
+  - The `.g4` files are MIT. **The two Java helper files have no license notice; this is marked unresolved in the manifest.**
+
+## Test results
+
+| Check | Result |
+|---|---|
+| clj-kondo, all changed files | 0 errors, 0 warnings |
+| Generation from clean (`rm -rf build/antlr`, then `bb gen:python-antlr`) | passed |
+| Full `clj -M:test` | 2487 tests, 21 failures (all the e2e set), 0 errors |
+| `bb test:cljs` | 2333 tests, 0 failures, 0 warnings; both portable test namespaces ran on Node |
+| cljstyle | not run (needs approval); formatting unverified |
+| `bb test:cljd` | not run, per the brief |
+
+The new tests that pass now cover:
+- CST export: exact spans, error records, the source protocol, and identical output across 5 different chunk splits.
+- Scope analysis: locals, parameters, `global`, `nonlocal`, forward capture and class scopes.
+- Lowering: exact expected output for representative programs, 16 rejected constructs, the rule classification, and chunk invariance through both stages.
+- Prelude semantics on all four VMs.
+
+**Which e2e tests wait on what:**
+- All 21 need cell slice 1.
+- Four also call the data module: `lists-alias-and-index-test`, `dict-order-and-key-normalization-test` and `boolean-operators-test` use `data/count`; `strings-test` also uses `data/into`, `data/code-points` and `data/from-code-points`.
+
+Nothing is stubbed. Each test fails with a message naming the missing registry functions.
+
+## Temporary cell/data modules (not a deliverable)
+
+To check the lowering before the real slices exist, I ran all 21 e2e tests on all four VMs against temporary atom-backed `cell` and `data` modules. All 21 passed, and the run found one real bug that I fixed (exception `args` were an untagged vector, so printing them leaked internal string tags). That file lived under the gitignored `build/` and is now deleted. It shows the lowering behaves correctly given box-style cells; it does not show it works with the real cell slice 1.
+
+## Names I guessed
+
+- Two data-module function names are my guesses: `data/code-points` and `data/from-code-points`.
+- The two registry functions the e2e tests look up are also assumed: `yin.vm.module/register-cell-module` and `yin.vm.module/register-data-module`.
+
+Each is defined in one place and needs confirming once the parallel slices land.
+
+## Other things to know
+
+- **I patched the pinned upstream lexer helper.** It gave NEWLINE and DEDENT tokens wrong source positions. The fix is recorded in the manifest.
+- **Known grammar limitation, left as is:** a top-level statement with no final newline is a syntax error. I did not rewrite source to hide it.
+- **The prelude recognizes a captured continuation by its `:type` key.** If the D7 work changes how continuations are represented, this check has to change with it.
+- **Is the mapping "straight forward but tedious"?** Mostly yes: the expression grammar and statement plumbing were mechanical.
+  - Scope analysis was not.
+  - Neither was the machinery around continuations: telling a first pass from a re-entry, keeping the handler stack consistent, and loops needing self-application plus tail marks.
+  - Python's value representation and equality took real design and are where most portability risk sits.
+
+## Files
+
+Modified: `deps.edn`, `bb.edn`.
+
+New, in `/Users/sto/workspace/datomworld-py-spike`:
+- antlr/python3/manifest.edn
+- src/dev/yang_antlr_gen.clj
+- src/clj/yang/antlr/cst.clj
+- src/clj/yang/python/antlr/parser.clj
+- src/cljc/yang/antlr/packet.cljc
+- src/cljc/yang/python/antlr/stage.cljc
+- src/cljc/yang/python/antlr/uast.cljc
+- src/cljc/yang/python/antlr/scope.cljc
+- src/cljc/yang/python/antlr/prelude.cljc
+- src/cljc/yang/python/antlr/lower.cljc
+- test/yang/python/antlr/cst_export_test.clj
+- test/yang/python/antlr/scope_test.clj
+- test/yang/python/antlr/lower_test.clj
+- test/yang/python/antlr/lower_portable_test.cljc
+- test/yang/python/antlr/prelude_parity_test.cljc
+- test/yang/python/antlr/e2e_test.clj
+- collab/1790795118566-compiler-engineer-python-antlr-spike.claude-opus-5-5.report.md

@@ -1,0 +1,10 @@
+Both r5 items are done, and the JVM passes: `clojure -M:test -n yin.vm-test` ran 23 tests (172 assertions) with 0 failures.
+
+- **Fix 1 (empty metadata map dropped):** for `(with-meta [] (with-meta {} {:meaning 1}))`, stripping dropped the empty metadata map and lost the `{:meaning 1}` attached to it. I added the regression test first, and against the old code it failed twice: `{:meaning 1}` came back `nil` both in the row and after the round trip.
+  - Now the metadata map is dropped only when it has no entries and no metadata of its own left after stripping.
+  - The address doesn't change, because `dao.jing` already ignores empty metadata when hashing.
+- **Fix 2 (custom-comparator sets):** no code change. `same-meta?`'s docstring now says this deferred case is silent and order-dependent: a metadata mismatch may throw or may be silently accepted.
+
+I didn't re-run cljs or `bb test:cljd` this round, since the contract only asks for the JVM run. In r4 the cljs build was clean for this test namespace. The Dart build was blocked by the untracked bench file (`Unknown symbol: measure-ms`), and I don't know whether that's been fixed. So this code still hasn't been tested on Dart.
+
+I only edited `v2.cljc` and `v2_test.cljc`, and nothing is staged or committed. The report is in `collab/1789529200000-vmruntime-ast-semantic-bytecode-r5.claude-opus-5.findings.md`.

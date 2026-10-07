@@ -1,0 +1,28 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-21 05:12:22 GMT
+Completed-Local: 2026-09-21 12:12:22 +07 (Indochina Time)
+
+All four accepted findings are applied in the two in-box files; the deferred items (P3-4/5, P3-6, P3-7 remaining nits, P3-8) were not implemented, as instructed. Nothing staged, committed, merged, or pushed; no other file touched.
+
+## Findings applied
+
+| Finding | Change |
+|---|---|
+| **P2-1 (mid-frame retry)** | New test `a-half-read-frame-is-carried-across-a-retry`: half the worked example's datoms fill an open buffer → `drive` ends `:retry`/`:dao.stream/blocked` with the half-read frame asserted **inside the retry state** (dropping `:frame` now fails this) and zero writes; then the host appends the rest, seals, and `pump` re-steps to `:source-ended` with the destination holding exactly the full expected projection — the same graph, first half included. |
+| **P2-2 (catch-all)** | New public `exception-diagnostic`: an ex-info with diagnostic data classifies `{:status :invalid-input, :diagnostic <ex-data>}`; anything else classifies `{:status :internal-error, :diagnostic {:rule :internal-error, :message (ex-message t)}}` — internal defects are no longer mislabeled input, and the status itself is `:internal-error`. The catch is now `#?(:cljd Object :clj Throwable :cljs :default)` — `Throwable` on the JVM per the `vm.cljc` precedent, so an `Error` is classified rather than escaping host-divergently. Docstring status list updated. Test `internal-defects-are-never-mislabeled-input` covers both branches with host-native plain throwables. |
+| **P3-3 (alpha-equivalent adjacent graphs)** | The D4 adjacent-graphs fixture's second graph is now `(lam '[x] (lit 42))` — semantically different — plus an explicit `(not= projection-one projection-two)` assertion, so a bug replaying graph one's projection for graph two can no longer pass. |
+| **P3-7 nit (docstring)** | `forward-step`'s docstring now states `:outcome` is carried **whenever** the last transport operation produced one, "including the blocked/full outcome a `:retry` hands back" — the false non-`:retry` restriction is gone. |
+
+One fixture reality surfaced by the lanes: ClojureDart's `ex-message` on a plain `Exception` returns its `toString` (`"Exception: boom"`), so the internal-error test expects the host's own message per branch — the classification and status are identical on all hosts; only the message rendering is the host's, which is exactly what `:message (ex-message t)` prescribes.
+
+## Verification (exact commands and counts)
+
+| Check | Command | Result |
+|---|---|---|
+| Focused JVM | `clojure -M:test -n yin.vm.debruijn-test` | **63 tests, 249 assertions, 0 failures, 0 errors** |
+| kondo | `clojure -M:kondo --lint` both files | **errors: 0, warnings: 0** |
+| cljstyle | `cljstyle fix` + `check` both files | **clean** (reindent only; focused rerun stayed 63/249/0/0) |
+| CLJS lane (insurance) | shadow `compile test` (Node) | **1540 tests, 38897 assertions, 0 failures, 0 errors** |
+| CLJD lane (insurance) | `rm -rf test/cljd-out` + `clojure -M:cljd` test | **`01:45 +1503: All tests passed!`** — incl. `a-half-read-frame-is-carried-across-a-retry` (+286) and `internal-defects-are-never-mislabeled-input` (+305), zero failures |
+
+Changed files: only `src/cljc/yin/vm/debruijn.cljc` and `test/yin/vm/debruijn_test.cljc`. No unresolved concerns; no incomplete work in this round's scope.

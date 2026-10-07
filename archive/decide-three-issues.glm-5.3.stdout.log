@@ -1,0 +1,66 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+I read all five documents, plus `dao.space.md` (§ Coordination: Stigmergy) and the actual `dao.space.transactor` source, since ADR 0003's feasibility bears directly on Question 2. My answers:
+
+---
+
+## Question 1 — pick **1A: keep `ok`**, rescope its wording
+
+**Reasoning.** Every operation on the handle is legal while establishment is pending — `append!` answers `full`, `close!` disconnects, `descriptor` answers `ok` — so `pending`-vs-`ok` licenses no different caller action; it would be a branch with no behavior behind it. The falsification objection is real, but it attaches to the row's *wording*, not to `ok` itself: `ok`'s subject must be the attachment, which truly exists, not the resolution, which was never claimed. The contract already contains every part of the honest version: outcome meanings are "handle-relative throughout," an attached handle is on an *attachment*, and the Surfaces displacement clause ("the answer is displaced to another channel, named") already licenses exactly this shape. 1B imports the `blocked`/`EAGAIN` retry idiom where it does not apply — polling `attach!` again does not re-ask the question, it mints a second attachment — a footgun with no compensating power. 1B's symmetry cost is also real: the plan already commits `create!` to the same displaced-answer shape, so `pending` must be added to two outcome tables and every future one. What a dynamic-dispatch caller gains — learning synchronicity from the outcome map instead of declared nature — buys nothing, because its subsequent behavior is identical either way: use the handle, read the medium.
+
+**Exact text for `dao.stream.md`:**
+
+In *Creation and Attachment*, replace the second bullet:
+
+> - `attach!` consumes a portable descriptor and returns a handle on an **attachment** to the stream the descriptor names. Attaching never creates — an attachment begun toward a name nothing backs creates nothing, and the deposited `not-found` proves it. Whether the name resolves is knowable at call time only on some transports, and that is part of each transport's declared nature: a transport that resolves synchronously returns `ok` with the attachment already established; a transport that cannot returns `ok` for the attachment it has truly begun and displaces the resolution — `not-found` or `transport-error` — to the channel it declares, correlated by attachment identity. `ok` claims the attachment, never the resolution; a later deposited `not-found` is the arrival of an answer that was never claimed, not the falsification of one.
+
+In the `attach!` outcomes table, replace the `ok` row:
+
+> | `:dao.stream/ok` | A handle exists on an attachment to the named stream; where the transport resolves descriptors synchronously, the attachment is established at return. | `:dao.stream/handle` |
+
+Add directly below that table:
+
+> A transport that displaces resolution must carry `:dao.stream/attachment` — a structurally serializable value, unique per attachment — in its `ok` map, and the same value on every event it deposits about that attachment. Without it the displaced answer is unattributable: present, in order, and belonging to no one. This key is the contract's correlation vocabulary; the classes of event a transport may deposit about an attachment are transport-owned and qualified under the transport's namespace.
+
+---
+
+## Question 2 — pick **2B: keep the ring buffer, amend the ADR and ws spec**
+
+**Reasoning.** The decision is a claim about there being no *second stigmergic medium*, not about a named subsystem — dao.space is emergent and cannot appear in a wiring diagram, which is exactly why the adapter is never allowed to know its destination. 2A is not executable inside the slice: ADR 0003 itself records that the dao.space writer face does not yet answer with data and that repairing it is a *precondition* of depositing through it, and the plan's boundary explicitly defers dao.space's migration to its own plan against the finished slice. Worse, a bare datom-log writer over a ring buffer would satisfy the ADR's letter while violating its substance — naming dao.space where the medium (index side, intake pool, shared dao.jing) does not exist. 2C is dishonest because the plan's serving composition is "a named deliverable, not test wiring," and Phase 5 runs real processes whose interpreters read the deposit stream — that is a host boundary depositing into a non-dao.space medium, squarely inside what the ADR governs, and an unamended contradiction between the governing document and what is built is silent drift. The ring buffer is not *yet* a second medium — no open-ended population of interpreters coordinates through it — but it becomes one the moment the shape persists, which is precisely what a time box names; and the adapter-cannot-tell property is what makes the eventual swap composition-only, hence the exception legal rather than a layering inversion. Restrictions are a feature; a restriction waived silently the first time it costs something is no longer a restriction.
+
+**Exact text for `adr/0003-dao-space-is-the-event-medium.md`** (new section after Consequences):
+
+> ## Amendment (2026-08-31): time-boxed exception for the dao.stream v2 WebSocket slice
+>
+> The dao.stream v2 WebSocket slice (`docs/design/dao.stream.implementation-plan.md`, Phases 4–5) composes its boundary's deposit destination as an in-memory ring buffer, not a dao.space writer. This is an exception to the decision above, granted because the conforming writer does not exist yet: this ADR's own precondition — the dao.space writer face answering with data — is unmet, and dao.space migrates onto the dao.stream v2 contract only after the slice completes, under its own plan. The exception ends when a v2-conforming dao.space writer face exists and the slice's serving composition has switched its deposit destination to it; from that moment this section is void.
+>
+> The ring buffer is one composition's retention transport, never a coordination substrate: no interpreter outside the slice coordinates through it, and the swap is composition-only — the boundary adapter cannot tell what it deposits into, which is the property that makes this exception legal rather than a layering inversion. Should this shape persist past the exception's end, it would be exactly the second stigmergic medium — its own retention, its own addressing, its own interpreters — that this ADR exists to forbid.
+
+**Exact text for `dao.stream.ws.md`** (append to the "Per ADR 0003…" sentence in The Duplex Model):
+
+> (In the v2 slice the destination is a ring buffer standing in for the medium under ADR 0003's time-boxed slice exception; the later swap is composition-only, because the adapter cannot tell — and that it cannot tell is the proof that no layering is inverted.)
+
+---
+
+## Question 3 — pick **3C: keep the envelope, add a reconciling clause**
+
+**Reasoning.** 3B cannot be built: a lifecycle event has no payload to carry fields and a scalar payload has no fields to carry correlation, so "fields on the ordinary value" either constrains the wire or wraps — an envelope under another name, differing only in what it is called. The authority's sentence, read in its paragraph, forbids *semantic vocabulary and protocol machinery* — a taxonomy of what values mean, version fields, medium-owned framing — not data-shaped provenance. Both contents of this map are blessed elsewhere in the same authority: correlation by identity in the data is the mechanism Host Boundaries itself names, and classifying host occurrences into qualified values is the transform's *mandated* duty ("a transform function classifies them and emits a qualified value"). `:ws/event` closes over what the socket itself did — opened, closed, erred, disclaimed — never what a value means, and the adapter never inspects `:ws/value`, so deposit-everything-judge-nothing is intact. A per-attachment deposit medium would remove multiplexing attribution but not the lifecycle/payload distinction, not the boundary-level announcement stream's own identity problem, and not ADR 0003's rejection of the private-ingress shape — it is a legal composition choice (which the ws spec already permits), not the answer. Since the envelope does not violate the authority, the subordinate may document that reading at the point of use; amending `datom.world.md` for one transport's need would spend constitutional authority where nothing in it is actually contradicted.
+
+**Exact text for `dao.stream.ws.md`** (replace the "**Deposited events are envelopes**…" paragraph and its code block with):
+
+> **Deposited events are maps, each carrying three transport-owned facts and judging nothing:**
+>
+> ```clojure
+> {:dao.stream/attachment <id>
+>  :ws/event              :ws/payload  ; or :ws/opened :ws/closed :ws/error
+>                                      ;    :ws/not-found :ws/transport-error
+>  :ws/value              <decoded>}   ; payload events only
+> ```
+>
+> This is not the bespoke envelope, version field, or fact taxonomy that `datom.world.md` excludes, and the distinction is load-bearing. `:dao.stream/attachment` is correlation by identity in the data — the mechanism the authority itself names. `:ws/event` is the transform's classification of what the socket itself did, the same duty the authority already imposes on host error types; it closes over occurrences, never meanings, and its `not-found`/`transport-error` classes are the displaced `attach!` outcomes of the contract, whose distinction survives with only its channel moved. No medium-owned framing exists and the adapter never inspects `:ws/value`: strip the `:ws/…` keys and the payload stands as itself. A map is also the only honest shape — a lifecycle event has no payload to carry fields, and a scalar payload has no fields to carry correlation — so under a per-attachment deposit medium the attribution key is redundant but harmless, and under one medium per boundary it is the demultiplexing key.
+
+---
+
+## Least confidence
+
+**Question 2**, specifically the 2B-vs-2A boundary. My decision rests on two factual claims: that the writer-face repair is entangled with legacy (the no-facade rule makes reusing `dao.space.transactor` against v2 impossible without porting it, inverting the migration order the plan fixes), and that the time box has a real trigger (dao.space's own migration plan, gated on slice completion). Evidence that would change my mind: a showing that the conforming writer is small and legacy-unentangled — then 2A becomes right, because "never build the forbidden shape, even temporarily" beats a time-boxed exception that no mechanism enforces; or a showing that no dao.space migration plan exists or is triggered by anything — then 2B's box is a fiction and 2C's "the ADR governs production composition" reading, which I rejected on the strength of 4c's "named deliverable, not test wiring" language, becomes the honest one. Second-least is Question 1: I would flip to 1B if someone named a concrete consumer that must *behave differently* before vs. after establishment (i.e., some operation illegal on an unestablished attachment) — that would give the `pending` branch real content, which it currently lacks for every operation in the seven.
+[?25h

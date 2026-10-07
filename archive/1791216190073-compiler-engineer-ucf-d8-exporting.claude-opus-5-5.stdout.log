@@ -1,0 +1,38 @@
+Completed-GMT: 2026-10-05 16:36:05 GMT
+Completed-Local: 2026-10-05 23:36:05 +07
+
+D8 is implemented as a new `export.cljc` with its test file. The new tests and the existing handoff suite pass on the JVM only (36 tests, 225 assertions, 0 failures). The report is at `collab/1791216190073-compiler-engineer-ucf-d8-exporting.findings.md`.
+
+**Changed files**
+- New `src/cljc/yin/vm/ucf/holder/export.cljc` with `enter`, `prepare`, `encode` and `abort`.
+- New `test/yin/vm/ucf/holder/export_test.cljc` (12 tests, 61 assertions).
+- `handoff.cljc` is unchanged. Prepare wraps `export-task` with a caching `serve!`, so no extraction was needed.
+
+**What it does**
+- **Entering exporting:** `enter` sets the gate, empties the wait set, and moves the waits and reachable parked records into an export record.
+- **Refusals:** each refusal kind from item 2 fires on a real parked machine, and a refusal inside an install child reports its path. A non-empty ready queue gives `:yin.k/not-quiescent`.
+- **Prepare/encode:** `prepare` calls `serve!` once per stream, including streams in install children. `encode` makes zero `serve!` calls and gives equal bytes on repeat.
+- **Abort:** it is legal only when there is no persisted attempt, or every attempt's append was `full` or `closed`. It is refused after an unknown append, after a refusal that followed one, and for a holder past its lease bound.
+
+**Evidence**
+- On the JVM, `export-test` plus the existing `handoff-test` ran 36 tests with 225 assertions and 0 failures.
+- I wrote the implementation before the tests, so this was not strictly test-first. For red evidence I made `not-appended?` always true, which produced 7 failures, then reverted it.
+- kondo gave 0 errors and 0 warnings on both new files. cljstyle was not run, so the orchestrator should run it at landing. Node and Dart lanes were not run.
+
+**Concerns**
+1. The served table is keyed by stream handle, so it cannot be journaled as-is. D14 or D9 may need `handoff.cljc` to expose a resource-id key.
+2. "Reachable unminted cell" is implemented as any unminted cell in the machine's resources, which is conservative.
+3. The abort vocabulary is mine: `tenure {:now :bound}`, `:offer-possibly-accepted`, `:tenure-ended`, and a `:yin.k/refused` status. The driver slices must supply the real lease clock and ledger-confirmed tenure.
+All four fixes are applied. The export and handoff test namespaces now run 39 tests with 244 assertions and 0 failures on the JVM. kondo is clean on both files. cljstyle was not run, and the Node and Dart lanes were not run.
+
+1. **Prepare retry:** a refused `prepare` now returns the refusal plus the record with `:served` updated. The test serves one stream and refuses the other, then retries with the returned record, and the retry asks only for the other stream. While testing I found the caching wrapper also stored a refused (`nil`) answer, which would have blocked the retry. It now stores only real answers.
+2. **Tenure:** a holder's `abort` needs `:live true` alongside `:now` and `:bound`.
+   - **Past the bound:** the abort is refused as `:tenure-ended`.
+   - **Inside the bound without ledger evidence:** the abort is refused as `:tenure-unconfirmed`. The test also covers `:live false` and a nil tenure.
+3. **Not-appended outcomes:** the provable set is now `full`, `invalid-value`, `closed` and `refused`. The docstring cites `dao.stream`'s append outcome set, and the phantom `suspended` mention is removed. `invalid-value` and `refused` each license abort, and `transport-error` stays an unknown-delivery refusal.
+4. **Explicit park:**
+   - **Parked-record limb:** after `enter` on a real explicit-park machine, the record holds the parked record, the machine's `:parked` lacks it, prepare and encode still lift it, and abort restores machine equality.
+   - **Asymmetry:** a parked record in an install child stays in the child.
+   - **Evidence:** both rows passed on arrival because they pin existing behaviour.
+
+`handoff.cljc` is still unchanged. Round 2 is appended to `collab/1791216190073-compiler-engineer-ucf-d8-exporting.findings.md`.

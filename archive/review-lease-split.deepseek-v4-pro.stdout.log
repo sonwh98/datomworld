@@ -1,0 +1,83 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-flash","query_source":"generate_session_title"}
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I reviewed only the four specified documents. Findings below, most severe first.
+
+## Findings
+
+1. **High | docs/design/dao.lease.md:119-124, 186-197, 229** | The pass defines exactly one tick cursor and one lease-fact cursor, and Composition duties names "a tick stream" and "a medium" in the singular. Yet the served-connection use and the Limits' own remedy — "Per-attachment media are the isolation" — imply a judge over several deposit media. | Generalize the pass explicitly: a judge drains every wired tick medium (newest reading across them is `now`) and every wired lease-fact medium (all stamped with that `now`), **or** state that a judge is per medium/attachment and cannot span several.
+
+2. **High | docs/design/dao.lease.md:49-53 vs 20-33** | Validity is the operative test for a defective fact, but it omits the identity/event keys the fact table makes required: a proposal without `:dao.lease/proposal`, a grant/refusal/release/reclaim without its identity, a reclaim without `:dao.lease/cause`, a renewal without `:dao.lease/lease`, and unknown `:dao.lease/status`/`:dao.lease/event` values are never declared defective. | Fold the table into Validity: "a fact omits a key its status or event requires, or carries a status/event outside the table" is defective.
+
+3. **High | docs/design/dao.lease.md:119-124** | `now` is defined only as "newest previously observed if none were drained." On the first pass ever — no drained tick and no previous tick — `now` is undefined, and the judge is forbidden from reading a host clock (81-82). The round-4 fix landed only for the zero-drained-with-prior-tick case. | Define the cold-start case: the pass waits for the first tick before stamping any lease fact, or facts observed before the first tick are stamped with that first tick's reading and tenure starts then.
+
+4. **High | docs/design/dao.lease.md:100-106, 117-124** | The ledger "enters ... when the grantor grants it, seeded from that act," and tenure start is "the observation of the grant," but the pass has no step for the grantor's own grant and no rule saying which `now` stamps that act. An implementer cannot timestamp tenure start or last-relevant-observation for an unsolicited grant. | Add a rule: a grant authored during a pass is seeded/stamped with that pass's `now`; one authored between passes is seeded/stamped with the next pass's `now` (or first subsequent tick).
+
+5. **High | docs/design/dao.lease.md:100-103 vs 117-133, 138-148** | The ledger stores only "whether it is pending reclaim." Step 5 must re-record `:lapsed` "with its cause" after a failed record, but the cause is not a ledger field; and *Judging with incomplete evidence* requires an "unknown" state that is also absent from the ledger enumeration. | Add the pending reclaim's cause and an unknown/observation-resumed marker to the ledger fields.
+
+6. **High | docs/design/dao.lease.md:166-174 vs 193-196** | The holder must "observe the grant before acting," but the composition duty requiring an attribution resolver names only the judge. In the in-process pause — a medium where nothing distinguishes writers unless the composition arranges it — the holder has no normative mechanism to know the grant is grantor-authored; a co-writer can forge `:accepted` and the holder acts on it. | Require attribution (same resolver or per-author medium) for any holder that observes a grant, not only for the judge.
+
+7. **High | docs/design/dao.lease.md:152-159; rationale 363-372** | Restart says "reclaims and re-grants ... grants afresh" but never says to whom. The rationale's load-bearing third requirement — the grantor must know "to whom the new grant goes" — was left behind. For a served connection the holder is gone after reclaim, so "grants afresh" is inapplicable as written. | State that re-grant requires recoverable holder identity; where the holder is unrecoverable (or the resource is process-scoped and reclaim destroyed it), persisting the ledger is mandatory, not reclaim-and-re-grant.
+
+8. **High | docs/design/dao.lease.md:11-12, 182-201; rationale 427-431** | The normative half never forbids a lease from extending retention, deferring eviction, gating history, or being consulted by a DaoStream operation; only the rationale carries the "never touches retention" denial. The contract asserts `dao.stream.md` is unchanged but does not bind the implementer to the prohibition that makes the assertion true. | Add a normative prohibition: no lease rule may extend/defer/gate retention, and no DaoStream operation may consult a lease.
+
+9. **Medium | docs/design/dao.lease.md:209** | Sizing requires "the medium's retention window exceeds the judge's lag," but "lag" is never defined in `dao.lease.md`. "Rate skew" (208) is likewise undefined. | Define lag (e.g., cadence plus drain/read time plus flight time) and rate skew, or restate the relation in terms of cadence and tolerance.
+
+10. **Medium | docs/design/dao.lease.md:239-241** | Carriage enumerates "renewals, grants and refusals" as the facts that cross a boundary but omits proposals and releases, both holder-authored facts that must cross holder→grantor the same way. | Change to "Proposals, grants, refusals, releases, and renewals cross a boundary as ordinary payload."
+
+11. **Medium | docs/design/dao.lease.md:119-124; dao.stream.md:491-499** | "Drain ... to `:dao.stream/blocked`" names only one outcome. `next` also returns `end` and `transport-error` (plus invalid/cursor-mismatch defects); the contract never says what the judge does when the lease-fact or tick stream closes or a read fails. | Specify drain handling for `:dao.stream/end` (no further facts on that medium) and `:dao.stream/transport-error` (abort the pass without classifying from unobserved data).
+
+12. **Medium | docs/design/dao.lease.md:169-171 vs 210-212** | The holder stops "at the bound," defined only as the duration; Sizing says a cap below the duration ends tenure at the cap. A holder holding a grant with a lower `:dao.lease/max` is never told to stop at the cap, so it keeps acting past the cap until the grantor's reclaim lands. The round-4 fix resolved the grantor side only. | Define the holder's bound as the earlier of duration and `:dao.lease/max` when the grant carries one, or state explicitly that the holder's bound remains the duration and overrunning a lower cap is accepted damage.
+
+13. **Medium | docs/design/dao.lease.md:60-65 vs 219-221** | "A replayed or delayed holder fact establishes nothing" reads as a blanket denial, but a delayed renewal from the holder does count — Limits says a late-observed renewal "buys a fresh duration." The sentence overgeneralizes and contradicts the renewal rule. | Restrict to terms: "a holder fact establishes no term; a delayed holder renewal is still evidence and is counted as such."
+
+14. **Medium | docs/design/dao.lease.md:67-68 vs 73-74** | "Exactly one of `:accepted` or `:rejected` may answer a proposal" is misreadable as requiring an answer, contradicting "A grantor owes no answer." | Say "At most one of `:accepted` or `:rejected` may answer a proposal."
+
+15. **Medium | docs/design/dao.lease.md:44-46, 55-56, 84-87** | A duration is a map from a unit keyword to an integer and comparison "normalizes to the finer of two units," but no unit keywords or conversions are defined, and a tick's exact shape ("a fact carrying a reading") is unspecified. A grantor and holder cannot interoperate without an out-of-band unit vocabulary. | Fix a unit vocabulary and normalization, or explicitly delegate units to the composition and require grantor, holder, and judge to share one.
+
+16. **Medium | docs/design/dao.lease.md:44-46, 184-201** | Tolerance is used by step 3 and Sizing but is never listed among the judge's supplied parameters in Composition duties. | Add tolerance (duration representation, possibly zero) to the composition duties as a value supplied to the judge.
+
+17. **Low | docs/design/dao.lease.md:9-12, 108-111, 135-136, 176-180, 214-215** | The document claims "every sentence below is a rule," but retains argument: the opening "so that ... without having to detect that it vanished," "observations exist only on the judge's clock," "Because a reclaim may outlive its record," "Stopping at the bound is damage limitation, not exclusion," and "Each follows from reclaiming without ground truth." | Move those rationale clauses to `dao.lease.rationale.md`; keep only the rule each supports.
+
+18. **Low | docs/design/dao.lease.md:37-38 vs rationale 164-168; 71-74 vs rationale 180-187; 136/162 vs rationale 285/371-372** | The rationale still re-asserts operative rules as its own headings and sentences ("The grantor mints the lease id," "A proposal creates no state," "absence of `:lapsed` is never evidence of tenure"), recreating the duplicated-norm drift the split existed to end. | Reword those rationale passages to cite the contract's rule and explain only why, not restate the rule.
+
+19. **Low | docs/design/dao.lease.md:16-18, 30-33** | "A reader switches on both" dispatch keys, but the contract never says what a fact with neither key (a non-lease fact on a shared medium) or with both keys means. | State: a fact with neither key is not a lease fact and is ignored; a fact with both is defective.
+
+20. **Low | docs/design/dao.lease.md:49-53, 67-68** | Validity's "a status appears twice for one identity" would not catch one `:accepted` and one `:rejected` for the same proposal; and which identity keys which status (proposal vs lease id) is never stated. | Clarify per-status identity — a proposal id is answered at most once by accepted/rejected; a lease id is accepted, released, and lapsed at most once each — and fold into Validity.
+
+## Round-4 fix check
+
+- **"root set" → "ledger"**: landed. No "root set" remains in the normative half.
+- **Pending reclaim as a due condition**: landed correctly at step 3's last clause; the retry path exists.
+- **`now` when zero ticks drained**: only partially landed — it covers "no tick drained *but one previously observed*," not the first-ever pass (finding 3).
+- **Holder measures against its own medium's ticks**: landed at 168-169.
+- **Honour-duration vs cap-below-duration**: landed for the grantor at 210-212, but the holder's bound still ignores the cap (finding 12).
+
+## Composition walks (normative half alone)
+
+**Served connection.** Unsolicited grant (76-77) and seed-from-act (105-106) are permitted, but no pass step or `now` stamps the grantor's own act (finding 4). Renewals on a deposit medium drain and stamp correctly (121-124) *for one medium*; with per-attachment media the singular pass breaks (finding 1). A tick drains correctly once one exists, but cold start is undefined (finding 3). Classification, idempotent reclaim, and `:lapsed` on the grantor's own stream are expressible, except that the retry cause after a failed record is not a ledger field (finding 5) and `end`/`transport-error` on the medium are unhandled (finding 11).
+
+**In-process pause.** The walk breaks at "observe the grant before acting": on a medium where nothing distinguishes writers unless the composition arranges it, the contract requires an attribution resolver only for the judge, so the holder has no rule for verifying the grant is grantor-authored (finding 6). After that, renewal on the holder's own ticks is expressible if wired (190-191), but tick shape/units are unspecified (finding 15). The judge pass is expressible for a single shared medium; non-lease facts on that medium have no stated handling (finding 19), and the reclaim act itself (resuming the forwarder) is composition-supplied, which the contract does permit at the level of "the judge acts on what it holds."
+
+## What the split got right
+
+The operative half is genuinely lean (261 lines) and no longer argues with itself. The five-step pass is sequential and mostly complete for the single-medium case; the ledger/root-set terminology fix is clean; the holder's own-medium tick rule landed; and the rationale now carries the lineage, Jini critique, and precedent without binding. The central claim — no new DaoStream operation and no new result-map key — still holds: the vocabulary uses only `:dao.lease/*` facts and existing `:dao.stream/*` outcomes.
+
+## What an implementer cannot determine from `dao.lease.md` alone
+
+- `now` on the first pass and the timestamp of the grantor's own seeding act.
+- The ledger's pending-reclaim cause and unknown state.
+- Whether a judge spans multiple per-attachment media or is one-per-medium.
+- How the holder attributes a grant on an in-process shared medium.
+- The unit vocabulary, tick fact shape, and normalization rules.
+- The meaning of "the judge's lag" (and "rate skew") in Sizing.
+- Behavior on `:dao.stream/end` and `:dao.stream/transport-error` while draining.
+- To whom a restart re-grants, and that re-grant requires recoverable holder identity.
+- That a lease may not touch retention (the rule is only in the rationale).
+- That tolerance (and the grantor's `:policy`) are supplied inputs, not judge internals.
+- How to persist the ledger as a stream (schema/rebuild is unspecified).
+
+## Converging or still accreting
+
+**Form: converging.** The split stopped the accretion loop; the contract no longer carries a chain of local arguments, and most of its 261 lines are rules. **Content: not yet converged.** The holes above are not cosmetic — an implementer holding only `dao.lease.md` must invent the cold-start clock, the seeding timestamp, the pending cause, holder attribution, and multi-medium behavior, and those are exactly the parts where an implementation would diverge from the design.
+
+My judgment: one more targeted editing round is warranted, but only if it *fills the enumerated gaps and then freezes*. Another round of adversarial fixes that appends justifications to the contract would make it worse — it would re-introduce the accreting-norm pattern the split removed.

@@ -1,0 +1,69 @@
+Completed-GMT: 2026-10-06 10:48:10 GMT
+Completed-Local: 2026-10-06 17:48:10 +07
+Coding-Agent: claude
+Session-ID: d8d95e30-f2d2-443b-9aa9-36e7001a904e
+
+SIGNED OFF
+
+Two conditions before commit, neither needing another round: the full three-host `bb test` must finish green (`collab/h3f-bb-test.log` had no result when I looked), and the design sentence below must be corrected.
+
+## Blockers
+
+None.
+
+## Required correction (design text)
+
+P3 | `docs/design/yin.vm.linker.dht.head.md:861-866` | a design sentence must be true of the code | The new 8.3 bullet says "the reader sees `:lost` and the follower's `:source-lost`". An attached dial never becomes `:lost`: `dial-step` answers an attached dial unchanged. Only the follower reports the loss. My round-one wording was the source of the error. Replace the bullet with:
+
+```
+- That a lost request on an attached reflection is detected. On
+  loopback a dead peer closes its connection and the follower reports
+  `:source-lost` on its next poll (an attached dial's own status does
+  not change; only a dial still resolving becomes `:lost`); a live but
+  silent source is "withholding" (section 10) and its liveness is
+  deferred to `dao.lease`. Off loopback a half-open connection is real
+  and the follower would see retryable errors until TCP gives up.
+```
+
+## Rulings
+
+**a. Items 5 and 6 are correctly not done.**
+
+- **Item 5 (whole-index read per deposit).** I see no safe derivation the engineer missed. The sequence is the greatest `t` of the index's rows, by the engineer's account the manifest carries no `t` bound, and the board holds only the previous trace. Using the in-memory `:max-t` means changing the store's `:head-fn` contract and proving it equals the row maximum, which followers recheck. A cheaper path needs a new persisted bound, and that is a design change. Leave the read; it stays on the follow-up list.
+- **Item 6 (double backoff).** The argument is sound, and my round-one note described a sequence that cannot occur.
+  - An attached dial never turns `:lost`, so a source loss calls `drop-dial` exactly once.
+  - `poll` clears the follower's reader in the same step it reports `:source-lost` (`src/cljc/yin/vm/linker/head.cljc:578`).
+  - The follower therefore holds no handle while a new dial is `:resolving`, so no second `:source-lost` can close that dial.
+  - I withdraw the note.
+
+**b. Item 4's re-fold is sound and cheap enough.**
+
+- It runs only when two or more heads install in one step, one `ld/names` fold per install, and stores nothing.
+- It lives in the shell (`yin.repl.dht`), not in the host module; `yin.repl.query` still holds no rule.
+- The fallback of naming every install when no single one explains the move is the honest answer for a joint move.
+- `moved-lines` being public is fine. Tests cannot reach a private var portably on ClojureDart, so public is the house convention.
+- One reservation, non-blocking: `movers` writes the linker's `ld/installed-key` slot on a copy of the node to build the counterfactual. If a second caller ever needs that, give `yin.vm.linker.dht` a small helper instead.
+
+**c. Item 2 has no behaviour difference, and the new surface is acceptable.**
+
+- The moved bodies are identical in the diff: same branches, same messages, and the check-to-open comment moved with them.
+- `dao.space.store.fs` requires only `clojure.string` and Dart libraries, so it has no REPL dependency.
+- 5.10's "host seams, all existing" is now true: the bounded read sits in the namespace 5.10 already names.
+- Three public functions on a host seam is plumbing, not a new concept.
+- Small inconsistency: the other readers in `fs` take `[dir name]` and `read-bounded` takes a `path`. Tidy it when next touched.
+
+**d. The interior byte-order-mark difference is a recorded follow-up, not a blocker.**
+
+- The engineer has not verified it, and neither have I.
+- If it is real, both outcomes are safe: the node writes this file itself, and every record is verified by signature after parsing. The difference is only how strict each host is with a hand-edited file.
+- The follow-up is to refuse any U+FEFF left after the leading strip, with a test on all three hosts.
+
+## Notes
+
+- **Item 1 (leading marks):** done as asked; the two- and three-mark cases and the mark inside a keyword are tested.
+- **Item 3 (refused deposit):** the test pins what I asked for: reported once, the HEAD write and the evaluation unaffected, nothing appended, and the next deposit lands.
+- **Item 7 (one registry derivation):** done. A nil registry still yields an empty map, so `moved` on a shell with no modules is unchanged.
+- **Item 4's test** calls `moved-lines` directly with both install events rather than forcing one tick. That tests the derivation, which is the part that could be wrong; I accept it.
+- **What I read:** the full source and design diffs, the test diff for `dht_head_test.cljc`, and the helpers the new code calls. For `test/dao/space/store/fs_test.cljc` I read only the test names, not the bodies.
+- **What I did not run:** any test. The engineer reports the JVM lane, the process test and focused Dart runs green, and no Node lane.
+- Do not stage `collab/`.

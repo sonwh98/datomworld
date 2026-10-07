@@ -1,0 +1,14 @@
+The remaining r4 finding is closed in `docs/design/yin.vm.linker.dht.md`, now revision r5. Only docs changed, and nothing is staged or committed.
+
+I took the first option and kept in-flight sharing for overflow publications. Excluding them would have meant a second request for an address already on its way.
+
+- **Event rule (section 5.5.3).** `:republished` now reports any result change after the first report, whatever wrote the ledger. In every step that writes to a reported publication's ledger, the node recomputes the result and whether repair has ended, and emits the event if either changed. The doc states that no result ever changes without an event.
+- **Overflow case named.** A publication reported `publications-full` that shares an already outstanding request is republished in the step that request's sent fact arrives, before any repair cycle of its own.
+- **No-event rule tightened.** A step that changes ledger entries but neither the result nor the end of repair still produces no event.
+- **L1 acceptance.** The new test runs overflow, then a shared outstanding address, then the sent fact. It asserts:
+  - an unacknowledged first report with the shared address failed as `publications-full`;
+  - `:republished :acknowledged` in the fact's step;
+  - no second request for the address;
+  - no repair cycle ever opening for that publication.
+
+  A variant with a second unshared row asserts partial on the fact and acknowledged after its own repair. A shared failure fact asserts no event.

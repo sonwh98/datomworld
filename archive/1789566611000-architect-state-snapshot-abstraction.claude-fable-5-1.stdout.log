@@ -1,0 +1,17 @@
+Citations check out. The deliverable is written and left unstaged.
+
+**Conclusion: a shared abstraction is warranted, but smaller than the brief's framing.** The design is in `docs/design/dao.summary.md`, marked as a proposal, not reviewed or approved.
+
+**What I found.** The pattern recurs across the tree, always partially:
+
+- **Three copies of the classifier.** v1 `type-tag`, the v2 stub's `type-tag` (which is live, since the FFI evaluates it before the no-op check), and `dao.pretty`'s `format-primitive` chain.
+- **Four independent handle detectors.** v1 telemetry, `dao.await/host-stream?`, the handoff demo's store-key convention, and the unused-for-this-purpose `dao.stream` surface predicates.
+- **Five unnamed bounds** in demos and the viewer, using take 12, 12, 40, 200 and 500, only one paired with a truncation marker.
+- **Unbounded printing into operator text** in the REPL driver, serve and connect notices, and `flush-telemetry`. `dao.pretty` accepts a depth argument on two hosts and ignores it.
+- **One correct hand-rolled instance** on Dart only: the WebSocket adapter's request summary has no JVM or Node twin.
+
+**Two findings that change the design.** v2 cursors are already plain maps with transport-namespaced keys, so v1's cursor recognition problem disappears: a cursor summarizes as ordinary data with no predicate. And every v2 handle implements the descriptor protocol, which the stream contract calls provenance rather than introspection, so a handle can be named by its identity without asking it anything. v1 also has a latent hole where sets classify as opaque.
+
+**What I proposed.** A namespace `dao.summary` with two public functions. `tag` classifies a value without entering it, and `summarize` takes explicit caller-supplied depth and item bounds and returns a uniformly tagged plain tree with true counts and a truncation flag. It requires only `dao.stream`, uses no reader conditionals, and keeps scalar dispatch for ClojureDart. Datom projection, string bounds, and extension hooks are deliberately excluded, with reasons. I recommend against an emit wrapper: `append!` is already the grep-able primitive, and a wrapper would either swallow the outcome map or be `append!` under another name. The name `dao.observe` is rejected because observe and observer already mean reading a stream in `dao.stream`.
+
+**What's next** is the owner's review, then the D2 telemetry plan as the first consumer. Nothing is staged or committed.

@@ -1,0 +1,50 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done. Deliverable:
+
+## Diff
+
+**Staged deletions (8 files, 810 lines removed):**
+
+```
+src/cljc/dao/runtime.cljc           | 258 ----
+src/clj/dao/runtime/driver.clj      |  60 ----
+src/cljs/dao/runtime/driver.cljs    |  51 ----
+src/cljd/dao/runtime/driver.cljd    |  46 ----
+test/dao/runtime_test.cljc          | 101 ----
+test/dao/runtime/driver_test.clj    |   72 ----
+test/dao/runtime/driver_cljs_test.cljs | 155 ----
+test/dao/runtime/driver_cljd_test.cljc |  67 ----
+```
+
+Plus untracked deletions (never in git): `test/cljd-out/dao/runtime-test_test.dart`, `test/cljd-out/dao/runtime/driver-cljd-test_test.dart` — verified that was the complete twin list, then the whole `test/cljd-out/` was `rm -rf`'d before the cljd run per `docs/agents/build-n-test.md`.
+
+**The one edit** — `test/dao/test_utils.cljc`, removed `make-non-waitable-stream` (7 lines). Pre-deletion grep confirmed its only users were the three v1 driver test files being deleted; post-deletion grep: zero references. The `NonWaitableStream` defrecord stays (task names only the fn; it's now an orphan worth deleting under the stream plan's own cleanup, not this brief).
+
+**One deviation:** the deletions are *staged* — `git rm` stages by default, and `git restore --staged`/`git reset` require an approval that wasn't granted (only `git rm`/`git mv` are allowlisted). Nothing is committed. Run `git restore --staged <the 8 paths>` if you want them unstaged.
+
+## Verification
+
+| command | result |
+|---|---|
+| `clj -M:kondo --lint test/dao/test_utils.cljc` | `linting took 91ms, errors: 0, warnings: 0` |
+| `clj -M:test` | `Ran 1384 tests containing 165746 assertions. 0 failures, 0 errors.` |
+| `bb test:cljs` | `Ran 1283 tests containing 35251 assertions. 0 failures, 0 errors.` — and `Testing dao.runtime-test` + `Testing dao.runtime.driver-test` both appear in Node output |
+| `bb test:cljd` (after `rm -rf test/cljd-out`) | `All tests passed!` — regenerated `test/cljd-out/dao/runtime/` contains only `v2/` + `v2-test_test.dart`; no v1 twins came back |
+
+## Final grep sweep
+
+```
+grep -rnE "dao\.runtime(\.driver)?([^a-zA-Z0-9.-]|$)" \
+  --include="*.cljc" --include="*.clj" --include="*.cljs" --include="*.cljd" src test
+```
+Output — the only remaining hits are docstring prose in v1 `dao.stream` (out of scope per step 5; retires under the stream plan):
+```
+src/cljc/dao/stream.cljc:205:   consumers that need destructive consumption (dao.runtime's take, the
+src/cljc/dao/stream.cljc:281:   the async runtime, consume streams via dao.runtime instead."
+```
+
+## Plan doc
+
+`docs/design/dao.runtime.implementation-plan.md` was **not touched by me** — read-only (`sed -n`). It does show ` M` +15 lines in git status; that is the concurrent naming-decision owner's edit (it changed on disk mid-session, before my first command's status check). Nothing for me to record there.
+
+Skipped: deleting the orphaned `NonWaitableStream` record in `test_utils.cljc` — outside the named scope; take it with v1 `dao.stream`'s retirement.

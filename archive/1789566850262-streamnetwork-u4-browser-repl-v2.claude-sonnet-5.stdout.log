@@ -1,0 +1,20 @@
+Exactly the expected file set, untracked and unstaged as instructed. `src/cljc/dao/await.cljc` / `test/dao/await_test.cljc` untouched (still the pre-existing deletion from the concurrent U1 unit). `src/cljs/datomworld/demo/yin_repl.cljs` (v1) left completely untouched.
+
+## Report
+
+**Files created:**
+- `src/cljs/dao/stream/ws/browser.cljs` — `:connect!`-only adapter over the DOM `WebSocket`, mirroring `node.cljs`'s `connect!`/`wire!`/`raw-socket`, subscribing only `message`/`close`/`error` (never `open`), classifying non-string `MessageEvent.data` as the binary marker.
+- `src/cljs/datomworld/demo/yin_repl.cljs` — keeps the CodeMirror editor/panel layout from `yin_repl.cljs`; composes `{:connect! browser/connect!}` directly (not through `yin.repl.host`); wires `driver/create-state`, `driver/submit-line!` (Eval/Connect/Disconnect all submit REPL lines), and one `setInterval` at a local `tick-millis` (25, mirroring `yin.repl/tick-millis`) that owns the driver state and drains `driver/take-outbox` into a transcript.
+- `test/dao/stream/ws/browser_test.cljs` — matches the `dao.stream.ws.node-test` convention/location; installs a minimal `WebSocket` global shim via `globalThis` (Node has no DOM socket), proves `connect!` returns `{:send! :close!}` synchronously, subscribes only the three translated events, and that `:ws/opened`/`:ws/closed` deposit through the boundary.
+
+**Files edited:**
+- `src/cljs/datomworld/demo.cljs` — one-line repoint: `datomworld.demo.yin-repl` → `datomworld.demo.yin-repl` in the require (the "Yin REPL" card now mounts the v2 demo). `yin_repl.cljs` (v1) itself is untouched.
+
+**Verify commands run:**
+- `clj -M:kondo --lint <all four touched/created files>` → 0 errors, 0 warnings (two pre-existing unrelated `earth-moon-demo` warnings in `demo.cljs` predate this change).
+- `clj -M:cljs -m shadow.cljs.devtools.cli compile test` → `Testing dao.stream.ws.browser-test` appears; full suite: `Ran 1376 tests containing 35601 assertions. 0 failures, 0 errors.`
+- `clj -M:cljs -m shadow.cljs.devtools.cli compile demo` → `[:demo] Build completed. (206 files, 36 compiled, 0 warnings, 4.07s)` — confirms the browser `:demo` build compiles clean with the new demo requiring `yin.repl.driver` (which transitively bundles npm `ws`, but that package declares a `browser` field resolving to a stub that only throws if actually *called*, and nothing here calls it — `yin.repl.host` itself is never required).
+- Did not run `bb test:cljd` or any `clj -M:cljd` command, per instructions.
+- No files staged or committed.
+
+**Not verified (explicitly unrunnable here):** the plan's manual desktop check — `clj -M:clj-yin-repl --port 8080 --headless`, opening `/demo.html#yin-repl` in a real browser, evaluating `(+ 1 2)`, observing a detached notice on server kill, and reconnecting after restart. I have no browser or ability to run a background server process here, so this step is untested beyond the deterministic Node-side adapter test and the two shadow-cljs compiles above.

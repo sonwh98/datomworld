@@ -1,0 +1,68 @@
+Completed-GMT: 2026-09-29 20:16:37 GMT
+Completed-Local: 2026-09-30 03:16:37 +07
+Coding-Agent: claude
+Session-ID: dc7eb4bb-63f0-4a22-93c8-972bbef01e47
+
+# Report: dao.space.query — collection and relation binding forms for function-clause results
+
+**Status:** done, with one check not run: `cljstyle check` was blocked by the permission gate. Everything else passes. The work is on top of master b9665935 in the main tree, nothing is staged or committed, and only the four allowed files changed.
+
+## Result
+
+Function-clause results now accept the same binding forms as `:in`, and they behave as in Datomic:
+- scalar `?x` binds the whole result (unchanged);
+- tuple `[?a ?b]` binds by position (unchanged, including its arity error);
+- collection `[?x ...]` gives one binding per element;
+- relation `[[?a ?b]]` gives one binding per tuple.
+
+Inside these forms, terms are matched the same way pattern terms are:
+- `_` matches anything and binds nothing;
+- a bare symbol is a constant the element must equal;
+- a variable that is already bound filters the elements.
+
+An empty collection or relation gives no binding, so the row is filtered out. If a collection or relation form gets a result that isn't sequential (`42`, `:k`, `nil`, a map or a set), the query throws "…must be sequential". Malformed forms throw `Unsupported binding form — use ?x, [?a ?b], [?x ...] or [[?a ?b]]`.
+
+The REPL example now works on every VM: after `(defn inc [i] (+ i 1))`, "all literal operands of yin/def" returns `#{[inc]}`.
+
+## Implementation
+
+- **`src/cljc/dao/space/query.cljc`:**
+  - New `unify-tuple`, which is the old inline tuple logic pulled out so relation tuples can share it.
+  - New `bind-fn-result`, called by the non-special-form path of `eval-fn-clause`.
+  - The form is classified by the existing `classify-in-pattern`, so there is one grammar for binding forms.
+  - I did not reuse `expand-in-binding`: it builds bindings with `zipmap`, which would overwrite a bound variable, turn `_` into a key, and bind bare symbols instead of comparing them.
+- **`docs/design/dao.space.query.md`:** the "Predicates & function clauses" section now says results accept the same binding forms as `:in`. The old "collection/relation … not implemented" text is replaced by the actual errors.
+
+## Test-first record
+
+- **Before the change:** 87 tests, 501 assertions, 15 failures and 14 errors, all in the new tests. The REPL test failed on all 4 VMs. The existing tuple/scalar test already passed, so that behaviour is unchanged.
+- **After the change:** 0 failures, 0 errors.
+
+## Mutation proofs
+
+Each mutation was applied on its own and reverted. A grep for all four afterwards finds 0 leftovers.
+
+| Mutation | Failures |
+|---|---|
+| Collection binds nothing | 9 |
+| Collection skips unify (bound variables and constants not checked) | 2 |
+| No sequential check | 10 |
+| Relation binds only its first tuple | 5 |
+
+## Verification
+
+| Check | Result |
+|---|---|
+| kondo | 0 errors, 0 warnings |
+| cljstyle check | **not run** (denied by the permission gate) |
+| Focused JVM: `dao.space.query-test`, `yin.repl.query-test`, `yin.vm.linker-test` | 145 tests / 916 assertions, 0 failures, 0 errors |
+| Full `clj -M:test` | 2384 tests / 184495 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2289 tests / 50961 assertions, 0 failures, 0 errors; both query namespaces show "Testing …" |
+| `bb test:cljd` | not run, per the brief |
+
+## Decisions for the owner
+
+- **`nil` result:** a `nil` result for a collection or relation form throws rather than counting as empty. That's the strict reading of "non-sequential result → clear error". Making `nil` mean empty is a one-line change.
+- **Maps and sets:** they are rejected too, so results are never iterated in hash order.
+
+The full report is at `collab/1790708708000-qa-engineer-query-collection-bindings.claude-opus-5-5.report.md`.

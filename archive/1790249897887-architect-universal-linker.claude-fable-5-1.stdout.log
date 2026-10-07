@@ -1,0 +1,33 @@
+Completed-GMT: 2026-09-24 11:45:40 GMT
+Completed-Local: 2026-09-24 18:45:40 +07
+
+The specification is written and verified against both format constraints.
+
+**Changed files**
+
+- `docs/design/yin.vm.linker.md` (new, 933 lines, uncommitted). Pure ASCII, every line at most 80 columns, three mermaid diagrams: stream topology, the require sequence, and the migration ladder.
+
+**Core architectural decisions**
+
+- **One linker, four format records.** The B6 fetch function has no de Bruijn branch, so it is promoted to `yin.vm.linker`. The two new records reuse existing validators: `validate-rows` and `free-names` for the AST walker, and `well-formed-vector?` for the semantic VM.
+- **A `:parts-fn` slot keeps step 2 format-neutral.** AST trees are stored one row per address, so step 2 becomes a breadth-first worklist. The three vector formats return no parts.
+- **Two identity families, both checks always run.** H and R are contract-pinned and differ in preimage from the storage address. AST and semantic identities are storage-derived and equal the address today. Step 3 still runs for them because it is the only check that the index did not point the identity at a different valid payload.
+- **The stepped core is the portable interface.** Following `dao.stream.md` OD-5, the linker exposes `link-state`, `request-link`, `step`, and `abandon`. The B6 `fetch` survives as a blocking driver reclassified as host policy.
+- **Local and remote are one mechanism.** The VM and linker share a link stream pair. The linker and content server share a content pair using the existing `:jing/get-content` vocabulary. Only the transport under each pair changes across compositions.
+- **`require` parks and emits.** A registry miss adds a `:link` wait entry and appends a request. The existing park, kept-cursor, and `check-wait-set` paths carry it, so no new engine machinery is needed.
+- **Modules install by isolated evaluation.** The kernel runs the module body in a fresh store. The resulting slice is the bindings, checked against manifest exports. Per-format export locators were rejected as persisting what one evaluation derives.
+- **The manifest registry names content, never holds code.** Host modules such as the stream module enter as synthesized, already-linked manifests. There is no compatibility shim for the old entry shape.
+
+**Three new refusals** join the B6 vocabulary: `:unsupported-format`, `:contract-mismatch`, and `:export-missing`.
+
+**Next implementation steps** (section 9 of the spec, each landing green on all three hosts first)
+
+1. M1: rename the namespace and test, update the five design docs that name the old namespace, mark the B6 doc superseded.
+2. M2: add the two format records and the worklist, retire the throwing loaders in `yin.vm.content`.
+3. M3: implement the stepped core over `dao.jing.remote.step`, reimplement `fetch` on top of it.
+4. M4: manifest record, `register-host-module`, parking `require-handler`, isolated install, and the two UCF table amendments for the `:link` safepoint.
+5. M5: wire the four streams per backend in `yin.repl`.
+
+Four questions are left open in section 12 and block none of M1 to M3: name authority, SCC identity, failure policy for pending links, and whether the semantic VM should adopt a contract-pinned identity before the encoder change.
+
+The file is not committed. The untracked collab prompt file is also still in the tree.

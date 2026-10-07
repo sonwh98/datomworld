@@ -1,0 +1,24 @@
+Phase R2 is complete. All three host lanes are green.
+
+## What was built
+
+**Drivers** — `dao.runtime.driver`, one file per host (host isolation by file, no reader conditionals):
+
+- `src/clj/dao/runtime/driver.clj` — `make-driver` returns `{:rt (initial-state) :queue (LinkedBlockingQueue.) :poll-ms n}` (default 50) held by the host in an atom the host creates. `enqueue-ready!` puts from any thread; `run-loop!` blocks on the queue with the configured timeout, applies external entries through their `:resume`, follows with one `rt/run-loop`, and on timeout with a non-empty wait set runs `rt/run-loop` again (idle otherwise, staying alive); `stop!` posts the sentinel.
+- `src/cljs/dao/runtime/driver.cljs` and `src/cljd/dao/runtime/driver.cljd` — `make-driver` (default 20 ms) with continuation flags and the timer handle in the one map; `schedule-work!` enqueues and schedules `run-pending!` on the next microtask; `run-pending!` calls `rt/run-loop` and, when the wait set is non-empty afterwards, arms exactly one timer at the configured interval, cancelling any it holds; Node timers `unref`ed. No `defonce`, no `set-runtime!`.
+
+One deliberate divergence from the v1 shape: v1's `run-pending!` re-queued a microtask when the ready queue was non-empty; v2's doesn't need to — `rt/run-loop` drains the ready queue itself, and a non-empty queue after it means a host-owned head the composition reads off (the R1 contract). The docstrings say so.
+
+**Tests** — `test/dao/runtime/driver_test.clj`, `driver_test.cljs`, `driver_cljd_test.cljc`, porting the intent of the v1 files (drain internally enqueued work, parked wait set polled without external work, ready work on the next microtask during a pending poll timer, coalescing to one live timer, idle driver stays alive) over v2 ring buffers and state containers the tests create — nothing opens through v1 and nothing requires `dao.test-utils`.
+
+## One bug found and fixed while testing
+
+The first Node run failed `schedule-work-does-not-leave-stale-poll-timer-after-poll-timer-test` with "expected one live poll timer, saw 2". Not a driver defect: the preceding ready-entries test parked a reader that never resolves, so its real 20 ms poll chain kept re-arming after the test ended; when one of those leaked ticks fired inside the later test's fake-timer window, the old driver armed a *fake* timer in that test's registry. Fixed by test hygiene — that test now appends to the parked stream and out-waits one cadence before `done`, stopping its chain (same fix applied to the cljd twin). Three consecutive re-runs green.
+
+## Verification
+
+- `bb test:clj` — 1400 tests, 0 failures; `dao.runtime.driver-test` and `dao.runtime-test` both ran.
+- `bb test:cljs` — 0 failures on 4 runs; `Testing dao.runtime.driver-test` confirmed in Node output, per the plan's host matrix.
+- `bb test:cljd` (beyond the prompt's two lanes; the plan's host matrix requires it) — peer rebuilds + 1268 Dart tests, all passed; both new tests ran from the regenerated `test/cljd-out/dao/runtime/driver-cljd-test_test.dart`.
+
+Work is uncommitted — six new files, nothing else touched — per your standing rule that nothing gets staged or committed without explicit instruction.

@@ -1,0 +1,56 @@
+Completed-GMT: 2026-09-28 11:42:54 GMT
+Completed-Local: 2026-09-28 18:42:54 +07
+Coding-Agent: claude
+Session-ID: 2fd38cae-ba0d-4d01-9d12-b9ee9af137e2
+
+# Slice 3a: FFI export binding
+
+The export binding is written and passes kondo, the focused JVM run and the Node lane. **cljstyle was not run**: the permission gate refused `cljstyle check` twice ("requires approval"), so it still needs running. I didn't run the CLJD lane, as the brief left it to you. Nothing is staged or committed.
+
+The full report is in `collab/1790595472000-vm-engineer-ffi-export-binding.claude-opus-5-5.report.md`.
+
+## Changed files
+Both files are new and untracked. No other file was edited.
+- `src/cljc/yin/vm/ffi/remote_serve.cljc`
+- `test/yin/vm/ffi/remote_serve_test.cljc`
+
+## What the binding does
+- **`open!`**
+  - It needs five options: the channel end, the channel descriptor, a surface policy, an authority gate (`::admit?`) and a capacity.
+  - The gate has no default; a missing or nil gate is refused.
+  - If anything is missing or malformed, it returns a refusal naming each bad option. The mirror's reading cursor is created only after every check passes.
+- **`serve!`**
+  - It looks handles up by reference identity (`identical?`), so two equal-but-distinct handles become two exports.
+  - Serving the same live handle again returns the same identity and channel, with no second table entry.
+  - It returns nil when the binding is closed, the gate refuses, the surface policy refuses or names a surface the handle lacks, or capacity is reached.
+- **Identities**: each one is a fresh `random-uuid` string, the same call `remote/attacher` already uses, so an identity is never reused.
+- **`step`**: one `remote/mirror-step` pass against one snapshot of the table.
+- **`retire!`**: removes the identity from the published table first, then releases the entry. It is idempotent. Lease reclaim in 3b should call it.
+- **`close!`**: retires every entry, then closes the channel writer. The remote peer then sees the channel end, and its unanswered appends are reported as `append-unknown` through the existing loss path.
+- **`lift-frame` wrapper**: if a whole-frame lift is refused, it retires every identity minted during that lift. Handles served before the lift stay served.
+- **State**: a private atom inside the binding value, with no namespace-level registry. `step` returns outcome data rather than a new binding, because UCF's `serve!` callback can't thread state back.
+
+## Verification
+| Check | Result |
+|---|---|
+| `clj -M:kondo --lint` on the two new files | 0 errors, 0 warnings |
+| `clj -M:test -n yin.vm.ffi.remote-serve-test -n yin.vm.ucf.remote-test -n dao.stream.remote-test` | 52 tests, 444 assertions, 0 failures, 0 errors |
+| New namespace alone | 8 tests, 68 assertions, 0 failures |
+| `bb test:cljs` (not required) | 2202 tests, 50032 assertions, 0 failures, 0 errors; the new namespace appears in the output |
+| `cljstyle check` | Not run (permission gate) |
+| CLJD lane | Not run (left to you) |
+
+To check that the tests catch real breakage, I disabled `serve!`'s reuse of the existing entry and the unpublish step in `retire!`. The new namespace then reported 12 failures. I reverted both edits and the rerun above is green.
+
+The tests cover each acceptance item:
+- **Idempotence:** the real `ucf.remote/lift-frame` asks for call-out from both call sites, and both get the same marker with one table entry.
+- **Retirement:** a raw wire request answers ok before retirement and `not-found` after it; re-serving the handle gives a new identity.
+- **Append-unknown:** a real reflection's unanswered append is reported as `append-unknown` after `close!`.
+- **Refusal:** a refused frame leaves no provisional entry behind.
+
+## Concerns
+- **Closing the channel writer:** `close!` assumes the binding owns its channel end, as design §2 says. If one channel carries both this mirror's answers and the peer's own outgoing requests, closing the writer would also end those. This needs a decision from the owner or Architect: make closing an explicit option, or confirm the dedicated-channel rule.
+- **Retired entries are dropped:** there is no audit trail of retired identities. Non-reuse depends on UUID minting.
+- **`step` reports little:** it only says whether the cursor advanced, because `mirror-step` returns nothing else. Its passes are bounded only by what the channel holds, since a per-pass cap would mean changing `dao.stream.remote`.
+
+Lease wiring (3b) and the responder with the real-VM end-to-end (3c) were not started.

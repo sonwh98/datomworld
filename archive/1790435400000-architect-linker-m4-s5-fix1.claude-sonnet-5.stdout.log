@@ -1,0 +1,10 @@
+I made all four fixes in `docs/design/yin.vm.universal-continuation-format.md`, in the `m4-s5` worktree. Nothing is committed. I did not check line lengths or ASCII with a tool, because the shell blocked the check. The new text is meant to stay within 80 columns and ASCII, but that is unchecked.
+
+1. **Kind set (7.5.4):** the closed set now also lists `:forged-resource-reference`, `:missing-module-store` and `:unrooted-body`, with a "(linker M4)" cross-reference to `yin.vm.linker.md` 7.3.
+2. **Status marking:** the first "(linker M4)" block, "Linker safepoints", now carries the full status statement. It says the private resources table, sealed references and install child land with M4 slices S3 to S4 (S3 ships r8-r11, the install child and link-module; S4 ships manifests). It also says nothing here is implemented yet and that UCF lift and lower of parked link and install entries stays future. The other six "(linker M4)" blocks each carry a one-line "Specified by `yin.vm.linker.md`; lands with M4 slices S3 to S4."
+3. **`:binding-mismatch`:** the closure-marker paragraph now says it is a lower-side refusal (`yin.vm.linker.md` 7.3), not a `:yin.k/non-portable` kind. I did not add it to 7.5.4.
+4. **Cell versus cursor:** the "Linker pending variants" block now says once that a wait entry's `:cursor` is UCF's `:yin.k/cell`. The cell id stands for the cursor, and its kept position rides in the 7.5.3 cells table.
+
+The line numbers in the prompt for `yin.vm.linker.md` (~588, ~994-1026, ~1333) don't match the current file. I found the referenced content by searching instead.
+
+The report is at `collab/1790435400000-architect-linker-m4-s5-fix1.claude-sonnet-5.report.md`.

@@ -1,0 +1,132 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+I have everything in scope: all four documents, plus the round 1 findings. No further files needed — and per the brief I am not reading the other reviewers' round 2 outputs.
+
+**Identity: I am Reviewer B (`claude-fable-5`).** The round 1 set attributed to B matches mine finding for finding — the `next`/`transport-error` table gap, 4d's unmeasurable backlog, the `:dao.stream/attachment` namespace collision, the "derives" claim, the server-side `descriptor` gap, the dangling "open items" reference — including the three self-doubts I recorded (attachment-key direction, "derives" strictness, the ws:73–75 "caller" wording).
+
+---
+
+# 1. Adjudication of findings I did not raise
+
+## Reviewer A (gpt-5.6-sol)
+
+**A1 — `attach!` reports success before its success condition is true (High). REFINE.** The falsity charge lands on the `ok` row's first sentence ("A handle on an attachment to the logical stream the descriptor names," contract:279) but ignores that the row's *second* sentence already discloses deferred establishment and names the channel, and that Surfaces explicitly licenses displacing a remote answer (contract:355–357) — so the dishonesty is in the gloss, not the mechanism, and A's own fallback correction (redefine `ok` as local acceptance) is the right fix rather than `pending`. Settled fully in §3.1; severity Medium, not High.
+
+**A2 — Phase 4 ordered before its wire contract exists (High). ACCEPT.** Direct contradiction: plan:204–206 says 4a implements the handshake "specified in `dao.stream.ws.md`" while ws:283–285 says its exact form "is **not specified yet**" and that "no wire-level conformance test can be written" — with the codec (ws:355–356) and close code (ws:351–354) equally deferred, and the Phase 3 gate (plan:174–180) covering only descriptor keys while invoking exactly the "become permanent by accident" rationale that applies to all of it. This was a miss in my round 1; I concede it.
+
+**A3 — the assigned layers cannot express "served stream ended" (High). ACCEPT.** Plan:246 makes "`end` closes the destination" a `forward!` discipline, but ordinary `close!` on an attached ws handle means plain disconnect (ws:328–331), no defined operation selects the distinguishing close code (ws:180–185), and 4c already owns close behavior (plan:304–306) — so the common case degrades to the slow path A3 describes, and the discipline is wrong even for ring-buffer destinations a composition means to outlive one source. Also a round 1 miss of mine; I concede it.
+
+**A4 — flow control cannot observe backlog (High). ACCEPT — converged with my finding 2**, raised independently from the same texts (plan:321–324 vs. contract:397–398, 415–426). A's reader-owned-queue correction needs the pruning I give it in §3.2; the lag-operation option we already share.
+
+**A5 — `forward!` reintroduces a callback (High, confidence medium). ACCEPT, and fold my round 1 finding 10 into it.** The loop "schedules itself" through a `setTimeout`-shaped scheduler argument (plan:229–230, 251–254), which is continuation registration by the authority's own test — "an adapter that takes a function to invoke has relocated the callback, not removed it" (datom.world:96–99) — and the plan cannot even express "a stopped forwarder makes no calls at all" (plan:262) without a cancellation mechanism it never names. I under-called this at Low in round 1; A's framing is right, and the plan's own parenthetical (plan:268–271) shows it half-knows.
+
+**A6 — the IO model denies the semantics of four operations (High). REJECT.** The operative words are "never a request for something to happen **and be reported back**" (contract:144–146): what is forbidden is request-then-wait, and every mutating outcome asserts a local fact at the call — "A new logical stream exists" (contract:270), "accepted at the next position… implies neither local readability nor remote delivery" (contract:440). The Concurrency section already supplies the linearization reading A asks for ("every operation's outcome reflects that sequence at one moment," contract:496–498). "It is a question about now" is rhetoric that reads oddly for mutators; that is worth one editorial sentence, not a finding.
+
+**A7 — deposit-failure handling makes the adapter interpret and execute policy (Medium). REFINE toward C's finding 7.** The branch is real (ws:233–242) but it selects one unconditional action for every cause — where no policy varies, there is no interpretation to relocate — and A's status-stream relocation reproduces the corner at one remove (a second medium that can itself fail, which A's own doubt #2 concedes) while leaving a live socket emitting unbounded failures in callback context until an interpreter acts. Settled in §3.3: design stands, the missing stated rule is the defect.
+
+**A8 — `close!` cannot report a close-time defect (Medium). ACCEPT.** The Result Convention makes transport defects outcomes (contract:102–105) while `close!`'s set is `{ok}` (contract:459–461), so a flush failure on a durable transport must be swallowed, thrown, or vanish; latent in this slice but a contradiction in the authority. I take A's option 2 (definitional sentence + named channel) over adding the outcome — idempotent `{ok}` is load-bearing for the close-scope laws.
+
+**A9 — the conformance harness lacks declarations and fixtures (Medium). ACCEPT — merge with my finding 8.** A's additions are checkable and correct: the harness input is "factories plus its declared surface set" only (plan:109–117), close-scope laws are listed under "always" though closable is a declared surface (contract:323–326), and no document gives the contract's required outcome declarations (contract:350–357) a data form.
+
+**A10 — wrong namespace for deposited correlation (Medium). ACCEPT.** ws:84–89 is explicit and principled ("result keywords are the contract's… a deposited event is a stream element, where transport-owned keys live under the transport's namespace"); plan:211 and plan:369–371 contradict it. Converged with C5.
+
+**A11 — the derivation claim is false (Medium). ACCEPT — converged with my finding 4** and C4; three independent lists of non-derivables is itself the proof. Correction direction settled in §2/§4.
+
+## Reviewer C (glm-5.3)
+
+**C1 — Phase 4a implements a handshake declared nonexistent (High). ACCEPT** — same finding as A2, verified above. C's addition that the Phase 3 gate's logic is applied only to descriptor keys is the sharpest statement of it.
+
+**C2 — read-side outcome sets omit `transport-error` (Medium-High). ACCEPT — converged with my finding 1**, which I raised at High. C's two additions survive checking and improve the finding: `cursor`'s set (contract:392–394) may need the outcome for addressable media whose anchors require transport work, and the omission propagates into plan 4b's totality list (plan:273–282), which branches source outcomes without it.
+
+**C3 — three owners for one close, the wrong one assigned (Medium-High). ACCEPT** — same as A3. I hold the severity at High rather than Medium-High: the defect silently defeats a designed-for behavior of the slice's core deliverable (serving), not merely mislayers it.
+
+**C4 — the derivation claim fails for the identity clauses (Medium-High). ACCEPT — converged** with my finding 4 and A11. C's eleventh-invariant proposal is the concrete version of my "add the missing invariants" alternative, and identity is the right first candidate — it underwrites contract:194–196, 240–241, 474, Phase 3's round trip, and ws's entire remote-attachment story.
+
+**C5 — envelope-key contradiction (Medium). ACCEPT** — same as A10.
+
+**C6 — ws `attach!`'s `transport-error` exclusion is overbroad (Medium). ACCEPT at Low-Medium.** The stated reason ("they need a remote answer," ws:49) covers only the remote subset, while the contract defines `transport-error` as "The handler failed" (contract:283) and licenses displacement only for answers "only the far end can give" (contract:352–357) — so a synchronously-detected local failure has no honest home, and per contract:357 the overbroad exclusion is "an unimplemented outcome." I rate it below my `next` finding because the operational surface self-corrects (the failed connection deposits `:ws/transport-error`; `append!` answers `closed`, ws:320–327), which the `next` case does not.
+
+**C7 — teardown departs from the adapter charter (Medium). ACCEPT as to documentation, and side with C against A on the design.** Settled in §3.3.
+
+**C8 — dangling "open items" (Medium). ACCEPT** — the dangling reference is grep-verifiable (the phrase occurs once, plan:269, pointing at nothing), and the design question it defers is live. Absorbed into the merged `forward!`-shape finding with A5 and my finding 10.
+
+**C9 — completeness nits. ACCEPT each, at Low, distributed:** attach-to-ended-stream unspecified (one sentence in Close; sibling of my finding 9); server-side `descriptor` (my finding 6); `:ws/error` vs `:ws/transport-error` undefined (fold into my finding 11's wording fix); liveness responder unassigned (fold into my finding 5); ADR-0003 time-box absent from the plan — the ADR itself is UNVERIFIABLE in scope, but the observable claim checks: no plan document carries the box, and "a time-box visible in no plan document is not a box" is fair; the "full surface set" claim (plan:150–151) overstates because attachment-dependent laws need Phase 3's directory (plan:160–170, and contract:218–220 makes descriptor resolution honestly `not-found` without one); the high-water seam nit (plan:133–137) is correct and folds into §3.2; the "reserved" mislabel of `invalid-value` (plan:101–102 vs. contract:442) is trivially right.
+
+---
+
+# 2. Withdrawals and downgrades of my own findings
+
+- **Finding 7 (ws:73–75 vs 314–315 tension): downgraded from Medium to editorial Low; the contradiction framing is withdrawn.** As I flagged in my own doubts, the two sentences use "caller" for different parties — the `attach!` invoker vs. the interpreter that owns retry, which the composition that wired the boundary also supplies the medium to. What survives is one sentence naming the composition as the hand-off.
+- **Finding 10 (open items): upgraded and absorbed**, not withdrawn — I called it Low and parenthetical; A5 and C8 show it is the plan's most consequential undecided shape (a non-serializable continuation as reusable infrastructure, with no named cancellation mechanism). Under-called, and I say so.
+- **Finding 3's fork: resolved, not withdrawn** — my doubt #1 settles toward promotion, because contract:106 ("All qualified keywords in results live under `:dao.stream/…`") leaves a transport *result* key no other lawful home, and A10/C5 confirm the envelope side must stay `:ws/`, which is exactly the split ws:84–89 already draws.
+- **Finding 4's correction: softened as I said it might be** — hold "derives" to its strict reading for the governance sentence, adopt C's eleventh invariant for identity, label the rest as stated contract decisions.
+- **Two outright concessions:** A2/C1 (wire protocol settled after the phase that needs it) and A3/C3 (`end` closes the destination) are findings I missed entirely in round 1. Both are correct, both are High, and both belong on the joint list.
+
+---
+
+# 3. The three splits, settled
+
+## 3.1 `attach!` `ok` vs a `pending` outcome
+
+A is **half right**: there is a defect, and it is exactly where A's fallback correction points — **the `ok` row's wording, not a missing outcome.**
+
+Why an `ok` that may later be contradicted is honest *as a mechanism*: the contradiction only exists if `ok` asserts "attached to the named stream." The row read as a whole asserts less. Its second sentence — "Where establishment has an answer only the far end can give, that answer arrives later as data, on the channel the transport names" (contract:279) — makes deferred establishment part of `ok`'s normative meaning, and Surfaces licenses the displacement for "a transport that cannot know a remote answer at call time" (contract:355–357). On this reading `ok` asserts local facts (descriptor valid; a local attachment begun) and the later `:ws/not-found` asserts a *different* proposition (remote nonexistence). No contradiction — which is why `append!`'s `ok`, worded with exactly this care ("Implies neither local readability nor remote delivery," contract:440), has never been accused of lying. The first sentence of the `attach!` row simply lacks the care its sibling row has, and the ws spec has already had to gloss around it ("an attachment still being established," ws:296–297) — the subordinate quietly reading `ok` the way I claim the contract intends.
+
+Why `pending` is the wrong fix:
+
+1. **It is the wrong shape for the fact.** Outcomes partition answers to the operation's question; establishment-deferral is an orthogonal property of some `ok`s. The contract's established idiom for exactly this shape is optional keys on results — the readiness extension does it that way precisely because "the open-map rule already permits" it (contract:180–184).
+2. **It would make remote confirmation sometimes an operation's answer**, cutting against the uniform stance that remote confirmation is never an operation's answer but later data (contract:141–146, 257–258). And it spreads: async `create!` (plan:50–58) would need `pending` too, and every transport's declaration surface and every dynamic-dispatch caller grows a branch.
+3. **The operational surface already speaks "not ready, retry" honestly** — `full` while establishing, `closed` once failed (ws:317–327) — so no caller is left acting on a falsehood except by ignoring a deferral the contract itself discloses.
+
+Correction: reword the `ok` row's first sentence to assert only the local fact, in the style of `append!`'s row, keeping the disclosed deferral channel; the ws gloss then matches the contract instead of rewriting it. Severity Medium. I expect A to hold out for `pending`; A's own stated fallback is my position, so the dispute is real but narrow.
+
+## 3.2 Flow control's missing measurement
+
+**Yes — unimplementable as written, and I'll defend the proof in front of C, who did not raise it.** 4d keys on "Occupancy relative to *your* cursor… When it passes the declared high-water figure" (plan:321–324). The public surface supplies `cursor` + `next`; cursors are opaque with no arithmetic ("A cursor's representation belongs to the transport," contract:397–398), and `next` returns one value at a time. The only surface-visible signals are `blocked` (at tail — the *opposite* of behind) and `gap` (the loss the high-water exists to prevent). A reader that reads to measure its lag is, by that act, eliminating it. The contract *permits* a transport-owned operation (contract:334–336); Phase 2's deliverables name none and 4d names none.
+
+The fix, ranked:
+
+1. **Transport-owned lag operation (preferred):** the medium holds the positions; a `lag`-style operation taking (handle, cursor) and answering distance-to-tail as data is a total, non-blocking question-about-now. Add it to Phase 2's deliverables; 4d names it.
+2. **Optional key on `next`'s `ok` map (acceptable):** same information at the existing call site, permitted by the open-map rule, absent when the transport declines.
+3. **Defer 4d (honest fallback):** if neither lands before Phase 4, deferring beats inventing a primitive under phase pressure — the plan's own gate logic (plan:174–180) says so.
+4. **Reader-owned work queue (rejected as the mechanism):** it measures a different quantity — the reader's *processing* backlog, not its *medium* lag — and is blind to the slow poller whose queue is empty while the retention window passes him by, which is 4d's stated motive (plan:310–314). A's round 1 correction conflated the two; the queue is a fine feature with a different justification, not a fix for this premise.
+
+Plus C's seam nit, accepted: the high-water figure leaves the ring buffer's creation spec (plan:133–137) and becomes the interpreter's configuration — the buffer holds no reader positions, so a number it can never use belongs to the party that can.
+
+## 3.3 The adapter tearing down the connection
+
+**C is right: the design stands; the documentation is the defect. A's relocation is worse than the problem.**
+
+Is closing the socket an act of interpretation? No. Interpretation is deciding what data *means*, and the authority's "judges nothing" clause governs exactly that — filtering events by worth, which "destroys the perspectives that have not been taken" (datom.world:89–94). The teardown filters nothing; it takes **one unconditional action for all causes** (ws:233–242). Where no policy varies, there is no interpretation to relocate upward. Is it "the boundary ceasing to exist"? Not literally — it acts — but C's phrasing is the honest description: a boundary that can no longer do its one job stops *claiming* to be a boundary, by releasing the one resource it owns. The charter's "It invokes nothing" (datom.world:66–68) derives from "handed nothing to invoke" (datom.world:76–80) and exists to keep layering one-way — "a boundary depends on nothing above it" (datom.world:83–87). Closing the socket the boundary itself wraps depends on nothing above it.
+
+Why A's alternative fails on its own terms: a status stream that "always admits" has the same declared-nature admission problem ws:210–214 exists to police (A's own doubt #2 concedes it); and between the failed deposit and some interpreter's later action, the socket stays up in callback context, receiving events it can no longer deposit and emitting failures nothing is bound to consume — an unbounded failure loop whose only escape is the very teardown A wants removed.
+
+But A's residual point survives and must be signed: the contract says the adapter's "entire job is to `append!` what arrived" (contract:363–366), the authority's wording is absolute, and ws:251–257 already admits the corner where the teardown event itself can land nowhere. An unacknowledged deviation in the authority's charter language is a defect even when the deviation is correct. Correction: a stated boundary mandate — a boundary that can no longer turn events into data must make itself observably gone; the permitted action is closing the socket it itself holds; all other actions are forbidden — placed in the contract's Surfaces (extending the pointer at contract:347) or the ws admission section, with one sentence acknowledging the terminal corner. Severity Medium. A will dispute the direction; not the existence of the rule.
+
+---
+
+# 4. Joint list — what all three should sign
+
+Ranked by severity. ⚑ = I expect a colleague still to dispute.
+
+| # | Severity | File | Claim | Correction |
+|---|----------|------|-------|------------|
+| 1 | High | plan | 4a implements a handshake, disclaimer, close code, and value codec that ws:283–285, 351–356 explicitly declare unspecified, and no phase settles them (plan:174–180 gates only descriptor keys) | Mandatory Phase 3/4 decision gate updating `dao.stream.ws.md` (handshake presentation, disclaimer form, close code, codec, malformed-input behavior, negotiation) with interoperable fixtures before transport work starts |
+| 2 | High | plan | "`end` closes the destination" (plan:246) is a policy no composition chose, defeats the ended-stream close code (ws:180–185), and no defined operation can even express | `end` yields a `source-ended` report; the serving composition (4c) closes each connection through a transport-owned server operation emitting the settled close code |
+| 3 | High | contract | The Reading table (419–426) omits `transport-error`, contradicting "transport defects are all outcomes" (102–105) for the file/log transports the contract itself names (519) | Add the row; decide and state `cursor` (392–394) and `close!` (459–461); add the source branch to plan 4b's totality list (273–282) |
+| 4 | High | plan | 4d keys on a backlog measurement no operation exposes — cursors are opaque (contract:397–398), so the premise of plan:321–324 is unobservable through the public surface ⚑ (C did not raise; I will defend the proof) | Transport-owned `lag` operation (or optional `next`-ok key) added to Phase 2 deliverables and named by 4d; high-water moves from the ring-buffer declaration (plan:133–137) to the interpreter's configuration; else defer 4d |
+| 5 | High | plan | `forward!` as a self-rescheduling loop with a scheduler callback (plan:229–230, 251–254) is implicit control flow and a non-serializable continuation, cannot express stop (plan:262) without an unnamed cancellation mechanism, and its resolution is deferred to a dangling "see the open items" (plan:269) | Decide now: single-step `forward-step` consuming explicit state and returning next-state data; the runtime driver owns cadence; stop = the driver stops calling |
+| 6 | Medium | contract | The `attach!` `ok` row's first sentence (279) asserts a fact a later `:ws/not-found` can prove false ⚑ (A holds High and prefers `pending`) | Reword to assert only the local fact in the style of `append!`'s `ok` (440), keeping the disclosed deferral channel; do not add `pending` |
+| 7 | Medium | contract+ws+plan | ws mints `:dao.stream/attachment` inside the contract's reserved namespace (forced by contract:106) which the contract never defines; and the plan tags deposited envelopes `:dao.stream/attachment` where ws:84–89 requires `:ws/attachment` (plan:211, 369–371) | Promote `:dao.stream/attachment` into the contract as an optional standard key on `attach!` `ok`; fix plan 4a and Phase 5 fact 3 to `:ws/attachment`-tagged envelopes |
+| 8 | Medium | contract | "Every clause below derives from these invariants" (81–82) is false for load-bearing clauses — identity (194–196, 240–241, 474), outcome-vocabulary closure, cursor provenance, envelope inertness — and the claim is the admission test | Add an identity invariant (C's eleventh); soften the governance sentence to "consistent with, non-derived interoperability decisions stated explicitly" |
+| 9 | Medium | contract+ws | Teardown-on-failed-deposit (ws:233–242) exceeds the authority's literal charter ("It invokes nothing," datom.world:66–68; "its entire job is to `append!`," contract:363–366) and neither document states the rule it follows ⚑ (A prefers relocating teardown to an interpreter) | State the boundary mandate — a boundary that can no longer deposit makes itself observably gone; the permitted action is closing the socket it holds — and acknowledge the terminal corner where the teardown event can land nowhere (ws:251–257) |
+| 10 | Medium | contract | `close!`'s `{ok}` (459–461) cannot report a close-time defect though the Result Convention makes defects outcomes (102–105) | One sentence defining `ok` as the local lifecycle transition, cleanup failures deposited on a transport-named channel; keep the outcome set closed |
+| 11 | Medium | plan | The Phase 1 harness (109–117) consumes surface declarations but not the outcome declarations the contract requires (350–357), and runs close laws "always" though closable is optional (323–326) | Conformance manifest as data: factories, surfaces, per-operation outcome subsets, exclusion reasons, fixtures inducing each declared outcome; gate close laws on closable |
+| 12 | Medium | plan+ws | 4d's pause lease is wire-visible vocabulary with no durable spec home once the transient plan is consumed, and liveness pings (plan:334–337) are ws-layer mechanics with no document assigning who answers them | Move ping/liveness into `dao.stream.ws.md`; give the lease vocabulary a durable home before 4d; name the responder obligation |
+| 13 | Medium | ws+plan | The server-side accepted-connection handle (plan:195–199) must answer `descriptor` (contract:328–330) but neither subordinate says what it names | State that it names the served stream the connection joined |
+| 14 | Low-Med | contract | Close leaves two attachment boundaries unspecified: what bounds "exhausted" for a closed attachment's `end` (474–476), and whether fresh `attach!` to an ended stream is `ok` or `not-found` | One sentence each in Close |
+| 15 | Low-Med | ws | The `attach!` exclusion of `transport-error` (ws:49) covers local handler failures its stated reason ("remote answer") does not license (contract:352–357) | Produce `transport-error` for synchronously-detected local failures; displace the remote subset with its own reason |
+| 16 | Low | ws | Operations never names the success resolution event (`:ws/opened` appears only in the envelope comment, ws:99), never defines `:ws/error` vs `:ws/transport-error`, and "no attaching caller… knows" the medium (73–75) conflicts with "reads the answer from the medium" (313–315) | One sentence each; name the composition as the party that wires both boundary and retrying interpreter |
+| 17 | Low | plan | "The suite runs… with the full surface set" (150–151) overstates — attachment-dependent laws need Phase 3's directory; `invalid-value` mislabeled "reserved" (101–102 vs contract:442); the ADR-0003 time-box appears in no plan document | Three one-line corrections |
+
+Items 1 and 2 were my round 1 misses; I have adopted them rather than trimmed them, and I would put my name on all seventeen. The ADR 0003 citation (ws:68–69) remains unevaluable within the mandated scope, and no finding above relies on it.
+[?25h

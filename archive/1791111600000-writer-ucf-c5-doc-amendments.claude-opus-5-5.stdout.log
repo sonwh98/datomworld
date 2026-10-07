@@ -1,0 +1,22 @@
+Six of the seven doc amendments are in place; I skipped one (the C6 note) because there was no obvious spot for it. Docs only, nothing written to git, and I didn't touch `yin.vm.linker.dht.md`.
+
+What I changed:
+
+1. **UCF 7.2.1** (`yin.vm.universal-continuation-format.md:298`): an occurrence id is a lowercase UUID string with one spelling, so equal bytes means equal strings. Any other form is refused as `:malformed-occurrence`. A reuse that looks exactly like a snapshot variant (same occurrence, origin and baseline) is admitted as one.
+2. **UCF 7.7.2** (`:1604`): a second table for the authority's own facts: the admitted offer (with `:yin.k/baseline`), the grant, and the grant binding. Each row lists the keys in the order the ledger code writes them. A short paragraph says how the admitted offer differs from the emitter's offer. I used a separate table because adding rows to the existing one would make its "Both `:yin.k/custody` facts are evidence" sentence wrong.
+3. **UCF 7.7.8** (`:1995`): a new bullet on "the only binding for L". Only the authority's full transaction history counts, so a reader with a partial view can disprove a binding but never prove it. Records count as the authority's when the stream's identity matches the body's arbitration identity; descriptors are never compared.
+4. **UCF 7.7.8, offer paragraph** (`:2115`): the order the code actually uses is inspect, decide under the lock, store only what will commit, then commit. Offers that are refused, replayed or can't be inspected store nothing.
+5. **Memory durability values**: the C5 engineer had already written this sentence in `dao.stream.journal.md:160`. That file is where the declaration is described, so I only rewrapped its line from 100 to 80 columns.
+6. **Revisions status line** (`yin.vm.ucf-revisions.md:362`): C1 to C5 are implemented, with all five commit hashes checked against git, and the amendments above landed. `handoff-version` is still 0.
+7. **Not done:** section 14.2.x has no text about refusals or rebuilding the judge on restart, so a note there would put new schema in the wrong place. The requirement still needs to reach the C6 brief: the authority's refusal fact must carry the proposer as well as the proposal id.
+
+Where the code differed from the reviewer's text (I followed the code):
+- The admitted offer reuses the emitter offer's dispatch key; it is told apart by its author and by `:yin.k/baseline`.
+- The body goes to a byte store the caller supplies, not to a file named `content.jing`.
+- The reviewer's inspector change for the occurrence form has already landed, so 7.2.1 describes it as current behavior.
+
+Two things are left open:
+- The plan still says "inspect, store, then commit". That sentence exists only in a `collab/` file, which I was told not to edit, so it is out of date.
+- The three new table rows in 7.7.2 run past 80 columns, as the existing rows there already do, because Markdown table rows can't wrap.
+
+The full report with line numbers is in `collab/1791111600000-writer-ucf-c5-doc-amendments.findings.md`.

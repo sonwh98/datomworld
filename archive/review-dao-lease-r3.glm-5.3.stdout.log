@@ -1,0 +1,50 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+```
+Completed-GMT: 2026-09-02 07:20:56 GMT
+Completed-Local: 2026-09-02 14:20:56 Asia/Ho_Chi_Minh
+```
+
+# Review of `docs/design/dao.lease.md` — round 3
+
+All three repository quotes in the Precedent section verify against their sources (`dao.jing.md` §Open items, `dao.data.btree.md` §5.1/§7, `dao.jing.dht.md` §Operational limits). All cross-references to `dao.stream.md` (eviction-never-waits, no-readiness, concurrency, no-authorization-on-descriptors) and `dao.stream.ws.md` (reject-mode refusal, `:ws/closed` vs `:ws/ended`, deferred liveness and pause) verify. What follows is what does not.
+
+## Findings, most severe first
+
+**Critical — none found.**
+
+---
+
+**HIGH | *Delegated renewal*, the chain predicate (ll. 630–635), against the fence (ll. 66–75)** — The per-link predicate offered as the audit check for chains ("*I append a renewal only while I hold fresh evidence… that my immediate holder is still there*") is satisfiable at **every** link by a ring of mutually-renewing delegates with no worker at the bottom: each attests the other's renewals, so each link holds "fresh evidence" forever. That is exactly the reference cycle a collector exists to catch and a lease cannot — and it is the one place the claimed GC lineage would have done work nothing else in the document does. The fence states three breaks (completeness, false-free-as-bug, no-duration) and stops; cycles — the most famous GC problem, and the expectation a reader importing "descends from distributed GC" will bring — are neither fenced nor addressed. *Correction:* add the fourth rail ("a lease collects no cycles: a mutual-renewal ring is bounded only by `:dao.lease/max` within a judge lifetime and by admission at re-grant, and nothing here detects it"), and either make termination-at-a-worker part of the predicate or state plainly that line 622's "terminating at whoever is doing the work" is a description of the honest shape, not a property the predicate checks. An auditor applying the stated predicate today would pass a ring.
+
+**HIGH | *Judging lapse* (l. 425) + *Lapse is a conclusion* pass (ll. 360–370) + release paragraph (ll. 238–245)** — The round-2 "released semantics" and "judge state" fixes relocated their defect into the terminal half of the lifecycle, now unspecified three ways. (a) The four-step pass consumes only intervals: no step observes or acts on `:released`, so "the grantor still performs the reclaim, on its own schedule" has no position in the specified pass. (b) No record rule exists for a release-terminated reclaim — is `:lapsed` appended (the cause examples at l. 171 are "silence, cap, policy"), is the holder's `:released` itself the terminal fact, does the lease enter the pending-reclaim set? (c) The root set is "for every lease it has granted" with **no exit rule** — read literally, unbounded growth in the one component this document exists to keep bounded. *Correction:* state the exit condition (a lease leaves the judge's state when its reclaim is performed *and* its terminal record is on the medium — `:lapsed` appended, or `:released` observed); put release consumption in the pass (step 2 judges intervals *and* releases; step 3 reclaims either way, idempotently); say which record the release path writes.
+
+**MEDIUM | gap bullet (ll. 478–481)** — "A judged medium declares evict-oldest for the same reason a deposit destination must, and is refused at assembly where it does not." The reason does not transfer: a deposit destination must be evict-oldest because the adapter cannot wait and must never answer `full`; a judged medium's writers can be refused. What the judge needs is a **declared deterministic order** — and an unbounded medium (never evicts, never gaps, and incidentally never evicts a live lease's `:accepted`, dissolving the l. 461 problem) satisfies that *better* than evict-oldest yet is refused by the sentence as written. It also collides with its own next clause, which says the gap rule "remains safe on a medium whose order is merely unknown," leaving the refuse/fall-back boundary undefined. *Correction:* require a declared deterministic retention order — evict-oldest **or none**; refuse arbitrary-order media where inspectable; keep the gap rule as the fallback where not.
+
+**MEDIUM | tick paragraph (ll. 343–358) + the promise (ll. 555–559)** — The pass specifies draining the lease-fact cursor but never says when the tick cursor is drained, and the reclamation promise silently depends on it. If ticks are read after the facts (or lag), stamps are stale, measured intervals run short, and actual reclamation slips up to one tick interval beyond "duration plus tolerance plus cadence." The ticks-supply-time-not-wakeup fix left this point behind. *Correction:* fix the pass order (ticks, then facts, then judge — stale ticks err in the safe direction anyway) and add the term or a relation (tick interval ≤ cadence, or folded into tolerance).
+
+**LOW | l. 248** — Misdirected cross-reference: the reclaim-then-append ordering is specified in *Lapse is a conclusion; reclaim is an act* (steps 3–4), not in *Judging lapse*. Fix the pointer.
+
+**LOW | l. 229** — "renegotiating is a new proposal with a new lease id" contradicts the minting rule (ll. 185–193): proposals carry correlation ids, never lease ids. Say "a new proposal under a new correlation id, answered — if at all — by a new grant minting a new lease id."
+
+**LOW | grant table row (l. 168) vs prose (ll. 190–191)** — The grant "echoes" the correlation id, but no such key appears in either the required or the optional column (`max` gets one). Name the key and mark it required-when-answering-a-proposal.
+
+**LOW | *Renewal forever* (ll. 605–606)** — "that pause harms only the pauser" holds only for a pauser-private forwarder. A shared forwarder paused by a dead reader is precisely the Purpose section's own "stuck state, which any switch left on becomes" (l. 128). Scope the claim or route shared forwarders to the cap.
+
+**LOW | ll. 157–160** — "Mirrors the precedent's separation… by namespace": the precedent separates by namespace *and stream*; this vocabulary separates by dispatch key within one namespace, canonically by medium. Claim what actually mirrors (negotiation vs evidence), not the mechanism.
+
+**LOW | l. 64** — "Everything conservative below follows from that one substitution" overclaims derivation. The unknown-family rules do follow from partial evidence; but prefer-extend-over-reclaim (l. 407) is a policy direction, the reader rule follows from record-after-act, and the evict-oldest refusal from order-safety. Soften to "is motivated by," or enumerate which follow.
+
+**INFORMATIONAL | ll. 29/47, 34** — Two precedent embellishments: yin.vm.jit.md records the *deopt*, not the fallback's performance ("whose performance is then recorded"); and leases entered the literature with Gray & Cheriton (1989) for cache consistency, with lease-based DGC adopting them after — "descends from distributed GC" is defensible genealogy, "which is where the technique was invented" is not.
+
+## What an implementer still has to invent
+
+Tick-drain point in the pass and release handling (above); the exit rule for completed leases (above); the correlation-echo key name; the duration-unit vocabulary and the tick fact's schema ("a map of unit to magnitude" names no units); how the judge fans in per-attachment deposit media, since "an interpreter over two streams" and the singular "the lease-fact cursor" presume one medium while ws granularity is the composition's choice; where tolerance lives — attribution basis and eviction order are declared nature, cadence is declared, tolerance is neither.
+
+## Was the GC reframe worth making?
+
+**Yes.** "A duration is a timeout standing in for reachability" is the most load-bearing sentence in the document — it converts false lapse from bug into correct outcome and generates the unknown-family rules; mark-before-sweep genuinely grounds drain-then-judge (ll. 363–364 is the proof); and "they await a collector, not a lease" stops this document being volunteered as the repository's missing GC, a real risk given three open reclamation problems. It earns its keep at two costs, both already filed: one overclaim (l. 64) and one absent rail (cycles, HIGH 1). On the root-set claim specifically: the anti-registry argument at ll. 444–447 is complete without it, and under the document's own mapping — judging is the mark phase — the granted set is the candidate heap, not the roots (the persist-the-terms usage at l. 463 is the term's better fit). Half ornament; harmless, but the paragraph survives its deletion.
+
+## The thing most likely wrong that I cannot prove is wrong
+
+That the three justifying uses are really one use. The document itself concedes that two of the three — the forwarder pause and the shared-work claim — run over in-process media where "nothing distinguishes writers unless a composition arranges it" (ll. 322–325). My unprovable suspicion: as those two compositions mature they will want coordination and cancellation semantics (who may read a claim, what happens to work in flight when a claim lapses) rather than lease semantics, and hand-rolled in-process attribution will prove too easy to skip — leaving the served-connection lifetime as the vocabulary's one real user, at which point proposals, `max`, cap semantics, and tolerance are over-built for a single canonical case. Nothing in the documents settles this either way; it is a bet about how those two compositions evolve.
+[?25h

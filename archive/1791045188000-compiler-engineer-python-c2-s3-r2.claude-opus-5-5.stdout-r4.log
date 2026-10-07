@@ -1,0 +1,34 @@
+Completed-GMT: 2026-10-03 17:35:41 GMT
+Completed-Local: 2026-10-04 00:35:41 +07
+Coding-Agent: claude
+Session-ID: 8a064c70-5a78-4fc8-a2d8-1bcd34e27a0f
+
+Round 3 is done and every focused run I did is green. One thing you need to do: `float_address_test.cljc` still shows as unmerged (`UU`) in git. The conflict markers are gone, but since I can't stage, you need to `git add` it to mark it resolved.
+
+**1. Conflict:** I kept the upstream side of both hunks, then replaced the five goldens in the next step.
+
+**2. Goldens:** before the re-mint, `float-address-test` failed on exactly the five expected lines. I wrote in the actual values, which reflect both the range fast path and S3:
+
+| Golden | master `a932bb55` | Now |
+|---|---|---|
+| bundled prelude root | `3d287776…` | `f0e6fde3c483b360a20485b47099cdae501cd864fa0750d4ff7483809dfcb870` |
+| program A root | `38e17ba2…` | `ddb235113583944ceffb48793dd33d04f97be6d032d99fec29808d039067acd7` |
+| program A′ root | `270bc081…` | `2032b43da2fb101fd1e8c6bb9a1e2d6b68f2c56c7cb0c105f3d253f740343b9d` |
+| record-address | `88d5972b…` | `6355f801305b749f95916efd0b474a0be757941d452917a968f70a71c5ef7e5c` |
+| prelude-id | `9eb6ff93…` | `ea39a47f3231c85bc3755e6e4d319d6f1d0eaaa8ba74cfca8a3595d50217a400` |
+
+The hook-prelude golden `76e1cfe8…` is unchanged. `git diff HEAD` on the file shows only those five lines.
+
+**3. `yield-from-long-range-test`:** run alone on the JVM it passed (1 test, 5 assertions) in 1:59 wall time. JVM startup is about 19 s, so the test itself takes roughly 100 s. That's well over 5 s, so I tagged it `^:slow`. Your slow list now needs it alongside `long-generator-with-break-test` and `resume-continuation-length-is-stable-test`.
+
+**4. Focused runs (JVM):**
+- `float-address-test`, `prelude-parity-test` and `lower-test`: 51 tests, 245 assertions, 0 failures, 0 errors (36 s).
+- `e2e-c2-test` with `-e :slow`: 19 tests, 95 assertions, 0 failures, 0 errors (30 s).
+
+**Lint:** kondo shows 0 errors and 0 warnings on the two files I changed this round. cljstyle check is clean on all six changed files.
+
+**Files changed this round:** `test/yang/python/antlr/float_address_test.cljc` (conflict resolved, five goldens) and `test/yang/python/antlr/e2e_c2_test.clj` (the `^:slow` tag). The other four S3 files are as you re-applied them.
+
+**Not run, as you instructed:** the full JVM, Node and Dart lanes.
+
+I added a "Round 3" section to `collab/1791045188000-compiler-engineer-python-c2-s3-r2.claude-opus-5-5.findings.md`.

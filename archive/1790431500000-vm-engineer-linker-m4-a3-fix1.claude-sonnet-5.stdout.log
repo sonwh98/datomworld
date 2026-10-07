@@ -1,0 +1,12 @@
+I fixed all three gate findings in the m4-a3 worktree, uncommitted as the prompt asked. cljstyle and kondo are clean. The JVM run of the two touched namespaces (`yin.vm.linker-authority-ingestion-test` and `yin.vm.linker-authority-test`) passes: 24 tests, 107 assertions, 0 failures. I did not run the full three lanes.
+
+- **Fix (`events-from-datoms`):** proofs are now collected per entity as a set of distinct values, and an entity gets a proof only if it has exactly one. With two or more distinct values none is picked, so the event goes through the existing `:no-proof` / `:unauthenticated` diagnostic. Identical duplicate proofs still collapse and authenticate. This removes the datom-order dependence too.
+- **New diagnostic:** I didn't add a diagnostic kind, because the section 8.2 kinds are a closed set. The prompt said "no authority event from it"; instead the event is emitted without a proof and discarded by the policy. Say if you'd rather drop it outright.
+- **Event order:** it still follows the envelope datoms' order. The permutation test therefore compares event frequencies, not sequences.
+- **Spec:** the sentence near `docs/design/yin.vm.linker.md:1717` now says one proof value per entity, two distinct values count as no proof, and an orphan proof joins an envelope that later appears on its entity.
+- **Tests added:**
+  - `two-distinct-proofs-on-one-entity-fail-closed`
+  - `ingestion-is-invariant-under-datom-permutation`
+  - `orphan-proof-joins-a-later-envelope-deterministically`
+
+The report is at `collab/1790431500000-vm-engineer-linker-m4-a3-fix1.claude-sonnet-5.report.md`.

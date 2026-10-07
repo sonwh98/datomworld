@@ -1,0 +1,39 @@
+# Fix round 3: the three MEDIUM defects are fixed
+
+All three defects were reproduced by a failing test, fixed, and caught by a mutation. All lanes pass on the final code. Nothing is staged or committed on `linker-l5`. The "Fix round 3" section is appended to `/Users/sto/workspace/datomworld/collab/1790837000000-engineer-linker-L5.claude-opus-5-5.report.md`.
+
+The reviewer also confirmed that returning the global diagnostic through `(yin.link/names)` is enough for owner decision 6. So the REPL-printing item I left open in Fix round 2 is closed without adding a print.
+
+## 1. A retraction of a retraction is now a global diagnostic
+
+- **Fix (`yin/vm/linker/dht.cljc`).** The split now checks whether the retraction's target is an *assertion* in the snapshot set. Before, it only checked that the target was some envelope. Only assertions carry a name, so a retraction targeting another retraction is now global.
+- **Docs.** The docstrings and §7.3 say so.
+- **Tests.** One plain test and one REPL test. In both, retraction R2 targets retraction R1, which targets an assertion that was never published. Both retractions appear under `:global-diagnostics`, each once, and neither is a per-name diagnostic. The plain test failed 3 assertions before the fix.
+- **Mutation.** Putting back the old rule fails 6 assertions (3 plain, 3 REPL).
+
+## 2. Loads waiting on the same missing blob each keep the miss cause
+
+- **Fix (`dao/space/dht.cljc`).** The first load to fail no longer deletes the cause. After all loads have advanced in a step, causes are kept only for addresses some load is still fetching.
+- **Tests.** Three cases:
+  - two loads failing in the same step, both with `/solo`;
+  - three loads joining the same request at readings 0, 20 and 40, all with the same cause, and nothing left in `:misses` afterwards;
+  - a load started after the first one failed, which asks again and keeps its own cause.
+- **Before the fix,** 4 assertions failed: the later loads reported `/gap`.
+- **One correction to my own test:** in the multi-step case I expected `/deadline`, but the loads all fail with `/exhausted`. With 10 ms steps the candidates run out before the deadline. The property being tested is that the loads share a cause instead of reporting `/gap`, so I changed the expected value.
+- **Mutations.** Putting back the destructive delete fails 3 assertions. Dropping the clean-up fails the "nothing left afterwards" check.
+
+## 3. An empty export list publishes a no-op module and never throws
+
+- **Fix (`yin/vm/linker/publish.cljc`).** A new public `no-op-tree`, a single `nil` literal that defines nothing, is used when no program is collected. `module-from-index` with `:exports []` now returns that spec as data. The module publishes and links on all four formats. §5.3 states the rule.
+- **Plain test.** It checks the exact spec, that a different index gives the same spec, and that publishing gives an address with all four links `:ok`. Before the fix it threw `Can't pop empty vector`.
+- **REPL test.** `(yin.link/publish 'empty.lib '[])` returns data with all four links `:ok`, and a reader can require `empty.lib` by name on all four VMs.
+- **Mutation.** Removing the empty case brings back the throw: the plain test errors, and the REPL test fails 6 assertions with `Error: Can't pop empty vector`.
+
+## Lanes (final code, foreground, each run to its verdict)
+
+| Lane | Verdict |
+|---|---|
+| kondo (9 changed files) | 0 errors, 0 warnings |
+| `bb test:cljs` | 2609 tests, 0 failures; all four affected namespaces ran |
+| `bb build:yin-repl-peer`, then `bb test:cljd` after `rm -rf test/cljd-out` | built; +2564, all tests passed (4 more than before) |
+| `bb build:yin-repl-node`, then JVM tests in three chunks | 2696 tests, 0 failures, across all 168 namespaces, including the process test |

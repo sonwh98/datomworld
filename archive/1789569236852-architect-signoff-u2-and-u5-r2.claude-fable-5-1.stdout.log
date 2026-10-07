@@ -1,0 +1,65 @@
+Completed-GMT: 2026-09-16 15:12:00 GMT
+Completed-Local: 2026-09-16 22:12:00 +07 (Asia/Ho_Chi_Minh)
+
+# Unit 1: U2 — the v2 Flutter REPL widget
+
+**Method.** Read D1 and U2 in full, the actual new files (`src/cljc/yin/repl/embed.cljc`, `src/cljd/yin/repl/flutter.cljd`, `test/yin/repl_embed_test.cljc`), and the diffs to `src/cljc/yin/repl/core.cljc`, `test/yin/repl_core_test.cljc`, and the three demo/doc files. I traced the timer/status logic in `flutter.cljd` by hand rather than trusting the implementer's description of it.
+
+**Single-state-owner discipline (the specific concern D1 raises).** The `box` atom created inside `run-endpoint!` (`flutter.cljd:65`) holds `{:endpoint :stopping}` and is closed over *only* by the `Timer.periodic` callback (`:66-94`) — no other function in the file reads or writes it. `start-server!` and `stop-server!` never touch `box`; they only touch `active-run` and call into `run-endpoint!`/set the stop-request flag. That is a clean sole-writer of the endpoint value, exactly as D1 requires. No violation.
+
+**A related but distinct observation, not what D1's text literally asks about but relevant to the "ownership boundaries" the task calls for.** `server-status` (the `ValueNotifier` the card reads) has four write sites, not one:
+- `start-server!` writes `"starting"` (`:116`)
+- the `load-device-ip!` `.then` callback writes `"stopped"` if a stop lands before the IP resolves (`:121-122`)
+- `stop-server!` writes `"stopping"` (`:104`)
+- the timer callback writes derived status on every tick it's the "current" run (`:81`, `:90`)
+
+I traced all four for races. Dart's event loop is single-threaded, so `stop-server!`'s two atom writes (`(reset! (:stop-requested run) true)` then `(reset! active-run nil)`) complete synchronously before any timer callback can interleave between them. Every write from a *stale* run's timer is gated by `(identical? run @active-run)` (`:80`, `:89`) — the guard that makes a superseded run's leftover ticks harmless. By inspection this is race-free, but it's a second, implicit invariant beyond the one D1 names ("only the current run's identity may write status"), and nothing in the file documents that the guard is load-bearing. A future edit that drops one of those `identical?` checks (e.g., "simplify" it away) would silently reintroduce a race between an old run's trailing status write and a new run's "starting". Recommend a one-line comment at the guard sites, not a blocking fix — the current code is correct.
+
+**The disclosed fast-restart edge case.** The implementer flagged that a restart faster than the old server's shutdown timer releasing its port could fail to rebind and surface as `"failed"` status. This is the same shape as the U4 unverified-browser-check precedent that was already approved: a real, honestly-disclosed gap, not reproducible under current usage (neither `dao_gui` nor `solar_system` restarts the server in a tight loop), and fixing it now would mean adding retry/backoff logic against a usage pattern that doesn't exist yet. Track as a follow-up; don't block on it.
+
+**The unverified manual Flutter smoke test.** Genuinely can't be run in this environment. What's automated is unusually thorough for what's left uncovered:
+- `v2_embed_test.cljc` exercises every behavior the smoke test would exercise indirectly through the widget: `a-wildcard-bind-with-an-advertised-host-binds` (bind + status text + URL), `a-host-primitive-is-served-and-survives-reset` (the exact regression D1 is designed to fix), `stop-then-stepping-reaches-stopped`.
+- The `.cljd` file itself compiles (`clj -M:cljd compile yin.repl.flutter …`) and passes `dart analyze` with no issues (verified by the orchestrator).
+- `flutter.cljd` is a verbatim-shape port of `run-dart!` (`v2.cljc:349-395`) for the timer/step loop, and a verbatim port of `load-device-ip!` for IP enumeration — not new logic invented for this file.
+
+What remains unverified is Flutter/OS behavior no unit test reaches: real `NetworkInterface.list` enumeration, an actual bound socket, a live `flutter run` session, the visual card. That is the same category of gap as U4's browser check, already approved with this exact framing (manual smoke deferred, automated coverage stands in). Same disposition here: acceptable gap, not blocking, but it should be run before this widget is used for anything beyond the two demos — record it as owed, the same as U4's.
+
+**The additive `:primitives`/`:extra-primitives` plumbing in `core.cljc`.** Minimal and additive-only: `make-vm` gains an optional third arg with a `nil` default via a new arity (no existing 2-arg call site changes behavior), `make-session` threads it through, `create-state` stores it as `:extra-primitives` so `rebuild-session` (used by both `(reset)` and `(vm …)`) re-reads it on every session rebuild. The new deftest `host-primitives-survive-reset-and-vm-selection` in `v2_core_test.cljc` pins exactly the regression D1 calls out: v1 lost host primitives across `(reset)`; this proves v2 doesn't, across both `(reset)` and `(vm :ast-walker)`.
+
+**Demo/doc repoints.** `dao_gui.cljd`, `solar_system.cljd`, and `dao_gui.md` are require/URL/command-text updates only (`yin.repl.flutter` → `yin.repl.flutter`, `clj-yin-repl` → `clj-yin-repl`, bare `ws://…` → `ws://…/repl`). No logic changes, consistent with the connect-URL shape D1 specifies (`daostream:ws://<ip>:<port>` with `/repl`).
+
+**Verdict for U2: APPROVE-WITH-FINDINGS.** All findings are non-blocking: a documentation nit on the status-write guard (recommend, not required), a disclosed edge case correctly deferred as a tracked follow-up rather than spec creep, and a manual-smoke-test gap covered by the same precedent already accepted for U4. The orchestrator is authorized to stage and commit this diff independently of U5's verdict.
+
+---
+
+# Unit 2: U5 — test ports off the v1 VM, pin parity values
+
+**Method.** Read D4 and U5 in full, the diffs to `test/README.md`, `test/yang/{clojure,python,php}_test.clj`, `test/yin/module_test.cljc`, `test/yin/vm/parity_test.cljc`, `test/yin/vm_test.cljc`, the pre-existing `test/yin/vm/test_utils.cljc` the yang tests now route through, and the Gemini adversarial review. I treated the Gemini review as a claim to verify, not authority, and independently re-derived its conclusions rather than restating them.
+
+**Reuse discipline.** All three `yang` test files (`clojure_test.clj`, `php_test.clj`, `python_test.clj`) previously hand-rolled a private `queue-vm` helper that manually built a ring-buffer stream and merged it into VM state. That's deleted; they now route through the pre-existing `yin.vm.test-utils` namespace (`create-vm`, `make-observer-session`, `queue-ast!`, `run-session`) — code that already existed for the v2 VM suite, not something newly written for this port. This is the composition `yin.repl.core` itself uses (program medium + attacher + observer + VM), so the tests now exercise the same shape production code does, not a bespoke shortcut. `clojure_test.clj` needs one extra thing the other two don't: `base-vm-opts` merging in `(module/register-stream-module (module/default-registry))`, because v1 registered the stream module globally at namespace load time and v2 doesn't — registration is per-composition now. This is the one real behavioral difference between v1 and v2 relevant to these tests, it's correctly diagnosed, and it's scoped to exactly the one file that needs it (`php_test.clj` and `python_test.clj` don't exercise stream ops, so they don't need it).
+
+**`module_test.cljc`.** The diff only drops an unused `#?(:clj [yin.vm :as vm])` require — dead import removal, not a behavior change.
+
+**`test/README.md`.** Template namespace example and the "Implementation" doc link both repointed from `yin.vm` to `yin.vm`. Textual only.
+
+**Assertion-count discipline.** `parity_test.cljc`'s four deftests (`ast-walker-parity-test`, `ffi-round-trip-parity-test`, `blocked-read-parity-test`, `stream-round-trip-parity-test`) keep their exact assertion counts before and after. The diff replaces a `run-v1`/live-comparison helper with reads against the pinned `expected` column; no assertions were added, removed, or silently weakened in the process — confirmed by reading the diff directly, not just trusting the docstring's claim.
+
+**`ast_conversion_test.cljc` coverage, confirmed with one nuance.** The new `codec-round-trips-the-v1-corpus-node-types` deftest in `v2_test.cljc` ports the v1 corpus cases the existing root-fact deftests don't exercise: yang-compiled defns (`foo`, `bar`, recursive `fib`), the `:dao.stream.apply/call` FFI node, `:vm/store-get`/`:vm/store-put`, and `:stream/make`/`:stream/put`. That accounts for every `testing` block in v1's `ast-datom-roundtrip-test` except the ones v2's pre-existing root-fact tests already cover by construction (literal/variable/application/lambda/if/tail-call-flag round-trips are exercised by `compile-output-is-unchanged-modulo-the-root-fact` and friends). The other deftest in the v1 file, `root-id-detection-test` ("detects most recent unreferenced node as root"), was **not explicitly ported** — but it didn't need to be: v2's pre-existing `heuristic-fallback-is-unchanged` (`v2_test.cljc:109-118`) already asserts the identical structural-heuristic behavior against `pre-root-snapshot`, including the exact "hand-written datom form v1 accepted still decodes" case. No coverage gap.
+
+**Spot-checked pinned values myself**, independently of Gemini's spot-check (which covered a partly overlapping but not identical subset):
+- `["division" (binop '/ 20 5) 4]` — 20/5 is an exact integer quotient with no zero divisor, so it's unrelated to the recent `fix(yin.vm): make the VM's division primitive throw on any zero divisor` change; 4 is correct.
+- `["addition" (binop '+ 10 20) 30]` — correct.
+- `["higher order" … 15]` — a lambda taking `f`, applying it to `5`, where `f` multiplies its argument by 3 → 5×3=15 — correct.
+- `["stream make" {:type :stream/make, :buffer 8} {:type :stream-ref, :id :stream-0}]` — plausible first-allocation id under the normalization the file itself documents (`normalize` strips closure environments and compares stream refs by shape/id only).
+
+Gemini's independent spot-check (`addition`, `higher order`, `stream make` among others) reaches the same conclusions. Between the two independent spot-checks and the orchestrator's full green test run, I have no basis to doubt the pinned column.
+
+**D4's own question: is pinning architecturally sound, and does a pinned literal go stale in a way live comparison wouldn't?**
+
+Sound, for this specific case. The two alternatives D4 itself lays out are both worse: deleting the file loses a ~24-program regression corpus for nothing, and keeping v1 alive "in test/ only" directly contradicts the entire point of this plan, which is deleting 2,562 lines of v1 VM code (`yin.vm.cljc`, `ast_walker.cljc`, `engine.cljc`, `ffi.cljc`, `runtime_adapter.cljc`, `stream_driver.cljc`, `telemetry.cljc` — the U6 deletion list). A corpus with no live right-hand side but a pinned one is the only option that doesn't either lose the regression coverage or keep the very thing being retired on life support.
+
+The staleness risk is real in the abstract but bounded here by a design choice already baked into the file: `parity_test.cljc`'s own docstring states the corpus is *macro-free on purpose*, "because neither evaluator has a macro-expand branch," and that "where v2 diverges on purpose, the case lives in `yin.vm.ast-walker-test` and in the divergence register, not here." That means this file is scoped to exclude exactly the region where v1/v2 behavior is expected to diverge — so a legitimate future v2 behavior change in a divergent area doesn't fight a stale pin; it simply isn't tested here at all, by design. If v2 semantics only ever diverge from v1 in the tracked divergence areas (which is the invariant the whole retirement plan rests on), a stale pin can't silently mask a *real* regression in the macro-free corpus, because nothing is supposed to change there.
+
+Where pinning is strictly weaker than live comparison: if v1 itself had been patched after the pin was captured (e.g., a latent v1 bug fixed), live comparison would have kept tracking that moving target and a pinned literal would go stale relative to it. That failure mode is moot here specifically because v1 is being *deleted*, not merely left running elsewhere — there is no post-U6 "v1 changes" for the pin to drift from. The one failure mode that survives deletion is a transcription/capture error at the moment of pinning (v1 returned something buggy or the capture process itself mis-recorded it), which is exactly what independent spot-checks — Gemini's and mine, over different but overlapping rows — exist to catch, and both came back clean.
+
+**Verdict for U5: APPROVE.** No findings rise above cosmetic. The orchestrator is authorized to stage and commit this diff independently of U2's verdict.

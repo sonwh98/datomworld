@@ -1,0 +1,48 @@
+Completed-GMT: 2026-10-05 12:44:34 GMT
+Completed-Local: 2026-10-05 19:44:35 +07
+Coding-Agent: claude
+Session-ID: c490a9e8-8546-47da-bdc1-73fb22f44275
+
+## File written
+
+`docs/design/yin.vm.linker.dht.head.md` is the only file touched. It is ASCII with no line over 80 columns. No code, tests or git commands were run.
+
+The orchestrator's reading holds: no invariant contradicts it, and three require it. One precision: across a network the reader's perception is the stream's own `cursor` and `next` asked over a channel, with no head-named operation.
+
+## Decisions
+
+1. **Medium:** a capacity-1 ring the publisher alone writes, served as one mirror-table entry over `dao.stream.udp` on the node's existing DHT socket. Nothing goes in the DHT. Any publishing follower may re-serve the trace as an untrusted relay; with the publisher offline and no relay, the reader keeps its persisted head. Rejected: a DHT key, or both media.
+2. **Trace schema:** a plain signed value, `{:yin.head/envelope {principal manifest seq} :yin.head/proof {signature}}`, with its own domain prefix `yin.head/trace:v1`. `seq` is the greatest `t` of the named index, so the publisher stores no counter and the reader confirms it after loading. Rejected: the `m` slot, a stored counter, a `:prev` chain.
+3. **Retention:** capacity 1 is enough. First contact reads `:oldest`, a slow reader's `gap` lands on the current head, and a restarted source answers `cursor-mismatch`.
+4. **Publisher:** deposits at every HEAD move, right after the HEAD write, and once at startup from the recovered HEAD. The head ring sits beside `announce!` and the ledger ring; it does not reuse, wrap or replace them.
+5. **Reader:** follows only declared principals (`--dht-follow` requires `--dht-principal`). One pure rule applies to every trace from every source, and the greatest verified sequence wins. A head is installed only after its index loads, as a snapshot beside the reader's own HEAD. A silent publisher changes nothing and nothing times out.
+6. **Refresh:** on a head event, never by a require asking the network. A name may change meaning between two requires, and dependency `:mismatch` refusals surface sooner. A require before the first head parks pending. `--dht-manifest` is redefined as the one-shot pin: load that snapshot, follow nothing.
+7. **Persistence and relink:** the last installed signed trace per principal goes in `<node dir>/heads.edn`, and a restart reloads from local blobs with zero fetch. A session keeps what it linked; the move is printed and `(reset)` then `require` links the new module.
+8. **Command line:** the token is `yin:<host:port>/<principal>`, printed once at bind. `dht join` emits `--dht-peer`, `--dht-principal` and `--dht-follow`. `state.edn` gains `--dht-follow` and never holds a head. Hydration into HEAD is removed.
+9. **Failure and security:** forged, stale, rewound, equivocating, withheld and unloadable traces are each tabulated. Three limits are stated plainly: first contact has no floor, withholding by every source is undetectable, and mirror answers are larger than requests to an unproven source.
+10. **Portability:** everything is portable `.cljc` over three existing host seams (Ed25519, datagram bind, atomic file replace). A browser follows nothing. Seven ClojureDart and cross-host traps are listed.
+
+Slices are H0 (trace and rule), H1 (node serves and reflects streams), H2 (deposit and follow), H3 (REPL), H4 (pin, hydration removal, end to end).
+
+## Contradictions and defects
+
+Severity | location | evidence | correction
+
+- **High, architectural** | `src/cljc/yin/repl/dht.cljc:46-53, 202-212` | `dht join` installs the publisher's manifest as the reader's own HEAD. The reader's next round forks the publisher's index, and `refused-head` then blocks any later head. Following cannot be built on hydration. | A followed head is a snapshot beside HEAD; hydration is removed in H4.
+- **Medium, design** | `docs/design/yin.vm.linker.dht.md` 7.2, 1, 13 | "Loading an index is not a subscription" leaves no place for a followed snapshot, and latest-root discovery is listed as deferred. | Amend 7.2 and drop the deferral in H2.
+- **Medium, brief contradicts an invariant** | `docs/design/datom.md:168` | `m` is "always an integer", a metadata entity reference, so a signature map in `m` is not a datom. | The trace is a plain signed value.
+- **Medium, brief option contradicts a contract** | `docs/design/dao.jing.dht.md` section 1 | "no roots, no CAS records ... It does nothing else." A head under a DHT key puts semantics in the syntax layer. | Rejected as X1; a relay gives the same availability.
+- **Medium, spec gap** | `docs/design/dao.stream.remote.md` 2.2 against `src/cljc/dao/stream/remote.cljc:148-163` | The spec calls the descriptor identity "the served logical stream", but a reader holding only a principal cannot know a ring's identity. The mirror already keys by table name and never compares. | One sentence in that spec, carried by H1.
+- **Medium, security risk** | `dao.stream.udp` on a public socket | The DHT's cookie gate does not cover it, so an answer of about 300 bytes (my estimate, not measured) goes to an unproven source. | Attachments are bounded in H1, which also measures the ratio; the return-path proof is deferred.
+- **Low, implementation gap** | `src/cljc/dao/space/dht.cljc` `:loads` | Loaded indexes are process state. | `heads.edn`.
+- **Low, implementation gap** | REPL require path | A name that moved under a live session is silent. | The shell prints a derived notice.
+- **Low, doc drift** | status lines of `dao.stream.remote.md` and `dao.stream.ws.md` | Both say "design target" while `dao.stream.remote`, `dao.stream.udp` and `dao.stream.ws-project` exist in `src/cljc`. | H1 corrects the first.
+
+One assumption is not yet verified: that two HEAD writes of one directory never share a greatest `t`. H0 must prove it; if any HEAD move commits no transaction, the derived sequence fails and section 5.2 reopens.
+
+## Questions for the owner
+
+1. Does "always" reach into a live session? The design keeps a session on what it linked and needs `(reset)`; relink in place would need its own design.
+2. What should a bare `q` see after `dht join`? Today it sees the publisher's facts through hydration. Here it sees only the reader's own index, and the publisher's is reached with `(dao.space.dht/q <manifest> ...)`.
+3. May a publishing node re-serve the heads it follows by default? It keeps a head reachable while its publisher is offline, and it reveals whom that node follows.
+4. Is every HEAD move the head you mean? A follower then loads a new index for each round the publisher evaluates, not only for each `yin.link/publish`.

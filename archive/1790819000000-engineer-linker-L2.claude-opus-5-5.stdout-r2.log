@@ -1,0 +1,52 @@
+## Fix round 1
+
+All three findings from gemini's withheld sign-off are fixed, and every lane passes. Edits stayed within the L2 files plus the three the orchestrator authorized: `src/cljc/dao/space/dht.cljc`, `test/dao/space/dht_test.cljc` and `docs/design/yin.vm.linker.dht.md`. Nothing is staged or committed, and this section has been appended to `collab/1790812000000-engineer-linker-L2.claude-opus-5-5.report.md`.
+
+### 1. MAJOR: the `closure-incomplete` refusal is now tested
+
+New test `a-blob-lost-after-loaded-is-closure-incomplete` (`test/yin/vm/linker/dht_test.cljc:270`):
+- The node's local store is wrapped so that addresses the test chooses read as not found.
+- The closure loads to `:loaded` and the semantic link succeeds.
+- The test then hides the semantic image. `ld/link` refuses with exactly `{:status :refused :reason :yin.link.dht/closure-incomplete :address <image>}`.
+- The load record stays `:loaded`, so nothing retries it silently.
+
+**Mutation F1:** replacing the `:absent` check in `ld/link` with `false` fails this test (1 failure).
+
+The refusal code was already in place, so the test passed when first written; the mutation is its failing run.
+
+### 2. MINOR: new public accessor `dao.space.dht/loaded-indexes`
+
+- **What it returns** (`src/cljc/dao/space/dht.cljc:1186`): a sorted vector of the covered-index manifests whose load is `:loaded`.
+- **Who uses it:** `yin.vm.linker.dht/snapshots` now calls it instead of reading `(:loads node)`.
+- **Docs:** it is listed in §10.
+
+New test `loaded-indexes-lists-only-loaded-index-manifests` (`test/dao/space/dht_test.cljc:420`):
+- While every load is still running, the list is empty.
+- After one step it lists exactly the two loaded indexes, sorted. A load of another kind and a failed index load are left out.
+- After `forget`, the forgotten index is no longer listed.
+
+**Red:** before the accessor existed, the test namespace failed to compile (`No such var: dht/loaded-indexes`).
+
+**Mutation F2:** dropping the "loaded" filter gives 4 failures, in this test and in `an-envelope-in-two-snapshots-is-one-event`.
+
+Both mutated files were restored, and they match the saved copies.
+
+### 3. MINOR: §9 now lists the three publication refusals
+
+Each has the shape `{:status :refused :reason r ...}`:
+
+| `:reason` | Carries | When |
+|---|---|---|
+| `:yin.link.publish/invalid-requirement` | `:name` | A required manifest's closure walk answers `:invalid`. Refused before anything is written. |
+| `:yin.link.publish/incomplete-requirement` | `:name`, `:walk` | The required manifest is present but its closure is missing a blob further in. Refused before anything is written. An absent required manifest is still `:missing-requirement`. |
+| `:yin.link.publish/incomplete-closure` | `:address`, `:walk` | The closure just written is not complete. Refused after the writes, before any link. |
+
+### Lanes (each run in the foreground to its verdict)
+
+| Lane | Result |
+|---|---|
+| kondo on the 7 changed Clojure files | 0 errors, 0 warnings |
+| `bb test:clj` | 2645 tests, 223746 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2559 tests, 89896 assertions, 0 failures, 0 errors; both changed test namespaces ran |
+| `bb build:yin-repl-peer` | exit 0, peer built |
+| `bb test:cljd` (after `rm -rf test/cljd-out`) | +2514, "All tests passed!" (two more tests than last round) |

@@ -1,0 +1,2827 @@
+OpenAI Codex v0.149.1
+--------
+workdir: /Users/sto/workspace/datomworld
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a05dda-bc67-7061-9d78-f06b4e2bc39a
+--------
+user
+Created-GMT: 2026-09-01 16:43:15 GMT
+Created-Local: 2026-09-01 23:43:15 Asia/Ho_Chi_Minh
+
+# Task: renewal chains, delegated renewal, and whether leases pull Shibi forward
+
+Role: Lead System Architect
+
+## Context
+
+You have agreed that `dao.lease` should follow the `jit-design.md` pattern:
+evidence as facts, the possessor judges at its own points, status as data. All
+five reviewers independently rejected Jini's `LeaseRenewalManager` as
+manufacturing false liveness for a wedged holder.
+
+The user now asks: **what if an agent has its own lease manager, which is
+another agent?**
+
+The orchestrator's analysis, for you to confirm or refute:
+
+- Making the renewer an agent rather than a library thread changes its
+  *visibility* — composed explicitly, its renewals are its own appends — but
+  does not by itself change what a renewal *means*.
+- The decisive question is whether the manager renews **unconditionally** or
+  **on evidence**. Unconditionally reproduces Jini's defect in cleaner
+  materials.
+- On evidence, the manager needs its own liveness signal from the holder —
+  which is a lease. So the holder leases from the manager and the manager
+  leases from the grantor: a **renewal chain**, each link proving the next,
+  terminating at whoever is actually doing the work.
+- Proposed rule: **the chain's weakest link defines the guarantee.** One
+  unconditional renewer anywhere and everything downstream of it proves
+  nothing.
+- What it genuinely buys: batching (Jini's `LeaseMap` — one renewal set for
+  many leases) and cadence decoupling (a holder doing long synchronous work
+  cannot renew tightly; a manager can, *if* it judges the holder).
+- Native framing: a lease manager is not a component. It is an interpreter
+  that reads lease facts and appends renewal evidence — the same shape as
+  `forward!` and the JIT. `dao.lease.md` gains no component.
+
+## The question that has no current answer
+
+A holder emits evidence **about itself**. A manager emits evidence **about
+someone else** — "A is still here" — and the grantor must decide whether to
+believe it. That is delegation, and delegation needs authority.
+
+`dao.stream.md` reserves `:dao.stream/shibi` for capability tokens and says
+Shibi "is not yet designed or built." Two existing documents constrain what it
+may become, and you must read both:
+
+- `docs/design/dao.stream.discovery.md`, *The ShiBi precondition*: ShiBi is
+  currently a capability token in one document and a fungible currency in
+  another. "These are different objects with different physics… **Before ShiBi
+  is load-bearing in any design, force the decision: capability or currency.**"
+- `docs/design/dao.space.security.md`, *Capabilities Govern Interpreters*: a
+  Macaroon-style design — attenuatable, offline-verifiable, revocable caveats
+  bounding a function, its scope, and its time-to-live, where the token is
+  cryptographically authenticated but the **substrate**, not the signature,
+  enforces the predicate.
+
+## Answer these
+
+**1. Is the renewal-chain analysis correct?** Confirm or refute each step. In
+particular, is "the chain's weakest link defines the guarantee" a real rule or
+a slogan, and can it be stated so an implementer can check it?
+
+**2. Is delegated renewal worth having at all?** Batching and cadence
+decoupling are the claimed benefits. Weigh them against a chain in which
+liveness can be faked at every link. If the answer is "not worth it in this
+slice," say so.
+
+**3. Does delegated renewal actually require Shibi, or is there a weaker
+mechanism that suffices?** Candidates to consider rather than assume: the
+grantor simply accepts any renewal naming the lease (no authority at all, and
+say what that costs); the holder authorising a specific renewer in a
+grantor-visible fact; or a full capability token. Name the weakest mechanism
+that is sufficient.
+
+**4. If leases would be Shibi's first real consumer, does that force the
+capability-or-currency decision the discovery document demands?** A lease
+caveat is time-bounded and attenuable, which reads as capability. Say whether
+leases settle that question, merely add evidence, or must stay out of it.
+
+**5. What should `dao.lease.md` say now?** It should not depend on an
+undesigned mechanism. Propose the exact text covering delegated renewal —
+including, if appropriate, an explicit denial deferring it — such that the
+document stands today and does not have to be rewritten when Shibi lands.
+
+## Scope
+
+Read: `docs/design/dao.lease` material from your previous drafts,
+`docs/design/jit-design.md`, `docs/design/datom.world.md`,
+`docs/design/dao.stream.md`, `docs/design/dao.stream.discovery.md`,
+`docs/design/dao.space.security.md`. **No source code.**
+
+Propose only. **Make no edits.**
+
+Begin your final response with:
+
+```
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS Asia/Ho_Chi_Minh>
+```
+
+codex
+I’ll review only the specified design material, then test the renewal-chain claims against the project’s existing invariants. I’ll make no edits and won’t inspect source code.
+exec
+/bin/zsh -lc "rg --files docs/design | rg '("'^|/)(dao'"\\.lease["'^/]*|jit-design|datom'"\\.world|dao\\.stream|dao\\.stream\\.discovery|dao\\.space\\.security)\\.md"'$'"'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+docs/design/dao.stream.md
+docs/design/dao.space.security.md
+docs/design/datom.world.md
+docs/design/jit-design.md
+docs/design/dao.stream.discovery.md
+
+exec
+/bin/zsh -lc "rg --files docs/design | rg 'lease|jit-design|datom\\.world|dao\\.stream|dao\\.space\\.security'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+docs/design/dao.stream.apply.md
+docs/design/dao.stream.md
+docs/design/dao.stream.ws.md
+docs/design/dao.stream.implementation-plan.md
+docs/design/dao.space.security.md
+docs/design/datom.world.md
+docs/design/jit-design.md
+docs/design/agent.tzu.dao.stream.md
+docs/design/dao.stream.discovery.md
+docs/design/dao.stream.file.md
+
+exec
+/bin/zsh -lc "wc -l docs/design/datom.world.md docs/design/jit-design.md docs/design/dao.stream.md docs/design/dao.stream.discovery.md docs/design/dao.space.security.md && rg -n -i 'lease|shibi|capabilit|currency|interpreter|authority|renew|liveness|evidence|possessor|status' docs/design/datom.world.md docs/design/jit-design.md docs/design/dao.stream.md docs/design/dao.stream.discovery.md docs/design/dao.space.security.md" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+     157 docs/design/datom.world.md
+     134 docs/design/jit-design.md
+     648 docs/design/dao.stream.md
+     235 docs/design/dao.stream.discovery.md
+      90 docs/design/dao.space.security.md
+    1264 total
+docs/design/jit-design.md:64:## JIT Patch Stream (Advisory Authority)
+docs/design/jit-design.md:73:- `:yin.jit/status :proposed|:accepted|:rejected|:rolled-back`
+docs/design/jit-design.md:123:- Accepted patch emits status transitions and version facts.
+docs/design/dao.space.security.md:13:Therefore, **the unit of sharing is not the datom; it is the governed interpreter `f` and its audited result.**
+docs/design/dao.space.security.md:27:2. **Controlled — push-interpreter-to-data / confined:** The answer is returned, but datoms never leave. The reader pushes a confined interpreter to the data. This inverts the embedded-peer topology for controlled streams.
+docs/design/dao.space.security.md:29:Controlled mode is honestly a form of **mediation**, not an escape from it: in the default topology the data *owner* is the mediator for their own data. The contribution is not "no mediator" — it is that the mediator is a **generic, introspectable, capability-scoped, accountable** evaluator (a `yin.vm` AST) run by the owner, instead of a hand-written API run by a third party. The one topology with *no* single mediator is MPC (see Deployment Topologies), at a high cost.
+docs/design/dao.space.security.md:31:## Capabilities Govern Interpreters
+docs/design/dao.space.security.md:33:Capabilities govern the interpreters. Using a Shibi (Macaroon-style) design (the `:yin/capability` attribute), capabilities contain attenuatable, offline-verifiable, revocable caveats that bound the function `f`, its scope (the `m`-policy class), and its time-to-live.
+docs/design/dao.space.security.md:37:The caveat acts as a content predicate. Be precise about what enforces what: the **capability token** is *cryptographically authenticated* (the macaroon's caveat chain), while the **predicate itself** is enforced by the *evaluation substrate* (which confines the continuation's Environment/Store scope, and restricts its expressivity/output-shape, as detailed below). That enforcement is *operational* in a CESK interpreter (owner-host / TEE) and *cryptographic* in an MPC/FHE circuit — either way it is the substrate, not the token's signature, that bounds what `f` can touch and express. This unifies the earlier "predicate-over-content scoping" with capabilities: the caveat is the predicate, the evaluator is the enforcer.
+docs/design/dao.space.security.md:45:- **Execution safety — runtime confinement.** The evaluator gives the continuation an Environment (`E`) and Store (`S`) scoped to *only* the datoms the capability authorizes, exposes *no* I/O or exfiltration primitives, and bounds execution by steps/gas — operationally in a CESK interpreter (owner-host / TEE), or as bounds baked into the circuit topology (MPC/FHE). This closes the explicit I/O channel — the only deliberate way out is the return value. In the controlled mode that means a capability authorizing no effects: handlers present but refused (an empty allow-set is equivalent to stripping), not absent by construction.
+docs/design/dao.space.security.md:52:- **Native `m`-provenance.** `yin.vm` maintains the causality graph natively, stamping each output datom with the capability that authorized the continuation. An opaque runtime breaks this chain; an AST evaluator preserves it.
+docs/design/dao.space.security.md:53:- **Trivial transport.** `f` is pushed to where the data lives as datoms (AST / serialized continuation), directly realizing "push-interpreter-to-data" — this is continuation parallel transport (`docs/agents/advanced-concepts.md`).
+docs/design/dao.space.security.md:68:2. **Recipient-side TEE:** the only literal "ship the data, keep control" path. The recipient runs `yin.vm` in an attested enclave; the owner releases the decryption key only against an attestation of the **exact AST hash** to be run. So introspection here is *static and ahead-of-time* — the owner pre-approves a specific `f`-hash (whitelisting), not arbitrary dynamic submission. Strongest trust assumption (the recipient's hardware vendor).
+docs/design/dao.space.security.md:76:- **Implementation status:** Full runtime confinement is a target, not yet realized. Current `yin.vm` configuration leaves the surface open (e.g., ungated host module functions). Effect handlers that securely honor capability tokens are not yet built.
+docs/design/dao.space.security.md:82:- **Management cost:** There is an inherent cost to managing capabilities, keys, and policies.
+docs/design/dao.stream.discovery.md:3:**Status: proposal.** This document records a design conversation (2026-07) about how
+docs/design/dao.stream.discovery.md:16:- `docs/ideas/agent-web.md` — ShiBi and pay-for-truth (critiqued below)
+docs/design/dao.stream.discovery.md:44:1. **Hierarchical delegation, no global write point.** Zones each have one authority;
+docs/design/dao.stream.discovery.md:72:the key the kickoff commits to. No authority exists because none is needed — the name
+docs/design/dao.stream.discovery.md:174:- **Trace-evidence ranking (below) is Goodhartable too** the moment ranking depends on
+docs/design/dao.stream.discovery.md:179:### The ShiBi precondition
+docs/design/dao.stream.discovery.md:181:ShiBi is currently a capability token in the README and a fungible currency in
+docs/design/dao.stream.discovery.md:182:`agent-web.md`. These are different objects with different physics: capabilities
+docs/design/dao.stream.discovery.md:184:architecture immediately; a currency needs double-spend resolution, i.e. global
+docs/design/dao.stream.discovery.md:186:problem in the stack. **Before ShiBi is load-bearing in any design, force the
+docs/design/dao.stream.discovery.md:187:decision: capability or currency.** Discovery must not depend on solving decentralized
+docs/design/dao.stream.discovery.md:190:## Ranking by Trace Evidence
+docs/design/dao.stream.discovery.md:194:pheromone gradient *is* accumulated evidence. The evidence is already in the medium:
+docs/design/dao.stream.discovery.md:231:4. **Pool liveness** — explicit source pools need a refresh convention; the stigmergic
+docs/design/dao.stream.discovery.md:232:   mechanism (3) needs a liveness convention
+docs/design/datom.world.md:34:Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly. Streams carry whatever values the consumer needs.
+docs/design/datom.world.md:53:Host-specific boundaries are isolated with DaoStream and interpreters of
+docs/design/datom.world.md:57:interpreter consumes that stream, performs the operation, and appends the
+docs/design/datom.world.md:62:interpreter. It isolates the host library but keeps the coupling, and the
+docs/design/datom.world.md:68:nothing. An interpreter reads that stream and decides what the event means.
+docs/design/datom.world.md:85:transport's private stream or into a medium many interpreters read, and it does
+docs/design/datom.world.md:90:worth is not a property of the datum -- an event that is noise to one interpreter
+docs/design/datom.world.md:149:For advanced topics (parallel transport, capability tokens, entanglement):
+docs/design/dao.stream.md:3:Status: agreed design target. This document is the DaoStream contract. It does
+docs/design/dao.stream.md:27:- **Which interpreter observes them** is not recorded — a registry of who
+docs/design/dao.stream.md:29:- **When an interpreter runs** is not its decision — "do not introduce
+docs/design/dao.stream.md:42:4. A **cursor** is immutable interpreter-owned observation state for one
+docs/design/dao.stream.md:70:- Interpreters own cursors and decide when to call `next`.
+docs/design/dao.stream.md:71:- A runtime may drive an interpreter, but DaoStream does not require a runtime.
+docs/design/dao.stream.md:179:cadence belongs to the runtime driving the interpreters, and a readiness
+docs/design/dao.stream.md:186:concern of the interpreter or the runtime driving it, not of the stream.
+docs/design/dao.stream.md:213:intact, and an interpreter that receives a handle simply uses it —
+docs/design/dao.stream.md:262:- Like an IOR, it may carry authorization: an optional `:dao.stream/shibi`
+docs/design/dao.stream.md:263:  key holding Shibi capability tokens that gate whether an interpreter may
+docs/design/dao.stream.md:264:  attach. Shibi is not yet designed or built; until it is, the key is
+docs/design/dao.stream.md:298:| `:dao.stream/denied`             | Attachment refused by capability gating (reserved; unreachable until Shibi exists). | —                    |
+docs/design/dao.stream.md:314:later, which is an ordinary interpreter over streams, not an operation here.
+docs/design/dao.stream.md:383:An interpreter may still use one, on the same terms as any other thing a
+docs/design/dao.stream.md:389:than on a transport it detected. Such an interpreter is composed for a
+docs/design/dao.stream.md:444:A cursor is an immutable value owned by the interpreter that holds it.
+docs/design/dao.stream.md:470:  same logical stream accepts it, so a cursor handed to another interpreter
+docs/design/dao.stream.md:471:  works with that interpreter's own handle. Whether a cursor survives
+docs/design/dao.stream.md:480:  re-read retained history, or hand a cursor to another interpreter. What a
+docs/design/dao.stream.md:536:A transport whose close must also flush or release something that can fail
+docs/design/dao.stream.md:576:## Concurrency
+docs/design/dao.stream.md:596:a merge interpreter, a one-log-per-writer discipline — is interpretation,
+docs/design/dao.stream.md:621:nothing: an interpreter replaying a log may treat a gap as fatal; a live
+docs/design/dao.stream.md:629:that transforms one stream into another is an interpreter — it reads via its
+
+exec
+/bin/zsh -lc "sed -n '1,220p' docs/design/datom.world.md; sed -n '1,200p' docs/design/jit-design.md; sed -n '1,700p' docs/design/dao.stream.md" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+---
+description: Core philosophy, foundational axioms, invariants, fundamental primitives (tuples, streams), design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams. Persistent facts are immutable tuples and datoms `[e a v t m]`.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is events on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata).
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly. Streams carry whatever values the consumer needs.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in Yin.VM that communicate with the outside world through DaoStream. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/agent.tzu.md`](./agent.tzu.md) and [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for agent and VM architecture.
+
+### Host Boundaries
+
+Host-specific boundaries are isolated with DaoStream and interpreters of
+DaoStream. A host boundary is a stream boundary, never a function call.
+
+Portable code appends an effect value describing what must happen. A host
+interpreter consumes that stream, performs the operation, and appends the
+outcome. Portable code reads the outcome. Correlation is by identity in the
+data; neither side holds a reference to the other.
+
+An adapter that exposes a function for portable code to call is not an
+interpreter. It isolates the host library but keeps the coupling, and the
+effect never appears as an emission.
+
+A callback is an event on a stream. That is the same rule in the other
+direction: when the host initiates -- a socket receives, a connection drops, a
+timer fires -- the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**An adapter is a map of those functions. That is all an adapter is.** It is a
+value, not a namespace, and it is general: sockets, files, timers and windows
+all deliver events by calling something, and an adapter is what they call. The
+host library is handed the map. Each entry takes the host's arguments and
+returns one value; the append is the adapter's, not the entry's, so an entry
+cannot return a value to the host and cannot invoke anything, because it is
+handed nothing to invoke. Host types are classified into plain data here -- a
+transform is the last place holding a host error object, and no host type may
+cross onto the stream.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read, and it does
+not need to. This is what keeps the layering one-way: a boundary depends on
+nothing above it, because whoever constructs the adapter supplies the stream.
+
+A transform deposits everything and judges nothing. Data is syntax (axiom 2), so
+worth is not a property of the datum -- an event that is noise to one interpreter
+is signal to another that does not exist yet, and filtering at the depositing
+layer destroys the perspectives that have not been taken. How much is retained is
+the medium's retention policy, which is operational; what an event means is
+interpretation. Neither is the depositor's decision.
+
+An adapter that takes a function to invoke has relocated the callback, not
+removed it, even when every value it passes is plain data. An adapter whose
+callback has a meaningful return value is worse: that is a synchronous call in
+both directions wearing the shape of an event.
+
+Neither direction needs a vocabulary of its own. Host events are ordinary
+values on an ordinary stream, so they need no bespoke envelope, version field,
+or fact taxonomy to be read.
+
+Host error types never cross the boundary. A transform function classifies them
+and emits a qualified value.
+
+A host with no implementation for an effect emits a qualified unsupported
+result. That is a correct outcome, not a gap to be filled.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not stage or commit changes until explicitly asked by the user.
+- When asked to stage or commit, follow these rules:
+  - Stage only files that were explicitly modified or created for the requested work.
+  - When committing, only commit staged changes; never commit unstaged changes.
+  - Create clear, descriptive commit messages explaining the "why" behind the changes.
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+For advanced topics (parallel transport, capability tokens, entanglement):
+See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md)
+
+## Operational & Specialized Guides
+
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team/TEAM.md`](../agents/team/TEAM.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/team/TEAM.md`](../agents/team/TEAM.md) for team roles, collaboration protocols, and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`.
+- **Website & Content**: See [`docs/agents/website.md`](../agents/website.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+# Datom-Native VM Execution Trace Surface for JIT Observation and Runtime Optimization
+
+## Summary
+Introduce a first-class execution trace stream for VM runs, represented as datoms (`[e a v t m]`), so JIT can observe runtime behavior without hidden callbacks or mutable side channels.  
+JIT remains advisory: it emits optimization patch datoms, and VM applies them only through explicit, causal patch-stream processing.
+
+## Surface API (Decision Complete)
+Add a trace protocol and kernel helpers in `src/cljc/yin/vm.cljc`.
+
+1. New protocol: `IVMTrace`
+- `run-traced [vm opts]`
+- Contract: executes VM to halt/blocked and returns:
+  `{:vm final-vm :trace trace-datoms :run-id run-eid}`
+
+2. New protocol method for stepwise tracing:
+- `step-traced [vm opts]`
+- Contract: executes one VM step and returns:
+  `{:vm next-vm :trace-step step-datoms :run-id run-eid :step step-idx}`
+
+3. Keep existing `vm/run` unchanged
+- `vm/run` remains non-observability baseline for compatibility and low overhead.
+- JIT and tooling use `run-traced` or repeated `step-traced`.
+
+4. Trace stream access pattern
+- Bounded run stream: `(:trace (vm/run-traced ...))`
+- Open stream behavior: repeated `step-traced` calls produce append-only step streams in `t` order.
+
+## Trace Datom Schema (What State Goes in Stream)
+Define trace attributes (new namespace, for example `:yin.trace/*`) and emit only JIT-relevant state.
+
+1. Run-level facts
+- `[:run-eid :yin.trace/type :yin.trace/run t m]`
+- `[:run-eid :yin.trace/vm-kind :register|:stack|:semantic t m]`
+- `[:run-eid :yin.trace/program-id <hash-or-id> t m]`
+- `[:run-eid :yin.trace/start-ip <int> t m]`
+- `[:run-eid :yin.trace/end-reason :halted|:blocked|:error t m]`
+
+2. Step-level facts (one step entity per executed instruction)
+- `[:step-eid :yin.trace/run :run-eid t m]`
+- `[:step-eid :yin.trace/idx <int> t m]`
+- `[:step-eid :yin.trace/opcode <keyword|int> t m]`
+- `[:step-eid :yin.trace/ip-before <int> t m]`
+- `[:step-eid :yin.trace/ip-after <int> t m]`
+- `[:step-eid :yin.trace/reg-read [r...] t m]`
+- `[:step-eid :yin.trace/reg-write [r...] t m]`
+- `[:step-eid :yin.trace/branch-taken true|false t m]` (when branch op)
+- `[:step-eid :yin.trace/call-target <symbol|closure-id|primitive-id> t m]` (when call)
+- `[:step-eid :yin.trace/argc <int> t m]` (when call)
+- `[:step-eid :yin.trace/ret-val-tag <type-tag> t m]` (when return)
+- `[:step-eid :yin.trace/deopt-guard-failed? true|false t m]` (if guard exists)
+
+3. Periodic frame snapshots for reconstruction (not every step)
+- `[:snap-eid :yin.trace/run :run-eid t m]`
+- `[:snap-eid :yin.trace/step-idx <int> t m]`
+- `[:snap-eid :yin.trace/ip <int> t m]`
+- `[:snap-eid :yin.trace/regs <compact-reg-view> t m]`
+- `[:snap-eid :yin.trace/env-shape <shape-id> t m]`
+- `[:snap-eid :yin.trace/k-depth <int> t m]`
+
+4. Minimal required tags for JIT specialization
+- Value type tags only by default (`:int`, `:float`, `:bool`, `:closure`, `:nil`, `:map`, `:vec`, etc.)
+- No full value payload unless explicitly enabled in opts.
+
+## JIT Patch Stream (Advisory Authority)
+JIT emits a separate patch stream, never direct mutation.
+
+1. Patch datoms example attributes (`:yin.jit/*`)
+- `:yin.jit/target-program-id`
+- `:yin.jit/target-ip-range`
+- `:yin.jit/guard` (shape/type predicates)
+- `:yin.jit/replacement` (optimized block reference)
+- `:yin.jit/version`
+- `:yin.jit/status :proposed|:accepted|:rejected|:rolled-back`
+
+2. VM application model
+- VM checks patch stream at explicit safe points (function entry, loop header, backward jump target, return boundary).
+- On accepted patch, VM switches to new versioned block with guard.
+- On guard failure, VM emits deopt datom and falls back to baseline bytecode.
+
+## Options/Defaults (Locked)
+For `run-traced` and `step-traced`:
+- `:snapshot-every` default `64` steps
+- `:emit-values?` default `false`
+- `:emit-env?` default `:shape-only`
+- `:max-trace-steps` default `nil` (no cap)
+- `:trace-level` default `:jit-core` (fields listed above)
+
+## Implementation Plan (Files)
+1. `src/cljc/yin/vm.cljc`
+- Add `IVMTrace` protocol.
+- Add shared helpers for run-id, step-id, and trace datom emitters.
+
+2. `src/cljc/yin/vm/register.cljc`
+- Implement `step-traced` by instrumenting `step-bc` boundary.
+- Implement `run-traced` as loop over `step-traced`.
+- Keep `reg-vm-run` unchanged.
+
+3. `src/cljc/yin/vm/stack.cljc` and `src/cljc/yin/vm/semantic.cljc` (optional phase 2)
+- Implement same protocol for cross-backend consistency.
+- If phased rollout: register VM first, others return `ex-info` “trace not implemented yet”.
+
+4. `test/yin/vm/register_test.cljc`
+- Add tests asserting trace causality and required fields.
+- Keep existing `compile-and-run-bc` tests unchanged.
+
+## Test Cases and Scenarios
+1. Trace determinism
+- Same bytecode + env yields same opcode/ip sequence trace.
+
+2. Step/run consistency
+- Concatenated `step-traced` events equals `run-traced` events for same input.
+
+3. Causality correctness
+- `t` strictly monotonic within run.
+- `m` links step datoms to run entity and patch/deopt causes.
+
+4. JIT signal sufficiency
+- Hot loop program produces repeated `(ip-before, opcode)` signatures.
+- Branch-heavy program records `branch-taken` distribution.
+- Polymorphic call site records multiple `call-target`/type tags.
+
+5. Patch safety
+- Accepted patch emits status transitions and version facts.
+- Guard failure triggers deopt event and baseline fallback with correct final value.
+
+6. Backward compatibility
+- Existing `vm/run` behavior and current tests remain unchanged.
+
+## Assumptions and Chosen Defaults
+1. Canonical observability format is datoms, not callbacks or mutable listeners.
+2. JIT is advisory and cannot mutate active execution implicitly.
+3. Default trace is compact and type-tag oriented to limit overhead.
+4. Register VM is the first backend to implement tracing, others follow same interface.
+5. `vm/run` remains untouched for compatibility and low-overhead execution paths.
+# DaoStream Design
+
+Status: agreed design target. This document is the DaoStream contract. It does
+not redesign Yin.VM. Yin.VM is a downstream consumer and will be addressed only
+after this contract is implemented and tested.
+
+## Purpose
+
+This contract derives from the foundational axioms and non-negotiable
+invariants of [`datom.world.md`](./datom.world.md). Two axioms bear on it
+directly, named here once so the sections below can cite rather than restate
+them:
+
+1. **Everything is a Stream** — all IO and data flow through append-only
+   streams.
+2. **Interpretation Creates Semantics** — data is syntax; semantics emerge
+   only through interpretation. One truth, many perspectives.
+
+DaoStream is the passive substrate for IO in datom.world — passive because
+interpretation and execution must not collapse into one layer. Axiom 1 is
+what makes this the layer every host boundary crosses. A stream carries
+values and decides nothing about them:
+
+- **What the values mean** is not its business — Axiom 2. An element
+  judged, filtered, or typed at this layer destroys the perspectives nobody
+  has taken yet.
+- **Which interpreter observes them** is not recorded — a registry of who
+  is listening would be hidden global state.
+- **When an interpreter runs** is not its decision — "do not introduce
+  callbacks; every callback is events on a stream", seen from the stream's
+  side: DaoStream invokes nothing, so control is never inverted and
+  causality stays explicit (see The IO Model).
+
+The Invariants below are these denials in operational form.
+
+The design separates four concepts:
+
+1. A **creation specification** is data for creating a new logical stream.
+2. A **handle** is a host-local operational stream value — the
+   implementation of the `dao.stream` protocols.
+3. A **portable descriptor** is data used to attach to an existing stream.
+4. A **cursor** is immutable interpreter-owned observation state for one
+   logical stream.
+
+Creation is not attachment. A descriptor is not a creation specification. A
+handle is not portable identity. A cursor is not handle-owned state.
+
+Seven operations range over them, each returning an outcome map (see
+Result Convention):
+
+| Operation    | Consumes               | Yields             |
+|--------------|------------------------|--------------------|
+| `create!`    | creation specification | handle outcome     |
+| `attach!`    | portable descriptor    | handle outcome     |
+| `descriptor` | handle                 | descriptor outcome |
+| `cursor`     | handle, anchor         | cursor outcome     |
+| `next`       | handle, cursor         | read outcome       |
+| `append!`    | handle, value          | write outcome      |
+| `close!`     | handle                 | close outcome      |
+
+A handle implements the subset of the **handle surface** its transport
+declares (see Surfaces). `create!` and `attach!` are not part of it: they
+consume no handle and produce one.
+
+## Invariants
+
+- Stream elements are data. DaoStream assigns them no intrinsic meaning.
+- Reading is non-destructive. A reader advances its own cursor, not the stream.
+- Multiple cursors may observe the same retained value independently.
+- Interpreters own cursors and decide when to call `next`.
+- A runtime may drive an interpreter, but DaoStream does not require a runtime.
+- Closing a stream changes future availability but does not itself erase
+  retained history.
+- Retention may be bounded. A cursor over evicted history receives a gap
+  outcome as data; the reader decides what missing data means.
+- All expected operational outcomes are data, not exceptions or callbacks.
+- No operation waits. Every operation returns what is true at the moment it is
+  called; an answer not yet knowable arrives later as data.
+- No hidden global state. DaoStream keeps no registry of streams, handles, or
+  observers, and no operation consults ambient state.
+- A logical stream has an identity that is plain data, the same through every
+  handle on it, stable across attachment lifecycles and across serialization.
+  Projecting that identity never fails.
+
+Every clause below must be consistent with these invariants, and most derive
+from one directly. Where a clause is instead an interoperability decision — the
+descriptor's properties, the result keyword namespace, the anchor set — it is
+stated as a decision rather than dressed as a deduction. A proposed addition
+that contradicts an invariant does not belong in this contract; one that merely
+cannot be deduced from them must say which decision it is and why.
+
+## Result Convention
+
+Every DaoStream operation returns data.
+
+- Each operation's set of outcomes is **exhaustive**: a transport may produce
+  fewer of them, never any outside the set. Which subset it produces is part of
+  its declared nature (see Surfaces). An outcome is a map whose
+  `:dao.stream/outcome` key names the outcome with a qualified keyword. Every
+  operation returns such a map — including projections like `descriptor` and
+  `cursor`, whose success map carries the projected value.
+- `:dao.stream/outcome` is present in every result map and is never repeated
+  in the per-outcome tables below; the keys those tables name are required in
+  addition to it.
+- Result maps are **open**: the contract fixes which keys are required per
+  outcome, and a consumer must ignore keys it does not understand. This is
+  what allows future extensions (for example readiness notification) to be
+  added without breaking existing consumers.
+- Exceptions are reserved for defects in the host's own assembly of
+  DaoStream, detected before any operation runs. Everything observable at an
+  operation returns data: closed, full, blocked, end, gap, not found,
+  malformed input, and transport defects are all outcomes, never exceptions
+  and never callbacks.
+- All qualified keywords in results live under `:dao.stream/…`.
+
+## The IO Model
+
+Three models are available for expressing IO. DaoStream is deliberately the
+third.
+
+**Blocking (synchronous) IO.** The operation parks until it has an answer,
+then returns it. Control flow stays sequential and the call site reads as
+ordinary code, which is the whole of its appeal. The cost is that something
+must wait — a thread per pending operation, held for its duration — and it
+requires a host that can park at all.
+
+**Callback (asynchronous) IO.** The operation registers a continuation and
+returns at once; the runtime invokes the continuation when the answer
+arrives. Nothing waits, so one thread carries many pending operations: this
+is the model that scales. Its cost is inverted control. The caller no longer
+decides when it observes the answer, and the inversion is viral — on a host
+without blocking, a promise cannot be absorbed inside a function, because
+awaiting returns to the caller at the first suspension point and makes the
+caller's own result a promise in turn. Whatever is reached from a callback
+is reached from a callback.
+
+**Non-blocking polling.** The operation returns immediately with whatever is
+true now, including the answer "nothing yet, ask again." Nothing parks and
+nothing is inverted: the caller keeps control and decides when to ask again.
+This is POSIX `O_NONBLOCK` without `select`, and it is DaoStream's model.
+
+`next` is total and non-blocking (see Reading): every state of the stream
+has a defined data answer, and `:dao.stream/blocked` is `EAGAIN` — this
+position holds nothing yet. `append!`'s `:dao.stream/full` is the same
+answer for writes. No operation in this contract parks, and none takes a
+callback; the Result Convention's "never exceptions and never callbacks" is
+this model stated as a rule about results.
+
+The rule generalizes past `next`: **no operation waits.** An operation that
+cannot yet know its answer returns the outcome true at the moment it is
+called, and the eventual answer arrives the way every other fact does — as
+data, observed later, through an ordinary operation or on a stream. A
+DaoStream operation is never a request for something to happen and be
+reported back. It is a question about now.
+
+### Why this model and not the other two
+
+The hosts do not offer the same choices. The JVM has both blocking and
+asynchronous IO. JavaScript and Dart have only the asynchronous kind: there
+is no blocking read to call and no way to wait for one, because the single
+event loop that would deliver the answer is the one a waiting call would be
+occupying — waiting deadlocks rather than merely costing a thread.
+
+A blocking contract is therefore unimplementable on most of the targets. A
+callback contract is implementable on all of them and inverts control on all
+of them, including the host that never needed it. Non-blocking polling is
+the only one of the three that means the same thing everywhere — the same
+operations, the same outcome sets, the same control flow — which is what
+lets one surface serve clj, cljs, and cljd without the shape of the API
+differing by host.
+
+### What it costs
+
+Polling without readiness notification is O(n) in streams observed: a reader
+holding ten thousand idle streams must ask all ten thousand to learn which
+have data. This is `select` without `select`, and it is a real limit rather
+than an oversight — the extension that answers it is reserved below. The
+cost also lands where it can be paid: DaoStream schedules nothing, so
+cadence belongs to the runtime driving the interpreters, and a readiness
+mechanism belongs there too.
+
+### The readiness extension
+
+This contract has no readiness or waiter extension. A reader that receives
+`:dao.stream/blocked` retries `next` when it chooses; retry cadence is the
+concern of the interpreter or the runtime driving it, not of the stream.
+
+A future readiness extension would be additive: an optional protocol on
+transports that support it, plus optional keys in operation results (for
+example a wake token list on `append!`), which the open-map rule already
+permits. Nothing in this contract needs to change for that; no consumer of
+this contract may depend on it existing.
+
+## Creation and Attachment
+
+Creation brings a new logical stream into existence. Attachment joins an
+existing one. They are separate operations with separate inputs.
+
+- `create!` consumes a creation specification and returns a handle on a
+  new logical stream. The handle's portable identity is available as a
+  descriptor via `descriptor`, whose outcome set is `{ok}` with
+  `:dao.stream/descriptor` — identity is universal and outlives any
+  attachment, so `descriptor` has no failure outcome.
+- `attach!` consumes a portable descriptor and returns a handle on an
+  attachment to the **same** logical stream the descriptor names. Attaching
+  never creates.
+- A creation specification says how to build a stream. A descriptor only
+  names one — never executable code, never a construction program, never a
+  request to load a plugin.
+
+Streams are values that can be sent through streams — up to a serialization
+boundary. An in-memory stream holds references, so a handle can ride it
+intact, and an interpreter that receives a handle simply uses it —
+every operation takes a handle, and attaching to what you already hold
+is meaningless. But a handle does not survive encoding, and any
+transport that encodes its elements — a file as much as a network socket —
+is a serialization boundary. Descriptors exist for crossing those
+boundaries, where the live value cannot travel and a name must. (What a
+transport can carry is transport-owned: handing an encoding transport a
+value it cannot encode is reported as data like any other outcome.)
+`attach!` therefore consumes only descriptors, and
+resolves them against the transport's inherent operational state — the
+streams a network endpoint serves because serving them is what it is, the
+files a filesystem holds. There is no stream table in this contract: no
+registry maps descriptors to live handles, so a descriptor arriving
+somewhere with nothing behind it — a ring buffer's descriptor on any other
+host, or on its own host absent a directory some composition chose to keep —
+honestly resolves to `:dao.stream/not-found`.
+
+### Envelopes
+
+A **creation specification** is a map with one required key:
+
+- `:dao.stream/type` — a qualified keyword naming the transport. This is the
+  dispatch key.
+
+Every other key is transport-owned, qualified under the transport's namespace
+(for example a ring buffer's capacity), and validated by the selected handler
+— generic validation checks only the envelope, and a handler that rejects its
+own keys returns `:dao.stream/invalid-spec`.
+
+The **portable descriptor** is inspired by CORBA's interoperable object
+reference. Its exact definition is not designed yet; these properties are
+settled, and the key set that realizes them is TBD:
+
+- It carries `:dao.stream/type` — the transport, as above — as its dispatch
+  key.
+- It names exactly one logical stream, and that identity is stable: the same
+  descriptor attaches to the same stream every time.
+- It is self-contained. If the stream is remote, it contains whatever is
+  needed to connect — perhaps an IP address and port. The entry data is
+  transport-owned; a handler that cannot make sense of it returns
+  `:dao.stream/invalid-descriptor`.
+- A transport whose attachments are distinguishable carries
+  `:dao.stream/attachment` in its `attach!` success map — an opaque,
+  structurally serializable value naming this attachment, unique among the
+  attachments that transport can tell apart. Where a transport displaces an
+  answer onto another channel, the same value correlates that attachment's
+  events there. The key and this correlation rule are the contract's; minting
+  and representation are the transport's. Transports that cannot distinguish
+  attachments omit it.
+- Like an IOR, it may carry authorization: an optional `:dao.stream/shibi`
+  key holding Shibi capability tokens that gate whether an interpreter may
+  attach. Shibi is not yet designed or built; until it is, the key is
+  reserved, no attachment is gated, and the `:dao.stream/denied` outcome
+  reserved in the `attach!` table below is unreachable.
+
+For the time being, the operative guarantee is the round trip: `descriptor`
+on a live handle returns `:dao.stream/ok` with `:dao.stream/descriptor`,
+a value that can be sent on a stream and reconstructed on the other end,
+where `attach!` on the reconstructed value attaches to the stream it names —
+provided the receiving host can reach what it names at all (see Creation and
+Attachment on reachability), and allowing that a transport which cannot know
+that at call time reports it later as data.
+
+Both envelopes are plain data through and through: every value must survive
+the host serialization codec structurally unchanged, so equality is
+structural, and no key holds a function, a host object, a live handle, or
+identity smuggled in metadata. Like every DaoStream map, envelopes are open —
+a consumer ignores qualified keys it does not understand.
+
+`create!` outcomes:
+
+| Outcome                       | Meaning                                       | Required keys        |
+|-------------------------------|-----------------------------------------------|----------------------|
+| `:dao.stream/ok`              | A new logical stream exists, its identity settled at once. Implies not that every resource backing it has finished being acquired. | `:dao.stream/handle` |
+| `:dao.stream/invalid-spec`    | The creation specification is malformed.      | —                    |
+| `:dao.stream/not-found`       | No transport here matches `:dao.stream/type`. | —                    |
+| `:dao.stream/transport-error` | The handler failed.                           | —                    |
+
+`attach!` outcomes:
+
+| Outcome                          | Meaning                                                                             | Required keys        |
+|----------------------------------|-------------------------------------------------------------------------------------|----------------------|
+| `:dao.stream/ok`                 | A handle exists through which this attachment is operated. Implies neither that a far end has confirmed the stream it names nor that establishment has completed. Where either answer is one only the far end can give, it arrives later as data, on the channel the transport names (see Surfaces). | `:dao.stream/handle`, and `:dao.stream/attachment` where the transport distinguishes attachments |
+| `:dao.stream/invalid-descriptor` | The descriptor is malformed.                                                        | —                    |
+| `:dao.stream/not-found`          | The descriptor names no stream here, or no transport matches its type.              | —                    |
+| `:dao.stream/denied`             | Attachment refused by capability gating (reserved; unreachable until Shibi exists). | —                    |
+| `:dao.stream/transport-error`    | The handler failed.                                                                 | —                    |
+
+Where a transport acquires its medium through a process rather than at once —
+binding a port, opening a handle through an API that only answers later — `ok`
+still means the logical stream exists: its identity is minted, its sequence is
+empty, and the handle is operable. What it does not mean is that the stream can
+yet accept values. The handle reports that through its own operations, exactly
+as any other transient condition is reported, and the result of the acquisition
+arrives as data.
+
+This is permitted only where logical existence is genuinely independent of the
+resource. A transport that cannot mint identity and lifecycle before its
+acquisition completes is not creating a stream and deferring its medium; it is
+deferring the creation itself, and `ok` would be false. Such a transport does
+not implement `create!` — what it needs is a request whose result arrives
+later, which is an ordinary interpreter over streams, not an operation here.
+
+Creation defers differently from attachment, and the difference is why this is
+a caveat rather than a new outcome. `attach!` defers a **remote confirmation**:
+an answer only a far end can give, which is why it arrives as deposited data.
+`create!` has no far end. What it defers is **local acquisition**, whose
+failure surfaces through the handle the caller already holds. A "not yet"
+outcome would have to return no handle — leaving the caller an identity it
+cannot operate, and nothing to retry against.
+
+### Host Dispatch
+
+When a creation specification or portable descriptor arrives dynamically —
+for example off a stream — the host looks at it and dispatches on
+`:dao.stream/type`. The type resolves to a map that has the transport's
+`:dao.stream/create` and `:dao.stream/attach` implementations:
+
+```clojure
+{:dao.stream/ringbuffer {:dao.stream/create ringbuffer/create!
+                         :dao.stream/attach ringbuffer/attach!}
+ :dao.stream/ws         {:dao.stream/attach ws/attach!}}
+```
+
+The entries are per-transport and may be partial. A transport that creates
+no streams supplies no `:dao.stream/create` — the WebSocket transport owns
+no stream, it serves streams the host composed, so nothing there creates
+one. A creation specification naming it finds no create implementation and
+returns `:dao.stream/not-found`, the same answer as an absent transport and
+the correct one: nothing here creates that.
+
+Entry values are **host-composed**: ordinarily closures produced by a
+transport constructor that already received whatever composition state the
+transport needs — a boundary's deposit destination and its admission
+declaration, a directory some composition keeps. The bare vars above are
+schematic. A bare namespace var could reach that state only through namespace
+globals, which is the hidden state this contract retires.
+
+This table is ordinary data owned by the host, and the dispatch is an
+ordinary map lookup done by the host — DaoStream neither performs nor
+standardizes it. A host that cannot dispatch on `:dao.stream/type` returns
+`:dao.stream/not-found` — never creation or discovery.
+
+Code that knows its transport statically calls the transport's functions
+directly; no dispatch is involved. There is no ambient namespace-global
+registry and no namespace-load registration side effect.
+
+## Surfaces
+
+A handle implements the subset of the public surface its transport can
+honor — **reader** (`cursor`, `next`), **writer** (`append!`), **closable**
+(`close!`) — and the transport declares which. The Cursors, Reading, and
+Retention and Gaps sections govern handles with a reader surface only.
+
+`descriptor` belongs to no surface: every handle answers it, because identity
+is universal and outlives any attachment. An operation a handle does not
+declare is not part of that handle at all: there is nothing to call, so there
+is no operation for this contract to give an outcome. What a host does when
+asked for a method that is not there is the host's, and no transport may
+answer such a call with a DaoStream outcome map — an outcome would imply the
+operation exists.
+
+A transport may also offer operations of its own beside the public surface —
+answering a question this contract does not ask, such as how far a cursor
+trails the newest value. They are transport-owned, they are not DaoStream
+operations, and nothing here defines or constrains them. **Code written
+against this contract may not reach for one**: it must work on any transport
+declaring the surfaces it uses, and a transport-owned operation is by
+definition absent from some of them.
+
+An interpreter may still use one, on the same terms as any other thing a
+composition supplies. What it may not do is *find* it — reach through a handle
+for an operation the contract never promised, or dispatch on which transport
+it was given. It receives the operation as an ordinary argument from the
+composition that wired it, exactly as it receives the streams it reads and the
+policies it applies, and it then depends on a function it was handed rather
+than on a transport it detected. Such an interpreter is composed for a
+particular medium and says so; it is not contract-generic code, and nothing
+contract-generic may be built on it.
+
+The reader surface is a promise: the handle presents its elements as
+one positioned, append-only, retained sequence that cursors can observe and
+re-observe. A transport whose medium retains nothing cannot make that
+promise and has no reader surface: its inbound events are deposited by the
+host's adapter onto the stream the host composition wired for that boundary
+— where the reading model applies in full. The log lives beside such a
+transport, composed explicitly by the host, never hidden inside the
+transport. A deposit destination must admit every valid boundary event per
+its declared retention; wiring one that can refuse is a host assembly
+defect. (`dao.stream.ws.md` specifies one such transport and the admission
+rule in detail.)
+
+A boundary that can no longer deposit must make itself **observably gone**. Its
+one permitted action is closing the host resource it itself holds; it invokes
+nothing above itself, retries nothing, and interprets nothing. This is the sole
+action a boundary adapter takes beyond appending, and it is not a judgement
+about any event — it is the same action for every cause. One corner is
+irreducible: when the deposit that failed was the boundary's only channel, the
+record of its own departure has nowhere to land, and the failure is observable
+only to whoever holds the deposit result and through subsequent operations on
+the handle.
+
+A transport also declares **which outcomes it produces**, and for each one it
+excludes, why. There are three honest reasons: the outcome's precondition is
+impossible by the transport's nature (an unbounded log never evicts, so never
+reports `gap`); another policy answers the same condition, named (a ring buffer
+evicts rather than refusing, so pressure surfaces as a reported `gap` and never
+as `full`); or the answer is displaced to another channel, named (a transport
+that cannot know a remote answer at call time reports it as data elsewhere). An
+exclusion with no stated reason is an unimplemented outcome, not a declaration.
+
+### Where the asynchrony goes
+
+The IO Model makes this contract non-blocking; hosts are asynchronous
+whether or not it is. A network message arrives when the runtime says so, in
+a callback, on a thread or event loop DaoStream does not own. DaoStream does
+not pretend otherwise; it confines the inversion to one place. The host's
+boundary adapter *is* callback code, and its entire job is to `append!` what
+arrived. Past that append the event holds a position in a sequence, and
+every reader above observes it with its own cursor, in its own control flow,
+when it chooses.
+
+This is an un-inversion. The real cost of callback IO is not performance but
+that the inversion spreads through everything it touches; depositing into a
+retained sequence pays that cost once, at the boundary, and returns ordinary
+code to everyone above. The reader-surface rule above is the same thing
+stated structurally: a transport that retains nothing has no reader surface,
+and its inbound events are deposited onto a stream that does.
+
+## Cursors
+
+A cursor is an immutable value owned by the interpreter that holds it.
+
+- Cursors are minted by the stream: `cursor` on a handle takes an **anchor**
+  and returns `:dao.stream/ok` with `:dao.stream/cursor`. The contract
+  defines two anchors — `:dao.stream/oldest`, the earliest retained
+  position, and `:dao.stream/newest`, positioned after the newest appended
+  value so the first `next` observes the next value to arrive. A transport
+  whose medium is naturally addressable may accept additional
+  transport-owned anchors (a byte offset, a timestamp). An anchor that is
+  malformed or not honored by this transport yields
+  `:dao.stream/invalid-anchor`. On a handle whose attachment has closed,
+  `cursor` yields `:dao.stream/closed`; a handle on the logical stream
+  itself keeps minting cursors after close, so retained history remains
+  readable. Minting may have to consult the medium — locating the earliest
+  retained position on a durable log is itself a read — so where a
+  transport's reads can fail at runtime, minting can too, and `cursor`
+  yields `:dao.stream/transport-error` for it; a transport whose medium
+  cannot fail this way excludes the outcome like any other (see Surfaces).
+  `cursor`'s outcome set is therefore `:dao.stream/ok` (with
+  `:dao.stream/cursor`), `:dao.stream/invalid-anchor`,
+  `:dao.stream/closed`, and `:dao.stream/transport-error`.
+- Every valid cursor comes from the stream: minted by `cursor`, received as
+  a successor from `next`, or recovered from a gap outcome. Consumers never
+  construct cursor internals or fabricate positions — there is no `seek`. A
+  cursor's representation belongs to the transport.
+- A cursor binds to the logical stream, not to a handle: any handle on the
+  same logical stream accepts it, so a cursor handed to another interpreter
+  works with that interpreter's own handle. Whether a cursor survives
+  serialization to another host is transport-owned and TBD, like the
+  descriptor envelope.
+- A cursor carries enough identity to detect misuse — the mismatch outcomes
+  in the Reading table depend on it.
+- Advancing is receiving a successor cursor from `next`. The stream never
+  advances a reader; the stream holds no reader positions at all. Dropping a
+  cursor is how a reader detaches — there is nothing to unregister.
+- Because cursors are immutable values, a reader may retain an old cursor and
+  re-read retained history, or hand a cursor to another interpreter. What a
+  cursor can still observe is governed only by retention.
+
+## Reading
+
+`next` takes a handle and a cursor and returns an outcome immediately.
+It is total and non-blocking: every state of the stream has a defined data
+answer.
+
+| Outcome                       | Meaning                                                                       | Required keys                                                                           |
+|-------------------------------|-------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| `:dao.stream/ok`              | A value was observed.                                                         | `:dao.stream/value`, `:dao.stream/cursor` (successor)                                   |
+| `:dao.stream/blocked`         | Nothing at this position yet; retry later.                                    | —                                                                                       |
+| `:dao.stream/end`             | What this handle is on is closed and this position is past the retained tail. | —                                                                                       |
+| `:dao.stream/gap`             | This position was evicted.                                                    | `:dao.stream/cursor` (earliest retained position, or the tail when nothing is retained) |
+| `:dao.stream/cursor-mismatch` | The cursor was minted by a different logical stream.                          | —                                                                                       |
+| `:dao.stream/invalid-cursor`  | The value is not a cursor.                                                    | —                                                                                       |
+| `:dao.stream/transport-error` | The transport failed to perform the read; nothing was observed.               | —                                                                                       |
+
+Reading never mutates the stream. Two readers with cursors at the same
+position observe the same retained value; neither can starve or affect the
+other. There is no destructive read anywhere in the contract — no drain, no
+take. An operation that removes an element as it reads would make one
+reader's progress every other reader's data loss.
+
+## Writing
+
+`append!` takes a handle and a value and returns an outcome:
+
+| Outcome                       | Meaning                                                                                                                                              | Required keys |
+|-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|
+| `:dao.stream/ok`              | The value is accepted at the next position in the sequence this handle's writer surface is on. Implies neither local readability nor remote delivery. | —             |
+| `:dao.stream/full`            | The transport does not accept the value; nothing was appended. Whether this is transient or permanent is the transport's declared nature (see Retention and Gaps). | —             |
+| `:dao.stream/invalid-value`   | The transport cannot carry this value (for example, it cannot be encoded); nothing was appended.                                                     | —             |
+| `:dao.stream/closed`          | What this handle is on is closed to new appends; the value was not appended.                                                                         | —             |
+| `:dao.stream/transport-error` | The transport failed to perform the append; nothing was appended.                                                                                    | —             |
+
+Acceptance is handle-relative, as close outcomes are. **Which sequence** a
+handle's writer surface is on is part of the transport's declared nature: for a
+ring buffer it is the logical stream itself, so `ok` places the value in it; for
+a transport that carries values toward a stream elsewhere it is the ordered
+outbound path, and what becomes of the value at the far end is reported there,
+not here. No remote transport can say more — under *no operation waits*, an
+answer from the far end cannot arrive before `append!` returns.
+
+The writer decides what to do about any non-`ok` outcome; DaoStream does not
+retry, buffer, or notify on its behalf.
+
+## Close
+
+`close!` takes a handle and returns a map whose outcome set is `{ok}` — no
+other outcome exists for it. It is idempotent: closing an already-closed scope
+is also `:dao.stream/ok`.
+
+`ok` is the local lifecycle transition, not a report on releasing host
+resources: what the handle is on is closed from that moment, irrevocably.
+A transport whose close must also flush or release something that can fail
+declares where that failure surfaces — an ordinary deposit on a channel it
+names — because the outcome set has no room for it and the transition has
+already happened.
+
+`close!` closes **what the handle is on**. A handle that owns a stream — its
+creator, or its server-side host — closes the logical stream. An attached
+handle is on an attachment: closing it ends that attachment only — the
+stream persists, its descriptor remains valid, and `attach!` may rejoin
+later. Which scope a transport's handles carry is part of its declared
+nature.
+
+`:dao.stream/closed` and `:dao.stream/end` are handle-relative: they speak of
+what *this handle* is on. (Not every outcome is: `gap` is retention-relative
+and `cursor-mismatch` is logical-stream-relative.) After an attachment
+closes, the handle's `append!` answers `closed`; `descriptor` still answers
+`ok` — identity outlives any attachment; a reader surface, where the
+handle has one, answers `end` from `next` once observation through this
+handle is exhausted, and `closed` from `cursor` — no new cursors are
+minted through a closed attachment. Cursors bind to the logical stream,
+not to a handle, so a kept cursor resumes through a newly attached handle.
+
+Closing an attachment freezes what that handle can still observe: values
+appended to the logical stream afterwards are not observable through it, so
+`end` is reached at the position the stream had reached when the attachment
+closed. And a logical stream that has itself been closed remains attachable —
+`attach!` answers `ok` and the new handle reads retained history to `end` —
+because close changes future availability, not identity or reachability.
+
+Closing the logical stream changes future availability only:
+
+- Subsequent `append!` returns `:dao.stream/closed`.
+- A reader that exhausts retained history receives `:dao.stream/end` instead
+  of `:dao.stream/blocked`.
+- Retained history remains readable. Close erases nothing; eviction is a
+  retention concern, not a lifecycle one.
+
+There is no `closed?` predicate in the public surface. Operation results are
+authoritative; a predicate answer is stale the moment it is returned.
+
+## Concurrency
+
+Each logical stream is one append-only sequence, and a handle's writer
+surface is on exactly one sequence — for some transports the logical stream
+itself, for others the ordered outbound path toward a stream elsewhere (see
+Writing). A successfully appended value occupies exactly one definite position
+in the sequence this handle's writer surface is on, and every operation's
+outcome reflects that sequence at one moment. DaoStream guarantees nothing
+further about concurrent operations.
+
+This follows from Axiom 2. The sequence a handle's surfaces are on is the one
+truth for that handle; each outcome is one perspective on it at one moment. A
+reader that observes
+`:dao.stream/blocked` and then a value has not caught the stream in a
+contradiction — it made two observations from its own cursor, and no global
+view exists to contradict. Whether an append landed before a close is
+answered by the sequence the handle's writer surface is on — the value has a
+position in it or it does not — and where that sequence is not observable from
+this handle, the answer is read where it is.
+What an ordering between writers *means*, and any coordination among them —
+a merge interpreter, a one-log-per-writer discipline — is interpretation,
+and interpretation happens above the stream.
+
+## Retention and Gaps
+
+Retention and overflow behavior are transport-owned and form part of the
+stream or writer surface's declared nature; a locally created stream records
+them through its creation specification. A ring buffer retains a bounded window and evicts
+the oldest; a file or append-only log retains everything; a network send
+buffer refuses transiently. Which outcomes a given stream can produce —
+`full` on append, `gap` on read — and whether its `full` is transient or
+permanent follow from the transport's declared nature. DaoStream names the
+outcomes and standardizes no policy.
+
+**Eviction never waits on a reader.** Retention is the stream's own declared
+policy and applies whatever any reader is doing — a stream holds no reader
+positions, so it cannot be held back by a slow one. A transport that deferred
+eviction until every reader had passed a position would make one reader's
+absence every other reader's unbounded growth: a single stalled or departed
+reader would hold the stream open forever, and a hostile one could do it
+deliberately. Bounded retention is bounded, and a reader that falls behind is
+told what it missed.
+
+When bounded retention evicts a value, a cursor still pointing at it gets the
+gap outcome from the Reading table. The stream reports honestly and decides
+nothing: an interpreter replaying a log may treat a gap as fatal; a live
+telemetry viewer may adopt the returned cursor and continue. Silently
+skipping evicted history is forbidden — a reader must be able to know it
+missed values.
+
+## Composition
+
+DaoStream defines only streams, cursors, and the operations above. Anything
+that transforms one stream into another is an interpreter — it reads via its
+own cursor and appends to an ordinary output stream — and that lives entirely
+outside this contract, needing no support from it. As in a Unix pipeline, the
+pipe is dumb; the transforming happens in the processes on either end.
+
+## Explicitly Absent
+
+Absent from the public surface, by derivation from the invariants:
+
+- **an ambient registry** — a namespace-global dispatch table, or registration
+  as a load-time side effect. Host dispatch is ordinary data the host owns.
+- **a `closed?` predicate** — a predicate answer is stale the moment it
+  returns; operation results are authoritative.
+- **destructive reads** — a read that removes what it observes makes one
+  reader's progress every other reader's data loss.
+- **`seek`** — every valid cursor comes from the stream; anchored minting and
+  kept cursors cover repositioning.
+- **a blocking take** — no operation waits.
+- **waiter registration** — there is no readiness extension.
+- **throwing conveniences** — operational outcomes are data.
+
+codex
+The lease draft itself is not present under `docs/design` in this workspace, so I’m treating the task’s quoted prior decisions as the lease-draft baseline. I found the reserved Shibi surface and am now checking its exact limits, especially who authenticates a claim versus who enforces it.
+exec
+/bin/zsh -lc "sed -n '1,240p' docs/design/dao.stream.md; sed -n '241,480p' docs/design/dao.stream.md; sed -n '481,700p' docs/design/dao.stream.md; sed -n '1,280p' docs/design/dao.stream.discovery.md; sed -n '1,180p' docs/design/dao.space.security.md" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+# DaoStream Design
+
+Status: agreed design target. This document is the DaoStream contract. It does
+not redesign Yin.VM. Yin.VM is a downstream consumer and will be addressed only
+after this contract is implemented and tested.
+
+## Purpose
+
+This contract derives from the foundational axioms and non-negotiable
+invariants of [`datom.world.md`](./datom.world.md). Two axioms bear on it
+directly, named here once so the sections below can cite rather than restate
+them:
+
+1. **Everything is a Stream** — all IO and data flow through append-only
+   streams.
+2. **Interpretation Creates Semantics** — data is syntax; semantics emerge
+   only through interpretation. One truth, many perspectives.
+
+DaoStream is the passive substrate for IO in datom.world — passive because
+interpretation and execution must not collapse into one layer. Axiom 1 is
+what makes this the layer every host boundary crosses. A stream carries
+values and decides nothing about them:
+
+- **What the values mean** is not its business — Axiom 2. An element
+  judged, filtered, or typed at this layer destroys the perspectives nobody
+  has taken yet.
+- **Which interpreter observes them** is not recorded — a registry of who
+  is listening would be hidden global state.
+- **When an interpreter runs** is not its decision — "do not introduce
+  callbacks; every callback is events on a stream", seen from the stream's
+  side: DaoStream invokes nothing, so control is never inverted and
+  causality stays explicit (see The IO Model).
+
+The Invariants below are these denials in operational form.
+
+The design separates four concepts:
+
+1. A **creation specification** is data for creating a new logical stream.
+2. A **handle** is a host-local operational stream value — the
+   implementation of the `dao.stream` protocols.
+3. A **portable descriptor** is data used to attach to an existing stream.
+4. A **cursor** is immutable interpreter-owned observation state for one
+   logical stream.
+
+Creation is not attachment. A descriptor is not a creation specification. A
+handle is not portable identity. A cursor is not handle-owned state.
+
+Seven operations range over them, each returning an outcome map (see
+Result Convention):
+
+| Operation    | Consumes               | Yields             |
+|--------------|------------------------|--------------------|
+| `create!`    | creation specification | handle outcome     |
+| `attach!`    | portable descriptor    | handle outcome     |
+| `descriptor` | handle                 | descriptor outcome |
+| `cursor`     | handle, anchor         | cursor outcome     |
+| `next`       | handle, cursor         | read outcome       |
+| `append!`    | handle, value          | write outcome      |
+| `close!`     | handle                 | close outcome      |
+
+A handle implements the subset of the **handle surface** its transport
+declares (see Surfaces). `create!` and `attach!` are not part of it: they
+consume no handle and produce one.
+
+## Invariants
+
+- Stream elements are data. DaoStream assigns them no intrinsic meaning.
+- Reading is non-destructive. A reader advances its own cursor, not the stream.
+- Multiple cursors may observe the same retained value independently.
+- Interpreters own cursors and decide when to call `next`.
+- A runtime may drive an interpreter, but DaoStream does not require a runtime.
+- Closing a stream changes future availability but does not itself erase
+  retained history.
+- Retention may be bounded. A cursor over evicted history receives a gap
+  outcome as data; the reader decides what missing data means.
+- All expected operational outcomes are data, not exceptions or callbacks.
+- No operation waits. Every operation returns what is true at the moment it is
+  called; an answer not yet knowable arrives later as data.
+- No hidden global state. DaoStream keeps no registry of streams, handles, or
+  observers, and no operation consults ambient state.
+- A logical stream has an identity that is plain data, the same through every
+  handle on it, stable across attachment lifecycles and across serialization.
+  Projecting that identity never fails.
+
+Every clause below must be consistent with these invariants, and most derive
+from one directly. Where a clause is instead an interoperability decision — the
+descriptor's properties, the result keyword namespace, the anchor set — it is
+stated as a decision rather than dressed as a deduction. A proposed addition
+that contradicts an invariant does not belong in this contract; one that merely
+cannot be deduced from them must say which decision it is and why.
+
+## Result Convention
+
+Every DaoStream operation returns data.
+
+- Each operation's set of outcomes is **exhaustive**: a transport may produce
+  fewer of them, never any outside the set. Which subset it produces is part of
+  its declared nature (see Surfaces). An outcome is a map whose
+  `:dao.stream/outcome` key names the outcome with a qualified keyword. Every
+  operation returns such a map — including projections like `descriptor` and
+  `cursor`, whose success map carries the projected value.
+- `:dao.stream/outcome` is present in every result map and is never repeated
+  in the per-outcome tables below; the keys those tables name are required in
+  addition to it.
+- Result maps are **open**: the contract fixes which keys are required per
+  outcome, and a consumer must ignore keys it does not understand. This is
+  what allows future extensions (for example readiness notification) to be
+  added without breaking existing consumers.
+- Exceptions are reserved for defects in the host's own assembly of
+  DaoStream, detected before any operation runs. Everything observable at an
+  operation returns data: closed, full, blocked, end, gap, not found,
+  malformed input, and transport defects are all outcomes, never exceptions
+  and never callbacks.
+- All qualified keywords in results live under `:dao.stream/…`.
+
+## The IO Model
+
+Three models are available for expressing IO. DaoStream is deliberately the
+third.
+
+**Blocking (synchronous) IO.** The operation parks until it has an answer,
+then returns it. Control flow stays sequential and the call site reads as
+ordinary code, which is the whole of its appeal. The cost is that something
+must wait — a thread per pending operation, held for its duration — and it
+requires a host that can park at all.
+
+**Callback (asynchronous) IO.** The operation registers a continuation and
+returns at once; the runtime invokes the continuation when the answer
+arrives. Nothing waits, so one thread carries many pending operations: this
+is the model that scales. Its cost is inverted control. The caller no longer
+decides when it observes the answer, and the inversion is viral — on a host
+without blocking, a promise cannot be absorbed inside a function, because
+awaiting returns to the caller at the first suspension point and makes the
+caller's own result a promise in turn. Whatever is reached from a callback
+is reached from a callback.
+
+**Non-blocking polling.** The operation returns immediately with whatever is
+true now, including the answer "nothing yet, ask again." Nothing parks and
+nothing is inverted: the caller keeps control and decides when to ask again.
+This is POSIX `O_NONBLOCK` without `select`, and it is DaoStream's model.
+
+`next` is total and non-blocking (see Reading): every state of the stream
+has a defined data answer, and `:dao.stream/blocked` is `EAGAIN` — this
+position holds nothing yet. `append!`'s `:dao.stream/full` is the same
+answer for writes. No operation in this contract parks, and none takes a
+callback; the Result Convention's "never exceptions and never callbacks" is
+this model stated as a rule about results.
+
+The rule generalizes past `next`: **no operation waits.** An operation that
+cannot yet know its answer returns the outcome true at the moment it is
+called, and the eventual answer arrives the way every other fact does — as
+data, observed later, through an ordinary operation or on a stream. A
+DaoStream operation is never a request for something to happen and be
+reported back. It is a question about now.
+
+### Why this model and not the other two
+
+The hosts do not offer the same choices. The JVM has both blocking and
+asynchronous IO. JavaScript and Dart have only the asynchronous kind: there
+is no blocking read to call and no way to wait for one, because the single
+event loop that would deliver the answer is the one a waiting call would be
+occupying — waiting deadlocks rather than merely costing a thread.
+
+A blocking contract is therefore unimplementable on most of the targets. A
+callback contract is implementable on all of them and inverts control on all
+of them, including the host that never needed it. Non-blocking polling is
+the only one of the three that means the same thing everywhere — the same
+operations, the same outcome sets, the same control flow — which is what
+lets one surface serve clj, cljs, and cljd without the shape of the API
+differing by host.
+
+### What it costs
+
+Polling without readiness notification is O(n) in streams observed: a reader
+holding ten thousand idle streams must ask all ten thousand to learn which
+have data. This is `select` without `select`, and it is a real limit rather
+than an oversight — the extension that answers it is reserved below. The
+cost also lands where it can be paid: DaoStream schedules nothing, so
+cadence belongs to the runtime driving the interpreters, and a readiness
+mechanism belongs there too.
+
+### The readiness extension
+
+This contract has no readiness or waiter extension. A reader that receives
+`:dao.stream/blocked` retries `next` when it chooses; retry cadence is the
+concern of the interpreter or the runtime driving it, not of the stream.
+
+A future readiness extension would be additive: an optional protocol on
+transports that support it, plus optional keys in operation results (for
+example a wake token list on `append!`), which the open-map rule already
+permits. Nothing in this contract needs to change for that; no consumer of
+this contract may depend on it existing.
+
+## Creation and Attachment
+
+Creation brings a new logical stream into existence. Attachment joins an
+existing one. They are separate operations with separate inputs.
+
+- `create!` consumes a creation specification and returns a handle on a
+  new logical stream. The handle's portable identity is available as a
+  descriptor via `descriptor`, whose outcome set is `{ok}` with
+  `:dao.stream/descriptor` — identity is universal and outlives any
+  attachment, so `descriptor` has no failure outcome.
+- `attach!` consumes a portable descriptor and returns a handle on an
+  attachment to the **same** logical stream the descriptor names. Attaching
+  never creates.
+- A creation specification says how to build a stream. A descriptor only
+  names one — never executable code, never a construction program, never a
+  request to load a plugin.
+
+Streams are values that can be sent through streams — up to a serialization
+boundary. An in-memory stream holds references, so a handle can ride it
+intact, and an interpreter that receives a handle simply uses it —
+every operation takes a handle, and attaching to what you already hold
+is meaningless. But a handle does not survive encoding, and any
+transport that encodes its elements — a file as much as a network socket —
+is a serialization boundary. Descriptors exist for crossing those
+boundaries, where the live value cannot travel and a name must. (What a
+transport can carry is transport-owned: handing an encoding transport a
+value it cannot encode is reported as data like any other outcome.)
+`attach!` therefore consumes only descriptors, and
+resolves them against the transport's inherent operational state — the
+streams a network endpoint serves because serving them is what it is, the
+files a filesystem holds. There is no stream table in this contract: no
+registry maps descriptors to live handles, so a descriptor arriving
+somewhere with nothing behind it — a ring buffer's descriptor on any other
+host, or on its own host absent a directory some composition chose to keep —
+honestly resolves to `:dao.stream/not-found`.
+
+### Envelopes
+
+A **creation specification** is a map with one required key:
+
+- `:dao.stream/type` — a qualified keyword naming the transport. This is the
+  dispatch key.
+
+Every other key is transport-owned, qualified under the transport's namespace
+(for example a ring buffer's capacity), and validated by the selected handler
+— generic validation checks only the envelope, and a handler that rejects its
+own keys returns `:dao.stream/invalid-spec`.
+
+The **portable descriptor** is inspired by CORBA's interoperable object
+reference. Its exact definition is not designed yet; these properties are
+settled, and the key set that realizes them is TBD:
+
+- It carries `:dao.stream/type` — the transport, as above — as its dispatch
+  key.
+- It names exactly one logical stream, and that identity is stable: the same
+  descriptor attaches to the same stream every time.
+- It is self-contained. If the stream is remote, it contains whatever is
+  needed to connect — perhaps an IP address and port. The entry data is
+  transport-owned; a handler that cannot make sense of it returns
+  `:dao.stream/invalid-descriptor`.
+- A transport whose attachments are distinguishable carries
+  `:dao.stream/attachment` in its `attach!` success map — an opaque,
+  structurally serializable value naming this attachment, unique among the
+  attachments that transport can tell apart. Where a transport displaces an
+  answer onto another channel, the same value correlates that attachment's
+  events there. The key and this correlation rule are the contract's; minting
+  and representation are the transport's. Transports that cannot distinguish
+  attachments omit it.
+- Like an IOR, it may carry authorization: an optional `:dao.stream/shibi`
+  key holding Shibi capability tokens that gate whether an interpreter may
+  attach. Shibi is not yet designed or built; until it is, the key is
+  reserved, no attachment is gated, and the `:dao.stream/denied` outcome
+  reserved in the `attach!` table below is unreachable.
+
+For the time being, the operative guarantee is the round trip: `descriptor`
+on a live handle returns `:dao.stream/ok` with `:dao.stream/descriptor`,
+a value that can be sent on a stream and reconstructed on the other end,
+where `attach!` on the reconstructed value attaches to the stream it names —
+provided the receiving host can reach what it names at all (see Creation and
+Attachment on reachability), and allowing that a transport which cannot know
+that at call time reports it later as data.
+
+Both envelopes are plain data through and through: every value must survive
+the host serialization codec structurally unchanged, so equality is
+structural, and no key holds a function, a host object, a live handle, or
+identity smuggled in metadata. Like every DaoStream map, envelopes are open —
+a consumer ignores qualified keys it does not understand.
+
+`create!` outcomes:
+
+| Outcome                       | Meaning                                       | Required keys        |
+|-------------------------------|-----------------------------------------------|----------------------|
+| `:dao.stream/ok`              | A new logical stream exists, its identity settled at once. Implies not that every resource backing it has finished being acquired. | `:dao.stream/handle` |
+| `:dao.stream/invalid-spec`    | The creation specification is malformed.      | —                    |
+| `:dao.stream/not-found`       | No transport here matches `:dao.stream/type`. | —                    |
+| `:dao.stream/transport-error` | The handler failed.                           | —                    |
+
+`attach!` outcomes:
+
+| Outcome                          | Meaning                                                                             | Required keys        |
+|----------------------------------|-------------------------------------------------------------------------------------|----------------------|
+| `:dao.stream/ok`                 | A handle exists through which this attachment is operated. Implies neither that a far end has confirmed the stream it names nor that establishment has completed. Where either answer is one only the far end can give, it arrives later as data, on the channel the transport names (see Surfaces). | `:dao.stream/handle`, and `:dao.stream/attachment` where the transport distinguishes attachments |
+| `:dao.stream/invalid-descriptor` | The descriptor is malformed.                                                        | —                    |
+| `:dao.stream/not-found`          | The descriptor names no stream here, or no transport matches its type.              | —                    |
+| `:dao.stream/denied`             | Attachment refused by capability gating (reserved; unreachable until Shibi exists). | —                    |
+| `:dao.stream/transport-error`    | The handler failed.                                                                 | —                    |
+
+Where a transport acquires its medium through a process rather than at once —
+binding a port, opening a handle through an API that only answers later — `ok`
+still means the logical stream exists: its identity is minted, its sequence is
+empty, and the handle is operable. What it does not mean is that the stream can
+yet accept values. The handle reports that through its own operations, exactly
+as any other transient condition is reported, and the result of the acquisition
+arrives as data.
+
+This is permitted only where logical existence is genuinely independent of the
+resource. A transport that cannot mint identity and lifecycle before its
+acquisition completes is not creating a stream and deferring its medium; it is
+deferring the creation itself, and `ok` would be false. Such a transport does
+not implement `create!` — what it needs is a request whose result arrives
+later, which is an ordinary interpreter over streams, not an operation here.
+
+Creation defers differently from attachment, and the difference is why this is
+a caveat rather than a new outcome. `attach!` defers a **remote confirmation**:
+an answer only a far end can give, which is why it arrives as deposited data.
+`create!` has no far end. What it defers is **local acquisition**, whose
+failure surfaces through the handle the caller already holds. A "not yet"
+outcome would have to return no handle — leaving the caller an identity it
+cannot operate, and nothing to retry against.
+
+### Host Dispatch
+
+When a creation specification or portable descriptor arrives dynamically —
+for example off a stream — the host looks at it and dispatches on
+`:dao.stream/type`. The type resolves to a map that has the transport's
+`:dao.stream/create` and `:dao.stream/attach` implementations:
+
+```clojure
+{:dao.stream/ringbuffer {:dao.stream/create ringbuffer/create!
+                         :dao.stream/attach ringbuffer/attach!}
+ :dao.stream/ws         {:dao.stream/attach ws/attach!}}
+```
+
+The entries are per-transport and may be partial. A transport that creates
+no streams supplies no `:dao.stream/create` — the WebSocket transport owns
+no stream, it serves streams the host composed, so nothing there creates
+one. A creation specification naming it finds no create implementation and
+returns `:dao.stream/not-found`, the same answer as an absent transport and
+the correct one: nothing here creates that.
+
+Entry values are **host-composed**: ordinarily closures produced by a
+transport constructor that already received whatever composition state the
+transport needs — a boundary's deposit destination and its admission
+declaration, a directory some composition keeps. The bare vars above are
+schematic. A bare namespace var could reach that state only through namespace
+globals, which is the hidden state this contract retires.
+
+This table is ordinary data owned by the host, and the dispatch is an
+ordinary map lookup done by the host — DaoStream neither performs nor
+standardizes it. A host that cannot dispatch on `:dao.stream/type` returns
+`:dao.stream/not-found` — never creation or discovery.
+
+Code that knows its transport statically calls the transport's functions
+directly; no dispatch is involved. There is no ambient namespace-global
+registry and no namespace-load registration side effect.
+
+## Surfaces
+
+A handle implements the subset of the public surface its transport can
+honor — **reader** (`cursor`, `next`), **writer** (`append!`), **closable**
+(`close!`) — and the transport declares which. The Cursors, Reading, and
+Retention and Gaps sections govern handles with a reader surface only.
+
+`descriptor` belongs to no surface: every handle answers it, because identity
+is universal and outlives any attachment. An operation a handle does not
+declare is not part of that handle at all: there is nothing to call, so there
+is no operation for this contract to give an outcome. What a host does when
+asked for a method that is not there is the host's, and no transport may
+answer such a call with a DaoStream outcome map — an outcome would imply the
+operation exists.
+
+A transport may also offer operations of its own beside the public surface —
+answering a question this contract does not ask, such as how far a cursor
+trails the newest value. They are transport-owned, they are not DaoStream
+operations, and nothing here defines or constrains them. **Code written
+against this contract may not reach for one**: it must work on any transport
+declaring the surfaces it uses, and a transport-owned operation is by
+definition absent from some of them.
+
+An interpreter may still use one, on the same terms as any other thing a
+composition supplies. What it may not do is *find* it — reach through a handle
+for an operation the contract never promised, or dispatch on which transport
+it was given. It receives the operation as an ordinary argument from the
+composition that wired it, exactly as it receives the streams it reads and the
+policies it applies, and it then depends on a function it was handed rather
+than on a transport it detected. Such an interpreter is composed for a
+particular medium and says so; it is not contract-generic code, and nothing
+contract-generic may be built on it.
+
+The reader surface is a promise: the handle presents its elements as
+one positioned, append-only, retained sequence that cursors can observe and
+re-observe. A transport whose medium retains nothing cannot make that
+promise and has no reader surface: its inbound events are deposited by the
+host's adapter onto the stream the host composition wired for that boundary
+— where the reading model applies in full. The log lives beside such a
+transport, composed explicitly by the host, never hidden inside the
+transport. A deposit destination must admit every valid boundary event per
+its declared retention; wiring one that can refuse is a host assembly
+defect. (`dao.stream.ws.md` specifies one such transport and the admission
+rule in detail.)
+
+A boundary that can no longer deposit must make itself **observably gone**. Its
+one permitted action is closing the host resource it itself holds; it invokes
+nothing above itself, retries nothing, and interprets nothing. This is the sole
+action a boundary adapter takes beyond appending, and it is not a judgement
+about any event — it is the same action for every cause. One corner is
+irreducible: when the deposit that failed was the boundary's only channel, the
+record of its own departure has nowhere to land, and the failure is observable
+only to whoever holds the deposit result and through subsequent operations on
+the handle.
+
+A transport also declares **which outcomes it produces**, and for each one it
+excludes, why. There are three honest reasons: the outcome's precondition is
+impossible by the transport's nature (an unbounded log never evicts, so never
+reports `gap`); another policy answers the same condition, named (a ring buffer
+evicts rather than refusing, so pressure surfaces as a reported `gap` and never
+as `full`); or the answer is displaced to another channel, named (a transport
+that cannot know a remote answer at call time reports it as data elsewhere). An
+exclusion with no stated reason is an unimplemented outcome, not a declaration.
+
+### Where the asynchrony goes
+
+The IO Model makes this contract non-blocking; hosts are asynchronous
+whether or not it is. A network message arrives when the runtime says so, in
+a callback, on a thread or event loop DaoStream does not own. DaoStream does
+not pretend otherwise; it confines the inversion to one place. The host's
+boundary adapter *is* callback code, and its entire job is to `append!` what
+arrived. Past that append the event holds a position in a sequence, and
+every reader above observes it with its own cursor, in its own control flow,
+when it chooses.
+
+This is an un-inversion. The real cost of callback IO is not performance but
+that the inversion spreads through everything it touches; depositing into a
+retained sequence pays that cost once, at the boundary, and returns ordinary
+code to everyone above. The reader-surface rule above is the same thing
+stated structurally: a transport that retains nothing has no reader surface,
+and its inbound events are deposited onto a stream that does.
+
+## Cursors
+
+A cursor is an immutable value owned by the interpreter that holds it.
+
+- Cursors are minted by the stream: `cursor` on a handle takes an **anchor**
+  and returns `:dao.stream/ok` with `:dao.stream/cursor`. The contract
+  defines two anchors — `:dao.stream/oldest`, the earliest retained
+  position, and `:dao.stream/newest`, positioned after the newest appended
+  value so the first `next` observes the next value to arrive. A transport
+  whose medium is naturally addressable may accept additional
+  transport-owned anchors (a byte offset, a timestamp). An anchor that is
+  malformed or not honored by this transport yields
+  `:dao.stream/invalid-anchor`. On a handle whose attachment has closed,
+  `cursor` yields `:dao.stream/closed`; a handle on the logical stream
+  itself keeps minting cursors after close, so retained history remains
+  readable. Minting may have to consult the medium — locating the earliest
+  retained position on a durable log is itself a read — so where a
+  transport's reads can fail at runtime, minting can too, and `cursor`
+  yields `:dao.stream/transport-error` for it; a transport whose medium
+  cannot fail this way excludes the outcome like any other (see Surfaces).
+  `cursor`'s outcome set is therefore `:dao.stream/ok` (with
+  `:dao.stream/cursor`), `:dao.stream/invalid-anchor`,
+  `:dao.stream/closed`, and `:dao.stream/transport-error`.
+- Every valid cursor comes from the stream: minted by `cursor`, received as
+  a successor from `next`, or recovered from a gap outcome. Consumers never
+  construct cursor internals or fabricate positions — there is no `seek`. A
+  cursor's representation belongs to the transport.
+- A cursor binds to the logical stream, not to a handle: any handle on the
+  same logical stream accepts it, so a cursor handed to another interpreter
+  works with that interpreter's own handle. Whether a cursor survives
+  serialization to another host is transport-owned and TBD, like the
+  descriptor envelope.
+- A cursor carries enough identity to detect misuse — the mismatch outcomes
+  in the Reading table depend on it.
+- Advancing is receiving a successor cursor from `next`. The stream never
+  advances a reader; the stream holds no reader positions at all. Dropping a
+  cursor is how a reader detaches — there is nothing to unregister.
+- Because cursors are immutable values, a reader may retain an old cursor and
+  re-read retained history, or hand a cursor to another interpreter. What a
+  cursor can still observe is governed only by retention.
+
+## Reading
+
+`next` takes a handle and a cursor and returns an outcome immediately.
+It is total and non-blocking: every state of the stream has a defined data
+answer.
+
+| Outcome                       | Meaning                                                                       | Required keys                                                                           |
+|-------------------------------|-------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| `:dao.stream/ok`              | A value was observed.                                                         | `:dao.stream/value`, `:dao.stream/cursor` (successor)                                   |
+| `:dao.stream/blocked`         | Nothing at this position yet; retry later.                                    | —                                                                                       |
+| `:dao.stream/end`             | What this handle is on is closed and this position is past the retained tail. | —                                                                                       |
+| `:dao.stream/gap`             | This position was evicted.                                                    | `:dao.stream/cursor` (earliest retained position, or the tail when nothing is retained) |
+| `:dao.stream/cursor-mismatch` | The cursor was minted by a different logical stream.                          | —                                                                                       |
+| `:dao.stream/invalid-cursor`  | The value is not a cursor.                                                    | —                                                                                       |
+| `:dao.stream/transport-error` | The transport failed to perform the read; nothing was observed.               | —                                                                                       |
+
+Reading never mutates the stream. Two readers with cursors at the same
+position observe the same retained value; neither can starve or affect the
+other. There is no destructive read anywhere in the contract — no drain, no
+take. An operation that removes an element as it reads would make one
+reader's progress every other reader's data loss.
+
+## Writing
+
+`append!` takes a handle and a value and returns an outcome:
+
+| Outcome                       | Meaning                                                                                                                                              | Required keys |
+|-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|
+| `:dao.stream/ok`              | The value is accepted at the next position in the sequence this handle's writer surface is on. Implies neither local readability nor remote delivery. | —             |
+| `:dao.stream/full`            | The transport does not accept the value; nothing was appended. Whether this is transient or permanent is the transport's declared nature (see Retention and Gaps). | —             |
+| `:dao.stream/invalid-value`   | The transport cannot carry this value (for example, it cannot be encoded); nothing was appended.                                                     | —             |
+| `:dao.stream/closed`          | What this handle is on is closed to new appends; the value was not appended.                                                                         | —             |
+| `:dao.stream/transport-error` | The transport failed to perform the append; nothing was appended.                                                                                    | —             |
+
+Acceptance is handle-relative, as close outcomes are. **Which sequence** a
+handle's writer surface is on is part of the transport's declared nature: for a
+ring buffer it is the logical stream itself, so `ok` places the value in it; for
+a transport that carries values toward a stream elsewhere it is the ordered
+outbound path, and what becomes of the value at the far end is reported there,
+not here. No remote transport can say more — under *no operation waits*, an
+answer from the far end cannot arrive before `append!` returns.
+
+The writer decides what to do about any non-`ok` outcome; DaoStream does not
+retry, buffer, or notify on its behalf.
+
+## Close
+
+`close!` takes a handle and returns a map whose outcome set is `{ok}` — no
+other outcome exists for it. It is idempotent: closing an already-closed scope
+is also `:dao.stream/ok`.
+
+`ok` is the local lifecycle transition, not a report on releasing host
+resources: what the handle is on is closed from that moment, irrevocably.
+A transport whose close must also flush or release something that can fail
+declares where that failure surfaces — an ordinary deposit on a channel it
+names — because the outcome set has no room for it and the transition has
+already happened.
+
+`close!` closes **what the handle is on**. A handle that owns a stream — its
+creator, or its server-side host — closes the logical stream. An attached
+handle is on an attachment: closing it ends that attachment only — the
+stream persists, its descriptor remains valid, and `attach!` may rejoin
+later. Which scope a transport's handles carry is part of its declared
+nature.
+
+`:dao.stream/closed` and `:dao.stream/end` are handle-relative: they speak of
+what *this handle* is on. (Not every outcome is: `gap` is retention-relative
+and `cursor-mismatch` is logical-stream-relative.) After an attachment
+closes, the handle's `append!` answers `closed`; `descriptor` still answers
+`ok` — identity outlives any attachment; a reader surface, where the
+handle has one, answers `end` from `next` once observation through this
+handle is exhausted, and `closed` from `cursor` — no new cursors are
+minted through a closed attachment. Cursors bind to the logical stream,
+not to a handle, so a kept cursor resumes through a newly attached handle.
+
+Closing an attachment freezes what that handle can still observe: values
+appended to the logical stream afterwards are not observable through it, so
+`end` is reached at the position the stream had reached when the attachment
+closed. And a logical stream that has itself been closed remains attachable —
+`attach!` answers `ok` and the new handle reads retained history to `end` —
+because close changes future availability, not identity or reachability.
+
+Closing the logical stream changes future availability only:
+
+- Subsequent `append!` returns `:dao.stream/closed`.
+- A reader that exhausts retained history receives `:dao.stream/end` instead
+  of `:dao.stream/blocked`.
+- Retained history remains readable. Close erases nothing; eviction is a
+  retention concern, not a lifecycle one.
+
+There is no `closed?` predicate in the public surface. Operation results are
+authoritative; a predicate answer is stale the moment it is returned.
+
+## Concurrency
+
+Each logical stream is one append-only sequence, and a handle's writer
+surface is on exactly one sequence — for some transports the logical stream
+itself, for others the ordered outbound path toward a stream elsewhere (see
+Writing). A successfully appended value occupies exactly one definite position
+in the sequence this handle's writer surface is on, and every operation's
+outcome reflects that sequence at one moment. DaoStream guarantees nothing
+further about concurrent operations.
+
+This follows from Axiom 2. The sequence a handle's surfaces are on is the one
+truth for that handle; each outcome is one perspective on it at one moment. A
+reader that observes
+`:dao.stream/blocked` and then a value has not caught the stream in a
+contradiction — it made two observations from its own cursor, and no global
+view exists to contradict. Whether an append landed before a close is
+answered by the sequence the handle's writer surface is on — the value has a
+position in it or it does not — and where that sequence is not observable from
+this handle, the answer is read where it is.
+What an ordering between writers *means*, and any coordination among them —
+a merge interpreter, a one-log-per-writer discipline — is interpretation,
+and interpretation happens above the stream.
+
+## Retention and Gaps
+
+Retention and overflow behavior are transport-owned and form part of the
+stream or writer surface's declared nature; a locally created stream records
+them through its creation specification. A ring buffer retains a bounded window and evicts
+the oldest; a file or append-only log retains everything; a network send
+buffer refuses transiently. Which outcomes a given stream can produce —
+`full` on append, `gap` on read — and whether its `full` is transient or
+permanent follow from the transport's declared nature. DaoStream names the
+outcomes and standardizes no policy.
+
+**Eviction never waits on a reader.** Retention is the stream's own declared
+policy and applies whatever any reader is doing — a stream holds no reader
+positions, so it cannot be held back by a slow one. A transport that deferred
+eviction until every reader had passed a position would make one reader's
+absence every other reader's unbounded growth: a single stalled or departed
+reader would hold the stream open forever, and a hostile one could do it
+deliberately. Bounded retention is bounded, and a reader that falls behind is
+told what it missed.
+
+When bounded retention evicts a value, a cursor still pointing at it gets the
+gap outcome from the Reading table. The stream reports honestly and decides
+nothing: an interpreter replaying a log may treat a gap as fatal; a live
+telemetry viewer may adopt the returned cursor and continue. Silently
+skipping evicted history is forbidden — a reader must be able to know it
+missed values.
+
+## Composition
+
+DaoStream defines only streams, cursors, and the operations above. Anything
+that transforms one stream into another is an interpreter — it reads via its
+own cursor and appends to an ordinary output stream — and that lives entirely
+outside this contract, needing no support from it. As in a Unix pipeline, the
+pipe is dumb; the transforming happens in the processes on either end.
+
+## Explicitly Absent
+
+Absent from the public surface, by derivation from the invariants:
+
+- **an ambient registry** — a namespace-global dispatch table, or registration
+  as a load-time side effect. Host dispatch is ordinary data the host owns.
+- **a `closed?` predicate** — a predicate answer is stale the moment it
+  returns; operation results are authoritative.
+- **destructive reads** — a read that removes what it observes makes one
+  reader's progress every other reader's data loss.
+- **`seek`** — every valid cursor comes from the stream; anchored minting and
+  kept cursors cover repositioning.
+- **a blocking take** — no operation waits.
+- **waiter registration** — there is no readiness extension.
+- **throwing conveniences** — operational outcomes are data.
+# Stream Discovery: Decentralized Naming, Attention, and Ranking
+
+**Status: proposal.** This document records a design conversation (2026-07) about how
+agents find streams at internet scale. Nothing here is implemented; it exists to pin
+down the mechanisms worth building, the mechanisms explicitly rejected, and why. The
+implemented baseline it extends is an explicit collection of bounded DaoStream descriptors.
+That collection is caller-owned query topology: `open!` performs no registration write,
+and `dao.space.query` opens exactly the supplied values. DaoJing's separate intake pool
+is supplied to its observer and is not a discovery registry either.
+
+**Related documents:**
+- `docs/design/dao.space.md` — the tuple space; *Membership is intake*
+- `docs/design/dao.jing.md` — the content-addressed storage observer
+- `docs/design/dao.jing.dht.md` — Kademlia backend; sortition and Sybil open questions
+- `docs/dao.space.stigmergy.md` — coordination by traces, the founding thesis
+- `docs/ideas/agent-web.md` — ShiBi and pay-for-truth (critiqued below)
+
+## The Problem
+
+An explicit DaoStream descriptor pool is the correct local primitive, but it is not itself an
+internet-scale discovery mechanism. It hits three ceilings at scale:
+
+1. **The attention set grows O(N).** A reader cannot keep or open an unbounded pool of
+   DaoStream descriptors.
+2. **Query composition presupposes discovery.** Constructing a descriptor
+   requires already knowing a content-store handle and manifest address; the local
+   primitive deliberately does not answer how a stranger learns them.
+3. **Enumeration stops being meaningful.** "The list of all member streams" is not a
+   thing any reader can fold at internet scale, and complete enumeration is only a
+   sensible primitive when the space is small enough to fold.
+
+So discovery must become what everything else in this architecture becomes:
+decentralized, published, and read-side. The governing reduction, which every
+mechanism below instantiates:
+
+> **Discovery facts are datoms in single-writer streams. What varies is only whose
+> streams a resolver chooses to read.**
+
+## What DNS Teaches, and What It Gets Wrong
+
+DNS is the scaling benchmark: ~370M names, hundreds of billions of lookups a day. Its
+load-bearing properties:
+
+1. **Hierarchical delegation, no global write point.** Zones each have one authority;
+   registering a name touches only its zone. The root zone is tiny and nearly static.
+2. **Read-side caching with bounded staleness** (TTLs; eventual consistency by
+   contract).
+3. **Resolution is an iterative walk** from a well-known root, not a broadcast.
+4. **Write/read asymmetry**: registrations rare, lookups constant.
+
+The key observation: **a DNS zone is exactly a single-writer stream, and a delegation
+is exactly a datom.** DNS engineered zone transfer, secondaries, cache invalidation,
+and DNSSEC to approximate properties datom.world gets by construction: immutable
+content-addressed segments are infinitely cacheable with perfect invalidation (a
+cached segment is never stale, only superseded), integrity is the hash, and staleness
+confines itself to one thing per zone — the head. The whole TTL apparatus shrinks to
+"how old may my copy of the head be."
+
+What DNS gets wrong, for our purposes, is the singular root: ICANN and the root
+signing key are a governance chokepoint. Keep the sharding; dissolve the root.
+
+The constraint to design under is **Zooko's triangle**: names can be decentralized,
+secure, and human-meaningful — pick two. DNS picks secure + memorable and pays with
+the central root. The mechanisms below each pick a different pair, and they compose.
+
+## The Mechanisms
+
+### 1. Self-certifying identities (secure + decentralized)
+
+The kickoff hash *is* the name. A stream announces its signed head into the DHT under
+its identity hash; resolution is one lookup plus local signature verification against
+the key the kickoff commits to. No authority exists because none is needed — the name
+proves its own binding (git commit hashes, IPFS CIDs). This is the foundation layer:
+every other mechanism resolves *to* these names. Its defect is that a hash is not a
+name a human can hold.
+
+A directory entry binds an *identity*, not a state, so it never goes stale when a
+stream's head moves — directory churn stays at true membership churn.
+
+### 2. Petname webs (memorable + decentralized)
+
+Every agent publishes its own directory stream, mapping local names to identity
+hashes:
+
+```clojure
+[e :dir/petname "bob"           t m]
+[e :dir/stream  <bobs-kickoff>  t m]
+;; delegation to another directory:
+[e :dir/petname "clojure"       t m]
+[e :dir/delegate <dir-kickoff>  t m]
+```
+
+Names are *paths from a chosen anchor*, not absolute strings: `bob/carol` means "the
+stream my `bob` calls `carol`," resolved by folding along directory streams. This is
+SDSI/SPKI linked local namespaces, Scuttlebutt's follow graph, the petname literature
+made of datoms. There is no global `"carol"`, and that is the point: naming is
+interpretation, chosen by the reader. Communities converge on well-known directory
+streams — a "root" is a convention some readers adopt, forkable, never a structural
+privilege.
+
+Registration by strangers is generative communication, never a shared write: deposit
+a registration-request datom in *your* stream; the directory owner observes it
+(stigmergy) and appends the binding to its own.
+
+### 3. Stigmergic membership (the native mechanism)
+
+Dissolve registration entirely: an agent announces itself by depositing facts in its
+own stream — `[me :stream/exists true]`, `[me :stream/follows <hash>]`,
+`[me :stream/topic :work/scheduling]`. Membership is maintained nowhere; it is the
+read-side transitive closure of announce/follow datoms from wherever a reader starts.
+Announcements form a grow-set CRDT (datoms merge by union — convergent with no
+coordination, by construction). Reach is bounded by the social graph, which doubles as
+spam defense: an unfollowed announcer is not in anyone's closure. This is what can
+produce a reader's explicit source pool: discovery becomes a query over single-writer
+facts rather than mutation of a privileged registry.
+
+### 4. Rendezvous topics (discovery by interest)
+
+For "who has streams about X" without privileged indexers: hash the topic (an
+attribute, a schema name) to a DHT key; providers deposit small self-signed provider
+records at the responsible neighborhood; seekers look up the topic key and verify.
+(IPFS provider records, gossipsub topics.) The neighborhood stores but never authors.
+This is also how you *find indexer agents* without anyone anointing them.
+
+### 5. Consensus namespaces (globally unique + memorable — bought with consensus)
+
+Namecoin/ENS-shaped first-writer-wins claims ordered by a consensus log. Honest
+assessment: the expensive corner of the triangle, importing the same
+sortition/Sybil-resistance research program `dao.jing.dht.md` already flags. Most
+systems that thought they needed this needed (1)+(2). If ever, spec it as an optional
+community service — a name-registry *agent* with an auditable claim log — never as
+infrastructure.
+
+### Synthesis
+
+Identities are self-certifying (1); humans name identities through petname webs (2)
+with community directories as adopted conventions; presence propagates stigmergically
+(3); interest-based rendezvous (4) finds strangers and indexers; (5) only if a
+community insists. No layer has a privileged writer. The namespace, like the tuple
+space, is not an artifact anyone owns but a behavior readers reconstruct from whose
+claims they choose to fold.
+
+## Discovery as Attention, and Where Markets Belong
+
+Discovery at internet scale is attention allocation: attention is the scarce
+resource, spam is its theft, Sybil flooding is counterfeit demand for it. Economics is
+the right lens for adversarial scarcity — and the mechanisms above are weakest exactly
+where pricing is strong: cold start (nobody follows you yet) and spam (announcing is
+free). But "attention market" blurs three transactions that must be separated:
+
+- **Paying to be seen** — the speaker pays for reach. That is advertising,
+  definitionally. **Rejected.** It ranks streams by willingness-to-pay (i.e., by
+  capitalization, not relevance), and it contradicts the project's own pay-for-truth
+  thesis (`agent-web.md`): pay-for-truth flows money *toward* the party being attended
+  to, at the attendee's request; paid reach flows money *from* the party demanding
+  attention. Opposite signs. It is also born Goodharted (below).
+- **Paying to deposit** — a tiny flat cost to announce (Hashcash, postage).
+  **Accepted.** This prices spam without ranking by wealth. Note it needs a *cost*,
+  not a *market*: proof-of-work or burned stamps suffice; no exchange, no price
+  discovery, no ledger.
+- **Paying for discovery service** — buying an indexer's query answers.
+  **Accepted.** That is pay-for-truth applied to discovery, already the doctrine.
+
+### Goodhart's law
+
+"When a measure becomes a target, it ceases to be a good measure" (Goodhart, 1975). A
+metric is informative precisely because it is a side effect of the thing cared about;
+attach rewards to the metric and participants optimize it directly, severing the
+correlation (citation rings, teaching to the test, link farms vs. PageRank's
+twenty-year SEO arms race). Consequences here:
+
+- **Paid placement is born Goodharted**: the ranking metric is purchasable by
+  construction — no attack required; degradation is the equilibrium.
+- **Trace-evidence ranking (below) is Goodhartable too** the moment ranking depends on
+  it. It starts honest and must be *defended*: the defense is making signal
+  manufacture expensive by weighting references by the referencing stream's own earned
+  standing — recursion, which is PageRank's move.
+
+### The ShiBi precondition
+
+ShiBi is currently a capability token in the README and a fungible currency in
+`agent-web.md`. These are different objects with different physics: capabilities
+(unforgeable authorization; composable, delegable, no global state) fit this
+architecture immediately; a currency needs double-spend resolution, i.e. global
+consensus — the exact machinery every layer here has avoided, and the hardest open
+problem in the stack. **Before ShiBi is load-bearing in any design, force the
+decision: capability or currency.** Discovery must not depend on solving decentralized
+money.
+
+## Ranking by Trace Evidence
+
+The stigmergic answer to ranking, and the datom-native one: attention allocated by
+recorded traces of use, not by payment. Ants do not auction trail placement — the
+pheromone gradient *is* accumulated evidence. The evidence is already in the medium:
+follow datoms, petname bindings, cross-stream references — and VAET is literally the
+reverse-reference index ("who points at this").
+
+The mechanism is **personalized PageRank** over the cross-stream reference graph
+(PageRank itself was citation analysis — attention along traces of use — i.e.,
+stigmergy's formal core; the substrate was built for it):
+
+- **Not global PageRank.** One global ranking reintroduces a privileged universal
+  view owned by whoever computes it. The personalized variant restarts the walk from a
+  *seed the reader chooses* — your stream, your follow set, your community's
+  directory. Ranking, like naming, becomes interpretation relative to a chosen anchor;
+  different readers legitimately compute different rankings from the same substrate.
+- **Sybil resistance falls out.** Personalized PageRank confines Sybil influence to
+  the probability mass flowing through attack edges from the seed's neighborhood
+  (SybilRank and kin are personalized-PageRank variants). An attacker no one you
+  transitively weight references does not exist for you.
+- **Computation decentralizes.** Nobody needs the whole graph: indexer agents compute
+  rankings from their vantage and publish them as ordinary signed datoms through their
+  own streams. A ranking is just another published, reader-verifiable view; competing
+  indexers with different seeds coexist like competing directories. (Google-the-company
+  is what you get when the link graph is proprietary reconstruction; here the graph is
+  a commons and ranking is a service anyone can render.)
+
+## Dependencies and Open Questions
+
+Everything above rests on prerequisites already tracked elsewhere:
+
+1. **Signed heads / kickoff-hash identity** (a stream-layer prerequisite, not
+   mutable DaoJing state; see `dao.jing.dht.md`) — mechanism (1) *is* this
+   discipline; (2)–(4) resolve to it.
+2. **Source-scoped query inputs** (`dao.space.query.md`; `datom.md`, d5:
+   SOURCE SCOPE) — sources stay separate database inputs and equal stream-local
+   ids unify only when the query deliberately joins them; prerequisite for
+   folding strangers' directories.
+3. **Postage design** — what a deposit costs and who verifies it (proof-of-work vs.
+   stamps) is unspecified.
+4. **Pool liveness** — explicit source pools need a refresh convention; the stigmergic
+   mechanism (3) needs a liveness convention
+   (e.g., announce TTLs as datoms) so dead streams fall out of closures.
+5. **The `:dir/*` and `:stream/*` vocabularies** above are sketches; a resolver-walk
+   spec (path syntax, delegation semantics, cycle handling) is unwritten.
+# Sharing Without Losing Control
+
+## The Founding Question and the Tautology
+
+datom.world's founding question is "how to share data without losing control?"
+
+This question contains a near-tautology: sharing the bits — or sharing the key to decrypt them — is inherently losing control of those bits. If you share data, you no longer control it; the recipient can copy it, alter it, or share it further. Encryption does not solve this problem; it merely relocates it to key-sharing.
+
+## The Seam
+
+The seam in the tautology is that a counterparty benefits if and only if it comes to hold `f(X)` for some function `f` that you authorized. You keep control of `X` by never emitting `X` itself — only the authorized, attenuated `f(X)`.
+
+Therefore, **the unit of sharing is not the datom; it is the governed interpreter `f` and its audited result.**
+
+## Grounding in Existing Primitives
+
+This model builds naturally upon datom.world's existing primitives:
+- **`m`-slot Access Control:** The `m` slot in the d5 datom (see `docs/design/datom.md`) references a reified metadata entity (where `dao.datom/reserved` governs low IDs). This provides the natural per-datom policy handle.
+- **Confinement:** The architectural stance to "prefer confinement over verification" (see `docs/agents/advanced-concepts.md`). Trust must be contextual, revocable, and stream-scoped.
+- **Immutable Provenance:** An accountability floor based on an immutable log that records derivation and access.
+
+## Two Access Modes
+
+This security model establishes two distinct access modes:
+
+1. **Public — pull-to-reader (current `dao.space`):** You ship the datoms to the reader. No control is needed or expected. This is the embedded-peer topology where the reader pulls streams and indexes them locally.
+2. **Controlled — push-interpreter-to-data / confined:** The answer is returned, but datoms never leave. The reader pushes a confined interpreter to the data. This inverts the embedded-peer topology for controlled streams.
+
+Controlled mode is honestly a form of **mediation**, not an escape from it: in the default topology the data *owner* is the mediator for their own data. The contribution is not "no mediator" — it is that the mediator is a **generic, introspectable, capability-scoped, accountable** evaluator (a `yin.vm` AST) run by the owner, instead of a hand-written API run by a third party. The one topology with *no* single mediator is MPC (see Deployment Topologies), at a high cost.
+
+## Capabilities Govern Interpreters
+
+Capabilities govern the interpreters. Using a Shibi (Macaroon-style) design (the `:yin/capability` attribute), capabilities contain attenuatable, offline-verifiable, revocable caveats that bound the function `f`, its scope (the `m`-policy class), and its time-to-live.
+
+For example: *"compute COUNT/SUM over m=policy-X, not individual v, until T, logged."*
+
+The caveat acts as a content predicate. Be precise about what enforces what: the **capability token** is *cryptographically authenticated* (the macaroon's caveat chain), while the **predicate itself** is enforced by the *evaluation substrate* (which confines the continuation's Environment/Store scope, and restricts its expressivity/output-shape, as detailed below). That enforcement is *operational* in a CESK interpreter (owner-host / TEE) and *cryptographic* in an MPC/FHE circuit — either way it is the substrate, not the token's signature, that bounds what `f` can touch and express. This unifies the earlier "predicate-over-content scoping" with capabilities: the caveat is the predicate, the evaluator is the enforcer.
+
+### Why `f` Is a `yin.vm` AST
+
+Keep two things apart: **what `f` *is*** (the unit of sharing) and **how `f` is *evaluated*** (the deployment topology, below). This section is the first: `f` is committed to be a **`yin.vm` program / continuation** — a Universal AST, which is itself datoms.
+
+Safety has **two parts**, and runtime confinement gives only the first:
+
+- **Execution safety — runtime confinement.** The evaluator gives the continuation an Environment (`E`) and Store (`S`) scoped to *only* the datoms the capability authorizes, exposes *no* I/O or exfiltration primitives, and bounds execution by steps/gas — operationally in a CESK interpreter (owner-host / TEE), or as bounds baked into the circuit topology (MPC/FHE). This closes the explicit I/O channel — the only deliberate way out is the return value. In the controlled mode that means a capability authorizing no effects: handlers present but refused (an empty allow-set is equivalent to stripping), not absent by construction.
+- **Data safety — expressivity confinement.** Runtime confinement does **not** stop `f` from computing `f(X) = X` and returning the raw datoms through the *legitimate* return channel — which would collapse control back into raw sharing. Data safety comes from restricting `f` to a **bounded-output / aggregation sub-language** in which "return the rows verbatim" is simply *not expressible*. This is **not** verifying an arbitrary `f` is benign (that is undecidable per Rice's theorem, which is precisely *why* arbitrary `f` is rejected). Rather, it is a decidable, *syntactic* check that `f` is a member of the restricted language. (Language restriction stops *wholesale* copy; residual per-answer leakage and the inference risk of composing many narrow `f`'s is the *budget*, below.)
+
+Both are *confinement* — of the runtime, and of what `f` can express — not *verification* of an arbitrary program: "prefer confinement over verification" taken literally, at two levels.
+
+`f`-as-AST is what makes the expressivity confinement enforceable, and adds what an opaque binary (a WASM module, a raw enclave payload) cannot:
+- **Structural enforcement of the sub-language — the data-safety mechanism, not just audit.** Because `f` is datoms, the host runs Datalog over `f`'s AST to enforce membership in the allowed language: whitelisted operators only, bounded output arity, aggregation-only. This constitutes a decidable syntactic check — not cryptographic, and not a semantic-safety oracle. An opaque binary cannot be checked this way, so it cannot be admitted.
+- **Native `m`-provenance.** `yin.vm` maintains the causality graph natively, stamping each output datom with the capability that authorized the continuation. An opaque runtime breaks this chain; an AST evaluator preserves it.
+- **Trivial transport.** `f` is pushed to where the data lives as datoms (AST / serialized continuation), directly realizing "push-interpreter-to-data" — this is continuation parallel transport (`docs/agents/advanced-concepts.md`).
+
+## Accountability Floor
+
+An always-on accountability floor guarantees transparency. The immutable log, combined with `m`-provenance, attributes every authorized computation and every derivation to a specific actor. We rely on **control-as-accountability** in scenarios where control-as-prevention is impossible.
+
+## The Residual Budget
+
+In this model, control is defined as the governed set of authorized `f`'s plus the audit log, rather than a wall around bits. The primary risk shifts to composition and inference risk (e.g., the residual budget), where a series of many narrow `f`'s could be used to reconstruct the original `X`.
+
+## Deployment Topologies
+
+`f` is a `yin.vm` AST regardless of topology; *where* and *how* the AST is evaluated is a separate, deferred choice — the model stays mechanism-agnostic here. The topology fixes the trust assumptions, and in particular **who introspects `f`, and when**:
+
+1. **Owner-hosted (default):** the owner evaluates the AST locally and returns only `f(X)`; the data never leaves the owner. Introspection is *dynamic* — the owner inspects and confines the submitted AST at evaluation time. The owner is the mediator.
+2. **Recipient-side TEE:** the only literal "ship the data, keep control" path. The recipient runs `yin.vm` in an attested enclave; the owner releases the decryption key only against an attestation of the **exact AST hash** to be run. So introspection here is *static and ahead-of-time* — the owner pre-approves a specific `f`-hash (whitelisting), not arbitrary dynamic submission. Strongest trust assumption (the recipient's hardware vendor).
+3. **MPC / FHE:** the only topology with **no single mediator** — no party sees `X` in the clear. The `yin.vm` AST is still the unit (introspected before compilation) and outputs can still be `m`-stamped; MPC/FHE is an *evaluation strategy* for that AST, not an opaque alternative to it. Cost: heavy, and limited to the function classes those schemes support.
+
+The line that matters is *opaque vs. introspectable `f`*, not *which runtime*. An **opaque** `f` — a raw WASM module or enclave payload with no recoverable AST — is rejected: it forecloses structural policy and breaks `m`-provenance. Running an **introspectable `yin.vm` AST** *via* a TEE, MPC, or FHE is not opaque and is fine; the AST is inspected before it is sealed or compiled.
+
+## Honest Limits
+
+This model accepts several honest limits:
+- **Implementation status:** Full runtime confinement is a target, not yet realized. Current `yin.vm` configuration leaves the surface open (e.g., ungated host module functions). Effect handlers that securely honor capability tokens are not yet built.
+- **Side-channel leakage:** Closing the explicit I/O channel does not close side channels. Store access patterns, step counts, and communication patterns leak data unless execution is data-oblivious — a stronger condition than we currently assume.
+- **Sub-language design:** Designing a bounded-output/aggregation sub-language that is both syntactically decidable for membership and usefully expressive is a genuine open problem.
+- **Post-disclosure irrevocability:** Once an answer `f(X)` is disclosed, it cannot be revoked (honoring the tautology).
+- **Answer leakage:** The result `f(X)` inherently leaks some information about `X`.
+- **Metadata/shape leakage:** The frequency, size, and shape of queries can leak metadata.
+- **Management cost:** There is an inherent cost to managing capabilities, keys, and policies.
+
+## References
+
+- [ADR 0002: Share Governed Computation, Not Data](adr/0002-share-governed-computation-not-data.md) — the decision this design elaborates
+- [`dao.space.md`](dao.space.md) — the tuple space; its "Security and Access Modes" subsection summarizes this doc
+- [`docs/design/datom.md`](datom.md) — the `m` slot
+- [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) — confinement; continuation parallel transport
+- [`docs/agents/architecture.md`](../agents/architecture.md) — the `yin.vm` CESK machine and Universal-AST substrate
+
+exec
+/bin/zsh -lc "sed -n '1,260p' docs/design/dao.stream.discovery.md; find docs -type f -iname '*lease*' -print; rg -n -i 'dao\\.lease|lease renewal|renewal manager|lease manager|renewal chain|delegated renewal' docs --glob '*.md'" in /Users/sto/workspace/datomworld
+ exited 1 in 0ms:
+# Stream Discovery: Decentralized Naming, Attention, and Ranking
+
+**Status: proposal.** This document records a design conversation (2026-07) about how
+agents find streams at internet scale. Nothing here is implemented; it exists to pin
+down the mechanisms worth building, the mechanisms explicitly rejected, and why. The
+implemented baseline it extends is an explicit collection of bounded DaoStream descriptors.
+That collection is caller-owned query topology: `open!` performs no registration write,
+and `dao.space.query` opens exactly the supplied values. DaoJing's separate intake pool
+is supplied to its observer and is not a discovery registry either.
+
+**Related documents:**
+- `docs/design/dao.space.md` — the tuple space; *Membership is intake*
+- `docs/design/dao.jing.md` — the content-addressed storage observer
+- `docs/design/dao.jing.dht.md` — Kademlia backend; sortition and Sybil open questions
+- `docs/dao.space.stigmergy.md` — coordination by traces, the founding thesis
+- `docs/ideas/agent-web.md` — ShiBi and pay-for-truth (critiqued below)
+
+## The Problem
+
+An explicit DaoStream descriptor pool is the correct local primitive, but it is not itself an
+internet-scale discovery mechanism. It hits three ceilings at scale:
+
+1. **The attention set grows O(N).** A reader cannot keep or open an unbounded pool of
+   DaoStream descriptors.
+2. **Query composition presupposes discovery.** Constructing a descriptor
+   requires already knowing a content-store handle and manifest address; the local
+   primitive deliberately does not answer how a stranger learns them.
+3. **Enumeration stops being meaningful.** "The list of all member streams" is not a
+   thing any reader can fold at internet scale, and complete enumeration is only a
+   sensible primitive when the space is small enough to fold.
+
+So discovery must become what everything else in this architecture becomes:
+decentralized, published, and read-side. The governing reduction, which every
+mechanism below instantiates:
+
+> **Discovery facts are datoms in single-writer streams. What varies is only whose
+> streams a resolver chooses to read.**
+
+## What DNS Teaches, and What It Gets Wrong
+
+DNS is the scaling benchmark: ~370M names, hundreds of billions of lookups a day. Its
+load-bearing properties:
+
+1. **Hierarchical delegation, no global write point.** Zones each have one authority;
+   registering a name touches only its zone. The root zone is tiny and nearly static.
+2. **Read-side caching with bounded staleness** (TTLs; eventual consistency by
+   contract).
+3. **Resolution is an iterative walk** from a well-known root, not a broadcast.
+4. **Write/read asymmetry**: registrations rare, lookups constant.
+
+The key observation: **a DNS zone is exactly a single-writer stream, and a delegation
+is exactly a datom.** DNS engineered zone transfer, secondaries, cache invalidation,
+and DNSSEC to approximate properties datom.world gets by construction: immutable
+content-addressed segments are infinitely cacheable with perfect invalidation (a
+cached segment is never stale, only superseded), integrity is the hash, and staleness
+confines itself to one thing per zone — the head. The whole TTL apparatus shrinks to
+"how old may my copy of the head be."
+
+What DNS gets wrong, for our purposes, is the singular root: ICANN and the root
+signing key are a governance chokepoint. Keep the sharding; dissolve the root.
+
+The constraint to design under is **Zooko's triangle**: names can be decentralized,
+secure, and human-meaningful — pick two. DNS picks secure + memorable and pays with
+the central root. The mechanisms below each pick a different pair, and they compose.
+
+## The Mechanisms
+
+### 1. Self-certifying identities (secure + decentralized)
+
+The kickoff hash *is* the name. A stream announces its signed head into the DHT under
+its identity hash; resolution is one lookup plus local signature verification against
+the key the kickoff commits to. No authority exists because none is needed — the name
+proves its own binding (git commit hashes, IPFS CIDs). This is the foundation layer:
+every other mechanism resolves *to* these names. Its defect is that a hash is not a
+name a human can hold.
+
+A directory entry binds an *identity*, not a state, so it never goes stale when a
+stream's head moves — directory churn stays at true membership churn.
+
+### 2. Petname webs (memorable + decentralized)
+
+Every agent publishes its own directory stream, mapping local names to identity
+hashes:
+
+```clojure
+[e :dir/petname "bob"           t m]
+[e :dir/stream  <bobs-kickoff>  t m]
+;; delegation to another directory:
+[e :dir/petname "clojure"       t m]
+[e :dir/delegate <dir-kickoff>  t m]
+```
+
+Names are *paths from a chosen anchor*, not absolute strings: `bob/carol` means "the
+stream my `bob` calls `carol`," resolved by folding along directory streams. This is
+SDSI/SPKI linked local namespaces, Scuttlebutt's follow graph, the petname literature
+made of datoms. There is no global `"carol"`, and that is the point: naming is
+interpretation, chosen by the reader. Communities converge on well-known directory
+streams — a "root" is a convention some readers adopt, forkable, never a structural
+privilege.
+
+Registration by strangers is generative communication, never a shared write: deposit
+a registration-request datom in *your* stream; the directory owner observes it
+(stigmergy) and appends the binding to its own.
+
+### 3. Stigmergic membership (the native mechanism)
+
+Dissolve registration entirely: an agent announces itself by depositing facts in its
+own stream — `[me :stream/exists true]`, `[me :stream/follows <hash>]`,
+`[me :stream/topic :work/scheduling]`. Membership is maintained nowhere; it is the
+read-side transitive closure of announce/follow datoms from wherever a reader starts.
+Announcements form a grow-set CRDT (datoms merge by union — convergent with no
+coordination, by construction). Reach is bounded by the social graph, which doubles as
+spam defense: an unfollowed announcer is not in anyone's closure. This is what can
+produce a reader's explicit source pool: discovery becomes a query over single-writer
+facts rather than mutation of a privileged registry.
+
+### 4. Rendezvous topics (discovery by interest)
+
+For "who has streams about X" without privileged indexers: hash the topic (an
+attribute, a schema name) to a DHT key; providers deposit small self-signed provider
+records at the responsible neighborhood; seekers look up the topic key and verify.
+(IPFS provider records, gossipsub topics.) The neighborhood stores but never authors.
+This is also how you *find indexer agents* without anyone anointing them.
+
+### 5. Consensus namespaces (globally unique + memorable — bought with consensus)
+
+Namecoin/ENS-shaped first-writer-wins claims ordered by a consensus log. Honest
+assessment: the expensive corner of the triangle, importing the same
+sortition/Sybil-resistance research program `dao.jing.dht.md` already flags. Most
+systems that thought they needed this needed (1)+(2). If ever, spec it as an optional
+community service — a name-registry *agent* with an auditable claim log — never as
+infrastructure.
+
+### Synthesis
+
+Identities are self-certifying (1); humans name identities through petname webs (2)
+with community directories as adopted conventions; presence propagates stigmergically
+(3); interest-based rendezvous (4) finds strangers and indexers; (5) only if a
+community insists. No layer has a privileged writer. The namespace, like the tuple
+space, is not an artifact anyone owns but a behavior readers reconstruct from whose
+claims they choose to fold.
+
+## Discovery as Attention, and Where Markets Belong
+
+Discovery at internet scale is attention allocation: attention is the scarce
+resource, spam is its theft, Sybil flooding is counterfeit demand for it. Economics is
+the right lens for adversarial scarcity — and the mechanisms above are weakest exactly
+where pricing is strong: cold start (nobody follows you yet) and spam (announcing is
+free). But "attention market" blurs three transactions that must be separated:
+
+- **Paying to be seen** — the speaker pays for reach. That is advertising,
+  definitionally. **Rejected.** It ranks streams by willingness-to-pay (i.e., by
+  capitalization, not relevance), and it contradicts the project's own pay-for-truth
+  thesis (`agent-web.md`): pay-for-truth flows money *toward* the party being attended
+  to, at the attendee's request; paid reach flows money *from* the party demanding
+  attention. Opposite signs. It is also born Goodharted (below).
+- **Paying to deposit** — a tiny flat cost to announce (Hashcash, postage).
+  **Accepted.** This prices spam without ranking by wealth. Note it needs a *cost*,
+  not a *market*: proof-of-work or burned stamps suffice; no exchange, no price
+  discovery, no ledger.
+- **Paying for discovery service** — buying an indexer's query answers.
+  **Accepted.** That is pay-for-truth applied to discovery, already the doctrine.
+
+### Goodhart's law
+
+"When a measure becomes a target, it ceases to be a good measure" (Goodhart, 1975). A
+metric is informative precisely because it is a side effect of the thing cared about;
+attach rewards to the metric and participants optimize it directly, severing the
+correlation (citation rings, teaching to the test, link farms vs. PageRank's
+twenty-year SEO arms race). Consequences here:
+
+- **Paid placement is born Goodharted**: the ranking metric is purchasable by
+  construction — no attack required; degradation is the equilibrium.
+- **Trace-evidence ranking (below) is Goodhartable too** the moment ranking depends on
+  it. It starts honest and must be *defended*: the defense is making signal
+  manufacture expensive by weighting references by the referencing stream's own earned
+  standing — recursion, which is PageRank's move.
+
+### The ShiBi precondition
+
+ShiBi is currently a capability token in the README and a fungible currency in
+`agent-web.md`. These are different objects with different physics: capabilities
+(unforgeable authorization; composable, delegable, no global state) fit this
+architecture immediately; a currency needs double-spend resolution, i.e. global
+consensus — the exact machinery every layer here has avoided, and the hardest open
+problem in the stack. **Before ShiBi is load-bearing in any design, force the
+decision: capability or currency.** Discovery must not depend on solving decentralized
+money.
+
+## Ranking by Trace Evidence
+
+The stigmergic answer to ranking, and the datom-native one: attention allocated by
+recorded traces of use, not by payment. Ants do not auction trail placement — the
+pheromone gradient *is* accumulated evidence. The evidence is already in the medium:
+follow datoms, petname bindings, cross-stream references — and VAET is literally the
+reverse-reference index ("who points at this").
+
+The mechanism is **personalized PageRank** over the cross-stream reference graph
+(PageRank itself was citation analysis — attention along traces of use — i.e.,
+stigmergy's formal core; the substrate was built for it):
+
+- **Not global PageRank.** One global ranking reintroduces a privileged universal
+  view owned by whoever computes it. The personalized variant restarts the walk from a
+  *seed the reader chooses* — your stream, your follow set, your community's
+  directory. Ranking, like naming, becomes interpretation relative to a chosen anchor;
+  different readers legitimately compute different rankings from the same substrate.
+- **Sybil resistance falls out.** Personalized PageRank confines Sybil influence to
+  the probability mass flowing through attack edges from the seed's neighborhood
+  (SybilRank and kin are personalized-PageRank variants). An attacker no one you
+  transitively weight references does not exist for you.
+- **Computation decentralizes.** Nobody needs the whole graph: indexer agents compute
+  rankings from their vantage and publish them as ordinary signed datoms through their
+  own streams. A ranking is just another published, reader-verifiable view; competing
+  indexers with different seeds coexist like competing directories. (Google-the-company
+  is what you get when the link graph is proprietary reconstruction; here the graph is
+  a commons and ranking is a service anyone can render.)
+
+## Dependencies and Open Questions
+
+Everything above rests on prerequisites already tracked elsewhere:
+
+1. **Signed heads / kickoff-hash identity** (a stream-layer prerequisite, not
+   mutable DaoJing state; see `dao.jing.dht.md`) — mechanism (1) *is* this
+   discipline; (2)–(4) resolve to it.
+2. **Source-scoped query inputs** (`dao.space.query.md`; `datom.md`, d5:
+   SOURCE SCOPE) — sources stay separate database inputs and equal stream-local
+   ids unify only when the query deliberately joins them; prerequisite for
+   folding strangers' directories.
+3. **Postage design** — what a deposit costs and who verifies it (proof-of-work vs.
+   stamps) is unspecified.
+4. **Pool liveness** — explicit source pools need a refresh convention; the stigmergic
+   mechanism (3) needs a liveness convention
+   (e.g., announce TTLs as datoms) so dead streams fall out of closures.
+5. **The `:dir/*` and `:stream/*` vocabularies** above are sketches; a resolver-walk
+   spec (path syntax, delegation semantics, cycle handling) is unwritten.
+
+codex
+The key distinction is now clear: authorization and evidence are separate axes. A delegate can be authorized to speak without making its statement true; likewise, a fresh heartbeat can show contact without showing useful work. That means a recursive lease chain is one possible evidence topology, not a necessary consequence of delegated renewal.
+exec
+/bin/zsh -lc "TZ=GMT date '+GMT=%Y-%m-%d %H:%M:%S GMT'; TZ=Asia/Ho_Chi_Minh date '+LOCAL=%Y-%m-%d %H:%M:%S Asia/Ho_Chi_Minh'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+GMT=2026-09-01 16:44:52 GMT
+LOCAL=2026-09-01 23:44:52 Asia/Ho_Chi_Minh
+
+codex
+Completed-GMT: 2026-09-01 16:44:52 GMT
+Completed-Local: 2026-09-01 23:44:52 Asia/Ho_Chi_Minh
+
+The orchestrator’s conclusion is directionally right, but the proposed renewal chain is neither necessary nor sufficient. The clean rule is: delegated renewal is an authorized claim derived from evidence; authorization says who may speak, while the lease judge still determines what the claim proves.
+
+One repository caveat: no `dao.lease.md` or other lease draft is present under `docs/design`, so I treated the decisions quoted in the task as the current draft baseline.
+
+## 1. Renewal-chain analysis
+
+### An agent instead of a library thread
+
+Confirmed.
+
+Making the renewer an agent improves visibility and composition:
+
+- It has an explicit identity.
+- Its observations and renewal claims are stream facts.
+- Its causal inputs can be cited and replayed.
+- Its failures are observable rather than hidden in a library thread.
+
+It does not strengthen the semantic content of a renewal. An explicit false claim remains false.
+
+### Unconditional versus evidence-based renewal
+
+Confirmed.
+
+An unconditional renewer reproduces the Jini defect. It may prove that the renewer is running and that it knows the lease identifier; it does not prove that the holder is live, responsive, or making progress.
+
+An evidence-based renewer is better, but “evidence” must name the property being judged:
+
+- A heartbeat may prove recent contact.
+- A challenge response may prove recent responsiveness.
+- A work checkpoint may prove task progress.
+- Observation of the external effect may prove useful work.
+
+These are not interchangeable. A responsive but wedged worker can emit heartbeats indefinitely.
+
+### Evidence necessarily creates another lease
+
+Refuted.
+
+The manager needs fresh evidence about the holder, but that evidence need not be a lease. It could be a signed heartbeat, progress fact, acknowledged challenge, substrate observation, or domain-specific result.
+
+A subordinate lease is one possible way to package an expiring judgment over that evidence. It is not structurally required. Likewise, the manager may have its own operational lease, but that proves the manager’s status, not the holder’s.
+
+Therefore:
+
+> Holder leases from manager; manager leases from grantor
+
+is a possible topology, not the definition of delegated renewal.
+
+### “The weakest link defines the guarantee”
+
+It can be a real rule, but only after tightening its scope.
+
+The implementable version is:
+
+> A derived renewal proves no stronger holder property than the least informative evidence dependency on every causal path required by the accepting policy.
+
+For every accepted delegated renewal, an implementation should be able to answer:
+
+1. Who authored the renewal claim?
+2. Was that identity authorized for this lease at the judgment time?
+3. Which holder evidence does the claim cite?
+4. What exact predicate does that evidence satisfy—contact, responsiveness, or progress?
+5. Was it fresh when judged?
+6. If it is itself derived, can its causal dependencies be followed to terminal, directly observed evidence?
+7. Did the lease judge evaluate the predicate at an explicit judgment point?
+8. Is the resulting expiry capped by the evidence freshness, delegation expiry, and lease policy?
+
+Conceptually:
+
+```text
+accepted-until ≤ min(
+  evidence-valid-until,
+  delegation-valid-until,
+  lease-policy-maximum
+)
+```
+
+An unconditional edge supplies no holder-liveness information. Any downstream conclusion relying exclusively on that edge therefore supplies none either. It does not erase independent evidence on another required path, and it may still prove that the renewer itself was active. Thus, “everything downstream proves nothing” is too broad; “nothing downstream may infer holder liveness from that path” is precise.
+
+A chain also does not prevent lying. Every conditional link can cite weak or collusive evidence. The terminal evidence and its predicate remain decisive.
+
+### Native framing
+
+Confirmed, with one terminology adjustment.
+
+A lease manager is an interpreter, not a `dao.lease` component. It reads facts and appends a renewal claim with causal references. The grantor or other designated lease judge interprets that claim and appends its own status judgment.
+
+The manager’s append should not be called conclusive “renewal evidence” merely because the manager emitted it. It is a claim derived from evidence until the judge accepts it. This matches the JIT design: a proposed patch is data, and the VM accepts or rejects it at explicit safe points.
+
+## 2. Is delegated renewal worth having?
+
+Not in the present `dao.lease` slice.
+
+Batching is real but does not require semantic delegation. An interpreter can:
+
+- collect holder-authored renewal facts,
+- batch their transport,
+- batch evaluation at the grantor,
+- or append a set of independently attributable requests.
+
+That gains most of `LeaseMap` without letting the batching agent speak for the holders.
+
+Cadence decoupling is the stronger benefit. It is useful when a holder cannot renew frequently during long synchronous work, provided the manager can observe evidence tied to that work. But it moves rather than removes the problem:
+
+- If the holder must keep producing heartbeats, cadence has not truly been decoupled.
+- If the manager renews merely because it has seen no failure, false liveness returns.
+- If the manager observes substrate-level progress or completed effects independently, delegated renewal can be meaningful.
+
+That last case may eventually justify the feature. Today it introduces authority, revocation, evidence-quality, expiry-composition, and causal-chain rules before the authority substrate exists. The benefit does not justify making those rules load-bearing now.
+
+## 3. Does it require Shibi?
+
+No. Full Shibi capabilities are stronger than necessary.
+
+### Accept any renewal naming the lease
+
+This is sufficient only if the intended policy is public sponsorship: anyone may keep the lease alive.
+
+A lease identifier is correlation, not authority. Treating knowledge of it as authorization allows:
+
+- arbitrary third parties to prevent expiry,
+- resource-retention denial of service,
+- false availability,
+- polluted accountability,
+- replay of old renewal requests.
+
+An unguessable lease identifier would make this a bearer capability implicitly, not “no authority.”
+
+This mechanism cannot support the claim that the holder remains live.
+
+### Holder authorizes a specific renewer in a fact
+
+This is the weakest sufficient mechanism for ordinary delegated renewal, with one qualification: the grantor’s original policy must permit the holder to delegate.
+
+The grantor-visible authorization must bind at least:
+
+- grantor and lease identity,
+- holder identity,
+- renewer identity,
+- permitted operation—renew only,
+- maximum extension or expiry,
+- validity interval,
+- whether further delegation is forbidden,
+- revocation or authorization epoch.
+
+The fact must be attributable to the holder through a channel or signature the grantor recognizes. The grantor—not the token or fact—enforces these bounds when judging the claim.
+
+This is a lease-specific authorization record. It need not be named Shibi and need not support general attenuation, arbitrary delegation chains, or offline portable verification.
+
+### Full capability token
+
+A capability becomes worthwhile when authorization must be portable across substrates, attenuated by intermediaries, verified offline, or shared across several interpreter classes. It is not required for one holder designating one renewer to one grantor.
+
+Most importantly, none of these mechanisms establishes truth. Authorization permits the manager to submit a claim; cited evidence and the grantor’s predicate determine what it means.
+
+## 4. Do leases force the Shibi decision?
+
+They add strong evidence for the capability interpretation, but do not settle the project-wide naming decision by themselves.
+
+Delegated renewal has capability physics:
+
+- authorization rather than exchange value,
+- bounded scope,
+- bounded time,
+- attenuation,
+- revocation,
+- no double-spend requirement.
+
+It has no currency physics. If delegated renewal were specified as using Shibi, Shibi would become load-bearing and the discovery document’s precondition would immediately apply: the capability-or-currency decision would have to be made first.
+
+The safer present decision is:
+
+- Keep `dao.lease` independent of Shibi.
+- Describe the minimum authorization semantics an optional extension would require.
+- Do not reserve a Shibi key or outcome in the baseline.
+- Treat leases as additional evidence that “Shibi as capability” is coherent.
+- If the currency idea remains, give currency a different object and preferably a different name.
+
+The security document also prevents a common mistake: even a future Shibi signature would only authenticate the delegation and its caveats. The lease judge’s substrate must enforce the predicate, expiry, scope, and revocation.
+
+## 5. Proposed exact text for `dao.lease.md`
+
+```markdown
+## Delegated Renewal
+
+Delegated renewal is not part of the baseline `dao.lease` contract.
+
+A fact naming a lease is not authority to renew it. In the baseline, a lease
+judge MUST NOT infer the holder's liveness from a renewal claim authored by
+another identity. An agent that reads lease facts, batches requests, or appends
+claims remains an ordinary interpreter; `dao.lease` defines no lease-manager
+component, renewal chain, delegate attribute, or Shibi dependency.
+
+An extension MAY admit delegated renewal when the lease's grant policy permits
+it. Such an extension MUST authenticate an authorization binding the lease,
+holder, delegate, allowed renewal operation, validity interval, maximum
+extension, and revocation state. Authorization establishes who may submit a
+claim; it does not establish that the claim is true.
+
+Every delegated renewal claim MUST cite fresh evidence about the holder and
+identify the predicate that evidence is offered to satisfy. The lease judge
+evaluates that evidence at its own explicit judgment point and records the
+result as data. A delegated claim MUST NOT extend the lease beyond the earliest
+of the evidence's validity, the delegation's validity, and the lease policy's
+maximum extension.
+
+Derived evidence may be chained, but no conclusion may be stronger than its
+required dependencies. An unconditional renewal or an evidence dependency that
+does not establish holder liveness cannot establish holder liveness for any
+claim that relies on it.
+
+The representation of delegated authority is outside this contract. It may be
+a grantor-visible authorization fact or a future capability mechanism. Adding
+such a representation changes which claims a lease judge may admit; it does not
+change the baseline meanings of evidence, judgment, expiry, or status.
+```
+
+This gives `dao.lease.md` a stable denial and an extension boundary. A future Shibi capability can satisfy the stated authorization contract without changing the lease model or adding a lease-manager component.
+tokens used
+71,408
+Completed-GMT: 2026-09-01 16:44:52 GMT
+Completed-Local: 2026-09-01 23:44:52 Asia/Ho_Chi_Minh
+
+The orchestrator’s conclusion is directionally right, but the proposed renewal chain is neither necessary nor sufficient. The clean rule is: delegated renewal is an authorized claim derived from evidence; authorization says who may speak, while the lease judge still determines what the claim proves.
+
+One repository caveat: no `dao.lease.md` or other lease draft is present under `docs/design`, so I treated the decisions quoted in the task as the current draft baseline.
+
+## 1. Renewal-chain analysis
+
+### An agent instead of a library thread
+
+Confirmed.
+
+Making the renewer an agent improves visibility and composition:
+
+- It has an explicit identity.
+- Its observations and renewal claims are stream facts.
+- Its causal inputs can be cited and replayed.
+- Its failures are observable rather than hidden in a library thread.
+
+It does not strengthen the semantic content of a renewal. An explicit false claim remains false.
+
+### Unconditional versus evidence-based renewal
+
+Confirmed.
+
+An unconditional renewer reproduces the Jini defect. It may prove that the renewer is running and that it knows the lease identifier; it does not prove that the holder is live, responsive, or making progress.
+
+An evidence-based renewer is better, but “evidence” must name the property being judged:
+
+- A heartbeat may prove recent contact.
+- A challenge response may prove recent responsiveness.
+- A work checkpoint may prove task progress.
+- Observation of the external effect may prove useful work.
+
+These are not interchangeable. A responsive but wedged worker can emit heartbeats indefinitely.
+
+### Evidence necessarily creates another lease
+
+Refuted.
+
+The manager needs fresh evidence about the holder, but that evidence need not be a lease. It could be a signed heartbeat, progress fact, acknowledged challenge, substrate observation, or domain-specific result.
+
+A subordinate lease is one possible way to package an expiring judgment over that evidence. It is not structurally required. Likewise, the manager may have its own operational lease, but that proves the manager’s status, not the holder’s.
+
+Therefore:
+
+> Holder leases from manager; manager leases from grantor
+
+is a possible topology, not the definition of delegated renewal.
+
+### “The weakest link defines the guarantee”
+
+It can be a real rule, but only after tightening its scope.
+
+The implementable version is:
+
+> A derived renewal proves no stronger holder property than the least informative evidence dependency on every causal path required by the accepting policy.
+
+For every accepted delegated renewal, an implementation should be able to answer:
+
+1. Who authored the renewal claim?
+2. Was that identity authorized for this lease at the judgment time?
+3. Which holder evidence does the claim cite?
+4. What exact predicate does that evidence satisfy—contact, responsiveness, or progress?
+5. Was it fresh when judged?
+6. If it is itself derived, can its causal dependencies be followed to terminal, directly observed evidence?
+7. Did the lease judge evaluate the predicate at an explicit judgment point?
+8. Is the resulting expiry capped by the evidence freshness, delegation expiry, and lease policy?
+
+Conceptually:
+
+```text
+accepted-until ≤ min(
+  evidence-valid-until,
+  delegation-valid-until,
+  lease-policy-maximum
+)
+```
+
+An unconditional edge supplies no holder-liveness information. Any downstream conclusion relying exclusively on that edge therefore supplies none either. It does not erase independent evidence on another required path, and it may still prove that the renewer itself was active. Thus, “everything downstream proves nothing” is too broad; “nothing downstream may infer holder liveness from that path” is precise.
+
+A chain also does not prevent lying. Every conditional link can cite weak or collusive evidence. The terminal evidence and its predicate remain decisive.
+
+### Native framing
+
+Confirmed, with one terminology adjustment.
+
+A lease manager is an interpreter, not a `dao.lease` component. It reads facts and appends a renewal claim with causal references. The grantor or other designated lease judge interprets that claim and appends its own status judgment.
+
+The manager’s append should not be called conclusive “renewal evidence” merely because the manager emitted it. It is a claim derived from evidence until the judge accepts it. This matches the JIT design: a proposed patch is data, and the VM accepts or rejects it at explicit safe points.
+
+## 2. Is delegated renewal worth having?
+
+Not in the present `dao.lease` slice.
+
+Batching is real but does not require semantic delegation. An interpreter can:
+
+- collect holder-authored renewal facts,
+- batch their transport,
+- batch evaluation at the grantor,
+- or append a set of independently attributable requests.
+
+That gains most of `LeaseMap` without letting the batching agent speak for the holders.
+
+Cadence decoupling is the stronger benefit. It is useful when a holder cannot renew frequently during long synchronous work, provided the manager can observe evidence tied to that work. But it moves rather than removes the problem:
+
+- If the holder must keep producing heartbeats, cadence has not truly been decoupled.
+- If the manager renews merely because it has seen no failure, false liveness returns.
+- If the manager observes substrate-level progress or completed effects independently, delegated renewal can be meaningful.
+
+That last case may eventually justify the feature. Today it introduces authority, revocation, evidence-quality, expiry-composition, and causal-chain rules before the authority substrate exists. The benefit does not justify making those rules load-bearing now.
+
+## 3. Does it require Shibi?
+
+No. Full Shibi capabilities are stronger than necessary.
+
+### Accept any renewal naming the lease
+
+This is sufficient only if the intended policy is public sponsorship: anyone may keep the lease alive.
+
+A lease identifier is correlation, not authority. Treating knowledge of it as authorization allows:
+
+- arbitrary third parties to prevent expiry,
+- resource-retention denial of service,
+- false availability,
+- polluted accountability,
+- replay of old renewal requests.
+
+An unguessable lease identifier would make this a bearer capability implicitly, not “no authority.”
+
+This mechanism cannot support the claim that the holder remains live.
+
+### Holder authorizes a specific renewer in a fact
+
+This is the weakest sufficient mechanism for ordinary delegated renewal, with one qualification: the grantor’s original policy must permit the holder to delegate.
+
+The grantor-visible authorization must bind at least:
+
+- grantor and lease identity,
+- holder identity,
+- renewer identity,
+- permitted operation—renew only,
+- maximum extension or expiry,
+- validity interval,
+- whether further delegation is forbidden,
+- revocation or authorization epoch.
+
+The fact must be attributable to the holder through a channel or signature the grantor recognizes. The grantor—not the token or fact—enforces these bounds when judging the claim.
+
+This is a lease-specific authorization record. It need not be named Shibi and need not support general attenuation, arbitrary delegation chains, or offline portable verification.
+
+### Full capability token
+
+A capability becomes worthwhile when authorization must be portable across substrates, attenuated by intermediaries, verified offline, or shared across several interpreter classes. It is not required for one holder designating one renewer to one grantor.
+
+Most importantly, none of these mechanisms establishes truth. Authorization permits the manager to submit a claim; cited evidence and the grantor’s predicate determine what it means.
+
+## 4. Do leases force the Shibi decision?
+
+They add strong evidence for the capability interpretation, but do not settle the project-wide naming decision by themselves.
+
+Delegated renewal has capability physics:
+
+- authorization rather than exchange value,
+- bounded scope,
+- bounded time,
+- attenuation,
+- revocation,
+- no double-spend requirement.
+
+It has no currency physics. If delegated renewal were specified as using Shibi, Shibi would become load-bearing and the discovery document’s precondition would immediately apply: the capability-or-currency decision would have to be made first.
+
+The safer present decision is:
+
+- Keep `dao.lease` independent of Shibi.
+- Describe the minimum authorization semantics an optional extension would require.
+- Do not reserve a Shibi key or outcome in the baseline.
+- Treat leases as additional evidence that “Shibi as capability” is coherent.
+- If the currency idea remains, give currency a different object and preferably a different name.
+
+The security document also prevents a common mistake: even a future Shibi signature would only authenticate the delegation and its caveats. The lease judge’s substrate must enforce the predicate, expiry, scope, and revocation.
+
+## 5. Proposed exact text for `dao.lease.md`
+
+```markdown
+## Delegated Renewal
+
+Delegated renewal is not part of the baseline `dao.lease` contract.
+
+A fact naming a lease is not authority to renew it. In the baseline, a lease
+judge MUST NOT infer the holder's liveness from a renewal claim authored by
+another identity. An agent that reads lease facts, batches requests, or appends
+claims remains an ordinary interpreter; `dao.lease` defines no lease-manager
+component, renewal chain, delegate attribute, or Shibi dependency.
+
+An extension MAY admit delegated renewal when the lease's grant policy permits
+it. Such an extension MUST authenticate an authorization binding the lease,
+holder, delegate, allowed renewal operation, validity interval, maximum
+extension, and revocation state. Authorization establishes who may submit a
+claim; it does not establish that the claim is true.
+
+Every delegated renewal claim MUST cite fresh evidence about the holder and
+identify the predicate that evidence is offered to satisfy. The lease judge
+evaluates that evidence at its own explicit judgment point and records the
+result as data. A delegated claim MUST NOT extend the lease beyond the earliest
+of the evidence's validity, the delegation's validity, and the lease policy's
+maximum extension.
+
+Derived evidence may be chained, but no conclusion may be stronger than its
+required dependencies. An unconditional renewal or an evidence dependency that
+does not establish holder liveness cannot establish holder liveness for any
+claim that relies on it.
+
+The representation of delegated authority is outside this contract. It may be
+a grantor-visible authorization fact or a future capability mechanism. Adding
+such a representation changes which claims a lease judge may admit; it does not
+change the baseline meanings of evidence, judgment, expiry, or status.
+```
+
+This gives `dao.lease.md` a stable denial and an extension boundary. A future Shibi capability can satisfy the stated authorization contract without changing the lease model or adding a lease-manager component.

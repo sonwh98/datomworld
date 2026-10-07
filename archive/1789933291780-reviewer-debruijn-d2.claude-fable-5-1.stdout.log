@@ -1,0 +1,101 @@
+Completed-GMT: 2026-09-20 19:42:43 GMT
+Completed-Local: 2026-09-21 02:42:43 +07 (Indochina Time)
+
+# Adversarial code review: de Bruijn projection, D2
+
+There is one P1. The hash-consing memo is keyed by Clojure `=`, and `=` merges values that the encoding keeps distinct. I also found two P2s and four P3s. This was a static review: I edited nothing and ran no suites.
+
+## What conforms
+
+**§4 and §5 node hashing**
+- `merkle-node` builds its slot list from `dimension-slots`, skips every `:marker` slot and keeps only the slots the node carries (`debruijn.cljc:872-874`). Encodings follow descriptor order.
+- `:yin.debruijn/hash` and `:root` therefore never reach `node-hash`.
+- `project-datoms` no longer marks the root inside the node map (docstring 912-914), which closes the D0+D1 P3.
+- The fingerprint is the root's hash (933).
+- Child hashes are computed first and encoded in declared order.
+- `:operands` is encoded as one ordered vector with its count (835-837).
+- The preimage is unambiguous once the tag is known. The type keyword comes first, and the one optional slot (`macro?`) and the alternative slot (`bound` or `free`) differ in their class tag.
+- String values pass through `normalize-nfc` (809).
+
+**The three P2s from the D0+D1 review are all applied**
+- `:vector` and `:list` are separate classes (253-254).
+- `macro?` is projected only when truthy (632-634).
+- Framing now takes a namespace (`index-frame "yin"`).
+
+**Adapter**
+- The write half walks from the root in descriptor slot order and emits one entity per hash.
+- Handles start at `first-user-id`.
+- Child slots carry hashes.
+- `:operands` is one vector datom.
+- The root marker sits on the entity whose hash is the fingerprint.
+- The read half raises each diagnostic named in the brief:
+  - a missing root or several roots;
+  - a missing, malformed or duplicate hash;
+  - a dangling child hash;
+  - operands that are not a vector.
+
+**Tests (item 5)**
+- `identity-inputs-never-enter-the-fingerprint` compares both fingerprints and record sets across renamed binders, shifted temporary ids and added tail and macro-name facts.
+- `tree-and-graph-emission…` and `equal-subterms…` assert real record counts.
+- `shared-under-unequal-contexts…` checks that the two hashes differ.
+- The round-trip test checks equality of the whole record set.
+- None of these is vacuous.
+- No test pins a literal digest, so nothing breaks when D3 re-mints it.
+
+**Box (item 6)**
+- Only the two files changed.
+
+## Findings
+
+**P1 | `debruijn.cljc:869-871, 904` | The hash-consing memo merges terms that the encoding keeps distinct.**
+- `(find hashcons node)` looks the node up by Clojure `=`.
+- `(= '(1 2) [1 2])` is true, and the two have equal hashes as map keys. A literal list and a literal vector therefore resolve to one memo entry, and the second takes the first's hash.
+- The D0 ruling split `:list` from `:vector` so that the two would hash differently.
+- Consequences:
+  - `(f '(1 2) [1 2])` and `(f '(1 2) '(1 2))` get one fingerprint.
+  - The hash of the vector literal depends on which literal was walked first.
+  - Two non-equivalent programs project identically, and the fingerprint depends on traversal history.
+- The same defect applies to `0.0` and `-0.0`.
+  - `=` treats them as equal.
+  - On the JVM the two hash differently, so the memo usually misses by luck.
+  - On ClojureScript they are merged reliably.
+- It also applies to lists and vectors nested inside map and set literals.
+- No test puts a list literal and a vector literal in one program.
+- Fix: do not key the memo on `=`. Two options:
+  - Drop the node-keyed memo. `:records` keyed by `h` already gives one record per hash, and the memo only saves re-hashing.
+  - Or key it on the node's preimage, the concatenated encodings, which separates exactly what the hash separates.
+- Add tests for list against vector, and for `0.0` against `-0.0`, inside one program.
+
+**P2 | `debruijn.cljc:786-793` | Keyword and symbol parts skip the NFC seam.**
+- `ident-content` frames the namespace and the name directly. It calls neither `encode-value` nor `normalize-nfc`.
+- The published value table declares `:keyword` and `:symbol` as `:nfc-utf-8`, and `datom.md:89` requires NFC for keywords.
+- Free variable names and keys are hashed unnormalized, while strings are normalized.
+- This is an encoding rule, not a byte-level detail that D3 will settle.
+- Fix: route both parts through `normalize-nfc`.
+
+**P2 | `debruijn.cljc:993-1063` | `datoms->projected` never checks that a record hashes to the hash it claims.**
+- It checks the hash's shape, uniqueness and links.
+- A record whose slots were altered, or whose `:yin.debruijn/hash` was swapped, reads back as valid. That defeats content addressing at the storage boundary.
+- `yin.vm.content` already refuses content that "does not hash to its address".
+- Each record already holds its child hashes, so the check is one `node-hash` call per record.
+- Fix: recompute the hash, raise a `:hash-mismatch` diagnostic on disagreement, and add one test with a tampered scalar.
+
+**P3 | `debruijn.cljc:807` | The provisional `:int64` content is `(str v)`.**
+- An integral double prints as `"1.0"` on the JVM and as `"1"` on ClojureScript.
+- The intended `1` and `1.0` collision therefore does not hold at D2, and the digest differs by host.
+- This is within the D3 deferral and no test asserts it.
+- Rendering through `long` would make the provisional rule agree with the table.
+
+**P3 | `debruijn.cljc:1030` | `re-matches` on a hash value that is not a string raises a host exception.**
+- The reader should raise `:malformed-hash`.
+- Guard the call with `string?`.
+
+**P3 | `datoms->projected` | Records unreachable from the root are accepted silently.**
+- Scalar slot types are not re-validated on read either.
+- Once the hash check from the second P2 lands, the type check is covered.
+- Unreachable records may be worth a diagnostic.
+
+**P3 | `debruijn.cljc:766-772` | The provisional length prefix counts UTF-16 code units, not bytes.**
+- The count is the same on all three hosts, so it is only a note for D3.
+
+NOT READY — blocking: P1, the hash-consing memo keyed by `=` merges list with vector (and `0.0` with `-0.0`), so non-equivalent programs share a fingerprint and the fingerprint depends on traversal order (`debruijn.cljc:869-871`). The two P2s should be fixed in the same pass.

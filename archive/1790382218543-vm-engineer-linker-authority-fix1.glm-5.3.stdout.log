@@ -1,0 +1,17 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-26 00:27:54 GMT
+Completed-Local: 2026-09-26 07:27:54 +07
+
+Report written to `/Users/sto/workspace/datomworld/collab/1790382218543-vm-engineer-linker-authority-fix1.glm-5.3.report.md`. Summary:
+
+**JVM lane** — before: 2064 tests / 181135 assertions, 0/0 (matches your last figures). After: **2067 tests / 181146 assertions, 0 failures, 0 errors**. Test delta is exactly the 3 new deftests; the file adds 12 assertions (16/69 vs 13/57 isolated), so the pre-existing variable-count test drifted -1 this run — all green throughout. kondo: 0 errors/0 warnings; cljstyle: clean; every added/edited line ≤ 80 columns, pure ASCII, no em dashes.
+
+**Item 1 (P2, TDD)** — `fake-segment-address-is-malformed` written first and confirmed red for the right reason (`:segment/fake` passed the weak gate: 0 malformed discards, name honored). Deleted the private `segment-address?`; both call sites now use the public `jing/segment-address?` (closed-registry algorithm/digest/hex/canonical validation, documented never-throws, so `envelope-defect` stays total). Green after the fix. All existing tests already used real `jing/segment-key` addresses; the one deliberate non-address (`:not-a-segment`) is rejected by both gates and still is. No other behavior touched.
+
+**Item 2 (P3 coverage)** — `principal-without-proof-kind-cannot-assert`: a declaration with neither kind yields exactly one `:no-proof-kind` discard, empty `:honored-seq`, name `:absent`. `two-asserters-of-one-address-resolve-together`: alice+bob (signatures) and carol (attested) prove one name to one address; resolves `:ok` with asserters `[alice bob carol]` and proof kinds collapsed to `[:yin.module/signature :yin.module/attested]`. Both passed against existing behavior, as expected.
+
+**Item 3 (spec)** — four sentences added in section 8.2 only, at their natural sites: `:seq-floor` naming (replay bullet), `:honored-seq`-to-next-floor advance mechanics (`:authority` bullet), the three extra diagnostics beside the four discard kinds (fold bullet), and pair-plus-later-envelopes discarded with `:kind :equivocation` (pass 2). I verified each against the code before writing; none differed from the code, so nothing needed the "fix the sentence, not the code" escape, and the code is untouched by this item. The spec diff shows only these four hunks plus round 1's already-reported edits still uncommitted in the tree; `linker.cljc` untouched.
+
+**Unrun**: Node and Dart lanes, per instructions (orchestrator).
+
+Status: COMPLETE

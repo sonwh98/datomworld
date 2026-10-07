@@ -1,0 +1,64 @@
+I read both documents and explored the implementation. Before the plan, one blocking fact about this session.
+
+## This session has only the `Read` tool
+
+The function list available to me contains `Read` and nothing else — no `Write`, `Edit`, `Bash`, `Glob`, `Grep`, and no `Task`/subagents (all three Explore launches errored with "No such tool available"). Plan mode is also active.
+
+So I cannot do what the prompt asks: I cannot create the test namespaces, cannot run `bb test:clj` / `bb test:cljs` / `bb test:cljd`, and cannot write the plan file at `/Users/sto/.claude/plans/…`. The prompt's own rule — "do not trust delegated test claims without local evidence" — applies to me: I have no evidence to offer, so I will not report any test outcome. **Phase 5 is not implemented and is not ready for review.**
+
+What I can deliver is the design, grounded in files I actually read. Below is that.
+
+---
+
+## What Phase 5 has to build on (verified by reading)
+
+- `src/cljc/dao/stream/ws.cljc` — `make-attacher {:traffic :admission :connect!}`, `make-endpoint {:served :control :control-admission :slots :expiry-ms}`, `accept-connection!`, `endpoint-step`, `close-ended!`, `adapter`. Descriptor gate at `ws.cljc:40` requires `:dao.stream/identity` be a **string**, plus `:ws/host` `:ws/port` `:ws/path`.
+- `src/cljc/dao/stream/serving.cljc` — `make-serving` / `start!` / `step!` / `stop!` / `state`. Driver-owned cadence; `step!` takes an explicit `now`.
+- `src/cljc/dao/stream/forward.cljc` — `forward-step`, `initial-state`, `default-options`.
+- Real host adapters already exist and are stream-owned (no REPL dependency needed):
+  - `src/clj/dao/stream/ws/jvm.clj` — `connect!`, `listen!` (http-kit, deposits `:bind-succeeded {:host :port}` with the assigned port), `stop-listening!`.
+  - `src/cljs/dao/stream/ws/node.cljs` — `connect!`, `listen!` (port 0 default), `listener-port`, `stop-listening!`.
+- `test/dao/stream/ws/node_test.cljs` already runs the **full serving composition over real loopback sockets**, in-process, with a reusable async harness: `wait-for` (:278), `finish-once` (:293), `teardown!` (:302), `after-bound` (:320), `after` (:334), `server-fixture` (:352), `make-client` (:444). Phase 5's Node half is that fixture with process B moved out of process.
+- Test namespaces live directly under `test/` (`:test {:extra-paths ["test"]}`), e.g. `test/dao/stream/serving_test.cljc`, `test/yin/repl_serve_test.cljc`.
+- I found **no** JVM real-socket test for the ws adapter (`test/dao/stream/ws/jvm_test.clj` and several name variants do not exist), and **no** existing test anywhere that spawns an OS subprocess. Phase 5 introduces that capability. I could not grep, so treat "none exists" as "I did not find one by direct path probing", not as proof.
+
+## Plan
+
+### Context
+The plan's Phase 5 is deliberately **two OS processes**, not two compositions in one — a same-process socket test cannot show a descriptor is self-contained or that no shared state carries identity. Everything in the tree today is in-process, so the new capability is a peer process plus a bootstrap channel that is itself part of the test.
+
+### New files
+
+**`test/dao/stream/slice_peer.cljc`** — process B, test-only, with a `-main`. Not named `*_test`, so the cognitect runner ignores it.
+- Reads A's descriptor from `argv` as **Transit JSON text** decoded with `dao.stream.transit/decode`. That is the bootstrap channel, stated explicitly: B receives bytes, never an object.
+- Creates its own ring-buffer deposit medium, **mints the `:dao.stream/newest` cursor before `attach!`**, composes `ws/make-attacher` with the host `connect!`, attaches.
+- Ticks on its own cadence; reports every observation back to A as one Transit line per event on **stdout** (attach result incl. `:dao.stream/attachment`, `append!` outcomes, the drained deposit medium, the kept-cursor resume result).
+- Host selection: `#?@(:cljd [] :clj [[dao.stream.ws.jvm :as host]] :default [[dao.stream.ws.node :as host]])` — `:cljd` first, per the reader-conditional trap.
+
+**`test/dao/stream/slice_test.clj`** — process A on the JVM. Spawns peers with `java.lang.ProcessBuilder` using `(System/getProperty "java.class.path")` and `clojure.main -m dao.stream.slice-peer` (no new dependency; avoids a second deps resolution). A ring buffer, two `make-endpoint`/`make-serving` compositions over `jvm/listen!` on port 0, and a test-owned ticker thread calling `serving/step!`.
+
+**`test/dao/stream/slice_test.cljs`** — process A on Node. Reuses the harness shape of `ws/node_test.cljs` (duplicate the five small helpers rather than refactor that file). Spawns `node target/slice-peer.js` via `child_process`.
+
+### Config changes
+- `shadow-cljs.edn`: add `:slice-peer {:target :node-script :main dao.stream.slice-peer/-main :output-to "target/slice-peer.js"}`.
+- `bb.edn`: `test:cljs` becomes `… cli compile slice-peer test` so the peer artifact exists before `:autorun` fires.
+
+### The five facts, and where each is asserted
+| # | On A | On B (via stdout) |
+|---|---|---|
+| 1 | that attachment's traffic medium ends in `:ws/closed`; session gone from `serving/state` | `append!` after the kill returns `:dao.stream/closed` |
+| 2 | served ring buffer still readable; new session appears | re-`attach!` with the **identical descriptor text** returns `ok`; forwarded values arrive |
+| 3 | two distinct per-attachment media, every event carrying its own `:ws/attachment` | two peers report distinct `:dao.stream/attachment`; every event on each medium carries its own |
+| 4 | — | cursor minted before `attach!` still resumes over the dead socket; `(not (stream/reader? handle))` |
+| 5 | two endpoints, two descriptors, `(not= d1 d2)` but `(= (:dao.stream/identity d1) (:dao.stream/identity d2))` | attaches to both, receives the same stream |
+
+### Verification
+`bb test:clj`, then `bb test:cljs` — confirming `Testing dao.stream.slice-test` actually appears in the Node output (discovery is automatic and a skipped ns looks like a pass). Deadlines ≥15s because a JVM peer's startup dominates.
+
+### Risks I would carry into the work
+- **cljd is a scoping question I cannot resolve from the documents.** The plan says Phase 4–5 target clj and cljs and that "cljd ws follows"; the handoff says the cljd ws transport landed in `6422c8b` and puts cljd in the definition of done, while also saying nobody verified it against Phase 4's criteria. A Dart peer needs a `:cljd/opts :kind :dart` build plus `Process.start`. I would do clj and cljs first and report cljd separately rather than assume.
+- `serving/stop!` not closing pending pre-accept sockets is a known-open item; the tests must not depend on it for teardown.
+- Attachment ids are unique only within one boundary lifetime — fact 3 must compare two attachments under **one** A lifetime, never across a restart.
+- `bb test:cljd` writes shared generated output; only one process may hold that lane.
+
+To actually execute this I need a session with write and shell tools. Tell me when to re-run and I'll implement and test it.

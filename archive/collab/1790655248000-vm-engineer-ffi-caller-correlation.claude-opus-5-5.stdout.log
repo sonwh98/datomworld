@@ -1,0 +1,56 @@
+Completed-GMT: 2026-09-29 04:32:50 GMT
+Completed-Local: 2026-09-29 11:32:50 +07
+Coding-Agent: claude
+Session-ID: 08d36f7d-b33d-404e-adcb-dc04d5b907ef
+
+# Slice 3d report: caller-scoped FFI correlation, response router, caller readiness, portable loss error
+
+**Status: complete.** All five scope items are done and acceptance items a to g each have a test. The focused JVM lane, the full `clj -M:test` and `bb test:cljs` all pass. Nothing is staged or committed, and only allowed files changed; `yin.vm.ucf.remote`, `dao.stream.*`, `dao.lease` and `yang.*` are untouched. The full report is in `collab/1790655248000-vm-engineer-ffi-caller-correlation.claude-opus-5-5.report.md`.
+
+## What changed
+- **`yin.vm`**:
+  - New predicates `ffi-caller-id?` and `ffi-call-id?`.
+  - New construction option `:call-out-cursor`: trusted, and required whenever `:call-out` is supplied. A supplied `:call-out` without it is refused, and so is the cursor without a supplied `:call-out`.
+  - New construction option `:ffi-caller-id`, validated.
+  - Locally made pairs still mint at `:oldest`.
+- **`yin.vm.engine`**:
+  - `park-id`, and `park-continuation` now takes an optional explicit id. That id is both the `:parked` key and the entry's `:id`.
+  - The FFI response router sits beside `poll-links`. For each cursor cell, including carried cells, it reads at most 64 values per check and advances the cell on every `ok`. It wakes only the waiter whose call id the response names. A response with no live waiter is discarded and recorded in a diagnostic list capped at 64.
+  - FFI readers no longer go through the generic sweep.
+  - When the response stream ends or skips a gap, the affected calls raise the portable loss error.
+- **`yin.vm.ffi`**:
+  - `call-id` builds `[caller-token local-park-id]`.
+  - `response-call-id` and `request-call-id` match both entry shapes, including the walker's nested `:k`.
+  - Loss error: code `:dao.stream.apply/ended`, with `:yin.vm.ffi/loss` set to `:dao.stream/end` or `:dao.stream/gap`.
+- **Four call sites** (semantic, walker, stack, register) park under the composite id.
+  - The walker record gained two fields, because its positional `cesk-return` otherwise drops the token.
+  - The stack and register records now copy the token.
+- **Register effects validators** accept the composite id.
+- **New `yin.vm.ffi.remote-serve.caller`**: the production readiness step. It attaches both reflections, asks for a `:newest` cursor, yields on retry, and returns the cursor. It is bounded, and it refuses a malformed or unportable token.
+
+## Results
+- **Lint:** `clj -M:kondo` gives 0 errors. The 5 warnings are all in code I didn't touch, and the same warnings appear at HEAD.
+- **cljstyle:** not run; the command needed approval in this session.
+- **Focused JVM lane:** 224 tests, 1996 assertions, 0 failures.
+- **Full `clj -M:test`:** 2341 tests, 184033 assertions, 0 failures. The `yin.repl.main-test` flake did not occur.
+- **`bb test:cljs`:** 2247 tests, 50560 assertions, 0 failures. The log was not saved to `collab/`, because the `tee` needed approval.
+- **CLJD:** not run, as instructed.
+- **Mutation proofs:** eight mutations were each caught by the tests, then reverted, and a grep found none left.
+
+## Existing tests I modified
+- **Supplied-pair helpers in `ffi_test`, `semantic_ffi_test`, `stack_effects_test`, `ucf/remote_test` and the responder test:** each now passes an explicit oldest `:call-out-cursor`. This is required by the refusal rule, and it keeps each test's original read position.
+- **Two "response for another call" tests:** they asserted the old raise after the wrong response was consumed. They now assert the call stays parked and is later resumed by its own response.
+- **Responder test 5:** now expects the portable loss error instead of "FFI response envelope is malformed".
+- **The pair-channel-gap test:** its channel-gone probe moved to `:oldest`, because the readiness step now files the `:newest` answer.
+- **The responder test's `remote-vm` helper:** now uses the production readiness step instead of the test-only pre-poll.
+
+## Design choices beyond the rulings
+- **Caller token:** a non-blank string or a keyword. A uuid is rejected because it fails `vm/plain-data?`, which the prompt requires. Keeping each token unique per caller tenure is the composition's job; nothing local can check it.
+- **Extra router rule:** if a response belongs to a request writer that has woken but not yet become a reader, the router stops without consuming it. Without this, that response could be discarded in the short window before the writer is restored. A test covers it.
+- **Fixed budget:** the per-cell read limit is a fixed engine constant, not a per-VM option. A per-VM setting would be silently dropped by the walker's record rebuild.
+
+## Concerns for the reviewer
+- **Gap wakes every waiter on the cell as lost.** Some of their answers may still be ahead of the gap, but the router can't tell which calls were swallowed.
+- **A never-restored writer stalls its cell.** If a composition drops a VM's ready queue, that VM's cell stops at that response. It only affects that one VM, never another caller.
+- **Pre-existing issue, not changed:** in the generic sweep, co-waiters on one shared cursor can move it backwards when resumed in order. FFI readers no longer go through that path.
+- **Reflections are left open:** `caller/open` does not close them when the step gives up.

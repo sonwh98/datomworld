@@ -1,0 +1,625 @@
+Loading initial Timbre config from: :default
+[:yin-repl] Compiling ...
+[:yin-repl] Build completed. (180 files, 1 compiled, 0 warnings, 2.46s)
+Loading initial Timbre config from: :default
+fetched Java/Python3LexerBase.java f8d057a0cbd0fa0d895d1aa27aa8914c3e85a1eaa95f7161da9a6e617c65f5ec
+fetched Java/Python3ParserBase.java 2ae0ab2905c50c2675f1b827bc6ba4bc3d01d78cafcd92ad8e0d36f15682b773
+vendored Python3Lexer.g4 58c4dfa0b12dfb856b7348b99199bf1a3fdc7901d7fc4575ddf9584aeb831c19
+vendored Python3Parser.g4 74fa61c519832b694718c8006741a045a687725a9f0a06645dfdfa4c7ebce65d
+generated 4 java files; classes in build/antlr/python3/classes
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing dao.await-test
+
+Testing dao.data.btree-async-test
+
+Testing dao.data.btree-durability-test
+
+Testing dao.data.btree-protocols-test
+
+Testing dao.data.btree-test
+
+Testing dao.data.btree-transients-test
+
+Testing dao.data-test
+
+Testing dao.gui.compiler-test
+
+Testing dao.gui.event.arena-test
+
+Testing dao.gui.event.bind-test
+"dao.gui.event output gone; dropping pending" {:destination :gesture, :outcome :dao.stream/closed}
+
+Testing dao.gui.event.core-test
+
+Testing dao.gui.event.fixture-test
+
+Testing dao.gui.event.longpress-test
+
+Testing dao.gui.event.machine-test
+
+Testing dao.gui.event.pan-test
+
+Testing dao.gui.event.pointer-test
+
+Testing dao.gui.event.policy-test
+
+Testing dao.gui.event.terminal-test
+
+Testing dao.gui.event.transform-test
+
+Testing dao.gui.runtime-test
+
+Testing dao.jing.cbor-conformance-test
+CONFORMANCE jvm cases=372 run=367 skipped=["coll/map-integer-width-duplicate" "coll/set-decimal-scale-collapse" "coll/set-signed-zero-collapse" "coll/set-vector-list-collapse" "num/js-unsafe-integer"]
+CONFORMANCE-DIGEST jvm refusal n=154 1b929147af85f703c700a1f0d9cfbe74c55e5e28302a862086516fe749ec1b82
+CONFORMANCE-DIGEST jvm canonical n=208 6d1c64719d96c11f79d575bd3122ad1bba1ba9efcc56dce63b195423575cf2cb
+
+Testing dao.jing.cbor-content-equality-test
+
+Testing dao.jing.cbor-fixtures-test
+
+Testing dao.jing.cbor-test
+SKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart
+
+Testing dao.jing.content.step-test
+
+Testing dao.jing.content-test
+
+Testing dao.jing.dht.facade-test
+
+Testing dao.jing.dht.kad-test
+
+Testing dao.jing.dht.socket-test
+
+Testing dao.jing.dht-test
+
+Testing dao.jing.file-test
+
+Testing dao.jing.hash-registry-contract-test
+
+Testing dao.jing.mem-test
+
+Testing dao.jing.stream-test
+
+Testing dao.jing-test
+
+Testing dao.lease-composition-test
+
+Testing dao.lease-test
+
+Testing dao.postgraphics.lowering-test
+
+Testing dao.postgraphics.math-test
+
+Testing dao.postgraphics.packing-test
+
+Testing dao.postgraphics.raster-test
+
+Testing dao.postgraphics.terminal-test
+
+Testing dao.pretty-test
+
+Testing dao.space.dht-test
+
+Testing dao.space.index-numeric-test
+
+Testing dao.space.index-test
+
+Testing dao.space.positional-query-test
+
+Testing dao.space.query-numeric-test
+
+Testing dao.space.query-test
+
+Testing dao.space.schema-test
+
+Testing dao.space.stigmergy-test
+
+Testing dao.space.transact-test
+
+Testing dao.space.transactor-test
+
+Testing dao.stream.apply-test
+
+Testing dao.stream.base64-test
+
+Testing dao.stream.cbor-test
+
+Testing dao.stream.chunks-test
+
+Testing dao.stream.datagram.jvm-test
+
+Testing dao.stream.datagram-test
+
+Testing dao.stream.forward-test
+
+Testing dao.stream.memory-log-test
+
+Testing dao.stream.middleware-test
+
+Testing dao.stream.observe-test
+
+Testing dao.stream.observer-test
+
+Testing dao.stream.remote-meet-test
+
+Testing dao.stream.remote-pair-test
+
+Testing dao.stream.remote-test
+
+Testing dao.stream.ringbuffer-test
+
+Testing dao.stream.rpc-test
+
+Testing dao.stream.transit-test
+
+Testing dao.stream.udp-raw-test
+
+Testing dao.stream.udp-test
+
+Testing dao.stream.waitset.cadence-test
+
+Testing dao.stream.waitset.driver-test
+
+Testing dao.stream.waitset-test
+
+Testing dao.stream.ws.jvm-test
+
+Testing dao.stream.ws-codec-test
+
+Testing dao.stream.ws-project-cross-jvm-test
+;; SKIPPED a-dart-dialer-reads-a-jvm-server: build/ws-project-peer is absent -- compile it first: clojure -M:cljd compile dao.stream.ws-project-peer && dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart -o build/ws-project-peer
+
+Testing dao.stream.ws-project-jvm-test
+
+Testing dao.stream.ws-project-test
+
+Testing dao.stream.ws-test
+
+Testing dao.stream-test
+
+Testing datomworld.demo.artifact-runner-test
+
+Testing datomworld.demo.artifact-scene-test
+
+Testing datomworld.demo.continuation-handoff-test
+
+Testing datomworld.demo.earth-moon-scene-test
+
+Testing datomworld.demo.solar-system-scene-test
+
+Testing datomworld.demo.voxel-controls-test
+
+Testing datomworld.demo.voxel-input-test
+
+Testing datomworld.demo.voxel-runner-test
+
+Testing datomworld.demo.voxel-scene-test
+
+Testing yang.clojure.stream-eval-test
+
+Testing yang.clojure-test
+FFI hello world
+
+Testing yang.php-test
+
+Testing yang.python.antlr.cst-export-test
+
+Testing yang.python.antlr.e2e-c1-test
+
+Testing yang.python.antlr.e2e-c2-test
+
+Testing yang.python.antlr.e2e-test
+
+Testing yang.python.antlr.lower-portable-test
+
+Testing yang.python.antlr.lower-test
+
+Testing yang.python.antlr.prelude-parity-test
+
+Testing yang.python.antlr.scope-test
+
+Testing yang.python-test
+
+Testing yin.repl.adapter-test
+
+Testing yin.repl.ast-index-test
+
+Testing yin.repl.ast-query-e2e-test
+
+Testing yin.repl.build-test
+
+Testing yin.repl.connect-test
+
+Testing yin.repl.dht-process-test
+
+FAIL in (separate-jvm-processes-exchange-content-over-loopback) (dht_process_test.clj:432)
+a Node reader hydrates the JVM publisher's index
+node-reader-e:
+no "source-map-support" (run "npm install source-map-support --save-dev" to get it)
+SHADOW import error /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js
+/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:67
+    throw e;
+    ^
+
+Error: Cannot find module '@noble/hashes/blake3.js'
+Require stack:
+- /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1455:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1065:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1070:22)
+    at Module._load (node:internal/modules/cjs/loader:1241:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.require (node:internal/modules/cjs/loader:1555:12)
+    at require (node:internal/modules/helpers:152:16)
+    at /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js:3:100
+    at global.SHADOW_IMPORT (/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:64:44)
+    at /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:1456:1 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js' ]
+}
+
+Node.js v25.6.1
+expected: (await-line e (re-pattern (str "dht: hydrated :" manifest)) startup-ms)
+  actual: (not (await-line {:label "node-reader-e", :process #object[java.lang.ProcessImpl 0x54ed39dd "Process[pid=54205, exitValue=1]"], :lines #object[clojure.lang.Atom 0x4329d7b2 {:status :ready, :val ["no \"source-map-support\" (run \"npm install source-map-support --save-dev\" to get it)" "SHADOW import error /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js" "/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:67" "    throw e;" "    ^" "" "Error: Cannot find module '@noble/hashes/blake3.js'" "Require stack:" "- /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js" "    at Module._resolveFilename (node:internal/modules/cjs/loader:1455:15)" "    at defaultResolveImpl (node:internal/modules/cjs/loader:1065:19)" "    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1070:22)" "    at Module._load (node:internal/modules/cjs/loader:1241:25)" "    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)" "    at Module.require (node:internal/modules/cjs/loader:1555:12)" "    at require (node:internal/modules/helpers:152:16)" "    at /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js:3:100" "    at global.SHADOW_IMPORT (/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:64:44)" "    at /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:1456:1 {" "  code: 'MODULE_NOT_FOUND'," "  requireStack: [ '/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js' ]" "}" "" "Node.js v25.6.1"]}], :reader #object[java.lang.Thread 0x39b06e97 "Thread[#207,dht-process-node-reader-e,5,]"], :stdin #object[java.io.BufferedWriter 0x41309902 "java.io.BufferedWriter@41309902"]} #"dht: hydrated :segment/blake3-8444d45c2450e95f75a0ff69715c56ee804f1190b12a63de27c58e9e945c6f84" 240000))
+
+FAIL in (separate-jvm-processes-exchange-content-over-loopback) (dht_process_test.clj:437)
+a Node reader hydrates the JVM publisher's index
+node-reader-e:
+no "source-map-support" (run "npm install source-map-support --save-dev" to get it)
+SHADOW import error /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js
+/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:67
+    throw e;
+    ^
+
+Error: Cannot find module '@noble/hashes/blake3.js'
+Require stack:
+- /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1455:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1065:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1070:22)
+    at Module._load (node:internal/modules/cjs/loader:1241:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.require (node:internal/modules/cjs/loader:1555:12)
+    at require (node:internal/modules/helpers:152:16)
+    at /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js:3:100
+    at global.SHADOW_IMPORT (/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:64:44)
+    at /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:1456:1 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js' ]
+}
+
+Node.js v25.6.1
+expected: (str/includes? (str answer) (str token))
+  actual: (not (str/includes? "" "fb9bb195-26f5-49c7-82c9-b9351dff8a8d"))
+
+FAIL in (a-module-published-by-name-is-required-by-name-across-processes) (dht_process_test.clj:803)
+reader-b-node hydrates A's index
+reader-b-node:
+no "source-map-support" (run "npm install source-map-support --save-dev" to get it)
+SHADOW import error /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js
+/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:67
+    throw e;
+    ^
+
+Error: Cannot find module '@noble/hashes/blake3.js'
+Require stack:
+- /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1455:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1065:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1070:22)
+    at Module._load (node:internal/modules/cjs/loader:1241:25)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.require (node:internal/modules/cjs/loader:1555:12)
+    at require (node:internal/modules/helpers:152:16)
+    at /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js:3:100
+    at global.SHADOW_IMPORT (/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:64:44)
+    at /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:1456:1 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js' ]
+}
+
+Node.js v25.6.1
+expected: (await-line p (re-pattern (str "dht: hydrated :" manifest)) startup-ms)
+  actual: (not (await-line {:label "reader-b-node", :process #object[java.lang.ProcessImpl 0x68f727a "Process[pid=56332, exitValue=1]"], :lines #object[clojure.lang.Atom 0x1748ba38 {:status :ready, :val ["no \"source-map-support\" (run \"npm install source-map-support --save-dev\" to get it)" "SHADOW import error /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js" "/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:67" "    throw e;" "    ^" "" "Error: Cannot find module '@noble/hashes/blake3.js'" "Require stack:" "- /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js" "    at Module._resolveFilename (node:internal/modules/cjs/loader:1455:15)" "    at defaultResolveImpl (node:internal/modules/cjs/loader:1065:19)" "    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1070:22)" "    at Module._load (node:internal/modules/cjs/loader:1241:25)" "    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)" "    at Module.require (node:internal/modules/cjs/loader:1555:12)" "    at require (node:internal/modules/helpers:152:16)" "    at /Users/sto/workspace/datomworld-py-c2gen1/.shadow-cljs/builds/yin-repl/dev/out/cljs-runtime/shadow.js.shim.module$$noble$hashes$blake3.js:3:100" "    at global.SHADOW_IMPORT (/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:64:44)" "    at /Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js:1456:1 {" "  code: 'MODULE_NOT_FOUND'," "  requireStack: [ '/Users/sto/workspace/datomworld-py-c2gen1/target/yin-repl.js' ]" "}" "" "Node.js v25.6.1"]}], :reader #object[java.lang.Thread 0x7267368b "Thread[#214,dht-process-reader-b-node,5,]"], :stdin #object[java.io.BufferedWriter 0x2da6dca2 "java.io.BufferedWriter@2da6dca2"]} #"dht: hydrated :segment/blake3-40872384d0cb58b93bcca1375ea886ae0e712cf454645a27066f807d74eee18b" 240000))
+
+ERROR in (a-module-published-by-name-is-required-by-name-across-processes) (ProcessBuilder.java:447)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: java.io.IOException: Stream closed
+ at java.lang.ProcessBuilder$NullOutputStream.write (ProcessBuilder.java:447)
+    java.io.OutputStream.write (OutputStream.java:167)
+    java.io.BufferedOutputStream.flushBuffer (BufferedOutputStream.java:125)
+    java.io.BufferedOutputStream.implFlush (BufferedOutputStream.java:252)
+    java.io.BufferedOutputStream.flush (BufferedOutputStream.java:246)
+    sun.nio.cs.StreamEncoder.implFlush (StreamEncoder.java:412)
+    sun.nio.cs.StreamEncoder.lockedFlush (StreamEncoder.java:214)
+    sun.nio.cs.StreamEncoder.flush (StreamEncoder.java:201)
+    java.io.OutputStreamWriter.flush (OutputStreamWriter.java:262)
+    java.io.BufferedWriter.implFlush (BufferedWriter.java:372)
+    java.io.BufferedWriter.flush (BufferedWriter.java:359)
+    yin.repl.dht_process_test$type_BANG_.invokeStatic (dht_process_test.clj:243)
+    yin.repl.dht_process_test$type_BANG_.invoke (dht_process_test.clj:240)
+    yin.repl.dht_process_test$require_on_each_vm$fn__69385$step__69389.invoke (dht_process_test.clj:496)
+    yin.repl.dht_process_test$require_on_each_vm$fn__69385.invoke (dht_process_test.clj:503)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:60)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yin.repl.dht_process_test$require_on_each_vm.invokeStatic (dht_process_test.clj:490)
+    yin.repl.dht_process_test$require_on_each_vm.invoke (dht_process_test.clj:482)
+    yin.repl.dht_process_test$fn__69609$fn__69671.invoke (dht_process_test.clj:809)
+    yin.repl.dht_process_test$fn__69609.invokeStatic (dht_process_test.clj:806)
+    yin.repl.dht_process_test/fn (dht_process_test.clj:751)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.next (RT.java:733)
+    clojure.core$next__5472.invokeStatic (core.clj:64)
+    clojure.core$reduce1.invokeStatic (core.clj:946)
+    clojure.core$reduce1.invokeStatic (core.clj:936)
+    clojure.core$merge_with.invokeStatic (core.clj:3083)
+    clojure.core$merge_with.doInvoke (core.clj:3075)
+    clojure.lang.RestFn.applyTo (RestFn.java:142)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.invoke (RestFn.java:400)
+    clojure.lang.AFn.applyToHelper (AFn.java:152)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+Testing yin.repl.dht-test
+
+Testing yin.repl.driver-test
+
+Testing yin.repl.embed-test
+
+Testing yin.repl.host.jvm-test
+
+Testing yin.repl.index-test
+
+Testing yin.repl.main-test
+;; SKIPPED a-dart-client-attaches-to-this-jvm-server: build/yin-repl-peer is absent — run bb build:yin-repl-peer (or bb test) first
+Bye
+
+
+Testing yin.repl.query-test
+
+Testing yin.repl.require-test
+
+Testing yin.repl.serve-connect-wire-test
+
+Testing yin.repl.serve-test
+
+Testing yin.repl.store-test
+
+Testing yin.repl-test
+
+Testing yin.vm.ast-walker-test
+
+Testing yin.vm.attach-image-test
+
+Testing yin.vm.cell-test
+
+Testing yin.vm.code-test
+
+Testing yin.vm.completion-test
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.data-test
+
+Testing yin.vm.debruijn.register-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.debruijn-code-test
+
+Testing yin.vm.debruijn-linearize-test
+
+Testing yin.vm.debruijn-register-benchmark-test
+
+[R3] de Bruijn stack VM vs register VM (informational)
+
+[R3] tail-countdown (10 timed runs, value 0)
+  stack    run=5.635ms lower=0.16ms load=0.353ms instrs=56 bytes=998 steps=10518 peak-frames=1 peak-cont=0
+  register run=5.684ms lower=0.239ms load=0.922ms instrs=35 bytes=4295 steps=6012 peak-frames=1 peak-cont=0
+  register/stack: run=1.008 lower=1.49 load=2.606 steps=0.571 bytes=4.303
+
+[R3] fibonacci (10 timed runs, value 144)
+  stack    run=5.181ms lower=0.349ms load=0.714ms instrs=92 bytes=1618 steps=11850 peak-frames=1 peak-cont=11
+  register run=7.294ms lower=0.4ms load=1.23ms instrs=53 bytes=7059 steps=6740 peak-frames=1 peak-cont=11
+  register/stack: run=1.407 lower=1.145 load=1.722 steps=0.568 bytes=4.362
+
+[R3] lexical-binding (50 timed runs, value 36)
+  stack    run=0.526ms lower=0.276ms load=1.106ms instrs=92 bytes=1541 steps=84 peak-frames=8 peak-cont=0
+  register run=1.697ms lower=0.417ms load=1.293ms instrs=55 bytes=7702 steps=46 peak-frames=8 peak-cont=0
+  register/stack: run=3.225 lower=1.512 load=1.169 steps=0.547 bytes=4.998
+
+[R3] corpus: literal map (50 timed runs, value {:x 10, :y 20})
+  stack    run=0.188ms lower=0.006ms load=0.162ms instrs=2 bytes=128 steps=2 peak-frames=0 peak-cont=0
+  register run=0.196ms lower=0.011ms load=0.192ms instrs=2 bytes=359 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=1.044 lower=1.784 load=1.182 steps=1.0 bytes=2.804
+
+[R3] corpus: addition (50 timed runs, value 30)
+  stack    run=0.163ms lower=0.02ms load=0.219ms instrs=8 bytes=127 steps=8 peak-frames=0 peak-cont=0
+  register run=0.257ms lower=0.034ms load=0.244ms instrs=5 bytes=614 steps=5 peak-frames=0 peak-cont=0
+  register/stack: run=1.576 lower=1.716 load=1.116 steps=0.625 bytes=4.834
+
+[R3] corpus: nested application (50 timed runs, value 6)
+  stack    run=0.195ms lower=0.038ms load=0.23ms instrs=14 bytes=224 steps=14 peak-frames=0 peak-cont=0
+  register run=0.306ms lower=0.074ms load=0.288ms instrs=8 bytes=1019 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=1.57 lower=1.918 load=1.255 steps=0.571 bytes=4.549
+
+[R3] corpus: if true branch (50 timed runs, value 100)
+  stack    run=0.189ms lower=0.033ms load=0.182ms instrs=12 bytes=219 steps=11 peak-frames=0 peak-cont=0
+  register run=0.269ms lower=0.057ms load=0.281ms instrs=9 bytes=942 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=1.423 lower=1.731 load=1.545 steps=0.727 bytes=4.301
+
+[R3] corpus: if false branch (50 timed runs, value 200)
+  stack    run=0.208ms lower=0.035ms load=0.197ms instrs=12 bytes=219 steps=10 peak-frames=0 peak-cont=0
+  register run=0.322ms lower=0.071ms load=0.301ms instrs=9 bytes=942 steps=7 peak-frames=0 peak-cont=0
+  register/stack: run=1.546 lower=1.999 load=1.524 steps=0.7 bytes=4.301
+
+[R3] corpus: lambda application (50 timed runs, value 11)
+  stack    run=0.216ms lower=0.054ms load=0.218ms instrs=14 bytes=231 steps=14 peak-frames=1 peak-cont=1
+  register run=0.383ms lower=0.059ms load=0.314ms instrs=9 bytes=1167 steps=9 peak-frames=1 peak-cont=1
+  register/stack: run=1.769 lower=1.1 load=1.438 steps=0.642 bytes=5.051
+
+[R3] corpus: closure value (50 timed runs, value {:type :closure, :arity 1})
+  stack    run=0.16ms lower=0.01ms load=0.149ms instrs=4 bytes=72 steps=2 peak-frames=0 peak-cont=0
+  register run=0.234ms lower=0.021ms load=0.246ms instrs=4 bytes=583 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=1.458 lower=2.061 load=1.648 steps=1.0 bytes=8.097
+
+[R3] corpus: higher order (50 timed runs, value 15)
+  stack    run=0.265ms lower=0.057ms load=0.235ms instrs=20 bytes=335 steps=20 peak-frames=1 peak-cont=2
+  register run=0.452ms lower=0.093ms load=0.384ms instrs=13 bytes=1720 steps=13 peak-frames=1 peak-cont=2
+  register/stack: run=1.706 lower=1.642 load=1.633 steps=0.65 bytes=5.134
+
+[R3] corpus: collection primitives (50 timed runs, value 9)
+  stack    run=0.163ms lower=0.016ms load=0.173ms instrs=6 bytes=163 steps=6 peak-frames=0 peak-cont=0
+  register run=0.327ms lower=0.028ms load=0.21ms instrs=4 bytes=567 steps=4 peak-frames=0 peak-cont=0
+  register/stack: run=1.999 lower=1.729 load=1.213 steps=0.666 bytes=3.478
+
+[R3 JFR Profiling Report]
+  Stack VM JFR:    target/jfr/stack-vm-countdown.jfr (events=41041, samples=114, allocs=573)
+  Register VM JFR: target/jfr/register-vm-countdown.jfr (events=40856, samples=27, allocs=282)
+
+Testing yin.vm.debruijn-register-compile-test
+
+Testing yin.vm.debruijn-register-contract-test
+
+Testing yin.vm.debruijn-register-effects-test
+
+Testing yin.vm.debruijn-resolve-test
+
+Testing yin.vm.debruijn-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.effect-forgery-test
+
+Testing yin.vm.encoder-test
+
+Testing yin.vm.engine-test
+
+Testing yin.vm.ffi.remote-serve.responder-test
+
+Testing yin.vm.ffi.remote-serve-test
+
+Testing yin.vm.ffi-test
+
+Testing yin.vm.heap-reclamation-test
+
+Testing yin.vm.host-typed-values-test
+
+Testing yin.vm.ledger-test
+
+Testing yin.vm.linearize-test
+
+Testing yin.vm.linker.closure-test
+
+Testing yin.vm.linker.dht-end-to-end-test
+
+Testing yin.vm.linker.dht-test
+
+Testing yin.vm.linker.publish-test
+
+Testing yin.vm.linker.sign-test
+
+Testing yin.vm.linker-authority-ingestion-test
+
+Testing yin.vm.linker-authority-test
+
+Testing yin.vm.linker-manifest-test
+
+Testing yin.vm.linker-require-test
+
+Testing yin.vm.linker-step-test
+
+Testing yin.vm.linker-test
+
+Testing yin.vm.macro-build-test
+
+Testing yin.vm.macro-test
+
+Testing yin.vm.mint-test
+
+Testing yin.vm.module-test
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.pipeline-test
+
+Testing yin.vm.rule-r-test
+
+Testing yin.vm.semantic-engine-test
+
+Testing yin.vm.semantic-ffi-test
+
+Testing yin.vm.semantic-stream-observer-test
+
+Testing yin.vm.semantic-test
+
+Testing yin.vm.store-write-audit-test
+
+Testing yin.vm.telemetry-test
+
+Testing yin.vm.ucf.remote-test
+
+Testing yin.vm.ucf-test
+
+Testing yin.vm-test
+
+Ran 2846 tests containing 225809 assertions.
+3 failures, 1 errors.
+Error while executing task: test:clj

@@ -1,0 +1,17 @@
+I don't have an `ExitPlanMode` tool available in this session, so I'll deliver the completed review directly — this was a read-only QA task with no code to implement, only findings to report.
+
+Completed-GMT: 2026-09-04 08:22:10 GMT
+Completed-Local: 2026-09-04 15:22:10 +07 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: b53e4945-af33-4386-a8d0-064591a2fa0a
+
+Reviewed the unstaged diff to `test/dao/stream/ws_test.cljc` (two reader conditionals at lines 78-80 and 142-144 gained a `:cljd (Object.)` branch).
+
+- **Missing-argument fix confirmed.** A `#?()` with no matching branch and no `:default` elides the whole form, so the prior 2-branch conditional made `stream/append!` receive only `handle` on cljd (arity error). `append!` is 2-arg (`src/cljc/dao/stream/ws.cljc:166-177`); the new `:cljd (Object.)` branch supplies the missing value on all three hosts.
+- **Outside the portable domain, confirmed.** `transit/portable-value?` (`src/cljc/dao/stream/transit.cljc:52-73`) explicitly filters cljd's tagged-value/uuid/uri/bigint/bigdec/quoted/link records and falls to `:else false` for a bare `Object.`, so the fixture is non-portable by construction on all three hosts. The identical 3-branch fixture is already precedented and covered in `test/dao/stream/transit_test.cljc:32,35`.
+- **`:invalid-value` vs pre-accept `:full` distinction preserved.** `WsHandle/append!` checks `phase` before portability: `(not= :open phase)` → `:full` short-circuits regardless of value shape; only once `phase` is `:open` does non-portability → `:invalid-value`. The two edited tests match this exactly (one opens first and expects `:invalid-value`, the other never opens and expects `:full`).
+- **JVM/CLJS unchanged.** The `:clj` and `:cljs` branch values are unchanged (`(Object.)` / `(js-obj)`); only a new `:cljd` key and re-indentation were added. `:clj` remains first in the conditional, but the known ClojureDart host-eval-pass trap (needing `:cljd` first) doesn't apply — all three branches are real, and the `:clj` branch's `(Object.)` is harmless, side-effect-free code during host-eval (unlike a `deftest`/`:import` form). The same `:clj`-first ordering already exists in `transit_test.cljc:32`, covered by the clean full `bb test:cljd` run cited in the task.
+
+No actionable findings.
+
+SIGN-OFF: GRANTED

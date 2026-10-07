@@ -1,0 +1,10 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+fix1 is done.
+
+**Cause:** the three Dart failures all compared the require round's *rendered text* to `"'mod"`. The value crossing the shell is the symbol `mod` on every host; only `dao.pretty`'s rendering of a `(quote sym)` form differs (`'mod` on JVM/cljs, `(quote mod)` on ClojureDart). A test-printing difference — production code untouched, as the brief directs.
+
+**Fix** (`test/yin/repl/require_test.cljc` only): `require-and-apply` now returns the round's `:last-value` — the read value — instead of the rendered text, and the three assertions compare `(= 'mod answered)` / `(= 'mod (:last-value state''))`. Strictly stronger than before, since `:last-value` is set only by a completed round. The remaining text assertions (`absent`, `pending`, `(abandon)`, `abandoned`, `"3"`) match host-stable strings and weren't flagged by the Dart lane.
+
+**Verification:** yin.repl.require-test on JVM — 4 tests, 44 assertions, 0 failures; kondo 0/0; cljstyle clean. Dart itself can't run in this worktree, so the orchestrator reruns it.
+
+**Report:** a `fix1` section is appended at the top of `collab/1790437900000-vm-engineer-linker-m5-repl-wiring.glm-5.3-flash.report.md`, including an observation for the owner that `dao.pretty`'s quote rendering differs per host (a separate dao.pretty slice if operator-facing output must print identically on Dart). Nothing committed.

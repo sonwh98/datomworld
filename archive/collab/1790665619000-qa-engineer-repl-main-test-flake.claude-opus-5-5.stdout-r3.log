@@ -1,0 +1,45 @@
+Completed-GMT: 2026-09-29 08:09:15 GMT
+Completed-Local: 2026-09-29 15:09:15 +07
+Coding-Agent: claude
+Session-ID: f9fe29ab-85ec-4a4d-8667-ca972a237a16
+
+# Report r3: deterministic regression test for the unminted-cursor race
+
+This round adds a deterministic regression test, and it fails when the driver guard is switched off. The test is `no-request-crosses-before-its-response-cursor-is-minted` in `test/yin/repl/driver_test.cljc` (+52 lines), the only file changed this round. The round-2 driver fix is unchanged (`src/cljc/yin/repl/driver.cljc`, +19/−4). The root cause and the loop counts (4/20 failing before the fix, 0/36 after) are in `report.md`.
+
+## The test
+
+- **Fixture:** `unminted-reflection` is a fake reader that behaves like a remote reflection.
+  - Until the test sets `minted?`, asking it for a cursor gets the retryable `transport-error` answer, as happens while the server hasn't yet answered the cursor request.
+  - Once `minted?` is set, it resolves `newest` against the responses ring at that moment, as the server does when the request arrives.
+- **Setup:** the RPC client starts with its reply cursor at `stream/anchor-newest`, the way `connect/open` sets it up.
+- **Assertions:**
+  1. **Step 0, cursor not yet resolved:**
+     - nothing is appended to the requests medium (it answers `:dao.stream/blocked`);
+     - `:queued` is `["(+ 1 2)"]`;
+     - `pending-write?` is true.
+  2. **Step 1, after the cursor resolves:** exactly the queued request is sent (`:op/eval ["(+ 1 2)"]`) and the queue is empty.
+  3. **Step 2:** the answer, appended after the cursor resolved, is read and published as `"3"`.
+
+## Proof that it bites
+
+I made `response-cursor-unminted?` return false temporarily, which switches off the guard in `handle-line`, `release-queue` and `pending-write?`. Running `clj -M:test -n yin.repl.driver-test` then gave 2 failures:
+- `driver_test.cljc:225`: expected `:dao.stream/blocked`, got `:dao.stream/ok` — the request was sent while the cursor was still an anchor.
+- `driver_test.cljc:228`: expected `:queued` to be `["(+ 1 2)"]`, got `[]` — the line was not held back.
+
+That is the flake's exact starting condition. The guard is restored: `grep -rn "REVERT-PROBE\|FLAKE" src test/yin` finds nothing, and `git diff --stat -- src test/yin` lists only `driver.cljc` (+19/−4) and `driver_test.cljc` (+52).
+
+**Limit:** the test checks the rule that no request is sent before its reply cursor resolves. It does not replay the actual loss, where a later-resolving cursor skips an earlier answer. With the guard in place that ordering can't happen, and the cross-process loops in `report.md` show the loss itself.
+
+## Verification
+
+- `clj -M:kondo --lint test/yin/repl/driver_test.cljc src/cljc/yin/repl/driver.cljc`: 0 errors, 0 warnings.
+- `clj -M:test -n yin.repl.driver-test -n yin.repl.main-test`: 31 tests, 180 assertions, 0 failures, 0 errors.
+- **Not run this round:** `bb test:cljs` and cljstyle (not asked for), and `bb test:cljd` (excluded). The test uses only a `reify` of a shared `.cljc` protocol and no reader conditionals, and the cljs test build discovers `yin.repl.driver-test` automatically. Its result on cljs and cljd is still unverified.
+
+## Scope kept
+
+- `dao.stream.rpc` is untouched; the `cursor-pending` suggestion goes to the Architect.
+- I did not rebuild `build/yin-repl-peer` (left to you); nothing is staged or committed.
+
+Report written to `collab/1790665619000-qa-engineer-repl-main-test-flake.claude-opus-5-5.report-r3.md`.

@@ -1,0 +1,45 @@
+**Review of D4 (forward-step), static analysis only.** I found no P1 and no defect in the D4 code paths. The two P2s are a test gap and a diagnostics gap.
+
+### P1
+None.
+
+### P2
+1. **The frame is not tested across a `:retry`.** `test/yin/vm/debruijn_test.cljc:1098` (`blocked-input-retries-without-progress`) blocks only after a closed graph, so the frame is empty when the source blocks. The code does carry the frame through `:retry`: `debruijn.cljc:1432-1437` re-emits `frame` and `pending` unchanged. But dropping `:frame` from that result would still pass every test. §1 names the current graph frame as forward-step state, and no test blocks mid-frame and then resumes. Add a fixture that fills half a graph, gets `:retry` with `:dao.stream/blocked`, appends the rest, and re-steps to the full expected projection.
+2. **The catch-all turns host errors into empty or missing diagnostics.** At `debruijn.cljc:1418-1419`, any non-`ex-info` throwable becomes `:invalid-input` with `{}` as its diagnostic. That loses the message and mislabels an internal defect as bad input. The catch is also host-divergent. A `StackOverflowError` from a deeply nested graph escapes `forward-step` on the JVM, because it is not an `Exception`. The same recursion on CLJS is a `js/Error` and is absorbed. I suggest `{:rule :internal-error, :message (ex-message t)}` for the non-`ex-info` case. I've rated this P2 rather than P3 because it breaks "outcomes, never hidden failure" on one host only.
+
+### P3
+3. **The adjacent-graphs fixture cannot tell graph two from a repeat of graph one.** `test:1059-1071` uses `(fn [x] x)` and `(fn [y] y)`, which are alpha-equivalent, so both graphs project to identical rows. A bug that replayed graph one's projection for graph two would still pass. A frame that failed to reset would trip `:duplicate-fact` and be caught. Use a semantically different second graph, for example `(fn [x] 42)`.
+4. **The `(pos? (:forwarded final))` assertions depend on batch arithmetic.** At `test:1055` and `test:1121`, `final` is the last `drive`/`pump` call, and `:forwarded` counts only that call's writes. Whether it is positive depends on how the row count divides by the budget of 8. Assert the total instead (`(count (drain destination))`).
+5. **Some documented outcomes have no test.**
+   - `:destination-invalid-value`, `:destination-transport-error` and the unknown-outcome `:transport-error` fallback are never exercised.
+   - Terminal idempotence is asserted only for `:partial-frame` (`test:1090`).
+   - `pending-writes-wait-for-host-cadence` fails only on the first append. It cannot catch a retry that replays already-accepted rows after an ok-ok-full sequence. Script `[ok ok full]` instead.
+   - Trailing decorations are tested, but decorations interleaved mid-graph are not.
+   - Only two wrong-slot examples are asserted (`bound 5`, `body 42`, `test:1166`). Cheap additions would be `arity "x"`, `free 1`, and a `bound` of the wrong length.
+6. **The reader gate checks that a value is in the canonical domain, not that it is spelled canonically.** `slot-shape-ok?` (`debruijn.cljc:1155-1175`) accepts a `1.0` arity or a decomposed-NFC `:value` string, and the recomputed hash still matches. The reader then returns a record whose content differs from what `canonical-value` would produce. This looks pre-D4, so treat it as an architect awareness item. I have not checked whether earlier review rounds ruled on it.
+7. **Docstring and dead-code nits.**
+   - The docstring at `debruijn.cljc:1331-1358` says only non-`:continue`/`:retry` results carry `:outcome`, but `:retry` carries it too (the test asserts this).
+   - `:invalid-input` carries no `:outcome`, although the last read answered ok.
+   - The `(vector? v)` guard at `debruijn.cljc:1256-1263` is now unreachable, because the shape gate rejects a non-vector first.
+   - `(rest pending)` at `debruijn.cljc:1381` turns `:pending` from a vector into a seq, a small type drift in the state.
+   - A source that answers `:ok` with an unchanged cursor loops on `:continue`. This matches `dao.stream.forward`, which guards only the gap fixed point.
+8. **The implementation knowingly departs from §1's state list, so this is for the architect.**
+   - §1 lists indexed facts, scope stack, occurrence memo and output cursor as forward-step state.
+   - The implementation keeps the first three inside the atomic per-marker projection, and it tracks no output cursor. `forward-initial-state`'s docstring states this.
+   - I read that as consistent with §1's intent: no state persists between calls except the explicit state, and no hidden execution. But it is a literal difference from the sentence, and I did not edit the design doc.
+
+### Checks that passed
+- **Framing and diagnostics (§6/§7-D4):**
+  - Framing at `:yin/root true` matches `frame-datoms`. Non-`:yin` datoms are skipped, and `check-datom` runs before the namespace filter, so retracts and malformed datoms diagnose everywhere.
+  - Partial frames at end-of-stream report `:partial-frame` with the frame in `:diagnostic`.
+  - A gap or defect mid-frame terminates with the frame retained, so nothing is silently dropped.
+- **Outcome correctness:**
+  - `pending` shrinks only on `:dao.stream/ok` (`debruijn.cljc:1381`). `:full` returns `:retry` with `pending` and the cursor unchanged. Pending drains before any further read, so a write is never lost or reordered.
+  - Terminal states return unchanged (`debruijn.cljc:1360-1363`).
+  - Source defects and unknown or `nil` outcomes all fall through to terminal statuses.
+- **§1 scan:** No atoms, callbacks, timers, registries or scheduler in `src`. The atoms in the test file are test scaffolding only. The `recur` sits outside the `try`.
+- **Reader ordering (`debruijn.cljc:1227-1236`):** The order is `index-frame`/`check-datom`, then unknown-attribute, then `malformed-hash`, then the slot-shape gate, then `node-hash`. The `(vector? type)` branch handles tuple and ordered-vector types. Nothing typed wrongly reaches host arithmetic, and the tests would fail rather than pass if a host exception leaked. With several defective entities, which rule is reported depends on host map order. Single-defect cases are deterministic.
+- **Box:** Non-`collab/` status shows exactly `src/cljc/yin/vm/debruijn.cljc` and `test/yin/vm/debruijn_test.cljc`.
+- **Test honesty:** The blocked-source test uses a real unsealed ring (`:blocked`). The scripted `:full` is a legal `outcomes-append` value; the ring buffer evicts oldest and can never answer `:full`, so a mock is the only route. §8's invalid-answer row is correctly absent.
+
+READY for architect sign-off (no blockers; recommend the implementer fold in P2-1 and P3-3 as cheap test hardening).

@@ -1,0 +1,29 @@
+### Findings
+
+**Critical** | `docs/design/dao.lease.md`:122 | **Ledger updates are missing from the pass.** Step 2 drains and stamps lease-facts, but the pass never applies them. An implementer has no rule telling them to update the ledger's "last relevant observation" or record a `:released` status based on the drained facts. | **Correction:** Append to Step 2: "For each valid renewal or release from the lease's holder, update the ledger's last relevant observation to that *now* or mark it released."
+
+**Critical** | `docs/design/dao.lease.md`:117-133 | **Negotiation is absent from the judge's pass.** The vocabulary defines Proposals and Grants, but the pass steps (1-5) only classify existing leases. The judge never reads a proposal or issues a grant, leaving negotiation un-implementable from the contract. | **Correction:** Insert a step in the pass to process `:dao.lease/proposed` facts, evaluate them, and emit `:accepted` or `:rejected` facts, seeding new grants into the ledger using that pass's *now*.
+
+**High** | `docs/design/dao.lease.md`:100, 125, 131 | **The `:cause` falls through between classification and recording.** The Fact table requires a `:cause` for `:lapsed`, and Step 5 records it. But Step 3 classifies the cause without storing it, and the ledger's `pending reclaim` field (line 103) is just a boolean, meaning the cause is lost before Step 5. | **Correction:** Change the ledger's "pending reclaim" (line 103) to store the specific `:cause` instead of a boolean, and update Step 3 to record the exact cause into the ledger when classifying.
+
+**High** | `docs/design/dao.lease.md`:105 | **Tenure start time is undefined for unsolicited grants.** An unsolicited grant is "seeded from that act" (line 105), but time only reaches lease code via ticks (line 81) which are only defined as *now* during a pass (line 119). An act outside a pass has no time to seed from. | **Correction:** State that an unsolicited grant must be issued during a pass to use its *now*, or that it enters the ledger at the subsequent pass using that pass's *now*.
+
+**High** | `docs/design/dao.lease.md`:96, 130 | **Violation of the non-negotiable execution invariant.** Step 4 mandates "Reclaim each due lease... by acting on what it itself holds" (line 97). The judge interprets evidence and directly executes the closure, violating `datom.world.md`'s invariant against collapsing interpretation and execution into the same layer. | **Correction:** The judge interpreter must append a `:dao.lease/reclaim-due` effect value to a stream; a distinct host adapter must consume this effect to execute the resource closure.
+
+**Medium** | `docs/design/dao.lease.md`:214-237 | **The split duplicated arguments into the contract.** The entire "Limits" section (lines 214-237), along with lines 177-180 and 249-252, are properties, consequences, and arguments, not implementable rules. For example, "A lease traverses nothing" (line 233) is stated verbatim in the rationale (line 82) — exactly the duplication the split existed to end. | **Correction:** Delete the "Limits" section (lines 214-237) and lines 177-180, 249-252. They bind nothing and are fully covered by the rationale.
+
+**Low** | `docs/design/dao.lease.md`:170 | **Holder's bound measurement lacks an explicit time source.** The holder's bound rule says "When the interval... exceeds the duration", but unlike the renewal rule (line 168), it omits how the interval is measured. | **Correction:** Change line 170 to: "When the interval, measured against ticks on its own medium, exceeds the duration..."
+
+### What the split got right
+
+It successfully isolated the mechanical vocabulary (the fact table, keys, validity rules) and the operational pass steps into a visible, tightly bound sequence. Stripping out the historical Jini comparisons and garbage collection analogies made the actual mechanics checkable, which is exactly how the missing ledger updates and dropped `:cause` became glaringly obvious. The strict boundary of precedence against `dao.stream.md` is also fully respected—no operations or keys were added to the stream contract. The 5 round-4 fixes successfully landed, resolving key contradictions.
+
+### What an implementer cannot determine from `dao.lease.md` alone
+
+Walking the two compositions end-to-end reveals what is fundamentally un-expressible in the contract as written:
+- **For a served connection:** The implementer cannot determine how to assign a "tenure start" timestamp to an unsolicited grant, because the grant is seeded from an act outside a pass where no tick has been drained to define *now*. Furthermore, when renewals arrive, the implementer cannot apply them, because the pass steps only instruct the judge to stamp facts, never to update the ledger's "last relevant observation". Finally, when the lease lapses, the implementer cannot determine the `:cause` for Step 5, because Step 3's classification didn't store it in the boolean `pending reclaim` field.
+- **For an in-process pause:** The implementer cannot determine how to process the holder's initial `:dao.lease/proposed` fact, because the pass steps (1-5) strictly govern classifying already-live leases and never describe reading proposals or issuing grants.
+
+### Whether this document is now converging or still accreting
+
+The document is **converging**. The 815 lines successfully collapsed into actionable rules. The remaining defects (missing ledger updates, dropped causes, undefined timestamps) are missing logical links in a state machine, not philosophical arguments or local justifications accreting against each other. The split worked. A final editing round to mechanically patch these specific omissions—and delete the remaining argumentative "Limits" section—will finalize it without making it worse.

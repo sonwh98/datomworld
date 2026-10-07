@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-30 13:23:39 GMT
+Completed-Local: 2026-09-30 20:23:39 +07 (+0700)
+Coding-Agent: glm
+Session-ID: e181873d-ded3-46c0-a416-f2e8ddb30f47
+
+**S1 complete — every acceptance bullet met, all lanes green, nothing staged or committed.** Full report: `collab/1790764302000-stream-engineer-dht-s1-raw-datagram.glm-5.3.report.md`.
+
+**Built** (worktree `datomworld-dht-s1`, branch `dht-s1`):
+- `dao.stream.base64` — strict padded standard-alphabet codec (`encode`, total `decode`, `text?`); dao.jing untouched per the Base64-seam rule.
+- `dao.stream.datagram` — portable layer: §2 values + event constructors, IP-literal/port grammar, §3 descriptor + `make-attacher`, §4 writer handle (`#{:writer :closable}`, exact outcome set, `:full`/`:refused` excluded with reasons). Three host seams (`datagram.jvm` DatagramSocket, `.node` dgram, `.dart` RawDatagramSocket) each take `{:identity :deposit :bind-host :bind-port :max-bytes}` — a deposit writer, no function to invoke — and return `{:send! f :close! f}`.
+- `dao.stream.udp` rebuilt per §7: `make-port` takes `:raw-traffic`, `send-value!` answers the raw writer's first non-ok outcome (fragment runs stop cleanly), new `port-step!` (bounded read to `blocked`, skips lifecycle events and `:dao.jing.dht/v` maps, decodes Base64, feeds `receive!`; raw gap adopts the recovery cursor). Old UDP host seams + their test deleted.
+
+**Acceptance, verified per bullet:** loopback exact-byte/observed-source round trips on all three hosts; `bound`/`bind-failed`/`send-failed`/`closed` all observed as events; hostname/bad-Base64/oversize → `invalid-value` with provably no send (canary technique); closed → `closed`; inbound oversize dropped; slow reader sees `gap` with recovery cursor; `udp_test.cljc` and every `dao.stream.remote` test byte-unchanged and green. Throughput (JVM, warm): single-datagram 33 795 → 31 887 msgs/s (**0.94×**), fragmented 48 KiB 264 → 159 (**0.60×**) — the per-datagram raw-event tax, analyzed in the report.
+
+**Checks, foreground in the worktree:** kondo on the 12 changed files **0 errors/0 warnings**; cljstyle clean; focused JVM 45/399/0; full `clj -M:test` **2435/185153/0**; `bb test:cljs` **2340/51565/0**; `bb test:cljd` **+2299/−1** — the −1 is a pre-existing waitset timing flake unrelated to this slice (passes solo; evidence logged). Test-first failures recorded on the unmodified tree; four mutation proofs (inbound-oversize drop, destination validation, DHT-map skip, outcome pass-through) each failed their target test and were grep-verified reverted.
+
+**Two judgment calls flagged for the Architect** (both documented in seam docstrings + report): (1) synchronous send failures deposit `send-failed` as well as answering `transport-error` — without this the JVM could never observe the event the acceptance demands; (2) dart:io silently no-ops both zero-length sends and sends on closed sockets, so the Dart seam classifies from its own state (closed = refused + event; zero-length = clean refusal — JVM/Node still send empty datagrams fine).

@@ -1,0 +1,52 @@
+Completed-GMT: 2026-09-05 12:40:07 GMT
+Completed-Local: 2026-09-05 19:40:07 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: f4e3fed9-73ca-4ea5-a485-a45263d8eff0
+
+## Verdict
+
+**Changes required**, narrowly. The descriptor-based boundary fits the DaoStream contract and the ring-buffer transport as implemented, and every prior reconciled fix survives. Two decisions are missing from the plan text, and either one followed literally produces a faulty REPL. Both are one-sentence additions. No new mechanism is needed.
+
+## Findings
+
+Severity | Clause or file:line | Evidence | Minimum correction
+
+**Medium (blocker) | Plan §1 "supplied once when composing" together with §4 "reset: the shell creates a fresh medium ... the observer attaches using the new descriptor" | The resolver is per medium, not per shell**
+`ringbuffer/attach!` at `ringbuffer.cljc:173-191` resolves the descriptor's identity through the supplied resolver and answers `not-found` when the identity is absent or mismatched. Identity is minted per medium at `ringbuffer.cljc:27`. If the shell binds an attacher over `{identity owner}` once at `create-state` and reuses it after `(reset)` creates a new medium, every post-reset attach answers `not-found`. Correction: state that the resolver and attacher are built with the medium, at the same point the shell creates it, and rebuilt on reset and VM switch. "Once" means once per medium lifetime. Add a test: reset, then a datom literal evaluates.
+
+**Medium (blocker) | Plan §2 "reported with their original outcomes before interpreting anything" | Reporting mode is undecided**
+Two existing mechanisms fit: `vm/mint-oldest` and `vm/create-stream!` at `v2.cljc:166-197` throw `ex-info` carrying `:outcome`, and `create-vm` construction is all-or-nothing on that basis. If the observer constructor instead returned an outcome map, the REPL's `create-state` and `reset` at `core.cljc:268-285` and `core.cljc:472-475` would store a failed observer without noticing. Correction: state that attachment failure, a handle without the reader surface, and cursor mint failure throw, carrying the original outcome, matching VM construction. Reuse `vm/mint-oldest` for the mint or inline the same shape.
+
+**Low | Plan §2 "The host handles attachment cleanup" | No cleanup is required for this composition, and the text could be read as requiring one**
+On the ring buffer, an attached handle is `owner? false`; `close!` at `ringbuffer.cljc:137-149` only freezes that attachment and never sets the logical stream closed. Dropping the observer and medium on reset leaves nothing to release; the attachment record lives inside the owner's state atom and is collected with it. The contract says dropping a cursor is detachment. Correction: say the REPL performs no close on reset; closing the attached handle is permitted by contract and never closes the producer's stream, but is not part of this change. Whether the constructor closes its own attachment on a subsequent cursor failure may go either way; pick "no close" for the smaller diff.
+
+**Low | Plan §2 "require a successful reader handle" | Verification is a composition-defect check, and the plan should say so**
+`stream/reader?` at `v2.cljc:194-197` exists. A transport whose attach returns a non-reader handle is possible under the contract, and the WS transport is one. There is no DaoStream outcome for "surface absent"; the contract reserves exceptions for host assembly defects, so throwing is correct here. Correction: name `reader?` as the check and classify the failure as an assembly defect.
+
+**Low | Plan §4 REPL composition on cljd | Resolver values must be handles**
+`resolve-state` at `ringbuffer.cljc:163-170` recognizes an atom only on clj and cljs; on cljd it accepts a `RingHandle` only. The shell must map identity to the owner handle, never to internal state. Correction: state it, since the CLJD lane is in scope.
+
+**Low | Plan §1 and §3 public surface | Name the public set**
+The plan says not to restore the four-operation API but does not list what remains public. After the change, the walker's `step` no longer needs `step-on-stream`, and the REPL needs only the constructor, `observe-next`, and `run-on-stream`. Correction: list those three as public; make `step-on-stream` private or delete it with its test if no non-test caller remains.
+
+**Info | Plan §3 dependency direction**
+If the observer reuses `vm/mint-oldest`, it requires `yin.vm`, which does not require the engine or observer. No cycle. Acceptable; inlining the mint keeps the observer on `dao.stream` alone, which is slightly cleaner but not required.
+
+## Properties that passed review
+
+- **Attachment fits the contract.** The observer consumes a descriptor, calls a host-composed attach function, and never creates. `host-dispatch-attach!` and `ringbuffer/make-attacher` exist and take exactly the shapes the plan names. Attaching never creates and a mis-keyed resolver answers `not-found`, which `ringbuffer_test.cljc:201-207` pins.
+- **Reads through an attachment observe live appends.** While the attachment is open, `frozen` is nil at `ringbuffer.cljc:85-86`, so the observer sees every value the owner appends. Cursors carry identity and position, bind to the logical stream, and mint at `oldest` through the attachment as today.
+- **Observation cannot end the stream.** The attached handle's writer and closable surfaces act on the attachment only. The plan exposes neither.
+- **Ownership and independence.** Observer state is the handle, cursor, and gap count; VM state is untouched; the session is threaded as one value. Two observers over one medium hold independent attachments and cursors, which `ringbuffer_test.cljc:360-390` already exercises.
+- **Prior fixes intact.** Idle-step guard scoped to the readiness predicate (§3), loader failure returns no session and retries the poison batch (§4), direct-eval decoupling recorded (§4), writer handle held separately (§2, §4), `observe-next` rename (§3), forged `:halted? false` removed (§4), engine drops observer forwarding and keeps `run-loop` (§3).
+- **No new mechanism.** No registry, protocol, `accept-datoms`, or `ready-for-program?`. The unary attacher is a lexical closure over host data, exactly as `make-attacher` documents at `ringbuffer.cljc:194-199`.
+- **Attachment and reads stay outside the instruction loop.** Readiness gating is unchanged.
+- **Portability.** Identity is a string; descriptors and cursors are plain maps; no reader conditionals are needed in the observer.
+- **Test plan.** The listed contract tests cover the boundary. Add the two tests named in the blockers.
+
+## Remaining decisions before approval
+
+1. Resolver and attacher are built with the medium and rebuilt on reset and VM switch.
+2. Attachment, reader-surface, and cursor failures throw with the original outcome, matching VM construction.
+
+With those two sentences added, this plan is approved.

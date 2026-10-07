@@ -1,0 +1,65 @@
+Completed-GMT: 2026-09-30 14:50:13 GMT
+Completed-Local: 2026-09-30 21:50:13 +07
+Coding-Agent: claude
+Session-ID: 34a43a41-4291-4c0a-ba31-296bdadeab7a
+
+# D4 report: effects are an unforgeable host type (F1 fix)
+
+All five parts of D4 are implemented, and the full JVM and CLJS suites pass. Two checks did not run: `cljstyle check` was blocked by the permission layer in both rounds, and `bb test:cljd` is your lane. Round 2 changed no code and re-ran every check in the foreground. Nothing is staged or committed. The full report is at `collab/1790778658842-vm-engineer-host-typed-effects.claude-opus-5-5.report.md`.
+
+## What changed
+
+- **Host type (parts 1–2):** new `src/cljc/yin/vm/effect.cljc`.
+  - `Effect` supports keyword lookup, so existing handlers read `(:effect e)`, `(:val e)` and the rest unchanged. It is not a map, so guest `assoc` cannot extend it. The CLJD branch comes first in the reader conditional.
+  - `make` is the only constructor, and `effect?` is a type test.
+  - `descriptor` returns the plain map, and `from-descriptor` is the trusted conversion back.
+  - `module/effect?` and `module/make-effect` are aliases for these. The constructor is not a guest primitive or a module export.
+  - `engine/handle-effect` now refuses anything that is not an `Effect`.
+- **Profile check (part 5):** it landed without a per-call lookup.
+  - `vm/callable-effects` builds a map from each host function to its declared effects. It is built once, when primitives are installed (`empty-state`) and when a host module is registered.
+  - `engine/check-callee-effect!` runs only when a callee's result is already an effect. On failure it throws with `:yin.k/status :yin.k/undeclared-effect`.
+  - It is wired into all four VMs. The AST walker needed a new `callable-effects` record field, because its record rebuild dropped the key.
+- **Producers (part 4):** 30 source sites moved to the constructor. They are in `module.cljc`, `vm.cljc`, `dao/await.cljc`, `repl/query.cljc` and 5 sites in each of the four VMs. Seven test files were migrated to match.
+- **New test:** `test/yin/vm/effect_forgery_test.cljc` runs the F1 programs and the profile checks on all four VMs.
+
+## Stream and wire boundaries
+
+Only plain data crosses each boundary, never the effect wrapper:
+- wait-set and park entries;
+- the `dao.stream.apply` call request;
+- the link request envelope;
+- the telemetry snapshot, which carries only the effect's kind;
+- the register VM's portable descriptor, which stays a plain map and is converted with `from-descriptor` at dispatch;
+- the compilation stream;
+- error data.
+
+For lift and encode, effects never become guest values, so none should reach the encoder. I got that from reading the code and did not test it.
+
+## Test results (Round 2)
+
+| Check | Result |
+|---|---|
+| `clj -M:kondo --lint` on all 19 changed files | 0 errors; the 5 warnings also appear on master |
+| `clj -M:test` | 2420 tests, 185018 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2325 tests, 51462 assertions, 0 failures, 0 errors; "Testing yin.vm.effect-forgery-test" printed |
+| `cljstyle check` | not run (blocked) |
+| `bb test:cljd` | not run (your lane) |
+
+A few rewritten call sites are misindented, in `semantic.cljc` around lines 413–425 and `debruijn/stack.cljc` around 663–684. Please run `cljstyle fix` on the changed files.
+
+## Mutation proof
+
+I ran these in Round 1; the code has not changed since, and the reverts are confirmed.
+
+| Mutation | Result |
+|---|---|
+| M1: shape detection restored (part 1 reverted) | 2 failures, 24 errors across the F1 and literal-map tests; the forged effects are now refused by the profile check instead |
+| M1 + M2: both layers reverted | 34 failures; `k`/`k2` are written to the store on all four VMs, reproducing F1 exactly |
+| M2 only: profile check disabled | 8 failures, exactly the two part-5 tests on 4 VMs each |
+
+## Open concerns for the Architect
+
+1. **Unprofiled host functions pass the profile check.** These include bare primitive entries and functions supplied through the environment; they are treated as trusted composition values. This is a policy choice to confirm.
+2. **A function published under several profiles** gets the union of their declared effects.
+3. **The profile map can go stale.** A function added to `:primitives` after the VM is built is simply unprofiled, so it passes; nothing is ever wrongly refused.
+4. **CLJD is unverified until `bb test:cljd` runs.** The map relies on Dart closure identity, and `effect.cljc` is a new CLJD deftype.

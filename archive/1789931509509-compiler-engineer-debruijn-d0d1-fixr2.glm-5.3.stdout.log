@@ -1,0 +1,32 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-20 19:15:46 GMT
+Completed-Local: 2026-09-21 02:15:46 +07 (Indochina Time)
+
+All eight accepted findings are applied in the two in-box files. Nothing staged, committed, merged, or pushed; no file outside `src/cljc/yin/vm/debruijn.cljc` and `test/yin/vm/debruijn_test.cljc` was touched this round.
+
+## Findings applied
+
+| Finding | Change |
+|---|---|
+| **P2-1** | `frame-datoms`: datoms whose attribute namespace is not `"yin"` now neither open nor extend a frame — trailing decorations after the last marker are not a partial graph, and returned frames carry `:yin/*` datoms only. Docstring updated. New test `trailing-other-namespace-datoms-do-not-open-a-frame` (complete graph + trailing `:yin.code/*`, `:db/*`, `:yin.macro/*` datoms → one clean frame, projection unchanged), while the existing partial-frame test still proves a trailing `:yin/*` datom diagnoses. |
+| **P2-2** | `:lambda` emits `:yin.debruijn/macro?` only when the source `:yin/macro?` is truthy (was: when present). New test `an-explicit-macro-false-projects-like-an-absent-one`. |
+| **P2-3** (ruling) | `:seq` split into `:vector` and `:list` in `canonical-value-table` (`:classes` and the two per-class entries, with a comment stating the `vector?` observability rationale) and in `canonical-class` (`vector?` before `sequential?`; non-vector seqs → `:list`). Tests updated (`[1 2.5] :vector`, `(list 1 2.5) :list`, `[nil "x" :k] :vector`). The descriptor embeds the table, so `dimension-hash` re-minted: `b1b238ab…` → `79aaf951cc6904f6af3004b84444568f2911375a118eb1aece377504c253b940` — accepted pre-D2. No test pins the literal digest, so nothing else moved. |
+| **P3-1** | `project-datoms` no longer assocs `:yin.debruijn/root true` into the root node; `{:root node}`'s wrapper key is the marker, and the docstring says the node map equals the same term as a subterm. All six expected maps that relied on the assoc were adjusted (every-type, both renamed-binders, essays-example, duplicate-params, free-names root). |
+| **P3-2** | `slot-kind-ok?`'s `:int64` branch is now `(and (number? v) (= :int64 (numeric-class v)))`, so a non-number `:yin/buffer` value yields the `:unsupported-value` diagnostic instead of a `:cljd` host type error. |
+| **P3-3** | `dimension-hash` docstring now states the split explicitly: the descriptor is stable (slots, encoding rule, morphisms never change); the digest is transitional — D0 mints it via dao.jing's order-normalized hash, D3 re-pins it over the settled canonical encoder; only the digest ever changes. |
+| **P3-4** | `numeric-class` docstring notes that on a JS-compiled Dart target `int?` also holds for integral doubles, so §5's safe-integer rule would govern there as on `:cljs`; the cljd lane is native today. |
+| **P3-5** | New test `the-memo-never-affects-output-identity`: the same term emitted as a graph sharing one `:eid` subterm (asserting the operand datom really is `[-60 -60]`, so the second occurrence is a `[eid stack]` memo **hit**) and as a tree with distinct entities (asserting all operand refs are distinct, so every memo key **misses**) project to identical return values. |
+
+## Verification (exact commands and outcomes)
+
+- **Focused JVM**: `clojure -M:test -n yin.vm.debruijn-test` → **34 tests, 116 assertions, 0 failures, 0 errors** (was 31/109).
+- **kondo**: `clojure -M:kondo --lint src/cljc/yin/vm/debruijn.cljc test/yin/vm/debruijn_test.cljc` → **errors: 0, warnings: 0**.
+- **cljstyle**: `cljstyle fix` then `cljstyle check` on both files → **clean** (whitespace-only reindent; focused JVM rerun after the fix stayed 34/116/0/0).
+
+Full three-host lanes were left to the orchestrator as instructed. Environment: same spawn-through-clojure route as the build brief (mise untrusted in this worktree).
+
+## Notes
+
+- **P2-3 scope**: the design doc amendment (the §5/§8 wording that named one sequential class) is the orchestrator's, per the dispatch — only the code, table data, and tests changed here.
+- Every finding was applicable; none was skipped or partially applied.
+- Working tree is unchanged apart from the two in-box files; `pubspec.yaml`/`pubspec.lock` carry only the build round's `unorm_dart 0.3.1+1` addition from before this round.

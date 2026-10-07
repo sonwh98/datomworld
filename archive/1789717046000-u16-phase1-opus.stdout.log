@@ -1,0 +1,38 @@
+Phase 1 of the U16 expander is implemented and passes on the JVM. It is not committed: the two new files are untracked in the working tree. The ClojureScript and Dart test runs still need doing.
+
+## Verification
+
+| Lane | Result |
+|---|---|
+| JVM, `yin.vm.macro-test` | 25 tests, 184 assertions, 0 failures |
+| JVM, full `clojure -M:test` | 1381 tests, 0 failures, 0 errors (no regressions) |
+| ClojureScript | Compiles with no warnings in the new files (the 2 build warnings are in `dao/stream/ws/node_test.cljs`). **The tests did not run**: this worktree has no `node_modules` (the `ws` package is missing), and running node against the main checkout's modules needed approval I couldn't get here. |
+| ClojureDart | **Not compiled**: `clojure -M:cljd compile …` needed approval. The code avoids `#?(:clj …)` branches; the only host split is the catch clause, which lists `:cljd` first. |
+
+## What's there
+
+**`src/cljc/yin/vm/macro.cljc`** covers the full §3.1 surface (`expand-batch`, `expand`, `definitions`, `invoke`, `valid-tree?`, `mark-tail`, `step`, `drain-errors`), plus `make-ctx`, `stdlib-forms`, `seed-store` and the observer functions:
+- **Admission:** checks batch shape, every row, paths, the complete harvest catalogue and declarations, and reports the first error in a fixed order.
+- **Expansion:** harvest and catalogue, stand-ins, path rebuilding that never touches unchanged subtrees, and `expand-node` as §4.2 describes, including shadowing and depth. Post-harvest runs in §3.5 declaration order.
+- **Macro bodies:** they run in a fresh, throwaway ast-walker with a step limit. They get only the pure primitives plus the full §5.3 prelude, and gensyms are scoped to each attempt.
+- **Output and events:** tail marks are recomputed from scratch (set and cleared), stand-ins are lowered to literals, and one content-addressed event row is written per attempt.
+- **Observer:** separate staged slots for program and log, retry per destination on `full`, a throw carrying `:consumer` for other failed publishes, and error draining.
+
+**`test/yin/vm/macro_test.cljc`** covers every required Phase 1 test. It adds two more: a shared definition row at two paths stays two occurrences, and the expanded output runs on an evaluator with no macro knowledge (`(defn inc1 …) (inc1 41)` → 42).
+
+## Decisions that need an owner ruling
+
+1. **Phase 0 isn't in the tree.** Nothing produced or checked `:yin.program/batch` yet, so the batch checks and path navigation live inside `yin.vm.macro`. No frontend emits batches; that's still Phase 0/2 work.
+2. **Post-harvest only walks the run tree (§3.2 step 5, read literally).** A macro declared in a disconnected tree works in its own batch but doesn't carry over to the next. So `stdlib-forms` puts `defn` in the run tree. Please confirm this is intended.
+3. **New error kinds.** The spec doesn't name these: `:effect-guard` (a stream constructor runs in a macro body), `:body-error` (the body threw), `:packet-shape`, and `:address-conflict`. Admission errors also carry `:tree j`, and a missing harvest entry reports `:ordinal nil` with `:tree`/`:path`.
+4. **Check order differs from the §7.1 table.** The plain-value and marker checks run before the address check, so a host value is never hashed.
+5. **How events locate a call.** A nested event records the parent's output root and a path relative to it. A call found after its operator is rewritten is logged as a source occurrence at the original root, even though the rebuilt application isn't literally present there. Error `:path` values use the absolute path in the run tree.
+6. **Smaller choices:**
+   - Suspension and effect limits are checked on the tags that actually execute, so a `park` in a branch that never runs is fine.
+   - Address conflicts compare metadata, because the current hash ignores metadata on scalars.
+   - The gensym counter is a volatile local to one invocation, never shared.
+   - A custom `:eval` runner that throws is treated as a defect and propagates, which is how the "defect does not advance input" test works.
+   - Post-harvest visits a definition before any definitions nested inside its value.
+   - The batch row limit counts rows from every tree in the batch, not just the run tree.
+
+Scratch files are removed, and the `collab/` prompt and log files are untouched.

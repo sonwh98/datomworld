@@ -1,0 +1,18 @@
+Completed-GMT: 2026-09-17 07:35:00 GMT
+Completed-Local: 2026-09-17 14:35:00 +07 (Asia/Ho_Chi_Minh)
+
+## Findings
+
+**1. Deletion scope — verified independently, matches the plan text exactly.** `git status --short` shows 8 deletions (`src/clj/dao/runtime/driver.clj`, `src/cljc/dao/runtime.cljc`, `src/cljd/dao/runtime/driver.cljd`, `src/cljs/dao/runtime/driver.cljs`, `test/dao/runtime/driver_{cljd,cljs}_test.{cljc,cljs}`, `test/dao/runtime/driver_test.clj`, `test/dao/runtime_test.cljc`) plus one edit (`test/dao/test_utils.cljc`) — exactly the file list at `dao.runtime.implementation-plan.md:374-379`. A repo-wide grep for `dao\.runtime` (excluding `dao.runtime`) turns up only two prose docstring mentions in still-live v1 `dao.stream.cljc` (`drain-one!`'s "consumers that need destructive consumption (dao.runtime's take..." and `take!!`'s "in the async runtime, consume streams via dao.runtime instead") — comments only, correctly out of scope for the separate, not-yet-started `dao.stream` v1 retirement. Nothing else in the repo references the deleted namespaces.
+
+**2. `test_utils.cljc` edit — removes only the `make-non-waitable-stream` constructor, correctly keeps the `NonWaitableStream` defrecord.** This isn't just consistent with "different retirement scope" reasoning — it's independently verifiable as *required*: `test/dao/runtime/driver_test.clj`, `driver_test.cljs`, and `driver_cljd_test.cljc` (the live, currently-passing v2 suite) all reference `NonWaitableStream` directly as their own fixture ("NonWaitableStream from dao.test-utils; the v2 fixture is the v2 reference..."). Deleting the record in this unit would have broken v2's own tests. A grep for `make-non-waitable-stream` confirms zero remaining callers of the deleted constructor. The plan text (`:380-382`) itself only calls for removing the constructor, not the record, so the implementer matched the plan's literal scope — and that scope checks out against actual live consumers, not just stated intent.
+
+**3. Naming-decision prose — accurate and cross-consistent with D5.** The added block (`dao.runtime.implementation-plan.md:390-403`) records the rename as decided-but-deferred, citing `dao.stream.md`'s "when the last consumer has migrated" trigger and a fresh census of ~45 live `dao.stream` v1 consumers with no retirement plan drafted. `yin.vm.v1-retirement.implementation-plan.md` D5 (`:377-387`) independently states the same rename wave (`dao.await`, `dao.runtime`, `dao.stream` alongside `yin.vm`/`yin.repl`) is "the same question and the same answer," deferred as "owed rather than doing one of three renames early." Framing is coherent between the two documents — no contradiction on trigger, timing, or scope.
+
+**4. Independence of the two diffs — confirmed.** The deletion diff touches only `src/*/dao/runtime/**`, `test/dao/runtime/**`, and `test/dao/test_utils.cljc`. The naming-decision diff touches only `docs/design/dao.runtime.implementation-plan.md:390-403`, appended after the pre-existing R4 status note (`:359-372`) and disjoint from every line the deletion diff touches. No shared files, no overlapping lines. Safe to commit together or separately.
+
+## Verdict
+
+**APPROVE.**
+
+Both diffs are correctly scoped, mutually independent, and consistent with the design doc's own stated decisions. Retaining `NonWaitableStream` while removing its dead constructor is not merely defensible scope discipline — it's required, since three live v2 test files depend on the record directly. No changes requested; the orchestrator is authorized to stage and commit these diffs, together or separately.

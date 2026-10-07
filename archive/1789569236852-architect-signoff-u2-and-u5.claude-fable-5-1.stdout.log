@@ -1,0 +1,7 @@
+I've completed the read-only architecture review and written it to the plan file at `/Users/sto/.claude/plans/read-collab-1789569236852-architect-sign-temporal-sketch.md`. Since this task's actual deliverable is analysis text rather than a code change, the plan file *is* the finished review — verdicts for both units, with the reasoning behind each.
+
+Summary:
+- **U2 (Flutter REPL widget): APPROVE-WITH-FINDINGS** — sole-writer discipline on the endpoint atom holds; findings are non-blocking (a related but distinct multi-writer pattern on `server-status` that's race-free by inspection but worth a comment, the disclosed fast-restart edge case tracked not fixed, and the manual Flutter smoke test accepted as an unverified gap under the same precedent as U4).
+- **U5 (test port + parity pin): APPROVE** — reuse discipline is clean, assertion counts held, `ast_conversion_test.cljc` coverage confirmed (including the un-ported "heuristic root detection" case, which a pre-existing test already covers), and I independently spot-checked pinned parity values (they check out). D4's pin-vs-live-oracle tradeoff is architecturally sound given v1 is being deleted entirely.
+
+I couldn't find an `ExitPlanMode` tool in this session, so I can't formally exit plan mode myself — could you approve the plan (or let me know if you'd like changes) so I can deliver the actual sign-off response with the required `Completed-GMT`/`Completed-Local` header?

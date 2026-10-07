@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done. The working tree holds exactly my four owned files (the untracked `agent.harness.md`, the plan, and the blog file pre-date this task and are untouched), plus the findings report in `collab/`. Nothing staged, nothing committed.
+
+## Summary
+
+**Phase 1 of the schema plan is complete** — `dao.space.schema`'s write side is on the value model, per `docs/design/dao.space.schema.implementation-plan.md` §4:
+
+**Built** (`schema.cljc`): `transactor` returns the D1 map (`:inner`/`:local-stream`/`:strict?`/`:state`); `transact!` returns the inner transactor's receipt unchanged, with empty-`tx-data` throwing above the lock and `closed` answering first under it — the transactor's precedence, not a schema-specific one; new `close!` returning `{:dao.stream/outcome :dao.stream/ok}`; `publish!` is thin delegation with no guard and no lock. **Deleted**: `SchemaWrapper` + its `IDaoStreamBound` impl, the `{:result :ok …}` re-wrap, the closed throw, the publish guard. No reader conditionals added.
+
+**Tests**: 60 wrapper closes rewritten, the race test deleted, `closed-wrapper-answers-closed` renamed, three new deftests (idempotent close with the direct `(tx/transact! (:inner w) …)` pin, closed-precedence alignment, publish-after-close). 70 → **72 deftests**.
+
+**Verification**: clj **1436 tests / 165344 assertions / 0 failures 0 errors**; cljs **1346 / 34917 / 0 failures, 1 error** (the pre-existing `wasm` ReferenceError, documented in three prior phase findings); cljd **All tests passed (+1299)** with all 69 schema entries; demo compiles clean; kondo **0 errors 0 warnings**. Residue greps land exactly on target: `ds/` **14** and **6**, deftests **72**.
+
+**Two reportable deviations**, both in the findings file:
+1. **24 receipt sites rewritten, not the plan's 22** — the plan's §0.4 list missed the multi-line `(:result` openers in W45 and W50; leaving them would have failed the suite. Same mechanical rule, both pass.
+2. **T19's test** changed at `:1062`/`:1071` plus one assertion-**message string** whose "keeps schema's v1 public shape (D10)" prose became false when the D10 paragraph was deleted. No assertion form or value moved — the brief asked me to flag any third change, so I have.
+
+The remaining 14 + 6 `ds/` lines are exactly Phase 2's read-side inventory; `current`, both `defopen`s, `published`, `PublishedSchemaRows` and `schema_fixtures` are untouched, as instructed.

@@ -1,0 +1,18 @@
+Phase 2 is done: the compiler that turns the AST into linear instructions is written and tested. The tests pass on the JVM (0 failures) and in the ClojureScript node suite (all 1287 tests pass, and it confirms `linearize-test` ran). I didn't run the ClojureDart build or `parity_test`, and I haven't committed anything.
+
+**`src/cljc/yin/vm/linearize.cljc`**
+- **`lower`** follows the rules in §5.3. It evaluates the operator, then the operands left to right, and puts lambda bodies after the main code. Branch and closure targets are written as refs to instruction entities, never as pc numbers. Every instruction gets `:yin.code/source`, and the segment gets `:yin.code/derived-from`.
+- **Why it doesn't use `datoms->ast`:** it reads the AST datoms directly, because the rebuilt maps have no entity ids to put in `:yin.code/source`.
+- **New ids never collide with the AST's.** By default they start below the lowest id in the input, so code and AST can go in one batch. `:t` and `:id-start` can be set.
+- **`lower-ast`** is `lower` applied to `ast->datoms`.
+- **Unsupported nodes are rejected.** `:yin/macro-expand` and `:vm/store-update` throw an error whose data carries `{:type …, :node …}`. Unknown or missing node types are rejected too. `lower-ast` checks the map first, because `ast->datoms` would otherwise fail with a vaguer message.
+
+**Wiring `eval` and `vm-load-program`: only partly done.** `semantic.cljc` doesn't exist yet because Phase 1 is still writing it. Having `linearize` require it would break compilation, and editing it would collide with their work. So I added the pieces Phase 1 needs:
+- `ast-loader` turns a code loader into one that accepts AST datoms, which is the §3.1 composition.
+- Phase 1's `eval` should be `(-> vm (vm-load-program (linearize/lower-ast ast)) vm/run)`. `semantic.cljc` requires `linearize`, not the other way round.
+
+**`test/yin/vm/linearize_test.cljc`** runs a set of programs covering every supported node type. It checks:
+- **Contract:** each lowered segment passes `code/well-formed?`, pcs are dense and in order, and every ref resolves (segment, target, body, a real AST entity as source, root as derived-from). It also checks that every instruction has a source and that code ids don't collide with AST ids.
+- **§2.7 example:** the output matches the worked example in the design doc instruction for instruction.
+- **Shapes and errors:** `if` becomes a branch-false plus jump. Unsupported nodes are rejected, both from maps and from datoms.
+- **Evaluation order:** a program with `yin/def` calls in the operator, operands, `if` tests and both branches, a closure body, a tail call and a read back from the store. It runs on the real walker and on a small interpreter in the test file that executes the lowered code. The recorded `yin/def` order and the result (11) match. That interpreter only exists to check order until Phase 1's VM can take over through `parity_test`.

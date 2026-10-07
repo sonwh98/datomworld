@@ -1,0 +1,47 @@
+Completed-GMT: 2026-09-25 22:36:20 GMT
+Completed-Local: 2026-09-26 05:36:20 +07
+
+Commit two (M2 on top of Rule R) is done in the working tree, and all three lanes pass. Nothing was staged, committed or stashed. `test/yin/vm/content_test.cljc` is resolved in the file but still shows as unmerged (`UU`), as the prompt asked. The full report is at `/Users/sto/workspace/datomworld/collab/1790354100000-vm-engineer-yin-def-rule-r-commit-two-m2.claude-opus-5-5.report.md`.
+
+**Conflict resolution.** I kept M2's `linker/fetch` version. The load then passes `(:contract linker/semantic-format)`, the contract of the format record the vector was fetched under, and never `vm/semantic-contract`. Passing the loader's own constant would stamp external input with it, which is the pattern codex rejected in commit one. Until the records were renamed this correctly refused v2 against v3.
+
+**Lane counts:**
+
+| Lane | Merged baseline | Final |
+|---|---|---|
+| JVM | 2083 tests, 181343 assertions, 2 failures, 6 errors | 2089 tests, 181424 assertions, 0 failures, 0 errors |
+| Node | 1996 tests, 48204 assertions, 2 failures, 6 errors | 2002 tests, 48286 assertions, 0 failures, 0 errors |
+| Dart | all 57 test files failed to compile, 0 passed | 1964 passed, "All tests passed!" |
+
+- **Why the baseline failed:** the old v2 contract name, the old yin/def fixtures that the mint side now refuses, and two stale 2-argument `vm-load-rows` calls. Those two calls are compile errors on Dart, so no Dart test file loaded.
+- **Lint and style:** kondo reports 0 errors and 0 warnings. cljstyle is clean. Every added line is ASCII, at most 80 columns, with no em dash.
+
+**Implemented (`src/cljc/yin/vm/linker.cljc`):**
+- **Contract names:** the four records now take "v3" (AST and semantic), "b2" (stack) and "r2" (register), read from the `vm/*-contract` constants.
+- **Fetch contract:** a fetch with no contract is refused as `:invalid-request` before any read, and a differing one stays `:contract-mismatch`. The R to H fallback passes the stack contract explicitly.
+- **Deleted guards:** the round 3 shadow filter, round 4's `computed-yin-def-write?` and `tree-yin-def-application-query`, and the `:yin-def?` bookkeeping.
+- **Kept:** constant-key recognition, the invocation position `[3 2]`, dominance, and all the earlier fetch-bound fixes.
+- **Scanners:** the vector and register definition scanners read `:define` beside `:store-put`, and the tree obligations never include the definition operator.
+
+**Tests (`linker_test`, plus contract threading in `content_test`):**
+- **Explicit contracts:** every fetch call site now passes the contract (58 in `linker_test`, 8 in `content_test`).
+- **New:**
+  - an omitted contract is `:invalid-request` with zero reads;
+  - a definition discharges its reads in all four formats, and the fetched image runs on its own backend;
+  - the vector scanners read `:define`;
+  - `(yin/def 'x 'yin/def)` links and stores `x` as the symbol on all four backends.
+- **Now refusal tests:** the rebinding, direct store-put and computed-key tests now expect `:descriptor-defect` with `:reserved-name`. I added codex's round 4 alias case, which had no test before, and a vector-format key test.
+
+**Deviations:**
+- I kept the shorter `fetch` arities. They now always return `:invalid-request`; removing them instead is your call.
+- I updated three sentences in `docs/design/yin.vm.linker.md` that said the omitted-contract refusal was still to come.
+
+**Unrun checks and findings:**
+- **Dart overlap:** my baseline Dart run was still going when I started the final one. I stopped both and reran the final lane on its own. The Dart counts above come from that solo run.
+- **Parity harness:** there is no separate parity-harness command, so parity ran only inside the three lanes.
+- **Stale docstring, not changed (out of scope):** `src/cljc/yin/vm/completion.cljc:299` still names the retired `fetch-vector`/`load-rows`.
+- **Scope:** nothing from M4 was touched. The reserved set is still only `yin/def`, and `require` is still an ordinary primitive.
+
+The claude.ai Gmail, Google Calendar and Google Drive connectors need authorization in their claude.ai connector settings. They are unavailable until then.
+
+Status: COMPLETE

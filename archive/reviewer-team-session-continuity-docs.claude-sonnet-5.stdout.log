@@ -1,0 +1,31 @@
+ExitPlanMode isn't available in this session, so I'll present the completed review directly — this is the read-only report the prompt file requested, not a code-change plan.
+
+Completed-GMT: 2026-09-04 08:37:19 GMT
+Completed-Local: 2026-09-04 15:37:19 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: 62abdc7f-5704-438a-bb07-29c6e2dd81fd
+
+**Method:** Inspected `git diff --cached -- docs/agents/team/TEAM.md` plus the full pre-/post-image, and cross-checked every invocation example against installed CLI help (`claude`, `glm`, `muse`, `deepseek` — confirmed identical Claude Code binary/flags; `codex exec`, `codex exec resume`; `agy`; `cmd`). Empirically tested the one flag-ordering claim that looked suspicious.
+
+## Finding
+
+**Medium | docs/agents/team/TEAM.md:231 | evidence | concrete correction**
+
+Evidence: the Codex follow-up example is
+```sh
+codex exec -m gpt-5.6-sol -s read-only resume <id> --json - \
+  < <follow-up-prompt> > collab/<task>-r<n>.gpt-5.6-sol.stdout.log
+```
+`codex exec resume --help` lists no `-s`/`--sandbox` option, and passing `-s read-only` *after* `resume` errors (`error: unexpected argument '-s' found`). Placed *before* `resume` (as written) it's silently accepted by the parent `exec` parser, but nothing in the CLI's own help confirms that flag is actually applied to the resumed session — `resume` documents no sandbox concept at all. The doc's Security section requires the read-only guarantee to actually hold on follow-ups, so implying it's preserved here isn't backed by CLI evidence. (This ordering already existed in the pre-image's abstract table entry `codex exec [-s <mode>] resume <id> -`; this diff is the first place it's promoted into a concrete, copy-pasteable command.)
+
+Correction: drop `-s read-only` from the follow-up example, and state the actual guarantee in prose, e.g. "Codex resume reuses the sandbox policy recorded with the original session; it cannot be overridden on resume" — or, if that can't be confirmed, add an explicit caveat instead of a command implying control the CLI doesn't expose.
+
+## Checklist results
+
+1. **Session-ID capture/resume for Claude, GLM, DeepSeek, Muse, Codex, AGY, Command Code** — consistent. `claude`/`glm`/`deepseek`/`muse` are the same binary (`--session-id`/`--resume`, verified via identical `--help`); Codex/AGY/Command Code correctly documented as provider-generated-only (no `--session-id`-equivalent exists for a fresh run on any of the three, confirmed against real `--help` output).
+2. **Invocation examples vs. installed CLI help** — one gap (above); every other flag used (`--session-id`, `--resume`, `--bare`, `--permission-mode`, `--allowed-tools`/`--tools`, `--name`, `--no-session-persistence`, AGY `--conversation`/`--mode`/`--sandbox`, Codex `--json`/`--ephemeral`, Command Code `--plan`/`--no-session`/`--resume`/`--session`) is real and correctly described; no other incompatible combinations or ambiguous selectors.
+3. **Append-only `collab/`, authorization, staging, commit rules** — preserved, no contradiction; these sections are untouched by the diff, and the new session-continuity text reiterates rather than conflicts with them.
+4. **Roster identifier** — correct. All four `claude-5-sonnet` occurrences replaced with `claude-sonnet-5` (matches the verified model ID), plus an explicit warning that `claude-5-sonnet` is unrecognized.
+5. **Condensed structure vs. removed text** — no material rule lost. The new 7-row CLI table (adds deepseek, agy; adds an ID-source column) is a strict superset of the old 5-row table.
+
+SIGN-OFF: WITHHELD

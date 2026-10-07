@@ -1,0 +1,29 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Both P1 fixes are implemented and verified. Summary of the work:
+
+## 1. [P1] Stable segment identity
+
+`vm-load-program` now stores images through a private `store-image` (`semantic.cljc:523`):
+- **Identical reload** (same decoded image under the same id) → accepted, idempotent.
+- **Different image under a live id** → throws `"Cannot load segment: the id already holds different code"` with `{:segment id}` — no silent replacement, so parked continuations can never be redirected into other code.
+
+Regression test `segment-id-is-stable-test` reproduces the reviewer's probe exactly: park in A, load different code B under A's id → load rejected, image and parked continuation intact, and A's continuation still resumes into A's code; the identical-reload arm parks again as `:parked-1` without touching `:parked-0`.
+
+## 2. [P1] Pure-data continuations; no callbacks
+
+The semantic VM no longer passes `:restore-fn` anywhere — not into `engine/handle-effect` (from `run-effect` or `apply-call`), and not into `engine/run-loop`'s wait-set check. To make that sufficient, the shared engine changed (the review's correction — "resolve handles during polling, dispatch restoration explicitly" — is an engine behavior; §3.5's old "nothing in engine.cljc changes" no longer held, and I amended the design doc to as-built):
+- `handle-effect` parks the builder's entry plus (for writers) the `:datom` it retries — **no `:stream` handle, no `:cursor`, no `vm-task`/`:resume` closure**.
+- `check-wait-set` polls a per-poll *copy* resolved from the store; an entry that stays waiting is **retained in its stored resource-id form** (previously the resolved handle was baked back in).
+- `make-woken-run-queue-entries` (pure branch) drops the resolved `:stream` from ready entries.
+- `resume-from-run-queue` now **runs the terminal-outcome check before restoring** — `runtime-adapter`'s `terminal-resume-outcome`/`throw-terminal-resume!` were made public for this — so a woken retry that ended `closed`/`cursor-mismatch`/etc. fails exactly as the immediate operation would (that check previously lived only in the closure I removed).
+
+Tests (`blocked-entries-are-pure-data-test`): a blocked reader entry is byte-exact `{segment pc env stack k reason cursor-ref stream-id}`, contains no function and no handle, survives `pr-str`/`edn/read-string`, and the **round-tripped copy wakes and completes** when installed back into the wait set. Same for a blocked writer (needs a test `one-slot-stream` — the ring buffer never answers `full`, it evicts), plus the terminal-outcome case: close while parked → `"Stream append failed"`, not a resume.
+
+## Verification
+- `yin.vm.semantic-test`: **16 tests / 108 assertions, 0 failures** (was 14/85).
+- Full JVM suite: **1406 tests / 165,696 assertions, 0 failures** (engine change verified against walker/ffi/adapter/parity).
+- Node: **1307 tests / 35,192 assertions, 0 failures, 0 warnings**.
+- **Dart not run** — `clojure -M:cljd` needs an approval this session can't get (same limitation as the Phase 2 fixes session). `clojure -M:cljd test yin.vm.semantic-test` is the outstanding command.
+- Files touched: `semantic.cljc`, `semantic_test.cljc` (the task's two), plus the required mechanism in `engine.cljc`, `runtime_adapter.cljc`, and §3.1/§3.5 of `docs/design/yin.vm.semantic.md` — the doc now contradicted the review's ruling. The walker still passes its (now inert in `handle-effect`) `:restore-fn`; migrating it to the pure-entry path would be a follow-up for its own slice.
+
+Nothing is committed — the Phase 1/2 files remain uncommitted on `dao.stream-redesign-v2` awaiting the architect's re-review.

@@ -1,0 +1,40 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-19 19:36:27 GMT
+Completed-Local: 2026-09-20 02:36:27 +07
+
+## What I built
+
+**`src/cljc/dao/lease.cljc`** — new *The composition constructors* section (judge/holder/vocabulary untouched):
+
+- **Medium declaration contract** (C2/C3): `check-medium-declaration!` validates `{:retention :evict-oldest|:complete, :capacity pos-int, :value-domain :portable-values|:host-values, :attribution …}` — declaration-based, never handle introspection. `:attribution` is one of D4's three source bindings (`:per-author-media`, `:envelope-key`, `:attachment-identity`), which is what makes resolver *compatibility* checkable: `check-resolver-compatibility!` requires `fn?` (presence) **and** `:resolver-bindings` covering every wired medium's declared kind — an incompatible resolver refuses exactly like a missing one.
+- **`make-judge`**: requires `:cadence` (strictly positive, in-table, per-unit bound — the runtime/cadence declaration), non-empty `:ticks` and `:media`, resolver+bindings, `:reclaim`, `:writer`; delegates `:tolerance`/`:units`/`:drain-budget` validation to `initial-judge`; validates everything **before any wiring**. Returns `{:judge … :step judge-step :scope :process-scoped|:durable :cadence …}`.
+- **`make-holder`**: requires `:tick` (the holder's own tick stream), `:fact` medium + declaration + resolver compatibility, plus `initial-holder`'s seams. Returns `{:holder … :tick … :fact … :scope …}`.
+- **Durable gating** (C4): `:durable? true` requires `:durable-judge`, `:incarnation-rule`, `:fencing` (presence is all the vocabulary can check — adequacy is the resource's plan); non-durable returns `:scope :process-scoped`, so an unsettled composition cannot claim durable use.
+
+**Test tree** — the reference tick driver (D3) lives in `test/dao/lease_test.cljc`: `tick-driver` is a **stepped, caller-driven deposit** (`deposit!`/`stop!`/`stopped?`/`appended`) with per-lane host clock policy under reader conditionals (clj `System/nanoTime`, cljs `js/Date.now`, cljd `DateTime.now` — the yin/repl.cljc idiom). No timer, callback, or sleep anywhere; C5 grep over `src/cljc/dao/lease.cljc` stays **zero**.
+
+**`test/dao/lease_composition_test.cljc`** (new) — 8 deftests: `refusal-matrix-test`, `holder-refusal-matrix-test`, `process-scoped-fallback-test`, `end-to-end-grant-renew-lapse-test`, `non-ok-lapsed-append-leaves-lease-pending-test`, `forwarder-pause-sketch-test`, `served-connection-lifetime-sketch-test`, `shared-work-claim-sketch-test`.
+
+## Per-invariant coverage
+
+- **C1** — end-to-end drives the composed judge's own `:step`/`:judge` at declared `:cadence` over hand-turned ticks: grant → renewal → single `:silence` reclaim+record, no later re-record. Holder tick/fact wiring refused when absent.
+- **C2** — matrix (23 cases + 11 holder cases): cadence missing/zero/foreign-unit, tick/media empty, entry wiring, declaration shape (retention/capacity/value-domain/attribution, incl. missing-retention), tolerance (delegated), resolver absent, bindings absent, **incompatible** resolver, writer, reclaim.
+- **C3** — `:retention :neither` and retention-absent both refuse.
+- **C4** — `:scope :process-scoped` on both constructors' non-durable values; durable with all three → `:scope :durable`; durable missing one/two/three → throws (per-seam key asserted).
+- **C7** — end-to-end asserts the record survives the reclaimed resource; renewal-appending remains the control flow's own act (comment pin).
+- **C8** — served-connection sketch (attachment-identity attribution): after lapse, `:lapsed` is on the grantor's writer and **never** on the holder's medium; the connection's closing is the resource event.
+- **C5/C6** — grep zero over src; requires-only-dao.stream unchanged. Sketches are commented compositions (naming `serving/step!`, `close-session!`, `:ws/attachment`, `call-close!` as the real seams) with atom stand-ins — runnable wirings, not products.
+
+## Lane outcomes
+
+1. `clojure -M:test` — green: **1524 tests, 168519 assertions, 0 failures, 0 errors** (was 1514/168431: +10 tests, +88 assertions).
+2. CLJS — green: exit 0, **1441 tests, 38388 assertions, 0 failures**, 0 warnings; both `dao.lease-test` and `dao.lease-composition-test` present in the Node output. Same disclosed mise-Java-21 workaround (log `target/cljs-p4.log`).
+
+## Unresolved
+
+- Prompt bullet 2 listed the Phase 4 items under `lease_test.cljc` while bullet 3 and plan §2 assign composition deftests to the new file; I followed the plan's split (driver + driver tests in `lease_test.cljc`, composition deftests in `lease_composition_test.cljc`).
+- The cljd `host-now-ms` branch is untested here (orchestrator's lane) but mirrors the codebase's existing `yin/repl.cljc` idiom; the `dart:core` require is `:cljd`-gated.
+- §6's "medium-declaration validation moves to `make-*`" row is settled by this unit; the §5 host-matrix rows for Phase 4 remain the orchestrator's plan edit.
+- En-route, caught by the lanes and paren checks: three syntax slips of mine (reader-conditional as `defn` body, a stray bracket in a matrix case, `host-now-ms` arity) and two matrix expectations corrected (`:medium` is the right refusal key for a wired-but-undeclared medium).
+
+Nothing staged, nothing committed.

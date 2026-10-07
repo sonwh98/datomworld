@@ -1,0 +1,127 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Scope note: I read exactly `docs/design/dao.stream.md` and `docs/design/dao.stream.ws.md`, nothing else. Every judgment below rests on those two files alone; where a claim cannot be evaluated from them, I say so.
+
+---
+
+# Findings
+
+**CRITICAL — none.** No outcome appears outside an exhaustive set, no operation anywhere waits or takes a callback, and the ws spec's outcome usage stays inside the contract's tables. The failures below are real but repairable by wording and by completing declarations the contract itself demands.
+
+---
+
+**HIGH — 1 | dao.stream.md:477–479 and 486–488 contradict dao.stream.md:425 and 431–437.**
+Concurrency asserts: "Each logical stream is one append-only sequence: a successfully appended value occupies exactly one definite position *in that sequence*" and "whether an append landed before a close is answered by the sequence itself." Writing relativizes: which sequence a writer surface is on "is part of the transport's declared nature… for a transport that carries values toward a stream elsewhere it is the ordered outbound path, and what becomes of the value at the far end is reported there, not here." The ws transport is exactly that transport, so under Concurrency's text every ws `ok` would be a false statement — the value has no position in the logical stream at return time and may never get one. Concurrency also says the question is answerable ("the value has a position or it does not") when a writer with no reader surface can never observe the answer.
+**Correction** — replace dao.stream.md:477–479 with:
+
+> Each logical stream is one append-only sequence, and a handle's writer surface is on exactly one sequence — for some transports the logical stream itself, for others the ordered outbound path toward a stream elsewhere (see Writing). A successfully appended value occupies exactly one definite position in the sequence this handle's writer surface is on, and every operation's outcome reflects that sequence at one moment. DaoStream guarantees nothing further about concurrent operations.
+
+Replace :483–485 ("The sequence is the one truth…") with:
+
+> The sequence a handle's surfaces are on is the one truth for that handle; each outcome is one perspective on it at one moment.
+
+Replace :486–488 with:
+
+> Whether an append landed before a close is answered by the sequence the handle's writer surface is on — the value has a position in it or it does not — and where that sequence is not observable from this handle, the answer is read where it is.
+
+---
+
+**HIGH — 2 | dao.stream.md:273 (and 192–193) is falsified by the transport the contract itself blesses.**
+The `attach!` `ok` row reads "Attached to the existing logical stream" — a completed predicate. ws.md:188–197 returns `ok` with "a handle on an attachment still being established," and the resolution — including a decisive `not-found` — arrives later as data. The contract's own machinery (IO Model :137–142, "an answer not yet knowable arrives later as data"; Surfaces :339–341, the displaced-answer exclusion reason) authorizes exactly this; the row is the outlier, as is :192–193 ("returns a handle on the **same** logical stream") and, mildly, :249–252 ("`attach!` on the reconstructed value reaches the stream it names"), all of which presume synchronous resolution. Note the contract's Close section (:452–453) already says "an attached handle is on an attachment" — the row is the only place still speaking as though attachment were complete at return.
+**Correction** — replace the row at :273 with:
+
+> | `:dao.stream/ok` | A handle on an attachment to the existing logical stream the descriptor names; attaching never creates. Where establishment has an answer only the far end can give, that answer arrives later as data, on the channel the transport names (see Surfaces). | `:dao.stream/handle` |
+
+And at :192–193, "returns a handle on an attachment to the **same** logical stream the descriptor names."
+
+---
+
+**HIGH — 3 | ws.md:31–36 omits the declaration Writing makes mandatory.**
+dao.stream.md:431–435: "Which sequence a handle's writer surface is on is part of the transport's declared nature." The ws Surfaces section declares writer + closable and the reader exclusion, but never names the sequence. "Sending is appending; nothing is converted" (ws.md:43–44) gestures at it; a declaration it is not.
+**Correction** — append to ws.md Surfaces:
+
+> The writer surface is on the connection's ordered outbound path — the sequence of values accepted for sending on this attachment — never on the served logical stream: `ok` places the value in the outbound path, and what becomes of the value at the far end is reported there, not here (contract, Writing).
+
+---
+
+**HIGH — 4 | ws.md:174–175 claims a specification it does not contain.**
+"Both halves are wire protocol specified here, not per-composition" — yet no frame, no encoding of the served-stream identity, no form of the disclaimer, and no value codec appears anywhere in the document. The Handshake's entire point is interoperability ("a composition inventing its own would not interoperate with any client"), and nothing in either file lets two independent implementations agree on the bytes.
+**Correction** — either specify the frames, or move the claim to Deferred. Minimum honest text: replace :174–175 with "Both halves are wire protocol owned by this transport; their exact form is Deferred alongside the envelope key set," and add to Deferred: "Handshake wire format: how the served-stream identity is presented on connect, and the exact form of the disclaimer," and "The value codec (the contract requires structural survival; which encoding this transport speaks is not yet chosen)."
+
+---
+
+**HIGH — 5 | ws.md (Duplex Model, Operations) never specifies the serving side — the transport's reason to exist.**
+The client-side deposit is specified in detail. The server side is not: where a serving endpoint deposits inbound client messages (the served stream itself? a separate medium? enveloped or bare?), and what happens when the served stream's owner closes it. "Correlation is added locally, on both ends independently" (ws.md:80–82) implies server-side enveloping but names no destination. The event vocabulary has no event meaning "the served stream closed," distinct from `:ws/closed` (connection closed) — a client cannot distinguish detachment from finality, which the contract's own `end`/`closed` distinction says matters.
+**Correction** — add a **Serving** paragraph to The Duplex Model: "Serving is the mirror: on the serving host, each connection's inbound messages are deposited — enveloped with that connection's attachment identity, exactly as on the client — onto the stream the host composition wired for the served boundary, under the same admission rule. Closing the served stream is its owner's `close!`; what the boundary does then — deposit a stream-closed event, end connections, or both — is specified here, not per-composition," and extend the `:ws/event` vocabulary accordingly.
+
+---
+
+**MEDIUM — 6 | ws.md:63–64 and :73 mint a contract-namespace key the contract never defines.**
+`:dao.stream/attachment` appears in an `attach!` result and in deposited elements. The contract reserves `:dao.stream/…` for its own result vocabulary (:101–102) and says transport-owned keys are "qualified under the transport's namespace" (:224–225); ws.md:159–160 itself says "Transport-owned keys, qualified under `:ws/…`." Attachment identity is invented by, and needed only by, this transport. See Q3 for the full resolution.
+
+**MEDIUM — 7 | ws.md:49–50 leans on authority outside the contract: "Per ADR 0003 there is no separate event bus: dao.space is the medium."**
+Neither ADR 0003 nor dao.space exists in the contract. A subordinate spec citing documents the contract does not acknowledge is exactly the corpus-dependency this contract forbids of itself ("A specification a reader cannot evaluate without a corpus is itself a finding" — here it is the ws spec that cannot be evaluated). The rationale is restatable from the contract alone.
+**Correction** — replace with: "The deposit medium is an ordinary DaoStream stream the host composed; this transport defines no separate event mechanism."
+
+**MEDIUM — 8 | ws.md:197, "breaking the result convention on three of four hosts."**
+The contract names three hosts — JVM, JavaScript, Dart (dao.stream.md:144–158) — of which two lack blocking. "Three of four" matches nothing in either document; the fourth host is unnamed and unverifiable in scope.
+**Correction** — "breaking the result convention on every host that cannot block."
+
+**LOW — 9 | dao.stream.md:317–321: the Surfaces enumeration omits `descriptor`.**
+Reader/writer/closable are enumerated; `descriptor` is in the operations table (:55) but assigned to no surface. Must every handle answer it? The contract's claim "identity is universal and outlives any attachment" (:189–191) implies yes, but the surface list says a handle "implements the subset… its transport can honor," under which a transport could honor none and still owe a descriptor.
+**Correction** — add to Surfaces: "`descriptor` is answered by every handle regardless of its declared surfaces — identity is universal (see Creation and Attachment)."
+
+**LOW — 10 | ws.md never declares the exclusion of `:dao.stream/denied`.**
+The contract requires each excluded outcome to carry its reason (dao.stream.md:335–342). The ws doc declares the reader exclusion and the displaced `not-found`/`transport-error`, but is silent on `denied`.
+**Correction** — add to the `attach!` bullet: "`:dao.stream/denied` is not produced: nothing gates attachment until Shibi exists (contract, Envelopes)."
+
+**LOW — 11 | ws.md:146–149 introduces a resize operation outside the contract's seven.**
+"Where the destination transport supports it, the window may be resized live (a transport-owned operation on the owning handle)." The contract says "DaoStream defines only streams, cursors, and the operations above" (:509–511) and enumerates seven; it neither grants nor forbids transport-local extras. Honest as marked, but ungoverned.
+**Correction** — one sentence in the contract's Surfaces: "A transport may offer operations of its own beside the public surface; they are transport-owned, are not DaoStream operations, and no consumer may depend on them."
+
+---
+
+# The three questions
+
+## Q1 — `attach!`'s `ok` row vs. establishment-in-progress
+
+**The row is wrong; the ws behavior is conformant; no new outcome is needed.**
+
+The contract already contains, as first-class machinery, everything the ws spec relies on. The IO Model generalizes past `next`: "no operation waits… the eventual answer arrives the way every other fact does — as data, observed later, through an ordinary operation or on a stream" (:137–142). Surfaces' third honest exclusion reason is this case verbatim: "a transport that cannot know a remote answer at call time reports it as data elsewhere" (:339–341), with the channel named — and ws names it: the host-composed deposit medium, correlated by attachment identity. And `append!`'s `ok` row already made the identical trade for writes: local acceptance, remote answer displaced, "implies neither local readability nor remote delivery." An `attach!` whose `ok` means "a handle exists on an attachment; the far end's verdict arrives as data" is the same shape, not a new one.
+
+A `pending` outcome would be worse than redundant. It would breach the exhaustive-set discipline (every transport's table changes for a condition most transports cannot even occupy — a ring buffer attaches locally and instantly); it would carry no information not already observable (operate the handle: `full` while establishing, `closed` after failure; read the medium for the verdict); and it would duplicate the displaced-answer mechanism the contract just finished describing. The row's replacement text is in Finding 2.
+
+## Q2 — `append!`'s `ok` vs. Concurrency
+
+**No, they are not consistent as written; and no, the ws spec never makes the declaration Writing requires.**
+
+Concurrency speaks absolutely about *the logical stream's* sequence; Writing relativizes the sequence to the handle's writer surface, and the ws transport is the case that splits them: its `ok` places a value in the outbound path, whence it may never reach the served stream. The exact corrections are in Finding 1 (Concurrency rewritten sequence-relative) and Finding 3 (the missing ws declaration — "Sending is appending" is a slogan, not the declaration; Surfaces is where declared nature lives, and it is silent).
+
+## Q3 — the transport mandating the shape of deposited values
+
+**The mandate conforms; one key in it overreaches.**
+
+*Conforms.* "Stream elements are data. DaoStream assigns them no intrinsic meaning" constrains what the *stream layer* may do to elements, not what a transport may require of its own boundary events; nothing in the contract governs element shape. The contract's own vocabulary anticipates transport-defined event shape — "every valid boundary event" (dao.stream.md:330–331) presupposes someone defines validity — and it explicitly delegates: "(`dao.stream.ws.md` specifies one such transport and the admission rule in detail.)" (:332–333). Wrapping is not judging; the readers above remain free interpreters. The `:ws/event`/`:ws/value` keys are cleanly transport-owned.
+
+*Overreaches.* `:dao.stream/attachment` (ws.md:63–64, :73) is transport-invented identity squatting in the contract's namespace — against the contract's rule that transport-owned keys live under the transport's namespace (:224–225) and against ws.md's own "Transport-owned keys, qualified under `:ws/…`" (:159–160). It cannot simply be renamed `:ws/attachment`, because dao.stream.md:101 says "All qualified keywords in results live under `:dao.stream/…`," which read literally forbids a `:ws/` key in a result map. So the contract must resolve the collision it created.
+
+**Recommended correction** — the contract adopts the key, since "attachment" is already contract vocabulary (Close) and the displaced-answer correlation rule is a contract-level pattern. After the `attach!` table (following :277), add:
+
+> `:dao.stream/ok` may carry `:dao.stream/attachment` — an opaque, structurally serializable value naming this attachment, on transports that distinguish attachments. Where a transport displaces an answer onto another channel (see Surfaces), the same value correlates that attachment's events on it. The key and its correlation rule are the contract's; the identity's minting and representation are the transport's.
+
+And adjust ws.md:159–160 to: "Transport-owned keys, qualified under `:ws/…`; `:dao.stream/attachment` is the contract's correlation key (see the contract's `attach!` table)." The alternative — `:ws/attachment` everywhere plus amending :101 to admit transport-qualified result keys — also works; what is not tolerable is the present state, where the key's owner is undecidable. One clarification worth adding either way: the `:ws/not-found`-style event values are *element data*, not outcome maps — the contract's outcome vocabulary is not being extended.
+
+---
+
+# What an implementer cannot determine from these two documents
+
+1. **The wire protocol, entirely.** No handshake frames, no encoding of the served-stream identity, no disclaimer form, and no value codec — "survive the codec structurally unchanged" names a constraint, not a codec. Two independently written ws transports cannot interoperate, and a conformance suite has no wire-level assertion available. (The document claims this is specified; it is not.)
+2. **The serving side.** Where a server deposits inbound client messages, enveloped or bare, per-connection or shared; and what a served stream's close does to connections, given no stream-closed event exists in the vocabulary.
+3. **`:ws/error` vs. `:ws/transport-error`.** Two failure-ish events, no delineation of which deposits when.
+4. **The descriptor's key set** — declared TBD, so round-trip conformance tests cannot be written; likewise `:dao.stream/attachment`'s representation and uniqueness scope (per host? per endpoint? stable across reconnects?).
+5. **The namespace rule for transport-minted result keys** until the Q3 amendment lands — as written, :101 and :224–225 give contradictory guidance.
+6. **Whether `descriptor` is surface-independent** (Finding 9).
+7. **Cursor serialization across hosts** (declared TBD) and the deferred resumption protocol — including what history a rejoining reader receives, which determines whether the "attachment identity" of a rejoined connection is new or preserved.
+8. **`close!`'s {ok}-only set on a real socket** — decidable as written (`ok`, idempotent; failures surface via subsequent operations), but an implementer will want the contract to say in one line where a failed socket close is *observed*, since no outcome may carry it.
+
+Nothing above required the surrounding corpus to find; every item is visible in the two files — which is the answer to the question this round was actually asking.
+[?25h

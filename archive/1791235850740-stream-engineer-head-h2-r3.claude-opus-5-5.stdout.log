@@ -1,0 +1,61 @@
+Completed-GMT: 2026-10-05 21:34:08 GMT
+Completed-Local: 2026-10-06 04:34:08 +07
+Coding-Agent: claude
+Session-ID: 820fb1cc-b82c-4ee6-96c7-7a170107243d
+
+# head-h2 round 3 report
+
+All seven items are done and the JVM run is green. I checked the citations before acting, and both claims hold:
+- **Ruling 4:** `accept-connection!` gives every accepted handle the endpoint's descriptor (`src/cljc/dao/stream/ws.cljc` lines 188-197 and 502).
+- **Finding 1:** a named `not-found` that the writer refuses fell back to an `oversize` answer with no identity, and `well-formed-answer?` dropped it.
+
+I did not edit `docs/design/yin.vm.linker.dht.head.md`, `ws_project.cljc` or `docs/design/dao.stream.md`.
+
+## Per item
+
+**A1** (`dao.stream.remote.md`, Protocol errors at the reflection): the sentence now reads "`descriptor` still answers `ok`: a descriptor outlives what it described." Text only.
+
+**A2** (`dao.stream.remote.md` 2.1): the Architect's two sentences are in, word for word, with one addition for finding 3. The named-request clause now reads "with any op other than `descriptor`, **or with args other than `[]`**, it is malformed." The existing pin is `an-identity-request-is-answered-as-before`.
+
+**A3** (2.4, the Resolve paragraph):
+- Both sentences are in: a filed `oversize` is returned with its own name as the reason, and `resolve` answers `not-found` on a channel descriptor this peer holds no channel for.
+- The `not-found` sentence was already true of the code; it is pinned by `resolve-over-an-unreached-or-lost-channel`.
+- The `oversize` sentence is true after finding 1's fix.
+- For finding 2 I added one sentence of my own: a `full` refusal is retried by the next `resolve`; any other refusal is returned as the writer's own outcome; and a name refused with `invalid-value` or `closed` gets that outcome again with no further send.
+- In 2.1's `oversize` bullet I added that, for a named request, the error carries the name, and carries an identity only when the answer it replaces had one.
+- **Please check these added sentences**, since they are mine and not the Architect's.
+
+**Ruling 4** (`head/ws.cljc`):
+- `serve` now refuses a `:bind-port` that is not a positive integer: `{:status :refused :reason :yin.head.ws/no-port :bind-port p}`. That check runs after the loopback check, and no endpoint is composed.
+- The port-1 placeholder is gone, and so is the rewrite of the port on `:bind-succeeded`.
+- The real-socket JVM test now binds a free port it found with `java.net.ServerSocket` and asserts that the server descriptor carries it.
+- Tests:
+  - `a-bind-port-that-is-not-positive-composes-no-endpoint`: 0, nil, -1 and `"7001"` each refuse, and `listen!` is never called.
+  - `the-port-is-named-from-the-start`: the server descriptor is `ws://127.0.0.1:7005/head` with port 7005 both before and after the bind, and every accepted handle's descriptor is identical to it.
+
+**Finding 1** (`remote.cljc`, `well-formed-answer?`):
+- A named answer with no identity is now accepted when its error is `not-found` or `oversize`.
+- Test: `an-uncarryable-not-found-is-an-oversize-resolve`. The mirror's writer refuses the `not-found` but carries its fallback, the fallback carries the name and no identity, and `resolve` returns `{:outcome :transport-error :dao.stream.remote/reason :dao.stream.remote/oversize}`.
+
+**Finding 2** (`remote.cljc`, `resolve-name`):
+- The send outcome is no longer discarded. `ok` and `full` answer retry.
+- `invalid-value` and `closed` are recorded per name on the link (`:unsendable`) and returned verbatim from then on, with no new id and no further send.
+- Any other refusal is returned verbatim but not remembered.
+- Tests in `an-uncarryable-name-is-a-terminal-resolve`:
+  - For both `invalid-value` and `closed`: three calls give the same terminal outcome, with exactly one send attempted.
+  - For `full`: retry with nothing sent, then retry with the request sent, then `ok` once the board answers.
+
+**Finding 3** (`remote.cljc`, `well-formed-request?`):
+- In the named branch only, `args` must be empty. Identity-request validation is unchanged.
+- Test: `a-named-request-with-args-is-malformed`. `[1]` and `[1 2]` are dropped and `[]` is answered.
+
+## Commands and outcomes (all foreground)
+- **Combined run** (the same 21 namespaces as round 2): `clj -M:test -n dao.stream.remote-test -n dao.stream.ws-project-test -n dao.stream.ws-project-jvm-test -n dao.stream.ws-test -n dao.stream.remote-pair-test -n dao.stream.remote-meet-test -n dao.lease-composition-test -n yin.vm.linker.head-ws-test -n yin.vm.linker.head-follow-test -n yin.vm.linker.head-test -n yin.vm.linker.remote-transfer-test -n yin.vm.ffi.remote-serve-test -n yin.vm.ffi.remote-serve.responder-test -n yin.vm.ucf.remote-test -n yin.vm.ucf.handoff-test -n yin.vm.ucf.authority.grant-test -n yin.vm.ucf.authority.front-test -n yin.vm.ucf.holder.evidence-test -n yin.repl.serve-test -n yin.repl.connect-test -n yin.repl.serve-connect-wire-test` gave **301 tests, 2870 assertions, 0 failures, 0 errors.**
+- **Per namespace:** `dao.stream.remote-test` has 32 tests and 222 assertions; `yin.vm.linker.head-ws-test` has 11 tests and 86 assertions.
+- **Kondo** (`clj -M:kondo --lint` on `remote.cljc`, `head/ws.cljc`, `remote_test.cljc` and `head_ws_test.cljc`): 0 errors and 1 warning. The warning is the same unused `peer2` at `remote_test.cljc:661` as last round, which predates this slice.
+- **Contract document:** a grep found no line over 80 columns and no non-ASCII character in `dao.stream.remote.md`.
+- I used no `clj -M:test -e`, no git, and no background process.
+
+## Unresolved
+- Only the writer's `invalid-value` and `closed` are remembered as terminal. A writer `transport-error` is returned verbatim but not remembered, because a host send failure can be transient. Say if you want it remembered too.
+- Node and Dart lanes were not run, per the brief.

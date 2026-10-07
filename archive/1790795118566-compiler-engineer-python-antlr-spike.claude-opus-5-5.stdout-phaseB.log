@@ -1,0 +1,84 @@
+Completed-GMT: 2026-09-30 20:29:01 GMT
+Completed-Local: 2026-10-01 03:29:01 +07
+Coding-Agent: claude
+Session-ID: 976059c2-629b-4b91-8b63-7c4d9604d7cf
+
+# Python ANTLR spike: Phase B report
+
+Phase B is complete: all 26 end-to-end tests pass on all four VMs against the real `cell` and `data` modules, with nothing stubbed. The full JVM and Node suites are green. cljstyle was not run: it needs approval in this session, so formatting is unchecked. Nothing is staged or committed.
+
+The full report, including the unchanged Phase A text and a new "Phase B" section, is at `/Users/sto/workspace/datomworld-py-spike/collab/1790795118566-compiler-engineer-python-antlr-spike.claude-opus-5-5.report.md`.
+
+## What changed
+
+**a. Real module names.**
+- Strings now use `data/str-concat` and `data/str-length`; my Phase A guesses are gone.
+- The prelude also calls `data/count`, `data/into` and `data/subvec`.
+- The e2e tests register `yin.vm.module/register-cell-module` and `yin.vm.data/register-data-module`.
+
+**b. Module globals live in a dict (owner decision 1).**
+- `py/run-module` allocates a namespace dict and passes it to the module body as `%globals`. Every function closes over it, which matches Python's `__globals__`.
+- A global read that misses raises `NameError: name 'x' is not defined`.
+- `yin/def` now appears only in the prelude; a test checks that no lowered module uses it.
+- `globals()` returns that same dict, so `globals()['y'] = 3` followed by reading `y` works.
+
+**c. `py/kont?` is gone.** `py/call-ec` and `py/try` each allocate a flag cell set to `:first` before capturing. The first pass sets it to `:re-entered`, and that flag is how a re-entry is recognised. Nothing in the prelude looks at how a continuation is represented any more. This relies on cell writes surviving continuation invocation, and a test covers it on all four VMs on both the JVM and Node.
+
+**d. Floats are tagged (owner decision 3).**
+- A float is `{:py/float x}` on every host; ints stay untagged.
+- True division always returns a float, and arithmetic returns a float whenever either operand is one.
+- Equality and comparison unwrap, so `1 == 1.0` is True, and `1`, `1.0` and `True` are one dict key.
+- A new portable namespace, `yang.python.antlr.render`, turns printed values into Python text at the boundary.
+- `print(4/2)` now gives `2.0` on every host, including Node. A new test runs this over the real modules on all four VMs.
+- Guest-visible `str()` of a number is still unsupported, because the `data` module has no number formatting.
+
+**e. Functions are objects in cells.**
+- Every call goes through `(py/call f [args])`, which checks the argument count. A wrong count is now a Python `TypeError`.
+- `__name__` works, and identity is per object.
+- Builtins such as `len` and `print` are function objects too, so `L = len; L([1, 2])` works.
+- Defaults and `*args` are supported. `**kwargs`, keyword-only parameters, keyword arguments at call sites and annotations are still rejected with a diagnostic, because they need keyword binding.
+- The Phase A limit of 6 arguments is gone.
+
+**f. Real-module end-to-end run.** The first run against the real modules passed 25 of 26. The failure was a real gap, `len()` of a `*args` tuple, which I fixed; all 26 now pass.
+
+## Test results
+
+| Check | Result |
+|---|---|
+| clj-kondo, every changed file as a separate argument | 0 errors, 0 warnings |
+| cljstyle | not run: blocked by permission ("This command requires approval") |
+| `bb gen:python-antlr` from clean | grammar and generated-file digests verified, compiled |
+| Focused JVM, the six `yang.python.antlr.*` namespaces | 74 tests, 299 assertions, 0 failures |
+| Full `clj -M:test` | 2635 tests, 186960 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2485 tests, 52830 assertions, 0 failures, 0 warnings; both portable namespaces ran on Node |
+| `bb test:cljd` | not run, per the brief |
+
+## Still open
+
+- The two Java lexer helper files carry no license notice. This needs resolving before any redistribution.
+- cljstyle needs to be run by someone with permission.
+- A number-to-string primitive in `data` would allow guest-visible `str()` and error messages that include counts. That is an owner or Architect call.
+- Remaining differences from Python:
+  - integer overflow past 64 bits is a host error on the JVM;
+  - `isinstance` works only on class instances;
+  - dict `==` compares identity;
+  - float text outside roughly 1e-4 to 1e16 differs from Python on the JVM;
+  - each compiled unit carries its own copy of the prelude.
+- Heap growth, since cells are never reclaimed: one flag cell per `call-ec` or `try` activation, and one cell per function object.
+
+As the brief required, safepoints and guest-visible line numbers were not added to the lowering.
+
+## Files
+
+New: `src/cljc/yang/python/antlr/render.cljc`.
+
+Changed:
+- `src/cljc/yang/python/antlr/prelude.cljc` (rewritten)
+- `src/cljc/yang/python/antlr/lower.cljc`
+- `test/yang/python/antlr/e2e_test.clj`
+- `test/yang/python/antlr/lower_test.clj`
+- `test/yang/python/antlr/lower_portable_test.cljc`
+- `test/yang/python/antlr/prelude_parity_test.cljc`
+- `collab/1790795118566-compiler-engineer-python-antlr-spike.claude-opus-5-5.report.md` (Phase B section appended)
+
+The parser, CST exporter, scope analysis, stage driver and grammar manifest are unchanged since Phase A.

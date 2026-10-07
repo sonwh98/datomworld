@@ -1,0 +1,25 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The metadata timestamp is harness-managed — skipping it; the content update is what matters. The task is complete.
+
+## Phase 1 done — the portable core, behaviour-neutral
+
+**Built** (`src/cljc/dao/jing/remote.cljc`, additions only, no reader conditionals): the eight constants (`content-path`, `service-identity`, `traffic-capacity` 8192, `traffic-admission`, the three 5000/5000/10 ms defaults, `non-portable-result-code`), public `content-descriptor` (D7), and `call-step` / `drain-outboxes` / `retire-call` (the plan's D3 code verbatim), `completion-value` (N9), and `await-established-step` (D2's wait body, budget-1, lifecycle-only, drains both outboxes). v1 code, the ns docstring, and the transport untouched — `git status` shows exactly the two owned files plus the pre-existing `jvm_test.clj` docstring diff I never touched.
+
+**Proved** (five unguarded deftests, all hosts, `rpc-test`-style ring-buffer media and `reify` writer doubles):
+
+| lane | before → after | delta |
+|---|---|---|
+| `clojure -M:test` | 1443 / 165370 / 0, 0 → **1448 / 165465 / 0, 0** | +5 tests / **+95 assertions** |
+| `bb test:cljs` | 1345 / 34921 / 0, 0 → **1350 / 35016 / 0, 0** | +5 / **+95**; `Testing dao.jing.remote-test` confirmed in Node output |
+| `bb test:cljd` | +1299 → **+1304, all passed** | the five new deftests appear by name |
+| demo compile | `Build completed. (212 files, … 0 warnings)` | — |
+| kondo `remote.cljc` | **0 errors, 0 warnings** (baseline also 0/0) | — |
+
+The +95 on both counting lanes equals the hand-counted assertion total of the five new deftests (17+24+17+8+29) — **no existing test changed behaviour**; neutrality is proven, not asserted.
+
+**The five named risks** are each pinned: N11's `(count (:completed state))` = 0 on the stored state after every refusal exit (test 5); `retire-call` drains its own abandonment completion on return (test 3B); the late-correlation pin with scripted media and no clock (test 3A — id 1 gets id 1's value, id 0's response surfaces nowhere); lifecycle-only establishment (test 4); no transport change.
+
+**One deviation, reported not smuggled:** only 2 of the plan's 6 new requires were added. `dao.stream.rpc.ws` under its natural alias is mechanically impossible while v1's require stands — `IllegalStateException: Alias rpc-ws already exists` (demonstrated) — and `dao.stream`/`dao.stream.transit` have zero Phase 1 call sites, so they'd fail the kondo lane whose baseline is clean. All three are §10 end-state requires that land with Phase 2 when v1 goes. Also worth knowing: with a call in flight, a bare `/detached` yields `:done` + a `:reason` completion (N9's loss) rather than `:terminal` — that's the verbatim step's behaviour, and both shapes are now pinned.
+
+Report written to `collab/1789007994328-stream-jing-remote-phase1.glm-5.3.findings.md`. **Nothing staged or committed**, per instruction.

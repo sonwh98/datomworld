@@ -1,0 +1,193 @@
+Loading initial Timbre config from: :default
+[:slice-peer] Compiling ...
+[:slice-peer] Build completed. (66 files, 0 compiled, 0 warnings, 1.18s)
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing dao.await.v2-test
+
+Testing dao.data-test
+
+Testing dao.data.btree-durability-test
+
+Testing dao.data.btree-protocols-test
+
+Testing dao.data.btree-test
+
+Testing dao.data.btree-transients-test
+
+Testing dao.gui.compiler-cljs-test
+
+Testing dao.gui.event.arena-test
+
+Testing dao.gui.event.bind-test
+"dao.gui.event output gone; dropping pending" {:destination :gesture, :outcome :dao.stream/closed}
+
+Testing dao.gui.event.core-test
+
+Testing dao.gui.event.fixture-test
+
+Testing dao.gui.event.longpress-test
+
+Testing dao.gui.event.machine-test
+
+Testing dao.gui.event.pan-test
+
+Testing dao.gui.event.pointer-test
+
+Testing dao.gui.event.policy-test
+
+Testing dao.gui.event.terminal-test
+
+Testing dao.gui.event.transform-test
+
+Testing dao.jing-test
+
+Testing dao.jing.dht-test
+
+Testing dao.jing.dht.kad-test
+
+Testing dao.jing.file-test
+
+Testing dao.jing.mem-test
+
+Testing dao.jing.remote-test
+
+Testing dao.postgraphics.lowering-test
+
+Testing dao.postgraphics.math-test
+
+Testing dao.postgraphics.packing-test
+
+Testing dao.postgraphics.raster-test
+
+Testing dao.postgraphics.terminal-test
+
+Testing dao.postgraphics.web-test
+
+Testing dao.postgraphics.web.canvas-test
+
+Testing dao.postgraphics.web.gpu-test
+
+Testing dao.runtime.v2-test
+
+Testing dao.runtime.v2.driver-test
+
+Testing dao.space.index-test
+
+Testing dao.space.positional-query-test
+
+Testing dao.space.query-test
+
+Testing dao.space.schema-test
+
+Testing dao.space.transact-test
+
+Testing dao.space.transactor-test
+
+Testing dao.stream-test
+
+Testing dao.stream.apply-test
+
+Testing dao.stream.file-test
+
+Testing dao.stream.http-test
+
+Testing dao.stream.link-test
+
+Testing dao.stream.rpc-test
+
+Testing dao.stream.rpc.retry-dedup-test
+
+Testing dao.stream.transit-test
+
+Testing dao.stream.v2-test
+
+Testing dao.stream.v2.apply-test
+
+Testing dao.stream.v2.forward-test
+
+Testing dao.stream.v2.memory-log-test
+
+Testing dao.stream.v2.observe-test
+
+Testing dao.stream.v2.observer-test
+
+Testing dao.stream.v2.ringbuffer-test
+
+Testing dao.stream.v2.rpc-test
+
+Testing dao.stream.v2.rpc-ws-test
+
+Testing dao.stream.v2.serving-test
+
+Testing dao.stream.v2.slice-test
+
+Testing dao.stream.v2.transit-test
+
+Testing dao.stream.v2.ws-test
+
+Testing dao.stream.v2.ws.browser-test
+
+Testing dao.stream.v2.ws.node-test
+
+Testing dao.stream.ws-test
+
+Testing datomworld.demo.artifact-runner-test
+
+Testing datomworld.demo.artifact-scene-test
+
+Testing datomworld.demo.continuation-handoff-v2-test
+
+Testing datomworld.demo.earth-moon-scene-test
+
+Testing datomworld.demo.responsive-test
+
+Testing datomworld.demo.solar-system-scene-test
+
+Testing yin.repl.v2-adapter-test
+
+Testing yin.repl.v2-connect-test
+
+Testing yin.repl.v2-core-test
+
+Testing yin.repl.v2-driver-test
+
+Testing yin.repl.v2-embed-test
+
+Testing yin.repl.v2-host-node-test
+
+Testing yin.repl.v2-serve-test
+
+Testing yin.repl.v2-test
+
+Testing yin.vm.v2-test
+
+Testing yin.vm.v2.ast-walker-test
+
+Testing yin.vm.v2.code-test
+
+Testing yin.vm.v2.engine-test
+
+Testing yin.vm.v2.ffi-test
+
+Testing yin.vm.v2.linearize-test
+
+Testing yin.vm.v2.module-test
+
+Testing yin.vm.v2.parity-test
+
+Testing yin.vm.v2.runtime-adapter-test
+
+Testing yin.vm.v2.semantic-engine-test
+
+Testing yin.vm.v2.semantic-ffi-test
+
+Testing yin.vm.v2.semantic-stream-observer-test
+
+Testing yin.vm.v2.semantic-test
+
+Ran 1279 tests containing 35253 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (280 files, 8 compiled, 0 warnings, 13.18s)

@@ -1,0 +1,12 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+The review is complete — the full gate report is delivered above (that ExitWorktree call was a stray on my part; it was a no-op and touched nothing).
+
+Summary of where things stand:
+
+- **Deliverable**: the gate report above, beginning with the required `Completed-GMT` header and ending with **Verdict: REQUEST CHANGES / Sign-off: WITHHELD**.
+- **No files were edited** — the gate is read-only in this seat, and a record of the review was written only to my plan file at `/Users/sto/.claude-glm/plans/read-collab-1790796340212-reviewer-data-precious-fiddle.md`.
+- **One blocking item (P2)**: the index-coercion guard (`js/isFinite`/`Double/isFinite` + ±2^53 `max-safe` bound in `src/cljc/yin/vm/data.cljc:68-83`) is correct on all three hosts but pinned by no test — NaN, ±Inf, and ≥2^53 refusals need ~6 assertions using portable constructors (`(/ 0.0 0.0)` etc., since `##Inf`/`##NaN` literal support on the CLJD reader is unverified), plus a focused JVM + `bb test:cljs` re-run.
+- **Ruling delivered as asked**: deferring host `=` key equality (1 vs 1.0) to the language runtime profile is acceptable — it's the architect's own Q5 constraint, the divergence is real on the pinned ClojureDart (`1 == 1.0` is true in Dart), and module-level normalization would foreclose profile choices; the mixed-key cross-host parity test remains owed by the profile spike.
+- Everything else on the gate checklist passed, including the never-compiled `:cljd` branches, which I verified against the pinned ClojureDart revision (`81b5c03a`) rather than by idiom alone.

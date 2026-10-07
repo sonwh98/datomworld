@@ -1,0 +1,58 @@
+Completed-GMT: 2026-10-05 13:38:50 GMT
+Completed-Local: 2026-10-05 20:38:50 +07
+
+D6 is implemented except one item that needs a ruling. The driver has no public apply to put the deferred link-response cursor on a `:link-request` entry, so I stopped on that part as the brief says. The full report is at `collab/1791200000000-vm-engineer-ucf-d6-engine-r3.findings.md`.
+
+**Open ruling:** the existing publics don't fit. `apply-observation` is poll-only, `apply-mint` replaces an unminted cell, and `apply-close` removes a close record. I added nothing and did not hand-assoc the cursor. The engine now builds the entry without `:cursor` and never scans or retries it under a gate. Until the Architect picks a mechanism, a gated link cannot complete.
+
+**Changed files:** only `src/cljc/yin/vm/engine.cljc`, `src/cljc/yin/vm/module.cljc` and `test/yin/vm/engine_gate_test.cljc`.
+
+- **Gated link append:** `module/append-link-request` has a new `[resources entry gate]` arity that returns the entry unchanged with zero appends. The 2-arity stays, because `yin.vm.ucf.remote` mentions it.
+- **Deferred cursor:** `require-handler` skips the `:dao.stream/newest` mint under any gate.
+- **Child stamping:** a child gets `:yin.k/gate` and nothing else when it is created and before each run.
+- **Install children:** in `:exporting` and `:ended` no child runs. A direct `resume-continuation` is refused in those two modes.
+- **Gated sweep:** under any gate the sweep no longer retries link requests, scans link responses or reads FFI responses. It also no longer retries put/next in `:exporting` and `:ended`, which D5 had left open.
+
+**Tests:** I added nine tests that run the whole zero-call list on all four kernels.
+
+| Check | Result |
+|---|---|
+| New tests before the implementation | 60 failures, 3 errors |
+| `yin.vm.engine-gate-test` after | 27 tests, 340 assertions, 0 failures, 0 errors |
+| Focused `yin.vm` / `yin.repl` / `dao.stream` run | 1805 tests, 17419 assertions, 2 failures, 1 error |
+| kondo on the three files | 0 errors, 0 warnings |
+
+The 3 focused-run failures come from a missing `target/yin-repl.js` Node build (two) and a failed Dart peer compile (one). I didn't re-run them on a clean tree. CLJS, CLJD and cljstyle were not run.
+
+**Gate completeness:** every path in the plan's list is covered by a zero-call row under `:running` and by refusal or inertness under the closed modes. Nothing in the diff still observes for a gated task. The one caveat is the link-cursor ruling above. I made no source change that sets `:yin.k/gate`.
+
+**Coverage gaps:**
+- Child-creation stamping is tested on the JVM only, because creation is reached only through link-response polling, which is now gated off.
+- Direct resume is tested at the engine function that all four kernels call, not by driving each kernel.
+That's the last of the expired monitors from the stopped run. No action is needed, and the report stands as written.
+Completed-GMT: 2026-10-05 14:23:08 GMT
+Completed-Local: 2026-10-05 21:23:08 +07
+
+The four public applies are in: `engine/apply-put`, `apply-next`, `apply-ffi-sent` and `apply-ffi-read`. Each refuses on an ungated machine and in `:exporting` or `:ended`, and makes no stream call. The report is updated in place with this round appended.
+
+**Changed files:** only `engine.cljc` and `engine_gate_test.cljc` this round, so the diff still touches just the three allowed files.
+
+**Tests:**
+- `engine-gate-test` alone: 37 tests, 570 assertions, 0 failures, 0 errors.
+- A regression run over the engine, FFI, linker-require, ast-walker, semantic, remote-serve, ucf and debruijn suites: 332 tests, 2900 assertions, 0 failures, 0 errors.
+- kondo: 0 errors, 0 warnings.
+- The new tests have no separate red run, because they were written alongside the code. Their first run failed once, on the name collision below, then passed.
+- Not run: the full wide `yin.vm` / `yin.repl` / `dao.stream` set (it stalls in process-spawning tests here), CLJS, CLJD and cljstyle.
+
+**Behavior and refactors:**
+- `apply-put` and `apply-next` produce the same ready entries, wait entries and cell cursor as the ungated sweep's retry, checked against a handle answering the same outcome. `apply-put` also refuses the retained FFI request, and `apply-next` refuses FFI response readers.
+- `apply-ffi-sent` removes the retained request and queues it woken by `ok`. The kernel's own restore then makes it the call's response reader, as the ungated retry does. A second transition finds nothing and is refused.
+- `apply-ffi-read` reuses the router's loop body, extracted as a private `ffi-read-step`, and `poll-ffi-cell` now loops over it. The existing FFI suites pass unchanged.
+- D4's private `apply-put` and `apply-next` collided with the requested public names. I renamed only the private ones to `apply-put-outcome` and `apply-next-outcome`; their bodies are unchanged.
+
+**Deviations from your brief, flagged in the report:**
+1. **Entries are identified by value, not `entry-id`.** Wait entries have no id, so `apply-put` and `apply-next` take the entry map and match the first equal wait entry, as `apply-observation` does.
+2. **`apply-ffi-read` does not skip another live waiter's response.** On a shared cell, a response naming another live reader wakes that reader and the cell advances, as the router does. A skip would lose that reader's response. A response no live reader owns is skipped with a diagnostic. Say if you want the literal skip.
+3. **`apply-ffi-sent` takes no outcome**, as specified, so it covers `ok` only. A terminal outcome of the driver's request append has no apply for a retained FFI request. That needs a decision (a 3-arity or something else) before D11.
+
+**Gate-completeness claim:** the gate is now complete as a fence and as a protocol at the engine seam. Every observation a gated task parks has a public apply, and nothing outside tests sets `:yin.k/gate`. Two qualifications: the applies are tested at the engine rather than driven by a real driver, and deviation 3 leaves one gap. I also wrote no gated test that drives the `:ok` settle branch of `apply-link-read`.

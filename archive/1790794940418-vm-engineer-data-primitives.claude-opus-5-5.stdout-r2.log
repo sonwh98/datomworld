@@ -1,0 +1,162 @@
+Completed-GMT: 2026-09-30 19:52:15 GMT
+Completed-Local: 2026-10-01 02:52:15 +07
+Coding-Agent: claude
+Session-ID: 2cce7933-39ab-4cc2-93e3-b194fc58b9de
+
+# Report: pure `data` host module (collections + strings)
+
+Round 2's fixes are in: the review gate's test gap, the CLJD test failure, and the two small cleanups. JVM and CLJS pass. Two checks are still open:
+- **cljstyle:** it did not run in either round, because the command needs approval this session can't give.
+- **CLJD:** the lone-surrogate fix needs your CLJD lane to confirm it.
+
+Nothing is staged or committed. No D4 code or other existing file was changed, and `engine.cljc` and `module.cljc` are untouched, so it should merge cleanly with cell slice 1.
+
+## Changed files (both new)
+
+- `src/cljc/yin/vm/data.cljc`: namespace `yin.vm.data`. It holds `data-module` (export name → function), `data-profiles` (every export `:pure`, effects `#{}`, host-state `:none`), `register-data-module`, `module-name` and `refusal-message`.
+- `test/yin/vm/data_test.cljc`: 19 tests, 313 assertions.
+
+The only registration wiring is `register-data-module`, which calls D4's `module/register-host-module`. No composition installs it yet.
+
+## Module name
+
+`data`. It collides with nothing: the registered host modules are `stream`, `await`, `dao.await` and `dao.space.query`, and nothing in `src/` or `test/` refers to `'data`. Yin source calls the exports as `data/<name>`.
+
+## Exports
+
+Rules for every export:
+- **Indexes:** any number with a whole-number value within ±(2^53−1). `1.0` is index 1 on the JVM, as on JS and Dart; anything else is refused as `:wrong-type`.
+- **Argument count:** each export checks it against its declared arities, so a wrong count is a qualified `:arity` refusal, never a host exception.
+- **Strings:** positions count code points, not UTF-16 units.
+
+**Collections:**
+
+| Export | Arities | Semantics |
+|---|---|---|
+| `count` | 1 | Size of a vector, map, set or seq; nil → 0. A string is refused (use `str-length`). |
+| `nth` | 2 | Vector element at an index. Out of range, or not a vector, is refused. |
+| `contains?` | 2 | Map key, set member, or valid vector index; nil → false. |
+| `dissoc` / `disj` | 1+ | Map without the keys / set without the members; nil → nil. |
+| `peek` | 1 | Last element of a vector; empty or nil → nil. |
+| `pop` | 1 | Vector without its last element. Empty is refused `:out-of-range`; nil → nil. |
+| `subvec` | 2, 3 | Copy of `[start, end)` as a plain vector, with `0 ≤ start ≤ end ≤ count`. |
+| `hash-set` | 0+ | Set of the arguments. |
+| `into` | 2 | Target must be a vector or a set. A vector accepts only an ordered source (or nil); a set also accepts a set. |
+
+**Strings:**
+
+| Export | Arities | Semantics |
+|---|---|---|
+| `str-concat` | 0+ | Joins strings only; no arguments gives "". |
+| `str-length` | 1 | Number of code points. |
+| `substring` | 2, 3 | Code points `[start, end)`, with `0 ≤ start ≤ end ≤ length`. |
+| `str-index-of` | 2, 3 | Code-point index of the first match at or after `from` (0 to length), or nil. An empty needle returns `from`. |
+| `str-split` | 2 | Splits on a literal separator and keeps every empty field, like Python (`"a,,b,"` → `["a" "" "b" ""]`). An empty separator is refused. |
+| `str-join` | 2 | Joins an ordered collection of strings (or nil) with a separator. Non-strings and sets are refused. |
+| `char-at` | 2 | The one-code-point string at an index. |
+| `str->code-points` | 1 | Vector of integer code points. |
+| `code-points->str` | 1 | String from an ordered collection of integers in 0–0x10FFFF; anything else is refused. |
+| `str-compare` | 2 | -1, 0 or 1 by code-point order. |
+
+I added no exports beyond the minimum list. Two are narrower than the Clojure functions they're named after:
+- **`into`:** it refuses a set or map as the source into a vector, because hosts iterate those in different orders. Set into set is allowed because the result doesn't depend on order.
+- **`str-compare`:** it doesn't use the host's `compare`. UTF-16 order puts U+1F600 before U+FFFF, which Python doesn't, and a test pins that case.
+
+## Portability
+
+- **Code points:** decoding is written once over UTF-16 code units, which all three hosts store. An unpaired surrogate counts as one code point, as in Python.
+- **Refusals:** every refusal throws the fixed message "data primitive refused" with data under `:yin.vm.data/*`:
+  - `op`: the export's name;
+  - `reason`: `:arity`, `:wrong-type`, `:out-of-range` or `:empty-separator`;
+  - fields for that reason: `argc`; `arg` and `expected`; or `index`, `lo` and `hi`.
+
+  No host exception text appears. The same data reaches the caller unchanged on all four VMs, and a test checks this.
+- **Reader conditionals:** every mixed-host conditional puts `:cljd` first.
+
+## Round 1 results
+
+All checks ran in the foreground:
+- **kondo:** 0 errors and 0 warnings on each file.
+- **Tests:** focused JVM 19 tests / 304 assertions; full JVM 2441 tests / 185386 assertions; CLJS 2346 tests / 51786 assertions, with "Testing yin.vm.data-test" present. 0 failures and 0 errors in each.
+- **CLJS warning:** the first CLJS build gave one compiler warning in `str-split` (`+` on a value that could be nil). I fixed it by having the internal search return -1 instead of nil; the counts above are from the runs after the fix, and that build had 0 warnings.
+
+Round 1 mutation proof: I applied each change temporarily, ran the focused JVM namespace, then restored the file.
+
+| Mutation | Result |
+|---|---|
+| M1: treat surrogate pairs as two units (UTF-16 indexing) | 36 failures |
+| M2: `str-compare` uses the host's `compare` | 7 failures |
+| M3: `register-data-module` installs nothing | 7 failures, 92 errors |
+| M4: revert D4 so any map with `:effect` counts as an effect | 8 errors |
+| M5: refusals throw host-style errors | 52 failures across 14 tests |
+| M6: remove the argument-count check | 3 failures |
+| M7: the JVM accepts only true integers as indexes | 1 failure, 2 errors |
+| M8: `into` a vector accepts a set or map source | 2 failures |
+| M9: add `count` to `vm/primitives` | 1 failure |
+| M10: profiles declared effectful instead of `:pure` | 41 failures |
+| M11: `str-split` drops the trailing empty field | 2 failures |
+| M12: `substring` skips its end range check | 1 failure |
+
+## Round 2 changes
+
+### 1. CLJD lone-surrogate failure (fixed in the test)
+
+- **Cause:** your reading was right; the test input was wrong, not the implementation. The source literals `"\uD800a"` and `"\uDE00"` became `?`, because the CLJD build writes Dart source as UTF-8, which cannot encode a lone surrogate.
+- **Fix:** a new test helper, `from-units`, builds those strings at run time with the host's own one-character constructor (`dart:core/String.fromCharCode`, `(str (char u))` on CLJ, `String.fromCharCode` on CLJS). It doesn't use the module.
+- **Input check:** a new assertion checks the built input really has two UTF-16 units, so a mangled input fails with a clear message instead of looking like a decode bug.
+- **New assertions:** `char-at` on a lone high surrogate, and the reversed lone pair `[0xDE00 0xD800]` round-tripping as two code points.
+- **The implementation on CLJD:** it reads units with `.codeUnitAt` and writes them with `StringBuffer.writeCharCode`, which passes a lone surrogate through unchanged. I expect CLJD to pass, but only your lane can confirm it.
+
+### 2. Index-guard tests (the gate's blocking item, added to `nth-test`)
+
+- **Refused:** `(/ 0.0 0.0)`, `(/ 1.0 0.0)`, `(/ -1.0 0.0)`, `9007199254740992` and `-9007199254740992` are each refused as `:wrong-type` (argument 1, `:integer`).
+- **Boundary:** `9007199254740991` (2^53−1) is still an index. On a one-element vector it is refused `:out-of-range` with `index 9007199254740991`.
+
+### 3. Small cleanups
+
+- **Docstring:** one new bullet in the namespace docstring. Every string call decodes its whole argument (O(n)) and search is a naive O(n·m) scan, so prelude loops should call `str->code-points` once and walk it with `nth`.
+- **`index` rule:** `index` in an out-of-range refusal is now always the position the call would read.
+  - For `nth`, that is the caller's index.
+  - For `pop`, it is the last index, `count − 1`; `pop` now uses the same range check as `nth`.
+  - On an empty vector, `nth [] 0` gives `{index 0, lo 0, hi -1}` and `pop []` gives `{index -1, lo 0, hi -1}`.
+  - `pop`'s refusal data is the same as in round 1, and the rule is written in the range-check docstring.
+
+## Round 2 mutation proof
+
+Same method as round 1; afterwards `git status` showed no tracked file modified.
+
+| Mutation | Result |
+|---|---|
+| M13: drop the ±2^53 bound | 2 failures in nth-test |
+| M15: drop the JVM finiteness check and the bound | 4 failures in nth-test |
+| M16: `pop` on an empty vector reports `index 0` | 1 failure in peek-pop-test |
+| M14: drop only the JVM `Double/isFinite` check | **Survives, 0 failures** |
+
+M14 survives because the check can never change a result. NaN and ±Inf already fail the ±2^53 bound comparison on every host. I kept it because the gate called the guard clean. It could be deleted on all three hosts with no change in behaviour; say if you want that.
+
+## Round 2 results (all foreground)
+
+| Check | Result |
+|---|---|
+| kondo on `data.cljc` and `data_test.cljc` | 0 errors, 0 warnings each |
+| cljstyle | **Blocked again**: approval required, and no cljstyle alias or task exists in `deps.edn` or `bb.edn` |
+| Focused JVM | 19 tests, 313 assertions, 0 failures, 0 errors |
+| Full `clj -M:test` | 2544 tests, 186398 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | "Testing yin.vm.data-test" appears. 2459 tests, 52675 assertions, 0 failures, 0 errors; 0 warnings |
+| `bb test:cljd` | Not run (your lane); needs a re-run to confirm item 1 |
+
+## Unresolved concerns
+
+1. **Map keys:** key comparisons use the host's `=`, where `1` and `1.0` are different keys on the JVM but the same on JS and Dart. The gate accepted leaving this to the language runtime profile, on condition that the profile work adds the cross-host mixed-key test.
+2. **String speed:** each string call is O(n) and search is O(n·m). The new docstring bullet steers prelude loops to `str->code-points` plus `nth`.
+3. **`subvec` copies:** it returns a plain vector instead of a view that would keep the parent vector alive.
+4. **Strict ranges:** out-of-range indexes are refused. Python's clamping slices and negative indexes are left to the prelude.
+5. **nil results:** `str-index-of` (no match) and `peek` (empty vector) return host nil. The prelude has to map that to each language's own null value.
+
+## Incomplete work
+
+- cljstyle has not run on either file.
+- CLJD confirmation of the lone-surrogate fix is pending.
+- No language runtime profile installs the module yet; wiring it into the Python profile is spike work.
+
+The report, with round 2 appended, is at `collab/1790794940418-vm-engineer-data-primitives.claude-opus-5-5.report.md`.

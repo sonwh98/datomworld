@@ -1,0 +1,59 @@
+Completed-GMT: 2026-09-05 10:34:32 GMT
+Completed-Local: 2026-09-05 17:34:32 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: f4e3fed9-73ca-4ea5-a485-a45263d8eff0
+
+## 1. Verdict
+
+**Changes required.** The ownership boundary the plan proposes is sound and the composition shape is the right one. Two clauses are not decision-complete in ways that would produce a wrong or throwing implementation if followed literally, and one accidental behavior change of direct evaluation is unrecorded. None of these requires new API. All are fixable by adding decisions to the plan text.
+
+## 2. Findings
+
+Severity | Location | Invariant / evidence | Recommended correction
+
+**High | Plan clause "Make walker step advance execution only, retaining idle no-op behavior" | Explicit control flow; the no-op does not live where the plan assumes**
+The idle no-op today is in `stream_observer.cljc:78` (`(ready-for-ingress? vm) vm`), not in the walker. The walker's own step is `vm-step` = `cesk-transition vm nil` at `ast_walker.cljc:693-696`. Trace an idle VM (control nil, k nil) through `cesk-transition` at `ast_walker.cljc:227-500`: `node` is nil, `k` is nil, so the outer `if` falls to `(case type ...)` with `type` nil, which reaches the default branch and throws "Unknown AST node type". So a walker `step` implemented as the plan states throws on every idle VM, including a freshly constructed one. Correction: the plan must state that the walker's `step` guards with the engine's readiness predicate (or an equivalent idle test on control/k/queues) and returns the VM unchanged when idle, and that this guard is a VM responsibility, not a composition one. Write the contract test "step on an idle VM returns it unchanged" before implementing.
+
+**Medium | Plan clauses "Preserve read-outcome behavior: successful reads advance the cursor" and "loads successful observations through the supplied loader" | Cursor advancement versus exceptions is undecided**
+Today `ingest-next-program` at `stream_observer.cljc:47-52` advances the cursor and calls `load-fn` inside one expression. If the loader throws, the whole new VM value is discarded and the caller keeps the pre-read cursor. The walker's loader throws for non-program datoms (`vm/datoms->ast` at `v2.cljc:539`, reached from `ast_walker.cljc:717`). Trace in the REPL: `eval-datoms` appends a malformed batch, `vm/run` reads it, the loader throws, `eval-parsed` at `core.cljc:497-499` catches and returns the pre-eval state. The batch remains at the head of the program stream. Every later datom-literal evaluation re-reads and re-throws on it until `(reset)`. This is pre-existing, not introduced by the plan. But the plan splits observation from loading and returns `{:status :ok :value batch :state observer'}` from the observer, so the implementer now has a choice: commit the advanced observer before loading, or discard it on loader failure. The plan does not say which. Correction: state the decision. The consistent one under "keep current gap handling" is: the observer's advance is committed only when the composition helper returns, so a loader exception preserves today's behavior. Record the poison-batch consequence in the divergence register or the REPL docstring so it is a known property rather than a surprise. Do not add a status or API for it in this change.
+
+**Medium | Plan clause "Make walker run use its existing scheduler through ffi/maybe-run; it must not poll the program stream" | Accidental behavior change of direct eval, unrecorded**
+Today `vm/eval` ends in `vm/run` (`ast_walker.cljc:753-756`), which is `maybe-run` over `run-on-stream` (`ast_walker.cljc:776`). After the evaluated AST halts, `run-on-stream` at `engine.cljc:348` finds the VM ready and polls the program stream. So a source evaluation today also drains any batches queued on the ingress stream, and in the poison case above, `(+ 1 2)` after a malformed datom literal throws. Under the plan, `eval` never touches the program stream. This is the correct outcome and it is what the user asked for, but the plan presents it as preservation ("keep eval as AST conversion, loading, and execution"). Correction: list it as a deliberate behavior change in the caller-migration section and in the divergence register, and add the REPL contract test "source evaluation after a failed datom literal still evaluates."
+
+**Low | Plan clause "Datom-literal evaluation appends through the observer's program handle" | Ownership boundary blurred at the writer surface**
+The plan defines the observer as read-only observation state and requires a test that "no operation closes or appends to the observed stream," then has the host reach into the observer map for a writer surface. Per `dao.stream.md` Cursors, a cursor is interpreter-owned observation state and a handle is host-local. Correction: hold the program handle in shell state as its own key, construct the observer from that handle, and append through the shell's handle. The observer map still holds the handle for reads. Non-blocking.
+
+**Low | Plan clause "Change stream-observer/ingest-next-program to accept observer state alone" | Naming after what it does to streams**
+After the change the function ingests nothing into a VM. It observes one value. `datom.world.md` Code Style says name things after what they do to streams. Correction: rename to something like `observe-next` or `next-program` in the same change, since every caller is being rewritten anyway. Non-blocking, and acceptable to defer if the user prefers the smaller diff.
+
+**Low | Plan clause "Move the existing ready-for-ingress? implementation into the VM engine" | Dependency direction, verified clean**
+Not a defect. Noted because it must stay true: after the move, `engine` drops its require of `stream-observer` (`engine.cljc:29`), and `stream-observer` requires only `dao.stream`. The REPL requires both. No cycle. The implementer must not re-require `engine` from `stream-observer` for convenience.
+
+**Info | `ast_walker.cljc:519` and `:737` | Dead code already in place**
+`ast-walker-run-scheduler` (the scheduler the plan intends `run` to use) and `ast-walker-run-active-continuation` are both defined and unreferenced today. The plan's reuse of the first is correct. The second is out of scope for this change and should be left alone.
+
+No finding was made against concurrency, host isolation, or portability. See section 3.
+
+## 3. Properties that passed review
+
+- **Observation and execution are separate responsibilities.** The proposed observer map holds exactly the three fields the record carries at `ast_walker.cljc:34-36`, the composition helpers take VM operations as function arguments, and the CESK-shaped readiness test stays on the VM side. This matches the DaoStream invariant that interpreters own cursors and decide when to call `next`.
+- **No new mechanism.** The plan reuses `ready-for-ingress?`, `vm-load-program`, `step`, `run`, `eval`, and `maybe-run`. No accept-datoms, ready-for-program?, protocol, or registry appears.
+- **Run/step semantics with the FFI bridge.** Traced: composition run-fn is `vm/run`, which is `maybe-run` over the raw scheduler. A batch that parks on an FFI call blocks, `maybe-run` steps the bridge and resumes, the batch halts, the composition sees readiness and reads the next batch. Ordering of batches and bridge round-trips is unchanged from `engine.cljc:332-350` plus `ffi.cljc:195-211`. Without installed handlers, a parked call returns a blocked VM and the composition returns the session, as today.
+- **Readiness and suspension.** `ready-for-ingress?` at `stream_observer.cljc:19-31` is false for blocked, queued, waiting, or mid-continuation VMs, so "composition must not read another batch while the VM has active, queued, or waiting work" holds by construction.
+- **Gap handling.** Observer advance to the recovery cursor and counter increment are preserved; the REPL's before/after gap comparison at `core.cljc:395-399` transfers directly to observer state.
+- **REPL state persistence and reset.** Session pair `{:observer :vm}` threaded through one owner; reset and VM switch rebuild both. `driver.cljc`, `serve.cljc`, `host.cljc` do not touch the VM or ingress fields, so the migration is confined to `core.cljc` and its test.
+- **Concurrency and linearization.** All state is immutable values; the only mutable thing is the ring buffer handle, whose sole appender in the REPL is the shell. Two observers over one stream hold independent cursors, which is exactly the DaoStream reading model and the deferred fan-out entry point.
+- **Host isolation and portability.** The observer is plain maps plus protocol calls in `.cljc` with no reader conditionals required. Record field removal and `ex-info` rejection of the obsolete `:in-stream` option are portable across clj, cljs, and cljd. The rejection must run before `vm/empty-state`, which allocates the FFI pair; the plan says so.
+- **Bounded interface.** `stream-observer` ends with four public entry points: constructor, observe, step composition, run composition. Within the 2 to 5 target.
+- **Compatibility scope.** v1 untouched. `parity_test.cljc` reaches the ingress path only through `tu/compile-and-run`, so updating `test_utils.cljc:41-61` is sufficient.
+
+## 4. Minimum changes to make the plan implementation-ready
+
+**Blockers**
+1. Add to the walker clause: `step` must guard for the idle case itself and return the VM unchanged; add the corresponding contract test. Without this the described implementation throws on a fresh VM.
+2. Add a decision on loader failure: the observer advance is committed only when the composition helper returns; a loader exception leaves the session as it was. Record the resulting poison-batch behavior as known and pre-existing.
+3. Record the direct-eval change (no longer drains the program stream after halting) as a deliberate behavior change, with a REPL contract test.
+
+**Optional extensions, not required for approval**
+4. Keep the program handle in shell state and build the observer from it, so the observer is observation-only.
+5. Rename the observe function to reflect that it no longer loads.

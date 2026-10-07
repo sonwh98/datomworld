@@ -1,0 +1,73 @@
+Completed-GMT: 2026-09-29 08:39:49 GMT
+Completed-Local: 2026-09-29 15:39:49 +07 (+0700)
+Coding-Agent: claude
+Session-ID: c2557c35-ba40-4377-b51a-aad2152a95cb
+
+# Report: yin.repl "q on require" slice
+
+After `(require 'dao.space.query)`, `dao.space.query/q` now queries the session's code index on all four VMs. Lint, the full JVM suite and the CLJS lane pass. Nothing is staged or committed. The full report is at `/Users/sto/workspace/datomworld/collab/1790669559000-vm-engineer-repl-q-on-require.claude-opus-5-5.report.md`.
+
+**Not done:** `cljstyle check` was blocked by the permission gate, so formatting is unchecked. `bb test:cljd` was not run, as instructed.
+
+**Changed files:**
+- `src/cljc/yin/repl.cljc` (modified)
+- `src/cljc/yin/repl/query.cljc` (new: the query bridge)
+- `test/yin/repl/query_test.cljc` (new: 11 tests, 137 assertions)
+
+No changes to `yin.vm/*`, `dao.space.*` or `dao.stream.*`.
+
+## How it works
+
+- **Require:** the session's registry gets its own `:module/require` handler. For `dao.space.query` it installs a host module into the requiring VM's registry; every other name goes to `module/require-handler` unchanged.
+  - Before the require, `dao.space.query/q` fails name resolution.
+  - `(reset)` and `(vm …)` build a fresh registry, which removes it.
+  - The bare name `q` is never bound.
+- **The call:** the `q` export returns data that a second handler turns into an ordinary FFI call on the VM's `dao.stream.apply` call pair. It uses the VM's own call ids, park and response readers, so errors come back through the FFI error envelope.
+- **The call pair:** the session supplies the pair together with its `:call-out-cursor`, consistent with slice 3d. No `:ffi-caller-id` is set, since the pair is local with one caller.
+- **Answering:** the shell's drive loop answers each request from the indexer as it stands at that moment. The database is the latest published manifest, read with the current view by default, or `{:view :history}`.
+  - It refuses with `:yin.repl.query/index-unavailable` if the indexer is lost, failed, unpublished, or its manifest can't be read.
+  - An empty session is an empty database.
+
+## Limit values (please review before commit)
+
+| Constant | Value | Why |
+|---|---|---|
+| `query-row-limit` | 1000 | The REPL prints an answer whole; an ordinary `def` is tens to hundreds of facts. |
+| `query-byte-limit` | 256 KiB of canonical CBOR | Same encoding on every host, and it doubles as the portability check. |
+| `query-pair-capacity` | 64 elements | One call outstanding at a time; worst-case retention is 16 MiB. |
+| `query-serve-budget` | 64 | Requests answered per serve round. |
+
+Both limits are checked before the response is appended, and the error names the limit.
+
+## Test outcomes
+
+| Check | Result |
+|---|---|
+| kondo (3 changed files) | 0 errors, 0 warnings |
+| Focused JVM (query, repl, index, require, ffi) | 94 tests, 727 assertions, 0 failures |
+| Full `clj -M:test` (final code) | 2353 tests, 184223 assertions, 0 failures |
+| `bb test:cljs` | 2259 tests, 50721 assertions, 0 failures |
+
+The first CLJS run failed 4 assertions in my own history test, only because sets print in a different order on CLJS. I made that assertion order-independent and it now passes. The known `yin.repl.main-test` flake did not appear.
+
+## Acceptance → tests
+
+All seven acceptance items have tests on all four VMs; the mapping is in the report. I proved the key ones by breaking the code seven ways, one at a time: each break was caught by the tests, and each file was restored byte-identical afterwards.
+
+## Needs your decision
+
+- **A fourth error code, `:yin.repl.query/query-failed`,** for queries that `dao.space.query` itself rejects (bad Datalog, wrong `:in` arity, unknown function). Folding these into `invalid-input` would mix bad Yin data with a bad query.
+- **The require goes through a composition effect handler, not the linker.** The link interpreter never sees `dao.space.query`. I read "through the existing require handler" as "the same `:module/require` effect"; if the Architect meant something stricter, this is the place to push back.
+
+## Other points worth review
+
+- **Bug found and fixed:** when a round failed after a query was answered, rolling back the shell state also rolled back the query interpreter's cursor, so it answered the same request twice. The error raised on that failure now carries the cursor, and both rollback paths restore it.
+- **Coupling:** the call handler depends on each VM's existing park-entry builder, and picks the walker's entry shape by `:vm-model`. This is not a `yin.vm` change, but it ties the bridge to how the kernels build park entries.
+- **Behavior change:** a raw `(dao.stream.apply/call :x/y …)` typed at the prompt used to fail as a wedged program. It now gets an `unknown-operation` FFI error, because the session VM has a served call pair. No existing test depended on the old behavior.
+
+## Concerns
+
+- **Rollback edge case:** after a failed round, the rolled-back VM re-reads that round's old responses and skips them, which is harmless. But if a single failed round made more than 64 `q` calls, the next call fails with a response-gap error.
+- **Maps can't be `:in` inputs:** a trailing map is always read as the options map. Scalars, vectors, lists and sets work as inputs.
+- **Cost per call:** each `q` re-reads the whole index. The design accepts this; lazy reads via `open-published!` would be the upgrade.
+- **Queries see their own program:** the calling program is indexed before it runs, so a query includes itself. That is why the history test expects three rounds.

@@ -1,0 +1,19 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-26 10:44:57 GMT
+Completed-Local: 2026-09-26 17:44:57 +07
+
+Report written to `/Users/sto/workspace/datomworld/collab/1790416871817-vm-engineer-linker-m4-s4-manifests.glm-5.3.report.md` (same header fields). Summary:
+
+**What was built** — all in `src/cljc/yin/vm/linker.cljc` (owned) plus the new `test/yin/vm/linker_manifest_test.cljc`; `engine.cljc`, `module.cljc`, the kernels, and every UCF doc untouched:
+
+1. **`manifest-format` / `record-format`** (section 8.1, full M2 record pattern): `manifest-defect` validates exactly one schema version (`manifest-schema` = 1; another is `{:rule :schema}`), the closed key set, per-key shapes, `:contract-missing` for a derivation format absent from `:yin.module/contracts`, and Rule R (`:reserved-name` for a declared `yin/def`). `record-defect` validates exactly `derive-record`'s shape (input a Jing address; output the image identity — segment address for SEM, hash string for H/R).
+2. **`link-manifest`** — the manifest-delivered image link, threading one runtime state through the untouched stepped core, in the doc's fixed order: admission → manifest fetch (steps 1–4) → **contract-before-content** (manifest's per-format entry vs the record's contract) → **name check** (`:module-name-mismatch` naming both, against the resolution name) → **`:yin.module/index` merge into `:indexes`** → derivation record fetch + the two address checks (`:derivation-mismatch`; no record is `:unsupported-format`) → policy (`:trusted` = addresses + `:trust :composition`; `:verifying` = implemented profile else `:unverified-derivation`, verified tree, recomputed identity) → image fetch → step 5a manifest join (`:undeclared-free`; `:kind`-bearing obligation records) → discharge (5b, extended: primitives by equal profile address, modules by equal manifest address).
+3. **Fallbacks** — `trusted-fallback`/`verifying-fallback` gained manifest 3-arities reading the derivation from the manifest (`:trust :composition`/`:verified`, `:fallback` tags, `:pairing-mismatch` naming); the B6 arities are byte-identical.
+
+**Verification** — baseline JVM **2,138 tests / 181,890 assertions** (task said 181,898; this tree measures 181,890); after **2,152 / 181,991, 0 failures, 0 errors**, reproduced twice. TDD red→green. kondo 0/0, cljstyle clean, pure ASCII ≤ 80 cols. The +24 assertion delta beyond my 77 sits in untouched old tests (old-suite counts move between sessions; old linker suite alone still 58/414 green).
+
+**Deviations** (detailed in the report): `link-manifest` is a new export; the fourth swapped-image test's interpretation (record claims the manifest's tree but another tree's image — only `:verifying` catches it); stack/register profile maps pinned here ("b2-stack-lowering", "r1-register-lowering"); fallback arity overloading; H/R re-lowering reconstructs the datom lane (probe-verified identity-equal).
+
+**Unrun**: Node and Dart lanes (orchestrator runs both; CLJD traps audited by inspection).
+
+Status: COMPLETE

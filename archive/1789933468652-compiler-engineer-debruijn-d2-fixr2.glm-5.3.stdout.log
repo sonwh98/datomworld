@@ -1,0 +1,32 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-20 19:48:48 GMT
+Completed-Local: 2026-09-21 02:48:48 +07 (Indochina Time)
+
+All five findings are applied in the two in-box files; the two deferred items were not implemented, as instructed. Nothing staged, committed, merged, or pushed.
+
+## Findings applied
+
+| Finding | Change |
+|---|---|
+| **P1 (ruling b)** | `merkle-node`'s consing memo is now keyed on the node's **preimage** — the concatenated descriptor-order slot encodings — instead of Clojure `=`. Children are still merkle'd first, the pre-record (children as hashes) is encoded through the new shared `slot-encodings` helper, and a preimage hit returns the identical hash without re-hashing or re-writing the record. This separates exactly what the hash separates: a list literal vs a vector literal (`:list`/`:vector` tags) and the signed zeros (distinct `:double`/`:int64` content) no longer merge, and traversal order cannot enter identity. Docstring states the invariant and the first-spelling-within-a-hash rule (only reachable inside declared collision classes). |
+| **P2 (ident NFC)** | `ident-content` routes both namespace and name through `normalize-nfc` — the value table's `:nfc-utf-8` declaration now holds for ident parts. |
+| **P2 (reader verifies)** | `datoms->projected` recomputes every record's hash via the same `slot-encodings` → `node-hash` path the mint uses and raises `:hash-mismatch` on disagreement (content addressing verified at the boundary, never trusted). Docstring updated. |
+| **P3 (:int64 via long)** | `:int64` content renders `(str (long v))` in `encode-value` (and the ordered-vector's count framing), so an integral double prints like its integer on every host — the value table's intentional 1/1.0 collision holds in the provisional rule now, not only after D3. |
+| **P3 (re-matches guard)** | The reader's hash-format check is `(and (string? h) (re-matches …))`, so a non-string hash value raises `:malformed-hash` instead of a host regex error. |
+
+**New tests** — `the-consing-memo-separates-what-the-hash-separates` (one program with a list literal alongside a vector literal: two different literal hashes and a fingerprint differing from the all-list program; one program with `0.0` alongside `-0.0`: different hashes); `decomposed-and-composed-ident-parts-hash-identically` (free name `e\u0301` ≡ `é`); `the-reader-verifies-the-content-address` (one tampered `:bound` scalar → `:hash-mismatch`; a non-string hash value → `:malformed-hash`); `integral-doubles-and-integers-share-one-fingerprint` (`1` ≡ `1.0`). One fixture note: the tamper test uses the `:yin.debruijn/bound` datom because the chosen program's variable is bound, not free — same scalar-tampering semantics.
+
+## Verification (exact commands and counts)
+
+| Check | Command | Result |
+|---|---|---|
+| Focused JVM | `clojure -M:test -n yin.vm.debruijn-test` | **47 tests, 159 assertions, 0 failures, 0 errors** |
+| kondo | `clojure -M:kondo --lint` both files | **errors: 0, warnings: 0** |
+| cljstyle | `cljstyle fix` + `check` both files | **clean** (reindent only; focused rerun stayed 47/159/0/0) |
+| CLJS (extra, not required) | shadow `compile test` lane | **1524 tests, 38808 assertions, 0 failures, 0 errors** — including the signed-zero and 1/1.0 fixtures on the JS host |
+
+## Notes
+
+- The preimage-keyed memo costs re-walking a repeated subtree's structure on hits (the preimage needs child hashes to exist); each node's sha256 and record write are still skipped, and the memo remains an optimisation whose absence changes nothing — per the ruling's "optimisation only" requirement.
+- Deferred as instructed: unreachable-record diagnostics and scalar-type revalidation on read (the hash check covers typing; revisits at D4/D5); the UTF-16 length-prefix note stays D3's byte-rules scope.
+- Changed files: only `src/cljc/yin/vm/debruijn.cljc` and `test/yin/vm/debruijn_test.cljc`. No unresolved concerns; no incomplete work in this round's scope.

@@ -1,0 +1,38 @@
+Section 5.5 of `docs/design/yin.vm.linker.dht.md` is rewritten around one complete publication ledger, now revision r3. Both lifecycle findings are closed and the owner's automatic-retry decision is adopted. Only docs changed, and nothing is staged or committed.
+
+## Cancellation (finding 1)
+
+- **Outstanding writes are cancelled for this publication.** At the call, every entry that is not sent becomes failed with a cancelled reason, including one whose request is already outstanding. Cancellation does not wait for facts.
+- **The report is final.** The publication is reported by the next step and retired. A late fact never amends it.
+- **Cancelled means not counted, not unsent.** A blob whose request was outstanding may still have reached peers, so the result under-claims and never over-claims.
+- **Shared addresses.** One address has one queue entry and one request on the node. Its outcome is written to every live publication that holds it. Cancelling one publication leaves the entry in place for the others, and the late fact counts only for them.
+- **Invariant.** Sent plus the count of failed equals the blob count in every event, and the blob count is constant for a publication.
+
+## Automatic retry (finding 2 and owner decision 5)
+
+- **Retry updates the original ledger.** There is never a second publication for the same manifest. The result is always computed over the whole ledger, so blobs sent in the first pass still count toward final acknowledgement.
+- **Pacing.** A repair cycle runs after a delay in the node's own ticks. The delay doubles after a cycle that sent nothing, up to a ceiling, and resets after one that sent something.
+- **Fairness.** Retries use a separate repair queue. A quarter of the outstanding-request bound is reserved for it while it is non-empty, so neither queue starves the other.
+- **When retries stop.** On acknowledgement, when only terminal reasons remain, on cancel, when displaced by a seventeenth repairing publication, and silently on close.
+- **Events.** The first report stays one `:published` event. A `:republished` event appears only when the result changes or repair ends. A publication that never improves is silent after its first report.
+- **Manual nudge kept.** `retry!` now only brings the next cycle forward and reports nothing itself.
+
+## Acceptance
+
+- **L1** now tests:
+  - the invariant in every event;
+  - a partial original and an unacknowledged original each reaching acknowledged;
+  - a peer that never accepts, which stays within every bound and never acknowledges;
+  - queue fairness and terminal reasons;
+  - cancellation in each ledger state with a late fact;
+  - shared-address accounting.
+- **L4** now tests background repair at the prompt with no call from anyone, an unacknowledged round repaired the same way, and twenty rounds against dead peers with no stall.
+
+## Things I changed beyond the two findings
+
+- **Immediate retries are gone.** One request has one outcome, and every retry is a repair cycle. The three-tries setting is removed.
+- **Backlog-full is now retryable.** Blobs refused at a full backlog are sent by a later repair cycle.
+- **Repair does not survive a restart.** The ledger is process state, and a reopened node repairs nothing from before. This is listed under deferrals, and the owner may want a durable ledger later.
+- **Idle cadence.** A publication waiting for its next cycle does not keep the node busy, so the ticker can idle between cycles.
+
+The rulings table gains R13 for the owner decision, and the cross-reference in `dao.jing.dht.md` mentions automatic retry.

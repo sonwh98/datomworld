@@ -1,0 +1,84 @@
+Slice L1 is implemented in the worktree and all four lanes pass. Nothing is staged or committed, and only the seven files L1 lists were changed.
+
+Report written to `/Users/sto/workspace/datomworld/collab/1790812000000-engineer-linker-L1.claude-opus-5-5.report.md`. Here it is:
+
+---
+
+# Engineer report: linker over dao.jing.dht, slice L1 (claude-opus-5-5)
+
+Worktree `datomworld-linker-l1`, branch `linker-l1`, from `a1f41db3`.
+
+## Files touched
+
+| File | Change |
+|---|---|
+| `src/cljc/dao/space/dht.cljc` | `load`, `forget` and `index-walk`, with failure reasons as data. A put no longer asks the DHT for anything. Adds the publication ledger, the fresh and repair queues, pacing, automatic repair, `retry!`, `cancel!`, the `backlog`/`publications`/`publication`/`ack-peers` reads, and the new `join` bounds. |
+| `src/cljc/yin/repl/dht.cljc` | Prints `:published`/`:republished` results and load-failure reasons as text. |
+| `src/cljc/yin/repl/query.cljc` | The `dao.space.dht` host module gains `retry` and `cancel`. Its `load-status` answer drops `:value` and gives `:datoms` for index loads. |
+| `test/dao/space/dht_test.cljc` | 36 tests: 6 existing ones rewritten for data reasons and results, 30 new. |
+| `test/yin/repl/dht_test.cljc` | 2 new tests, plus assertions added to 2 existing ones. |
+| `test/yin/repl/dht_process_test.clj` | The not-acknowledged regex now checks the new result line. |
+| `docs/design/dao.jing.dht.md` | Section 10's event list and the store, `load` and `retry!`/`cancel!` bullets. |
+
+## Checks (all in the foreground, each run to its verdict)
+
+| Check | Result |
+|---|---|
+| kondo on the 6 changed source and test files | 0 errors, 0 warnings |
+| `bb test:clj` | 2615 tests, 210146 assertions, 0 failures, 0 errors. The DHT process test (JVM to Node over UDP) ran. |
+| `bb test:cljs` | 2529 tests, 76348 assertions, 0 failures, 0 errors; the build has 0 warnings. Both L1 test namespaces ran. |
+| `bb build:yin-repl-peer` | Built. 13 DYNAMIC WARNINGs, none in a file this slice touched. |
+| `rm -rf test/cljd-out`, then `bb test:cljd` | `+2484: All tests passed`, no failures reported. |
+
+**Dart caveat:**
+- The Dart reporter only redraws about once a second, so fast tests never appear by name in the log.
+- I confirmed the compiled Dart test files contain all 36 and all 17 L1 deftests.
+- I could not get per-test Dart output: the sandbox blocked running `dart test -r expanded` on those two files alone.
+
+## Red before green
+
+- **`dao.space.dht-test` before implementing:** failed to compile (`No such var: dht/backlog`).
+- **One real bug found:** a publication that overflowed `:max-open` kept its own queue entries, so its own row was sent anyway (`expected :partial, actual :acknowledged`). Fixed.
+- **Other early failures:** the rest were test defects, fixed in the tests:
+  - an over-strict expectation;
+  - a config with `:repair-ticks` above `:repair-max-ticks`;
+  - reading publications before the first step;
+  - too few failing rows to fill the repair queue;
+  - an idle check that the publications' staggered repair cycles never let pass.
+- **`yin.repl.dht-test` before the REPL changes:** 22 failures, because the old rendering read `:acknowledged?`.
+
+## Mutations: 16, all killed on the JVM
+
+Each was applied to `dao.space.dht`, its guarding tests run, and the original restored and checked byte for byte. They cover:
+- pacing, fairness, and repair admission not waiting on the fresh queue;
+- shared-address outcomes, cancel settling every entry, and terminal reasons;
+- time advancing by readings, the doubling delay, displacement, and the overflow bug;
+- the `:max-backlog` and `:max-open` bounds;
+- walk shapes, the `:busy` client, the miss cause, and never re-asking for a sent blob.
+
+Three mutations were weak at first and survived. They were strengthened and re-run, and are now killed.
+
+## Acceptance bullets → evidence
+
+Every bullet has its test(s). The full mapping is in the report. Things worth knowing:
+- **The ninth and tenth rounds:** a round can pass through `:republished :partial` before ending `:acknowledged`. Section 5.5.3 makes every result change an event, so the test asserts the last event is `:acknowledged` and allows the `:partial` step.
+- **HEAD moved:** asserted in the REPL tests. There, the partial case refuses every non-manifest store rather than one chosen row, because REPL index blobs travel as `:chunk` frames that carry no address. The exactly-one-row case is covered in `dao.space.dht-test`.
+- **The cancel test:** the late fact after cancelling is a failure. The late `/sent` of a blob that was outstanding at the cancel is covered in the shared-addresses test.
+- **"No put ever waits":** true by construction (puts are synchronous) but not separately asserted.
+- **"No repair cycle ever opens"** for a publication acknowledged by a shared fact: inferred from the single request and its retirement, not asserted directly.
+- **The ledger invariant** (`:sent` plus failed equals `:blobs`): checked on every event of every multi-node `dao.space.dht` test, but not re-checked in the REPL tests.
+- **Busy-client tests:** they swap the load client's request writer inside the node, which is test-only access to its internals.
+
+## Notes for the Architect
+
+- **New public functions:** `backlog`, `publications`, `publication` and `ack-peers` are plain reads the contract does not name. `refusal` keeps its S5 meaning (why the socket could not bind).
+- **Refusals:** `retry!`, `cancel!` and `forget` throw `ex-info` carrying `{:dao.space.dht/refused code}`, with codes `:not-repairing`, `:not-live` and `:loading`. The host module answers the same code as an error.
+- **What counts as outstanding:** for pacing, a request stays outstanding until its `/replicated` or `/unacknowledged` fact, not its `/sent`. The DHT keeps an acknowledged write in its pending table while it keeps replicating, so this is what makes `/busy` impossible. The ledger still records the blob as sent at `/sent`.
+- **The put handle:** it reuses `dao.jing.dht/store-handle`'s address and size checks, but sends that handle's own replicate request to a throwaway one-slot ring. Only the node's `step` issues requests.
+- **Release order:** a queued address whose earlier request is still replicating is skipped until that request ends; each queue otherwise stays first-in first-out.
+- **Lost facts:** a gap in the facts ring reports every live publication `:publication-unknown` and clears the queues, as S5 did.
+- **Owner invariants:**
+  - Peer to peer is unchanged.
+  - `dao.jing` is untouched.
+  - `dao.space.dht` gained no `yin.*` dependency.
+  - The host functions only check arguments and call the plain API.

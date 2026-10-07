@@ -1,0 +1,37 @@
+Completed-GMT: 2026-09-04 19:14:29 GMT
+Completed-Local: 2026-09-05 02:14:29 +07
+Session-ID: 51a8d179-b011-416d-85d2-0aee3ed5b9e0
+
+## Changed files
+
+**In the prompt's named scope:**
+- `src/cljc/yin/repl/core.cljc` — VM backend swapped to `yin.vm`/`yin.vm.ast-walker` (+ `yin.vm.module`). `make-vm` now supplies `:make-stream` bound to the v2 ring buffer, registers the v2 `stream` module over `default-registry`, and hands the VM its own ingress ring buffer (`ingress-capacity` 4096). Datom-literal evaluation implemented (`append!` to ingress + `vm/run`), with a gap fatal to the current evaluation: loss reported, further evaluation refused until `(reset)`. `repl-state`'s `:in-stream :absent` became a real report (capacity, gaps, lost?). `serve.cljc` was read as directed and needed no change.
+- `src/cljc/yin/vm/docs/yin.repl.md` — new; states what differs from v1 (connect returns immediately, `:ast-walker` only with the default changed from `:semantic`, no telemetry, plus the divergence-register consequences). `yin.repl.md` untouched.
+- `test/yin/repl_test.cljc` — the two-process R5 e2e (four facts) plus fixture and peer-driver helpers.
+
+**New files required by the acceptance criteria (no path named):**
+- `test/yin/repl/slice_peer.clj` — process B, a whole REPL client program driven over pipes, per the `dao.stream.slice-peer` precedent.
+
+**One file outside the named set — please ratify:** `test/yin/repl_core_test.cljc`. Two tests pinned pre-swap behavior the plan supersedes (`:in-stream` nil; datom eval reported as unmet prerequisite), so the swap cannot land green without editing them. I updated those two and added the plan-mandated ingress-gap-fatality test. The alternative — leaving the suite red or shipping datom evaluation unimplemented — contradicted the plan and "do not weaken tests"; I chose to disclose rather than stop, per the prompt's report-honestly rule. No dependency file demanded expansion; `driver.cljc`, `connect.cljc`, `deps.edn`, `shadow-cljs.edn`, `bb.edn` are untouched.
+
+## Verification (exact outcomes)
+
+| Check | Result |
+|---|---|
+| `yin.repl-test` (incl. 4 R5 facts) | 12 tests, 67 assertions, 0 failures, 0 errors |
+| `yin.repl-core-test` | 16 tests, 54 assertions, 0 failures |
+| Full JVM (`clojure -M:test`) | 1376 tests, 166,986 assertions, 0 failures, 0 errors |
+| Node (`bb test:cljs`) | 1293 tests, 34,603 assertions, 0 failures, 0 warnings; `Testing yin.repl*` lines confirmed |
+| Dart (`bb test:cljd`) | 1242 tests, "All tests passed!"; fresh `cljd-out` compiled the changed ns |
+| `clj -M:kondo --lint` on all touched files | 0 errors, 0 warnings |
+| v1 severance | requiring all `yin.repl*` namespaces loads **zero** `yin.vm`/`yin.repl` v1 namespaces |
+| Alias smoke | `clojure -M:clj-yin-repl --port 18099 --headless` serving; spawned peer connected and got `42` for `(+ 40 2)` |
+
+The four R5 facts as tested: (1) round trip + two clients each get only their own answers; (2) disconnect while a request is provably outstanding (server driver stalled, `:outstanding` probed) → client prints `;; remote request N lost` with no timeout mechanism involved, handle answers `:dao.stream/closed`, server publishes the departure; (3) same descriptor reattaches, deposit medium `identical?` across the death, new attachment id, and the shared shell's `x` still answers `10`; (4) `stop!` → client deposits `:yin.repl.connect/ended` with no `detached` event, connection status `:ended`.
+
+## Unresolved concerns / incomplete work
+
+1. **Cross-host pairs not implemented** (cljd client ↔ JVM server; Node client ↔ cljd server). They need peer builds on cljs/cljd plus `bb.edn`/`shadow-cljs.edn` entries — files outside the named set, so per your instruction I stopped short and request authorization before doing them. The peer is JVM-only today.
+2. **Design note on process A:** the e2e composes the headless server in-process (`serve!` + one ticker thread — the same composition `-main --headless` drives) so the facts can observe the server side, following the accepted stream Phase-5 precedent; the literal alias path is covered by the smoke test above. If you want A spawned via `-main` in the tests too, that's a restructure I can do on request.
+3. Handoff's known-open item (pre-accept sockets not closed by `serving/stop!`) did not bite fact 4; it remains open upstream and untouched here.
+4. Nothing staged or committed; `collab/`, `docs/handoff.md`, and `public/chp/blog/*.blog` untouched.

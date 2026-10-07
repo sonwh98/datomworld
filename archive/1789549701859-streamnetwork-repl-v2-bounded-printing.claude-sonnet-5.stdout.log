@@ -1,0 +1,27 @@
+Task complete. Summary:
+
+**Converted (13 sites)** — genuinely unbounded/arbitrary internal state:
+
+| File | Line(s) | Value | Reasoning |
+|---|---|---|---|
+| driver.cljc | 386→394 | `line` (non-string input) | raw operator/producer input, unvalidated shape |
+| driver.cljc | 439→447 | `(:yin.repl.adapter/reason event)` | arbitrary diagnostic reason on a `:lost` completion |
+| driver.cljc | 441→449 | `event` | whole event map, fallback for any unrecognized adapter event |
+| connect.cljc | 240,257,261,273 | `url` (×4, all in `parse-url`) | raw operator-typed connect text, printed only in the branches where it just *failed* validation |
+| serve.cljc | 250→257-258 | `path`, `bind-port` | printed only in the branch where descriptor validation *failed* — shape/size not established |
+| serve.cljc | 348,354,358,362,368 | `value` (bind-succeeded/-failed/upgrade-failed/listener-error/stopped) | host-supplied lifecycle diagnostic maps, unbounded |
+| serve.cljc | 669→679 | `(:dao.stream/diagnostic result)` | arbitrary reason map from a synchronous stop failure |
+
+**Left unconverted (4 sites)** — already bounded by contract, not source data:
+
+- `connect.cljc:324` `(:dao.stream/outcome result)` — a `dao.stream` outcome keyword drawn from that API's small fixed vocabulary, not external text.
+- `connect.cljc:432` `(:terminal client)` — RPC client terminal reason, same fixed `:dao.stream.apply/…` keyword vocabulary.
+- `connect.cljc:479` `(:url connection)` — the URL of an already-`open`-succeeded connection, i.e. one that already passed `parse-url`/`ws/descriptor?` validation (the task's own "already-validated URL" example).
+- `serve.cljc:371→381` `kind` (unknown endpoint event) — traced the only caller (`drain-lifecycle`): it passes `(when (contains? event-kinds kind) kind)` into `lifecycle-transition`, so this branch only ever receives `nil`, never an arbitrary keyword. Not a live unbounded site as currently wired.
+
+**Wiring**: each file got `[dao.data :as data]` added to its existing `:require` (matching each file's own ordering/style) and one `^:private diagnostic-bounds {:depth 3 :items 8 :chars 200}` constant.
+
+**Verification**:
+- `clj -M:kondo --lint` on all three files: `errors: 0, warnings: 0`.
+- Found and ran the matching tests (`yin.repl-driver-test`, `yin.repl-serve-test`, `yin.repl-connect-test`) via `clj -X:test`: fails with `FileNotFoundException ... Could not locate dao/data__init.class, dao/data.clj or dao/data.cljc` — the expected, known blocker since the concurrent unit hasn't landed `dao.data.cljc` yet. Nothing else was stubbed or worked around.
+- No files outside `driver.cljc`/`serve.cljc`/`connect.cljc` touched; nothing staged or committed; `bb test:cljd` was not run.

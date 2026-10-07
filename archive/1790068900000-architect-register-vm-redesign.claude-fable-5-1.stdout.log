@@ -1,0 +1,41 @@
+Completed-GMT: 2026-09-22 09:08:31 GMT
+Completed-Local: 2026-09-22 16:08:31 +07 (Indochina Time)
+
+Revised `docs/design/yin.vm.debruijn.register.md` in place. Verified: no line over 80 columns, ASCII only, no em dashes, the section 3 table rows are all one width, Status line updated. No other file was touched. One note on process: the sandbox blocked reading the B2 worktree directly, so B2's structure comes from its implementer's report in `collab/1790065088826-*.stdout.log`, which describes the pass in enough detail to decide.
+
+**What "the de Bruijn encoding of the semantic tuples" concretely is**
+
+It does not exist as an artifact today. B2 runs the named linearizer first, converts to the canonical named stack vector, reconstructs scope from that vector, and only then rewrites `:var` to bound/free and closure params to arity. So its addressing happens after stack assembly, over an already push-and-argc shaped vector. Option (i) from the brief does not literally apply. The dormant projection is a tree-level de Bruijn encoding but is lossy, which the stack design already rejected as a lowering input.
+
+The doc therefore defines the shared artifact as the resolved tuples: the named `:yin/*` datoms with exactly two changes, mirroring B1's two changes to the opcode table. Variables resolve via the public `resolve-name` to bound depth/position or an exact free name, and lambdas carry arity. Everything else is exact: scalars, free names, tail flags, structure, order. Binder names go to a side table. A new resolver namespace produces it. It gets a shape contract and a namespace but no hash, no identity, and no sharing role, justified against invariant I, D9, D12, D2, and derive-don't-persist in section 2.1.
+
+**Whether this requires touching B2**
+
+Not required to ship R0-R2. The peer topology is instead bound to B2 by a tested law over the B0 parity corpus: the sequence of resolved addresses in evaluation order must be identical across B2's stack image, the register image, and the resolved tuples. My recommendation, deferred to the owner because it edits the stack design's section 3 and B2 box, is to refactor B2 now while uncommitted into resolve-then-linearize. That deletes B2's vector-level scope reconstruction, which exists only because resolution was placed after linearization. The cost is a copy of the flattening walk and the loss of by-construction layout equality with the named linearizer. Golden H values are unchanged either way.
+
+**Sections changed**
+
+- Status line and preamble: peers, not derivation.
+- Section 1: objective, invariants 1, 3, 5, and the closing paragraph now state peer projections and the one proposed stack-design edit.
+- Section 1.1: R hashes descriptor plus register vector only. Alpha-invariance now comes from the register vector's own de Bruijn operands, not inherited from H. H/R pairing is composition data outside both preimages. Receiver verifies with R alone.
+- Section 2: redrawn topology with resolved tuples as the branch point. New 2.1 defines the shared artifact and its no-identity justification. New 2.2 records B2's actual fused structure, the address law, and the refactor recommendation.
+- Section 3: Source row, R formula without source H, receiver verification via the D11/D15 closure check, lift target described.
+- Section 4 retitled. 4.1 consumes resolved tuples; CFG and abstract-stack simulation and the `:stack-join` diagnostic are gone because the input is a tree. 4.2 wording changed from "stack value" to "intermediate expression value". 4.3 drops the join-order risk. 4.4 explains no `:push` and `:call` in tree terms.
+- Section 6: R0 gains the resolver file box and the address law. R1 adds the resolver contract to must-not-change and restates the lift law. R4 parity is against the named VM and the stack VM. R5 drops stack-H relation checking.
+- Section 7: the forbidden-to-lower-named-datoms paragraph is replaced. The lowerer consumes resolved tuples only, and B2 stays the sole stack producer.
+- Section 8: risks, DECIDED 2, 3, 4, 8, and two new DEFERRED items.
+- Section 9: address law replaces source-H preservation.
+
+**Sections left alone and why**
+
+- 4.2 register banks, the L/T split, frame direction, and the linear-scan strategy: these describe the output form and B3 compatibility, independent of input.
+- 4.4 instruction table: the target instruction set does not depend on where the input came from.
+- Section 5 execution boundary: kernel gating, state shape, and continuation caveats are unchanged.
+- R2, R3 phase boxes and the R0-R2-R3-R4-R5 gating: unaffected by the premise.
+- DECIDED 1, 5, 6, 7 and the remaining DEFERRED items: about gating, allocation, and kernel siblinghood, all still correct.
+
+**Needs the owner's decision**
+
+1. Refactor B2 to consume the resolver now, or leave B2 fused and rely on the address law. This edits `yin.vm.debruijn.stack.md`, which I could not touch.
+2. The resolved-tuple attribute vocabulary and namespace, currently deferred to R0.
+3. Whether the resolver's file box belongs to R0 as written, or should be commissioned as a stack-design phase so B2 can depend on it without a register-phase dependency.

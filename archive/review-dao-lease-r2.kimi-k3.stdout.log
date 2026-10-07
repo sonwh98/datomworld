@@ -1,0 +1,78 @@
+```
+Completed-GMT: 2026-09-02 07:12:00 GMT
+Completed-Local: 2026-09-02 14:12:00 Asia/Ho_Chi_Minh
+```
+
+# Review: dao.lease.md (rewrite)
+
+Findings ranked most severe first. Nothing at critical severity — nothing invalidates the vocabulary or violates a governing invariant. The two high findings are one defect in two places: the free-judgment-point premise was retracted in the body but not in the thesis, and its replacement is presented one indirection away from the mechanism that actually runs the judge.
+
+---
+
+## HIGH
+
+**H1 — Precedent, line 36-37 — the thesis sentence still asserts the retracted premise.**
+The claim: "a lease is a bounded deviation from a safe default… with the revert recorded as a fact and performed by the owner **at points it already passes through**." That clause was true of the VM (safe points reached as a side effect of running) and is false of the judge — the document itself says so at line 63-64 ("a judge with a silent holder has nothing driving it at all") and built the entire tick stream to compensate. The sentence billed as "the whole shape" still carries the claim the rewrite retracted.
+Correction: the shape sentence must not assert free points for the lease — e.g. "performed by the owner at judgment points the composition declares and wires" — or scope "points it already passes through" to the patch clause only.
+
+**H2 — *Lapse is a conclusion*, lines 251-260 — the tick stream answers the wrong half of the wakeup problem.**
+The claim: "A judge with a silent holder has nothing else to wake it," followed by the tick stream as the remedy. But per `dao.stream.md` ("DaoStream invokes nothing"; "cadence belongs to the runtime driving the interpreters"), a tick in a stream runs nobody. On a host where nothing runs without an event, the timer fires, the adapter appends and returns, and the judge *still* never runs unless a driver polls it. The failure mode the paragraph exists to prevent — a grantor that never judges while everything reports healthy — survives this fix in a composition that wires ticks but no driver. "Declaration" (line 373-374) comes close but never says that wiring the judging interpreter includes *driving* it.
+Correction: one sentence naming the driver. The tick stream supplies judgment occasions and clock-read points *as data*; the cadence itself is realized by the runtime that advances the judge (cite dao.stream.md's IO Model). Without it, "never fires into lease code" is satisfied and the lease still leaks.
+
+## MODERATE
+
+**M1 — *Judging lapse*, lines 345-348 — "the earlier lease is over by that act" has no mechanism and contradicts facts-on-the-medium.**
+Re-grant mints a fresh unsolicited `:accepted`. If under a new lease id, the old lease's record is orphaned: the medium holds a live-looking `:accepted` with no terminal fact until eviction, no reader rule ties old to new (supersession by subject is unstated), and "needs no history at all" means the grantor cannot lapse the old id — it doesn't know it. If under the same id, it violates "each status is authored exactly once" (line 111). "Over by that act" asserts a vocabulary-level effect with no fact recording it; a third-party reader of the medium concludes the old lease is live.
+Correction: state that re-grant uses a new id; that the old record is orphaned by design; and give the reader rule — either an explicit same-grantor-same-subject supersession rule, or generalize line 271-273's "absence of `:lapsed` is no evidence of tenure" to cover it. Where the old id is recoverable (persisted terms, retained tail), append `:lapsed` with cause.
+
+**M2 — *Judging lapse*, lines 309-311 — judge state omits the holder's identity, so the base renewal-counting rule exists only inside the delegation discussion.**
+The judge keeps "terms — subject, duration, cap — and the observation time." No holder. The Attribution section builds the machinery, but nothing in "Renewal is evidence" or "Judging lapse" says a renewal counts only when authored by the lease's holder — the rule appears exactly once, at line 470-471, describing a *future* delegation mechanism. For unsolicited grants there is no proposal to bind the holder from at all, so the binding is unestablished in the canonical case.
+Correction: add the holder's attributed identity to judge state, established from the proposal's author or the attachment the unsolicited grant was delivered on; state the counting rule where judging is specified.
+
+**M3 — Precedent, lines 41, 60-67 — "the other three follow from the first" is asserted, and the document's own parenthetical takes the third one back.**
+Stateless→stateful guard and presence→absence do derive from the guard's subject being remote. But "judging is obligatory" follows from what a lease *is* — the deviation is held by another party at the possessor's cost — not from divergence 1, and the parenthetical ("the optionality is a property of the consequence, not of the text") concedes exactly that. The layout worsens it: three bolded peers are presented while two of the three "derived" divergences are buried inline under the first. Also contestable: the second structural divergence (adversarial parties) is arguably *why* the subject is remote — prior to divergence 1, not its sibling.
+Correction: claim two derivations, or show the third explicitly from the deviation's cost to the possessor (which would make it derived from both structural divergences); restructure so derived divergences are visibly derived.
+
+## LOW
+
+**L1 — lines 224-227, 336-337 — overstated caution: medium properties are assembly-checkable even though grantor conduct is not.**
+The retraction of assembly-refusal for judging is correct (no constructor can inspect future conduct). But rating an unattributed judged medium "of the same rank as an ungoverned grantor" forfeits enforcement the WS precedent shows is available: a judge constructor is *handed* its medium and can inspect declared nature — single-writer, boundary-stamped author keys, evict-oldest — exactly as the WS boundary refuses a reject-mode deposit destination at assembly. "Should declare" (line 336) is softer than the deposit-admission rule it cites, for no stated reason.
+Correction: claim assembly-time refusal for media that declare no attribution basis or no eviction order; keep the no-enforcement claim scoped to whether anyone will judge.
+
+**L2 — line 324-325 — "restated by the grantor" is redundant or self-contradictory.**
+Re-appending `:accepted` under the same lease id violates exactly-once; under a new id it is the re-grant bullet restated; on the grantor's own durable medium it is "persisted by the judge" — judge and grantor are the same interpreter (line 246-248).
+Correction: delete the disjunct or define the mechanism.
+
+**L3 — lines 269-273 + 339-344 — a crash between reclaim and append is not healed by the restart rules for in-process resources.**
+"The grantor retries the append" holds only while the judge remembers. After a crash with persisted terms, the restart path concludes unknown, observes one duration — and if the holder keeps renewing (reclaiming the resource does not stop an in-process medium), the lease reads as live, so `:lapsed` is never appended: the record says held, the resource is free, permanently.
+Correction: durable judge state must include pending reclaim intents (journal the intent with the act; complete the append on restart), or state the corner and its bound.
+
+**L4 — lines 205-211 — holder-side window seeding is unspecified.**
+The judge seeds from *its* grant observation; the holder's rules measure from its last renewal but never say when the first renewal is due. A holder that reads a grant late (a paused agent waking, slow delivery) can be lapsed before its first scheduled renewal while performing its full duty as written.
+Correction: holder discipline — renew immediately upon reading a grant; anchor the first window at the earliest moment the grant could have been observed (proposal send time is the safe choice).
+
+## NITS
+
+- **Line 394:** "No timer holds a callback" — under the governing document the timer *does* call the adapter ("timers… deliver events by calling something"). The heading scopes it; the sentence overreaches. → "No timer holds a callback into lease code."
+- **Line 336:** "for the same reason a deposit destination must" — the reasons differ (deposit admission exists because the adapter runs in a callback context; the judged medium needs evict-oldest so a surviving renewal is the newest). → state the actual reason.
+- **Line 493:** "the distinguishing close code `dao.stream.ws.md` defines" — the WS doc reserves the role but defers the code. → "reserves."
+- **Lines 491-492:** "reattaching yields a fresh unsolicited grant" is unconditional; a holder lapsed for cause "cap" reattaches and is re-granted unless admission refuses. Cross-reference the admission point in "Renewal forever."
+- **Line 101 + 162-163:** "at most one fact per status" plus spent-identity does not exclude `:accepted` after `:rejected` under one id; a reader rule (first answering status settles it; a second is defective) is absent.
+- **`:max`:** the strict `>` boundary is specified for duration but not for the cap.
+- **Line 134:** duration "carrying its unit" leaves the unit vocabulary open; since leases are deferred as wire content pending the transport's gate, one clause putting units on that gate's agenda would close it.
+
+## Retraction completeness (question 3)
+
+Apart from H1, no residue found. "Not rebuildable from the stream" is contradicted nowhere (the durability duty is explicitly the composition's). The attribution section is accurately grounded: `dao.stream.md` does leave one-log-per-writer to interpretation and does give descriptors no authorization; the WS envelope's attribution is indeed added locally. The assembly-refusal retraction is consistent everywhere else — the only error is the overcorrection in L1. Checked and found *no* contradiction: durable terms vs "never a registry" (judge-private persistence is not a shared table); grant-seeded window vs the one-duration restart rule (re-observation seeding converges to it); "never touches retention" vs the sizing relations (composition sizing is not lease interference).
+
+## What an implementer still has to invent (question 5)
+
+The judge's driver (H2); tick fact shape and tick-medium retention; holder↔lease binding and its reattachment lifecycle (M2 — answered only for the served-connection case); re-grant mechanics (M1); durable state contents including reclaim intents (L3); first-renewal timing (L4); policy toward facts naming unknown lease ids (renewals for a never-seen or evicted grant — presumably ignore, unstated). All numbers are deliberately deferred; the sizing relations are the right level.
+
+## What the rewrite made worse
+
+- **The re-grant addition is new text with a new defect (M1).** The old restart rule was incomplete; its replacement "needs no history at all" creates orphan records the vocabulary cannot express and asserts a record-level effect with no fact.
+- **The thesis sentence was left untouched while the document grew a section contradicting it (H1).** The first draft was uniformly wrong about judgment points being free; the rewrite is *internally inconsistent* about it, which is worse for a reader — both claims now have textual support, and the wrong one is in the sentence labeled "the whole shape."
+- The unconditional re-grant-on-reattach line undercuts the cap for the served-connection case (nit, but new).
+
+Everything else the rewrite touched is a genuine improvement. The reclaim ordering is right and its failure mode honestly stated; the attribution section is accurate about what DaoStream does and does not provide; durable-resource scoping, the rate-vs-offset split, the partition limit, `:max` lifetime scoping, and the crash-loop leak are all stated at the right strength; and the refusal to dress judge+reclaim as the interpretation/execution invariant is the honest move.

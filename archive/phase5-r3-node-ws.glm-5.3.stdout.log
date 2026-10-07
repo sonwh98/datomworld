@@ -1,0 +1,42 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-03 23:38:31 GMT
+Completed-Local: 2026-09-04 06:38:31 ICT
+Coding-Agent: glm
+Session-ID: none (new implementation)
+
+# Phase 5 R3 — Node WebSocket host adapter
+
+Connected the existing `dao.stream.ws` callback boundary to the existing `dao.stream.rpc.ws` decoder through a real Node host edge, with no v1 API changes and no edits to any existing file. The `ws` npm package (8.19.0) **is** installed and working in this sandbox, so the end-to-end layer runs over real loopback sockets, not a faked network; a deterministic injected-socket layer covers the wiring facts without sockets.
+
+## Files (new only)
+
+- **`src/cljs/dao/stream/ws/node.cljs`** — `dao.stream.ws.node`, the host edge:
+  - `connect!` — the `:connect!` seam for `ws/make-attacher`: connects the descriptor URL with the `dao.stream.transit-json` subprotocol and synchronously returns the `{:send! :close!}` raw socket; deposit medium and its cursor stay caller-owned (cursor minted before the composed `attach!`, per R3).
+  - `listen!` / `stop-listening!` / `listener-address` / `listener-port` — bind a `ws` server hosting a composed endpoint: canonical-path presentation to `accept-connection!`, per-pending-connection wiring via `ws/adapter`, subprotocol refusal (close 1002) at the edge before any slot or disclaimer, async bind observable only by polling the address. Fits `dao.stream.serving`'s `:start-endpoint!`/`:stop-endpoint!` seams unchanged.
+  - `wire!` — the adapter as the socket's sole subscriber: `message`/`close`/`error` become adapter entries; `open` is deliberately not subscribed (resolution is the first `:ws/accept`/`:ws/disclaim` frame, never the HTTP upgrade); a binary frame is routed as an undecodable-by-construction text so the transport performs its own `:ws/decode-failure` teardown (deposit + close 4002) without the adapter judging content.
+  - `canonical-path` / `socket-url` — the spec's request-target canonicalization (query/fragment stripped, dot segments removed, unreserved escapes decoded, remaining hex upper-cased, `%2F` preserved, significant repeated/trailing slashes, `nil` for uncanonicalizable) and descriptor reachability.
+  - Host matrix declaration in the ns docstring: Node `ws.send` buffers opaquely with no high-water signal, so transient `full` is excluded by nature; a send returns nil → `ok`.
+  - No atom, cursor, reader, registry, promise, future, timer, retry loop, or `endpoint-step` scheduling anywhere in the adapter.
+- **`test/dao/stream/ws/node_test.cljs`** — `dao.stream.ws.node-test` (cljs-only; JVM test-runner does not load `.cljs`):
+  - Deterministic/injected-socket: canonical-path spec table; socket-url; full event-translation walk through a recording fake socket (full-while-establishing, accept resolution, framing, payload enveloping/`me` attribution, binary → decode-failure + 4002, exactly-once terminal, `close!` = 1000 detachment); RPC client over the wired boundary proving cursor-before-attach, foreign-attachment demux ignoring, exactly-one completion, empty post-publication outbox.
+  - Real-socket e2e over ephemeral loopback ports, all driven by explicit test-owned tickers through the full `serving` composition: RPC round trip with `me`-attributed deposits and per-attachment server media; served-stream close → `:ws/ended` terminal (non-reattachable); unknown path → authoritative `:ws/not-found` + `:ws/closed`, no slot or medium consumed, undelivered request reported once; unreachable endpoint → `:ws/transport-error` resolution; binary frame → 4002 teardown observed on both ends; no-subprotocol upgrade refused at the edge (1002, nothing consumed); detach → reattach with `rpc-ws/rebind`: new attachment id, same medium, kept reader and advanced cursor, second round trip on one medium with both attachments' events correctly attributed.
+
+## Tests and lint
+
+- CLJS/Node (shadow `:test` build): **1185 tests, 34077 assertions, 0 failures, 0 warnings**, node process exits cleanly (was 1149/33861 before; +11 tests/+216 assertions, all mine).
+
+- JVM focused (`clj -M:test -n dao.stream…` 9 namespaces): 66 tests, 415 assertions, 0 failures; full JVM suite: **1264 tests, 166400 assertions, 0 failures** (`.cljs` files confirmed untouched by the JVM runner).
+- `clj -M:kondo` on both new files and the v2 trees: 0 errors, 0 warnings.
+- `:yin-repl` node-script build still compiles clean and runs (sanity that nothing cross-contaminated).
+
+## Limitations
+
+- Bind/listener failures on Node are asynchronous; `listen!` exposes only an optional `:on-error` edge hook (default no-op prevents process death) and address polling — the durable home is R4's lifecycle medium, not built here. The served-table descriptor uses a placeholder port until the R4 bind/advertised split exists (tests repair reachability from the bound address).
+- Pre-accept pending connections are not force-closed by `stop-listening!` beyond the `ws` server's own semantics; endpoint-stop orchestration is R4's.
+- The binary-frame path signals through a guaranteed-undecodable one-byte text because the existing `dao.stream.ws` adapter map has no binary entry; changing that boundary was out of scope and the sentinel keeps teardown in the transport.
+- Modified Yin REPL files visible in `git status` belong to a concurrent implementer; I touched nothing tracked (nothing staged or committed).
+
+## Phase readiness
+
+R3's Node transport lane is complete and proven end-to-end: the REPL's `connect` can now be wired as `make-client` is (medium → minted `:dao.stream/newest` cursor → `make-attacher` with `node/connect!` → `attach!` → `rpc.ws/init-client`), and R4's serving composition can consume `node/listen!` through `serving`'s lifecycle seams unchanged. Remaining for the phase: the R3/R4 REPL-level wiring itself (concurrent lane) and cross-host pairs in R5 (cljd transport is a separate deliverable).
+[?25h

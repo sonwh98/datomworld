@@ -1,0 +1,16 @@
+Completed-GMT: 2026-09-26 21:31:06 GMT
+Completed-Local: 2026-09-27 04:31:06 Asia/Ho_Chi_Minh
+
+**Prior findings:** All five are CLOSED against the current text: decision-read lifecycle including `ended` ([middleware:118–145](</Users/sto/workspace/datomworld/docs/design/dao.stream.middleware.md:118>)); the ShiBi adapter, limits, and non-goal ([shibi:23–63](</Users/sto/workspace/datomworld/docs/design/dao.shibi.md:23>)); the 598-line core spec and moved inventory ([remote:593](</Users/sto/workspace/datomworld/docs/design/dao.stream.remote.md:593>)); the historical content mark ([stigmergy:242](</Users/sto/workspace/datomworld/docs/dao.space.stigmergy.md:242>)); and pair gap-to-termination ([remote:400](</Users/sto/workspace/datomworld/docs/design/dao.stream.remote.md:400>)). The P2P, `dao.stream` boundary, capability-agnostic seam, and bounded ShiBi direction remain stated.
+
+**New findings**
+
+P1 | [dao.stream.remote.implementation-plan.md:109](</Users/sto/workspace/datomworld/docs/design/dao.stream.remote.implementation-plan.md:109>) | Slice 6 requires a successful UDP toy with a 100 KiB value, while the channel’s default maximum message size is 64 KiB ([remote:369](</Users/sto/workspace/datomworld/docs/design/dao.stream.remote.md:369>)). The stated acceptance proof cannot pass with the default composition. | Specify a larger composed maximum for that proof, or use a value within 64 KiB.
+
+P2 | [dao.stream.middleware.md:11](</Users/sto/workspace/datomworld/docs/design/dao.stream.middleware.md:11>) | Middleware is defined as “two pure transforms,” but the gate advances a decision cursor and cached value, and metering emits to a side stream ([middleware:125](</Users/sto/workspace/datomworld/docs/design/dao.stream.middleware.md:125>), [middleware:178](</Users/sto/workspace/datomworld/docs/design/dao.stream.middleware.md:178>)). The prohibitions also say “never retries” while the decision reader retries cursor minting on later operations ([middleware:79](</Users/sto/workspace/datomworld/docs/design/dao.stream.middleware.md:79>), [middleware:118](</Users/sto/workspace/datomworld/docs/design/dao.stream.middleware.md:118>)). | Define the permitted bounded decision read, handle-local state, and side-stream emission as explicit exceptions; distinguish that cursor retry from retrying the wrapped operation.
+
+P2 | [dao.stream.remote.implementation-plan.md:73](</Users/sto/workspace/datomworld/docs/design/dao.stream.remote.implementation-plan.md:73>) | Slice 0 points to “the spec’s section 9”; the core spec now ends at section 8 and points to the plan’s section 2 for its five amendments ([remote:593](</Users/sto/workspace/datomworld/docs/design/dao.stream.remote.md:593>)). | Point slice 0 to plan section 2.
+
+P3 | [dao.stream.remote.implementation-plan.md:69](</Users/sto/workspace/datomworld/docs/design/dao.stream.remote.implementation-plan.md:69>) | The new plan’s slice table has 147-column lines, exceeding the requested 80-column limit. The core spec also has overlength lines, including [remote:99](</Users/sto/workspace/datomworld/docs/design/dao.stream.remote.md:99>). | Reflow the table and overlength lines while preserving the rules.
+
+Verdict: REQUEST CHANGES

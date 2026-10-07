@@ -1,0 +1,5 @@
+The Dart lane is still running in the background (it went past the 600 s foreground limit), and I'll pick it up when it finishes. So far it shows 5 failures, all in the REPL tests I added:
+- all four new tests in `ast_query_e2e_test.cljc`;
+- the new guard `host-functions-cannot-enter-a-query` in `repl/query_test.cljc`.
+
+On Dart, the query bridge counts one input for `:in $ast $occ % ?root` where JVM and Node count two. So `%` is lost when the Dart REPL reads the input line (`yin/repl.cljc:846`, which uses `edn/read-string` on CLJD only). That file is outside this brief's scope, so I haven't changed it. JVM (2417 tests, 0 failures) and Node (2322 tests, 0 failures) are green, and I'll finish the report once I've seen the final Dart counts.

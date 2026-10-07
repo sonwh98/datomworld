@@ -1,0 +1,47 @@
+Completed-GMT: 2026-10-03 17:06:20 GMT
+Completed-Local: 2026-10-04 00:06:20 +07
+Coding-Agent: claude
+Session-ID: af1f9774-0b7e-48d6-8e11-9690c65e0164
+
+The fast path is in and `long-loops-test` is back to **2:14** (834 s on master). The JVM and Node lanes are not green: each has 5 failures, all content-address goldens in `float_address_test.cljc`. That file isn't on my allowed list, so I left it for you. Nothing is staged or committed.
+
+**Changed files**
+- `src/cljc/yang/python/antlr/prelude.cljc` (range region only):
+  - **`py/range-at`:** computes `start + i*step` directly when `0 <= i <= 2^26`, `|step| <= 2^26` and `|start| <= 2^52`. The checks are plain number comparisons, nested `if`s like `py/checked-mul`.
+  - **Fallback:** everything else goes to the existing recursive `py/range-elem`, which is unchanged and still a separate function.
+  - **`py/range-len` comment:** now says CPython's limit is sys.maxsize and 2^53 is this profile's limit.
+  - The stop test, `py/range-count`, membership and `py/float-mod` are untouched, and no length is precomputed.
+- `test/yang/python/antlr/prelude_parity_test.cljc`:
+  - **New rows (16):** i and |step| at the edge and one past, both step signs; `start` at ±2^52 and ±(2^52+1); the one-past index giving `:py/stop` on both paths; `range(-5, 5)` and `range(5, -5, -3)`.
+  - **New guard test:** `range-fast-path-on-every-host-test`.
+  - All existing rows, including the huge-range pins, are kept.
+- **Docs:** unchanged, because `yang.antlr.md` has no `range()` text.
+
+**Regression guard:** I used the stub option. The test rebuilds the prelude from `prelude/function-definitions` with `py/range-elem` replaced by a function that returns a sentinel. It checks the stub is in place, then that iterating `range(3000)` returns the exact elements on all four VMs. There's no time budget or ceiling. To prove it bites, I temporarily disabled the fast path: the test failed on all 4 VMs, then passed 4/4 after reverting.
+
+**Runs**
+
+| Run | Result | Time |
+|---|---|---|
+| `bb gen:python-antlr` | ok | 16 s |
+| `prelude-parity-test` | 11 tests, 44 assertions, 0 failures | 53 s |
+| `gate-round3-test` (huge-range pin) | 12 assertions, 0 failures | 21 s |
+| `e2e-c1-test` namespace | 19 tests, 228 assertions, 0 failures | 65 s |
+| `long-loops-test`, once | 12 assertions, 0 failures | 2:14 wall, including JVM start |
+| `bb test:clj` | 2900 tests, 226552 assertions, **5 failures**, 0 errors | 6:10 |
+| `bb test:cljs` (Node) | 2718 tests, 91632 assertions, **5 failures**, 0 errors | 4:43 |
+| kondo | 0 errors, 0 warnings | |
+| `cljstyle check` via mise | clean | |
+
+- I ran `bb test:clj` a second time with the same counts, only because I hadn't saved the failure text the first time.
+- A plain `cljstyle fix`/`check` needed an approval that wasn't given; the check through mise passed, so no fix was needed.
+- I did not run Dart, per the brief.
+
+**Unfinished: the 5 golden failures.** These hashes cover the whole prelude, so any prelude edit changes them. The JVM and Node computed identical new hashes, so the hosts agree. I believe my edit is the only cause, since the hook-prelude golden I didn't touch still passes, but I didn't confirm it by reverting. The five new hashes are listed verbatim in the findings file. The other two prelude worktrees will move these hashes too, so it's simplest to regenerate them once after the last rebase. Until then the Dart lane will fail the same way.
+
+**Follow-ups recorded, not implemented:**
+- The interpreted division cost in `py/range-count` and range membership.
+- `py/fmod-pos` termination and bounded work on extreme exponent ratios and subnormals.
+- Whether the `py/genexp-unsupported` and "generator expression (phase C2)" refusals are stale now that C2 S1/S2 landed.
+
+Findings: `collab/1791045477000-compiler-engineer-python-range-elem-fastpath.claude-opus-5-5.findings.md`

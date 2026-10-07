@@ -1,0 +1,57 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (108.0.0 available)
++ analyzer 6.4.1 (14.4.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.7
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @15:32:16
+  yin.repl.slice-peer
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 49, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 85, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 184, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 243, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  at line: 195, column: 12, file: yin/repl/dht.cljc
+Compilation error - $expletives 💩
+compiling namespace yin.repl.slice-peer
+=== compiling namespace yin.repl.main ===
+=== Faulty form ===
+  (ns yin.repl.slice-peer "The cross-process, cross-host peer of the yin.repl Phase R5 slice.\n\n   Phase R5 is deliberately two operating-system processes rather than two\n   compositions in one: the REPL contract's promises — that `(connect …)`\n   returns immediately, that a killed connection is reported rather than timed\n   out, and that a dropped connection reattaches to the same served stream —\n   are only falsifiable from a process that shares nothing with the server but\n   bytes on a socket.  This namespace is a whole program, not a fixture, in\n   two roles:\n\n   * **Client role** (no arguments) — a whole REPL client.  It is driven\n     exactly the way an operator drives the real REPL: every input arrives as\n     a typed line appended to the composition-owned input medium, and one\n     ticker is the sole owner of the driver state.  The parent observes what\n     the driver publishes plus the serializable probes this program exposes\n     for facts a printed line cannot carry.\n\n   * **Server role** (`--serve <bind-host> <port>`) — a headless REPL\n     endpoint composed through the real `serve!` and stepped by one ticker,\n     its notices on stdout as plain lines and `{:cmd :stop}` on stdin as the\n     parent's stop trigger.  This is the role the cross-host pair plays\n     against a Node client: the JVM parent tests spawn the client role\n     against their own in-process server, and the Node parent test spawns\n     this server role so the same wire is spoken by a Dart process.\n\n   The client-role command/reply protocol is line-oriented Transit JSON on\n   stdin/stdout: `{:cmd :line :line \"…\"}` appends a typed line; `{:cmd\n   :events}` drains what the driver has published since the last ask;\n   `{:cmd :probe}` reports connection state; `{:cmd :quit}` exits.  Replies\n   carry `{:reply <kind>}`.  The protocol is identical on every host, which is\n   what lets one parent drive a JVM peer and a compiled Dart peer with the\n   same code." (:r...
+Error while executing task: build:yin-repl-peer
+bb test exit=1

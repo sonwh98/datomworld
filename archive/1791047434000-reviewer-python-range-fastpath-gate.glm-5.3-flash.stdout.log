@@ -1,0 +1,49 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-03 17:23:08 GMT
+Completed-Local: 2026-10-04 00:23:08 +07
+
+# Review: py/range-at guarded fast path (independent gate, glm-5.3-flash)
+
+Reviewed `git diff` of the uncommitted change in `/Users/sto/workspace/datomworld-py-rangefix` (HEAD `eaf7d6f0`). Note: the `master` ref has moved since the branch forked, so `git diff master` shows a committed blog post; the change under review is the working-tree diff, which is exactly the three named files (`git status`). I did not read the prior findings file; nothing was edited and no suite was run.
+
+## 1. Guard and fast-path arithmetic — CONFIRMED
+
+`src/cljc/yang/python/antlr/prelude.cljc:1508-1516`. The nested-`if` conjunction is exactly the ruled guard, all bounds inclusive: `0 ≤ i ≤ 67108864 (2^26)`, `-67108864 ≤ step ≤ 67108864`, `-4503599627370496 ≤ start ≤ 4503599627370496 (±2^52)`.
+
+- Exactness proof: `i ≥ 0` and `i ≤ 2^26`, `|step| ≤ 2^26` ⟹ `|i·step| ≤ 2^52`; with `|start| ≤ 2^52`, `|start + i·step| ≤ 2^53`. Both operands and the sum are integers with magnitude ≤ 2^53, so every intermediate is exactly representable as a JS double (all integers ≤ 2^53 are; 2^53 itself included), as a JVM long (≤ 2^63), and as a Dart int64. IEEE addition/multiplication of exactly representable results is exact. The one-past candidate is just another index under the same bound (prelude.cljc:1499-1501 comment states this correctly).
+- Negative steps/start, start = -2^52, i = 2^26: covered by the signed comparisons; nothing special-cased, nothing breaks.
+- `py/abs` is **not used** — the guard tests `step` with two signed comparisons instead, so the `(abs Long/MIN_VALUE)` overflow hazard is moot by construction. Strictly better than the ruling's wording.
+- Literals: both bounds are plain decimal integer literals, powers of two below 2^53 — read exactly by the JVM (long), CLJS (double), and CLJD (int64) readers. No float notation (`4.5E15`), no CLJS literal-collapse risk. No int-mod/floordiv/recursive bounds in the guard, as ruled.
+
+## 2. Fallback — CONFIRMED
+
+`py/range-elem` (prelude.cljc:1487-1497) is diff-context only — byte-for-byte unchanged, still a separate function; its self-calls at :1496-1497 bypass the guard. Exhaustive reference check: `range-elem`'s only external caller is the fallback at `:1518`; `py/range-at`'s only caller is `py/iter-at` at `:1540`. Every other `:range` dispatch avoids element math: membership `py/contains`→`py/range-has?` (:1172-1188, O(1) arithmetic, untouched per ruling), `py/len`→`py/range-len`→`py/range-count` (:1616), `py/snapshot` copies fields (:1670-1675). No path reaches the slow helper with a small `i`/`step`. The exclusive-stop test is structurally unchanged (`:1519`; local `step` ≡ `:step`) and applies identically to both paths. A guard-passing `i` yields a value bit-identical to `range-elem`'s by construction — behavior change is perf only. `range-len`'s comment corrected exactly as ruled (`:1523-1524`).
+
+## 3. New tests — CONFIRMED, with one P3
+
+All 16 rows hand-verified (2^26 = 67108864, 2^52 = 4503599627370496, 2^53 = 9007199254740992): rows at i = 2^26 and 2^26+1 (e.g. 0 + (2^26+1)·2^26 = 4503599694479360 ✓), |step| = 2^26 and 2^26+1 ✓, start = ±2^52 with i = 2^26−1 → 9007199187632128 ✓, start = ±(2^52+1) via `range-elem` → 9007199187632129 ✓ (odd, < 2^53, exact on JS), both signs, `range(-5,5,1)` and `range(5,-5,-3)` → `[5 2 -1 -4]` ✓. One-past rows: start = 2^52, i = 2^26 → candidate exactly 2^53, `< stop` false → `:py/stop` ✓; start = 2^52+1, i = 2^26 → true candidate 2^53+1, which JS rounds to 2^53 and JVM/Dart keep exact — both give `:py/stop` (monotone-rounding convergence, deliberately exercised). Each row is a real assertion with a distinct expected value.
+
+The stub test (`prelude_parity_test.cljc:212-229`) is **non-vacuous**: it rebuilds the prelude exactly the way `definitions->uast` does (prelude.cljc:1866-1868) with `py/range-elem` replaced by a sentinel, and the form's first conjunct `(py/range-elem 0 1 5)` is a live canary — if the rebuild didn't actually replace the global the fallback calls, the canary yields 5 and the test fails. Prelude calls resolve through VM globals at call time, so a broken guard that never takes the fast path makes all 3000 elements sentinels → fails on each of the four VMs (`:ast-walker`/`:semantic`/`:stack`/`:register`, prelude_parity_test.cljc:39-54). Deterministic, no wall clock. `long-loops-test` still `^:slow` (e2e_test.clj:528, untouched).
+
+**The one direction the tests cannot catch:** a guard *widened* past the ruling (say 2^27 bounds) passes every row and the stub test — every row is exact computed either way within the C1 domain, and beyond it `range-elem` itself is inexact on JS, so no failing oracle row is constructible. The ruled literals in the source remain the only pin on the bounds.
+
+- P3 | test/yang/python/antlr/prelude_parity_test.cljc:212 | a guard widened past the ruled bounds passes all 16 rows and the stub test (correctness unaffected within the C1 domain; wrong values only appear for elements past 2^53 where the fallback oracle is also inexact on JS) | optional cheap pin: under the same stubbed prelude, assert `(py/range-at (py/range3 0 67108865 1) 67108864)` = 67108864 (fast path, no sentinel) and `(py/range-at (py/range3 0 67108866 1) 67108865)` = `:range-elem-entered` → `:py/stop` — two O(1) lookups that make the edge behavioral on all four VMs.
+
+## 4. Goldens — CONFIRMED
+
+Exactly five `:segment/blake3-…` substitutions in `float_address_test.cljc` (:221, :241, :243, :245, :249); nothing else in the file changed, the `hooks/uast` golden is untouched (correct — hooks prelude didn't change), and every structural assertion (prelude-id equality across A/A′, decode-reproject stability) is retained. No semantic assertion weakened.
+
+## 5. Cross-host portability — CLEAN
+
+No reader conditionals in the added code (the reused `run-with-prelude` keeps the pre-existing `#?(:cljd Object :clj Exception :cljs :default)` order, :cljd first). No unary-minus calls — all negatives are reader literals, immune to CLJD's `(- x)` → `0 − x` lowering. Keyword sentinel `:range-elem-entered` is created and compared on the same host. Dart int64 holds all literals. The JVM/CLJS `=` on the expected vectors is the established idiom of the neighboring tests; all elements are host integers on every path.
+
+## 6. Scope — CLEAN
+
+Working-tree diff = exactly the three files. Prelude hunk touches only the `py/range-at` body and the two comments; no lowering change, no iterator state, no new range field, no checked-length precompute; `py/range-count`, `range-has?`, `float-mod` untouched. The untracked `collab/*.md` files are session artifacts, not part of the change.
+
+---
+
+**Findings summary:** No P0/P1/P2. One P3 (optional test-strength pin, above).
+
+**Verdict: ready to commit.** The change implements the ruling exactly; the guard arithmetic is proven exact on all three host numeric models including the one-past candidate; the fallback is untouched and unreachable except out-of-guard; the regression guard is deterministic and non-vacuous; the goldens are the minimal, expected consequence.

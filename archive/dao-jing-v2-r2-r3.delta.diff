@@ -1,0 +1,542 @@
+--- /tmp/r2.md	2026-09-07 00:40:57
++++ /tmp/r3.md	2026-09-07 00:40:57
+@@ -1,6 +1,6 @@
+ # dao.jing on DaoStream v2 — the content-observer slice
+ 
+-Status: migration plan, revision 2, derived from and subordinate to
++Status: migration plan, revision 3, derived from and subordinate to
+ [`dao.stream.md`](./dao.stream.md) (the contract), [`dao.jing.md`](./dao.jing.md)
+ (the storage-observer design) and [`datom.world.md`](./datom.world.md). Its
+ transport prerequisite is
+@@ -10,7 +10,9 @@
+ migration. This document is transient: it is consumed as its phases complete.
+ Drafted 2026-09-06; revised the same day against the `gpt-5.6-sol` routine
+ review, the `glm-5.3` adversarial review, and a two-round consensus with
+-`gpt-6-astra` (`collab/consensus-dao-jing-v2*`). No phase has started.
++`gpt-6-astra`; revised again on 2026-09-07 after both reviewers confirmed the
++prior findings addressed and filed one gap and four precision defects. No
++phase has started.
+ 
+ Two decisions in this document are **scope-contingent**: they are the plan's
+ position and are taken when implementation is authorized, each with its named
+@@ -50,11 +52,13 @@
+ `dao.space.index`, `dao.space.schema`, `dao.jing.{file,mem,remote,dht,dht.node}`
+ and `src/dev/psset_fixtures.clj` — **none for the observer**. `dao.space.index`
+ additionally reaches `jing-coordinate/open!` inside its `defopen` and appends
+-to the intake pool with v1 `ds/append!`. Seven test files call the v1 observer:
+-five under `test/dao/space/` (`transactor`, `stigmergy`, `index`, `schema`,
+-`query`) plus `test/dao/jing/mem_test.cljc:213` and
+-`test/dao/jing/dht_test.cljc:402`. `test/dao/space/` also opens remote clients
+-through `connect-content!`. No production consumer is migrated here.
++to the intake pool with v1 `ds/append!`. **Nine test files** call the v1
++observer: five under `test/dao/space/` (`transactor`, `stigmergy`, `index`,
++`schema`, `query`), `test/dao/jing/mem_test.cljc:213`,
++`test/dao/jing/dht_test.cljc:402`, `test/dao/jing/file_test.cljc:113-135`
++(`observer-convergence-test`), and `test/dao/jing_test.cljc`'s own observer
++section (lines 322–560). `test/dao/space/` also opens remote clients through
++`connect-content!`. No production consumer is migrated here.
+ 
+ ## Strategy
+ 
+@@ -212,36 +216,46 @@
+    already says "backend effects are explicit functions, not a protocol or
+    hidden state."
+ 
+-**Why option (a) is not a like-for-like alternative.** The contract's IO model
+-says no operation waits (`dao.stream.md:153-158`), while `dao.jing.file`
+-acknowledges a put only after the log is flushed and `materialize!` returns the
+-address only after the backend answers `:inserted`. A conforming v2 append-log
+-therefore could not wrap synchronous file writes and report durability from
+-`append!`; durability would arrive later, as data. To sit beneath the file
+-backend it would force the content put to become an effect whose completion is
+-observed later — which means redesigning `materialize!`'s acknowledgement and
+-every consumer that calls it as a value-returning operation. Option (a) is the
+-write-path redesign in disguise, mis-costed as conformance-suite work.
++**Why option (a) is not a like-for-like alternative.** A conforming v2
++append-log **is** constructible: `append!`'s `:dao.stream/ok` means the value
++is accepted at the next position and "implies neither local readability nor
++remote delivery" (`dao.stream.md`, Writing), so a transport may accept a
++synchronous file write and answer `ok` without claiming anything about
++durability. What such a transport cannot do is give `dao.jing.file` what it
++needs from it: the file backend acknowledges `:inserted` only after the log is
++flushed, and `materialize!` returns the address only on that acknowledgement —
++`:inserted` means "durably stored now" (`jing.cljc:255`). An `ok` that
++disclaims durability cannot honestly be turned into an `:inserted` that
++asserts it. Either the transport grows a transport-owned durability signal
++that is not a DaoStream operation and that contract-generic code may not reach
++for (`dao.stream.md`, Surfaces), or `materialize!`'s contract changes so that
++durability arrives later as data. So option (a)'s cost lands on
++`materialize!`'s contract and its synchronous consumers — `dao.data.btree.storage`
++and `dao.space.index` — not on the transport's constructibility. It is the
++write-path redesign in disguise, mis-costed as transport work.
+ 
+ **The pre-existing question, recorded and routed.** `datom.world.md:66-68`
+ says: "An adapter that exposes a function for portable code to call is not an
+ interpreter. It isolates the host library but keeps the coupling, and the
+ effect never appears as an emission." `:put-content-fn` is such a function,
+-today, on v1, with the log stream beneath it — portable code never receives a
+-handle to that stream, and the effect appears as no emission. A v2 append-log
+-beneath the same synchronous function changes nothing about that. So whether
+-DaoJing's synchronous content handle conforms to Host Boundaries is a real
+-question that **this plan does not create and no transport can cure**. J4
+-records it in `dao.jing.md`'s open items by name, **"the content write path as
+-an effect stream"**, with its consequence stated: durability would arrive as
+-data, and `materialize!`'s return value would change. That redesign is **out of
+-scope for this plan** because it reaches `dao.data.btree.storage` and
+-`dao.space.index`, both of which call `materialize!` synchronously, and the
+-brief's boundary is `dao.jing*`. Decision 2 removes an unused internal
+-transport; it does not claim to solve Host Boundaries. It is compatible with
+-the future design: `datom.world.md:57-59` places raw host operations inside
+-the host interpreter that consumes the effect stream, which is exactly where
+-option (b) leaves the file IO.
++today, on v1, with the log stream beneath it. No caller of `materialize!` or
++`get` ever reaches that stream; the handle's `:log` key (`file.cljc:197`) was
++test-visible — `file_test.cljc:131` reads it — and J1 removes it. Exposing the
++key never made the put an emission: the effect was performed inside the
++synchronous function either way. A v2 append-log beneath the same function
++changes nothing about that. So whether DaoJing's synchronous content handle
++conforms to Host Boundaries is a real question that **this plan does not
++create and no transport can cure**. J4 records it in `dao.jing.md`'s open
++items by name, **"the content write path as an effect stream"**, with its
++consequence stated: durability would arrive as data, and `materialize!`'s
++return value would change. That redesign is **out of scope for this plan**
++because it reaches `dao.data.btree.storage` and `dao.space.index`, both of
++which call `materialize!` synchronously, and the brief's boundary is
++`dao.jing*`. Decision 2 removes an unused internal transport; it does not
++claim to solve Host Boundaries. It is compatible with the future design:
++`datom.world.md:57-59` places raw host operations inside the host interpreter
++that consumes the effect stream, which is exactly where option (b) leaves the
++file IO.
+ 
+ **What it costs.** `dao.jing.file` gains a private framed-file section — open
+ or create, truncate an incomplete tail, append a length-prefixed record and
+@@ -301,7 +315,7 @@
+ (remote/client-state rpc-state)                ; wraps dao.stream.rpc client state; no cursor is fabricated
+ (remote/request-put state address payload)     ; => {:outcome k :state s' :id n?}
+ (remote/request-get state address)             ; => {:outcome k :state s' :id n?}
+-(remote/step state budget)                     ; => {:state s' :completions [...] :diagnostics [...]}
++(remote/step state budget)                     ; => {:state s' :attempt k? :completions [...] :diagnostics [...]}
+ (remote/abandon state reason)                  ; => s'
+ ```
+ 
+@@ -319,13 +333,15 @@
+      `rpc/request!` (whose unsent branch ignores op/args, `rpc.cljc:243-244`)
+      and fold that outcome — `requested`, `pending-request`, or
+      `request-undeliverable`, the last surfacing as a `:lost` completion —
+-     into the step result;
++     into the step result under `:attempt`;
+   2. `rpc/poll!` with the budget;
+   3. if the returned state is terminal and still holds `:unsent`,
+      `rpc/abandon-unsent` with the terminal reason, so the never-accepted
+      request completes as `:lost` through the ordinary outbox rather than
+      being carried silently across a later `rebind`;
+-  4. take completions and diagnostics exactly once.
++  4. issue any verify hops the materializer holds pending (J3c below), in id
++     order, until the writer answers `full` or no more are pending;
++  5. take completions and diagnostics exactly once.
+ 
+   A driver that only re-calls `request-*` can never clear a `busy`; it must
+   step. Nothing here loops on `blocked`, holds a clock, retries on its own, or
+@@ -367,18 +383,49 @@
+ 
+ Derives the address locally with `jing/segment-key`, issues `:jing/put-content`
+ through `request-put`, and records `{:payload p :address a :phase :put}` under
+-the id. On a `:inserted` completion, completes `{:id n :op :materialize
+-:address a :result :inserted}`. On `:present`, issues a second correlated
+-`:jing/get-content` for the same address, moves the record to `:phase
+-:verify`, and completes `:present` with the address only when the returned
+-value equals the payload; otherwise an `:error` completion carrying
++the put's id. On an `:inserted` completion, completes `{:id n :op :materialize
++:address a :result :inserted}`. On `:present`, the materialization needs a
++second correlated `:jing/get-content` for the same address, and the record
++moves to `:phase :verify-pending`. When that get completes, the materialization
++completes `:present` with the address only if the returned value equals the
++payload; otherwise an `:error` completion carrying
+ `:dao.jing.v2.remote/integrity-failure` (unequal) or `/present-but-absent`
+-(`:found? false`) — the two failures `jing.cljc:283-293` throws on locally,
+-as data here. A `:lost` on either hop completes the materialization as
+-`:lost` with the reason. `busy` applies as for any request. The same per-id
+-record disambiguates a verify-hop get from a caller's own `request-get`.
+-Read-side hydration needs only J3a; `store-tree-async` depends on J3c.
++(`:found? false`) — the two failures `jing.cljc:283-293` throws on locally, as
++data here. A `:lost` on either hop completes the materialization as `:lost`
++with the reason. Read-side hydration needs only J3a; `store-tree-async`
++depends on J3c.
+ 
++**Who issues the verify hop: `step` does, and this is the one obligation the
++client carries.** The `:present` completion is decoded inside `step`, and the
++get it calls for cannot always be issued at that moment — the writer may
++answer `full`, or an unsent envelope may already hold the slot. So `step`
++retains the unissued hop as data in the per-id record (`:verify-pending`) and
++issues it in step order 4 on this or a later step, when `rpc/unsent?` is
++false: it calls `rpc/request!` for `:jing/get-content`, and on `requested`
++registers the same record under the new get id as well, so the per-id record
++is reachable by **both** the put id and the verify-get id and the get's
++completion routes to the materialization rather than to a caller's own
++`request-get`. If the writer answers `full`, the get becomes the RPC layer's
++`:unsent`, which step order 1 re-attempts next time; the record stays
++`:verify-pending` until `requested`. On a terminal state, every
++`:verify-pending` record completes `:lost` with the terminal reason, exactly
++once.
++
++This spends a principle knowingly. Round 1 refused to queue caller work inside
++the client (contested item 6): a queue of *submitted operations* awaiting a
++slot would hide the driver's ordering decisions and grow without bound. The
++verify hop is neither. It is the second half of one operation the caller
++already submitted and holds an id for; it is bounded by the number of
++materializations in flight, each of which already consumed an id; it admits no
++new caller work; and it is data in the state the driver owns, visible as
++`:verify-pending`, not a hidden buffer. The alternative — a public
++`resume-materialize` the driver must call — would make the driver responsible
++for re-driving an intent it never expressed and cannot see, and re-calling
++`request-materialize` mints a fresh put and orphans the original record. The
++client carries this one obligation so that the driver's contract stays
++"submit, step, read completions." A caller's `request-*` while a verify hop
++holds the slot as `:unsent` sees `busy`, as for any unsent envelope.
++
+ **The `:dao.jing/remote` coordinate.** `dao.jing.coordinate/open!` turns
+ `{:dao.jing/type :dao.jing/remote :url …}` into a synchronous handle that
+ `dao.space.index`'s published-index `defopen` reads through `jing/get` to
+@@ -396,13 +443,13 @@
+ 
+ | namespace                 | this plan                                                              | v1 dependency after this plan                | consumer that keeps v1 alive                                   |
+ | ------------------------- | ---------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------- |
+-| `dao.jing`                | **in-place**: v1 observer moved out in J1; stream-free core            | none, direct or transitive                   | —                                                              |
+-| `dao.jing.observer` (v1)  | **new in J1**: the v1 observer, unchanged code and `dao.stream` require | `dao.stream`                                 | seven test files until `dao.space`'s tests migrate             |
+-| `dao.jing.v2.observer`    | **new** — the observer on v2                                           | none, direct or transitive                   | —                                                              |
++| `dao.jing`                | **in-place**: v1 observer moved out in J1; stream-free core            | none, direct or transitive — or, under the documentation route, `dao.stream` (observer only) until J5 | — (documentation route: the nine observer test files) |
++| `dao.jing.observer` (v1)  | **new in J1**: the v1 observer, unchanged code and `dao.stream` require | `dao.stream`                                 | nine test files until `dao.space`'s tests migrate              |
++| `dao.jing.v2.observer`    | **new** — the observer on v2                                           | none, direct or transitive — or, under the documentation route, transitive via `dao.jing` until J5 | — |
+ | `dao.jing.file`           | **in-place**: stream coupling removed                                  | none                                         | —                                                              |
+ | `dao.jing.mem`            | untouched                                                              | none                                         | —                                                              |
+ | `dao.jing.remote` (v1)    | untouched                                                              | `dao.stream.rpc.*` (clj)                     | `dao.jing.coordinate`, `dao.space` tests                       |
+-| `dao.jing.v2.remote`      | **new** — handlers, client primitives, materializer                    | none, direct or transitive                   | —                                                              |
++| `dao.jing.v2.remote`      | **new** — handlers, client primitives, materializer                    | none, direct or transitive — or, under the documentation route, transitive via `dao.jing` until J5 | — |
+ | `dao.jing.coordinate`     | untouched                                                              | transitive via `dao.jing.remote` (clj)       | `dao.space.index`                                              |
+ | `dao.jing.dht*`           | untouched                                                              | `dao.stream.transit`, UDP                    | out of scope                                                   |
+ 
+@@ -444,10 +491,10 @@
+ | signals `:ok`, `:blocked`, `:end`, `:daostream/gap`; malformed results throw                     | the seven `:dao.stream/…` outcomes; three defect outcomes reported as data with `:member` and `:result` | the result convention; an outcome outside the closed set still throws, as a transport defect         |
+ | a gap is reported, cursor unchanged, never resynced                                              | same rule, extended to `cursor-mismatch`, `invalid-cursor`, `transport-error`; `adopt-cursor` is the resync | one rule for every non-progress outcome; resync is a composition decision                         |
+ | observer lives in `dao.jing`                                                                     | v1 observer moves to `dao.jing.observer`; v2 observer is `dao.jing.v2.observer`                      | `dao.jing` must be stream-free so nine production requirers do not carry a stream dependency          |
+-| `dao.jing.file` opens `{:dao.stream/type :append-log}`; handle carries `:log`                    | private framed file; handle carries `:path :state :write-lock` and the three fns, no `:log`          | Decision 2                                                                                            |
++| `dao.jing.file` opens `{:dao.stream/type :append-log}`; handle carries `:log`                    | private framed file; handle carries `:path :state :write-lock` and the three fns, no `:log`          | Decision 2. **Recorded dissent:** `gpt-5.6-sol` holds that direct file IO behind `:put-content-fn` violates `datom.world.md:53-68` (a host boundary is a stream boundary; callable adapters are rejected) and that a v2 append-log is constructible under the no-wait rule and should be built. The plan holds that the violation, if it is one, is the synchronous content handle itself, present today and unchanged by any transport beneath it, and that a constructible append-log cannot supply `:inserted`'s durability meaning without redesigning `materialize!` and its consumers. `glm-5.3` and `gpt-6-astra` accept the plan's position. |
+ | `file_test` counts records with `ds/next` over the raw log                                       | `dao.jing.file/records` returns the decoded records of a path; tests use it                          | the framing is private; the test reads through the backend's own reader                              |
+ | `content-client` is a handle; `:get-content-fn` returns the value                                | `client-state` / `request-*` / `step`; results are completions correlated by id                       | no operation waits; unimplementable otherwise on cljs/cljd                                            |
+-| `jing/materialize!` over a remote handle                                                         | `request-materialize`: derive, put, verify on `:present`, complete with the address                  | the integrity behavior of `jing.cljc:276-293` must survive the loss of the handle                     |
++| `jing/materialize!` over a remote handle                                                         | `request-materialize`: derive, put, verify on `:present`, complete with the address; `step` issues the verify hop | the integrity behavior of `jing.cljc:276-293` must survive the loss of the handle          |
+ | collision or unreadable-present throws                                                           | `:error` completion with `/integrity-failure` or `/present-but-absent`                              | inside a driver step an exception has nowhere to go                                                   |
+ | `connect-content!` — synchronous, JVM-only                                                       | gone; the composition attaches through `dao.stream.ws` and builds the client from the whole `attach!` result | the constructor waited; attachment outcome arrives as deposited data                         |
+ | malformed presence envelope throws inside `get`                                                  | completes as an `:error` with a malformed-response code                                              | same                                                                                                  |
+@@ -488,27 +535,53 @@
+ ## Phase J1 — `dao.jing` stream-free; `dao.jing.file` without a stream
+ 
+ Three deliverables in one phase, because the second and third retire the same
+-v1 namespace and the first is what makes the transitive gate true.
++v1 namespace and the first is what makes the transitive gate true. **J1.1 and
++J1.2 land as one change**: J1.1 alone leaves `file_test.cljc:113-135` calling
++`jing/observer-state` on a namespace that no longer has it, a compile failure.
+ 
+ **J1.1 — Move the v1 observer out.** `observer-state` and `observe-step!`
+ move verbatim, with their docstrings and the `dao.stream` require, from
+ `dao.jing` to a new `src/cljc/dao/jing/observer.cljc`. `dao.jing` drops
+-`dao.stream` from its requires. The observer section of `jing_test.cljc`
+-(lines 322–560) moves to `test/dao/jing/observer_test.cljc`. Seven test files
+-repoint one require and one alias each: `test/dao/space/{transactor,stigmergy,
+-index,schema,query}_test`, `test/dao/jing/mem_test.cljc:213`, and
+-`test/dao/jing/dht_test.cljc:402`. No `src/` file changes a require.
++`dao.stream` from its requires. No `src/` file changes a require. **Nine test
++files** are affected, in three kinds:
+ 
+-*Scope-contingent.* Five of the seven files are outside `dao.jing*`. If the
+-orchestrator holds the `dao.jing*` scope closed at authorization, the
+-alternative is the **documentation route**: the observer stays in `dao.jing`
+-until J5; Decision 4's table reads "transitive via `dao.jing`" for both
+-`dao.jing.v2.*` rows; and the end condition states, as its own bullet and not
+-a footnote, that `dao.jing.v2.*` is transitively v1 until J5 removes the
+-observer from `dao.jing`. The move-out is the plan's position because the
+-project's standard for a v2 namespace is transitive v1-freeness — the REPL
++- **Seven repoints.** `test/dao/space/{transactor,stigmergy,index,schema,query}_test`,
++  `test/dao/jing/mem_test.cljc`, `test/dao/jing/dht_test.cljc`: each gains a
++  `[dao.jing.observer :as observer]` require and rewrites its
++  `jing/observer-state` / `jing/observe-step!` call sites. In the five
++  `dao.space` files that is the require plus the call sites inside their
++  drain helpers. In `mem_test` and `dht_test` the `jing/` alias also serves
++  core functions (`segment-key`, `materialize!`, `get`), so the alias stays,
++  a second alias is added, and each observer call site is edited
++  individually; both files keep their own `open-stream` helpers
++  (`dht_test.cljc:130`), which open v1 ring buffers and are unaffected.
++- **One section move.** `jing_test.cljc`'s observer section (lines 322–560)
++  moves to `test/dao/jing/observer_test.cljc`. The `mem-handle` helper at
++  `jing_test.cljc:18` is used by both the moving section and the staying
++  handle-API section (lines 154–316), so it is **duplicated** into
++  `observer_test.cljc` — fifteen lines that die with the file at J5 — rather
++  than extracted into a shared test namespace that would outlive its reason.
++  `open-stream` and `MalformedResultStream` (lines 35–49) are used only by the
++  moving section and move with it.
++- **One excision.** `file_test.cljc:113-135` (`observer-convergence-test`) is
++  removed in J1: it drives the v1 observer over v1 ring buffers into the file
++  backend, and J1.2 removes `dao.stream` from `file_test`'s requires. J2
++  recreates it over the v2 observer and v2 ring buffers.
++
++*Scope-contingent.* The five `test/dao/space/` files are outside `dao.jing*`.
++If the orchestrator holds the `dao.jing*` scope closed at authorization, the
++alternative is the **documentation route**: the observer stays in `dao.jing`
++until J5, `dao.jing` keeps its `dao.stream` require; Decision 4's `dao.jing`
++row reads "`dao.stream` (observer only)" and both `dao.jing.v2.*` rows read
++"transitive via `dao.jing`"; J2's deliverable and the end condition state, as
++their own bullet and not a footnote, that `dao.jing.v2.*` is transitively v1
++until J5 removes the observer from `dao.jing`. Under that route the four
++in-scope edits — `mem_test`, `dht_test`, the `jing_test` section move, the
++`file_test` excision — still happen, since the section move and excision are
++needed by J1.2 and J2 regardless. The move-out is the plan's position because
++the project's standard for a v2 namespace is transitive v1-freeness — the REPL
+ plan built a second VM to make "requiring no v1 namespace" true rather than
+-aspirational — and because the cost is seven one-line test edits against
++aspirational — and because the cost is nine bounded test-file edits against
+ nine production namespaces made v1-free at J1 instead of J5.
+ 
+ **J1.2 — `dao.jing.file` without a stream.**
+@@ -522,7 +595,8 @@
+   `:cljd` first.
+ - `put` is unchanged in order: validate, lock, closed check, presence check,
+   append and sync, then swap the content map, then `:inserted`. `close!` stays
+-  idempotent. The requires drop `dao.stream` and `dao.stream.log`.
++  idempotent. The requires drop `dao.stream` and `dao.stream.log`. The handle
++  no longer carries `:log`.
+ - Public `records`: `(records path)` returns the decoded, validated
+   `[address payload]` vector of a file, for tests and diagnostics; it opens,
+   replays and closes.
+@@ -543,7 +617,7 @@
+ - Port the rest of `file_test`: `handle-shape-test` asserts no `:log` and no
+   `:stream`; every `count-records` becomes `(count (records path))`; the
+   corrupt-record and raw-duplicate cases write their raw frames through
+-  `append-frame!`. `observer-convergence-test` moves to J2.
++  `append-frame!`.
+ 
+ **J1.3 — Retire `dao.stream.log`.** Delete `src/cljc/dao/stream/log.cljc` and
+ `test/dao/stream/log_test.cljc`, and any test-runner reference to them. After
+@@ -569,9 +643,11 @@
+ under either ruling.
+ 
+ Deliverable: `dao.jing` and `dao.jing.file` require no `dao.stream*`
+-namespace; `file_test` green on clj, cljs (Node) and cljd with `dao.stream`
+-absent from its requires and the three recovery cases present; the seven
+-repointed test files green; `dao.stream.log` gone. Consumers (`dao.space.*`,
++namespace (under the documentation route: `dao.jing.file` does not, and
++`dao.jing` requires `dao.stream` for the observer only); `file_test` green on
++clj, cljs (Node) and cljd with `dao.stream` absent from its requires and the
++three recovery cases present; the nine affected test files green;
++`dao.stream.log` gone. Consumers (`dao.space.*`,
+ `dao.data.btree_durability_test`) pass, confirmed by running them rather than
+ by inspection.
+ 
+@@ -604,11 +680,14 @@
+   the declared set throws.
+ - **members round-trip**: `(observer-state (remove-nth (:members st) i))`
+   keeps the remaining members' cursors.
+-- `observer-convergence-test` from `file_test`, over the J1 file backend.
++- `observer-convergence-test`, recreated from the excised `file_test` case,
++  over the J1 file backend and two v2 ring buffers.
+ 
+ Deliverable: `dao.jing.v2.observer` on clj, cljs (Node) and cljd; `Testing
+ dao.jing.v2.observer-test` confirmed in the Node output; no namespace under
+-`dao.jing.v2*` requires `dao.stream` **directly or transitively**.
++`dao.jing.v2*` requires `dao.stream` **directly or transitively** — or, under
++the documentation route, `dao.jing.v2.observer` requires `dao.stream`
++transitively through `dao.jing` until J5, and this deliverable says so.
+ 
+ ## Phase J3 — `dao.jing.v2.remote`
+ 
+@@ -627,9 +706,9 @@
+   rejecting a hash-mismatched address completes as `:error`.
+ - **`busy` clears only through `step`**: a scripted writer answering `full`
+   once: `pending-request`; a second request returns `busy` and allocates
+-  nothing; `step` re-attempts and its result carries `requested`; exactly one
+-  id allocated; then a case where the driver only re-calls `request-*` and
+-  asserts `busy` persists.
++  nothing; `step` re-attempts and its result carries `:attempt requested`;
++  exactly one id allocated; then a case where the driver only re-calls
++  `request-*` and asserts `busy` persists.
+ - **unsent at detach**: a request left `pending-request`, then `/detached`
+   deposited on the response medium; `step` produces exactly one `:lost`
+   completion for it with `/detached` as the reason, and `:unsent` is empty in
+@@ -668,20 +747,33 @@
+ serves completes as `:lost` with `/not-found`.
+ 
+ **J3c — the stepped materializer.** `request-materialize` per *Decision 3*,
+-over the J3a primitives, in the same namespace. Tests, socket-free, on all
+-three hosts:
++over the J3a primitives, in the same namespace; `step` order 4 issues pending
++verify hops. Tests, socket-free, on all three hosts:
+ 
+ - fresh payload: one put, completes `:inserted` with the derived address.
+-- present payload: put answers `:present`, a second correlated get is issued,
+-  equality holds, completes `:present` with the address; exactly two ids.
++- present payload: put answers `:present`, `step` issues the correlated get in
++  the same step, equality holds, completes `:present` with the address;
++  exactly two ids; the per-id record is reachable by both.
++- **verify hop deferred by `full`**: the put completes `:present` while the
++  writer is scripted `full`; after that step the record is at
++  `:verify-pending`, no completion has been published, and a caller's
++  `request-get` answers `busy`; the next step issues the get (writer `ok`);
++  the completion arrives on the following step; exactly two ids at
++  completion.
++- **unrelated unsent request occupying the slot**: a caller's `request-get`
++  is left `pending-request` by a `full`; then the `:present` completion
++  arrives; the next step re-attempts the caller's unsent first (order 1),
++  then issues the verify hop (order 4); both complete; ids are monotonic and
++  the verify get's completion routes to the materialization, not to the
++  caller's get.
+ - present but the server's get returns `:found? false`: completes `:error`
+   with `/present-but-absent`.
+ - present but unequal (a scripted server store seeded with a different value
+   at the same address): completes `:error` with `/integrity-failure`.
+-- `:lost` on the verify hop completes the materialization as `:lost` with the
+-  reason; a caller's own `request-get` for the same address during a verify
+-  hop is not confused with it (per-id record).
+-- `busy` during the verify hop behaves as for any request.
++- `:lost` on either hop, and a terminal state while a record is
++  `:verify-pending`, complete the materialization as `:lost` with the reason,
++  exactly once; a caller's own `request-get` for the same address during a
++  verify hop is not confused with it (per-id record under both ids).
+ 
+ Deliverable: J3a and J3c green on clj, cljs (Node) and cljd; J3b green on clj
+ and cljs (Node), and on cljd through the cljd ws lane. The cljd test
+@@ -723,7 +815,9 @@
+ `dao.jing.remote`. When that gate opens:
+ 
+ - delete `src/cljc/dao/jing/observer.cljc` and
+-  `test/dao/jing/observer_test.cljc`;
++  `test/dao/jing/observer_test.cljc` (under the documentation route: delete
++  the observer functions and the `dao.stream` require from `dao.jing`, and
++  `observer_test.cljc`);
+ - delete `src/cljc/dao/jing/remote.cljc` and `test/dao/jing/remote_test.cljc`;
+   `dao.jing.coordinate`'s `:dao.jing/remote` branch is deleted or re-pointed
+   under `dao.space`'s plan, not here;
+@@ -757,7 +851,9 @@
+   `dao.jing.mem`'s are. No `defopen`, no dispatch table, no `defonce`; J1
+   removes one `defopen` from the ambient v1 registry.
+ - **No implicit control flow.** `observe-step!` and `step` return; the
+-  composition calls again. Nothing self-schedules.
++  composition calls again. Nothing self-schedules. The materializer's pending
++  verify hop is data in the returned state, issued only by a step the driver
++  calls.
+ - **No callbacks.** None in any new public surface. The ws adapter map is the
+   transport's, confined to J3b's composition.
+ - **No shared mutable state.** A content handle is owned by whoever created
+@@ -777,18 +873,19 @@
+ **Touched outside `dao.jing*`, both scope-contingent, both decided at
+ authorization:**
+ 
+-- five `test/dao/space/` files, one require line and alias each (J1.1);
+-  alternative: the documentation route, with transitive v1 stated as an
+-  end-condition bullet until J5.
++- five `test/dao/space/` files, a require, an alias, and their observer call
++  sites (J1.1); alternative: the documentation route, with transitive v1
++  stated in Decision 4's table, J2's deliverable, and the end condition.
+ - `src/cljc/dao/stream/log.cljc` and `test/dao/stream/log_test.cljc`, deleted
+   (J1.3); alternative: stream-plan-owned "legacy append-log retirement",
+   coordinated atomically with J1.
+ 
+ **Architectural decisions**, made here: the durable log is not a stream and
+ the write-path redesign is a separate item (Decision 2); remote content is a
+-driven state machine with a stepped materializer, not a handle (Decision 3);
+-the observer's cursor and non-progress discipline (Decision 1); the
+-three-namespace end state and the observer move-out (Decision 4).
++driven state machine with a stepped materializer whose verify hop `step`
++issues (Decision 3); the observer's cursor and non-progress discipline
++(Decision 1); the three-namespace end state and the observer move-out
++(Decision 4).
+ 
+ **Implementation gaps**, left open knowingly: the v2 remote client has no
+ coordinate and cannot be reached from `dao.jing.coordinate/open!`; the
+@@ -838,8 +935,9 @@
+ - `dao.jing.v2.remote` round-trips put, get and **materialize** through
+   `dao.stream.apply` and `dao.stream.rpc` over ring buffers on all three
+   hosts and over `dao.stream.ws` on each; clears `busy` only through
+-  `step`; completes every lost, abandoned and unsent-at-terminal request as
+-  data exactly once; and publishes diagnostics exactly once.
++  `step`; issues every deferred verify hop through `step`; completes every
++  lost, abandoned, unsent-at-terminal and verify-pending-at-terminal request
++  as data exactly once; and publishes diagnostics exactly once.
+ - `dao.jing.md` describes the v2 observer, the stream-free file backend, the
+   driven remote client with its materializer, and records the write-path
+   question as an open item.
+@@ -854,47 +952,33 @@
+ 
+ ---
+ 
+-## What changed from the round-1 draft, and why
++## What changed from revision 2
+ 
+-- **A1 / C5 — `step` ordering and abandonment.** Round 1 specified a `busy`
+-  guard and a `step` that only polled; since `rpc/request!` is the sole path
+-  that re-attempts an unsent envelope and `lose-outstanding` covers
+-  `:outstanding` only, `busy` could never clear and an unsent request was
+-  carried silently across `rebind`. `step` now re-attempts, polls, abandons on
+-  terminal, then publishes; `abandon` is exposed; both cases are tested.
+-  Cause: reasoning from the sibling plans' prose instead of `rpc.cljc`.
+-- **A2 — `:diagnostics` in the step result**, published exactly once; round 1
+-  claimed to take them and had nowhere to put them.
+-- **A3 / N1 — torn-tail coverage and the orphaned transport.** Round 1's
+-  golden record proved clean replay only while copying the truncation loops
+-  out of `dao.stream.log`; the only recovery test would have died with v1.
+-  J1 now ports `torn-tail-test` with the fixture adaptation (a valid Jing
+-  record first, since `[11 22]` is not decodable) plus sub-four-byte and
+-  negative-length cases, and retires `dao.stream.log` in the same phase so
+-  the framing has one owner. Scope-contingent, with the atomic stream-plan
+-  alternative named and "leave it standing" excluded.
+-- **C1 — Decision 2 stands, with two concessions.** It now states that it
+-  amends `dao.jing.md`'s own description of the file backend, routed as a
+-  design change; records the pre-existing Host-Boundaries question about the
+-  synchronous content handle as an open item that no transport cures; and
+-  explains via the no-wait rule why option (a) is the write-path redesign in
+-  disguise rather than a like-for-like transport.
+-- **C2 / C4 — the observer moves out; the end state is decided.** The fact
+-  that the v1 observer has no `src/` caller made "move the observer out"
+-  cheaper than "extract the core" by nine production namespaces. `dao.jing`
+-  is stream-free from J1; the transitive gate is literal; the end state is
+-  three namespaces, decided now, independent of `dao.stream`'s naming.
+-  Seven test repoints, not five; five are scope-contingent with the
+-  documentation route named.
+-- **C3 — the materializer.** Round 1's `request-put` was the backend primitive
+-  and was called a DaoJing backend; it omitted derivation and read-back
+-  verification. J3a keeps the primitives, J3c adds `request-materialize`, the
+-  end condition includes it, and the §5.4 claim is narrowed to "a driver over
+-  this client, not built here".
+-- **C6 — completion totality by construction**: reason pass-through,
+-  `allocator-error` in the request outcome set, declaration-driven test.
+-- **Line reference fix:** `jing_test.cljc` observer section is lines 322–560.
+-- **Not changed:** Decision 1 in substance, the in-place rewrite of
+-  `dao.jing.file`, the deferral of the `:dao.jing/remote` coordinate to
+-  `dao.space`'s plan, and the phase ordering J1 → J2 → J3 → J4 → J5. Both
+-  reviews and both consensus seats found these sound.
++- **J3c's verify hop has an owner.** `step` issues it, as a fifth step-order
++  clause (order 4), from a `:verify-pending` per-id record registered under
++  both the put id and the verify-get id; a `full` on the hop becomes the RPC
++  layer's `:unsent` and is re-attempted by order 1; terminal completes it
++  `:lost`. The principle spent — the client carries one bounded obligation —
++  is named, with why it is not the caller-work queue round 1 refused. Two
++  tests added: verify hop deferred by `full`, and an unrelated unsent request
++  occupying the slot. One key, `:attempt`, added to `step`'s result so the
++  folded re-attempt outcome the J3a test already asserted has a home.
++- **The move-out inventory is nine test files**, not seven: seven repoints
++  (with the `mem_test`/`dht_test` second-alias and per-call-site cost stated),
++  the `jing_test.cljc` section move with `mem-handle` duplicated, and the
++  `file_test.cljc` excision; J1.1 and J1.2 land as one change. The conclusion
++  is unchanged; the cost claim was wrong.
++- **The documentation-route fallback is propagated** to Decision 4's
++  `dao.jing` and `dao.jing.v2.*` rows and to J2's deliverable, not only to the
++  end condition; J1's deliverable and J5's deletion step say what they mean
++  under that route.
++- **Decision 2's rationale no longer overstates.** "Portable code never
++  receives a handle to that stream" became: no caller of `materialize!`/`get`
++  reaches the log; the `:log` key was test-visible and J1 removes it.
++- **The no-wait argument is restated in its weaker, true form.** A v2
++  append-log is constructible, because `append!`'s `ok` disclaims durability;
++  what it cannot supply is `:inserted`'s "durably stored now", so option (a)'s
++  cost lands on `materialize!`'s contract and its synchronous consumers, not
++  on the transport. `gpt-5.6-sol`'s dissent is recorded by name in the
++  *Divergence register*, with what it holds and what the plan holds.
++- Status line updated to revision 3. Nothing else changed.

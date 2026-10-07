@@ -1,0 +1,33 @@
+C6 is done, with each test written and seen failing before the code. The JVM tests for these areas pass (168 tests, 1239 assertions), as does the whole Node suite (2875 tests, 92846 assertions). kondo is clean. Two things are not done: cljstyle didn't run because the permission gate blocked the binary again, and Dart and the full lanes were not run. No git writes.
+
+The report is at `collab/1791110400000-compiler-engineer-ucf-c6-reclaim.findings.md`.
+
+**What landed** (in `ledger.cljc`, `custody.cljc`, `authority.cljc`, `authority/grant.cljc`, plus the new `test/yin/vm/ucf/authority/reclaim_test.cljc`):
+- **Lapse and epoch together:** a lapse is now one transaction holding the lapse fact and a new `:yin.k/reclaimed` epoch-change fact. Reading the ledger fails if a lapse appears without its epoch change in the same record.
+- **The plan's two adapter-contract tests pass:** nothing shows the lease as revoked until the transaction commits, and a writer that fails leaves the lease pending with nothing changed.
+- **Epoch rules:**
+  - The first grant binds 0, and each reclaim adds 1.
+  - A new occurrence starts at 0.
+  - At 2^52-1 the grant is valid; the next reclaim records the lapse, keeps the epoch and exhausts the occurrence.
+  - 2^52 and -1 are refused when the ledger is read.
+- **Refusals:** a new refusal fact carries `:yin.k/proposer`. The judge's answer hook now refuses losing candidates, so `:answered` can be rebuilt completely.
+- **Reopen:**
+  - `reopen!` reclaims every live tenure (cause `:policy`, one transaction each) before handing the authority out. It regrants nothing.
+  - `rebuild-judge` rebuilds the judge's `:seen` and `:answered` from the ledger.
+  - The three medium cases are tested: an old `:accepted` is dropped, an already-answered proposal gets no second grant, and a proposal whose grant failed is granted on retry.
+- **Crash cuts:** a cut lapse leaves zero or one lapse, always with its epoch change. Reopen reclaims exactly once, and the epoch is never reused.
+- **The two C5 gate follow-ups:** a JVM-only test shows `step!` holds the lock for a whole judge pass, and grant replay now compares duration, proposal and max.
+
+**Test quality:** 4 tests passed before the change because C5 already met those contracts. I backed them, and the rest, with 8 deliberate code breakages, each reverted afterwards. Two breakages went undetected at first: the answer hook re-granting proposals that were already answered, and `:seen` left empty after rebuild. I added assertions that now catch both.
+
+**Decisions for you or the architect:**
+- **Refusal key:** `:yin.k/proposer` is added onto the `:dao.lease/rejected` fact itself. UCF says lease facts gain no keys, so this needs your ruling.
+- **Exhaustion:** the epoch-change fact is still written at exhaustion, carrying the unchanged epoch.
+- **Reopen failure:** if any reclaim during reopen fails, the whole open is refused, not just that occurrence.
+- **Test-only option:** `::authority/max-epoch` is a lower epoch bound for tests, like the existing `::max-exact`. A ledger must be reopened with the bound it was written under.
+- **Missing docs:** the adapter contract lives only in the `grant.cljc` docstring, because no dao.lease doc amendment was written.
+- **Short of the UCF clause:** clause 9 at epoch 2^52-1 says "its effects commit". C6 shows only the grant and a valid binding; admission is C7.
+
+The report lists these with 8 open questions.
+
+Please run `cljstyle fix` then `check` on the 7 touched files, then Dart and the full lanes.

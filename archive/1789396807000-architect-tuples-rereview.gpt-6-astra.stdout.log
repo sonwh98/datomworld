@@ -1,0 +1,2569 @@
+OpenAI Codex v0.153.4
+--------
+workdir: /Users/sto/workspace/datomworld
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+--------
+user
+Created-GMT: 2026-09-14 14:40:07 GMT
+Created-Local: 2026-09-14 21:40:07 +07
+Coding-Agent: codex
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b (resume — your own review thread)
+
+# Task: Re-review the revised tuple code-representation design
+
+Role: Architect (reviewer)
+
+Implementers:
+- Model: gpt-6-astra | Assigned: 2026-09-14 21:40:07 +07 | Status: active | Rationale: re-review by the original reviewer; the revision's author is claude-fable-5.1 (Anthropic family), independence preserved. The orchestrator verified the revision's heaviest changes before dispatching you.
+
+## Context
+
+This is the thread where you reviewed `docs/design/yin.vm.tuples.md` (verdict REJECT, 12 P1s, findings at `collab/1789395574000-architect-tuples-review.gpt-6-astra.findings.md`). The author has revised against your full findings list (author's finding-by-finding mapping at the tail of `collab/1789396297000-architect-tuples-revision.claude-fable-5-1.stdout.log`; the doc grew 780 → 1132 lines). The orchestrator verified: the keyword store-key corpus case, `local-datom?`'s constraints, and the walker's node-mutation sites — all as you found them.
+
+## Task
+
+Re-review `docs/design/yin.vm.tuples.md` as it now stands:
+
+1. For each of your findings 1–12, verify it is actually resolved in the text — resolved / not resolved / regressed, with line citations. Do not take the author's mapping at its word.
+2. Challenge the mechanisms designed fresh in the revision, on their merits:
+   - the ledger's two notations and their mapping (§8.1): logical `[t op address ref]` rows against ledger **records** (content-addressed maps under `segment-key`) entering the ledger as local **event entities** — is every persistent form legal under `local-datom?`/`pad-datom`, and is op/validity separation now airtight?
+   - the continuation-frame schemas (§2.6): is every walker frame site covered, and is evaluation-position-as-count faithful to both the cold and hot paths?
+   - the occurrence-key device (§2.5, §4.4): `[root-address path]` keys for provenance side tables — do they actually individuate the occurrences your finding 9 demanded?
+   - macro declaration carriage (§8.5): canonical trees plus occurrence-bound declaration facts, with ordering/scope/redefinition rules — does it preserve `yin.vm.macro.md`'s admission and harvest behavior?
+   - derivation records with contract stamps (§5.2, §8.2): does a recomputing consumer now distinguish revision difference from corruption correctly?
+   - the dependency extraction queries (§7.7): parked ids included, composition with callable profiles, incompleteness states — do they now compute what §7.4's introduction declares?
+   - the shared validator (§7.5) and the explicit supersession of UCF §7.3.4's projection-primary wording.
+3. New defects introduced by the revision are P1s regardless of origin. Cite file and line for everything; run what you can.
+
+## Deliverable
+
+Verdict (`APPROVE` | `APPROVE-WITH-FINDINGS` | `REJECT`), numbered findings with severity/line/defect/fix, a per-finding 1–12 resolution table, and a short "verified sound" list. Produce the complete review in this turn — no plan-only responses, no requests for human input.
+
+Begin the final response exactly with:
+
+Completed-GMT: <actual GMT timestamp>
+Completed-Local: <actual local timestamp and named timezone>
+Coding-Agent: codex
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '390,780p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   390	"This call site" is `[root-address path]` (§2.5), not the site's content
+   391	address; a query that needs distinct call sites joins parent rows and
+   392	paths, not subtree addresses, and a provenance link that must survive a
+   393	second identical site records the occurrence key. Content addresses serve
+   394	sharing and cross-media correspondence of content; occurrence keys serve
+   395	identity of places.
+   396	
+   397	---
+   398	
+   399	## §5 The segment level
+   400	
+   401	### 5.1 The instruction vector is UCF §7.3.2
+   402	
+   403	The segment's canonical form is the positional instruction tuple vector of
+   404	UCF §7.3.2: one tuple per instruction, pc is the index, the
+   405	`yin.vm.semantic.md` §2.4 table fixes each mnemonic's arity and operand
+   406	kinds, defaults are saturated, refs are resolved pcs, and the header folds
+   407	away. Its address is `(dao.jing/segment-key vector)`, the value
+   408	`yin.vm.semantic.md` §2.2 already types `:yin.code/hash` as. This document
+   409	adds nothing to that form and restates none of it.
+   410	
+   411	### 5.2 The hash chain is realized by derivation records
+   412	
+   413	```
+   414	tree-address ──lower under contract C──▶ segment-address
+   415	```
+   416	
+   417	Neither object carries the other's address: the tree is the input, the
+   418	vector excludes `:yin.code/derived-from` (UCF §7.3.2, *The header folds
+   419	away*). The link is a **derivation record**, itself a content-addressed
+   420	object (§8.2):
+   421	
+   422	```clojure
+   423	{:yin.ledger/op       :derive
+   424	 :yin.ledger/input    <tree-address>
+   425	 :yin.ledger/output   <segment-address>
+   426	 :yin.ledger/function :yin.vm/lower
+   427	 :yin.ledger/contract {:yin.code/contract "v2" :yin.k/version 0}}   ; the UCF §7.3.3 stamp
+   428	```
+   429	
+   430	Its address is published in the ledger (§8.3). The chain
+   431	`record → input, record → output` is what "the hash chain is the ledger"
+   432	means under this design: the chain lives in ledger objects and refs, not
+   433	in the code objects, which rightly exclude it.
+   434	
+   435	`lower` is a pure function from one content-addressed value to another,
+   436	and it is verified, not trusted: a consumer holding the tree and a
+   437	derivation record recomputes `(segment-key (lower tree))` **under the
+   438	record's contract** and compares it with the record's output. The outcome
+   439	algebra is UCF §7.9's:
+   440	
+   441	| Situation | Outcome |
+   442	|---|---|
+   443	| the consumer implements the record's contract and the recomputed address equals the output | verified |
+   444	| the consumer implements the record's contract and the addresses differ | `:yin.k/hash-mismatch`: corruption or a defective lowering, never silently repaired |
+   445	| the consumer implements a different contract revision | `:yin.k/profile-mismatch`: a legitimate revision difference, reported before any lowering, exactly as UCF §7.3.3 requires; it is not corruption and is not reported as such |
+   446	
+   447	For the comparison to be meaningful, lowering is deterministic by rule
+   448	within one contract: labels are numbered in emission order
+   449	(`linearize.cljc:76-77`), bodies are emitted in the order lambdas are
+   450	encountered (`linearize.cljc:151-158`), and evaluation order is the
+   451	walker's (`yin.vm.semantic.md` §5.3). A lowering that introduces any
+   452	host-dependent choice breaks the chain and is a defect. Two trees that
+   453	lower to one vector under one contract yield two records with one output;
+   454	one tree lowered under two contracts yields two records with two outputs.
+   455	
+   456	### 5.3 Instruction provenance
+   457	
+   458	`:yin.code/source` (`v2.cljc:326`, `linearize.cljc:225`) leaves the
+   459	instruction: UCF §7.3.2 excludes it from the vector, and the tuple form has
+   460	nowhere else to put it. It becomes the side table `[segment-address pc
+   461	root-address path]` of §2.5, emitted by the lowering beside the vector and
+   462	keyed by occurrence so that two identical call sites map to two distinct
+   463	instruction ranges. Rendering an instruction range back to source is a join
+   464	over that table and the source-position table on `[root-address path]`,
+   465	which is the query `yin.vm.semantic.md` §5.3 says it is.
+   466	
+   467	---
+   468	
+   469	## §6 Querying
+   470	
+   471	### 6.1 The flat per-node projection
+   472	
+   473	`project : tree → #{[id tag & slots]}`, one row per distinct subtree:
+   474	
+   475	- `id` is the subtree's address (§4.3);
+   476	- `tag` is the node's tag;
+   477	- a `node` slot holds the child's address; a `nodes` slot holds a vector of
+   478	  child addresses; every other slot holds its data unchanged.
+   479	
+   480	Because a tag has one arity in the tree, it has one arity in the projection
+   481	(arity plus one for the id). Rows of one tag are homogeneous, so a
+   482	where-pattern for a tag has exactly that tag's arity and no padding. Rows
+   483	from many trees union into one relation without collision, because ids are
+   484	addresses. Identical subtrees collapse to one row; an occurrence count is
+   485	a count over parent slots or over the occurrence relation below, not over
+   486	rows. The collapse is an identity use and is gated by §4.2.
+   487	
+   488	The §2.1 example projects to:
+   489	
+   490	```clojure
+   491	#{[A :lambda [x] B]
+   492	  [B :application C [D E] true]
+   493	  [C :variable +]
+   494	  [D :variable x]
+   495	  [E :literal 1]}          ; A..E are :segment/sha256-… addresses
+   496	```
+   497	
+   498	A second projection, `occurrences : tree → #{[root-address path
+   499	node-address]}`, one row per place, is the join key between the flat rows
+   500	and every occurrence-keyed side table of §2.5. It is computed by the same
+   501	walk that computes `project`.
+   502	
+   503	### 6.2 Segment rows
+   504	
+   505	`project-segment : vector → [[pc tag & ops] …]`, the instruction vector with
+   506	pc prepended. This relation is per segment: pcs collide across segments,
+   507	and source scope belongs to the interpreter, never to a tuple slot
+   508	(`datom.world.md:34`). A query over several segments takes them as
+   509	separate sources (`:in $ $2 …`) or uses the **segment-qualified form**
+   510	`[segment-address pc tag & ops]`, which adds one to every tag's arity
+   511	uniformly and keeps per-tag arity fixed. Bare-pc rows from different
+   512	segments are never unioned into one relation.
+   513	
+   514	### 6.3 `q` over both, and the mechanics it rests on
+   515	
+   516	`q` accepts these relations through `query/relation`
+   517	(`src/cljc/dao/space/query.cljc:153-158`), whose contents are an arbitrary
+   518	mixed-dimensional tuple collection. A pattern clause is exact-arity
+   519	positional unification: `eval-pattern-clause` (`query.cljc:894-907`) parses
+   520	the pattern (`query.cljc:419-436`), and on the general path unifies every
+   521	row through `unify-slots` (`query.cljc:799-809`), which first requires
+   522	`tuple-shape-matches?` (`query.cljc:439-441`) and then unifies slot by
+   523	slot. A final `& ?tail` binds the remaining slots as a vector and `& _`
+   524	ignores them (`query.cljc:431-436`, `:807-808`). The 3-slot EAV fast path
+   525	(`query.cljc:899`) engages only when the source carries a fact index, which
+   526	`fact-relation` (`query.cljc:172-177`) and the datom views supply; the code
+   527	relations never do, so every code pattern takes the general path by
+   528	construction.
+   529	
+   530	Verified shapes, each of which is a rule a query author may rely on:
+   531	
+   532	- **Per-tag selection.** `[?id :variable ?name]` matches only arity-3 rows.
+   533	- **Joins across arities.** `[?site :application ?op _ _] [?op :variable
+   534	  ?f]` joins an arity-5 row to an arity-3 row on the address.
+   535	- **Operand membership** goes through a predicate: `[(member? ?operands
+   536	  ?x)]` with `member?` supplied under `:fns`; predicate arguments must
+   537	  already be bound.
+   538	- **Ledger as-of** (§8.6) and **ref-to-code joins** (§6.4) run in one
+   539	  query, the ref pattern on the fast path and the code pattern on the
+   540	  general path.
+   541	
+   542	Two gotchas are rules:
+   543	
+   544	- `match` (`query.cljc:520-528`) is constant-or-wildcard selection:
+   545	  `slots-match?` (`query.cljc:444-449`) treats only `_`, nil, and the
+   546	  internal free marker as wildcards (`query.cljc:409-411`), so a `?var`
+   547	  written in a `match` pattern is compared as a constant and binds nothing.
+   548	  Use `q` to bind.
+   549	- `:fns` keys are quoted symbols: `eval-fn-clause` looks the clause head up
+   550	  as a symbol (`query.cljc:1099`), and the builtins merge under the same
+   551	  keys (`query.cljc:1436-1438`). `{:fns {'member? f}}`, as
+   552	  `test/dao/space/stigmergy_test.clj:228` writes it.
+   553	
+   554	### 6.4 Refs joined by address
+   555	
+   556	A ref is a datom whose `v` is an address (§8). A name is an entity carrying
+   557	`:yin/name`; joining refs to code is a join on the address value:
+   558	
+   559	```clojure
+   560	;; every call site, in the tree currently named `my.ns/f`, whose operator is `+`
+   561	[:find ?root ?path
+   562	 :in $refs $code $occ
+   563	 :where [$refs ?e :yin/name my.ns/f]          ; bind the name entity
+   564	        [$refs ?e :yin/code ?root]            ; 3-slot, fast path, current view
+   565	        [$code ?site :application ?op _ _]    ; general path
+   566	        [$code ?op :variable +]
+   567	        [$occ ?root ?path ?site]]             ; every place that content occurs in this tree
+   568	```
+   569	
+   570	`$refs` is a `current` view (§8.6), so the name resolves to its current
+   571	address. The result names places, not contents: the occurrence relation
+   572	turns one shared site row into one result per place.
+   573	
+   574	### 6.5 What goes to the datom projection instead
+   575	
+   576	A tree also projects to datoms, `[e a v t m]` with tempids minted in
+   577	preorder and one extra fact `[e :yin/address addr]` per node so the
+   578	projection joins back to refs. This is the successor of `ast->datoms`
+   579	(`v2.cljc:372-482`) and is the *projection path* of §7.1. It exists for
+   580	three queries the flat rows deliberately do not serve:
+   581	
+   582	| Query | Why the datom projection |
+   583	|---|---|
+   584	| attribute-dimension queries with the attribute unbound, `[?e ?a ?v]` | a flat row has no attribute slot; "every fact about this node" is an EAV question |
+   585	| `pull` and `entity-attrs` navigation (`query.cljc:715`, `:1481`) | they navigate entity → attribute → value and reverse attrs |
+   586	| scale indexing under covered indexes (`dao.space.index`) | the covered-index publisher and `open-published!` are EAVT/AEVT/AVET/VAET over datoms (`query.cljc:452-476`) |
+   587	
+   588	The datom projection never becomes an identity: its `e` values are local,
+   589	and the only durable name in it is the `:yin/address` value.
+   590	
+   591	---
+   592	
+   593	## §7 The VM around it
+   594	
+   595	### 7.1 Load paths
+   596	
+   597	Direct tuple loading is primary. A batch on the program stream is one
+   598	canonical tree (AST medium) or one canonical instruction vector (code
+   599	medium), and the evaluator's loader takes it as is:
+   600	
+   601	| Evaluator | Loader input | What loading does |
+   602	|---|---|---|
+   603	| walker | tree | validate (§7.4), set `:program` and `:control` to the tree; no conversion, the tuple is the node |
+   604	| semantic | instruction vector | validate (§7.5), decode positional operands into the image (the `case` of `semantic.cljc:563-593` reading `(nth tuple i)` instead of attribute maps), store under `:code` with the address as the alias column UCF §7.3.4 requires |
+   605	| semantic, AST medium | tree | `lower` (§5.2) then the row above; composed by the composition exactly as `linearize/ast-loader` is today (`linearize.cljc:269-286`, chosen in `src/cljc/yin/repl/core.cljc:63-68`) |
+   606	
+   607	Datom-batch loading is the projection path: a batch of `:yin/*` datoms is
+   608	decoded to a tree by the successor of `datoms->ast` (`v2.cljc:494-559`)
+   609	and then loaded as above; a batch of `:yin.code/*` datoms is decoded to a
+   610	vector by UCF §7.3.4's projection rule and then loaded as above. The
+   611	projection path exists for media that carry datoms and for the datom
+   612	projection of §6.5; it is not a second loader and it runs the same
+   613	validator (§7.2).
+   614	
+   615	### 7.2 Conformance: both paths, one validator, one image
+   616	
+   617	**This section supersedes the sentence in UCF §7.3.4 that names the
+   618	projection path as the reference path.** Under the owner's ruling the
+   619	direct path is primary and the reference; the projection path is derived
+   620	from it. Everything else in §7.3.4 stands.
+   621	
+   622	Both paths invoke the same validator (§7.4 for trees, §7.5 for vectors)
+   623	before anything is registered, and the conformance obligation has three
+   624	parts:
+   625	
+   626	1. **Valid corpus, same result.** For every corpus program, loading the
+   627	   tree directly and loading its datom projection yield the same walker
+   628	   `:program` value; loading the instruction vector directly and loading
+   629	   its datom projection yield the same image. Keyword store keys
+   630	   (`parity_test.cljc:99`) are part of the corpus and must round-trip on
+   631	   both paths.
+   632	2. **Malformed input, same refusal.** For a published set of malformed
+   633	   vectors, each violating one rule of §7.5, and malformed trees, each
+   634	   violating one rule of §7.4, both paths refuse with the same defect
+   635	   (rule and pc, or rule and path). A correctly hashed `[[:jump 9]]` is in
+   636	   the set. Image equality on valid input does not establish this; the
+   637	   malformed set does.
+   638	3. **Several segments loaded.** Loading two or more segments through each
+   639	   path yields the same `:code` map and the same address alias column, and
+   640	   a second segment claiming a live local id fails identically on both.
+   641	
+   642	The obligation fails exactly when the tuple grammar and the datom schema
+   643	have drifted apart, which is the property that makes it the VM's own test
+   644	of this design.
+   645	
+   646	### 7.3 Validation is the tuple grammar
+   647	
+   648	A tuple loader validates before it decodes, and validation is the §2 table
+   649	plus the structural rules a segment needs, nothing else. Both checkers
+   650	mirror `code/well-formed?` (`code.cljc:155-180`): each returns nil or the
+   651	first defect, rules run in order, and each rule may assume the earlier ones
+   652	held.
+   653	
+   654	### 7.4 Tree rules
+   655	
+   656	Defects name a path (§2.5).
+   657	
+   658	| Rule | Defect when |
+   659	|---|---|
+   660	| `:tag` | the first element is not a tag of §2.3 |
+   661	| `:arity` | the count differs from the tag's arity |
+   662	| `:slot-kind` | a slot's value is not of the slot's kind: a `node` slot that is not a vector with a tag, a `nodes` slot that is not a vector of such, a `data` slot failing `plain-data?`, a `key` slot that is neither symbol nor keyword, a `bool` slot that is not `true`/`false`, a `syms` slot with a non-symbol |
+   663	| `:saturation` | a saturated slot (§2.4) is nil |
+   664	| `:encoder-domain` | a `data` slot's value contains a list (§4.2); this rule is removed when the type-preserving encoding lands |
+   665	
+   666	### 7.5 Vector rules
+   667	
+   668	Defects name a pc. Rules 1–4 of `yin.vm.semantic.md` §2.6 (one segment,
+   669	dense pcs, sorted by pc, refs resolve to entities) are satisfied by the
+   670	vector form by construction and have no rule here; rules 5 and 6 and the
+   671	UCF §7.3.4 checks are translated as follows.
+   672	
+   673	| Rule | Defect when |
+   674	|---|---|
+   675	| `:nonempty` | the vector has no instructions |
+   676	| `:mnemonic` | the first element is not a mnemonic of `code/mnemonics` (`code.cljc:12-16`) |
+   677	| `:arity` | the tuple's count differs from the mnemonic's arity in `yin.vm.semantic.md` §2.4 as saturated by UCF §7.3.2 |
+   678	| `:operand-kind` | an operand is not of its kind: `:const` and `:store-put` values fail `plain-data?`, a `:var` name is not a symbol, a `:closure` params is not a vector of symbols, a `:store-get`/`:store-put` key is neither symbol nor keyword, a `:ffi-call` op or `:resume` parked id is not a keyword, a `:gensym` prefix is not a string |
+   679	| `:saturation` | a saturated operand (`:gensym` prefix, `:stream-make` buffer, `:call` tail?, `:ffi-call` argc) is nil |
+   680	| `:target-bounds` | a `:jump`/`:branch-false` target or a `:closure` body is not an integer in `[0, length)` |
+   681	| `:terminator` | the last instruction is not in `code/terminators` (`code.cljc:19-21`) |
+   682	| `:argc` | a `:call`/`:ffi-call` argc is not a non-negative integer |
+   683	| `:encoder-domain` | a `:const` or `:store-put` value contains a list (§4.2); removed with the encoding |
+   684	
+   685	The address check (the vector hashes to the address it claims) is UCF
+   686	§7.3.4's and runs before these rules whenever an address is claimed; a
+   687	correct hash is never structural validation. The failure outcome of both
+   688	checkers on the UCF lowering path is `:yin.k/undecodable` naming the pc or
+   689	path, as §7.3.4 already specifies; on a local load it is a load error
+   690	naming the same.
+   691	
+   692	### 7.6 The hot loop never queries
+   693	
+   694	The walker dispatches on `(nth node 0)` and reads slots by position; the
+   695	semantic VM runs `(aget code pc)` over an image decoded once at load
+   696	(`yin.vm.semantic.md` §3.1). Neither touches a relation, a ref, an address
+   697	index, or a projection while stepping. Projection and query are load-time
+   698	and tooling-time operations. This is the rule that keeps
+   699	`yin.vm.semantic.md` §6's cost model intact under this design: queryability
+   700	is paid once at load, or by whoever asks, never per step.
+   701	
+   702	### 7.7 Dependency closure is Datalog over the tuples
+   703	
+   704	UCF §7.6.1 computes `:yin.k/requires` by a conservative fixed point over
+   705	values, code, names, and modules. The **code part** of that fixed point is
+   706	the queries below, run over the flat projection of every reachable tree
+   707	and the segment-qualified rows (§6.2) of every reachable segment. The
+   708	value, name-satisfaction, and module parts remain the walk §7.6.1
+   709	specifies; these queries supply their inputs and do not replace them.
+   710	
+   711	Extraction over trees (`$ast` is the union of flat rows of the reachable
+   712	trees):
+   713	
+   714	```clojure
+   715	;; names, every one, not only free ones (UCF §7.6.1, Names)
+   716	[:find ?name :in $ast :where [$ast _ :variable ?name]]
+   717	
+   718	;; store keys read or written by code
+   719	[:find ?key :in $ast :where (or [$ast _ :vm/store-get ?key]
+   720	                                [$ast _ :vm/store-put ?key _])]
+   721	
+   722	;; FFI ops
+   723	[:find ?op :in $ast :where [$ast _ :dao.stream.apply/call ?op _]]
+   724	
+   725	;; parked ids named by resume
+   726	[:find ?pid :in $ast :where [$ast _ :vm/resume ?pid _]]
+   727	
+   728	;; effect kinds raised by syntax itself: the tag is the effect kind
+   729	[:find ?tag :in $ast
+   730	 :where [$ast _ ?tag & _]
+   731	        [(contains? #{:stream/make :stream/put :stream/cursor :stream/next
+   732	                      :stream/close :vm/park :vm/resume :vm/gensym
+   733	                      :vm/store-get :vm/store-put :vm/current-continuation} ?tag)]]
+   734	```
+   735	
+   736	Extraction over segments (`$code` is the union of segment-qualified rows):
+   737	
+   738	```clojure
+   739	[:find ?name :in $code :where [$code _ _ :var ?name]]
+   740	[:find ?key  :in $code :where (or [$code _ _ :store-get ?key]
+   741	                                  [$code _ _ :store-put ?key _])]
+   742	[:find ?op   :in $code :where [$code _ _ :ffi-call ?op _]]
+   743	[:find ?pid  :in $code :where [$code _ _ :resume ?pid]]
+   744	[:find ?mn   :in $code
+   745	 :where [$code _ _ ?mn & _]
+   746	        [(contains? #{:stream-make :stream-put :stream-cursor :stream-next
+   747	                      :stream-close :park :resume :gensym :store-get
+   748	                      :store-put :current-continuation} ?mn)]]
+   749	```
+   750	
+   751	Composition with the rest of §7.6.1, as rules:
+   752	
+   753	- **Names to callables.** Each extracted name that is not bound by a
+   754	  carried environment or a store-slice key is a required primitive or
+   755	  module export, checked by profile (UCF §7.5.2). The **effects of a
+   756	  callable are read from its profile** (`:yin.k/effects`), never inferred
+   757	  from the name; `yin/def` contributes `:vm/store-put` and `require`
+   758	  contributes `:module/require` because their profiles say so. A name with
+   759	  no profile at the emitter sets `:yin.k/discovery :incomplete`.
+   760	- **Parked ids.** Each extracted parked id must name a record in the
+   761	  carried `:parked` slice (UCF §7.6.3); a missing one is `:yin.k/unsatisfied`
+   762	  naming the id.
+   763	- **Values.** Closures, streams, and cursors reachable from the frame, the
+   764	  K frames, parked records, the store slice, and the pending wait
+   765	  contribute segment addresses and stream identities as §7.6.1 specifies;
+   766	  each newly reached address is fetched, projected, and its rows added to
+   767	  `$ast` or `$code`, and the queries are re-run until no new address
+   768	  appears.
+   769	- **Modules.** A required module with an undeclared footprint sets
+   770	  `:yin.k/discovery :incomplete`, as §7.6.1 already rules.
+   771	
+   772	Discovery is `:complete` only when every reachable address was fetched
+   773	and validated, every name resolved to a profile or a carried binding,
+   774	every parked id resolved, and every module footprint was declared. It is
+   775	`:blocked` when an address cannot be fetched and `:incomplete` otherwise.
+   776	Recasting the walk as Datalog changes where the facts come from, not the
+   777	conservatism of the closure, and it does not resolve the cross-activation
+   778	name question §7.6.1 deliberately declines to guess at: every name is
+   779	collected, whatever environment might bind it.
+   780	
+
+context compacted
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '780,1140p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   780	
+   781	Because the queries are over data, they answer for a tree that has never
+   782	run, which is the property §7.6.1 names.
+   783	
+   784	---
+   785	
+   786	## §8 The ledger and refs
+   787	
+   788	### 8.1 Two notations, one relation
+   789	
+   790	The ledger is one logical relation with rows `[t op address ref]`, ruling
+   791	6's shape: `t` is the ledger's clock, `op` is drawn from an open
+   792	vocabulary, `address` is a content address, and `ref` is the row's other
+   793	argument, a name entity or a second address. This document writes ledger
+   794	facts in that notation when it speaks of the relation.
+   795	
+   796	The **persistent representation** of a row is datoms, and a datom is bound
+   797	by `datom.md`'s contract: `e`, `t`, and `m` are stream-local, `e` is a
+   798	non-negative integer, `m` is an integer, and `v` is the only slot that may
+   799	hold a foreign reference (`datom.md:140-180`). The transactor enforces
+   800	this: `local-datom?` (`src/cljc/dao/datom.cljc:42-58`) rejects a
+   801	non-integer `e` or `m`, and `pad-datom`
+   802	(`src/cljc/dao/space/transactor.cljc:74-90`) rejects a caller-supplied `t`
+   803	and stamps its own. Therefore a content address never appears in `e`, an
+   804	op keyword never appears in `m`, and `t` is never chosen by the writer.
+   805	The mapping between notations is:
+   806	
+   807	| Logical slot | Persistent carrier |
+   808	|---|---|
+   809	| `t` | the datom `t` the transactor stamped |
+   810	| `op` | for naming rows: the reserved validity marker in `m` (`:db/assert` 1, `:db/retract` 0); for every other op: the `:yin.ledger/op` value of a **ledger event entity** (§8.2) |
+   811	| `address` | a `v` slot |
+   812	| `ref` | for naming rows: the local name entity in `e`; for address-to-address rows: a second `v` slot of the same event entity |
+   813	
+   814	Anything written in the `[t op address ref]` notation below is a logical
+   815	row; anything written as `[e a v t m]` is transactor input, with `e` a
+   816	local integer or tempid, `t` nil at write time, and `m` a reserved marker.
+   817	
+   818	### 8.2 Ledger records and ledger events
+   819	
+   820	Every non-naming ledger fact is first a **ledger record**: a plain map,
+   821	content-addressed by `segment-key`, stored in `dao.jing` like any object.
+   822	Record shapes:
+   823	
+   824	| Op | Record | Meaning |
+   825	|---|---|---|
+   826	| `:derive` | `{:yin.ledger/op :derive :yin.ledger/input tree-addr :yin.ledger/output seg-addr :yin.ledger/function fn-name :yin.ledger/contract stamp}` | `output` was computed from `input` by `function` under `contract` (§5.2) |
+   827	| `:expand` | `{:yin.ledger/op :expand :yin.ledger/input tree-in :yin.ledger/output tree-out :yin.ledger/macro lambda-addr :yin.ledger/attempt attempt-id}` | one expansion attempt; failures carry `:yin.ledger/error` instead of `:yin.ledger/output` (§8.4) |
+   828	| `:publish` | `{:yin.ledger/op :publish :yin.ledger/subject occurrence-id :yin.ledger/output ucf-addr}` | a checkpoint occurrence was published as the UCF value at `output` (UCF §7.3.4) |
+   829	
+   830	A record is an object, so it is immutable, addressable, and verifiable,
+   831	and it is what "the hash chain" is made of: a record names its input and
+   832	output by address, and the record's own address is what the ledger
+   833	publishes. Walking the chain is following record addresses; a code object
+   834	never has to know its predecessor.
+   835	
+   836	A record enters the ledger as a **ledger event entity**, a local entity
+   837	(id ≥ `dao.datom/first-user-id`, `datom.cljc:27-40`) with the record's
+   838	fields as attributes and the record's address as one more:
+   839	
+   840	```clojure
+   841	[[:db/add ev :yin.ledger/op       :derive]
+   842	 [:db/add ev :yin.ledger/input    tree-addr]
+   843	 [:db/add ev :yin.ledger/output   seg-addr]
+   844	 [:db/add ev :yin.ledger/function :yin.vm/lower]
+   845	 [:db/add ev :yin.ledger/contract "v2/0"]
+   846	 [:db/add ev :yin.ledger/record   record-addr]]     ; ev is a tempid; m defaults to :db/assert
+   847	```
+   848	
+   849	Event operation and fact validity are separate by construction. The op is
+   850	a namespaced keyword in a `v` slot, globally meaningful without a
+   851	reserved id, which is `datom.md`'s own rule for built-ins that live in `a`
+   852	and `v` (`datom.md:214-217`); the datoms of the event carry the ordinary
+   853	`:db/assert` marker and fold as ordinary facts. No reserved `m` id is
+   854	allocated, because reserved ids have one global meaning everywhere
+   855	(`datom.md:200-212`) and a composition cannot mint one. Where a
+   856	composition wants an event to be the provenance of a naming fact, the
+   857	naming datom's `m` names the event entity through the established
+   858	metadata-entity mechanism, an id ≥ 16 carrying `:db/op` and provenance
+   859	(`datom.cljc:2-7`, `datom.md:172-180`; the transactor's map-`m` input at
+   860	`src/cljc/dao/space/transact.cljc:15-29`). A fact whose `m` names a
+   861	metadata entity is live under the current fold, which removes only
+   862	`:db/retract` markers (`query.cljc:76-103`); a validity op other than
+   863	assert or retract is expressed by the reserved marker, never by the
+   864	event, so the fold needs no knowledge of the open vocabulary. Interpreting
+   865	a metadata entity's `:db/op` for Datomic-visible validity is the
+   866	prerequisite `dao.space.schema.datomic.md` §4 names and is outside this
+   867	design.
+   868	
+   869	The vocabulary is open: a composition that needs a new op declares a new
+   870	keyword and a record shape. A reader dispatches on the ops it understands
+   871	(`[?ev :yin.ledger/op :derive]`) and does not see the others, which is a
+   872	property of the query it writes, not of the fold.
+   873	
+   874	### 8.3 Rows of the one relation
+   875	
+   876	| Logical row | Persistent form |
+   877	|---|---|
+   878	| `[t :assert tree-addr name]` — a name refers to a tree | `[:db/add name :yin/code tree-addr]` |
+   879	| `[t :retract tree-addr name]` — the name no longer does | `[:db/retract name :yin/code tree-addr]`, followed by the new assertion |
+   880	| `[t :derive seg-addr tree-addr]` — a segment was lowered from a tree | a `:derive` event entity (§8.2); direction: `input` is the tree, `output` is the segment |
+   881	| `[t :assert seg-addr k-occurrence]` — a segment is the address a continuation names | `[:db/add occ :yin.k/segment seg-addr]` on the local occurrence entity |
+   882	| `[t :expand tree-out tree-in]` — a tree is the expansion of another | an `:expand` event entity (§8.4) |
+   883	| `[t :assert lambda-addr name]` under `:yin.macro/definition` | not a ledger row at all: macro-ness is an occurrence-bound declaration beside the tree (§8.5); the ledger records only the expander's harvest result, `[:db/add name :yin.macro/definition lambda-addr]`, for queries |
+   884	| `[t :publish ucf-addr occurrence]` — a checkpoint occurrence was published | a `:publish` event entity; custody stays `dao.lease.md`'s vocabulary unchanged (UCF §7.7.2), keyed by the same local occurrence entity |
+   885	| `[t :assert tree-addr manifest]` — a module manifest pins a tree | `[:db/add manifest :yin.module/exports tree-addr]` |
+   886	
+   887	`:yin.code/derived-from` therefore keeps its name as a query alias for
+   888	"the `:yin.ledger/input` of a `:derive` event whose output is this
+   889	address" and is no longer an attribute of the segment (`v2.cljc:327`,
+   890	`linearize.cljc:212`).
+   891	
+   892	### 8.4 Expansion events keep their identity
+   893	
+   894	`yin.vm.macro.md` §4.1 records one event per attempt, successful or not,
+   895	including repeated identical expansions, and links the event to its output
+   896	(`yin.vm.macro.md:666-709`). This design keeps that contract: the
+   897	`:expand` event entity **is** that event, one per attempt, and the address
+   898	rows are attributes of it, not a replacement for it:
+   899	
+   900	```clojure
+   901	[[:db/add ev :yin.ledger/op        :expand]
+   902	 [:db/add ev :yin.ledger/input     tree-in-addr]        ; the tree containing the call
+   903	 [:db/add ev :yin.ledger/call      [tree-in-addr path]]  ; the occurrence of the call (§2.5)
+   904	 [:db/add ev :yin.ledger/output    tree-out-addr]       ; on success
+   905	 [:db/add ev :yin.ledger/macro     lambda-addr]         ; the macro's content
+   906	 [:db/add ev :yin.ledger/attempt   n]                   ; per-expander attempt counter
+   907	 [:db/add ev :yin/source-batch     batch-id]            ; unchanged from §4.1
+   908	 [:db/add ev :yin/error            {...}]               ; on failure, unchanged
+   909	 [:db/add ev :yin/timestamp        ctx-t]]              ; unchanged
+   910	```
+   911	
+   912	`:yin/expansion-root`, `:yin/source-call`, `:yin/source-node`, and
+   913	`:yin/macro` of §4.1 are carried by `:yin.ledger/output`,
+   914	`:yin.ledger/call`, and `:yin.ledger/macro` with addresses and occurrence
+   915	keys as values; the other event attributes are unchanged. Two attempts
+   916	that expand identical input to identical output are two events with equal
+   917	address attributes and distinct attempt numbers, so nothing is conflated.
+   918	Because the values are addresses and occurrence keys, the cross-media
+   919	identity problem of `yin.vm.macro.md` §4.2 does not arise for them: the
+   920	same tree has the same address on `program-in`, `program-out`, and the
+   921	log. The event entity itself is local to the log medium, as it is today.
+   922	
+   923	### 8.5 Macro declarations travel beside the tree
+   924	
+   925	The `:macro?` flag is outside the canonical tree (§2.5). What replaces it
+   926	is a **declaration fact bound to an occurrence**, produced by the frontend
+   927	and consumed by the expander at admission. The composition between them
+   928	is:
+   929	
+   930	```clojure
+   931	{:yin/code          <tree>                          ; canonical, addressable
+   932	 :yin/declarations  #{[path :yin.macro/definition] …}}  ; occurrence-bound facts about this tree
+   933	```
+   934	
+   935	Rules:
+   936	
+   937	- **Binding.** A declaration `[path :yin.macro/definition]` names the
+   938	  `:application` at `path` in `:yin/code`; that node must be
+   939	  `(yin/def <literal sym> <lambda>)`, i.e. operator `[:variable yin/def]`,
+   940	  first operand a `:literal` symbol, second operand a `:lambda`. A
+   941	  declaration whose path does not resolve to such a node is an admission
+   942	  failure, `{:kind :malformed-input :reason :stray-macro-declaration}`,
+   943	  the successor of `yin.vm.macro.md` §3.1 step 1's `:stray-macro-lambda`.
+   944	- **Ordering.** Harvest order is preorder of paths, which is batch order
+   945	  in the map form (`yin.vm.macro.md:242-249`); last wins.
+   946	- **Missing fact.** A `(yin/def sym v)` with no declaration at its path is
+   947	  a plain definition. If `sym` is currently a macro, the plain definition
+   948	  removes it, exactly as `yin.vm.macro.md` §3.1 step 2 rules.
+   949	- **Scope.** Harvest is syntactic and whole-batch, as today; a declaration
+   950	  in an unexecuted branch is in force for the batch. Declarations are per
+   951	  batch and never persist beyond the harvest that consumed them; the
+   952	  harvested store is the expander's state.
+   953	- **Redefinition.** Two batches that carry identical trees differ in
+   954	  behaviour only through their declarations, which is the intended
+   955	  separation: content is what the program is; being a macro is what this
+   956	  occurrence of a definition is *for*.
+   957	
+   958	This replacement protocol, not the expander itself, is the blocker
+   959	(§10.5): tuple evaluation without macros needs none of it, and the v2
+   960	expander does not exist yet.
+   961	
+   962	### 8.6 As-of queries are ledger views
+   963	
+   964	Current value of a name uses the implemented current-state interpreter,
+   965	which resolves the greatest `t` per `[e a v]` and then removes retractions
+   966	(`query/current`, `query.cljc:204-212`; the fold `current-state-seq`,
+   967	`query.cljc:76-103`):
+   968	
+   969	```clojure
+   970	(q '[:find ?addr . :in $ ?name :where [?e :yin/name ?name] [?e :yin/code ?addr]]
+   971	   (query/current refs) 'my.ns/f)
+   972	```
+   973	
+   974	Value of a name as of `?t` is the same view with its as-of argument, which
+   975	bounds visible datoms to `t ≤ ?t` before folding
+   976	(`query/current` two-arity, `query.cljc:210-212`; `bound-datoms`,
+   977	`query.cljc:68-73`):
+   978	
+   979	```clojure
+   980	(q '[:find ?addr . :in $ ?name :where [?e :yin/name ?name] [?e :yin/code ?addr]]
+   981	   (query/current refs t) 'my.ns/f)
+   982	```
+   983	
+   984	A hand-written negation over raw d5 rows is not the contract and is not
+   985	used: "any retraction before `?t`" wrongly removes an address that was
+   986	retracted and later reasserted, whereas the fold's latest-event-wins per
+   987	`[e a v]` keeps it. A query that must inspect raw rows selects the latest
+   988	event per `[e a v]` with `max ?t` first and interprets that row's `m`
+   989	second.
+   990	
+   991	Provenance walks are joins over event entities:
+   992	
+   993	```clojure
+   994	;; what was this segment lowered from, and what did that expand from
+   995	[:find ?src
+   996	 :in $ ?seg
+   997	 :where [?d :yin.ledger/op :derive] [?d :yin.ledger/output ?seg] [?d :yin.ledger/input ?tree]
+   998	        [?x :yin.ledger/op :expand] [?x :yin.ledger/output ?tree] [?x :yin.ledger/input ?src]]
+   999	```
+  1000	
+  1001	---
+  1002	
+  1003	## §9 Migration surface
+  1004	
+  1005	### 9.1 The mechanical sweep
+  1006	
+  1007	Every site that constructs or reads a map node changes to the positional
+  1008	form, and every site that writes into a held node changes to the frame
+  1009	schema of §2.6. The semantics do not change; the reads and the frames do.
+  1010	
+  1011	| Site | Change |
+  1012	|---|---|
+  1013	| walker cold syntax arms, `ast_walker.cljc:359-469` | `(:type node)` → `(nth node 0)`; field reads → slot reads; add the `:stream/close` arm (§3.2); the `:vm/store-update` arm goes with the map path (§3.1) |
+  1014	| walker cold continuation arms, `ast_walker.cljc:205-358` | `:eval-operator` (`:206-222`), `:eval-operand` (`:223-238`), `:eval-test` (`:239-244`), the FFI operand arm (`:245-260`), `:eval-stream-put-target` (`:287-296`): read `:node` and keep `:fn`/`:evaluated` in the frame per §2.6; no `assoc` into the node |
+  1015	| walker hot syntax arms, `ast_walker.cljc:600-626` | same as cold, five arms |
+  1016	| walker hot continuation arms, `ast_walker.cljc:502-599` | `:eval-operator` (`:503-541`), `:eval-operand` (`:542-582`), `:eval-test` (`:583-589`): same frame change as the cold arms |
+  1017	| linearizer, `linearize.cljc:87-148` and `:230-242` | `lower-node` reads slots from the tree instead of `get-attr` over a datom index; `ast-children` becomes a table lookup of `node`/`nodes` slot positions; `lower` takes a tree and returns a vector plus the §5.3 provenance table, and `lower-ast` goes away |
+  1018	| codec, `v2.cljc:372-559` | becomes the §6.5 projection pair `tree->datoms` / `datoms->tree`; `:yin/tail?` emitted only from `:application`; `:yin/macro?`, `:yin/root`, `:eid` handling removed; `:yin/address` added |
+  1019	| `code/well-formed?`, `code.cljc:155-180` | keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on both paths after it |
+  1020	| `semantic/load-image`, `semantic.cljc:524-596` | decodes from the vector directly on the primary path; the datom path projects first; both call the §7.5 validator |
+  1021	| frontends `src/cljc/yang/clojure.cljc`, `python.cljc`, `php.cljc` | emit `{:yin/code tree :yin/declarations …}` (§8.5); drop `:eid`, `:macro?`, `:phase-policy`, and non-`:application` tail marks at the boundary. Until each frontend is swept, one map-to-tuple encoder at the frontend boundary saturates, strips, converts, and turns each `:macro? true` lambda under a `yin/def` into a declaration at its path, so the evaluators see only tuples from the first day |
+  1022	
+  1023	Tests that construct map ASTs, counted by occurrences of a node-type key on
+  1024	2026-09-14 (`grep -cE ':type :(application|lambda|literal|variable|if)'`;
+  1025	the counts are matching lines, not nodes or edits):
+  1026	
+  1027	| File | Occurrences |
+  1028	|---|---|
+  1029	| `test/datomworld/demo/continuation_handoff_v2_test.cljc` | 64 |
+  1030	| `test/yin/vm/ast_walker_test.cljc` | 49 |
+  1031	| `test/yin/vm/parity_test.cljc` | 36 |
+  1032	| `test/yang/clojure_test.clj` | 36 |
+  1033	| `src/clj/yin/demo_v2.clj` | 29 |
+  1034	| `test/yang/python_test.clj` | 19 |
+  1035	| `src/cljd/yin/register_bench_cljd_v2.cljd` | 19 |
+  1036	| `test/bench/yin_vm_bench.cljc` | 16 |
+  1037	| `test/yang/php_test.clj` | 14 |
+  1038	| `test/yin/vm/semantic_stream_observer_test.cljc` | 12 |
+  1039	| `test/yin/vm_test.cljc` | 7 |
+  1040	| `test/yin/vm/linearize_test.cljc` | 5 |
+  1041	| `test/yin/vm/semantic_ffi_test.cljc`, `semantic_engine_test.cljc` | 4 each |
+  1042	| `test/yin/vm/ffi_test.cljc`, `engine_test.cljc` | 1 each |
+  1043	
+  1044	Tests that inspect continuation frames (`continuation_handoff_v2_test`,
+  1045	`ast_walker_test`) also change with §2.6; the count above understates
+  1046	those.
+  1047	
+  1048	The v1 lineage (`src/cljc/yin/vm.cljc`, `test/yin/vm/ast_walker_test.cljc`,
+  1049	`test/yin/vm/ast_conversion_test.cljc`, `runtime_regression_test.cljc`) is
+  1050	outside this sweep; it stays on maps until it is retired.
+  1051	
+  1052	### 9.2 The observer lane: an integration item to scope, not a solved detail
+  1053	
+  1054	Program input reaches an evaluator through
+  1055	`dao.stream.observer/run-on-stream` (`src/cljc/dao/stream/observer.cljc:217-247`),
+  1056	which is shape-agnostic: it hands each observed batch to a
+  1057	composition-supplied `load`. The per-evaluator loaders are chosen in
+  1058	`yin.repl.core/program-loaders` (`repl/v2/core.cljc:63-68`) and today
+  1059	accept datom batches; the REPL's own eval path still converts a
+  1060	semantic-VM AST through `ast->datoms` before it travels
+  1061	(`repl/v2/core.cljc:444-449`). Two things about the tuple lane are
+  1062	**unverified**:
+  1063	
+  1064	- **The batch shape.** Whether one batch is one tree, one `{:yin/code
+  1065	  :yin/declarations}` value (§8.5), one vector, or a collection of them is
+  1066	  a medium contract this design has not exercised end to end; §7.1 assumes
+  1067	  one canonical value per batch. The shape must be fixed with the REPL
+  1068	  shell and the `yin.vm.stream-observer` tests before the loaders are
+  1069	  switched.
+  1070	- **The program-input predicate.** `engine/executable-program-datom?`
+  1071	  (`engine.cljc:511-513`) decides what counts as program input by testing
+  1072	  the attribute namespace of an `[e a v t m]` row, and
+  1073	  `append-program-datoms` (`engine.cljc:590-612`) builds on it. A tuple
+  1074	  batch has no attribute slot. A repository search on 2026-09-14 found no
+  1075	  caller of the v2 `append-program-datoms` beyond its own overload, so a
+  1076	  tuple counterpart is not presumed necessary; whether any live
+  1077	  composition reaches the predicate is what the implementation phase
+  1078	  establishes before deciding.
+  1079	
+  1080	Both are integration items to scope in the implementation phase.
+  1081	
+  1082	### 9.3 What stays on datoms, and why
+  1083	
+  1084	- **The ledger, every ref, and every ledger event** (§8): mutability,
+  1085	  history, provenance, and custody are datom properties, and the
+  1086	  transactor is what possesses them.
+  1087	- **`dao.space.index` and published covered indexes**: they index datoms,
+  1088	  and the scale path of §6.5 goes through them.
+  1089	- **The macro expander's event log** (§8.4): events are entities with
+  1090	  attributes, one per attempt; only their values changed kind.
+  1091	- **The datom projection of code** (§6.5): kept for the three query classes
+  1092	  it alone serves, regenerable from the object at any time.
+  1093	- **Execution traces** (`yin.vm.semantic.md` §3.6): state over time is a
+  1094	  datom stream by design and is untouched.
+  1095	
+  1096	---
+  1097	
+  1098	## §10 Acceptance blockers and open items
+  1099	
+  1100	1. **Type-preserving canonical encoding in `dao.jing`** — declared,
+  1101	   inherited, and gating every identity use (§4.2). Until
+  1102	   `order-normalize` (`jing.cljc:45-64`) stops coercing lists to vectors,
+  1103	   `[:literal (1 2)]` and `[:literal [1 2]]` share an address, and any
+  1104	   cache, projection merge, DAG share, object resolution, or ledger row
+  1105	   that treats equal addresses as equal values is sound only over the
+  1106	   restricted domain the `:encoder-domain` rule admits. Process lifetime
+  1107	   is irrelevant. This design does not close the item.
+  1108	2. **The observer-lane batch shape and the program-input predicate**
+  1109	   (§9.2) — integration items with no design answer in this document.
+  1110	3. **Ledger event representation on the transactor** (§8.2): the
+  1111	   event-entity form is legal under `local-datom?` as written, but the
+  1112	   map-`m` provenance path (`transact.cljc:15-29`) and the metadata-op
+  1113	   interpreter `dao.space.schema.datomic.md` §4 names are not exercised by
+  1114	   this design's tests yet. The naming rows need neither; the provenance
+  1115	   link from a naming fact to its event does.
+  1116	4. **The primitive-profile registry** — inherited from UCF §7.11. Every
+  1117	   `:variable` that resolves to a primitive (`engine.cljc:46-58`) is
+  1118	   checked by profile under UCF §7.5.2, and §7.7 reads callable effects
+  1119	   from profiles; until `yin.vm/primitives` (`v2.cljc:100-132`) is
+  1120	   published with profiles, dependency closure reports names and
+  1121	   `:incomplete`, not satisfiable bindings.
+  1122	5. **The macro declaration carriage** (§8.5): the frontend-to-expander
+  1123	   composition that replaces `:macro?` must exist before any tuple program
+  1124	   containing a macro definition can be admitted. The v2 expander itself
+  1125	   does not exist yet (`src/cljc/yin/vm/` has no `macro.cljc`) and is
+  1126	   not a blocker for tuple evaluation without macros; §8.4's event shape
+  1127	   is specified against `yin.vm.macro.md`, not against code.
+  1128	6. **Occurrence-keyed provenance in the lowering** (§5.3): the linearizer
+  1129	   must emit `[segment-address pc root-address path]` beside the vector.
+  1130	   Without it, instruction-to-source rendering cannot distinguish identical
+  1131	   sites.
+  1132	7. **Per-lambda subterm addressing** — a follow-up (§4.3), not a blocker.
+
+exec
+/bin/zsh -lc 'cat collab/1789395574000-architect-tuples-review.gpt-6-astra.findings.md' in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+Completed-GMT: 2026-09-14 14:27:29 GMT  
+Completed-Local: 2026-09-14 21:27:29 Asia/Ho_Chi_Minh  
+Coding-Agent: codex  
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+**Verdict: REJECT**
+
+The tuple representation is viable, and most of the AST inventory is accurate. The blocking problems are in its integration: the store-key grammar rejects supported programs, the proposed persistent ledger violates datom coordinates, and provenance, dependency queries, and migration rules need substantive corrections. These findings concern implementation of the seven rulings, not the rulings themselves.
+
+**Numbered findings**
+
+1. **P1 — Symbol-only store keys exclude existing supported programs.**  
+   **Draft:** §2.3, [lines 122–123](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:122).
+
+   Both store operations declare `key` as `sym`. The walker, codec, and linearizer preserve the supplied key without that restriction. An existing parity case uses `:parity/k` ([parity_test.cljc, line 99](/Users/sto/workspace/datomworld/test/yin/vm/parity_test.cljc:99)).
+
+   I verified that the reference linearizer and loader accept this case and produce:
+
+   ```clojure
+   [[11 :parity/k 11] [23]]
+   ```
+
+   **Fix:** Define store keys as the portable data accepted by the store contract, or introduce an explicit compatible key kind. Do not silently narrow them to symbols. Include keyword-key round trips in both-path conformance tests.
+
+2. **P1 — The store-update replacement is not generally equivalent, although excluding the tag is justified.**  
+   **Draft:** §3.1, [lines 204–222](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:204).
+
+   The original arm directly applies its stored host function and stores the returned value ([walker, lines 410–415](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:410)). An application instead resolves `f` and `yin/def` through environment/store/primitive/module precedence. Those bindings can be shadowed ([resolve-var](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:46)). Moreover, an application interprets an effect-shaped return value rather than necessarily storing it as data ([semantic apply-call](/Users/sto/workspace/datomworld/src/cljc/yin/vm/semantic.cljc:206)).
+
+   “A second address for one program” is also not a valid exclusion argument: this design hashes syntax, not semantic-equivalence classes.
+
+   **Fix:** Retain the exclusion on its sound grounds—host-function-bearing syntax and absence from the portable codec/semantic corpus. Describe the application rewrite only under explicit binding and result-behavior conditions. Do not promise it as a general semantics-preserving migration.
+
+3. **P1 — Runtime frame bookkeeping cannot remain inside the tuple held under `:frame`.**  
+   **Draft:** §2.1, [lines 82–86](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:82); §9.1, [lines 680–692](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:680).
+
+   The migration is described principally as replacing field reads. But the walker currently augments the AST map held under `:frame` with `:fn`, `:operator-evaluated?`, and `:evaluated`. Both cold and hot continuation paths do this ([cold path, lines 213–237](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:213); [hot path, line 532](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:532)).
+
+   Keyword associations into a vector are invalid; adding runtime slots would violate fixed arity and mix execution state into canonical syntax.
+
+   **Fix:** Specify revised continuation-frame schemas. Keep the canonical tuple unchanged under `:frame`, and move evaluated operands, operator values, and evaluation position into the surrounding runtime map. Sweep continuation arms in both execution paths, including the hot arms preceding line 600.
+
+4. **P1 — The four dependency queries do not compute the declared code dependencies.**  
+   **Draft:** §7.4, [lines 523–543](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:523).
+
+   The introduction explicitly includes `:resume` parked ids, but none of the four queries extracts them. Selecting the tag `:vm/resume` does not recover its parked-id operand. UCF explicitly requires that operand for scheduler closure ([UCF, lines 765–772](/Users/sto/workspace/datomworld/docs/design/yin.vm.universal-continuation-format.md:765)).
+
+   The “code part is exactly these queries” claim also omits the declared effect footprints of callable bindings. Merely finding a variable name does not produce those effects. Recasting the walk as Datalog does not repair UCF’s remaining cross-activation resolution problem.
+
+   **Fix:** Publish executable extraction queries/rules for every dependency category, including parked ids, and specify their composition with callable profiles and the value/module fixed point. State when discovery is incomplete. For unioned segment relations, use the segment-qualified row shape from §6.2; do not mix bare pcs across sources.
+
+5. **P1 — Primary vector loading still lacks a complete shared structural validator.**  
+   **Draft:** §7.2–§7.3, [lines 495–519](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:495).
+
+   The AST grammar is a reasonable validator basis. Instruction vectors additionally need nonempty-segment, target/body bounds, final-terminator, and operand constraints corresponding to semantic §2.6. The inherited UCF check still enumerates mnemonic, arity, operand kinds, and saturation ([UCF, lines 313–319](/Users/sto/workspace/datomworld/docs/design/yin.vm.universal-continuation-format.md:313)). A correctly hashed `[[:jump 9]]` demonstrates why tuple shape alone is insufficient.
+
+   Valid-corpus image equality does not establish that both paths reject malformed inputs identically.
+
+   **Fix:** Incorporate segment structural constraints into the instruction grammar’s validation rules. Require both paths to invoke that validator before registration, with matching failure outcomes. Test malformed vectors and multiple loaded segments as well as valid corpus programs. Explicitly supersede UCF’s projection-primary wording to reflect the owner’s direct-primary ruling.
+
+6. **P1 — Most proposed ledger rows cannot be committed as datoms.**  
+   **Draft:** §8.1–§8.3, [lines 561–615](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:561).
+
+   The mapping puts code addresses and occurrence identifiers in `e`. Persistent datoms require a non-negative integer, stream-local entity coordinate; foreign/content references belong in `v` ([datom contract, lines 140–180](/Users/sto/workspace/datomworld/docs/design/datom.md:140)). The transactor enforces this through `local-datom?` ([implementation](/Users/sto/workspace/datomworld/src/cljc/dao/datom.cljc:42)).
+
+   I verified:
+
+   ```clojure
+   [16 :yin/code :segment/example 0 1]                    ; accepted
+   [:segment/output :yin.code/derived-from
+    :segment/input 0 2]                                  ; rejected
+   ```
+
+   Likewise, the literal `:assert`/`:derive` values shown in `m` are not accepted integers, and caller-supplied non-nil `t` is rejected by the transactor ([pad-datom](/Users/sto/workspace/datomworld/src/cljc/dao/space/transactor.cljc:74)).
+
+   **Fix:** Keep address-to-address ledger tuples as a logical relation, then define an explicit datom representation using local event/ref entities with addresses in value slots. Alternatively, specify a deliberate governing-contract amendment; the present design claims compatibility. Distinguish logical notation from actual transactor input.
+
+7. **P1 — Open ledger operations cannot be implemented by composition-local allocation of reserved `m` ids.**  
+   **Draft:** §8.2, [lines 586–601](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:586); §10, lines 767–770.
+
+   Reserved ids have globally fixed meanings; compositions cannot independently allocate them while preserving interoperable interpretation. The existing extension mechanism is a local metadata entity at id 16 or above carrying `:db/op` and provenance ([dao.datom namespace contract](/Users/sto/workspace/datomworld/src/cljc/dao/datom.cljc:2); [reserved-entity rules](/Users/sto/workspace/datomworld/docs/design/datom.md:205)).
+
+   Merely adding ids 3 and 4 also leaves their validity and hashing treatment unspecified. Current-state resolution removes only retractions; it does not ignore every unknown operation ([query.cljc, lines 76–103](/Users/sto/workspace/datomworld/src/cljc/dao/space/query.cljc:76)). Thus the proposed generic “ignore unknown ops” rule is not the existing fold.
+
+   The derive row is internally reversed too: §8.2 says `v` was computed from `e`, while `[segment :derived-from tree …]` means the opposite.
+
+   **Fix:** Separate event operation from fact validity. Use the established metadata-entity mechanism for open domain operations, or fully specify globally standardized new markers, including validity, hashing, indexing, and compatibility behavior. Correct derivation direction. Allocation alone is not the acceptance blocker.
+
+8. **P1 — The as-of query incorrectly removes reasserted references.**  
+   **Draft:** §8.5, [lines 651–661](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:651).
+
+   Its negation rejects any address with any retraction before the cutoff, even if a later assertion restored it. For assertion at `t=1`, retraction at `t=2`, and reassertion at `t=3`, I ran the published query against the current query implementation: it returns the empty set. The existing current-as-of view correctly returns the address.
+
+   **Fix:** Use `query/current` with its as-of argument, or select the latest event per `[e a v]` before interpreting its operation. This is already the implemented contract ([query/current](/Users/sto/workspace/datomworld/src/cljc/dao/space/query.cljc:204)).
+
+   Also bind the intended name in §6.4’s example: its comment names `my.ns/f`, but the query leaves `?e` unconstrained.
+
+9. **P1 — Content identity does not replace source-occurrence or expansion-event identity.**  
+   **Draft:** §2.5, [lines 189–196](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:189); §4.4, lines 304–307; §8.3, [lines 617–625](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:617).
+
+   Two identical subtrees at different source positions have one content address. Joining `[segment pc node-address]` to `[node-address file line col]` therefore cannot identify which occurrence produced an instruction. A distinct-subtree relation similarly identifies content, not unique call sites.
+
+   Macro events have the same problem. The existing contract records one event per attempt, including repeated identical expansions and failures, and links that event to its output ([macro contract, lines 666–709](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:666)). Replacing the output link with rows keyed only by `tree-out` leaves the retained event attributes disconnected and conflates repeated attempts.
+
+   **Fix:** Preserve occurrence information outside canonical objects: source/batch identity, root address, structural path, and expansion-event identity. Link events to input/output/macro addresses. Use content addresses for sharing and cross-media content correspondence, not as substitutes for occurrence identity.
+
+10. **P1 — Removing macro flags lacks the replacement admission contract needed to preserve macro behavior.**  
+    **Draft:** §2.5, [lines 177–181](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:177); §8.3, line 613; §9.1, line 692.
+
+    The proposed macro-definition ref is plausible, but the document does not define how the expander associates it with a particular incoming definition, its ordering, or plain redefinition. Two otherwise identical definitions can have identical canonical trees while one is a macro definition and the other is not.
+
+    The governing macro contract distinguishes those cases during admission and harvest and requires a plain redefinition to remove a macro ([macro contract, lines 229–254](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:229)). Stripping the flag before establishing its replacement loses the distinguishing information.
+
+    **Fix:** Specify the frontend output and expander input composition carrying canonical trees plus occurrence-bound declaration facts. Define ordering, missing-fact behavior, lexical scope, and redefinition. Keep the flag outside canonical code as ruled. The blocker is this replacement protocol; building the entire expander need not block tuple evaluation without macros.
+
+11. **P1 — The claimed hash chain and revision-aware derivation are not represented by the objects or rows.**  
+    **Draft:** §5.2, [lines 332–346](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:332); §8.1, [lines 578–582](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:578).
+
+    AST children are inline, and canonical instruction vectors exclude their source address. Their content does not contain the predecessor addresses claimed in §8.1. The relationship exists in external ledger rows. Those rows do not themselves establish a content-addressed history chain.
+
+    The document also permits two lowering revisions but records no revision in the derivation row. A consumer recomputing its own `lower(tree)` can reject a valid segment produced by another revision.
+
+    **Fix:** Define the ledger objects/links that realize the owner’s hash-chain ruling, rather than attributing those links to code objects that exclude them. A derivation record must identify the source object, output object, and lowering contract/profile. Verify using that profile; do not report a legitimate revision difference as content corruption.
+
+12. **P1 — The canonical-encoder blocker is correctly identified but incorrectly limited to durable ledgers.**  
+    **Draft:** §4.2, [lines 266–276](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:266); §10.1, [lines 758–764](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:758).
+
+    The list/vector collision is honestly disclosed. However, the final limitation says it blocks identities in ledgers that outlive one process. The same collision can already corrupt a process-local address cache, merge flat-projection rows, or resolve the wrong literal object.
+
+    **Fix:** Gate every identity/deduplication use on a type-preserving codec or an explicitly validated restricted value domain. Process lifetime is irrelevant. Retain this as an inherited blocker rather than claiming the tuple representation closes it.
+
+**Verified sound**
+
+- **The dispatch inventory is otherwise accurate.** The table covers the cold and five hot syntax arms, with the two explicit boundary decisions. `:vm/store-put` carries unevaluated data; `:vm/resume` carries an evaluated child node. The codec and `ast-children` agree.
+- **Application-only `tail?` is correct for this lineage.** The linearizer reads it only for application-to-call lowering ([linearize.cljc, lines 99–108](/Users/sto/workspace/datomworld/src/cljc/yin/vm/linearize.cljc:99)). Dropping non-application marks preserves the behavior currently observed by the evaluators.
+- **Keeping `:stream/close` and adding the walker arm is justified.** Codec encode/decode, linearization, semantic execution, and engine handling already support it. The proposed evaluate-source-then-effect behavior matches the existing stream continuation pattern.
+- **The addressing grain and operand ordering are reasonable.** Whole-tree hashing needs no per-lambda materialization to work. Vector order is retained; the type-preservation caveat remains essential.
+- **The main query mechanics match source.** Ordinary patterns are exact-arity; the implementation also supports the final `& tail` form used in §7.4. I ran that rest-pattern query successfully. The three-slot fast path requires a fact index. `match` does not bind `?vars`, and supplied function keys are symbols. Predicate arguments must already be bound.
+- **The three datom-projection query classes are justified by the current implementation:** attribute-variable queries, EAV navigation through `pull`/`entity-attrs`, and existing covered indexes. They are implementation capabilities, not reasons to make EAV canonical again.
+- **The hot loop can remain query-free.** Projection and dependency analysis belong outside execution. Direct/projection conformance is the right obligation, expanded to malformed inputs and runtime-frame handling.
+- **All listed migration counts match the working tree.** They count matching lines, not total edits or AST nodes. The sweep is understated specifically around runtime frame writes and macro admission.
+- **The observer warning is appropriately cautious.** `run-on-stream` is shape-agnostic. The actual REPL still converts semantic AST input through `ast->datoms` ([core.cljc, line 446](/Users/sto/workspace/datomworld/src/cljc/yin/repl/core.cljc:446)). Conversely, repository search found no caller of the v2 `append-program-datoms` beyond its own overload, so a tuple counterpart should not be presumed necessary without identifying a live use.
+- **Per-lambda subterm addressing is correctly a follow-up.** It is not required for the chosen whole-tree design.
+
+The main additional acceptance blockers are a legal persistent ledger representation, defined operation/validity semantics, occurrence-preserving provenance, macro declaration carriage, complete dependency extraction, and runtime-frame migration. The draft’s central tuple decision remains sound; these surrounding protocols need correction before acceptance.
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.macro.md | sed -n '225,268p'; nl -ba src/cljc/dao/jing.cljc | sed -n '40,80p'; nl -ba src/cljc/yin/vm/linearize.cljc | sed -n '40,65p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   225	```
+   226	
+   227	`expand-batch`:
+   228	
+   229	1. **Admit.** The batch is indexed with `index-datoms` and checked as a
+   230	   whole — **every entity in the index, not only those reachable from the
+   231	   root**, because harvest (step 2) reads disconnected definitions: every
+   232	   `:yin/type` is in the closed vocabulary (§3.3), every ref resolves to an
+   233	   entity in the index, the whole graph is acyclic, every ground value is
+   234	   plain data, and every `:macro? true` lambda is the value operand of a
+   235	   `(yin/def <literal sym> …)` — a macro lambda anywhere else has no meaning
+   236	   on either side of the boundary and, forwarded, would load on the walker
+   237	   as a plain closure, the quiet case decision 5 exists to prevent — all
+   238	   *before* any recursive decoding (Appendix B). An in-memory medium can
+   239	   carry host values, and the sandbox's closed-input guarantee holds only if
+   240	   nothing else is admitted. A failure here is
+   241	   `{:status :error :error {:kind :malformed-input :reason :unknown-type |
+   242	   :dangling-ref | :cyclic | :host-value | :stray-macro-lambda :eid e}}`
+   243	   carrying a **batch-level
+   244	   event** (§4.1) — allocated from the watermark alone, since the index may
+   245	   be unusable — and the advanced `:ctx`. Diagnostics name entities, never
+   246	   carry the offending values.
+   247	2. **Harvest.** `definitions` finds every `(yin/def <literal sym> v)` in the
+   248	   batch, in batch order, last wins: `v` a `:macro? true` lambda →
+   249	   `assoc` into `:store`; `v` anything else (a plain lambda, a variable, a
+   250	   literal) → `dissoc`, so a redefinition as a non-macro stops expansion of
+   251	   that name. Harvest is *syntactic* and whole-batch by policy: a definition
+   252	   in an unexecuted branch, or after its first use in the same batch, is
+   253	   still in force for the whole batch. (Clojure defines a macro only when the
+   254	   `defmacro` form executes; this design does not, and says so.)
+   255	3. **Replace.** Step 2 also numbers every source macro definition it saw,
+   256	   in harvest order, into a batch-local **catalogue** `:declared {k {:name
+   257	   sym :lambda ast}}`. Each macro definition node is then replaced by a
+   258	   **stand-in** `{:type :yin/macro-defined :name <sym> :decl k}` — an
+   259	   internal node type of the expander's working representation, not of any
+   260	   evaluator. It carries its identity by *shape and ordinal*, so it survives
+   261	   every transformation a macro can apply to it: a macro that receives it
+   262	   as an operand and returns, wraps, or reorders it hands back the same
+   263	   shape, and nothing in the pipeline needs an eid or `m` to recognise it —
+   264	   and two definitions of the same name in one batch remain distinguishable,
+   265	   so a macro that keeps one and discards the other keeps *that one's* body.
+   266	   A fabricated stand-in can only name a catalogue entry (step 5 validates
+   267	   `k` and that `:name` matches); it can therefore move a harvested
+   268	   declaration's effective position — re-asserting it after a plain
+    40	
+    41	;; =============================================================================
+    42	;; Content addressing (docs/design/dao.jing.md, Canonical encoding)
+    43	;; =============================================================================
+    44	
+    45	(defn- order-normalize
+    46	  "Normalize a value so equal values print identically: maps sort by printed
+    47	   key, sets sort by printed element, sequences recurse.
+    48	
+    49	   Transitional: this exists only to make the print-based content hash
+    50	   deterministic and order-insensitive until the pinned, cross-platform
+    51	   canonical byte encoding lands (docs/design/dao.jing.md, Canonical
+    52	   encoding). It is NOT that canonical encoding."
+    53	  [v]
+    54	  (cond (map? v) (->> v
+    55	                      (map (fn [[k x]]
+    56	                             [(order-normalize k)
+    57	                              (order-normalize x)]))
+    58	                      ;; a pr-str-keyed sorted map prints its keys in a
+    59	                      ;; fixed order on every platform (array-map is not
+    60	                      ;; in ClojureDart)
+    61	                      (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))))
+    62	        (set? v) (list 'set (sort-by pr-str (map order-normalize v)))
+    63	        (sequential? v) (mapv order-normalize v)
+    64	        :else v))
+    65	
+    66	
+    67	(defn- order-normalized-print
+    68	  "Transitional encoder: pr-str over the order-normalized form. NOT the final
+    69	   canonical byte encoding; see order-normalize."
+    70	  [v]
+    71	  (pr-str (order-normalize v)))
+    72	
+    73	
+    74	#?(:cljd (do
+    75	           (def ^:private mask-32 0xffffffff)
+    76	           (def ^:private initial-h
+    77	             [0x6a09e667 0xbb67ae85 0x3c6ef372 0xa54ff53a 0x510e527f 0x9b05688c
+    78	              0x1f83d9ab 0x5be0cd19])
+    79	           (def ^:private k-table
+    80	             [0x428a2f98 0x71374491 0xb5c0fbcf 0xe9b5dba5 0x3956c25b 0x59f111f1
+    40	   number's safe range). Code tempids stay at or above it so the ids of one
+    41	   segment are distinct on CLJ, CLJS, and CLJD alike."
+    42	  -9007199254740991)
+    43	
+    44	
+    45	(defn- plain-data?
+    46	  "True when `x` is data a code datom may carry (§2.5): scalars and
+    47	   collections of them, never a host function or object. Metadata travels
+    48	   with the value, so it must be plain data too."
+    49	  [x]
+    50	  (or (nil? x)
+    51	      (and (cond (or (boolean? x) (number? x) (string? x) (keyword? x)
+    52	                     (symbol? x))
+    53	                 true
+    54	                 (map? x) (and (every? plain-data? (keys x))
+    55	                               (every? plain-data? (vals x)))
+    56	                 (coll? x) (every? plain-data? x)
+    57	                 :else false)
+    58	           (plain-data? (meta x)))))
+    59	
+    60	
+    61	(defn- reject-host-value!
+    62	  [source attr v]
+    63	  (when-not (plain-data? v)
+    64	    (throw (ex-info (str "Cannot lower a host value into " attr)
+    65	                    {:node source, :attr attr, :value v}))))
+
+codex
+The revision fixes the frame mutation and shared-validation problems, and its basic ledger rows now use legal datom coordinates. I’m checking three remaining weak points: source identity across identical batches, macro harvest order, and whether the proposed encoder restriction actually prevents collisions.
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '230,288p'; nl -ba docs/design/yin.vm.tuples.md | sed -n '332,354p'; nl -ba src/cljc/yin/vm/ast_walker.cljc | sed -n '200,358p'; nl -ba src/cljc/dao/space/transact.cljc | sed -n '1,100p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   230	### 2.6 Continuation frames over tuples
+   231	
+   232	The frame schemas below replace the ones the walker builds today. In every
+   233	frame `:node` holds the canonical tuple unchanged; nothing is ever written
+   234	into it. Evaluation position is the count of evaluated operands, which is
+   235	how the walker already computes it (`ast_walker.cljc:231`, `:575`).
+   236	
+   237	| Frame `:type` | Keys | Replaces |
+   238	|---|---|---|
+   239	| `:eval-operator` | `:node` (the `:application` tuple), `:next`, `:env` | `{:frame node …}` at `ast_walker.cljc:375`, `:619` |
+   240	| `:eval-operand` | `:node`, `:fn` (the evaluated operator), `:evaluated` (vector), `:next`, `:env` | the `assoc` of `:operator-evaluated?`/`:fn` into the node at `:213-217`, `:532-534`, and of `:evaluated` at `:226-237`, `:576-580`; `:operator-evaluated?` is redundant with the frame type and is dropped |
+   241	| `:eval-test` | `:node` (the `:if` tuple), `:next`, `:env` | `{:frame node …}` at `:380`, `:624`; reads `(nth node 2)` / `(nth node 3)` instead of `(:consequent frame)` at `:243`, `:586-588` |
+   242	| `:dao.stream.apply/eval-operand` | `:node` (the call tuple), `:evaluated`, `:next`, `:env` | the fresh frame at `:390`, which already keeps `:evaluated` beside the operands; `:op` and `:operands` become `(nth node 1)` and `(nth node 2)` |
+   243	| `:eval-stream-put-target` | `:node` (the `:stream/put` tuple), `:next`, `:env` | `{:frame node …}` at `:453`; reads `(nth node 2)` instead of `(:val frame)` at `:289` |
+   244	| `:eval-stream-put-val` | `:stream-ref`, `:next`, `:env` | unchanged (`:293-295`) |
+   245	| `:eval-stream-cursor-source`, `:eval-stream-next-cursor`, `:eval-stream-close-source` | `:node`, `:next`, `:env` | `:460`, `:467`, and the new §3.2 arm |
+   246	| `:eval-resume-val` | `:parked-id`, `:next`, `:env` | unchanged (`:434-437`) |
+   247	
+   248	The FFI frames (`:dao.stream.apply/request-sent`, `eval-call`,
+   249	`ast_walker.cljc:159-163`, `:138`) hold no node and are unchanged. Wait
+   250	entries and parked records hold frames, so they inherit the schema without
+   251	change of their own.
+   252	
+   253	---
+   254	
+   255	## §3 The two boundary calls
+   256	
+   257	### 3.1 `:vm/store-update` is excluded from the canonical grammar
+   258	
+   259	The node carries a host function in its `:fn` field and applies it inside
+   260	the syntax (`ast_walker.cljc:410-415`). It is excluded on two grounds, and
+   261	they are sufficient: a canonical object admits no host value (§2.2,
+   262	`data`), and the node is absent from every persistent and portable form
+   263	already, since the codec has no arm and throws on it (`v2.cljc:413-478`),
+   264	the linearizer lists it as unsupported (`linearize.cljc:19-22`), the
+   265	semantic VM has no opcode for it, and no test constructs one (a search of
+   266	`test/` for the node type on 2026-09-14 found none). Its one reachable path
+   267	is the walker's map-input arm, which survives only as long as that path
+   268	(§9.1).
+   269	
+   270	The orchestrator's alternative, a `:fn` slot restricted to a named
+   271	primitive symbol resolved and profile-checked per UCF §7.5.2, is not
+   272	adopted: it would re-admit a node that no persistent form carries, for a
+   273	convenience no corpus program uses.
+   274	
+   275	A program that needs the behaviour writes it as an application of the
+   276	`yin/def` primitive (`v2.cljc:128`) over a `:vm/store-get` operand:
+   277	`(yin/def k (f (vm/store-get k) args…))`. That rewrite is equivalent to
+   278	the arm **only under stated conditions**, and this document does not claim
+   279	it as a general semantics-preserving migration:
+   280	
+   281	- `yin/def` and `f` resolve through `resolve-var`'s precedence, env → store
+   282	  → primitives → modules (`src/cljc/yin/vm/engine.cljc:46-58`), so the
+   283	  rewrite is equivalent only when neither name is shadowed at the site;
+   284	- the arm stores whatever `(apply f current args)` returns as data, while
+   285	  an application interprets an effect-shaped return
+   286	  (`ast_walker.cljc:184-188`, `semantic.cljc:206-220`), so the rewrite is
+   287	  equivalent only when `f` returns plain data.
+   288	
+   332	### 4.2 The transitional encoder is inherited, and it gates every identity use
+   333	
+   334	`segment-key` hashes an order-normalized `pr-str` (`jing.cljc:67-71`,
+   335	`:203-214`) and `order-normalize` coerces every sequential value to a vector
+   336	(`jing.cljc:63`). Therefore `[:literal [1 2]]` and `[:literal (1 2)]`
+   337	address identically today although they are different values. This is
+   338	`dao.jing.md`'s first open item (*Canonical encoding*), inherited unchanged,
+   339	and it is an acceptance blocker of this design (§10.1).
+   340	
+   341	The gate is on the **use**, not on the lifetime of the store: any operation
+   342	that treats equal addresses as equal values is unsound until the collision
+   343	is closed. That includes a process-local address-keyed cache, the collapse
+   344	of identical subtrees into one flat-projection row (§6.1), the DAG sharing
+   345	of §4.4, a `dao.jing` read that resolves an address to a literal object,
+   346	and every ledger row. Until the pinned type-preserving encoding lands,
+   347	each such use is admissible only over an **explicitly validated restricted
+   348	value domain**: a checker over the tree that rejects any `data` slot whose
+   349	value contains a list, so that within the admitted domain the transitional
+   350	encoder is injective. The checker is a rule of §7.4's validator and is
+   351	removed, not relaxed, when the encoding lands. When it lands, every address
+   352	minted under this design changes with every other `dao.jing` address, the
+   353	dependency UCF §7.3.2 already accepts.
+   354	
+   200	  [state ast]
+   201	  (let [{:keys [control env k store primitives modules]} state
+   202	        {:keys [type], :as node} (or ast control)]
+   203	    (if (and (nil? node) k)
+   204	      (let [cont-type (:type k)]
+   205	        (case cont-type
+   206	          :eval-operator
+   207	          (let [frame (:frame k)
+   208	                fn-value (:value state)
+   209	                operands (:operands frame)
+   210	                saved-env (or (:env k) env)]
+   211	            (if (empty? operands)
+   212	              (apply-function state fn-value [] (:next k) saved-env)
+   213	              (let [updated-frame (assoc frame
+   214	                                         :operator-evaluated? true
+   215	                                         :fn fn-value)]
+   216	                (cesk-return state
+   217	                             (first operands)
+   218	                             saved-env
+   219	                             (assoc k
+   220	                                    :type :eval-operand
+   221	                                    :frame updated-frame)
+   222	                             nil))))
+   223	          :eval-operand
+   224	          (let [frame (:frame k)
+   225	                operand-value (:value state)
+   226	                evaluated (conj (or (:evaluated frame) []) operand-value)
+   227	                operands (:operands frame)
+   228	                saved-env (or (:env k) env)]
+   229	            (if (= (count evaluated) (count operands))
+   230	              (apply-function state (:fn frame) evaluated (:next k) saved-env)
+   231	              (let [next-idx (count evaluated)
+   232	                    next-node (nth operands next-idx)
+   233	                    updated-frame (assoc frame :evaluated evaluated)]
+   234	                (cesk-return state
+   235	                             next-node
+   236	                             saved-env
+   237	                             (assoc k :frame updated-frame)
+   238	                             nil))))
+   239	          :eval-test
+   240	          (let [frame (:frame k)
+   241	                test-value (:value state)
+   242	                saved-env (or (:env k) env)
+   243	                branch (if test-value (:consequent frame) (:alternate frame))]
+   244	            (cesk-return state branch saved-env (:next k) test-value))
+   245	          :dao.stream.apply/eval-operand
+   246	          (let [frame (:frame k)
+   247	                operand-value (:value state)
+   248	                evaluated (conj (or (:evaluated frame) []) operand-value)
+   249	                operands (:operands frame)
+   250	                saved-env (or (:env k) env)]
+   251	            (if (= (count evaluated) (count operands))
+   252	              (park-and-call state (:op frame) evaluated (:next k) saved-env)
+   253	              (let [next-idx (count evaluated)
+   254	                    next-node (nth operands next-idx)
+   255	                    updated-frame (assoc frame :evaluated evaluated)]
+   256	                (cesk-return state
+   257	                             next-node
+   258	                             saved-env
+   259	                             (assoc k :frame updated-frame)
+   260	                             nil))))
+   261	          :dao.stream.apply/request-sent
+   262	          ;; A request retained on `full` has now been appended by the polling
+   263	          ;; wait set. The call starts waiting for its correlated response,
+   264	          ;; exactly as an immediately-sent one does.
+   265	          (-> state
+   266	              (update :wait-set
+   267	                      (fnil conj [])
+   268	                      (ffi/call-response-wait-entry (:parked-id k)
+   269	                                                    (:next k)
+   270	                                                    (:env k)))
+   271	              (telemetry/emit-snapshot :bridge {:bridge-op (:op k)})
+   272	              (assoc :control nil
+   273	                     :k nil
+   274	                     :value :yin/blocked
+   275	                     :blocked? true
+   276	                     :halted? false))
+   277	          :dao.stream.apply/eval-call
+   278	          ;; The response consumed here completes the call that
+   279	          ;; `park-and-call` recorded, so its continuation leaves `:parked`
+   280	          ;; rather than accumulating for the lifetime of the VM.
+   281	          (let [state (update state :parked dissoc (:call-id k))]
+   282	            (cesk-return state
+   283	                         nil
+   284	                         env
+   285	                         (:next k)
+   286	                         (ffi/call-result (:value state) (:call-id k))))
+   287	          :eval-stream-put-target (let [frame (:frame k)
+   288	                                        stream-ref (:value state)
+   289	                                        val-node (:val frame)]
+   290	                                    (cesk-return state
+   291	                                                 val-node
+   292	                                                 env
+   293	                                                 (assoc k
+   294	                                                        :type :eval-stream-put-val
+   295	                                                        :stream-ref stream-ref)
+   296	                                                 stream-ref))
+   297	          :eval-stream-put-val
+   298	          (let [val (:value state)
+   299	                stream-ref (:stream-ref k)
+   300	                effect {:effect :stream/put, :stream stream-ref, :val val}
+   301	                {:keys [state value blocked?]}
+   302	                (engine/handle-effect state
+   303	                                      effect
+   304	                                      {:restore-fn ast-walker-restore,
+   305	                                       :park-entry-fns
+   306	                                       {:stream/put (fn [_s _e r]
+   307	                                                      {:k (:next k),
+   308	                                                       :env env,
+   309	                                                       :reason :put,
+   310	                                                       :stream-id
+   311	                                                       (:stream-id r),
+   312	                                                       :datom val})}})]
+   313	            (if blocked?
+   314	              (assoc state
+   315	                     :control nil
+   316	                     :k nil
+   317	                     :halted? false)
+   318	              (cesk-return state nil env (:next k) value)))
+   319	          :eval-stream-cursor-source
+   320	          (let [stream-ref (:value state)
+   321	                effect {:effect :stream/cursor, :stream stream-ref}
+   322	                {:keys [state value]} (engine/handle-effect
+   323	                                        state
+   324	                                        effect
+   325	                                        {:restore-fn ast-walker-restore})]
+   326	            (cesk-return state nil env (:next k) value))
+   327	          :eval-stream-next-cursor
+   328	          (let [cursor-ref (:value state)
+   329	                effect {:effect :stream/next, :cursor cursor-ref}
+   330	                {:keys [state value blocked?]}
+   331	                (engine/handle-effect
+   332	                  state
+   333	                  effect
+   334	                  {:restore-fn ast-walker-restore,
+   335	                   :park-entry-fns {:stream/next
+   336	                                    (fn [_s _e r]
+   337	                                      {:k (:next k),
+   338	                                       :env env,
+   339	                                       :reason :next,
+   340	                                       :cursor-ref (:cursor-ref r),
+   341	                                       :stream-id (:stream-id r)})}})]
+   342	            (if blocked?
+   343	              (assoc state
+   344	                     :control nil
+   345	                     :k nil
+   346	                     :halted? false)
+   347	              (cesk-return state nil env (:next k) value)))
+   348	          :eval-resume-val
+   349	          (let [resume-val (:value state)
+   350	                parked-id (:parked-id k)]
+   351	            (engine/resume-continuation
+   352	              state
+   353	              parked-id
+   354	              resume-val
+   355	              (fn [new-state parked rv]
+   356	                (cesk-return new-state nil (:env parked) (:k parked) rv))))
+   357	          (throw (ex-info "Unknown continuation type"
+   358	                          {:continuation-type cont-type, :continuation k}))))
+     1	(ns dao.space.transact
+     2	  "Stateless transaction processing library. Extracts tx-data into raw datoms
+     3	   by parsing entity maps, resolving tempids, enforcing uniqueness, and
+     4	   generating cardinality-one retractions using dao.space.query."
+     5	  (:require [clojure.string :as str]
+     6	            [dao.datom :as datom]
+     7	            [dao.space.query :as query]))
+     8	
+     9	
+    10	(defn- tempid?
+    11	  [x]
+    12	  (or (and (string? x) (str/starts-with? x "tid_")) (and (number? x) (neg? x))))
+    13	
+    14	
+    15	(defn- parse-op
+    16	  [m e a v default-op]
+    17	  (if (map? m)
+    18	    (let [{:keys [db/op], :as without-op} (dissoc m :db/op)
+    19	          op-kw (or op default-op)
+    20	          datom-m-val (get datom/reserved op-kw op-kw)]
+    21	      {:op op-kw,
+    22	       :e e,
+    23	       :a a,
+    24	       :v v,
+    25	       :m-raw datom-m-val,
+    26	       :m-map (when (seq without-op) without-op)})
+    27	    (let [op-kw (if (= m (:db/retract datom/reserved)) :db/retract :db/add)
+    28	          m-raw (or m (:db/assert datom/reserved))]
+    29	      {:op op-kw, :e e, :a a, :v v, :m-raw m-raw, :m-map nil})))
+    30	
+    31	
+    32	(defn- map->datoms
+    33	  "Convert an entity map into a seq of [e a v] or parsed ops."
+    34	  [m]
+    35	  (let [e (or (:db/id m) (str "tid_" (gensym)))]
+    36	    (mapcat (fn [[a v]]
+    37	              (if (and (or (sequential? v) (set? v))
+    38	                       (not (map? v))
+    39	                       (not= a :db/valueType)
+    40	                       (not= a :db/cardinality))
+    41	                (map #(parse-op nil e a % :db/add) v)
+    42	                [(parse-op nil e a v :db/add)]))
+    43	            (dissoc m :db/id))))
+    44	
+    45	
+    46	(defn- parse-tx-data
+    47	  "Normalize tx-data into a flat sequence of parsed ops."
+    48	  [tx-data]
+    49	  (mapcat (fn [item]
+    50	            (if (map? item)
+    51	              (map->datoms item)
+    52	              (let [[op e a v m] item] [(parse-op m e a v op)])))
+    53	          tx-data))
+    54	
+    55	
+    56	(defn- lookup-ident-eid
+    57	  "Resolve an ident keyword to its entity id."
+    58	  [base-datoms same-tx-ident->eid ident]
+    59	  (or (get same-tx-ident->eid ident)
+    60	      (let [res (query/match (query/current (query/relation base-datoms))
+    61	                  ['_ :db/ident ident])]
+    62	        (when (seq res) (nth (first res) 0)))))
+    63	
+    64	
+    65	(defn- effective-ref-attrs-for-tx
+    66	  "Compute the set of :db.type/ref attributes, incorporating same-tx schema changes."
+    67	  [base-datoms parsed-ops same-tx-ident->eid]
+    68	  (let [eid->ident (into {}
+    69	                         (keep (fn [d]
+    70	                                 (when (= (nth d 1) :db/ident)
+    71	                                   [(nth d 0) (nth d 2)])))
+    72	                         base-datoms)
+    73	        eid->ident (into eid->ident
+    74	                         (keep (fn [{:keys [op e a v]}]
+    75	                                 (when (and (= op :db/add) (= a :db/ident))
+    76	                                   [e v])))
+    77	                         parsed-ops)
+    78	        existing-refs (into #{}
+    79	                            (keep (fn [d] (get eid->ident (nth d 0))))
+    80	                            (query/match (query/current (query/relation
+    81	                                                          base-datoms))
+    82	                              ['_ :db/valueType :db.type/ref]))
+    83	        gaining (into #{}
+    84	                      (keep (fn [{:keys [op e a v]}]
+    85	                              (when (and (= op :db/add)
+    86	                                         (= a :db/valueType)
+    87	                                         (= v :db.type/ref))
+    88	                                (let [resolved-e (if (keyword? e)
+    89	                                                   (lookup-ident-eid
+    90	                                                     base-datoms
+    91	                                                     same-tx-ident->eid
+    92	                                                     e)
+    93	                                                   e)]
+    94	                                  (or (when (keyword? e) e)
+    95	                                      (get eid->ident resolved-e))))))
+    96	                      parsed-ops)
+    97	        losing (into #{}
+    98	                     (keep (fn [{:keys [op e a v]}]
+    99	                             (when (and (= op :db/retract)
+   100	                                        (= a :db/valueType)
+
+exec
+/bin/zsh -lc "bb -cp src/cljc -e '(require '\\''[dao.jing :as j] '\\''[yin.vm.linearize :as l] '\\''[yin.vm.module :as m])
+(let [s (seq [1 2]) v [1 2] a (with-meta [1 2] {:source :a}) b (with-meta [1 2] {:source :b}) effect {:effect :vm/store-put :key :x :val 4}]
+ (prn {:seq-list? (list? s) :seq-plain? (#'\\''l/plain-data? s) :seq-vector-collision (= (j/segment-key [:literal s]) (j/segment-key [:literal v])) :seq-conj (conj s 3) :vector-conj (conj v 3) :metadata-collision (= (j/segment-key [:literal a]) (j/segment-key [:literal b])) :metadata-plain? (#'\\''l/plain-data? a) :effect-plain? (#'\\''l/plain-data? effect) :effect? (m/effect? effect)}))'" in /Users/sto/workspace/datomworld
+ succeeded in 41ms:
+{:seq-vector-collision true, :metadata-plain? true, :effect? true, :vector-conj [1 2 3], :metadata-collision true, :seq-plain? true, :effect-plain? true, :seq-conj (3 1 2), :seq-list? false}
+
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '702,782p'; nl -ba docs/design/yin.vm.universal-continuation-format.md | sed -n '734,810p'; rg -n 'metadata|m-raw|m-map' src/cljc/dao/space/transact.cljc" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   702	### 7.7 Dependency closure is Datalog over the tuples
+   703	
+   704	UCF §7.6.1 computes `:yin.k/requires` by a conservative fixed point over
+   705	values, code, names, and modules. The **code part** of that fixed point is
+   706	the queries below, run over the flat projection of every reachable tree
+   707	and the segment-qualified rows (§6.2) of every reachable segment. The
+   708	value, name-satisfaction, and module parts remain the walk §7.6.1
+   709	specifies; these queries supply their inputs and do not replace them.
+   710	
+   711	Extraction over trees (`$ast` is the union of flat rows of the reachable
+   712	trees):
+   713	
+   714	```clojure
+   715	;; names, every one, not only free ones (UCF §7.6.1, Names)
+   716	[:find ?name :in $ast :where [$ast _ :variable ?name]]
+   717	
+   718	;; store keys read or written by code
+   719	[:find ?key :in $ast :where (or [$ast _ :vm/store-get ?key]
+   720	                                [$ast _ :vm/store-put ?key _])]
+   721	
+   722	;; FFI ops
+   723	[:find ?op :in $ast :where [$ast _ :dao.stream.apply/call ?op _]]
+   724	
+   725	;; parked ids named by resume
+   726	[:find ?pid :in $ast :where [$ast _ :vm/resume ?pid _]]
+   727	
+   728	;; effect kinds raised by syntax itself: the tag is the effect kind
+   729	[:find ?tag :in $ast
+   730	 :where [$ast _ ?tag & _]
+   731	        [(contains? #{:stream/make :stream/put :stream/cursor :stream/next
+   732	                      :stream/close :vm/park :vm/resume :vm/gensym
+   733	                      :vm/store-get :vm/store-put :vm/current-continuation} ?tag)]]
+   734	```
+   735	
+   736	Extraction over segments (`$code` is the union of segment-qualified rows):
+   737	
+   738	```clojure
+   739	[:find ?name :in $code :where [$code _ _ :var ?name]]
+   740	[:find ?key  :in $code :where (or [$code _ _ :store-get ?key]
+   741	                                  [$code _ _ :store-put ?key _])]
+   742	[:find ?op   :in $code :where [$code _ _ :ffi-call ?op _]]
+   743	[:find ?pid  :in $code :where [$code _ _ :resume ?pid]]
+   744	[:find ?mn   :in $code
+   745	 :where [$code _ _ ?mn & _]
+   746	        [(contains? #{:stream-make :stream-put :stream-cursor :stream-next
+   747	                      :stream-close :park :resume :gensym :store-get
+   748	                      :store-put :current-continuation} ?mn)]]
+   749	```
+   750	
+   751	Composition with the rest of §7.6.1, as rules:
+   752	
+   753	- **Names to callables.** Each extracted name that is not bound by a
+   754	  carried environment or a store-slice key is a required primitive or
+   755	  module export, checked by profile (UCF §7.5.2). The **effects of a
+   756	  callable are read from its profile** (`:yin.k/effects`), never inferred
+   757	  from the name; `yin/def` contributes `:vm/store-put` and `require`
+   758	  contributes `:module/require` because their profiles say so. A name with
+   759	  no profile at the emitter sets `:yin.k/discovery :incomplete`.
+   760	- **Parked ids.** Each extracted parked id must name a record in the
+   761	  carried `:parked` slice (UCF §7.6.3); a missing one is `:yin.k/unsatisfied`
+   762	  naming the id.
+   763	- **Values.** Closures, streams, and cursors reachable from the frame, the
+   764	  K frames, parked records, the store slice, and the pending wait
+   765	  contribute segment addresses and stream identities as §7.6.1 specifies;
+   766	  each newly reached address is fetched, projected, and its rows added to
+   767	  `$ast` or `$code`, and the queries are re-run until no new address
+   768	  appears.
+   769	- **Modules.** A required module with an undeclared footprint sets
+   770	  `:yin.k/discovery :incomplete`, as §7.6.1 already rules.
+   771	
+   772	Discovery is `:complete` only when every reachable address was fetched
+   773	and validated, every name resolved to a profile or a carried binding,
+   774	every parked id resolved, and every module footprint was declared. It is
+   775	`:blocked` when an address cannot be fetched and `:incomplete` otherwise.
+   776	Recasting the walk as Datalog changes where the facts come from, not the
+   777	conservatism of the closure, and it does not resolve the cross-activation
+   778	name question §7.6.1 deliberately declines to guess at: every name is
+   779	collected, whatever environment might bind it.
+   780	
+   781	Because the queries are over data, they answer for a tree that has never
+   782	run, which is the property §7.6.1 names.
+   734	emitter's outcome, returned as data to whatever asked it to lift; the
+   735	machine itself is unaffected and remains parked locally.
+   736	
+   737	## §7.6 Dependency closure and context (blocker 3)
+   738	
+   739	### 7.6.1 Declared, not hand-written — and discovered conservatively
+   740	
+   741	A resumer must be able to decide *before lowering* whether it can run the
+   742	value. `:yin.k/requires` carries that decision's inputs, and every set in it
+   743	is **computed by a conservative fixed point**, not hand-written and not
+   744	guessed from the current environment:
+   745	
+   746	```clojure
+   747	:yin.k/requires
+   748	{:yin.k/segments        #{:segment/sha256-3f1a… :segment/sha256-9c02…}  ; every address in frame, k, closures, values, parked
+   749	 :yin.k/primitives      {sym → profile, §7.5.2}                        ; every {:yin.k/primitive …} encoded, plus every free :var
+   750	 :yin.k/modules         {my.mod :segment/sha256-…}                     ; module name → manifest address
+   751	 :yin.k/effects         #{:stream/next :stream/put :module/require}    ; effect kinds the segments can raise
+   752	 :yin.k/ffi-ops         #{:op/add}                                     ; :yin.code/ffi-op values present
+   753	 :yin.k/streams         #{<identity> …}                                ; logical-stream identities referenced anywhere
+   754	 :yin.k/cursor-profiles #{:dao.stream/file-v1}                         ; transports that must accept kept cursors, §7.4.3
+   755	 :yin.k/discovery       :complete}                                     ; :complete | :incomplete | :blocked — computed, §7.6.5
+   756	```
+   757	
+   758	The fixed point starts from the frame, its K frames, the parked records of
+   759	§7.6.3, the store slice, and the pending wait, and repeats until nothing new
+   760	is reachable:
+   761	
+   762	- **Values:** every encoded closure contributes its segment address and its
+   763	  captured env's values; every stream and cursor marker contributes a stream
+   764	  identity; every `:yin.k/primitive` marker contributes a name.
+   765	- **Code:** every reachable segment's instructions are walked — as datoms
+   766	  where the emitter holds the batch, as canonical tuples where only a vector
+   767	  was fetched (§7.3.4) — including **`:store-get` and `:store-put`
+   768	  operands**, which name store
+   769	  keys directly and which the first draft missed entirely; every `:var`
+   770	  name; every effect op (`:stream-*`, `:ffi-call`, and the effects of
+   771	  `:effectful`-class primitives the walk finds); every `:resume` operand
+   772	  (a parked id, §7.6.3). Walking a *newly fetched* segment continues the
+   773	  fixed point with its own contents.
+   774	- **Names:** a `:var` name is satisfied if it is bound in any environment
+   775	  the value carries, any store key the slice includes, a required primitive,
+   776	  or a required module. The walk collects *every* `:var` name in reachable
+   777	  code, not merely those unbound in the top frame's E — E is per-activation
+   778	  and closures capture different ones, so resolution against "the current
+   779	  environment" is exactly the guess this computation exists not to make. An
+   780	  unsatisfied name after the fixpoint is a required primitive (checked by
+   781	  profile, §7.5.2) or a `:yin.k/unsatisfied` entry.
+   782	- **Modules:** a module's manifest declares its exported primitive profiles
+   783	  and its **store footprint** (store keys and effect kinds its handlers may
+   784	  touch). Until manifests carry footprints, any required module whose
+   785	  footprint is undeclared sets `:yin.k/discovery :incomplete` — the honest
+   786	  statement that closure could not be computed, never a silent
+   787	  under-approximation. A module effect handler may read store keys the
+   788	  static walk cannot see; a composition may supply extra slice keys
+   789	  explicitly, and the value records that it did.
+   790	
+   791	Because the computation is over data, the same query answers "what does this
+   792	program need?" for a segment that has never run. And because discovery can
+   793	*fail to terminate successfully* — a missing segment cannot be walked, an
+   794	undeclared footprint cannot be closed — the result distinguishes
+   795	`:complete` from `:incomplete` from `:blocked` (§7.6.5); a fixed point that
+   796	could not finish is reported as such, not passed off as a satisfied closure.
+   797	
+   798	### 7.6.2 The store slice, restored as an isolated store
+   799	
+   800	The store S holds `def` results, stream handles, cursor entries, and the FFI
+   801	pair (§4.1). None of it is global in the UCF sense; it is the emitter's. A
+   802	continuation carries the **reachable slice**: every store key the fixed
+   803	point of §7.6.1 can name — every `:var` name in reachable code, every
+   804	`:store-get`/`:store-put` operand, every stream/cursor cell — with values
+   805	encoded by §7.5:
+   806	
+   807	```clojure
+   808	:yin.k/store {counter 41
+   809	              'log {:yin.k/tag :yin.k/stream …}}
+   810	```
+25:       :m-raw datom-m-val,
+26:       :m-map (when (seq without-op) without-op)})
+28:          m-raw (or m (:db/assert datom/reserved))]
+29:      {:op op-kw, :e e, :a a, :v v, :m-raw m-raw, :m-map nil})))
+116:(defn- expand-m-map
+117:  "Expand inline metadata maps into additional datoms."
+119:  (let [m-map (:m-map op)]
+120:    (if m-map
+127:                       m-map)
+128:            op' (assoc op :m-raw eid)]
+136:  (let [op-tempids (mapcat (fn [{:keys [e a v m-raw]}]
+142:                               (tempid? m-raw) (conj m-raw)))
+179:                m-raw' (if (tempid? (:m-raw op))
+180:                         (get tempid-map (:m-raw op) (:m-raw op))
+181:                         (:m-raw op))]
+185:                   :m-raw m-raw')))
+217:                         (fn [eid {:keys [op e a v m-raw]}]
+230:                                             (number? m-raw)
+231:                                             (>= m-raw datom/first-user-id))
+232:                                      (max mx (inc m-raw))
+256:                  (let [[exp extras new-eid] (expand-m-map op eid t)]
+377:        ops-datoms (mapv (fn [{:keys [e a v m-raw]}] [e a v t m-raw]) ops)
+
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '108,134p'; nl -ba docs/design/yin.vm.tuples.md | sed -n '407,447p'; nl -ba src/cljc/dao/space/transact.cljc | sed -n '114,132p'; nl -ba docs/design/yin.vm.macro.md | sed -n '666,711p'; nl -ba src/cljc/yin/vm/module.cljc | sed -n '70,82p'; rg -n 'store-get|store-put|key' docs/design/yin.vm.semantic.md | head -25; tail -85 collab/1789396297000-architect-tuples-revision.claude-fable-5-1.stdout.log" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   108	
+   109	Every slot in the table has one kind. The kind is fixed by the tag and the
+   110	position; it is never inferred from the value. A literal whose value happens
+   111	to look like a node is a value, which is the rule `linearize/ast-children`
+   112	already states (`src/cljc/yin/vm/linearize.cljc:230-242`).
+   113	
+   114	| Kind | Admits | Notes |
+   115	|---|---|---|
+   116	| `node` | one child tuple | inline in the canonical form (§4) |
+   117	| `nodes` | a vector of child tuples, possibly empty | one slot, so arity stays fixed however many operands there are |
+   118	| `data` | plain data as `linearize/plain-data?` defines it (`linearize.cljc:45-58`): nil, booleans, numbers, strings, keywords, symbols, and collections of them, with plain metadata | never a host function or object |
+   119	| `key` | a store key: a symbol or a keyword | the store contract is a map lookup with no key restriction (`ast_walker.cljc:401`, `:402-404`); the corpus binds both symbols (`yin/def`) and keywords (`test/yin/vm/parity_test.cljc:99`, `:parity/k`), and the linearizer and loader carry a keyword key through unchanged (`linearize.cljc:138-141`, `src/cljc/yin/vm/semantic.cljc:577-579`) |
+   120	| `sym` | one symbol | |
+   121	| `syms` | a vector of symbols, possibly empty | |
+   122	| `kw` | one keyword | |
+   123	| `str` | one string | |
+   124	| `int` | one non-negative integer | |
+   125	| `bool` | exactly `true` or `false` | never nil, never absent |
+   126	
+   127	### 2.3 The table
+   128	
+   129	The tag set is the walker's dispatch set reconciled with the codec's
+   130	inventory (`src/cljc/yin/vm.cljc:413-478`) under the two boundary calls
+   131	of §3. Arity counts the tag.
+   132	
+   133	| Tag | Arity | Tuple | Slot kinds | Walker arm | Codec arm |
+   134	|---|---|---|---|---|---|
+   407	away. Its address is `(dao.jing/segment-key vector)`, the value
+   408	`yin.vm.semantic.md` §2.2 already types `:yin.code/hash` as. This document
+   409	adds nothing to that form and restates none of it.
+   410	
+   411	### 5.2 The hash chain is realized by derivation records
+   412	
+   413	```
+   414	tree-address ──lower under contract C──▶ segment-address
+   415	```
+   416	
+   417	Neither object carries the other's address: the tree is the input, the
+   418	vector excludes `:yin.code/derived-from` (UCF §7.3.2, *The header folds
+   419	away*). The link is a **derivation record**, itself a content-addressed
+   420	object (§8.2):
+   421	
+   422	```clojure
+   423	{:yin.ledger/op       :derive
+   424	 :yin.ledger/input    <tree-address>
+   425	 :yin.ledger/output   <segment-address>
+   426	 :yin.ledger/function :yin.vm/lower
+   427	 :yin.ledger/contract {:yin.code/contract "v2" :yin.k/version 0}}   ; the UCF §7.3.3 stamp
+   428	```
+   429	
+   430	Its address is published in the ledger (§8.3). The chain
+   431	`record → input, record → output` is what "the hash chain is the ledger"
+   432	means under this design: the chain lives in ledger objects and refs, not
+   433	in the code objects, which rightly exclude it.
+   434	
+   435	`lower` is a pure function from one content-addressed value to another,
+   436	and it is verified, not trusted: a consumer holding the tree and a
+   437	derivation record recomputes `(segment-key (lower tree))` **under the
+   438	record's contract** and compares it with the record's output. The outcome
+   439	algebra is UCF §7.9's:
+   440	
+   441	| Situation | Outcome |
+   442	|---|---|
+   443	| the consumer implements the record's contract and the recomputed address equals the output | verified |
+   444	| the consumer implements the record's contract and the addresses differ | `:yin.k/hash-mismatch`: corruption or a defective lowering, never silently repaired |
+   445	| the consumer implements a different contract revision | `:yin.k/profile-mismatch`: a legitimate revision difference, reported before any lowering, exactly as UCF §7.3.3 requires; it is not corruption and is not reported as such |
+   446	
+   447	For the comparison to be meaningful, lowering is deterministic by rule
+   114	
+   115	
+   116	(defn- expand-m-map
+   117	  "Expand inline metadata maps into additional datoms."
+   118	  [op eid t]
+   119	  (let [m-map (:m-map op)]
+   120	    (if m-map
+   121	      (let [m-datoms (mapcat
+   122	                       (fn [[a v]]
+   123	                         (if (and (or (sequential? v) (set? v)) (not (map? v)))
+   124	                           (map #(vector eid a % t (:db/assert datom/reserved))
+   125	                                v)
+   126	                           [[eid a v t (:db/assert datom/reserved)]]))
+   127	                       m-map)
+   128	            op' (assoc op :m-raw eid)]
+   129	        [op' m-datoms (inc eid)])
+   130	      [op [] eid])))
+   131	
+   132	
+   666	### 4.1 The expansion event
+   667	
+   668	Every attempt, successful or not, produces one event; so does every batch
+   669	rejected at admission. Events and the `m`-tagged output are appended to the
+   670	**log** medium, when the expander has one; `program-out` receives only
+   671	program.
+   672	
+   673	```
+   674	[ev :yin/type           :macro-expand-event  t default-op]
+   675	[ev :yin/source-batch   <ctx :t>             t default-op]   ; which source batch; always present
+   676	[ev :yin/source-call    <call-eid>           t default-op]   ; VALUE, undeclared: the call's eid as it appeared in the source batch, qualified by :yin/source-batch; only on an initial (non-nested) expansion
+   677	[ev :yin/source-node    <node-eid>           t default-op]   ; DECLARED REF, log-local: the call node in the log copy of the enclosing expansion's output; only on a nested expansion
+   678	[ev :yin/macro-name     <sym>                t default-op]   ; when the operator was a :variable; absent for an inline macro lambda or an admission failure
+   679	[ev :yin/macro          <lambda-eid>         t default-op]   ; only when durable (§4.2)
+   680	[ev :yin/expansion-root <root'>              t default-op]   ; on success; names the LOG copy
+   681	[ev :yin/error          {:kind ...}          t default-op]   ; on failure; plain data naming entities, never carrying input values
+   682	[ev :yin/timestamp      <ctx :t>             t default-op]   ; logical, never a host clock
+   683	```
+   684	
+   685	An **admission-failure event** is the same entity with only `:yin/type`,
+   686	`:yin/source-batch`, `:yin/error`, and `:yin/timestamp`: the batch had no
+   687	usable call or macro to name. It is allocated from `:alloc`'s watermark
+   688	(which needs no index), so a corrupt batch still produces exactly one
+   689	plain-data event, advances `:ctx` once, and is retried through the same
+   690	per-medium staging as any other log payload — never regenerated.
+   691	
+   692	The log copy of expansion output carries `m = ev`; log copies of unchanged
+   693	operands and ancestors carry `m = default-op` (re-parenting, not macro
+   694	output). **`program-out` datoms all carry `default-op`**: `m = ev` would be
+   695	a cross-medium ref (§4.2). An initial expansion's `:yin/source-call` is a
+   696	value, not a ref: the call's eid as it appeared in the source batch,
+   697	qualified by `:yin/source-batch`, which no index or transactor resolves. A
+   698	nested expansion carries `:yin/source-node` instead — a declared ref to a
+   699	node in the log copy of the enclosing expansion's output — which is how the
+   700	chain source → event → root → event → root is walked for generated syntax.
+   701	A successful expansion carries exactly one of the two; an admission failure
+   702	carries neither. Only `:yin/source-node` is a declared ref. The names:
+   703	`:yin/source-call` keeps its existing name in this narrowed value role so
+   704	that existing log data is not invalidated by the split; `:yin/source-node`
+   705	is new and is named for what it points at — a node of the log copy, the
+   706	term this document already uses for AST nodes there — because "call" would
+   707	mislead: a nested expansion names the outer expansion's output node, not a
+   708	call site in any source batch.
+   709	"Every datom this expansion produced" is `[?d _ _ _ ?ev]` on the log.
+   710	
+   711	`yin.vm.macro/event-schema` declares these attributes (`:yin/source-node`,
+    70	  (keys (:modules registry)))
+    71	
+    72	
+    73	;; =============================================================================
+    74	;; Effect descriptors
+    75	;; =============================================================================
+    76	
+    77	(defn effect?
+    78	  "Check if a value is an effect descriptor."
+    79	  [x]
+    80	  (and (map? x) (contains? x :effect)))
+    81	
+    82	
+31:different VM. The mapping from the keyword mnemonic in the datom to the
+112:|                          |                    | (`dao.jing/segment-key`; UCF draft §7.3), for dedup and verification             |
+131:| `:yin.code/op`      | keyword mnemonic (below) | every instruction                                     |
+179:| `:store-get`            | `:yin.code/key`                               | `val ← S[key]`                                                                   |
+181:| `:store-put`            | `:yin.code/key`, `:yin.code/value`            | `S[key] ← v; val ← v`                                                            |
+209:`:literal :load-var :lambda :call :return :branch :jump :gensym :store-get
+210::store-put :stream-make :stream-put :stream-cursor :stream-next :stream-close
+222:exactly as `:yin/value` is today (numbers, strings, keywords, vectors, maps,
+433:- **S (store)**: the map `key → value` holding `yin/def` results, stream
+510:keyword `:type` twice (node, then continuation). The linear machine does
+578:| `:vm/store-get k`, `:vm/store-put k v`, `:vm/gensym p`  | one instruction each                                               |
+604:Walker, per AST node: read `:type` (keyword map lookup), destructure the
+645:allocation on the nursery. On V8 and Dart, where keyword `case` compiles to
+732:§6.3 predicted the gap would widen on these hosts, since keyword `case` and
+Completed-GMT: 2026-09-14 14:38:34 GMT
+Completed-Local: 2026-09-14 21:38:34 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1132 lines (was 780). Only this file changed; it remains untracked, and `git diff --stat` is empty.
+
+**Finding-by-finding:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Symbol-only store keys | Fixed. New `key` kind in §2.2 (symbol or keyword, citing `parity_test.cljc:99` and the linearizer/loader pass-through); both store tags use it; keyword round trips added to §7.2's conformance obligation; §7.4 and §7.5 validators check the kind. |
+| 2 | `store-update` rewrite not generally equivalent | Fixed. §3.1 keeps the exclusion on host-value-in-syntax and absence from every persistent form; the "second address" argument is gone; the `yin/def`-over-`store-get` rewrite is stated as equivalent only when neither name is shadowed under `resolve-var` precedence and `f` returns plain data rather than an effect. |
+| 3 | Runtime bookkeeping inside the tuple | Fixed. New §2.6 gives a frame schema table: `:node` holds the immutable tuple; `:fn`, `:evaluated`, and position live beside it; `:operator-evaluated?` is dropped as redundant with the frame type. §9.1 now lists the cold and hot continuation arms with line ranges. |
+| 4 | Dependency queries incomplete | Fixed. §7.7 publishes extraction queries for names, store keys, FFI ops, parked ids, and effect tags over both flat rows and segment-qualified rows; composition rules read callable effects from profiles, resolve parked ids against the carried slice, and define `:complete`/`:incomplete`/`:blocked`; it states the recast does not resolve cross-activation naming. |
+| 5 | No shared structural validator | Fixed. §7.5 is a vector rule table (nonempty, mnemonic, arity, operand kinds, saturation, target bounds, terminator, argc); §7.2 requires both paths to call it before registration with matching defects, adds a malformed-input set including `[[:jump 9]]` and a multi-segment case, and explicitly supersedes UCF §7.3.4's projection-primary sentence. |
+| 6 | Ledger rows illegal as datoms | Fixed. §8.1 separates the logical `[t op address ref]` notation from transactor input; address-to-address facts become local ledger event entities with addresses in `v`, citing `local-datom?` and `pad-datom`. |
+| 7 | Reserved-id allocation | Fixed. §8.2 uses no reserved ids: the op is a keyword value on the event entity, validity stays in the reserved markers, provenance links use the metadata-entity mechanism; derive direction corrected to input=tree, output=segment; §10.3 rewritten. |
+| 8 | As-of negation wrong | Fixed. §8.6 routes through `query/current` with its as-of argument and names the latest-event-per-`[e a v]` rule; §6.4 binds the name entity via `:yin/name`. |
+| 9 | Content identity vs occurrence identity | Fixed. §2.5 defines occurrence keys `[root-address path]`; side tables and instruction provenance are keyed by them; §4.4 states the distinction; §8.4 keeps one event per attempt with input, output, macro, and call-occurrence as attributes. |
+| 10 | Macro flag removal without replacement | Fixed. New §8.5 specifies `{:yin/code tree :yin/declarations #{[path :yin.macro/definition]}}` with binding, ordering, missing-fact, scope, and redefinition rules; flagged as the blocker in §10.5 without requiring the expander. |
+| 11 | Hash chain not in objects | Fixed. §5.2 and §8.2 define content-addressed derivation records naming input, output, function, and contract stamp; verification recomputes under the record's contract and reports revision difference as `:yin.k/profile-mismatch`, not corruption. |
+| 12 | Encoder blocker scoped to durable ledgers | Fixed. §4.2 gates every identity use regardless of lifetime and adds an `:encoder-domain` validator rule over a restricted value domain; §10.1 rewritten. |
+
+No finding was overruled.
+
+**New or restructured sections:** §2.6 (continuation frames), §5.2 rewritten around derivation records, §7.2 to §7.7 renumbered with separate tree rules and vector rules, §8.2 (records and events), §8.4 (expansion events), §8.5 (macro declaration carriage), §8.6 (as-of views). §9.2 now notes the REPL's `ast->datoms` conversion and the absence of live `append-program-datoms` callers.
+
+**Verified against source myself:** `parity_test.cljc:99`; `local-datom?` at `datom.cljc:42-58` and `first-user-id` at `:27-40`; `pad-datom` at `transactor.cljc:74-90`; `current-state-seq` at `query.cljc:76-103` and `current` at `:204-212`; `parse-op` map-`m` handling at `transact.cljc:15-29`; walker frame writes at `ast_walker.cljc:213-217`, `:226-237`, `:532-541`, `:576-580` and the position computation at `:231`/`:575`; the FFI frames at `:138` and `:159-163`; `apply-function` at `:184-188`; `semantic/apply-call` effect interpretation at `semantic.cljc:206-220`; `datom.md` lines 140-180 and 200-217; `yin.vm.macro.md` admission and harvest at lines 229-254 and the event at 666-709; `dao.space.schema.datomic.md` §4's metadata-op prerequisite; `repl/v2/core.cljc:444-449`; UCF §7.3.4 verification text at lines 313-319.
+
+**Taken from the review, not re-run:** the reviewer's executed results, namely the linearizer output for the keyword-key case, the transactor accepting `[16 :yin/code :segment/example 0 1]` and rejecting the address-in-`e` row, the empty result of the old as-of query on the assert/retract/reassert sequence, and the successful `& ?tail` rest-pattern query. I verified the code paths those results follow but did not execute them.
+
+exec
+/bin/zsh -lc "nl -ba src/cljc/yin/vm.cljc | sed -n '372,445p'; rg -n 'defn.*definitions|defn.*index-datoms|defn.*lower-ast' src/cljc/yin/vm* src/cljc/yin/vm/macro*; nl -ba docs/design/yin.vm.tuples.md | sed -n '646,691p'; rg -n 'contract' docs/design/yin.vm.universal-continuation-format.md | head -18; rg -n 'delegate|parallel|review' docs/design/datom.world.md | head -15" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   372	(defn ast->datoms-with-root
+   373	  "Convert AST map into a vector of datoms. A datom is [e a v t m].
+   374	   Returns [root-id datoms].
+   375	
+   376	   The last datom is always `[root-id :yin/root true t m]`, so `index-datoms`
+   377	   finds the root without depending on emission order.
+   378	
+   379	   Entity IDs are tempids (negative integers: -16, -17, -18...) that get resolved
+   380	   to actual entity IDs when transacted. The transactor assigns real positive IDs.
+   381	
+   382	   Options:
+   383	     :t - transaction ID (default 0)
+   384	     :m - metadata entity reference (default assert; see dao.datom/reserved)
+   385	     :id-start - starting entity ID for tempids (default (- datom/first-user-id))"
+   386	  ([ast] (ast->datoms-with-root ast {}))
+   387	  ([ast opts]
+   388	   (let [id-counter (atom (or (:id-start opts) (- datom/first-user-id)))
+   389	         t (or (:t opts) 0)
+   390	         m (or (:m opts) datom/default-op)
+   391	         gen-id #(swap! id-counter dec)
+   392	         datoms (atom [])
+   393	         emit! (fn [e attr val] (swap! datoms conj [e attr val t m]))
+   394	         ;; Track pre-assigned EIDs already emitted so that a shared
+   395	         ;; lambda-ast
+   396	         ;; (same :eid in definition operand and call-site operator) is
+   397	         ;; processed exactly once; every reference resolves to the same
+   398	         ;; EID.
+   399	         seen-eids (atom #{})]
+   400	     (letfn
+   401	       [(convert
+   402	          [node]
+   403	          (let [pre-eid (:eid node)
+   404	                e (or pre-eid (gen-id))
+   405	                {:keys [type tail?]} node]
+   406	            (if (and pre-eid (contains? @seen-eids pre-eid))
+   407	              ;; Shared reference already emitted — return EID without
+   408	              ;; re-emitting.
+   409	              e
+   410	              (do
+   411	                (when pre-eid (swap! seen-eids conj pre-eid))
+   412	                (when tail? (emit! e :yin/tail? true))
+   413	                (case type
+   414	                  :literal (do (emit! e :yin/type :literal)
+   415	                               (emit! e :yin/value (:value node)))
+   416	                  :variable (do (emit! e :yin/type :variable)
+   417	                                (emit! e :yin/name (:name node)))
+   418	                  :lambda (do (emit! e :yin/type :lambda)
+   419	                              (when (:macro? node)
+   420	                                (emit! e :yin/macro? true))
+   421	                              (emit! e :yin/params (:params node))
+   422	                              (let [body-id (convert (:body node))]
+   423	                                (emit! e :yin/body body-id)))
+   424	                  :application (do (emit! e :yin/type :application)
+   425	                                   (let [op-id (convert (:operator node))
+   426	                                         operand-ids (mapv convert
+   427	                                                           (:operands node))]
+   428	                                     (emit! e :yin/operator op-id)
+   429	                                     (emit! e :yin/operands operand-ids)))
+   430	                  :dao.stream.apply/call
+   431	                  (do (emit! e :yin/type :dao.stream.apply/call)
+   432	                      (emit! e :yin/op (:op node))
+   433	                      (let [operand-ids (mapv convert (:operands node))]
+   434	                        (emit! e :yin/operands operand-ids)))
+   435	                  :if (do (emit! e :yin/type :if)
+   436	                          (let [test-id (convert (:test node))
+   437	                                cons-id (convert (:consequent node))
+   438	                                alt-id (convert (:alternate node))]
+   439	                            (emit! e :yin/test test-id)
+   440	                            (emit! e :yin/consequent cons-id)
+   441	                            (emit! e :yin/alternate alt-id)))
+   442	                  ;; VM primitives
+   443	                  :vm/gensym (do (emit! e :yin/type :vm/gensym)
+   444	                                 (emit! e :yin/prefix (or (:prefix node) "id")))
+   445	                  :vm/store-get (do (emit! e :yin/type :vm/store-get)
+zsh:1: no matches found: src/cljc/yin/vm/macro*
+   646	### 7.3 Validation is the tuple grammar
+   647	
+   648	A tuple loader validates before it decodes, and validation is the §2 table
+   649	plus the structural rules a segment needs, nothing else. Both checkers
+   650	mirror `code/well-formed?` (`code.cljc:155-180`): each returns nil or the
+   651	first defect, rules run in order, and each rule may assume the earlier ones
+   652	held.
+   653	
+   654	### 7.4 Tree rules
+   655	
+   656	Defects name a path (§2.5).
+   657	
+   658	| Rule | Defect when |
+   659	|---|---|
+   660	| `:tag` | the first element is not a tag of §2.3 |
+   661	| `:arity` | the count differs from the tag's arity |
+   662	| `:slot-kind` | a slot's value is not of the slot's kind: a `node` slot that is not a vector with a tag, a `nodes` slot that is not a vector of such, a `data` slot failing `plain-data?`, a `key` slot that is neither symbol nor keyword, a `bool` slot that is not `true`/`false`, a `syms` slot with a non-symbol |
+   663	| `:saturation` | a saturated slot (§2.4) is nil |
+   664	| `:encoder-domain` | a `data` slot's value contains a list (§4.2); this rule is removed when the type-preserving encoding lands |
+   665	
+   666	### 7.5 Vector rules
+   667	
+   668	Defects name a pc. Rules 1–4 of `yin.vm.semantic.md` §2.6 (one segment,
+   669	dense pcs, sorted by pc, refs resolve to entities) are satisfied by the
+   670	vector form by construction and have no rule here; rules 5 and 6 and the
+   671	UCF §7.3.4 checks are translated as follows.
+   672	
+   673	| Rule | Defect when |
+   674	|---|---|
+   675	| `:nonempty` | the vector has no instructions |
+   676	| `:mnemonic` | the first element is not a mnemonic of `code/mnemonics` (`code.cljc:12-16`) |
+   677	| `:arity` | the tuple's count differs from the mnemonic's arity in `yin.vm.semantic.md` §2.4 as saturated by UCF §7.3.2 |
+   678	| `:operand-kind` | an operand is not of its kind: `:const` and `:store-put` values fail `plain-data?`, a `:var` name is not a symbol, a `:closure` params is not a vector of symbols, a `:store-get`/`:store-put` key is neither symbol nor keyword, a `:ffi-call` op or `:resume` parked id is not a keyword, a `:gensym` prefix is not a string |
+   679	| `:saturation` | a saturated operand (`:gensym` prefix, `:stream-make` buffer, `:call` tail?, `:ffi-call` argc) is nil |
+   680	| `:target-bounds` | a `:jump`/`:branch-false` target or a `:closure` body is not an integer in `[0, length)` |
+   681	| `:terminator` | the last instruction is not in `code/terminators` (`code.cljc:19-21`) |
+   682	| `:argc` | a `:call`/`:ffi-call` argc is not a non-negative integer |
+   683	| `:encoder-domain` | a `:const` or `:store-put` value contains a list (§4.2); removed with the encoding |
+   684	
+   685	The address check (the vector hashes to the address it claims) is UCF
+   686	§7.3.4's and runs before these rules whenever an address is claimed; a
+   687	correct hash is never structural validation. The failure outcome of both
+   688	checkers on the UCF lowering path is `:yin.k/undecodable` naming the pc or
+   689	path, as §7.3.4 already specifies; on a local load it is a load error
+   690	naming the same.
+   691	
+8:To safely "lift on park" and "lower on resume" across heterogeneous boundaries without violating host isolation or concurrency invariants, the following contracts must be fully specified before this feature is accepted:
+14:5. **Code Identity (Content Addressing):** Because tempids (`:segment 123`) are local to a single machine's database, continuations must refer to code via immutable, versioned semantic profiles — a **canonical instruction vector** (positional tuples, not EAV) whose address is computed over the loader's resolved interpretation, whose addressed payload is the vector itself, and whose interpretation is pinned by a contract stamp versioning the *complete* execution contract.
+25:contract in [`yin.vm.semantic.md`](./yin.vm.semantic.md) (§1–§4), the storage
+26:contract in [`dao.jing.md`](./dao.jing.md), the stream contract in
+88: :yin.k/contract    {:yin.code/contract "v2" :yin.k/version 0}   ; §7.3.3
+117: :yin.k/contract  {…}
+170:contract stamp (§7.3.3) and is versioned with it.
+239:### 7.3.3 The contract stamp
+246:**complete execution contract**: the stamp names one published revision of
+260::yin.k/contract {:yin.code/contract "v2"    ; the revision above, by name
+510:  the contract already promises a kept cursor (`dao.stream.md`, *Retention
+635:  warranty, versioned with the contract stamp's primitive-profile registry.
+709:`descriptor` call fails, which cannot happen under the contract, and a raw
+919:write. Exclusion is a lease.** Nothing new is added to the stream contract,
+960:it itself holds*; a judge that possesses nothing is outside the contract.
+1171:   (§7.6), recording the discovery status; stamp the contract (§7.3.3); on
+1185:1. Read the value; check `:yin.k/contract`, else `:yin.k/profile-mismatch`.
+1231:| `:yin.k/profile-mismatch` | lower | `:yin.k/contract` expected and found |
+169:For advanced topics (parallel transport, capability tokens, entanglement):
+176:- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '447,455p'; nl -ba docs/design/yin.vm.universal-continuation-format.md | sed -n '239,262p'; nl -ba src/cljc/yin/vm/linearize.cljc | sed -n '243,260p'; nl -ba src/cljc/yin/vm/semantic.cljc | sed -n '524,536p'; nl -ba src/cljc/yin/vm/engine.cljc | sed -n '46,66p'; nl -ba src/cljc/dao/datom.cljc | sed -n '42,59p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   447	For the comparison to be meaningful, lowering is deterministic by rule
+   448	within one contract: labels are numbered in emission order
+   449	(`linearize.cljc:76-77`), bodies are emitted in the order lambdas are
+   450	encountered (`linearize.cljc:151-158`), and evaluation order is the
+   451	walker's (`yin.vm.semantic.md` §5.3). A lowering that introduces any
+   452	host-dependent choice breaks the chain and is a defect. Two trees that
+   453	lower to one vector under one contract yield two records with one output;
+   454	one tree lowered under two contracts yields two records with two outputs.
+   455	
+   239	### 7.3.3 The contract stamp
+   240	
+   241	An address fixes *which* instructions; it does not fix what `:call` *means*.
+   242	Interpretation is supplied by the loader and the step loop (§1.1,
+   243	*Interpretation Creates Semantics*), and the first draft pinned only the
+   244	opcode table — leaving resolution precedence, effect outcomes, call
+   245	restoration, and scheduling outside the stamp. UCF therefore versions the
+   246	**complete execution contract**: the stamp names one published revision of
+   247	
+   248	- the tuple grammar of §7.3.2 — the mnemonic set, each mnemonic's tuple
+   249	  arity and operand kinds, and the saturation/defaults table — plus the
+   250	  §2.6 well-formedness rules and the resolved-interpretation
+   251	  (last-value-wins) rule;
+   252	- the §2.4 opcode table and the §4.2 transitions;
+   253	- the resolution precedence of `resolve-var` (env → store → primitives →
+   254	  modules);
+   255	- the effect→outcome mapping of §3.3 and `engine/handle-effect`;
+   256	- call restoration and the scheduler semantics of §3.5 — wait-entry shapes,
+   257	  `check-wait-set`'s round order, `semantic-restore`.
+   258	
+   259	```clojure
+   260	:yin.k/contract {:yin.code/contract "v2"    ; the revision above, by name
+   261	                 :yin.k/version    0}       ; this envelope's own version
+   262	```
+   243	
+   244	
+   245	(defn lower-ast
+   246	  "`lower` ∘ `yin.vm/ast->datoms`. Unsupported nodes are rejected here
+   247	   first, because `ast->datoms` cannot represent them."
+   248	  ([ast] (lower-ast ast {}))
+   249	  ([ast opts]
+   250	   (doseq [node (tree-seq map? ast-children ast)]
+   251	     (reject-unsupported! (:type node) node))
+   252	   (lower (vm/ast->datoms ast (select-keys opts [:t])) opts)))
+   253	
+   254	
+   255	(defn- loaded-code-floor
+   256	  "The lowest entity id claimed by the segments in a `{segment-id image}`
+   257	   code map — each segment id minus its length — or 0 when none is loaded."
+   258	  [code]
+   259	  (if (map? code)
+   260	    (reduce-kv (fn [floor seg image]
+   524	(defn load-image
+   525	  "Decode one `:yin.code/*` batch into an executable image.
+   526	
+   527	   Returns `{:segment id, :length n, :code instructions}` where `instructions`
+   528	   is a vector indexed by pc of decoded `[opcode & operands]` vectors with
+   529	   every `:yin.code/target` and `:yin.code/body` ref resolved to a pc integer
+   530	   of the same segment. Throws a load error naming the entity and rule when
+   531	   the batch is not well formed (§2.6); the loader is total over the outcomes
+   532	   of its inputs and does not guess."
+   533	  [datoms]
+   534	  (let [defect (code/well-formed? datoms)]
+   535	    (when defect
+   536	      (throw (ex-info (str "Cannot load segment: " (name (:rule defect))
+    46	(defn resolve-var
+    47	  "Look up a variable name: env -> store -> primitives -> module registry.
+    48	
+    49	   The registry is a value supplied by the composition, not a global."
+    50	  [env store primitives registry name]
+    51	  (if-let [pair (find env name)]
+    52	    (val pair)
+    53	    (if-let [pair (find store name)]
+    54	      (val pair)
+    55	      (if-let [pair (find primitives name)]
+    56	        (val pair)
+    57	        (if-let [resolved (when (namespace name)
+    58	                            (module/resolve-module
+    59	                              registry
+    60	                              (symbol (str (namespace name)
+    61	                                           "."
+    62	                                           (clojure.core/name name)))))]
+    63	          resolved
+    64	          (fail (str "Unable to resolve symbol: " name " in this context")
+    65	                {:symbol name}))))))
+    66	
+    42	(defn local-datom?
+    43	  "True for the runtime-enforced portion of a persisted local d5 datom:
+    44	   `[e a v t m]`, with non-negative integer stream-local coordinates `e` and
+    45	   `t`, integer `m`, and a namespaced keyword attribute. Negative tempids are
+    46	   compilation values and must be resolved before commitment. Canonical value
+    47	   encoding is a separate persistence concern and is not decided here."
+    48	  [x]
+    49	  (and (vector? x)
+    50	       (= 5 (count x))
+    51	       (integer? (nth x 0))
+    52	       (not (neg? (nth x 0)))
+    53	       (keyword? (nth x 1))
+    54	       (some? (namespace (nth x 1)))
+    55	       (integer? (nth x 3))
+    56	       (not (neg? (nth x 3)))
+    57	       (integer? (nth x 4))))
+    58	
+    59	
+
+exec
+/bin/zsh -lc "bb -cp src/cljc -e '(require '\\''[yin.vm.linearize :as l] '\\''[yin.vm.semantic :as s] '\\''[dao.datom :as d] '\\''[yin.vm.engine :as e])
+(prn {:numeric-store-key (:code (s/load-image (l/lower-ast {:type :vm/store-put :key 42 :val 11}))) :event-fields-legal (every? d/local-datom? [[16 :yin.ledger/op :derive 1 1] [16 :yin.ledger/input :segment/tree 1 1] [16 :yin.ledger/output :segment/code 1 1]]) :active-resolution (e/resolve-var {} {} {'\\''x 99} nil '\\''x) :other-carried-env-resolution (e/resolve-var {'\\''x 7} {} {'\\''x 99} nil '\\''x)})'" in /Users/sto/workspace/datomworld
+ succeeded in 101ms:
+{:numeric-store-key [[11 42 11] [23]], :event-fields-legal true, :active-resolution 99, :other-carried-env-resolution 7}
+
+exec
+/bin/zsh -lc "rg --files .cpcache | head -5; nl -ba src/cljc/dao/space/query.cljc | sed -n '204,214p'; nl -ba docs/design/yin.vm.tuples.md | sed -n '208,228p'; nl -ba docs/design/yin.vm.tuples.md | sed -n '599,644p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+.cpcache/1875258622.main
+.cpcache/2410757473.main
+.cpcache/4036708781.basis
+.cpcache/4107430544.cp
+.cpcache/4107430544.basis
+   204	(defn current
+   205	  "The explicit current d5 interpreter: a view value over source. Resolves
+   206	   the greatest t per [e a v], removes retractions, and rejects conflicting
+   207	   [e a v t] rows with differing m. An optional as-of bounds visible datoms
+   208	   to t <= as-of."
+   209	  ([source] (current source nil))
+   210	  ([source as-of]
+   211	   (view-value :current (db-source source) as-of)))
+   212	
+   213	
+   214	(defn history
+   208	  writes today (`:yin.code/source`, `:yin.code/derived-from`) becomes a
+   209	  ledger record (§8) or a side-table entry.
+   210	
+   211	**Occurrences.** Two identical subtrees at different places in one tree
+   212	have one content address (§4.3), so an address cannot name a place. A
+   213	place is named by an **occurrence key** `[root-address path]`, where
+   214	`root-address` is the address of the whole tree and `path` is the
+   215	structural path from the root: a vector of slot indices, with an index into
+   216	a `nodes` slot written as a pair `[slot i]`. `[]` is the root;
+   217	`[2 [1 0]]` is the first operand of the root's second slot. A path is a
+   218	pure function of the tree, so it is stable across media and hosts. Every
+   219	side table and every provenance link that must distinguish places is keyed
+   220	by occurrence, never by node address alone.
+   221	
+   222	| Side table | Row | Keeper |
+   223	|---|---|---|
+   224	| source positions | `[root-address path file line col]` | the frontend that parsed the file |
+   225	| frontend metadata | `[root-address path key value]` | the frontend |
+   226	| batch identity | `[root-address batch-id]`: the program-stream batch (`:yin/source-batch` in `yin.vm.macro.md` §4.1's sense) that carried the tree | the composition that observed it |
+   227	| instruction provenance | `[segment-address pc root-address path]` | the lowering (§5.3) |
+   228	| macro declarations | `[root-address path]`: the definition at `path` is a macro definition (§8.5) | the frontend, consumed by the expander |
+   599	medium), and the evaluator's loader takes it as is:
+   600	
+   601	| Evaluator | Loader input | What loading does |
+   602	|---|---|---|
+   603	| walker | tree | validate (§7.4), set `:program` and `:control` to the tree; no conversion, the tuple is the node |
+   604	| semantic | instruction vector | validate (§7.5), decode positional operands into the image (the `case` of `semantic.cljc:563-593` reading `(nth tuple i)` instead of attribute maps), store under `:code` with the address as the alias column UCF §7.3.4 requires |
+   605	| semantic, AST medium | tree | `lower` (§5.2) then the row above; composed by the composition exactly as `linearize/ast-loader` is today (`linearize.cljc:269-286`, chosen in `src/cljc/yin/repl/core.cljc:63-68`) |
+   606	
+   607	Datom-batch loading is the projection path: a batch of `:yin/*` datoms is
+   608	decoded to a tree by the successor of `datoms->ast` (`v2.cljc:494-559`)
+   609	and then loaded as above; a batch of `:yin.code/*` datoms is decoded to a
+   610	vector by UCF §7.3.4's projection rule and then loaded as above. The
+   611	projection path exists for media that carry datoms and for the datom
+   612	projection of §6.5; it is not a second loader and it runs the same
+   613	validator (§7.2).
+   614	
+   615	### 7.2 Conformance: both paths, one validator, one image
+   616	
+   617	**This section supersedes the sentence in UCF §7.3.4 that names the
+   618	projection path as the reference path.** Under the owner's ruling the
+   619	direct path is primary and the reference; the projection path is derived
+   620	from it. Everything else in §7.3.4 stands.
+   621	
+   622	Both paths invoke the same validator (§7.4 for trees, §7.5 for vectors)
+   623	before anything is registered, and the conformance obligation has three
+   624	parts:
+   625	
+   626	1. **Valid corpus, same result.** For every corpus program, loading the
+   627	   tree directly and loading its datom projection yield the same walker
+   628	   `:program` value; loading the instruction vector directly and loading
+   629	   its datom projection yield the same image. Keyword store keys
+   630	   (`parity_test.cljc:99`) are part of the corpus and must round-trip on
+   631	   both paths.
+   632	2. **Malformed input, same refusal.** For a published set of malformed
+   633	   vectors, each violating one rule of §7.5, and malformed trees, each
+   634	   violating one rule of §7.4, both paths refuse with the same defect
+   635	   (rule and pc, or rule and path). A correctly hashed `[[:jump 9]]` is in
+   636	   the set. Image equality on valid input does not establish this; the
+   637	   malformed set does.
+   638	3. **Several segments loaded.** Loading two or more segments through each
+   639	   path yields the same `:code` map and the same address alias column, and
+   640	   a second segment claiming a live local id fails identically on both.
+   641	
+   642	The obligation fails exactly when the tuple grammar and the datom schema
+   643	have drifted apart, which is the property that makes it the VM's own test
+   644	of this design.
+
+codex
+The targeted probes found two concrete failures: the new key grammar still rejects a numeric key that the reference loader accepts, and the “reject lists” gate admits a non-list sequence that hashes like a vector but behaves differently under `conj`. The revised dependency rules also still allow a binding in an unrelated carried environment to hide a required primitive.
+exec
+/bin/zsh -lc 'java -cp "$(cat .cpcache/4107430544.cp)" clojure.main -e '"'(require '\\''[dao.space.query :as q])
+(let [ds [[16 :yin/name '\\''my.ns/f 0 1] [16 :yin/code :segment/a 1 1] [16 :yin/code :segment/a 2 0] [16 :yin/code :segment/a 3 1]]]
+(prn {:asof-3 (q/q '\\''[:find ?addr . :in "'$ ?name :where [?e :yin/name ?name] [?e :yin/code ?addr]] (q/current ds 3) '"'\\''my.ns/f) :asof-2 (q/q '\\''[:find ?addr . :in "'$ ?name :where [?e :yin/name ?name] [?e :yin/code ?addr]] (q/current ds 2) '"'\\''my.ns/f)}))'" in /Users/sto/workspace/datomworld
+ exited 1 in 3028ms:
+Loading initial Timbre config from: :default
+{:clojure.main/message
+ "Execution error (ExceptionInfo) at dao.space.query/db-source (query.cljc:194).\nquery db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected\n",
+ :clojure.main/triage
+ {:clojure.error/class clojure.lang.ExceptionInfo,
+  :clojure.error/line 194,
+  :clojure.error/cause
+  "query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected",
+  :clojure.error/symbol dao.space.query/db-source,
+  :clojure.error/source "query.cljc",
+  :clojure.error/phase :execution},
+ :clojure.main/trace
+ {:via
+  [{:type clojure.lang.ExceptionInfo,
+    :message
+    "query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected",
+    :data
+    {:input
+     [[16 :yin/name my.ns/f 0 1]
+      [16 :yin/code :segment/a 1 1]
+      [16 :yin/code :segment/a 2 0]
+      [16 :yin/code :segment/a 3 1]]},
+    :at [dao.space.query$db_source invokeStatic "query.cljc" 194]}],
+  :trace
+  [[dao.space.query$db_source invokeStatic "query.cljc" 194]
+   [dao.space.query$db_source invoke "query.cljc" 185]
+   [dao.space.query$current invokeStatic "query.cljc" 211]
+   [dao.space.query$current invoke "query.cljc" 204]
+   [user$eval7998 invokeStatic "NO_SOURCE_FILE" 3]
+   [user$eval7998 invoke "NO_SOURCE_FILE" 2]
+   [clojure.lang.Compiler eval "Compiler.java" 7757]
+   [clojure.lang.Compiler eval "Compiler.java" 7712]
+   [clojure.core$eval invokeStatic "core.clj" 3232]
+   [clojure.main$eval_opt invokeStatic "main.clj" 489]
+   [clojure.main$eval_opt invoke "main.clj" 483]
+   [clojure.main$initialize invokeStatic "main.clj" 509]
+   [clojure.main$null_opt invokeStatic "main.clj" 543]
+   [clojure.main$null_opt invoke "main.clj" 540]
+   [clojure.main$main invokeStatic "main.clj" 665]
+   [clojure.main$main doInvoke "main.clj" 617]
+   [clojure.lang.RestFn applyTo "RestFn.java" 140]
+   [clojure.lang.Var applyTo "Var.java" 707]
+   [clojure.main main "main.java" 40]],
+  :cause
+  "query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected",
+  :data
+  {:input
+   [[16 :yin/name my.ns/f 0 1]
+    [16 :yin/code :segment/a 1 1]
+    [16 :yin/code :segment/a 2 0]
+    [16 :yin/code :segment/a 3 1]]}}}
+
+Execution error (ExceptionInfo) at dao.space.query/db-source (query.cljc:194).
+query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected
+
+
+exec
+/bin/zsh -lc 'java -cp "$(cat .cpcache/4107430544.cp)" clojure.main -e '"'(require '\\''[dao.space.query :as q])
+(let [refs (q/relation [[16 :yin/name '\\''my.ns/f 0 1] [16 :yin/code :segment/a 1 1] [16 :yin/code :segment/a 2 0] [16 :yin/code :segment/a 3 1]])]
+(prn {:asof-3 (q/q '\\''[:find ?addr . :in "'$ ?name :where [?e :yin/name ?name] [?e :yin/code ?addr]] (q/current refs 3) '"'\\''my.ns/f) :asof-2 (q/q '\\''[:find ?addr . :in "'$ ?name :where [?e :yin/name ?name] [?e :yin/code ?addr]] (q/current refs 2) '"'\\''my.ns/f)}))'" in /Users/sto/workspace/datomworld
+ succeeded in 2426ms:
+Loading initial Timbre config from: :default
+{:asof-3 {:dao.space.query/result #{[:segment/a]}, :spec :scalar, :return-map-key nil, :return-map-keys nil}, :asof-2 {:dao.space.query/result #{}, :spec :scalar, :return-map-key nil, :return-map-keys nil}}
+
+exec
+/bin/zsh -lc "nl -ba src/cljc/yin/vm/semantic.cljc | sed -n '345,388p'; nl -ba src/cljc/yin/vm/ast_walker.cljc | sed -n '398,416p'; nl -ba docs/design/yin.vm.tuples.md | sed -n '188,208p'; nl -ba src/cljc/dao/space/transactor.cljc | sed -n '74,90p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   345	                    (recur seg' pc' val' St' E' K' vm' image'
+   346	                           (and fuel (dec fuel)))
+   347	                    (:stop r)))
+   348	              ;; :call with :yin.code/tail? — same, frame-free (20, :tailcall)
+   349	              20 (let [argc (nth inst 1)
+   350	                       total (count St)
+   351	                       f-pos (- total argc 1)
+   352	                       r (apply-call code seg pc val
+   353	                                     (subvec St 0 f-pos) E K vm
+   354	                                     true (nth St f-pos)
+   355	                                     (subvec St (inc f-pos) total))]
+   356	                   (if-let [[seg' pc' val' St' E' K' vm' image'] (:goto r)]
+   357	                     (recur seg' pc' val' St' E' K' vm' image'
+   358	                            (and fuel (dec fuel)))
+   359	                     (:stop r)))
+   360	              ;; :stream-make — effect :stream/make (12)
+   361	              12 (let [r (run-effect vm seg pc val St E K
+   362	                                     {:effect :stream/make,
+   363	                                      :capacity (or (nth inst 1)
+   364	                                                    vm/default-stream-capacity)}
+   365	                                     nil)]
+   366	                   (if-let [[vm' val'] (:continue r)]
+   367	                     (recur seg (inc pc) val' St E K vm' image
+   368	                            (and fuel (dec fuel)))
+   369	                     (:stop r)))
+   370	              ;; :stream-put — target popped from St, value in val (13)
+   371	              13 (let [St' (pop St)
+   372	                       r (run-effect vm seg pc val St' E K
+   373	                                     {:effect :stream/put,
+   374	                                      :stream (peek St),
+   375	                                      :val val}
+   376	                                     (call-park-entries seg pc E St' K))]
+   377	                   (if-let [[vm' val'] (:continue r)]
+   378	                     (recur seg (inc pc) val' St' E K vm' image
+   379	                            (and fuel (dec fuel)))
+   380	                     (:stop r)))
+   381	              ;; :stream-cursor — source ref in val (14)
+   382	              14 (let [r (run-effect vm seg pc val St E K
+   383	                                     {:effect :stream/cursor, :stream val}
+   384	                                     nil)]
+   385	                   (if-let [[vm' val'] (:continue r)]
+   386	                     (recur seg (inc pc) val' St E K vm' image
+   387	                            (and fuel (dec fuel)))
+   388	                     (:stop r)))
+   398	                            :value id
+   399	                            :control nil
+   400	                            :halted? (nil? k)))
+   401	        :vm/store-get (cesk-return state nil env k (get store (:key node)))
+   402	        :vm/store-put (let [key (:key node)
+   403	                            value (:val node)
+   404	                            new-store (assoc store key value)]
+   405	                        (assoc state
+   406	                               :store new-store
+   407	                               :value value
+   408	                               :control nil
+   409	                               :halted? (and (not (:blocked? state)) (nil? k))))
+   410	        :vm/store-update (let [key (:key node)
+   411	                               f (:fn node)
+   412	                               args (:args node)
+   413	                               current (get store key)
+   414	                               new-value (apply f current args)
+   415	                               new-store (assoc store key new-value)]
+   416	                           (assoc state
+   188	| `:application` tail? | `false` | codec emits only `true` (`v2.cljc:412`); the linearizer reads `(boolean …)` (`linearize.cljc:107-108`) |
+   189	| `:application` / `:dao.stream.apply/call` operands | `[]` | walker `ast_walker.cljc:383` |
+   190	| `:lambda` params | `[]` | — |
+   191	
+   192	### 2.5 Exclusions, occurrences, and side tables
+   193	
+   194	The canonical form excludes, and a conforming encoder strips:
+   195	
+   196	- **Source positions** and any frontend metadata (`:yang/*` keys, Clojure
+   197	  reader metadata on symbols).
+   198	- **`:macro?`** and `:phase-policy`. `yang.clojure` sets them on defmacro
+   199	  lambdas (`clojure.cljc:436-438`) and the codec persists `:yin/macro?`
+   200	  (`v2.cljc:419-420`, schema `v2.cljc:312`). No evaluator reads them
+   201	  (`ast_walker.cljc:20-23`). The expander needs the fact that a particular
+   202	  definition is a macro; that fact travels beside the tree as an
+   203	  occurrence-bound declaration (§8.5), not as a slot.
+   204	- **`:eid`** (§4.4).
+   205	- **`:yin/root`.** A tree is its own root; the batch or the ref that names
+   206	  the tree names the root. No root fact exists in the tuple form.
+   207	- **`t`, `m`, provenance.** Every provenance fact the codec or linearizer
+   208	  writes today (`:yin.code/source`, `:yin.code/derived-from`) becomes a
+    74	(defn- pad-datom
+    75	  "Pad [e a v] / [e a v t m] to the canonical 5-tuple. The transactor owns
+    76	   transaction time: a non-nil explicit t is rejected, a nil t is stamped
+    77	   with the allocated `t`. A nil m takes the default assertion op; an
+    78	   explicit m (0, a retraction) is preserved."
+    79	  [d t]
+    80	  (let [[e a v dt dm] d]
+    81	    (when-not (nil? dt)
+    82	      (throw
+    83	        (ex-info
+    84	          "the transactor owns transaction time: explicit datom t is rejected"
+    85	          {:datom d})))
+    86	    (let [padded [e a v t (if (nil? dm) datom/default-op dm)]]
+    87	      (when-not (datom/local-datom? padded)
+    88	        (throw (ex-info "invalid persistent local datom"
+    89	                        {:datom padded, :input d})))
+    90	      padded)))
+
+codex
+Completed-GMT: 2026-09-14 17:16:44 GMT  
+Completed-Local: 2026-09-15 00:16:44 Asia/Ho_Chi_Minh  
+Coding-Agent: codex  
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+**Verdict: REJECT**
+
+The revision makes substantial corrections: runtime bookkeeping leaves canonical tuples, both load paths share validation, ordinary ledger events use legal datom coordinates, and as-of queries use the correct interpreter. However, several original defects remain, and the new restricted encoder domain is demonstrably unsound.
+
+**Numbered findings**
+
+1. **P1 — The revised store-key grammar still narrows the existing contract.**  
+   **Draft:** §2.2, [line 119](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:119); validators at [line 662](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:662) and [line 678](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:678).
+
+   Adding keywords fixes the cited corpus case, but restricting keys to symbols or keywords still rejects supported programs. The draft itself acknowledges that the governing operation has no key restriction. The walker performs ordinary `get` and `assoc` ([source, line 401](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:401)).
+
+   I ran the reference linearizer and loader with `{:type :vm/store-put :key 42 :val 11}`. It succeeds, producing `[[11 42 11] [23]]`.
+
+   **Fix:** Define portable store keys using the admitted data domain, subject to the canonical encoder’s restrictions. Apply the same definition to AST validation, instruction validation, dependency extraction, and store-slice encoding. Corpus coverage does not establish the complete key contract.
+
+2. **P1 — “Returns plain data” still does not make the store-update rewrite equivalent.**  
+   **Draft:** §3.1, [lines 275–287](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:275).
+
+   The revised exclusion rationale is sound, and the binding conditions address shadowing. The remaining result condition is incorrect: effect descriptors are plain data.
+
+   I verified that `{:effect :vm/store-put :key :x :val 4}` passes `linearize/plain-data?` and `module/effect?`. The latter recognizes any map containing `:effect` ([source, line 77](/Users/sto/workspace/datomworld/src/cljc/yin/vm/module.cljc:77)). Direct store-update stores that map; application interprets it. The direct behavior is explicit at [walker line 410](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:410).
+
+   **Fix:** Require a result that is plain data **and is not an effect descriptor under the applicable execution contract**. Keep the exclusion independently justified by the host-function-bearing syntax.
+
+3. **P1 — The new restricted encoder domain does not prevent collisions.**  
+   **Draft:** §4.2, [lines 347–350](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:347); §7.4, [line 664](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:664); §10.1, [line 1100](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1100).
+
+   Rejecting lists is insufficient. `plain-data?` admits collections generally, including non-list sequences and plain metadata ([source, lines 45–58](/Users/sto/workspace/datomworld/src/cljc/yin/vm/linearize.cljc:45)). The encoder converts **every sequential value** to a vector and prints without preserving metadata ([source, lines 45–71](/Users/sto/workspace/datomworld/src/cljc/dao/jing.cljc:45)).
+
+   Executed counterexamples:
+
+   - `(seq [1 2])` is not a list and passes `plain-data?`. Its literal address equals that of `[1 2]`, but `conj` produces `(3 1 2)` versus `[1 2 3]`.
+   - Vectors carrying different plain metadata produce the same literal address. The admitted `data` kind explicitly includes plain metadata.
+
+   Furthermore, the proposed checker operates on tree data slots, while §8.2 also addresses arbitrary ledger-record maps.
+
+   **Fix:** Keep identity uses blocked until the codec is fixed, or specify and validate a genuinely restricted domain across **all addressed objects**. That domain must address every admitted collection type and metadata policy, rather than blacklist one sequential type. Add these counterexamples to encoder conformance checks.
+
+4. **P1 — Structural paths identify positions within content, but still do not identify source or generated occurrences.**  
+   **Draft:** §2.5, [lines 211–228](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:211); §8.4, [lines 903–921](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:903).
+
+   `[root-address path]` correctly separates identical subtrees at different positions in one tree. It does not separate identical whole trees parsed from different files or admitted in different batches. Both receive the same root address and paths. The separate `[root-address batch-id]` relation cannot repair the ambiguity: joining it to positions produces every matching batch/position combination.
+
+   Nested expansion ancestry remains ambiguous too. If two expansion attempts produce identical output trees, a subsequent `[tree-in-addr path]` does not identify which attempt produced its input. Distinct event entities preserve event count, but do not preserve that parent relationship. The governing macro contract explicitly links nested expansion input to the enclosing expansion’s log output ([macro design, lines 692–708](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:692)).
+
+   **Fix:** Distinguish structural positions from source occurrences. Qualify source positions and declarations with a source/batch occurrence identity; qualify generated positions with the producing expansion event. Carry those qualifiers through instruction provenance and nested-event links, outside canonical code.
+
+5. **P1 — Macro carriage still does not preserve whole-batch admission and harvest.**  
+   **Draft:** §8.5, [lines 930–952](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:930); migration adapter at [line 1021](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1021).
+
+   The new envelope handles declarations within one tree, including missing-fact redefinition. Two remaining cases contradict the governing contract:
+
+   - The original admission/harvest operates on **every entity in the batch, including disconnected definitions**, in batch order. A single rooted tree plus paths cannot represent disconnected definitions or their original order. Preorder equals the current codec’s traversal order for ordinary generated trees; it is not equivalent to arbitrary admitted batch order. The requirement is explicit at [macro design lines 229–254](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:229).
+   - The adapter strips `:macro?` and emits declarations for flagged lambdas under `yin/def`. It does not require rejection or preservation of a flag outside that position. Such a lambda can silently become a plain lambda, whereas admission must reject it as `:stray-macro-lambda`.
+
+   **Fix:** Specify an ordered batch representation or admission-side catalogue that preserves all definitions and their order, including those outside the selected execution root. Validate original macro marks before stripping them, rejecting stray marks. An intentional narrowing of the old batch contract must be explicit rather than described as unchanged behavior.
+
+6. **P1 — Dependency completion still uses an unsound cross-activation name test.**  
+   **Draft:** §7.7, [lines 753–759](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:753) and [lines 772–779](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:772).
+
+   Collecting every name is conservative; declaring it satisfied because **a** carried environment binds it is not. A saved continuation can bind `x` while the active activation lacks `x` and resolves it to a primitive. The rule skips that primitive and its profile despite allowing discovery to be `:complete`.
+
+   I checked the reference resolver: with empty active environment/store, `x` resolves to the supplied primitive; with a separate environment containing `x`, it resolves to that binding. Resolution is activation-specific ([engine, lines 46–65](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:46)).
+
+   This repeats the unresolved rule in [UCF §7.6.1, line 774](/Users/sto/workspace/datomworld/docs/design/yin.vm.universal-continuation-format.md:774). Acknowledging the cross-activation question does not make the new completion criterion safe.
+
+   **Fix:** Associate resolution obligations with relevant code/environment contexts, or conservatively retain all possible primitive/module requirements. When that analysis cannot establish completeness, report `:incomplete`; an unrelated carried binding cannot discharge the obligation.
+
+7. **P1 — The new segment effect query returns mnemonics, not the required effect vocabulary.**  
+   **Draft:** §7.7, [lines 744–759](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:744).
+
+   The segment query returns values such as `:stream-put`. Callable profiles and `:yin.k/effects` use effect identifiers such as `:stream/put`. No composition rule maps between them. Thus equivalent tree and segment representations do not currently yield the same dependency vocabulary.
+
+   The reference machine explicitly maps `:stream-put` to `:stream/put` ([semantic execution, line 370](/Users/sto/workspace/datomworld/src/cljc/yin/vm/semantic.cljc:370)); the UCF requirement set uses the latter ([UCF, line 751](/Users/sto/workspace/datomworld/docs/design/yin.vm.universal-continuation-format.md:751)).
+
+   **Fix:** Specify a contract-versioned instruction-to-effect-footprint mapping and apply it before unioning syntax-derived effects with callable-profile effects. Include explicit mappings for instructions with no external effect and for FFI behavior. Require equivalent AST and segment inputs to produce the same requirement sets.
+
+8. **P1 — Derivation verification still lacks an unambiguous lowering revision.**  
+   **Draft:** §5.2, [lines 423–454](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:423); persistent example at [line 845](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:845).
+
+   The record now carries a stamp, but it specifically reuses UCF’s **execution-contract** stamp. That stamp versions instruction grammar, execution, resolution, effects, and scheduling; its declared scope does not pin the AST-to-instruction lowering algorithm ([UCF, lines 239–261](/Users/sto/workspace/datomworld/docs/design/yin.vm.universal-continuation-format.md:239)).
+
+   Two deterministic lowerers can target the same execution contract while emitting different valid vectors. Determinism within each implementation does not ensure identical output across implementations. The current rule can therefore still label a legitimate lowering revision difference as corruption.
+
+   The persistent example also substitutes `"v2/0"` for the structured stamp in the addressed record, without defining that serialization mapping.
+
+   **Fix:** Give the lowering function a pinned revision/profile covering input grammar, normalization, and exact emission rules, or explicitly extend the governing stamp to include those rules and mandate revision changes. Preserve the exact structured stamp in the event projection. Separate object-hash verification from verification of the asserted derivation.
+
+**Original findings 1–12**
+
+“Resolved” below means resolved in the specification, not implemented.
+
+| Original | Status | Verification |
+|---|---|---|
+| 1 — Store-key domain | **Not resolved** | Keywords added, but portable numeric keys still rejected: [§2.2, line 119](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:119). Finding 1 above. |
+| 2 — Store-update equivalence | **Not resolved** | Exclusion and shadowing corrected; plain-data condition still admits effects: [§3.1, line 281](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:281). |
+| 3 — Frame mutation | **Resolved** | Immutable `:node`, separate runtime fields, and both continuation paths explicitly swept: [§2.6, line 230](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:230), [§9.1, line 1014](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1014). |
+| 4 — Dependency extraction | **Not resolved** | Parked-id queries and profile composition added, but completion and effect normalization remain defective: [§7.7, line 725](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:725). Findings 6–7 above. |
+| 5 — Shared validator | **Resolved** | Structural rules, malformed-input conformance, multiple segments, and direct-primary supersession are explicit: [§7.2, line 615](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:615), [§7.5, line 666](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:666). The new encoder rule has a separate defect. |
+| 6 — Illegal ledger coordinates | **Resolved** | Local event entities, address values, and transactor-owned time: [§8.1, line 796](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:796), [§8.2, line 836](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:836). |
+| 7 — Reserved operation IDs | **Resolved** | Open operations moved into event attributes; validity markers and derivation direction corrected: [§8.2, line 849](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:849). |
+| 8 — As-of reassertion | **Resolved** | Uses `query/current` with cutoff; name binding also supplied: [§8.6, line 964](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:964). Executed successfully. |
+| 9 — Occurrence identity | **Not resolved** | Structural paths added, but source/batch qualification and generated-parent identity remain absent: [§2.5, line 211](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:211), [§8.4, line 912](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:912). |
+| 10 — Macro admission carriage | **Not resolved** | Envelope and redefinition rules added; disconnected definitions, batch ordering, and stray-mark migration remain uncovered: [§8.5, line 935](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:935). |
+| 11 — Derivation chain/revision | **Not resolved** | Addressed relationship records now exist; execution stamp still does not explicitly identify lowering revision: [§5.2, line 419](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:419). |
+| 12 — Encoder gate | **Regressed** | Lifetime limitation corrected, but the new claimed-safe restricted domain admits demonstrated collisions: [§4.2, line 341](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:341). |
+
+**Verified sound**
+
+- **The frame redesign is implementable.** Keeping operator values and evaluated operands outside immutable syntax fixes the original mutation problem. Evaluation position as the evaluated-operand count matches the cold application/FFI paths and hot application path ([cold source, line 223](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:223); [hot source, line 575](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:575)).
+- **Ordinary event persistence is legal.** I verified representative resolved event datoms with `local-datom?`. Addresses occupy `v`, entity IDs are local integers, and ordinary event facts use assertion validity. This matches [the predicate](/Users/sto/workspace/datomworld/src/cljc/dao/datom.cljc:42) and [transactor time ownership](/Users/sto/workspace/datomworld/src/cljc/dao/space/transactor.cljc:74). The optional metadata-provenance path remains explicitly unverified in §10.3; this review does not certify it end to end.
+- **The revised as-of mechanism works.** Using a relation source, I ran assertion → retraction → reassertion: cutoff 2 returned no address; cutoff 3 returned the restored address. That agrees with [the current-view contract](/Users/sto/workspace/datomworld/src/cljc/dao/space/query.cljc:204).
+- **Direct-primary loading and shared structural validation are now explicit.** Bounds, termination, malformed-input parity, and registration ordering are appropriate conformance obligations. They remain implementation work, rather than falsely claimed test results.
+- **The central representation decisions remain sound.** Fixed positional slots preserve the data/node distinction, and addressed derivation records can represent relationships without putting provenance inside canonical code. The unresolved problems concern the surrounding identity, admission, and verification protocols.
+
+The draft is closer to implementable, but §10 still understates the acceptance work. It should include the unresolved key domain, complete occurrence identity, macro batch/admission preservation, conservative dependency completion, effect normalization, and lowering-profile definition. Most critically, it must withdraw the claim that the current list-rejection rule makes address-based identity safe.
+tokens used
+73,109
+Completed-GMT: 2026-09-14 17:16:44 GMT  
+Completed-Local: 2026-09-15 00:16:44 Asia/Ho_Chi_Minh  
+Coding-Agent: codex  
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+**Verdict: REJECT**
+
+The revision makes substantial corrections: runtime bookkeeping leaves canonical tuples, both load paths share validation, ordinary ledger events use legal datom coordinates, and as-of queries use the correct interpreter. However, several original defects remain, and the new restricted encoder domain is demonstrably unsound.
+
+**Numbered findings**
+
+1. **P1 — The revised store-key grammar still narrows the existing contract.**  
+   **Draft:** §2.2, [line 119](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:119); validators at [line 662](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:662) and [line 678](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:678).
+
+   Adding keywords fixes the cited corpus case, but restricting keys to symbols or keywords still rejects supported programs. The draft itself acknowledges that the governing operation has no key restriction. The walker performs ordinary `get` and `assoc` ([source, line 401](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:401)).
+
+   I ran the reference linearizer and loader with `{:type :vm/store-put :key 42 :val 11}`. It succeeds, producing `[[11 42 11] [23]]`.
+
+   **Fix:** Define portable store keys using the admitted data domain, subject to the canonical encoder’s restrictions. Apply the same definition to AST validation, instruction validation, dependency extraction, and store-slice encoding. Corpus coverage does not establish the complete key contract.
+
+2. **P1 — “Returns plain data” still does not make the store-update rewrite equivalent.**  
+   **Draft:** §3.1, [lines 275–287](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:275).
+
+   The revised exclusion rationale is sound, and the binding conditions address shadowing. The remaining result condition is incorrect: effect descriptors are plain data.
+
+   I verified that `{:effect :vm/store-put :key :x :val 4}` passes `linearize/plain-data?` and `module/effect?`. The latter recognizes any map containing `:effect` ([source, line 77](/Users/sto/workspace/datomworld/src/cljc/yin/vm/module.cljc:77)). Direct store-update stores that map; application interprets it. The direct behavior is explicit at [walker line 410](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:410).
+
+   **Fix:** Require a result that is plain data **and is not an effect descriptor under the applicable execution contract**. Keep the exclusion independently justified by the host-function-bearing syntax.
+
+3. **P1 — The new restricted encoder domain does not prevent collisions.**  
+   **Draft:** §4.2, [lines 347–350](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:347); §7.4, [line 664](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:664); §10.1, [line 1100](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1100).
+
+   Rejecting lists is insufficient. `plain-data?` admits collections generally, including non-list sequences and plain metadata ([source, lines 45–58](/Users/sto/workspace/datomworld/src/cljc/yin/vm/linearize.cljc:45)). The encoder converts **every sequential value** to a vector and prints without preserving metadata ([source, lines 45–71](/Users/sto/workspace/datomworld/src/cljc/dao/jing.cljc:45)).
+
+   Executed counterexamples:
+
+   - `(seq [1 2])` is not a list and passes `plain-data?`. Its literal address equals that of `[1 2]`, but `conj` produces `(3 1 2)` versus `[1 2 3]`.
+   - Vectors carrying different plain metadata produce the same literal address. The admitted `data` kind explicitly includes plain metadata.
+
+   Furthermore, the proposed checker operates on tree data slots, while §8.2 also addresses arbitrary ledger-record maps.
+
+   **Fix:** Keep identity uses blocked until the codec is fixed, or specify and validate a genuinely restricted domain across **all addressed objects**. That domain must address every admitted collection type and metadata policy, rather than blacklist one sequential type. Add these counterexamples to encoder conformance checks.
+
+4. **P1 — Structural paths identify positions within content, but still do not identify source or generated occurrences.**  
+   **Draft:** §2.5, [lines 211–228](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:211); §8.4, [lines 903–921](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:903).
+
+   `[root-address path]` correctly separates identical subtrees at different positions in one tree. It does not separate identical whole trees parsed from different files or admitted in different batches. Both receive the same root address and paths. The separate `[root-address batch-id]` relation cannot repair the ambiguity: joining it to positions produces every matching batch/position combination.
+
+   Nested expansion ancestry remains ambiguous too. If two expansion attempts produce identical output trees, a subsequent `[tree-in-addr path]` does not identify which attempt produced its input. Distinct event entities preserve event count, but do not preserve that parent relationship. The governing macro contract explicitly links nested expansion input to the enclosing expansion’s log output ([macro design, lines 692–708](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:692)).
+
+   **Fix:** Distinguish structural positions from source occurrences. Qualify source positions and declarations with a source/batch occurrence identity; qualify generated positions with the producing expansion event. Carry those qualifiers through instruction provenance and nested-event links, outside canonical code.
+
+5. **P1 — Macro carriage still does not preserve whole-batch admission and harvest.**  
+   **Draft:** §8.5, [lines 930–952](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:930); migration adapter at [line 1021](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1021).
+
+   The new envelope handles declarations within one tree, including missing-fact redefinition. Two remaining cases contradict the governing contract:
+
+   - The original admission/harvest operates on **every entity in the batch, including disconnected definitions**, in batch order. A single rooted tree plus paths cannot represent disconnected definitions or their original order. Preorder equals the current codec’s traversal order for ordinary generated trees; it is not equivalent to arbitrary admitted batch order. The requirement is explicit at [macro design lines 229–254](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:229).
+   - The adapter strips `:macro?` and emits declarations for flagged lambdas under `yin/def`. It does not require rejection or preservation of a flag outside that position. Such a lambda can silently become a plain lambda, whereas admission must reject it as `:stray-macro-lambda`.
+
+   **Fix:** Specify an ordered batch representation or admission-side catalogue that preserves all definitions and their order, including those outside the selected execution root. Validate original macro marks before stripping them, rejecting stray marks. An intentional narrowing of the old batch contract must be explicit rather than described as unchanged behavior.
+
+6. **P1 — Dependency completion still uses an unsound cross-activation name test.**  
+   **Draft:** §7.7, [lines 753–759](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:753) and [lines 772–779](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:772).
+
+   Collecting every name is conservative; declaring it satisfied because **a** carried environment binds it is not. A saved continuation can bind `x` while the active activation lacks `x` and resolves it to a primitive. The rule skips that primitive and its profile despite allowing discovery to be `:complete`.
+
+   I checked the reference resolver: with empty active environment/store, `x` resolves to the supplied primitive; with a separate environment containing `x`, it resolves to that binding. Resolution is activation-specific ([engine, lines 46–65](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:46)).
+
+   This repeats the unresolved rule in [UCF §7.6.1, line 774](/Users/sto/workspace/datomworld/docs/design/yin.vm.universal-continuation-format.md:774). Acknowledging the cross-activation question does not make the new completion criterion safe.
+
+   **Fix:** Associate resolution obligations with relevant code/environment contexts, or conservatively retain all possible primitive/module requirements. When that analysis cannot establish completeness, report `:incomplete`; an unrelated carried binding cannot discharge the obligation.
+
+7. **P1 — The new segment effect query returns mnemonics, not the required effect vocabulary.**  
+   **Draft:** §7.7, [lines 744–759](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:744).
+
+   The segment query returns values such as `:stream-put`. Callable profiles and `:yin.k/effects` use effect identifiers such as `:stream/put`. No composition rule maps between them. Thus equivalent tree and segment representations do not currently yield the same dependency vocabulary.
+
+   The reference machine explicitly maps `:stream-put` to `:stream/put` ([semantic execution, line 370](/Users/sto/workspace/datomworld/src/cljc/yin/vm/semantic.cljc:370)); the UCF requirement set uses the latter ([UCF, line 751](/Users/sto/workspace/datomworld/docs/design/yin.vm.universal-continuation-format.md:751)).
+
+   **Fix:** Specify a contract-versioned instruction-to-effect-footprint mapping and apply it before unioning syntax-derived effects with callable-profile effects. Include explicit mappings for instructions with no external effect and for FFI behavior. Require equivalent AST and segment inputs to produce the same requirement sets.
+
+8. **P1 — Derivation verification still lacks an unambiguous lowering revision.**  
+   **Draft:** §5.2, [lines 423–454](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:423); persistent example at [line 845](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:845).
+
+   The record now carries a stamp, but it specifically reuses UCF’s **execution-contract** stamp. That stamp versions instruction grammar, execution, resolution, effects, and scheduling; its declared scope does not pin the AST-to-instruction lowering algorithm ([UCF, lines 239–261](/Users/sto/workspace/datomworld/docs/design/yin.vm.universal-continuation-format.md:239)).
+
+   Two deterministic lowerers can target the same execution contract while emitting different valid vectors. Determinism within each implementation does not ensure identical output across implementations. The current rule can therefore still label a legitimate lowering revision difference as corruption.
+
+   The persistent example also substitutes `"v2/0"` for the structured stamp in the addressed record, without defining that serialization mapping.
+
+   **Fix:** Give the lowering function a pinned revision/profile covering input grammar, normalization, and exact emission rules, or explicitly extend the governing stamp to include those rules and mandate revision changes. Preserve the exact structured stamp in the event projection. Separate object-hash verification from verification of the asserted derivation.
+
+**Original findings 1–12**
+
+“Resolved” below means resolved in the specification, not implemented.
+
+| Original | Status | Verification |
+|---|---|---|
+| 1 — Store-key domain | **Not resolved** | Keywords added, but portable numeric keys still rejected: [§2.2, line 119](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:119). Finding 1 above. |
+| 2 — Store-update equivalence | **Not resolved** | Exclusion and shadowing corrected; plain-data condition still admits effects: [§3.1, line 281](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:281). |
+| 3 — Frame mutation | **Resolved** | Immutable `:node`, separate runtime fields, and both continuation paths explicitly swept: [§2.6, line 230](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:230), [§9.1, line 1014](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1014). |
+| 4 — Dependency extraction | **Not resolved** | Parked-id queries and profile composition added, but completion and effect normalization remain defective: [§7.7, line 725](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:725). Findings 6–7 above. |
+| 5 — Shared validator | **Resolved** | Structural rules, malformed-input conformance, multiple segments, and direct-primary supersession are explicit: [§7.2, line 615](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:615), [§7.5, line 666](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:666). The new encoder rule has a separate defect. |
+| 6 — Illegal ledger coordinates | **Resolved** | Local event entities, address values, and transactor-owned time: [§8.1, line 796](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:796), [§8.2, line 836](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:836). |
+| 7 — Reserved operation IDs | **Resolved** | Open operations moved into event attributes; validity markers and derivation direction corrected: [§8.2, line 849](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:849). |
+| 8 — As-of reassertion | **Resolved** | Uses `query/current` with cutoff; name binding also supplied: [§8.6, line 964](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:964). Executed successfully. |
+| 9 — Occurrence identity | **Not resolved** | Structural paths added, but source/batch qualification and generated-parent identity remain absent: [§2.5, line 211](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:211), [§8.4, line 912](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:912). |
+| 10 — Macro admission carriage | **Not resolved** | Envelope and redefinition rules added; disconnected definitions, batch ordering, and stray-mark migration remain uncovered: [§8.5, line 935](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:935). |
+| 11 — Derivation chain/revision | **Not resolved** | Addressed relationship records now exist; execution stamp still does not explicitly identify lowering revision: [§5.2, line 419](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:419). |
+| 12 — Encoder gate | **Regressed** | Lifetime limitation corrected, but the new claimed-safe restricted domain admits demonstrated collisions: [§4.2, line 341](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:341). |
+
+**Verified sound**
+
+- **The frame redesign is implementable.** Keeping operator values and evaluated operands outside immutable syntax fixes the original mutation problem. Evaluation position as the evaluated-operand count matches the cold application/FFI paths and hot application path ([cold source, line 223](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:223); [hot source, line 575](/Users/sto/workspace/datomworld/src/cljc/yin/vm/ast_walker.cljc:575)).
+- **Ordinary event persistence is legal.** I verified representative resolved event datoms with `local-datom?`. Addresses occupy `v`, entity IDs are local integers, and ordinary event facts use assertion validity. This matches [the predicate](/Users/sto/workspace/datomworld/src/cljc/dao/datom.cljc:42) and [transactor time ownership](/Users/sto/workspace/datomworld/src/cljc/dao/space/transactor.cljc:74). The optional metadata-provenance path remains explicitly unverified in §10.3; this review does not certify it end to end.
+- **The revised as-of mechanism works.** Using a relation source, I ran assertion → retraction → reassertion: cutoff 2 returned no address; cutoff 3 returned the restored address. That agrees with [the current-view contract](/Users/sto/workspace/datomworld/src/cljc/dao/space/query.cljc:204).
+- **Direct-primary loading and shared structural validation are now explicit.** Bounds, termination, malformed-input parity, and registration ordering are appropriate conformance obligations. They remain implementation work, rather than falsely claimed test results.
+- **The central representation decisions remain sound.** Fixed positional slots preserve the data/node distinction, and addressed derivation records can represent relationships without putting provenance inside canonical code. The unresolved problems concern the surrounding identity, admission, and verification protocols.
+
+The draft is closer to implementable, but §10 still understates the acceptance work. It should include the unresolved key domain, complete occurrence identity, macro batch/admission preservation, conservative dependency completion, effect normalization, and lowering-profile definition. Most critically, it must withdraw the claim that the current list-rejection rule makes address-based identity safe.

@@ -1,0 +1,41 @@
+Completed-GMT: 2026-10-03 10:37:48 GMT
+Completed-Local: 2026-10-03 17:37:48 +07
+
+`docs/design/yin.vm.rust-kernel.md` is now revision 2: five findings are fixed as design defects and one is a partial pushback. Nothing was committed and no code or lanes were run; this is a design-document edit only.
+
+Finding | disposition | concrete fix or pushback rationale
+
+1. **Memory corruption via inline `Rc` counts** | fixed | Agreed: `Rc`'s allocation layout is private to the standard library, so inline retain/release in emitted IR was unsound.
+   - `Value` is now a safe-Rust `#[repr(C, u8)]` enum (§4.1). Only the tag byte and immediate payloads are layout-visible outside safe Rust.
+   - Native code never copies, frees or dereferences a counted value. Every clone and drop goes out of line through `rt.slot_write` / `rt.slot_clear` into the kernel's own `Clone`/`Drop` (§7.4 slot-write rule).
+   - A kernel-owned `repr(C)` object header that would allow inline counting is deferred behind the K3 benchmark.
+
+2. **Data race on image constants** | fixed | Agreed: with `Vec<Value>` inside it, `Arc<Image>` could not soundly be `Send + Sync`.
+   - The shared `Image` now holds only plain owned `Datum` with no `Rc`, so the compiler derives `Send + Sync` with no `unsafe impl` (§4.2, §4.6).
+   - Each machine materializes its own constant pool at `load-image` / `attach-image`; the pool is derived and never serialized.
+   - A static assertion makes a regression a compile error.
+
+3. **Tail primitive call control flow** | fixed | Agreed: §7.3 contradicted both §5.2 of the doc and `register.cljc:627-628`.
+   - §7.3 now has a tail/non-tail outcome table. `CONTINUE_INLINE` exists only at non-tail sites.
+   - A tail primitive value or immediate effect runs the kernel's `return-transition` and returns to the driver with `ENTER` or `HALT`.
+   - The translator emits an unconditional `ret` after a tail `rt.call`; `CONTINUE_INLINE` after a tail site is treated as `FAULT`.
+   - K0 gains tail-site fixtures for every row, including return into another body and halt with K empty.
+
+4. **Node-wide crash on out-of-bounds indexing** | fixed | Agreed: revision 1 said release builds abort on panic, which makes a validator bug a node outage.
+   - Every validator-proved access now uses a fallible accessor; a miss is a `:kernel-invariant` refusal that leaves the machine unchanged (§5.3 rule 3).
+   - Panicking indexing, `unwrap`, `expect` and overflow-panicking arithmetic are denied by lint in the kernel, image and engine crates.
+   - New §5.5: residual panics are caught per machine at the driver, the machine is poisoned and reported as `:kernel-fault`, and helpers catch panics at the `extern "C"` boundary. Builds unwind rather than abort.
+   - K1 gains a fault-injection criterion: a corrupted decoded image must not exit the process, and a second machine must still complete.
+
+5. **Missing `live` on `ReturnFrame`** | pushback (with a clarifying edit) | Wire parity is not broken, but revision 1 did not say so, which made the finding reasonable.
+   - The serialized frame carries `:live` with the same key and bytes as Clojure; K2 now asserts this frame by frame.
+   - On decode, `continuation-defect` runs over the received data, `:live` included, before any struct is built, so a mismatch is refused `:continuation-live` exactly as on Clojure.
+   - I am keeping `:live` out of the in-memory struct. For an admitted frame it equals both the call instruction's `live` operand at `site_pc` and the index column of `regs`, so a second copy is a persisted derived fact with nothing to read it.
+   - If the owner prefers literal struct parity, storing it costs one `(offset, len)` into the image's register pool.
+
+6. **16-bit register limit** | fixed | Agreed: the Clojure validator puts no ceiling on a body's register count, so `u16` would refuse or mis-decode valid images.
+   - Indices, counts, pcs, depths and positions are now `u32` (§4.2, §4.4).
+   - Anything above `u32::MAX`, or above the host's configured activation limit, is refused at load with a qualified `:host-limit` diagnostic. It is a declared host limit like an undeclared scalar class, and nothing is truncated.
+   - K0 gains a fixture with more than 65,535 registers plus host-limit refusal fixtures.
+
+Two diagnostics introduced by these fixes have no Clojure counterpart: `:kernel-invariant` and `:host-limit`. Neither can appear in a conforming run within declared limits, but the conformance kit will need to treat them as Rust-host-only.

@@ -1,0 +1,11 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+The r3 wording round is done. The plan at `collab/1788962937302-architect-space-schema-v2-plan.claude-fable-5-1.findings.md` was edited in place, and no other file was touched.
+
+**The three D4 corrections, as now written:**
+- **Origin cursor.** The declaration clause now requires that the caller read through an origin cursor and observed no `gap`. It states plainly that holding one is not evidence, and that today's `query/snapshot` takes no caller-supplied cursor so it cannot make that observation. The following paragraph no longer calls a cursor-taking snapshot a retention predicate. It describes observing a `gap` through a supplied cursor as ordinary protocol use, and gives the deferral its correct reason: it is query's API to add.
+- **Knowable, not detectable.** The mis-wiring is now described as knowable at wiring time by the composition and caught at read time by nothing, with the three absences spelled out (no status field, no assert, no type check).
+- **The softening versus T18.** A new sentence names it: T18's declaration point is one local wiring, while a snapshot value strips provenance, so a distant caller cannot declare knowledgeably. It points at the deferred `snapshot-from` variant as the bounded cover for that gap.
+
+**Also added:** the implementer note that V15 is a cross-layer pin whose `:blocked` assertion on `query/snapshot` can trip on a query-side refactor, so a V15 failure should be read at the failing assertion before being treated as a schema defect.
+
+The header block is updated to r3 with the new timestamps. The r2 revision table at the top was left as the historical record, per the instruction to change nothing else.

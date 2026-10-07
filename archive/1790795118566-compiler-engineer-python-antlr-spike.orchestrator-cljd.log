@@ -1,0 +1,465 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (108.0.0 available)
++ analyzer 6.4.1 (14.4.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.7
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @03:39:19
+  yin.repl.slice-peer
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 176, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 242, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 342, column: 48, file: yin/repl.cljc
+  You rock! 🤘 @03:39:24
+Generated: /Users/sto/workspace/datomworld-py-spike/build/yin-repl-peer
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @03:39:49
+  bench.yin-vm-bench
+  dao.await
+  dao.await-test
+  dao.data
+  dao.data-test
+  dao.data.arrays
+  dao.data.btree
+  dao.data.btree-async-test
+  dao.data.btree-durability-test
+  dao.data.btree-protocols-test
+  dao.data.btree-test
+  dao.data.btree-transients-test
+  dao.data.btree.storage
+  dao.data.psset-fixtures
+  dao.datom
+  dao.gui.compiler
+  dao.gui.compiler-cljd-test
+  dao.gui.event
+  dao.gui.event.arena-test
+  dao.gui.event.bind-test
+  dao.gui.event.core-test
+  dao.gui.event.decl
+  dao.gui.event.fault
+  dao.gui.event.fixture-test
+  dao.gui.event.fixtures-corpus
+  dao.gui.event.fixtures-gen
+  dao.gui.event.geom
+  dao.gui.event.keyboard
+  dao.gui.event.longpress-test
+  dao.gui.event.machine
+  dao.gui.event.machine-test
+  dao.gui.event.pan-test
+  dao.gui.event.pointer
+  dao.gui.event.pointer-test
+  dao.gui.event.policy
+  dao.gui.event.policy-test
+  dao.gui.event.recognizer
+  dao.gui.event.scripted
+  dao.gui.event.terminal-test
+  dao.gui.event.trace
+  dao.gui.event.transform-test
+  dao.gui.event.util
+  dao.gui.runtime
+  dao.jing
+  dao.jing-test
+  dao.jing.cbor
+  dao.jing.cbor-conformance-test
+  dao.jing.cbor-content-equality-test
+  dao.jing.cbor-fixtures
+  dao.jing.cbor-fixtures-test
+  dao.jing.cbor-test
+  dao.jing.cbor.boring
+  dao.jing.cbor.cljd
+  dao.jing.content
+  dao.jing.content-test
+  dao.jing.content.async
+  dao.jing.content.step
+  dao.jing.content.step-test
+  dao.jing.coordinate
+  dao.jing.dht
+  dao.jing.dht-test
+  dao.jing.dht.kad
+  dao.jing.dht.kad-test
+  dao.jing.dht.mesh
+  dao.jing.file
+  dao.jing.file-test
+  dao.jing.hash-registry-contract-test
+  dao.jing.mem
+  dao.jing.mem-test
+  dao.jing.stream
+  dao.jing.stream-test
+  dao.lease
+  dao.lease-composition-test
+  dao.lease-test
+  dao.postgraphics.flutter
+  dao.postgraphics.flutter-cljd-test
+  dao.postgraphics.flutter-test
+  dao.postgraphics.flutter.canvas
+  dao.postgraphics.flutter.gpu
+  dao.postgraphics.flutter.texture
+  dao.postgraphics.lowering
+  dao.postgraphics.lowering-test
+  dao.postgraphics.math
+  dao.postgraphics.math-test
+  dao.postgraphics.packing
+  dao.postgraphics.packing-test
+  dao.postgraphics.raster
+  dao.postgraphics.raster-test
+  dao.postgraphics.terminal
+  dao.postgraphics.terminal-test
+  dao.postgraphics.v3-compliance-repro-test
+  dao.postgraphics.validation
+  dao.pretty
+  dao.pretty-test
+  dao.space.index
+  dao.space.index-numeric-test
+  dao.space.index-test
+  dao.space.positional-query-test
+  dao.space.query
+  dao.space.query-numeric-test
+  dao.space.query-test
+  dao.space.schema
+  dao.space.schema-test
+  dao.space.transact
+  dao.space.transact-test
+  dao.space.transactor
+  dao.space.transactor-test
+  dao.stream
+  dao.stream-test
+  dao.stream.apply
+  dao.stream.apply-test
+  dao.stream.base64
+  dao.stream.base64-test
+  dao.stream.cbor
+  dao.stream.cbor-test
+  dao.stream.cbor.boring
+  dao.stream.cbor.cljd
+  dao.stream.chunks
+  dao.stream.chunks-test
+  dao.stream.conformance
+  dao.stream.datagram
+  dao.stream.datagram-test
+  dao.stream.datagram.dart
+  dao.stream.datagram.dart-test
+  dao.stream.forward
+  dao.stream.forward-test
+  dao.stream.memory-log
+  dao.stream.memory-log-test
+  dao.stream.middleware
+  dao.stream.middleware-test
+  dao.stream.observe
+  dao.stream.observe-test
+  dao.stream.observer
+  dao.stream.observer-test
+  dao.stream.remote
+  dao.stream.remote-meet
+  dao.stream.remote-meet-test
+  dao.stream.remote-pair
+  dao.stream.remote-pair-test
+  dao.stream.remote-test
+  dao.stream.ringbuffer
+  dao.stream.ringbuffer-test
+  dao.stream.rpc
+  dao.stream.rpc-test
+  dao.stream.transit
+  dao.stream.transit-test
+  dao.stream.transit.cljd
+  dao.stream.udp
+  dao.stream.udp-raw-test
+  dao.stream.udp-test
+  dao.stream.waitset
+  dao.stream.waitset-test
+  dao.stream.waitset.cadence
+  dao.stream.waitset.cadence-test
+  dao.stream.waitset.driver
+  dao.stream.waitset.driver-test
+  dao.stream.ws
+  dao.stream.ws-codec-test
+  dao.stream.ws-project
+  dao.stream.ws-project-peer
+  dao.stream.ws-project-test
+  dao.stream.ws-test
+  dao.stream.ws.dart
+  dao.stream.ws.dart-test
+  datomworld.demo.artifact
+  datomworld.demo.artifact-runner
+  datomworld.demo.artifact-runner-test
+  datomworld.demo.artifact-scene
+  datomworld.demo.artifact-scene-test
+  datomworld.demo.continuation-handoff
+  datomworld.demo.continuation-handoff-test
+  datomworld.demo.continuation-transport
+  datomworld.demo.dao-gui
+  datomworld.demo.earth-moon
+  datomworld.demo.earth-moon-runner
+  datomworld.demo.earth-moon-scene
+  datomworld.demo.earth-moon-scene-test
+  datomworld.demo.main
+  datomworld.demo.postgraphics
+  datomworld.demo.solar-system
+  datomworld.demo.solar-system-scene
+  datomworld.demo.solar-system-scene-test
+  datomworld.demo.voxel
+  datomworld.demo.voxel-controls
+  datomworld.demo.voxel-controls-test
+  datomworld.demo.voxel-input
+  datomworld.demo.voxel-input-test
+  datomworld.demo.voxel-runner
+  datomworld.demo.voxel-runner-test
+  datomworld.demo.voxel-scene
+  datomworld.demo.voxel-scene-test
+  yang.antlr.packet
+  yang.clojure
+  yang.clojure.stream-eval-test
+  yang.php
+  yang.python
+  yang.python.antlr.lower
+  yang.python.antlr.lower-portable-test
+  yang.python.antlr.prelude
+  yang.python.antlr.prelude-parity-test
+  yang.python.antlr.render
+  yang.python.antlr.scope
+  yang.python.antlr.stage
+  yang.python.antlr.uast
+  yin.register-bench-cljd
+  yin.repl
+  yin.repl-test
+  yin.repl.adapter
+  yin.repl.adapter-test
+  yin.repl.ast-index
+  yin.repl.ast-index-test
+  yin.repl.ast-query-e2e-test
+  yin.repl.connect
+  yin.repl.connect-test
+  yin.repl.driver
+  yin.repl.driver-test
+  yin.repl.embed
+  yin.repl.embed-test
+  yin.repl.flutter
+  yin.repl.host
+  yin.repl.host.common
+  yin.repl.index
+  yin.repl.index-test
+  yin.repl.link
+  yin.repl.main
+  yin.repl.main-test
+  yin.repl.query
+  yin.repl.query-test
+  yin.repl.require-test
+  yin.repl.serve
+  yin.repl.serve-test
+  yin.repl.slice-peer
+  yin.repl.store
+  yin.repl.store-test
+  yin.repl.store.fs
+  yin.vm
+  yin.vm-test
+  yin.vm.ast-walker
+  yin.vm.ast-walker-test
+  yin.vm.attach-image-test
+  yin.vm.cell-test
+  yin.vm.code
+  yin.vm.code-test
+  yin.vm.completion
+  yin.vm.completion-test
+  yin.vm.continuation-invoke-test
+  yin.vm.data
+  yin.vm.data-test
+  yin.vm.debruijn
+  yin.vm.debruijn-code
+  yin.vm.debruijn-code-test
+  yin.vm.debruijn-linearize
+  yin.vm.debruijn-linearize-test
+  yin.vm.debruijn-register-benchmark-test
+  yin.vm.debruijn-register-code
+  yin.vm.debruijn-register-compile
+  yin.vm.debruijn-register-compile-test
+  yin.vm.debruijn-register-contract-test
+  yin.vm.debruijn-register-effects
+  yin.vm.debruijn-register-effects-test
+  yin.vm.debruijn-resolve
+  yin.vm.debruijn-resolve-test
+  yin.vm.debruijn-test
+  yin.vm.debruijn-vm-contract-test
+  yin.vm.debruijn.register
+  yin.vm.debruijn.register-test
+  yin.vm.debruijn.stack
+  yin.vm.debruijn.stack-effects-test
+  yin.vm.debruijn.stack-parity-test
+  yin.vm.debruijn.stack-test
+  yin.vm.effect
+  yin.vm.effect-forgery-test
+  yin.vm.encoder
+  yin.vm.encoder-test
+  yin.vm.engine
+  yin.vm.engine-test
+  yin.vm.ffi
+  yin.vm.ffi-test
+  yin.vm.ffi.remote-serve
+  yin.vm.ffi.remote-serve-test
+  yin.vm.ffi.remote-serve.caller
+  yin.vm.ffi.remote-serve.holder
+  yin.vm.ffi.remote-serve.responder
+  yin.vm.ffi.remote-serve.responder-test
+  yin.vm.ledger
+  yin.vm.ledger-test
+  yin.vm.linearize
+  yin.vm.linearize-test
+  yin.vm.linker
+  yin.vm.linker-authority-ingestion-test
+  yin.vm.linker-authority-test
+  yin.vm.linker-manifest-test
+  yin.vm.linker-require-test
+  yin.vm.linker-step-test
+  yin.vm.linker-test
+  yin.vm.linker.authority
+  yin.vm.macro
+  yin.vm.macro-test
+  yin.vm.malformed-rows
+  yin.vm.mint-test
+  yin.vm.module
+  yin.vm.module-test
+  yin.vm.parity-test
+  yin.vm.pipeline
+  yin.vm.pipeline-test
+  yin.vm.rule-r-test
+  yin.vm.semantic
+  yin.vm.semantic-engine-test
+  yin.vm.semantic-ffi-test
+  yin.vm.semantic-stream-observer-test
+  yin.vm.semantic-test
+  yin.vm.telemetry
+  yin.vm.telemetry-test
+  yin.vm.test-utils
+  yin.vm.ucf
+  yin.vm.ucf-test
+  yin.vm.ucf.remote
+  yin.vm.ucf.remote-test
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 176, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 242, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 342, column: 48, file: yin/repl.cljc
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  at line: 52, column: 50, file: dao/jing/file_test.cljc
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  at line: 77, column: 12, file: dao/jing/file_test.cljc
+DYNAMIC WARNING: can't resolve member indexOf on target type dynamic of library dart:core  at line: 92, column: 20, file: dao/jing/file_test.cljc
+DYNAMIC WARNING: can't resolve member indexOf on target type dynamic of library dart:core  at line: 93, column: 14, file: dao/jing/file_test.cljc
+DYNAMIC WARNING: can't resolve member toRadixString on target type dynamic of library dart:core  at line: 18, column: 38, file: dao/stream/base64_test.cljc
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  at line: 190, column: 12, file: dao/jing/dht/mesh.cljc
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  at line: 296, column: 12, file: dao/jing/cbor_test.cljc
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member kind on target type dynamic of library dart:core  at line: 178, column: 19, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member pointer on target type dynamic of library dart:core  at line: 186, column: 12, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member localPosition on target type dynamic of library dart:core  at line: 191, column: 13, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member buttons on target type dynamic of library dart:core  at line: 203, column: 36, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member pressure on target type dynamic of library dart:core  at line: 205, column: 37, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member dx on target type dynamic of library dart:core  at line: 208, column: 42, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member dy on target type dynamic of library dart:core  at line: 208, column: 57, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member timeStamp on target type dynamic of library dart:core  at line: 207, column: 55, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member inMicroseconds on target type dynamic of library dart:core  at line: 207, column: 37, file: datomworld/demo/artifact.cljd
+#error {
+ :cause Map literal must contain an even number of forms
+ :via
+ [{:type clojure.lang.ExceptionInfo
+   :message compiling namespace yang.python.antlr.lower
+   :data {}
+   :at [cljd.compiler$compile_namespace invokeStatic compiler.cljc 4999]}
+  {:type cljd.lang.LispReader$ReaderException
+   :message java.lang.RuntimeException: Map literal must contain an even number of forms
+   :data #:clojure.error{:line 265, :column 67}
+   :at [cljd.lang.LispReader read LispReader.java 374]}
+  {:type java.lang.RuntimeException
+   :message Map literal must contain an even number of forms
+   :at [clojure.lang.Util runtimeException Util.java 221]}]
+ :trace
+ [[clojure.lang.Util runtimeException Util.java 221]
+  [cljd.lang.LispReader$MapReader invoke LispReader.java 1421]
+  [cljd.lang.LispReader read LispReader.java 345]
+  [cljd.lang.LispReader readDelimitedList LispReader.java 1462]
+  [cljd.lang.LispReader$ListReader invoke LispReader.java 1305]
+  [cljd.lang.LispReader read LispReader.java 345]
+  [cljd.lang.LispReader readDelimitedList LispReader.java 1462]
+  [cljd.lang.LispReader$ListReader invoke LispReader.java 1305]
+  [cljd.lang.LispReader read LispReader.java 345]
+  [cljd.lang.LispReader readDelimitedList LispReader.java 1462]
+  [cljd.lang.LispReader$ListReader invoke LispReader.java 1305]
+  [cljd.lang.LispReader read LispReader.java 345]
+  [cljd.lang.LispReader read LispReader.java 276]
+  [cljd.lang.LispReader read LispReader.java 265]
+  [cljd.compiler$read invokeStatic compiler.cljc 44]
+  [cljd.compiler$read invoke compiler.cljc 43]
+  [cljd.compiler$load_input invokeStatic compiler.cljc 4917]
+  [cljd.compiler$load_input invoke compiler.cljc 4911]
+  [cljd.compiler$compile_input invokeStatic compiler.cljc 4959]
+  [cljd.compiler$compile_input invoke compiler.cljc 4957]
+  [cljd.compiler$compile_url invokeStatic compiler.cljc 4993]
+  [cljd.compiler$compile_url invoke compiler.cljc 4980]
+  [cljd.compiler$compile_namespace invokeStatic compiler.cljc 5005]
+  [cljd.compiler$compile_namespace invoke compiler.cljc 4995]
+  [cljd.compiler$recompile$fn__8493 invoke compiler.cljc 5104]
+  [cljd.compiler$recompile invokeStatic compiler.cljc 5096]
+  [cljd.compiler$recompile invoke compiler.cljc 5084]
+  [cljd.build$compile_cli$compile_nses__10412 invoke build.clj 462]
+  [cljd.build$compile_cli invokeStatic build.clj 470]
+  [cljd.build$compile_cli doInvoke build.clj 419]
+  [clojure.lang.RestFn invoke RestFn.java 424]
+  [cljd.build$test_cli invokeStatic build.clj 645]
+  [cljd.build$test_cli doInvoke build.clj 644]
+  [clojure.lang.RestFn invoke RestFn.java 460]
+  [cljd.build$_main invokeStatic build.clj 942]
+  [cljd.build$_main doInvoke build.clj 916]
+  [clojure.lang.RestFn applyTo RestFn.java 140]
+  [clojure.lang.Var applyTo Var.java 707]
+  [clojure.core$apply invokeStatic core.clj 667]
+  [clojure.main$main_opt invokeStatic main.clj 515]
+  [clojure.main$main_opt invoke main.clj 511]
+  [clojure.main$main invokeStatic main.clj 665]
+  [clojure.main$main doInvoke main.clj 617]
+  [clojure.lang.RestFn applyTo RestFn.java 140]
+  [clojure.lang.Var applyTo Var.java 707]
+  [clojure.main main main.java 40]]}
+Error while executing task: test:cljd
+cljd exit 1

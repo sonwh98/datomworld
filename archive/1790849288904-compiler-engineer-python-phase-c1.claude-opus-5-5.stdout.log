@@ -1,0 +1,93 @@
+Completed-GMT: 2026-10-01 10:55:07 GMT
+Completed-Local: 2026-10-01 17:55:07 +07
+Coding-Agent: claude
+Session-ID: 976059c2-629b-4b91-8b63-7c4d9604d7cf
+
+# Python phase C, slice C1
+
+All six C1 items are done, in the lowering and prelude only (no VM changes, no new AST tag). Every check I could run passes, and each new semantics test fails when the code behind it is broken. Two checks did not run: cljstyle is blocked by permission in this session, and `bb test:cljd` was excluded by the brief. Nothing is staged or committed. The full report is in `collab/1790849288904-compiler-engineer-python-phase-c1.claude-opus-5-5.report.md`.
+
+## Test results (all run in the foreground)
+
+| Check | Result |
+|---|---|
+| clj-kondo, 10 changed files as separate arguments | 0 errors, 0 warnings |
+| cljstyle | **not run**: "This command requires approval" |
+| `bb build:yin-repl-node`, then `bb gen:python-antlr` | both succeeded |
+| Focused JVM, the 7 Python namespaces | 98 tests, 395 assertions, 0 failures |
+| Full `clj -M:test` | 2695 tests, 187529 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 0 warnings; 2520 tests, 0 failures; the two portable Python namespaces ran on Node |
+
+## Supported now
+
+1. **`finally` and `with`.**
+   - The finally block runs on every exit (normal, `return`, `break`, `continue`, `raise`). Nested blocks run innermost first, a `return` in `finally` overrides, and a raise in `finally` replaces the exception in flight.
+   - `with` follows the language reference: `__exit__` is looked up before `__enter__` runs, gets the exception details, and a truthy result suppresses the exception.
+   - How it works: the handler stack is now a chain of numbered frames. `raise` runs finally blocks with the exception until it reaches a handler; `return`/`break`/`continue` unwind to where they were captured and run finally blocks with None.
+2. **Tuples, unpacking and slices.**
+   - Tuples compare by value and work as dict keys; lists, dicts and sets as keys raise TypeError.
+   - Unpacking works nested, in `for` and `with ... as`, with one starred target.
+   - Slices on lists, tuples and strings clamp exactly as Python does.
+   - Slice assignment works on lists when the step is absent or 1.
+3. **Operators.**
+   - `**`, `%`, `//` with Python's floor rules, and `& | ^ ~ << >>`.
+   - `in` / `not in` for lists, tuples, ranges, strings, dict keys and sets.
+   - All augmented forms. `+=` and `*=` on a list change it in place, so other references see the change.
+   - There is no portable host primitive for these, so they are exact prelude algorithms over `+ - * <`, valid within 2^53.
+4. **Comprehensions.**
+   - List, dict and set comprehensions, each with its own scope. The first iterable is evaluated in the enclosing scope, so a class body can use its own names there.
+   - A generator expression is accepted only as the sole argument of `list`/`tuple`/`set`/`sum`/`any`/`all`, where it is built as a list. Every other generator expression is rejected as "phase C2".
+5. **Keyword arguments.** Keyword arguments, `*`/`**` at call sites, keyword-only parameters and `**kwargs` all work. Every binding error is a Python TypeError.
+6. **The five P3 notes from the r2 gate.**
+   - **Implicit `object` base and the exception classes the prelude raises: unchanged on purpose, because that is CPython's behaviour.** CPython uses the builtins even if the module rebinds those names. A test now pins this.
+   - `global globals; globals()` works now.
+   - An out-of-range `\U` escape gives a qualified syntax diagnostic instead of a host exception.
+   - **`0755` was already rejected by the pinned grammar's lexer,** so that note didn't apply. A test pins it, and I added a lowering guard as a backstop.
+   - The UnboundLocalError message now matches CPython 3.11. String repr now chooses quotes the way Python does and escapes control characters.
+
+## Mutation proof
+
+I made nine deliberate breakages (finally on escape and on raise, `with` suppression, tuple keys, slice clamping, floor division and `**` grouping, comprehension scope, duplicate keywords, `globals`, repr quotes). Each turned its tests red. One of them exposed a real gap: removing the slice upper-bound clamp did not fail the slice test, so I added over-long-stop cases, after which it failed. Everything was restored and re-verified: no mutation markers left, all 98 tests green.
+
+## Still rejected (with a qualified diagnostic)
+
+- `yield` and other generator expressions (C2).
+- imports, `del`, `assert`, `match`, async, decorators.
+- `@`, `{**d}` in a display, multi-dimensional slicing, extended slice assignment, multiple inheritance.
+- f-strings, bytes, big ints, annotations.
+- `2 ** 0.5` raises NotImplementedError at run time, since there is no portable `pow`.
+
+## Mechanical versus not
+
+The operator tables, the new grammar-rule cases, builtins and rule reclassification were mechanical. Not mechanical:
+- the frame-based unwinding protocol for `finally`;
+- floor division, modulo, power and bitwise as identical algorithms on JVM and JS numbers;
+- the comprehension scope split;
+- keyword binding, the largest single piece;
+- correcting the grammar's left-grouped `**` and its acceptance of a lone `*a`.
+
+## Unresolved concerns
+
+- Error messages carry no counts (for example, "takes too many positional arguments"), because `data` has no number-to-string primitive.
+- Set order is insertion order, not CPython's hash order.
+- `d.items()`, `keys()` and `values()` return list snapshots, not live views.
+- `(x) = 1` is still rejected.
+- The CLJD changes (one new reader conditional, `:cljd` first) are checked by reading only; nothing ran on CLJD.
+- cljstyle has not been run on these edits.
+
+## Files
+
+Changed:
+- `src/cljc/yang/python/antlr/lower.cljc`
+- `src/cljc/yang/python/antlr/prelude.cljc`
+- `src/cljc/yang/python/antlr/render.cljc`
+- `src/cljc/yang/python/antlr/scope.cljc`
+- `test/yang/python/antlr/lower_test.clj`
+- `test/yang/python/antlr/lower_portable_test.cljc`
+- `test/yang/python/antlr/prelude_parity_test.cljc`
+- `test/yang/python/antlr/scope_test.clj`
+- `test/yang/python/antlr/e2e_test.clj`
+
+New:
+- `test/yang/python/antlr/e2e_c1_test.clj`
+- `collab/1790849288904-compiler-engineer-python-phase-c1.claude-opus-5-5.report.md`

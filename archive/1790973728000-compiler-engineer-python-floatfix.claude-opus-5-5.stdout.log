@@ -1,0 +1,58 @@
+Completed-GMT: 2026-10-02 22:25:45 GMT
+Completed-Local: 2026-10-03 05:25:45 +0700
+
+The float-address fix is in and all three lanes are green. The cross-host goldens are byte-identical on the JVM, Node and Dart. Python floats now carry Jing's float64 carrier from the point they are produced. `dao.jing.cbor.cljc` and its fixtures are untouched, with no new tag, row shape or AST tag. Nothing is staged or committed.
+
+## Lanes (foreground-equivalent, one at a time)
+The tool caps a foreground call at 10 minutes, so I launched each lane through the harness's background option. I kept the turn open with blocking wait calls until each one exited.
+
+| Lane | Tests | Assertions | Failures | Errors | Skips |
+|---|---|---|---|---|---|
+| `bb test:clj` (ran `gen:python-antlr` and `build:yin-repl-node` first) | 2904 | 227043 | 0 | 0 | 1 (ws-project Dart peer not built) |
+| `bb test:cljs` | 2710 | 91930 | 0 | 0 | 1 (Dart peer absent at the time) |
+| `bb test:cljd` | 2665 passed | — | 0 | — | — |
+
+- **Lint:** `clj -M:kondo` reports 0 errors on the touched files. The remaining warnings in `vm.cljc` were already there. One info note remains in `render.cljc:36` (redundant `double` coercion), which I kept to avoid a reflection warning.
+- **Formatting:** `cljstyle check` is clean on all touched files.
+- **Node lane history:** the first Node run printed no summary line; the build log suggests the run stopped part-way. Two later runs exposed and fixed the de Bruijn gate described below. The final run is the one in the table.
+
+## Cross-host goldens (`test/yang/python/antlr/float_address_test.cljc`, new)
+All goldens were computed on the JVM, and the same assertions pass on Node and Dart, so every one is byte-identical across hosts. They pin:
+- **Canonical bytes:** `{:py/float 2.0}`, `float64 1` vs integer `1`, and -0.0.
+- **Bundled prelude, standalone:** `ccd573ee…`
+- **Hook prelude:** `76e1cfe8…`
+- **Program and derivation:** the test program is `while False: pass` followed by `print(2.0, 1 + 2.0, 4 / 2, -0.0, 0.5, 1)`:
+  - A `e9ce6327…`
+  - A' `8d572c58…`
+  - the derive record `3ba9c4dd…`
+  - the bundled prelude inside A `feb8c22d…`
+- **Dict-key bytes.**
+
+The same file also checks:
+- 1 and 1.0 have different addresses, and -0.0 keeps its sign.
+- Kind survives projection and decoding: decoding A and projecting it again gives the same address.
+- A runs on all four VMs, both as projected and after decoding from bytes.
+- The base prelude and the hook prelude contain no integral float literal, and every float literal sits inside `data/float-value`.
+
+## Changed files
+- **`lower.cljc`:** float literals become `{:py/float (cbor/float64 x)}` at parse time.
+- **`yin/vm/data.cljc`:** three new exports:
+  - `float64` wraps a value as float64 content.
+  - `float-value` turns it back into a plain host number; this is the execution bridge.
+  - `numeric-key` normalises dict and set keys.
+- **`prelude.cljc`:**
+  - `py/float` wraps through `data/float64` and `py/num` unwraps through `data/float-value`.
+  - Every float constant (13 sites, plus `0.5` and `##Inf`) now goes through `data/float-value`.
+  - Dict-key normalisation uses `data/numeric-key`.
+- **Scalar gates:** `vm.cljc` `plain-data?` and `machine-data?`, `engine.cljc` `scalar?`, and `values.cljc` `kind-of`.
+- **De Bruijn image encoder** (`debruijn_code.cljc` `host-double?`, plus `double-le-hex` there and in `debruijn.cljc`): the ruling did not name this as a gate. Node's stack and register VMs failed with "Unsupported value in executable scalar encoding". Both `double-le-hex` copies would also have dropped -0.0's sign on a carrier, so they now unwrap it first.
+- **`render.cljc`:** `float-repr` unwraps the carrier.
+- **Tests:** `prelude_parity_test.cljc` expectations now carry float64 payloads, and `data_test.cljc` gets the updated export set and a new `float-seam-test`.
+- **Docs:** one sentence in `dao.jing.cbor.md`, the normative paragraph (with correction 1) in `yang.antlr.md`, and a scalar-carrier note in the universal-continuation-format doc.
+
+## Decisions and open concerns
+- **Dict-key normalisation (my decision, flagged by fable):** a numeric key is now the integer when it is integral within ±(2^53−1), so 1, 1.0, True and -0.0/0 all collapse to one key. Otherwise the key is float64 content. On the JVM, keys were previously Double 1.0; this needs sign-off. NaN keys equal each other on JS but not on the JVM; that was a host difference before too, and I left it alone.
+- **Bundled addresses have moved on every host** because the prelude changed. No existing test pinned them, so nothing was re-minted, but any external artifacts holding old prelude or A/A' addresses must be rebuilt from source.
+- **Generic yin code is not bridged:** a float literal decoded from a row on JS evaluates as a carrier. Only the Python path converts it back, through `data/float-value`.
+- **No capture inside the seam:** this rests on the existing safepoint test "the bundled prelude keeps its id: no site is under it" and on the prelude bodies containing no yield. I added no new test for it.
+- **Not done:** `linker.cljc` `portable-scalar?`, which covers link-request ids, was left unchanged.

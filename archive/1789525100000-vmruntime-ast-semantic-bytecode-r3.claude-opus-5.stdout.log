@@ -1,0 +1,13 @@
+I fixed the two real bugs and added the out-of-scope notes for the other two. JVM: `clojure -M:test -n yin.vm-test` ran 19 tests (157 assertions) with 0 failures. I added the new tests before changing the code, and against the old code they failed 6 times.
+
+- **Finding 2 (map entry corruption):** stripping reader positions from a literal like `(first {:a 1})` turned `[:a 1]` into `(1 :a)` and changed its address. A map entry counts as a vector, but `empty` on one returns nil. Vectors now get their own `mapv` branch, and `(lit (first {:a 1}))` is in the round-trip corpus.
+- **Finding 5 (params vector metadata):** a correctly hashed `[:lambda ^{:purpose 1} [x] body]` row loaded fine but would re-project to a different address. Loading now refuses a params vector that carries its own metadata, with `:slot-kind`, since projection never produces one.
+- **Findings 1 and 4 (not fixed, as instructed):** `same-meta?`'s docstring now says metadata nested inside metadata isn't compared. It also says sets built with a custom comparator that holds equal, metadata-distinct elements are out of scope. No tests for these. The exact wording is in the findings file.
+
+**Also left open:** the reviewer's finding 3 wasn't in the prompt's fix or scope-out lists. Reader positions nested inside a metadata map still survive stripping, and the new docstring note covers only the duplicate check. If you want it disclosed too, that's one more docstring sentence.
+
+**Node:** `yin.vm-test` passes. The only failures are the same 2 as before, where the REPL test expects `(/ 1 0)` to throw but JavaScript returns `##Inf`.
+
+**ClojureDart:** `ps aux` showed nothing running on the Dart build, so I ran `bb test:cljd`. It failed while compiling, before any test ran. The untracked `test/bench/yin_vm_bench.cljc` has an empty `[]` in its `:require`, and the ClojureDart compiler crashes on it. That file isn't mine and is outside my boundary, so I left it alone. Until it's fixed or moved, this code is untested on Dart.
+
+I only edited `v2.cljc` and `v2_test.cljc`, and nothing is staged or committed. The report is in `collab/1789525100000-vmruntime-ast-semantic-bytecode-r3.claude-opus-5.findings.md`.

@@ -1,0 +1,57 @@
+Completed-GMT: 2026-09-30 06:49:43 GMT
+Completed-Local: 2026-09-30 13:49:43 +07
+Coding-Agent: claude
+Session-ID: d4ec2cf2-f45d-4f5a-8a43-572555b2a216
+
+# $ast row relation, slice 2: the q bridge supplies $ast / $occ when they are named in :in
+
+Slice 2 is done and not staged or committed. Every check passed except cljstyle, which I couldn't run because the permission gate blocked it. `dao.space.query` needed no change.
+
+## Changes (only the allowed files)
+
+- **`src/cljc/yin/repl/query.cljc`**
+  - **Caller arguments:** when counting them, the bridge now removes `$`, `$ast` and `$occ`. `%` and all other patterns are still supplied by the caller.
+  - **Rewritten `:in`:** `with-index` puts `$` first, then `$ast`/`$occ` in the order the query declares them, then the caller's patterns. This works for vector and map queries. A query without `:in` is unchanged and gets only the implicit `$`.
+  - **New `ast-relations`:**
+    - A query that names no AST source never looks at the AST indexer.
+    - Otherwise it builds `query/relation` values from `ast-index/relations`, keeping `[id tag & slots]` rows and `[root path node]` tuples as they are.
+    - If the AST indexer is missing, lost or failed, it refuses with `::index-unavailable` ("$ast and $occ are unavailable: …; (reset) rebuilds them").
+  - **`answer`:** gains a `[indexer ast-indexer limits request]` arity. The old 3-arity passes nil, so an AST query sent through it is refused.
+    - `:view` still wraps only the `$` datom source, so `$ast`/`$occ` are the same under `:current` and `:history`.
+    - Row and byte limits are unchanged and apply to mixed-source queries.
+  - **`serve`:** takes `:ast-indexer`. The namespace docstring describes the new behaviour.
+- **`src/cljc/yin/repl.cljc`:** `drive-links` passes `:ast-indexer (:ast-indexer state)` to `serve`. That is the shell's state at the moment it answers, never a copy taken at construction. One docstring line was updated.
+- **`test/yin/repl/query_test.cljc`:** 5 new tests. The shell-level ones run on all four VMs and cover:
+  - the variable names after `(defn inc …)`, identical under `:history` and in map form;
+  - the `$occ` count;
+  - a `$occ`⋈`$ast` join and a `$ $ast $occ ?n` join;
+  - caller inputs before and after the sources;
+  - wrong arity → `query-failed`, and `$ast` without `:in` → `#{}`;
+  - a lost indexer (a real gap) and a failed one → `index-unavailable`, while a `$`-only query still answers;
+  - row and byte limits on mixed-source queries;
+  - answers reflecting the AST indexer at answer time.
+
+## Test-first and mutation proof
+
+- **Before the bridge change:** the new tests failed (85 failures, 5 errors).
+- **After:** `yin.repl.query-test` has 23 tests, 339 assertions, 0 failures.
+- **Mutations:** all 7 were caught, and each was reverted afterwards:
+  - removing only `$` when counting arguments;
+  - leaving the AST sources out of the rewritten `:in`;
+  - not refusing when the indexer is lost or failed;
+  - refusing datom-only queries as well;
+  - `repl.cljc` not passing the AST indexer;
+  - the row limit disabled;
+  - `$ast` swapped for the `$occ` data.
+
+## Verification
+
+- **kondo:** 0 errors, 0 warnings on the 3 files.
+- **cljstyle:** blocked by the permission gate. I fixed the new `answer` arity's indentation by hand, but it is unverified; run cljstyle before committing.
+- **Focused JVM** (`yin.repl.query-test`, `yin.repl.ast-index-test`, `yin.repl-test`, `dao.space.query-test`): 146 tests, 973 assertions, 0 failures.
+- **Full `clj -M:test`:** 2403 tests, 184760 assertions, 0 failures, 0 errors.
+- **`bb test:cljs`:** 2308 tests, 51210 assertions, 0 failures; the output shows "Testing yin.repl.query-test".
+- **`bb test:cljd`:** "All tests passed!" (+2270). All five new tests are compiled into `query-test_test.dart`.
+- **Foreground rule:** one exception. The mutation run went past the 600s limit and was moved to the background automatically. I waited for it to finish before running anything else; every other check ran in the foreground.
+
+The full report is in `collab/1790748409000-vm-engineer-repl-ast-index-slice2.claude-opus-5-5.report.md`.

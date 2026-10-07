@@ -1,0 +1,9 @@
+I fixed the P2 issue the architect raised. Button clicks and editor changes in the React demo now only add an event to the stream and return. A separate loop reads those events and updates the demo on each animation frame. The `:demo` browser build compiles with 0 warnings. I haven't clicked through it in a browser.
+
+**What changed in `continuation_stream_v2.cljs`:**
+- **Adding events:** `deposit!` puts one event on the session's event stream and returns nil. It's the only thing the host adapter can call.
+- **The adapter:** `host-transforms` maps each kind of host input to one plain-data event. The number input's DOM event is turned into plain data here, so no DOM object ever reaches the stream. `make-adapter` wraps each entry so it builds the event, adds it and returns nil. The views now take this adapter map instead of an `emit` function.
+- **The loop:** `start-interpreter!` begins it on mount. Each frame, `tick!` reads any new events, applies them through `handle-event` and runs a batch of VM steps if the demo is running. It then asks for the next frame, and stops once it has read `:unmount`. The old `schedule!` and `emit!` and the `:frame` event are gone.
+- **Rendering:** `tick!` renders immediately with `r/flush`. Without that, typing two keys within one frame could lose the second one: a render still waiting from the previous frame would write the older source text back into the editor.
+
+Clicks and edits now show up one frame later. The loop also keeps running at about 60 frames per second while the page is open, even when idle, but an idle frame finds no events and changes nothing.

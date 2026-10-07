@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-26 00:13:23 GMT
+Completed-Local: 2026-09-26 07:13:23 +07
+
+Report written to `/Users/sto/workspace/datomworld/collab/1790380597559-vm-engineer-linker-authority-a1a2.glm-5.3.report.md`. Summary:
+
+**JVM lane** — before: 2051 tests / 181068 assertions, 0 failures, 0 errors. After: **2064 tests / 181135 assertions, 0 failures, 0 errors** (reproduced identically twice). Test delta is exactly the 13 new deftests; the new file contributes 57 assertions and the residual 10 come from a pre-existing test whose assertion count varies between runs (green throughout). TDD was real: red on the absent namespace, and the retraction test caught a genuine implementation bug (retracted-ids initially mapped the retraction's own id rather than the asserted id); a deliberate `>=`→`=` mutation of the equivocation clause failed exactly the two guarding assertions before being reverted.
+
+**Files changed** (nothing staged or committed):
+- NEW `src/cljc/yin/vm/linker/authority.cljc` — `yin.vm.linker.authority`: `name-environment` (the pure fold: shape validation, content-id via `jing/segment-key`, verify call-through over `jing/canonical-bytes`, attested-log identity check, the three per-principal passes, retraction binding, per-name fold with `:absent` / address+`:yin.link/provenance` / `:ambiguous-name`, snapshot echo and `:honored-seq` for floor advance), plus `assertion-id`. Only dependency: `dao.jing`.
+- NEW `test/yin/vm/linker_authority_test.cljc` — 13 deftests, one per line of the M4 entry list (signed resolves; no-proof; bad signature; attested copy off the log; undeclared ignored; retraction removes only the named id; dangling retractions; duplicate honored once; replay; equivocation incl. later envelopes; ambiguous-name; snapshot advance) plus the A1 malformed-envelope test. Signatures are digests of the envelope's canonical bytes, so a signature valid for one envelope fails for any other.
+- EDIT `docs/design/yin.vm.linker.md` — one file-box line in section 10 and one sentence in section 8.2 naming the namespace. Nothing else.
+
+**Deviations / interpretive decisions** (all fail-closed, all listed in the report): event and authority map key names where 8.2 fixes only concepts; three extra diagnostic kinds (`:malformed-envelope`, `:undeclared-principal`, `:no-proof-kind`) beyond the four discard kinds; name entries exist (as `:absent`) for every shape-valid assertion envelope at the snapshot; retraction binds to a honored same-principal assertion by content id; equivocation discards the pair and every later envelope of that principal with kind `:equivocation`; provenance carries vectors (`:yin.module/asserted-by`, `:yin.link/proof-kind`, `:yin.link/snapshot`); result carries `:honored-seq` to seed the next floor. No reading conflict rose to BLOCKED level; none of these contradict section 8.2 text.
+
+**Checks run**: full JVM lane before/after, kondo (0 errors/0 warnings), cljstyle (clean), 80-column + pure-ASCII on all added/edited lines. **Unrun**: Node and Dart lanes, per instructions (orchestrator runs them); avoided-by-construction hazards noted in the report (no reader conditionals, no private-var access, no exceptions, string sort keys).
+
+Status: COMPLETE

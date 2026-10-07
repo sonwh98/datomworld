@@ -1,0 +1,30 @@
+I've fixed all seven gate findings as uncommitted edits, and both confirmed misses are now selected. The tool's own tests went red then green: 25 of 116 assertions failed against stubs, now 21 tests and 118 assertions pass. kondo is clean. **cljstyle is still blocked** (it needed approval); I checked line widths and ASCII by hand. No lanes were run this round, only `--list`.
+
+**Findings 1–2 (the two misses).** A file now counts as a tree walker if it calls `file-seq`, `fs/glob`, `fs/list-dir`, `fs/walk-file-tree` or `.listFiles`. Every string literal passed to an `io/file`, `fs/file`, `fs/path`, `fs/glob`, `java.io.File.` or `File.` call anywhere in that file becomes a walked root, so let-bound roots count. A change under any root selects that test. There are unit tests for each shape, and on the real repo:
+- The `arena_contact-overflow.edn` fixture change now selects `dao.gui.event.fixture-test`.
+- The `integer.cljc` change now selects `dao.jing.hash-registry-contract-test`, 9 tests instead of 8.
+
+The grep of test/ turned up nothing else to miss:
+- Five test files are detected as walkers; the findings file has the table with each root and how it's selected.
+- The many `.listFiles` calls only delete temp dirs under `target/` whose paths are built at run time, so there's no literal root to watch.
+- `slurp` of literal paths (for example `sign_vectors.edn`) was already covered by the existing rule that matches tests mentioning a fixture's path.
+
+**Finding 3 (empty runs reported as passing).** `--changed` paths are now made relative to the repo root, so absolute and `./` paths work. These now exit 1, each checked on the CLI:
+- a path outside the repo;
+- running from the wrong directory (no code files found);
+- an empty `--changed`, either as the last argument or followed by another flag;
+- a mistyped path.
+
+Docs-only changes and an existing file nothing depends on (`vllm.sh`) still exit 0.
+
+One deviation, stricter than you asked: a path counts as a typo if it exists nowhere, whether or not it selects anything. A mistyped src path always "selects" the tests that scan all of src/, so "selects nothing and exists nowhere" would never fire for one. "Exists" means on disk, already indexed, or present in git's base commit, so a file the change deleted is still accepted.
+
+**Finding 5 (lane serialization).** The JVM and Dart lanes now run one after the other whenever any text the JVM selection reaches mentions `clojuredart`, including inside a shell string; there's a test for that case. It's still narrow in practice: of my sample changes, only `dao/stream.cljc` triggers it.
+
+**Findings 6–7 (wide list).** `mise.toml` and `.cljstyle` are now wide changes; `--changed README.md mise.toml` exits 2.
+
+**Finding 4 (docs).** The section in `docs/agents/build-n-test.md` now names the exact walker shapes, the exit-1 cases, the exit 2 from `test:changed:list`, and the remaining limits: dynamic loads, paths or roots built at run time, and spawned programs that changed. It's 19 lines.
+
+**Side effect:** every src/cljc change now also selects `hash-registry-contract-test` on all three lanes. A ledger change goes from 16/15/15 to 17/16/16 tests (JVM/Node/Dart).
+
+Still open from the gate: running `cljstyle fix` and `check`, and one green Node lane, which needs `npm ci` in this worktree. The findings file has a new "Gate fixes" section with the full walker table.

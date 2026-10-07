@@ -1,0 +1,58 @@
+# L5 report: linker over dao.jing.dht, end to end
+
+All six L5 acceptance bullets are covered and all lanes pass. Only the three files §12 lists for L5 changed. No source file changed, and nothing is staged or committed. The report is at `/Users/sto/workspace/datomworld/collab/1790837000000-engineer-linker-L5.claude-opus-5-5.report.md`.
+
+## Files
+
+- **`test/yin/repl/dht_process_test.clj`**: adds the test `a-module-published-by-name-is-required-by-name-across-processes`. It runs real `yin.repl.main` processes over real loopback UDP:
+  - Process A (JVM) publishes `my.lib` and `my.store` by name with a key file.
+  - Readers on the JVM and on Node are given A's index and principal.
+  - A third reader is given no principal.
+  - A plain Clojure node in the test JVM takes the same path.
+- **`test/yin/vm/linker/dht_end_to_end_test.cljc`** (new): the same scenario in process over the mesh seam. It runs on JVM, Node and Dart.
+- **`docs/agents/build-n-test.md`**: describes the two tests and how to run the process test alone.
+
+## Acceptance → evidence
+
+1. **A publishes; the test reads the manifest and principal from A's output.**
+   - The principal comes from A's banner line ("signed by principal ed25519:…").
+   - The manifest is the last "published … acknowledged" line, checked against A's `HEAD`.
+2. **B requires by name, waits through pending, and evaluates on all four VMs, on the JVM and on Node.**
+   - The test sees `;; require pending: my.lib`.
+   - `(my.lib/f 1)` prints `4201` on each VM.
+   - Each step waits for its answer before the next line is typed. `(vm …)` is answered at once even while a require is pending, so lines typed ahead would run on the wrong VM.
+3. **Plain Clojure takes the same path and asserts each §9 failure.**
+   - It runs join → load-index → names → load-module → link over real UDP. It links all four formats, runs each image, and evaluates `(f 1)` = 4201 on the walker.
+   - It asserts these failures as data: absent name, ambiguous name, content miss (`/exhausted`), descriptor defect, dependency binding, the linker's `:undeclared-free`, closure incomplete, unaskable and not-loaded.
+   - Three of them (content miss, defect, unaskable) are asserted in the node's raw load-status shape. The REPL turns that shape into the §9 response row through a private function in `yin.repl.link`; L3's tests already assert those rows.
+4. **Without `--dht-principal`, the require is `:absent` with an `:undeclared-principal` diagnostic.** This holds in the process test and as the exact response in the cljc test.
+5. **The in-process form passes on Dart, signatures verified, on all four VMs.**
+   - A forged index (real envelopes, proofs made over a different envelope) is refused with `:unauthenticated :bad-proof`.
+   - The Dart test reporter never prints these test names, so I checked another way. I temporarily broke one expected value, and `bb test:cljd` failed with actual `"4201"`. I reverted it and re-ran the lane green.
+6. **Store corpus.** `(my.store/g)` gives `8` on semantic, stack and register. The walker refuses with `:undeclared-free` naming `base`.
+
+## Mutations
+
+Each one was applied temporarily, seen to fail, and reverted:
+- Signature check always passes: caught.
+- Every principal seen treated as declared: caught by the in-process test, and in the process test by both reader C and the plain leg.
+- Refusing at the start of a closure load instead of waiting: caught. My first version, which refused while the load was in progress, survived. That state is never reached because the re-check runs only when the load ends, so I moved the mutation to where the load starts.
+- Linker refusals flattened to `:absent`: caught.
+
+## Lanes
+
+| Lane | Verdict |
+|---|---|
+| kondo (both test files) | 0 errors, 0 warnings |
+| `bb build:yin-repl-peer` | built |
+| `bb test:clj` | 2689 tests, 224243 assertions, 0 failures, 0 errors |
+| `bb test:cljs` (final file) | 2602 tests, 90308 assertions, 0 failures, 0 errors |
+| `bb test:cljd` (after `rm -rf test/cljd-out`) | +2557, all tests passed |
+
+The full JVM lane ran before one last change to the in-process test file. That change only moved assertions out of `let` bindings so the file compiles on Dart; it added no checks. I re-ran that namespace alone on the JVM afterwards (46 assertions, green). I did not repeat the full JVM lane, because it runs longer than the tool's 10-minute limit.
+
+## Notes for the reviewer
+
+- **No Dart reader process.** `build/yin-repl-peer` is the R5 peer, not the REPL, so there is nothing to spawn. The Dart signed-name leg runs in process, which is what bullet 5 asks for.
+- **§9 shapes from plain Clojure.** To get the REPL's response rows from plain Clojure, the conversion function would have to be made public. That is outside L5's files, so I left it for the Architect.
+- **Runtime.** The process test takes several minutes. `build-n-test.md` says how to run it on its own.

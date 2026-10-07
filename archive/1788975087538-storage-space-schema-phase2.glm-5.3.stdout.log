@@ -1,0 +1,16 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done. Phase 2 is complete — this closes `dao.space.*` on v1 entirely.
+
+## Summary
+
+**Built** (`schema.cljc`): `current` is now the D3/D4 value contract with §5's literal body — a private `snapshot-result?` mirroring query's, `:gap`/`:defect` snapshots rejected with the status named, `:ended`/`:blocked` accepted and interpreted; `validate-not-nested-view!` swapped its `:dao.stream/type` arm for the `:fact?` arm; `interpret-view` takes a query value. The namespace now requires exactly `dao.datom`, `dao.space.index`, `dao.space.query`, `dao.space.transactor`.
+
+**Deleted**: both `defopen` routes, `published`, `PublishedSchemaRows`, the `dao.stream`/`dao.jing`/`dao.jing.coordinate` requires, the `:require-macros`, the four kondo-ignore forms, and `test/dao/space/schema_fixtures.cljc` with its stale `lib/cljd-out` output (removed before the Dart lane, per the warning).
+
+**Tests**: four deftests died with their invariants re-pinned (V8, V10, V11→V14, P4); W38/W39/W41 moved to §5's literal `open-published!` → `schema/current` → `close-published!` nesting with assertions unchanged; four new deftests — V13a's scripted gap/defect readers, V13b's accepted `:blocked`/`:ended` snapshots, **V15 pinned as the documented limit, not fixed** (`:blocked` accepted, both card-one values visible because the vocabulary was evicted), and **V14's ownership counter** (zero closes asserted before the owner's close, one after). 72 → **72 deftests**.
+
+**Verification**: clj **1436 tests / 165349 assertions / 0 failures 0 errors**; cljs **1346 / 34922 / 0 failures, 1 pre-existing wasm error**, schema-test present in Node output; cljd **All tests passed (+1299)** with all four new deftests; demo compiles clean; kondo **0 errors, 0 warnings, no infos**. Every Prove grep landed on target: `ds/` **0/0**, require grep empty, `grep -rln "\[dao.stream :as" src/cljc/dao/space` → **nothing**, deftests **72**. The deleted-name sweep is clean outside the plan file itself (transient, committed at `32cd7c8`, untouchable by me) — reported with its reason.
+
+**Three deviations disclosed** in the findings file: W12's shared regex lost a dead alternative that named a deleted message; §8's epochs bullet said "d5 descriptor" two words past D3 (defect-relocation, fixed); and my first status-sentence draft tripped the sweep itself, reworded before verification ran.
+
+Nothing staged or committed; findings at `collab/1788975087538-storage-space-schema-phase2.glm-5.3.findings.md`.

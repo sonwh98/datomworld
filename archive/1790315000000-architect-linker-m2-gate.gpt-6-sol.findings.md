@@ -1,0 +1,17 @@
+I’m using the code-review skill for the M2 worktree diff. I’ll read the cited spec and report, trace the four format records and fetch pipeline, and check callers and tests without rerunning suites. Please send the Node and Dart results when they finish; a red lane would block sign-off.
+The first pass found a contract-level gap: the new format records still provide symbol sets for obligations and omit the definition/application scanners required by Section 4.1. I’m checking whether M2 intentionally defers those slots or whether the current fetch behavior already depends on them, then I’ll validate the worklist and tests independently.
+I’ve confirmed two likely gate blockers: the format records do not yet meet the position-bearing scanner contract, and the new Dart byte-count branch uses `typed/Uint8List` without a visible `typed` import. I’m checking the tests and remaining callers to separate confirmed defects from deferred M3/M4 work.
+The review is now at a request-changes threshold independent of the pending lanes: Section 4.1’s scanner contract is not implemented, and the new byte-count code lacks the Dart type alias. The worklist also permits unbounded default traversal and checks its byte cap only after decode. I’m preparing line-specific fixes; I did not rerun tests.
+Completed-GMT: 2026-09-25 07:17:54 GMT
+Completed-Local: 2026-09-25 14:17:54 ICT
+
+P1 | [linker.cljc:241](/Users/sto/workspace/datomworld-ucf-phase2/src/cljc/yin/vm/linker.cljc:241) | All four records return name collections as `:obligations-fn` and omit `:definitions-fn` and `:applications-fn`; fetch passes those names directly to receiver discharge ([line 580](/Users/sto/workspace/datomworld-ucf-phase2/src/cljc/yin/vm/linker.cljc:580)). This cannot perform the position-bearing, defined-before-use and conditional/lambda analysis required by [Section 4.1](/Users/sto/workspace/datomworld-ucf-phase2/docs/design/yin.vm.linker.md:260). | Add the three position-bearing scanners and tests for dominance, early application, and conditional definitions; adapt step 5 to consume their records.
+
+P1 | [linker.cljc:393](/Users/sto/workspace/datomworld-ucf-phase2/src/cljc/yin/vm/linker.cljc:393) | The ClojureDart branch uses `typed/Uint8List`, but the namespace has no `dart:typed_data` alias ([imports](/Users/sto/workspace/datomworld-ucf-phase2/src/cljc/yin/vm/linker.cljc:22)). | Add the conditional Dart import or use a type already imported, then confirm the Dart lane is green.
+
+P1 | [linker.cljc:525](/Users/sto/workspace/datomworld-ucf-phase2/src/cljc/yin/vm/linker.cljc:525) | All bounds default to nil, so the ordinary fetch path has no finite worklist limit. Even when supplied, `:max-bytes` is checked after fetch and decode, and child addresses are enqueued before a parts-limit check ([worklist](/Users/sto/workspace/datomworld-ucf-phase2/src/cljc/yin/vm/linker.cljc:489)). An untrusted large row can consume unbounded decode or queue memory before refusal. | Require finite composition bounds (or safe defaults) for every fetch path; check byte size before decode and enforce the parts budget while enqueuing.
+
+The four-file scope, identity-directed matching, retired-loader caller migration, and edited-line hygiene check out. The stale [completion.cljc docstring](/Users/sto/workspace/datomworld-ucf-phase2/src/cljc/yin/vm/completion.cljc:296) is deferred, non-blocking debt outside the file box. I did not rerun suites; the supplied JVM run is green, while Node and Dart results remain pending.
+
+Verdict: REQUEST CHANGES
+Sign-off: DENIED

@@ -1,0 +1,28 @@
+Completed-GMT: 2026-09-04 04:09:00Z
+Completed-Local: 2026-09-04 11:09:00 +07:00
+Coding-Agent: agy
+Session-ID: none (Fable unavailable in current AGY registry)
+
+### Defect Review
+
+| severity | file:line | invariant/evidence | correction |
+| --- | --- | --- | --- |
+| none | `src/cljc/yin/repl/connect.cljc:556` | Cursor-before-attach: `boundary` creates the traffic medium and mints `response-cursor` and `lifecycle-cursor` before returning to `open`, which only then calls `attach!`. | n/a |
+| none | `src/cljc/yin/repl/connect.cljc:661` | Reconnect/rebind: `reattach` calls `attach!` again but correctly reuses the existing `traffic` medium and cursors, passing them to `rpc-ws/rebind`. | n/a |
+| none | `src/cljc/yin/repl/serve.cljc:122` | Bounded handoff: `make-slots` correctly uses capacity-1 buffers (`(buffer 1)`) for `offer` and `ack` media, preventing unbounded queues during connection bursts. | n/a |
+| none | `src/cljc/yin/repl/serve.cljc:251` | Cursor-before-attach (server): `make-traffic` mints the cursor on the request medium *before* the acknowledgement is deposited, preventing loss of initial traffic. | n/a |
+| none | `src/cljs/dao/stream/ws/node.cljs:191` | Host Isolation: `wire!` subscribes to "message", "close", "error". No host error objects cross the boundary. `binary-message-text` is passed for binary frames, which forces the transport to cleanly tear down via `decode-failure` without inspecting bytes. | n/a |
+| none | `src/cljc/yin/repl/host.cljc:83` | Explicit Host Injection: `websocket` returns `nil` intentionally. The REPL doesn't assume a socket package and appropriately handles the absent host package as a `:bind-failed` / `:failed` endpoint state (surfaced as data). | n/a |
+| none | `src/cljc/yin/repl/serve.cljc:368` | Plain Data Lifecycle: `serve!` observes listener failures and translates them into `:bind-failed` or `:listener-error` without leaking the underlying JS/JVM error object. | n/a |
+| none | `src/cljc/yin/repl/connect.cljc:442` | R3 Canonicalization: `canonical-path` correctly decodes unreserved octets, upper-cases hex digits, ignores query/fragment, and maintains trailing/repeated slashes. Unparseable escapes correctly yield `nil`. | n/a |
+
+### Passed Properties
+- **No Global State:** No `defstate`, global atoms, or implicit singletons. `driver/create-state` and `serve/serve!` compose and return explicit values.
+- **Explicit Causality / No Callbacks:** `serve/step` and `connect/observe` explicitly drive state transitions. `serve!` returns immediately without claiming a bind until observed in the lifecycle medium. Node callbacks in `node.cljs` (`connect!`, `listen!`) immediately transition into streams/adapters without hiding background execution threads.
+- **DaoStream Contract:** Everything is modeled as a stream with explicit cursors. Transport operations are non-blocking. Eviction constraints (capacity-1 handoffs, capacity-8192 traffic media) are explicit.
+- **Portability:** Code separates host-specific mechanics (`node.cljs`) from pure logic (`connect.cljc`, `serve.cljc`). Appropriate CLJD/CLJS/CLJ try-catch blocks correctly isolate platform error hierarchies.
+
+### Unresolved Risks
+- **Host Adapters Deferred:** Only the Node host adapter (`ws`) is provided and tested. The JVM (`http-kit`/`java.net.http`) and CLJD (`dart:io`) WebSocket packages are explicitly deferred (documented in `yin.repl.host`). This is an explicit prerequisite and acceptable for this phase, but requires implementation before the JVM/Dart REPL can serve or connect.
+
+SIGN-OFF: GRANTED

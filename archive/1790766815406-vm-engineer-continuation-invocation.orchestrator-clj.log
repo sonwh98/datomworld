@@ -1,0 +1,388 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing dao.await-test
+
+Testing dao.data.btree-async-test
+
+Testing dao.data.btree-durability-test
+
+Testing dao.data.btree-protocols-test
+
+Testing dao.data.btree-test
+
+Testing dao.data.btree-transients-test
+
+Testing dao.data-test
+
+Testing dao.gui.compiler-test
+
+Testing dao.gui.event.arena-test
+
+Testing dao.gui.event.bind-test
+"dao.gui.event output gone; dropping pending" {:destination :gesture, :outcome :dao.stream/closed}
+
+Testing dao.gui.event.core-test
+
+Testing dao.gui.event.fixture-test
+
+Testing dao.gui.event.longpress-test
+
+Testing dao.gui.event.machine-test
+
+Testing dao.gui.event.pan-test
+
+Testing dao.gui.event.pointer-test
+
+Testing dao.gui.event.policy-test
+
+Testing dao.gui.event.terminal-test
+
+Testing dao.gui.event.transform-test
+
+Testing dao.gui.runtime-test
+
+Testing dao.jing.cbor-conformance-test
+CONFORMANCE jvm cases=372 run=367 skipped=["coll/map-integer-width-duplicate" "coll/set-decimal-scale-collapse" "coll/set-signed-zero-collapse" "coll/set-vector-list-collapse" "num/js-unsafe-integer"]
+CONFORMANCE-DIGEST jvm refusal n=154 1b929147af85f703c700a1f0d9cfbe74c55e5e28302a862086516fe749ec1b82
+CONFORMANCE-DIGEST jvm canonical n=208 6d1c64719d96c11f79d575bd3122ad1bba1ba9efcc56dce63b195423575cf2cb
+
+Testing dao.jing.cbor-content-equality-test
+
+Testing dao.jing.cbor-fixtures-test
+
+Testing dao.jing.cbor-test
+SKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart
+
+Testing dao.jing.content.step-test
+
+Testing dao.jing.content-test
+
+Testing dao.jing.dht.kad-test
+
+Testing dao.jing.dht.node-test
+
+Testing dao.jing.dht-test
+
+Testing dao.jing.file-test
+
+Testing dao.jing.hash-registry-contract-test
+
+Testing dao.jing.mem-test
+
+Testing dao.jing.stream-test
+
+Testing dao.jing-test
+
+Testing dao.lease-composition-test
+
+Testing dao.lease-test
+
+Testing dao.postgraphics.lowering-test
+
+Testing dao.postgraphics.math-test
+
+Testing dao.postgraphics.packing-test
+
+Testing dao.postgraphics.raster-test
+
+Testing dao.postgraphics.terminal-test
+
+Testing dao.pretty-test
+
+Testing dao.space.index-numeric-test
+
+Testing dao.space.index-test
+
+Testing dao.space.positional-query-test
+
+Testing dao.space.query-numeric-test
+
+Testing dao.space.query-test
+
+Testing dao.space.schema-test
+
+Testing dao.space.stigmergy-test
+
+Testing dao.space.transact-test
+
+Testing dao.space.transactor-test
+
+Testing dao.stream.apply-test
+
+Testing dao.stream.cbor-test
+
+Testing dao.stream.forward-test
+
+Testing dao.stream.memory-log-test
+
+Testing dao.stream.middleware-test
+
+Testing dao.stream.observe-test
+
+Testing dao.stream.observer-test
+
+Testing dao.stream.remote-meet-test
+
+Testing dao.stream.remote-pair-test
+
+Testing dao.stream.remote-test
+
+Testing dao.stream.ringbuffer-test
+
+Testing dao.stream.rpc-test
+
+Testing dao.stream.transit-test
+
+Testing dao.stream.udp.jvm-test
+
+Testing dao.stream.udp-test
+
+Testing dao.stream.waitset.cadence-test
+
+Testing dao.stream.waitset.driver-test
+
+Testing dao.stream.waitset-test
+
+Testing dao.stream.ws.jvm-test
+
+Testing dao.stream.ws-codec-test
+
+Testing dao.stream.ws-project-cross-jvm-test
+;; SKIPPED a-dart-dialer-reads-a-jvm-server: build/ws-project-peer is absent -- compile it first: clojure -M:cljd compile dao.stream.ws-project-peer && dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart -o build/ws-project-peer
+
+Testing dao.stream.ws-project-jvm-test
+
+Testing dao.stream.ws-project-test
+
+Testing dao.stream.ws-test
+
+Testing dao.stream-test
+
+Testing datomworld.demo.artifact-runner-test
+
+Testing datomworld.demo.artifact-scene-test
+
+Testing datomworld.demo.continuation-handoff-test
+
+Testing datomworld.demo.earth-moon-scene-test
+
+Testing datomworld.demo.solar-system-scene-test
+
+Testing datomworld.demo.voxel-controls-test
+
+Testing datomworld.demo.voxel-input-test
+
+Testing datomworld.demo.voxel-runner-test
+
+Testing datomworld.demo.voxel-scene-test
+
+Testing yang.clojure.stream-eval-test
+
+Testing yang.clojure-test
+FFI hello world
+
+Testing yang.php-test
+
+Testing yang.python-test
+
+Testing yin.repl.adapter-test
+
+Testing yin.repl.ast-index-test
+
+Testing yin.repl.build-test
+
+Testing yin.repl.connect-test
+
+Testing yin.repl.driver-test
+
+Testing yin.repl.embed-test
+
+Testing yin.repl.host.jvm-test
+
+Testing yin.repl.index-test
+
+Testing yin.repl.main-test
+;; SKIPPED a-dart-client-attaches-to-this-jvm-server: build/yin-repl-peer is absent — run bb build:yin-repl-peer (or bb test) first
+Bye
+
+
+Testing yin.repl.query-test
+
+Testing yin.repl.require-test
+
+Testing yin.repl.serve-connect-wire-test
+
+Testing yin.repl.serve-test
+
+Testing yin.repl-test
+
+Testing yin.vm.ast-walker-test
+
+Testing yin.vm.attach-image-test
+
+Testing yin.vm.code-test
+
+Testing yin.vm.completion-test
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.debruijn.register-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.debruijn-code-test
+
+Testing yin.vm.debruijn-linearize-test
+
+Testing yin.vm.debruijn-register-benchmark-test
+
+[R3] de Bruijn stack VM vs register VM (informational)
+
+[R3] tail-countdown (10 timed runs, value 0)
+  stack    run=14.232ms lower=0.559ms load=0.56ms instrs=56 bytes=998 steps=10518 peak-frames=1 peak-cont=0
+  register run=7.472ms lower=0.95ms load=1.315ms instrs=35 bytes=4295 steps=6012 peak-frames=1 peak-cont=0
+  register/stack: run=0.525 lower=1.697 load=2.348 steps=0.571 bytes=4.303
+
+[R3] fibonacci (10 timed runs, value 144)
+  stack    run=7.148ms lower=0.327ms load=0.629ms instrs=92 bytes=1618 steps=11850 peak-frames=1 peak-cont=11
+  register run=18.077ms lower=1.827ms load=3.154ms instrs=53 bytes=7059 steps=6740 peak-frames=1 peak-cont=11
+  register/stack: run=2.528 lower=5.573 load=5.009 steps=0.568 bytes=4.362
+
+[R3] lexical-binding (50 timed runs, value 36)
+  stack    run=1.856ms lower=0.59ms load=2.328ms instrs=92 bytes=1541 steps=84 peak-frames=8 peak-cont=0
+  register run=5.998ms lower=1.63ms load=5.816ms instrs=55 bytes=7702 steps=46 peak-frames=8 peak-cont=0
+  register/stack: run=3.231 lower=2.76 load=2.498 steps=0.547 bytes=4.998
+
+[R3] corpus: literal map (50 timed runs, value {:x 10, :y 20})
+  stack    run=0.458ms lower=0.012ms load=0.675ms instrs=2 bytes=128 steps=2 peak-frames=0 peak-cont=0
+  register run=0.826ms lower=0.019ms load=0.499ms instrs=2 bytes=359 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=1.802 lower=1.579 load=0.738 steps=1.0 bytes=2.804
+
+[R3] corpus: addition (50 timed runs, value 30)
+  stack    run=0.728ms lower=0.033ms load=0.55ms instrs=8 bytes=127 steps=8 peak-frames=0 peak-cont=0
+  register run=0.9ms lower=0.19ms load=0.951ms instrs=5 bytes=614 steps=5 peak-frames=0 peak-cont=0
+  register/stack: run=1.235 lower=5.648 load=1.727 steps=0.625 bytes=4.834
+
+[R3] corpus: nested application (50 timed runs, value 6)
+  stack    run=0.988ms lower=0.155ms load=0.556ms instrs=14 bytes=224 steps=14 peak-frames=0 peak-cont=0
+  register run=1.431ms lower=0.169ms load=1.084ms instrs=8 bytes=1019 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=1.448 lower=1.088 load=1.947 steps=0.571 bytes=4.549
+
+[R3] corpus: if true branch (50 timed runs, value 100)
+  stack    run=1.034ms lower=0.175ms load=0.72ms instrs=12 bytes=219 steps=11 peak-frames=0 peak-cont=0
+  register run=0.752ms lower=0.136ms load=1.195ms instrs=9 bytes=942 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=0.727 lower=0.777 load=1.659 steps=0.727 bytes=4.301
+
+[R3] corpus: if false branch (50 timed runs, value 200)
+  stack    run=0.435ms lower=0.115ms load=0.754ms instrs=12 bytes=219 steps=10 peak-frames=0 peak-cont=0
+  register run=1.267ms lower=0.417ms load=1.133ms instrs=9 bytes=942 steps=7 peak-frames=0 peak-cont=0
+  register/stack: run=2.913 lower=3.624 load=1.503 steps=0.7 bytes=4.301
+
+[R3] corpus: lambda application (50 timed runs, value 11)
+  stack    run=0.685ms lower=0.159ms load=0.695ms instrs=14 bytes=231 steps=14 peak-frames=1 peak-cont=1
+  register run=1.291ms lower=0.25ms load=1.501ms instrs=9 bytes=1167 steps=9 peak-frames=1 peak-cont=1
+  register/stack: run=1.884 lower=1.575 load=2.156 steps=0.642 bytes=5.051
+
+[R3] corpus: closure value (50 timed runs, value {:type :closure, :arity 1})
+  stack    run=0.267ms lower=0.016ms load=0.393ms instrs=4 bytes=72 steps=2 peak-frames=0 peak-cont=0
+  register run=0.669ms lower=0.062ms load=0.484ms instrs=4 bytes=583 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=2.504 lower=3.703 load=1.232 steps=1.0 bytes=8.097
+
+[R3] corpus: higher order (50 timed runs, value 15)
+  stack    run=0.494ms lower=0.082ms load=0.469ms instrs=20 bytes=335 steps=20 peak-frames=1 peak-cont=2
+  register run=0.608ms lower=0.126ms load=0.607ms instrs=13 bytes=1720 steps=13 peak-frames=1 peak-cont=2
+  register/stack: run=1.23 lower=1.53 load=1.295 steps=0.65 bytes=5.134
+
+[R3] corpus: collection primitives (50 timed runs, value 9)
+  stack    run=0.244ms lower=0.022ms load=0.367ms instrs=6 bytes=163 steps=6 peak-frames=0 peak-cont=0
+  register run=1.632ms lower=0.095ms load=1.105ms instrs=4 bytes=567 steps=4 peak-frames=0 peak-cont=0
+  register/stack: run=6.682 lower=4.154 load=3.011 steps=0.666 bytes=3.478
+
+[R3 JFR Profiling Report]
+  Stack VM JFR:    target/jfr/stack-vm-countdown.jfr (events=35573, samples=91, allocs=508)
+  Register VM JFR: target/jfr/register-vm-countdown.jfr (events=36531, samples=42, allocs=383)
+
+Testing yin.vm.debruijn-register-compile-test
+
+Testing yin.vm.debruijn-register-contract-test
+
+Testing yin.vm.debruijn-register-effects-test
+
+Testing yin.vm.debruijn-resolve-test
+
+Testing yin.vm.debruijn-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.encoder-test
+
+Testing yin.vm.engine-test
+
+Testing yin.vm.ffi.remote-serve.responder-test
+
+Testing yin.vm.ffi.remote-serve-test
+
+Testing yin.vm.ffi-test
+
+Testing yin.vm.ledger-test
+
+Testing yin.vm.linearize-test
+
+Testing yin.vm.linker-authority-ingestion-test
+
+Testing yin.vm.linker-authority-test
+
+Testing yin.vm.linker-manifest-test
+
+Testing yin.vm.linker-require-test
+
+Testing yin.vm.linker-step-test
+
+Testing yin.vm.linker-test
+
+Testing yin.vm.macro-build-test
+
+Testing yin.vm.macro-test
+
+Testing yin.vm.mint-test
+
+Testing yin.vm.module-test
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.pipeline-test
+
+Testing yin.vm.rule-r-test
+
+Testing yin.vm.semantic-engine-test
+
+Testing yin.vm.semantic-ffi-test
+
+Testing yin.vm.semantic-stream-observer-test
+
+Testing yin.vm.semantic-test
+
+Testing yin.vm.store-write-audit-test
+
+Testing yin.vm.telemetry-test
+
+Testing yin.vm.ucf.remote-test
+
+Testing yin.vm.ucf-test
+
+Testing yin.vm-test
+
+Ran 2408 tests containing 184780 assertions.
+0 failures, 0 errors.
+clj exit 0

@@ -1,0 +1,60 @@
+Completed-GMT: 2026-09-25 23:52:00 GMT
+Completed-Local: 2026-09-26 06:52:00 +0700
+
+# M3 Gate — Review (stepped core + link runtime)
+
+I read `git diff HEAD` in full (linker.cljc, linker_test.cljc, content_test.cljc), the new `linker_step_test.cljc` directly, the spec sections 4/6/9/10/11, and the `dao.stream.rpc` source to verify `request!`/`poll!`/`abandon-unsent`/`take-completed` semantics. I did not rerun suites.
+
+## 1. M2 semantics preserved — YES
+
+`fetch-one` became `checked-part` (linker.cljc:168–209) with the body byte-for-byte identical to M2's `fetch-one` except that `read-address`'s result is now the `bs` argument. The order is preserved: `missing`→`:absent`, byte cap→`:parts-limit`, `segment-bytes-match?`→`:address-mismatch`, decode→`row-defect`. `verify` (linker.cljc:1086–1116) preserves the identity-directed match (`matches-identity?`→`:hash-mismatch`), the whole-value validator, and the 5a `undischarged` join — identical arguments to M2's inline logic. `enqueue-children`, `default-bounds`, the `:max-parts`/`:max-depth`/`:max-bytes` bounds, and the "check size before hash/decode, never decode mismatched bytes for evidence" invariant are all preserved. Contract admission is unchanged: omission→`:invalid-request {:missing :contract}`, wrong value→`:contract-mismatch`, both before any read. No stamp is ever assigned to external input. The only divergence in refusal *classification* is the deliberate `:absent`→`:address-mismatch` re-spec (deviation 3, §4 below).
+
+## 2. State machine — sound
+
+`link-state`, `request-link`, `step`, `abandon` are pure over explicit data; the linker state (`:rpc :formats :indexes :bounds :links :order :routes :outbox :next-fetch`) holds no `dao.jing` handle, no atom, no callback, no `:get-bytes-fn` (the traffic test asserts this). `step` performs stream operations via the rpc client under a documented single-owner precondition.
+
+Single-completion is upheld: `finish` (linker.cljc:1311) removes the link from `:links`/`:order` and appends exactly one completion to `:outbox`; `step` returns `:completions (:outbox …)` and clears it. `route-completion` dissocs the `:routes` entry on first route, so a duplicate or late response finds no route and is dropped (`abandon-completes-a-link-lost-exactly-once` proves the late answer completes nothing). `abandon` finishes `:lost` once; a second abandon, or an unknown id, leaves state unchanged (tested). `request-link`'s `in-flight?` guards the outbox as well as `:links`, so a duplicate id is refused before it can collide with an owed completion.
+
+`:drive` is `(fn [state] state')`; the contract is documented in `fetch`'s docstring (drive serves the pair, `fetch` steps). One subtlety: the spec §6.4 *text* says the drive "steps the linker's client side and whatever serves the content pair", but the impl has `fetch` step the client and the drive serve only — see §6.
+
+## 3. The `remote.step` bypass — right choice
+
+Talking `:jing/get-content` directly over `dao.stream.rpc` is sound. `remote.step`'s completion decode hashes-and-decodes the payload itself, which would reorder M2's byte-cap→address→decode pipeline and force decoding mismatched bytes for evidence. The linker takes raw Base64 (`answered-bytes`, linker.cljc:129–146) and runs `checked-part` on it in M2's order, so no verification is lost — the linker's own `segment-bytes-match?` *is* the hash check, and `row-defect` is the decode+grammar check. The spec §6.1 explicitly names `dao.stream.rpc` as the alternative, and §6.2 already lists `dao.stream.rpc` as a dependency. The owner's suspicion that `remote.step` is redundant is borne out: the linker-side client no longer needs a content handle at all. This is the correct call.
+
+## 4. `:address-mismatch` vs `:absent` — correct re-spec, not weakened
+
+M2's `corrupt-rpc-response-is-classified-absent` depended on `remote/content-client` rejecting the reply at ingress before the linker saw it. M3 removes that layer (the linker is the pair's client), so the corruption reaches `checked-part`'s `segment-bytes-match?` and is named `:address-mismatch` — the same classification as store-level corruption (I3: location is not identity). The renamed test now *additionally* asserts the address and that the bytes are not decoded (stronger, not weaker). Two protections that `content-client` performed are preserved elsewhere: bad Base64 still fails closed `:absent` (via `answered-bytes`'s catch→`missing`), and the hash check is now done by `segment-bytes-match?` itself. No M2 assertion was removed to pass; the one reclassified case is semantically more correct.
+
+## 5. Tests — falsifiable and complete against the spec's M3 list
+
+All nine tests in `linker_step_test.cljc` map to the §9 M3 list and more: refusal matrix through `step` (all four formats), `:pending` one-part-per-step, function/handle admission refusal, §6.4 traffic test with `get`-counting handle and handle-free state, DHT behind the served boundary, `abandon` exactly-once, two links on one pair, by-name `:absent`, and the code-identity stamp test. The `link` helper's 1000-step `::stalled` sentinel makes every test falsifiable (a stall fails the assertion rather than looping). The `abandon` and two-link cases are sensible additions beyond the §9 list and cover the `abandon`/correlation semantics §6.3 defines.
+
+Gaps (acknowledged by the implementer, low risk): the terminal-client `issue-request` path and the writer-full retry are untested — both fail closed `:absent`/retry and are simple enough to be low-risk, but they are genuine coverage holes.
+
+## 6. Deviations and M4 holdbacks — acceptable; two are owner-visible
+
+- **No deadline in `fetch`** (linker.cljc:1484). A silent server loops `fetch` forever. This is spec-compliant (§6.3: "deadlines … are the composition's", D6), and `ws-runtime` shows the intended remedy (a drive-side stall guard that throws). It is a real footgun for a local blocking driver, and the owner should confirm the "liveness is entirely the drive's" stance stands — I flag it as an architectural decision, not a code change.
+- **Fifth-arg `fetch` / `format` keyword** (deviation 1): the `{:contract c}` opt and keyword `format` are necessary consequences of the stepped interface; the shorter arities return `:invalid-request` exactly as M2 did. Sound.
+- **`:drive` doc mismatch** (deviation 2): the design doc §6.4 says the drive steps client+server; the impl has `fetch` step the client and the drive serve only (rationale: `step` hands completions out once, so a state-only drive would drop them). The *code* docstring is accurate; the *spec* §6.4 sentence is not. Minor doc fix.
+- **M4 holdbacks** (`:name`→`:absent`, no `:name-env`/`:authority`/`:derivation`/`:fallback`): correct, explicitly assigned to M4 by §8.
+- **Not strict TDD** (deviation 7) and **shared test helpers made public** (deviation 6): acceptable; the file box forbids a new test-support file and there is precedent (`debruijn-vm-contract-test`).
+
+## 7. Cross-host and docs
+
+JVM 2098/181640/0, Node 2011/48483/0, Dart 1973 — all green (orchestrator, independent). kondo 0/0, cljstyle clean, diff-check clean, no scratch files. `free-name-defect`→`discharge` rename is complete (no dangling references; §10's export list names `discharge`). The must-not-change list (`image-hash`, `register-hash`, `segment-key`, opcode tables, `dao.stream`, `dao.jing`) is untouched. One doc inaccuracy noted in §6 above.
+
+## Findings
+
+| Sev | Location | Finding | Fix |
+|---|---|---|---|
+| P2 | linker.cljc:1484 `fetch` | No built-in deadline; a silent server loops forever. Liveness is entirely the drive's. | Owner decision: accept (spec-compliant, drive owns deadlines) or add a documented abort hook. No code change if accepted. |
+| P2 | docs/design/yin.vm.linker.md §6.4 | Spec says `:drive` "steps the linker's client side and whatever serves the pair"; impl has `fetch` step the client and the drive serve only. | Reconcile the §6.4 sentence with the `(fn [state] state')` serve-only drive, matching the code's own docstring. |
+| P3 | linker.cljc:1177 `request-defect` | `:missing :contract` is tested before `:unsupported-format`, so a contract-less unknown format reads `:invalid-request`, not `:unsupported-format`. Defensible but diverges from the report's "unsupported-format then contract" framing. | Leave as-is, or reorder so `:unsupported-format` precedes the contract checks for a more specific first refusal. |
+| P3 | linker.cljc:1437/1380 `step`/`issue-request` | Terminal-client path and writer-full retry are untested (fail-closed `:absent` / retry). | Add two focused tests (a terminal rpc client; a full writer) in a later pass. |
+
+## 8. Verdict
+
+The M3 diff is sound. M2's pipeline semantics are preserved exactly, the state machine is pure and hands each completion out once, the `remote.step` bypass loses no verification and is the right call, the `:address-mismatch` re-spec is a correct strengthening rather than a weakening, and the tests are falsifiable and cover the spec's M3 list across all three hosts. The remaining items (no `fetch` deadline, the §6.4 `:drive` wording, two untested fail-closed paths) are deferred or doc-level, none is a correctness defect.
+
+Verdict: READY
+Sign-off: GRANTED

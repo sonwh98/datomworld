@@ -1,0 +1,31 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Phase 2 is complete. The report is at `collab/1789011069381-stream-jing-remote-phase2.glm-5.3.findings.md`; nothing staged or committed, HEAD at `f1babc8`.
+
+## What landed
+
+**The swap** — `dao.jing.remote` now requires no v1 stream namespace:
+- `call!` — D1's blocking driver with **one exit**: private `settle!` drains both outboxes, `reset!`s `:rpc`, then returns or throws. All seven §5.1 exits route through it (N11). Test 9's three refusal ex-data maps are identical apart from `:request-id` = 0, 1, 2.
+- `connect-content!` — cursor minted at `:dao.stream/newest` **before** `attach!` (docstring states the order is observable, and N2's one-sentence limit: a stalled peer costs one held JDK connection).
+- `serve-content!` — `serving/make-serving` with S5's `inbound-step`, daemon ticker at 1 ms, returns `{:port :stop! :serving :lifecycle}`; bind failure throws (S3), `stop!` idempotent (S2).
+- Seven new JVM deftests; the six `network-*` tests pass with **fixture edits only — no assertion changed**; stigmergy's five scenarios green beyond §5.3's lines (+1 docstring word, see below).
+
+## Verification (all on the final frozen tree)
+
+| lane | result | baseline |
+|---|---|---|
+| `clojure -M:test` | **1455 / 165505, 0 failures** | 1448 / 165465 |
+| `bb test:cljs` | **1357 / 35023, 0 failures**; `Testing dao.jing.remote-test` confirmed | 1350 / 35016 |
+| `bb test:cljd` | **+1311, all passed** | +1304 |
+| demo compile | **212 files, 0 warnings** | — |
+| kondo `remote.cljc` | **0 / 0** | 0 / 0 |
+
+Closure greps: 0 v1 tokens in all three files; `reset! (:rpc` appears once — inside `settle!`; the emitted `remote.dart` no longer imports `stream/rpc/ws.dart` or `rpc/client.dart` and imports none of the new glue.
+
+## Deviations worth your eye (six, all in the report; none behavioral)
+
+1. The `#?@(:cljd [] :clj …)` splice holds **six** aliases, not three — kondo's cljs pass flags ungated requires used only inside `:clj`-gated defns, so the gated code and its aliases must travel together. §10's require *set* is unchanged.
+2. `dao.stream.rpc.ws` is aliased **`rpc.ws`**, not `rpc-ws` (D5's sketch) — otherwise the `rpc-ws/` closure grep false-positives on v2. I chose the grep over the sketch's spelling.
+3. stigmergy's ns docstring got one word (`dao.stream.rpc` → `serve-content!`) — the residue table demands zero in that file.
+
+Also note: `docs/agents/roles/orchestrator.md` and `docs/agents/team.md` carry **concurrent edits from outside this session**; I left them alone.

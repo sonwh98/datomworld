@@ -1,0 +1,20 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+ExitPlanMode isn't available in this session, so the plan is written to `/Users/sto/.claude/plans/read-collab-architect-space-index-v2-pla-snappy-puddle.md`. Summary of what it settles:
+
+**One correction to your measured facts, and it's load-bearing:**
+
+`PublishedIndexStream` and `ds/defopen :dao.space.index/published` are **not dead**. `schema.cljc:1161`, inside `(ds/defopen :dao.space.schema/published …)`, does `(ds/open! (index/published-index content-store manifest-address))` and then `ds/strict-vec`. The grep missed it because the descriptor is built inline — the type keyword never appears at the call site. `schema_test` W38–W41 and ten `ds/open!` calls in `index_test` exercise it. Q4 can't be executed as written.
+
+**The five answers:**
+
+1. **Index cannot end v1-free, and the blocker isn't `snapshot-datoms` — it's `publish-index!`'s signature.** It takes `local-stream` and reads it; that stream is v1 by construction (caller opens a `:ringbuffer`, the `:transactor` wrapper is itself a v1 stream). No restructuring inside index changes that. Ordering is `transactor` → `index`, with `schema` as an independent second gate.
+2. **`drain` is not promoted.** The trigger hasn't fired: `snapshot-datoms` reads a *v1* reader, so it can't call a v2 `drain`; promoting now gives `observe` a one-caller function. The other `observe/step` users are step consumers with real effects, not drain consumers. The plan does pre-settle the policy question so the transactor plan doesn't reopen it — the two functions don't actually disagree, `drain` is total and throwing is index's policy above it.
+3. **Keep the `:dao.stream/*` keys.** It's serialized data that already round-trips through streams and a remote coordinate; three namespaces validate the exact map by `=`; the names stay correct after the v2→v1-name rename; and "nothing dispatches on them" is a fact about dispatch, not about whether they're the right names.
+4. See the correction above.
+5. **Dual, with two named remainders**, each owed to a plan that's already coming — a ledger table in `dao.space.index.md` so nothing is implicit.
+
+**What the plan actually executes:** Phase 1 splits the payload vocabulary (`datoms-from-elements`, public) from the v1 reading (`snapshot-datoms`), which makes the transactor plan's switch two lines and makes S2/S3 testable directly instead of only through `publish-index!`; Phase 2 records the decisions and the remainder ledger. Plus an invariants table with one `[T→D]` promotion on the transaction-record shape and two `[T✗]` drops (incremental flattening; the v1 adapter's independent cursors, already ruled out by query's "bounded realizations are values, not streams").
+
+Section 6 costs the v1-free variant if you want to relax the schema constraint — it's ~25 lines into schema over `index/read-datoms`, and it's *simpler* than what exists, since schema forces the rows at open anyway. The first remainder survives it regardless.
+
+Want me to promote this to `collab/architect-space-index-v2-plan.claude-fable-5-1.findings.md`?

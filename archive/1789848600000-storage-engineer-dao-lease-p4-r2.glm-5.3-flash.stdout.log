@@ -1,0 +1,32 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-19 20:01:52 GMT
+Completed-Local: 2026-09-20 03:01:52 +07
+
+## Per-finding disposition (all ACCEPT, all fixed)
+
+**P1 nil `:self`.** `initial-judge` now refuses a nil `:self` (`:refused :self`, placed with the resolver seam check), `make-judge` inherits it. Matrix row added; `nil-resolver-answer-never-counts-as-grantor-test` wires a resolver answering nil for unknown sources and shows a forged `:accepted` on a stranger's medium seeds nothing (`:l9` never enters the ledger, `:dropped` 0 — valid data about no one). Existing `initial-judge` call sites adapted: `assembly-defect` supplies a default `:self`, and the five bare success-calls carry `:self :grantor`.
+
+**P2 declaration does no work.** `:medium` now rides the wired entry (`wire-declared-medium` — the declaration is wiring data, not a validation scratchpad), plus **both** derived refusals via `check-derived-medium-refusals!`: `:durable? true` + `:host-values` medium → `:refused :host-values`; `:evict-oldest` `:capacity` < `:drain-budget` → `:refused :capacity` (S3: a medium must retain one full budget's drain). Docstrings state what compatibility does (declarations agree with each other and derive these two refusals) and does not (it cannot check the resolver's code against the transport — the composition vouches).
+
+**P2 tolerance.** `make-judge` requires an explicit tolerance — `{:ms 0}` is the zero; `initial-judge` keeps nil-means-zero (pinned by a comment in the r3 tolerance test). Matrix rows for omitted and foreign-unit tolerance.
+
+**P2 holder outbound medium.** `make-holder` requires `:writer {:handle :medium declaration}`, validates the declaration, applies the derived host-values/durable check to fact and writer media, and returns `:writer` on the value. Holder matrix rows (omission, handle-without-declaration, bad declaration).
+
+**P2 end-to-end holder half.** `composed-both-halves-cycle-test`: a composed holder observes the carried grant on its `:fact` medium, `due-to-renew?` fires on its own tick stream, the renewal is appended to its outbound `:writer` (the judge's medium) and recorded at the pre-append reading, the judge's pass counts it, `stop` → `:release` carried → judge reclaims and records `:lapsed :release`; `holding?` asserted true then false.
+
+**P2 sketches.** Served-connection reworked: resolver reads `:ws/attachment` **from the envelope**, declared `:envelope-key` (the mislabeled-`:attachment-identity` weakness is itself called out in the comment); a cursor-threaded `carriage` step copies writer→holder-medium **filtering `:lapsed`**, proven non-vacuously (the writer held a `:lapsed`; the holder's medium receives only the grant); and a JVM-only `#?(:cljd nil :clj …)` deftest drives **one real `serving` session** (ws endpoint, `accept-connection!`, `start!`/`step!`) whose reclaim is the real close — `close!` the served stream, one `serving/step!` retires the session and runs `:close-ended!`.
+
+**P3s (all applied).** `check-units!` before `check-cadence!` (no raw `quot`-by-zero `ArithmeticException`); `:capacity` required only for `:evict-oldest` with a positive `:complete`-no-capacity assembly case; "no stream exists" → "nothing is wired into a refused composition"; `:scope` docstring softened to a consumer-facing label, not an enforcement; tick driver subtracts a creation-time baseline (`host-clock-raw`/`elapsed-ms`, so negative-origin `nanoTime` can't freeze readings at 1) and the conditional is `:cljd`-first; `refusal-key`/`holder-refusal-key` assert an explicit `:refused` key that every composition-section refusal (plus the new `:self`/tolerance/interval checks) now attaches.
+
+## Tests added
+
+3 new deftests (`nil-resolver-answer-never-counts-as-grantor`, `composed-both-halves-cycle`, `served-connection-real-close-path-sketch` — the portable served-connection sketch reworked in place), 10 new matrix rows (self, tolerance ×2, host-values, capacity, writer ×3, holder host-values), the `:complete` positive case, and the `carriage`/`serving-fixture` helpers. Failing-first honored: the pre-fix run was red at 43 failures + 3 errors.
+
+## Lane outcomes
+
+1. `clojure -M:test` — green: **1527 tests, 168550 assertions, 0 failures, 0 errors** (was 1524/168519). The composition namespace runs inside this lane (`Testing dao.lease-composition-test`); no separate focused runner exists as a single simple command, so the full lane is the focused lane's superset.
+2. CLJS — green: exit 0, **1443 tests, 38414 assertions, 0 failures**, 0 warnings, both lease namespaces in the Node output; the real-serving deftest is correctly absent (clj-gated). Same disclosed mise-Java-21 workaround (log `target/cljs-p4-r2.log`). C5 grep over `src/cljc/dao/lease.cljc`: zero.
+
+## Unresolved
+
+Nothing in code. Noted: the `:refused` key was added to the checks the matrices actually exercise (composition section, the new `:self`/tolerance/interval checks) — the Phase-1/2 vocabulary checks still report via their original ex-data keys, which their own tests pin. Nothing staged, nothing committed.

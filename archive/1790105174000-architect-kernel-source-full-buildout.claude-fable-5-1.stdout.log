@@ -1,0 +1,22 @@
+Completed-GMT: 2026-09-22 16:48:33 GMT
+Completed-Local: 2026-09-22 23:48:33 +07 (Indochina Time)
+
+**Answer: with both VMs completely built out, a new foreign kernel should interpret the register image.** My previous answer changes in the complete world, and I withdraw one of its claims. Today's answer, stack, still stands, and the document now keeps the two apart.
+
+**Reasoning, on the formats' intrinsic properties only.**
+
+1. **Resource bounds are declared, not inferred.** A register body declares its register count and the register validator checks every access against it before execution. The stack format declares no operand-stack height anywhere, and I confirmed the B1 validator's rules (shape, mnemonic, arity, operand kind, saturation, target bounds, terminator, scope) do not verify stack discipline. A validator-accepted stack image can still underflow at runtime, so every host must carry that check. For a foreign host, the project's rules "assume hostile or malformed inputs" and "VM boundaries are security boundaries" are cheaper to honour when the format bounds every access statically and an activation is a fixed-size array whose size is read from the image. That is "state is explicit data" applied to the machine's own resources.
+2. **Fewer dispatches per program point.** No push, named operands, so each instruction does the work of a stack instruction plus its surrounding pushes and pops. Dispatch is what an interpreter pays for, most in the slow host languages Direction B exists for. The direction of this advantage is intrinsic. In the complete world its magnitude is known, because R4 exists only if R3 measured a material benefit.
+3. **The interpreter is the runtime path, so its speed is not Direction A's job.** I withdraw that earlier claim for kernels. Direction A is ahead-of-time. This project's own scenario is code and continuations arriving over a stream that must run on arrival, with no target compiler in the loop. That code runs in the kernel, even on a host that also has an emitter.
+4. **A cleaner instruction set to port.** The stack format inherits its layout from the named linearizer, which is why the no-op push exists with a documented obligation on every value-producing opcode. The register format was designed from the resolved tuples with no layout obligation. A porter has fewer conventions to know that are not in the instruction table.
+5. **The activation model matches emitted code.** An emitter from resolved tuples names intermediates in evaluation order, which is a temporaries bank, not an operand stack. A register kernel's activation record and return frame are the shapes emitted code uses, so the offload extension that lets a continuation parked under emitted code restore under the kernel is a label mapping, not a reconstruction of an operand stack from named locals. This is the surviving form of the shared-runtime argument: a shared activation model, not shared decoding.
+
+**What the stack format keeps, and why it does not decide it.** Its continuation is smaller and uniform, with no destination register and no dead values, since everything on an operand stack is live. A register continuation saves a file per frame and can carry dead temporaries unless liveness is carried too. That is a constant factor per activation on a payload that is data either way, and it is the one place a register kernel must be careful. Ribbit chose a stack machine for a 4 KB footprint goal this project does not have. Neither outweighs points 1 to 3.
+
+**Document changes,** all inside section 3.7 of `docs/design/yin.vm.debruijn.targets.md` plus one DECIDED item:
+- 3.7.1 "Today: the stack image" keeps the previous reasons, explicitly labelled as grounded in the current state.
+- 3.7.2 "Complete world: the register image" records the hypothetical and the five intrinsic reasons above, plus what the stack keeps in its favour.
+- 3.7.3 "The transition rule" replaces the old re-open condition. A foreign host's first kernel is a stack kernel until R4 has parity and R reaches that host. When both hold, a new host builds against R and an existing stack host adds R as a second format. The per-host benchmark gate is dropped, since the advantage's direction is intrinsic and its magnitude was measured by R3 as the precondition of R4 existing.
+- T-D13 rewritten to match.
+
+Width and ASCII checks are clean. The document is the only modified file and remains uncommitted.

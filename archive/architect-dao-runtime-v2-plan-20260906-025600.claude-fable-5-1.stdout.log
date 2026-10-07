@@ -1,0 +1,23 @@
+Completed-GMT: 2026-09-06 03:04:50 GMT
+Completed-Local: 2026-09-06 10:04:50 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: pending (provider-generated)
+
+I wrote `docs/design/dao.runtime.implementation-plan.md`, in the format of the stream and VM plans. It covers the four requested parts plus a consumer census and end condition.
+
+**The problem.** Legacy `dao.runtime` weaves in six retired v1 mechanisms: waiter registration, `:woke` lists, `drain-one!`, `closed?`, position-arithmetic cursors, and `open!` in tests. The plan cites the line for each. It also states the gating fact plainly: the only production consumer of v1 `dao.runtime` is the v1 VM engine. The host drivers have no production consumer at all. So deletion is gated on the v1 VM's removal, which has ten consumers outside the VM tree and belongs to other plans.
+
+**The contract.** State is a value with no atoms or host dependencies. Tasks are maps with a resume function. Classification is total over the contract's closed outcome sets, and exactly two outcomes wait. The polling wait set is the only mechanism. Close wakes nothing. Callers, not the runtime, resolve handles and cursors.
+
+**Divergence register.** Eleven rows, each with the v1 behavior, the v2 behavior, and the reason. It also names the v1 tests that can never be mirrored: destructive-take cases, drain-frees-a-writer, and every waiter-based regression test.
+
+**Phases.**
+- R0 records what the VM plan's V2 already delivered, verified green today.
+- R1 fixes a real defect I found and reproduced. The current v2 loop polls the wait set inside the step and discards the polled state when the ready-queue head has no resume function. A parked writer whose append succeeded during that poll stays parked and appends again. My reproduction script showed two successful appends from two calls on the same state, both returning nil. R1 splits polling out of the step and makes classification tests iterate the contract's declared outcome sets.
+- R2 ports the three host drivers with explicit state and configurable cadence, dropping the namespace-global atoms in the cljs and cljd drivers.
+- R3 updates the `dao.await` design prose, which still describes waiters.
+- R4 is deletion plus the one explicit naming decision, mirroring the stream plan.
+
+**One decision worth your eye.** I chose not to add a resolver argument to the runtime's wait-set polling, even though the VM engine works around its absence by polling a singleton wait set per entry. The seam works, is tested on three hosts, and was reviewed under V7. I recorded that as a decision rather than a phase.
+
+The full JVM suite also passed during verification, with no failures across 1394 tests. The new plan is an untracked file and nothing was committed.

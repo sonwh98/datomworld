@@ -1,0 +1,62 @@
+Completed-GMT: 2026-09-24 07:48:30 GMT
+Completed-Local: 2026-09-24 14:48:30 +07
+
+All three findings are fixed and the JVM tests and kondo pass. I could not run `cljstyle` (criterion 7): it needed an approval this non-interactive session couldn't get.
+
+## Changed files
+Only the three allowed files. Nothing committed.
+
+### `src/cljc/yin/repl/core.cljc`
+
+**P1-A: gap budget**
+- `drain-budget` is now set equal to `output-capacity`.
+- A new `gap-budget` (4096) counts gaps separately. A `:dao.stream/gap` read uses up `gaps`, not `remaining`, so gaps no longer eat into the element budget.
+- The drain still always terminates: it stops when either budget runs out.
+
+**P1-B: round identity**
+- A result token is now `{:type :repl/result :round <id> :value v}`.
+- The round id is `[shell-token n]`:
+  - `:shell-token` is a random UUID minted once in `create-state`.
+  - `:round` starts at 0 and is incremented in `eval-program`.
+- I added the token because a bare counter is not enough. A caller-supplied stream written by another shell would contain results stamped with the same round numbers, so round 1 from that shell would look like our round 1.
+- `drain-output` now passes result tokens through unchanged.
+- `finalize-eval` accepts only tokens whose `:round` matches the current round. A missing or wrong-round token goes down the existing result-loss error path.
+- `make-runner` now takes the round id. It is built per round in `run-evaluator-stage`, so `:run-program` is no longer stored in the session map.
+
+**Surfacing a failed result append**
+- `emit-result!` now returns the append outcome, or `:untried` when there is no output stream.
+- The runner attaches that outcome to the VM as `::result-append`. `finalize-eval` removes it before storing the VM.
+- If the append was refused, the loss message ends with, e.g., `(append: closed)`.
+
+**P2: incremental image identity**
+- A new `chain-hash` function builds the image identity step by step. Its docstring states the invariant:
+  - The first segment's `:hash` is its own H (or R).
+  - Each later segment's `:hash` is `sha256(previous || H(new segment))`.
+- Relocation depends only on the held image's length, which the previous link already fixes. So the chain identifies the concatenated image as uniquely as H over the whole image would.
+- Both `append-*-image` functions now call `load-image` on the new segment only. That hashes just the new segment (and, for register images, validates just it). Each function then sets `:segment` to the concatenation and `:hash` to the chain link.
+- Behaviour change: after the first input, `:hash` is no longer equal to H over the whole concatenated image.
+- An empty held image contributes no link. Stack `create-vm` stamps H of `[]`, and the new test caught that it was being folded in.
+
+### `test/yin/repl_test.cljc`
+- The expected token in `results-leave-the-vm-on-the-output-medium` now includes `:round [(:shell-token state) 1]`.
+
+### `test/yin/repl/core_test.cljc` (four new tests)
+- **`a-gap-does-not-cost-the-drain-an-element`:** a 4096-capacity ring holds 4096 prints plus a result. The drain reads the gap and still returns the result.
+- **`a-full-output-ring-still-yields-the-result`:** on all four VMs, `(spam 4096)` prints 4096 items and the reported result is still `:done`.
+- **`only-the-current-rounds-result-is-accepted`:**
+  - The stream is preloaded with a result from another shell. The next evaluation still reports its own value, `:first`.
+  - The stream is then closed and the cursor rewound, so the drain re-reads round 1's result. Round 2 is reported as loss with `(append: closed)`, and `*1`/`*2` are unchanged.
+- **`de-bruijn-loads-hash-only-their-new-segment`:** on `:stack` and `:register`, a closure defined in one input still works from the next. The first `:hash` equals H of the image; the second is not H over the whole concatenation.
+
+## Checks
+- **Tests:** `clj -M:test -n yin.repl-test -n yin.repl.core-test` gives 52 tests, 310 assertions, 0 failures, 0 errors. The only failure along the way was the stack empty-image link, now fixed.
+- **Kondo:** `clj -M:kondo --lint` on the three files gives 0 errors, 0 warnings.
+- **cljstyle:** not run (see top). Please run it before merging.
+- **ASCII / 80 columns:** a `git diff` of just the added lines was also refused, so I scanned the three files with a `clj` script. I fixed the two over-long lines that were mine (a docstring line I had joined, and one test message). The remaining hits all predate this work: em dashes, `§`, `…`, and old long lines in the tests.
+- I did not check whether the new tests fail on the old code.
+
+## Unresolved concerns
+- **Retained code (P2, partly open):** hashing is now incremental, but every earlier segment is still kept in memory, even when no live closure refers to it. The reviewer's second point (keep old code only while something can still reach it) needs a way to know which closures are still alive, so I left it.
+- **Forged tokens:** round ids stop stale results, not forged ones. Anything else writing to the output stream could stamp a token with our current round id.
+- **Empty image:** if an input compiles to an empty stack image, `load-image` now marks the VM halted. Before, the VM would have run on from the end of the held image. No test covers this.
+- **`::result-append` on the VM:** it is an extra key on the VM record. It is removed before storage on success, but on the thrown-error path the round's starting VM is restored, so it never persists there either. Cross-host behaviour (CLJS/CLJD) is untested by me, as instructed.

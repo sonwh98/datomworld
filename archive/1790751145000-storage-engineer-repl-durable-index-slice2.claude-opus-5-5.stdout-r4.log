@@ -1,0 +1,3 @@
+The Dart run is still going; it is not hung on anything this round touched. The log is still being written, and the current test, `yin.vm.semantic-test/step-test`, is unrelated to the store. The machine is under heavy load (load average 12–16).
+
+Every round-3 change sits in ClojureScript-only code (`node-lock!`), cljs-only tests, or docstrings, so the Dart-compiled code is the same as the green round-2 run. I'm still waiting for the real result before writing the report. I'll pick up as soon as the run finishes.

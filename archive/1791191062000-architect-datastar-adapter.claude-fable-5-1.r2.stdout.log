@@ -1,0 +1,3 @@
+Ignoring --allowedTools rule ""Bash(git diff *)"": Wildcard tool name ""Bash(git diff *)"" is not supported in allow rules. An allow pattern must name the scope it widens — globs are permitted only in the tool position after a literal mcp__<server>__ prefix. Deny and ask rules accept wildcards anywhere.
+Ignoring --allowedTools rule ""Bash(git status *)"": Wildcard tool name ""Bash(git status *)"" is not supported in allow rules. An allow pattern must name the scope it widens — globs are permitted only in the tool position after a literal mcp__<server>__ prefix. Deny and ask rules accept wildcards anywhere.
+No conversation found with session ID: a40d2f96-5492-499f-8b18-83ca6c60cbe3

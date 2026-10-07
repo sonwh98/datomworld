@@ -1,0 +1,34 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+CLJS is also fully green (1520 tests, 38799 assertions) — fingerprints agree across JVM and CLJS for all fixtures. Final report:
+
+Completed-GMT: 2026-09-20 19:36:09 GMT
+Completed-Local: 2026-09-21 02:36:09 +07 (Indochina Time)
+
+D2 is implemented in the two in-box files on top of the committed D0+D1 (ceae3cc8). Nothing staged, committed, merged, or pushed; no other file touched (git shows only `src/cljc/yin/vm/debruijn.cljc` and `test/yin/vm/debruijn_test.cljc` modified).
+
+## What D2 delivers
+
+**Node hashes (§5)** — `node-hash` = SHA-256 over the dimension hash followed by the node's tag-specific slots in descriptor order. The encoder (`encode-value`, `encode-typed`, `framed`, `slot-tag`) is written *through the descriptor*: slot order and types come from `dimension-slots`, class tags are derived from the value table's declared `:classes` order (compounds — ref/hash/tuple/ordered-vector — take bytes outside that range), every slot is tagged and length-delimited, `:yin.debruijn/hash` and `:root` never enter a node hash, ordered child hashes preserve operand and branch order, strings pass the NFC seam, maps/sets sort by their encoded parts, and the D0 `:vector`/`:list` split carries into distinct tags. Per the dispatch, the byte-level content rules are D2-provisional (hex-string framing, decimal numerics, normalized NaN/−0.0) and host-uniform; D3 replaces rules in place, not shape — all documented in the docstrings.
+
+**Hash-consing + records (§4)** — `merkle-node` walks children-first in descriptor order, keys its memo by the resolved node map (equal subterms are `=` keys → one hash, one record), and returns records with child slots carrying child hashes plus `:yin.debruijn/hash`. `project-datoms` now returns `{:root resolved :fingerprint h :records {h record}}`; the D1 return shape and marker semantics are unchanged.
+
+**d5 storage adapter (pure, in-namespace)** — `projected->datoms` emits one entity per hash (visited set — a record reachable by several paths is emitted once) with local handles from `dao.datom`'s `first-user-id` in a deterministic root-down slot-order walk, `:yin.debruijn/hash h` on each entity, child slots carrying child hashes, `:yin.debruijn/operands` as one ordered vector datom (never cardinality-many), the root entity explicitly marked `:yin.debruijn/root true` (its hash being the fingerprint), and t 0 / assert-op provenance. `datoms->projected` is the inverse over `{:fingerprint :records}`, diagnosing missing/multiple roots, missing/duplicate hashes, malformed hashes, unknown attributes, non-vector operands, and dangling child hashes. No dao.jing or storage-namespace edits were needed — no STOP.
+
+**§8 rows exercised (new tests)** — tree ≡ graph emission → identical records *and* fingerprint; ordered operand swap → different hash/records; literal, free-name, store key, arity, duplicate-param pair, branch swap, stream buffer, parked-id, FFI op, and `:macro?` changes → fingerprint changes; binder/bound-occurrence names, tempid base, `:yin/tail?`, `:yin/macro-name` → identical fingerprint (hash-level now); hash-consing count proofs; shared-under-unequal-contexts hashing differently; adapter round-trip plus its invariants; dangling projected hash diagnosis; fingerprint = root record's hash.
+
+## Verification (exact commands and counts)
+
+| Check | Command | Result |
+|---|---|---|
+| Focused JVM | `clojure -M:test -n yin.vm.debruijn-test` | **43 tests, 150 assertions, 0 failures, 0 errors** |
+| kondo | `clojure -M:kondo --lint` both files | **errors: 0, warnings: 0** |
+| cljstyle | `cljstyle fix` + `check` both files | **clean** (reindent only; focused rerun stayed 43/150/0/0) |
+| CLJS (extra, not required) | shadow `compile test` lane | **1520 tests, 38799 assertions, 0 failures, 0 errors** — JVM/CLJS fingerprint agreement on every fixture |
+
+## Unresolved concerns / notes
+
+- **Provisional preimage** (by design): D2's digest inputs are hex-framed with decimal numeric content — deliberate, per "do not chase" the D3 byte rules; the docstrings mark exactly what D3 re-pins. No test pins a literal fingerprint, so the D3 re-mint breaks nothing.
+- **Exotic doubles** (`1e21`-scale prints) can diverge across hosts under the provisional `:double` rule until D3's IEEE bits; no current fixture uses them.
+- CLJD lane left to the orchestrator as instructed; D2 added no new host interop beyond the already-green surface (`unorm/nfc`, `Uint8List`).
+
+No incomplete work within D2's scope.

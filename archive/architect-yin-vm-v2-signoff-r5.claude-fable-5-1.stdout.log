@@ -1,0 +1,41 @@
+Verification is complete. Writing the sign-off now.
+
+Completed-GMT: 2026-09-02 18:14:29 GMT
+Completed-Local: 2026-09-03 02:14:29 Asia/Shanghai
+
+# Round 5 — verification of the three required items and two nits
+
+Read both plans in full, `telemetry.cljc`, `ffi.cljc`, the tail of `ast_walker.cljc`, `empty-state` in `vm.cljc`, and re-counted the census by direct grep.
+
+## The three required items
+
+**1. Silent acceptance closed.** `yin.vm.implementation-plan.md:192-199` now states that a non-nil `:telemetry` opt is rejected with an error naming the deferral, cites `ast_walker.cljc:779` and `vm.cljc:551` as the two plumbing sites, and gives the reason in my words. The arity note at line 189-190 is present and correct: `ffi.cljc:118` threads three arguments, `ast_walker.cljc:795` threads two. Within the slice `empty-state` has exactly one caller, `create-vm`, so it does not matter which of the two sites throws. Landed.
+
+**2. Counts reconciled at five.** *Scope* at line 44-48 says five and names telemetry's absence as the fifth. The register at line 352-354 opens with "the five user-visible changes — telemetry's absence among them", no longer listing it separately. The REPL plan's list at lines 61-76 has exactly five bullets covering the same five changes, and line 78-79 says "all five". Both plans agree. Landed.
+
+**3. Append-outcome rule moved.** Line 258-262 now reads as a rule binding "the deferred telemetry emit path when it is built, since this slice has no telemetry append sites". The rule is stated for every append site generally, which is consistent with *Outcomes are maps* at line 132-133. Landed.
+
+## The two nits
+
+**Census count.** Line 110 reads "34 in scope (36 less telemetry's two), 8 of 10 files". Verified by grep across the ten ported namespaces:
+
+| file | `:position` sites |
+|---|---|
+| engine | 14 |
+| ffi | 6 |
+| apply, runtime, runtime_adapter | 3 each |
+| vm, ast_walker, telemetry | 2 each |
+| stream_driver | 1 |
+| module | 0 |
+
+Total 36, of which telemetry's two are at 133 and 171. That leaves 34 across 8 files. The line is correct.
+
+**Telemetry citation.** Line 123-124 now cites `telemetry.cljc:133,171` as "in the unported summarisation code" binding the later emit phase. Correct.
+
+## Anything new?
+
+Nothing new. One residue of the census nit, not a relocation: lines 118 and 156 still say "the 36 sites" where the reconciled figure is 34. Line 156 additionally claims all 36 are "absolute position zero", which was never true of telemetry's two reads. Both are leftover wording from before the nit was applied, and neither changes any decision or any unit of work. Fix at leisure.
+
+A one-line citation drift, pre-existing: line 153 cites `ast_walker.cljc:784` for the `:in-stream` field, which is at 785. Not new, not blocking.
+
+SIGN-OFF: GRANTED

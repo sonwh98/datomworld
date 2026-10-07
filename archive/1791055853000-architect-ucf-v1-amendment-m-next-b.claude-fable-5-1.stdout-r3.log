@@ -1,0 +1,40 @@
+Completed-GMT: 2026-10-03 20:03:00 GMT
+Completed-Local: 2026-10-04 03:03:00 +07
+Coding-Agent: claude
+Session-ID: a22aafbc-6499-4a8f-be89-f6ebe80ae496
+
+**Verdict:** r7 is applied in full with astra's text and nothing declined; the amendment is ready to commit as published design, with implementation (C to E) still owed.
+
+Docs only: no source, tests or git writes, and nothing was run. Every added line is ASCII and at most 80 columns, and nothing was renumbered. The UCF document keeps its 111 pre-existing over-wide lines; the other two have none.
+
+## Changes applied
+
+1. **7.7.8, inherited-id scope:** astra's replacement text is in, plus two clarifications from the confirmation's reasoning.
+   - An unreadable accepted checkpoint answers `:suspended` without changing tenure, quarantine or dedup state.
+   - The checkpoint is selected by the authority's accepted record, never an envelope-supplied location.
+   - Current-occurrence ids need no lookup.
+   - The suspension comes after the tenure check, so a stale holder is still `:stale`.
+   - Keeping the checkpoint readable is a composition durability duty.
+   - A new "Snapshot variants" paragraph requires variants to preserve the operation baseline (N1).
+2. **7.4.3, install phase:** my r6 phase/kind pairing was wrong and is removed. The bullet is now astra's text. It also states that a `:running` phase with a blocked child is valid and that D must test every combination, explicit park included (N2).
+3. **7.7.8, defective envelopes:** astra's closed four-defect set with full definitions replaces mine.
+   - Enrollment belongs to the target boundary; writer authorization comes from attribution and binding.
+   - Readers dispatch on the diagnostic key.
+   - The composition supplies the diagnostic stream, and a failed diagnostic append never admits the rejected effect (N3).
+4. **7.7.8, results and uncertainty:** "nothing is recorded" is replaced by astra's text. Unknown transport acceptance is neither commitment nor its absence, and the retry replays a result the authority may already hold.
+
+## Consistency sweep
+
+- **7.11.1:** clauses 5, 6 and 8 no longer restate the old pairing or "nothing recorded", and now test the r7 rules.
+- **UCF header:** an r7 status sentence.
+- **Linker 14.2.2 and 14.3:** the settled-points list and item 2 are updated for r7.
+- **`yin.vm.ucf-revisions.md` section 6:** r7 entry added.
+- **Findings file:** the r6 statements on the pairing, the defect set and N1 to N3 are marked superseded or closed in place.
+- A grep over the three documents finds no remaining match for the old pairing or "nothing is recorded".
+
+No open question remains from r5, r6 or r7.
+
+Uncommitted diff against master: UCF +850/-7, linker +82/-30, revisions +55/-5.
+
+The Round r7 section is appended to:
+`/Users/sto/workspace/datomworld-ucf-b/collab/1791055853000-architect-ucf-v1-amendment-m-next-b.claude-fable-5-1.findings.md`

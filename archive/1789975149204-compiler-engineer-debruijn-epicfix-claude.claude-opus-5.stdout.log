@@ -1,0 +1,10 @@
+I didn't start the task because I couldn't read the prompt file. `/Users/sto/workspace/datomworld/collab/1789975149204-compiler-engineer-debruijn-epicfix-claude.prompt.md` is outside this session's allowed directory, which is only `/Users/sto/workspace/worktree-debruijn-impl`. The Read tool asked for a permission this non-interactive session can't grant, and `cat` through Bash was blocked for the same reason.
+
+The worktree does have an earlier prompt for the same task, `collab/1789968766829-compiler-engineer-debruijn-epicfix.prompt.md`, which was the GLM run's brief. I didn't use it in place of the Claude brief, because the two may differ and I'd be guessing at the scope.
+
+Any one of these would let me proceed:
+1. Copy the prompt into the worktree, e.g. `cp /Users/sto/workspace/datomworld/collab/1789975149204-compiler-engineer-debruijn-epicfix-claude.prompt.md /Users/sto/workspace/worktree-debruijn-impl/collab/`, then re-run me.
+2. Re-launch me with `--add-dir /Users/sto/workspace/datomworld/collab`, or grant read access to that path.
+3. Tell me to work from the earlier prompt that's already in the worktree.
+
+Separately, the claude.ai Gmail, Google Calendar and Google Drive connectors need to be authorized in your claude.ai connector settings before they can be used. They aren't needed for this task.

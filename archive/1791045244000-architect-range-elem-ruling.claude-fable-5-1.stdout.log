@@ -1,0 +1,72 @@
+Completed-GMT: 2026-10-03 16:36:37 GMT
+Completed-Local: 2026-10-03 23:36:37 +07
+
+# Ruling: py/range-elem
+
+**Verdict:** the exactness requirement is real, but the per-element recursion is an over-reach. Replace it with a guarded O(1) fast path in the prelude (candidate (a)) and keep the recursion only for the rare huge case.
+
+This is read-only analysis; I ran no suites and edited nothing.
+
+## 1. Is exact range arithmetic a requirement?
+
+**Yes for the result, no for the mechanism.**
+
+- **What the doc says:** `yang.antlr.md` never mentions `range` exactness. The requirement is derived from 8.5.4 ("C1 restricts integers to [-2^53, 2^53]", line 1917) and the prelude's own contract at `prelude.cljc:770-773`: an integer is either exact on every host or a guest `OverflowError`.
+- **Why the old one-liner broke it:** for `range(-2**53, 2**53, 6004799503160661)` every argument and every element is in the C1 domain. But `3 * step` is odd and above 2^53, so on JS the old `(+ start (* i step))` silently returned a wrong element. That is neither exact nor an error, so gate r3/r4 was right to close it.
+- **Where it can happen:** only when `start` and an element have opposite signs and the span exceeds 2^53. `range(n)` and every ordinary loop can never hit it.
+- **CPython:** elements are `start + i*step` in arbitrary precision, always exact; `len()` raises `OverflowError` past `ssize_t`.
+- **What we must match:** identical exact elements on JVM, Node and Dart for all arguments within ±2^53. Only JS can actually round; JVM `long` and Dart `int` hold 2^54.
+- **C3:** it does not require this code. Under ruling 5, guest integers go only through the integer module while the `iter-at` index stays a VM primitive. When S3 lands, range elements use the module's exact add/multiply and the halving recursion is deleted.
+
+## 2. Replacement design
+
+**Choose (a), in the prelude only, with no lowering change.**
+
+In `py/range-at` (or at the top of `py/range-elem`), reuse the guard `py/checked-mul` already uses at `prelude.cljc:798`:
+
+```clojure
+(if (if (< i 67108864) (< (py/abs step) 67108864) false)
+  (+ start (* i step))            ; |i*step| < 2^52, exact on every host
+  (py/range-elem start step i))   ; existing recursion, unchanged
+```
+
+- **Cost:** two comparisons and one `py/abs`, with no division and no new field on the range value.
+- **Valid elements:** `|i*step| < 2^52` is exact, and the sum is a range element, so it is within ±2^53 and exact.
+- **One-past element:** the true value is beyond `stop`, at most 2^53 + 2^52 in magnitude. It may round on JS, but `stop` is representable and rounding is monotone, so the bound test still ends the range. The existing comment's argument carries over; JVM and Dart are exact.
+- **Slow path:** `i >= 2^26` or `|step| >= 2^26` takes the existing recursion. It is already pinned by tests and is unreachable in practice for the index (67M interpreted iterations).
+
+Why not the others:
+
+- **(b) carried element:** it is O(1) and exact, but it breaks the stateless `py/iter-at it i` protocol shared by `lower-for`, `py/collect`, `py/for-each-at` and the C2 iterators. That is a lowering change for code S3 will rewrite anyway.
+- **(c) integer module:** this is the S3 end state, but S3 has not landed.
+- **(d) revert:** it restores a silent wrong answer on JS.
+
+Tests to pin it:
+
+- **Keep as is:** `prelude_parity_test.cljc:154-168` and `e2e_c1_test.clj` `gate-round3-test`, which pin the huge case on every host.
+- **Add parity rows at the guard boundary** (JVM, Node, Dart):
+  - `i = 2^26 - 1` and `i = 2^26` with step 1;
+  - `|step| = 2^26 - 1` and `|step| = 2^26`;
+  - a negative step;
+  - a mixed-sign small range such as `range(-5, 5)`;
+  - the one-past index returning `:py/stop` on both paths.
+- **Add a fast-path guard:** see question 3.
+
+## 3. long-loops-test and the regression guard
+
+**Keep it `^:slow`, and guard with a deterministic count rather than a time budget.**
+
+- At about 130 s it is not fast-lane material, and its purpose (bounded stack over thousands of iterations across 4 VMs × 2 modes) is unchanged.
+- A wall-clock budget is flaky across machines. I found no step counter in the Python test helpers, so the guard has to be structural.
+- **Recommended guard:** a fast-lane prelude test that rebinds `py/range-elem` to a throwing stub and iterates `(py/to-vector (py/range3 0 3000 1))`. It passes only if the fast path never enters the recursion. The engineer needs to confirm the prelude harness allows that rebinding.
+- **If a VM step or reduction counter is exposed:** also assert that steps per iteration for `range(3000)` on one VM stay under a fixed bound. That would catch the next regression of this class, not just this one.
+
+## 4. The rest of commit 93e83213
+
+Nothing else is on a per-iteration hot path, but two items deserve follow-up.
+
+- **`py/range-count` and `py/range-has?`:** each costs O(log) through `divmod-pos`, but once per `len()` or `in`, not per element. Keep them; they fix the same class of 2^54 intermediate.
+- **`py/float-mod`:** it uses `fmod-pos` in place of the full `float-divmod`, so it should be no slower per float `%`. This is worth one micro-measurement, not a redesign.
+- **Genexp lowering:** per-element cost is O(1). However, `py/genexp-unsupported` and the "generator expression (phase C2)" refusals are still on master (`lower.cljc:540,683-684`, `prelude.cljc:1190`) although C2 S1/S2 have landed. Check whether that fallback is now stale.
+- **Keyword-argument ordering:** compile-time only, no runtime cost.
+- **Unexplained 2× (largest open item):** the old one-liner gives 66 s at 93e83213 but 132 s on master, and the recursion itself went from 403 s to 834 s. A general doubling of per-call cost landed after this commit and is unexplained. The candidates are the later commits touching these files: `cf6ed9ad` (safepoint site marks and hook prelude), `7654c2d0` and `c3f2da8f` (generators), and `1f8b7e37` (float64 kind). It deserves its own bisect with `long-loops-test` as the probe.

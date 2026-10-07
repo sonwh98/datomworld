@@ -1,0 +1,53 @@
+Completed-GMT: 2026-10-05 21:36:38 GMT
+Completed-Local: 2026-10-06 04:36:38 +07
+Coding-Agent: claude
+Session-ID: f56f11bb-ea1a-422e-8dc5-dd66b6ff7938
+
+Contract text signed off.
+
+One precision edit is recommended under (2c); it needs no further round. I ran no tests; this is a read of the working tree. `dao.stream.md` is still unmodified and nothing here forces a change to it.
+
+## (1) A1, A2, A3 are in as written
+
+- **A1:** `dao.stream.remote.md:295` reads "a descriptor outlives what it described."
+- **A2:** `dao.stream.remote.md:140-145` carries both sentences word for word, plus the engineer's args clause (2a).
+- **A3:** the `oversize` sentence is at `dao.stream.remote.md:322-323` and the unreached-channel sentence at `:331-333`. Code: `remote.cljc:824-825` and the `:resolve` entry of `links`.
+
+## (2) The added sentences
+
+**(a) "or with args other than `[]`" (`dao.stream.remote.md:145`): correct and minimal.**
+- Code: `remote.cljc:78-80` requires empty args in the named branch only.
+- Identity-request validation is unchanged (`remote.cljc:76-77`), so existing requests are answered as before.
+- It makes the prose agree with the wire block, which already showed `args []`.
+
+**(b) Named `oversize` carries the name, and an identity only when the replaced answer had one (`dao.stream.remote.md:169-170`): correct and minimal.**
+- Mirror: `remote.cljc:164-168` builds the fallback from whichever of identity, id and name the refused answer carried.
+- Link: `remote.cljc:93-97` accepts a named error without an identity only for `not-found` and `oversize`.
+- It leaves the existing `oversize` rule alone: the same trigger (`invalid-value` on the answer), and an identity request's fallback is the same map as before.
+
+**(c) The refusal sentence in Resolve (`dao.stream.remote.md:325-328`): correct, and obeyed at `remote.cljc:866-878`.**
+- **`full`:** the request is not recorded as outstanding (`remote.cljc:810-812`) and the next `resolve` sends again. This matches the existing rule at `dao.stream.remote.md:300-303`.
+- **2.5:** untouched. Only an accepted, outstanding request is counted and re-sent (`remote.cljc:866-867`).
+- **Other refusals verbatim:** this follows the reflection's `append!`, which already answers the channel writer's own outcome (`dao.stream.remote.md:312-313`).
+- **Remembering `invalid-value` and `closed`:** sound. Both are permanent for that name on that link's writer, so the remembered answer can never be wrong.
+- **`dao.stream.md`:** unaffected. `resolve` is the link's function, and these are the writer's own `append!` outcomes passed through.
+
+**Recommended edit.** The sentence says a remembered name "is answered that outcome again", but after channel loss the code answers `channel-gone` first (`remote.cljc:859-863`), and the sentence at `:330-331` says the same. Replace the clause at `:327-328` with:
+
+> and a name whose request the writer refused with `invalid-value` or `closed` is answered that outcome again with no further send, until channel loss.
+
+## (3) Ruling-4 fix and the head design sentence
+
+- **The fix is right.** `serve` refuses a non-positive or non-integer `:bind-port` with `:yin.head.ws/no-port` before composing anything (`head/ws.cljc:182-183`).
+- The descriptor is built once from the real port (`head/ws.cljc:188`), so every accepted handle reports the true address.
+- `observe` no longer rewrites the port (`head/ws.cljc:247-248`), so the identity and port mismatch is gone.
+- **The head design sentence is accurate** (section 6 table in `yin.vm.linker.dht.head.md`). It names the listener and the host's connect seam as the arguments, and its reason for the positive port is 5.1's own rule that the board binds at the UDP socket's number.
+
+## (4) Writer `transport-error` on the named send
+
+**Return it verbatim and do not remember it.** The engineer's choice stands.
+
+- It may be transient, and the writer's own map says so through `:dao.stream/retry?`, which verbatim return preserves.
+- Remembering it would turn a transient failure into a permanent answer for that name on a live link.
+- The caller's policy is already defined by what it receives: `head.ws/dial-step` keeps resolving on `retry? true` and reports `:lost` otherwise.
+- The contract already covers it with "any other refusal is returned as the writer's own outcome", so no further sentence is needed.

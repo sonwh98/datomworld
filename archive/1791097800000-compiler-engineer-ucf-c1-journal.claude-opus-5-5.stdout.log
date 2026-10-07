@@ -1,0 +1,34 @@
+The C1 journal transport is done and its 10 new tests pass on JVM, Node and Dart. `cljstyle` was not run: both `fix` and `check` needed a permission this session doesn't have. I checked line width and ASCII by hand instead. The report is at `collab/1791097800000-compiler-engineer-ucf-c1-journal.findings.md`.
+
+**Changed files**
+- `src/cljc/dao/stream/journal.cljc` (new): the frame format (a header frame, then one frame per value with positions dense from 0), the 2^52-1 position bound, and a memory backend with the three crash cuts.
+  - **Opening:** replays the frames, drops a torn last frame, and refuses a missing header, a position gap, a malformed frame or an unreadable frame before the last. Refusals come back as `transport-error` with a `:dao.stream.journal/defect` naming the cause.
+  - **`append!`:** encodes, persists, then makes the value visible, under one lock on the JVM. It answers `invalid-value` without writing for a value the codec refuses. A backend failure answers `transport-error` and blocks further appends on that handle until reopen.
+  - **Backend seam:** a map of three functions, so C2 can plug in the file backend.
+- `src/cljc/dao/stream/memory_log.cljc`: one new public function, `restore`, so the visible log keeps the persisted identity and its cursors across reopen. This is the only edit outside the brief's file list.
+- `test/dao/stream/journal_test.cljc` (new): covers every case the brief named and runs the shared `dao.stream.conformance` suite against the journal.
+- `docs/design/dao.stream.journal.md` (new): the transport spec.
+
+**Test results**
+- **Red:** against a stub namespace, all behavioural tests failed or errored. The manifest-shape test passed because it only checks data.
+- **JVM:** the journal, memory-log and transactor test namespaces gave 33 tests, 229 assertions, 0 failures.
+- **Node:** journal and memory-log gave 16 tests, 116 assertions, 0 failures.
+- **Dart:** the full fast lane (`bb test:cljd`) passed: 2723 tests, 0 failures, exit 0. It ran past the 600 s foreground limit, so the harness moved it to the background and I waited for it. Dart was not run red.
+- **Lint:** kondo is clean.
+
+**Deviations** (where the plan was silent, I took the smallest choice)
+1. Opening is a host act, `open!` taking a backend map, rather than `create!` with a creation spec, because functions don't belong in a spec. There is no `attach!` either.
+2. There is no close surface, so `closed`, `end` and `refused` are excluded as well as the plan's `full` and `gap`.
+3. An append past the position bound answers `transport-error` and writes nothing, but doesn't block later appends. A test-only `:dao.stream.journal/max-position` option on `open!` makes the bound reachable in tests.
+4. The backend seam has a third function, `truncate!`, so a torn last frame is removed before the next append.
+5. If the only frame is a torn header, the backend counts as empty and gets a fresh identity.
+6. Readers see the value decoded from the stored bytes, so it is identical before and after reopen.
+7. After a failed append, reads still serve the visible log; locking out reads for the whole authority is left to C3.
+8. The header must have exactly `:version 1` and a string `:identity`.
+9. Cursors use the memory log's key names over the journal identity.
+
+**Unresolved questions**
+- Should the journal have a close that persists, which would mean a close frame in the format?
+- Is `memory-log/restore` acceptable? The alternative was building a `MemoryLogHandle` directly against its private state.
+- Should the header allow extra keys? I chose strict.
+- Should a torn header refuse the open instead of minting a new identity?

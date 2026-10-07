@@ -1,0 +1,40 @@
+Slice C5 and both C3 follow-ups are done, with tests written first. The JVM and Node runs pass. Two required checks did not run: cljstyle was blocked by this session's permissions, so it still needs running on the ten files, and Dart is yours. Nothing was committed.
+
+**What landed**
+- **`custody.cljc` (new):**
+  - Occurrence ids are lowercase UUID strings, minted once.
+  - Constructors for the offer and binding facts.
+  - `binding-evidence`, a pure check over records each tagged with the author the stream was attributed to. It ignores records from other authors. It establishes nothing for a binding in a different record from its grant, a duplicated binding, or an epoch that is not an exact integer from 0 to 2^52-1.
+- **`authority/grant.cljc` (new):**
+  - `offer!` inspects the body with C4, stores it, and only then commits the offer with its baseline.
+  - A duplicate offer is a no-op; a variant with a different baseline, or a known occurrence with a different origin, is refused.
+  - An uninspectable body commits nothing and stores nothing; a failing store suspends the offer without poisoning the authority.
+  - A writer for the `dao.lease` judge commits the grant and its epoch-0 binding as one transaction. The reclaim callback is a readiness check only.
+  - `step!` runs a whole judge-step under the authority lock.
+- **`ledger.cljc`:** the three new fact kinds, with fold arms that fail closed. A grant left without its binding in the same record is refused.
+- **Follow-up (a):** the journal's memory backend now declares its durability in the same shape as the file backend. No C3 code reads the declaration, so nothing else needed adjusting.
+- **Follow-up (b):** writing a fact of an unknown kind, or with an attribute outside its kind's published order, now throws before any write. The red test showed the old code silently dropped the extra attribute and committed the frame.
+
+**Verification**
+- **JVM**, the touched namespaces plus the journal file and checkpoint tests: 74 tests, 579 assertions, 0 failures.
+- **Node:** shadow ignored my namespace filter and ran the whole suite: 2849 tests, 0 failures. All my namespaces ran.
+- **Kondo:** clean on all ten files.
+- **Test-first:** every new test failed before its code existed. For custody and grant, the first failure was only "namespace missing", so I also broke seven key checks one at a time (held occurrence, store before decision, grant without binding, duplicate binding, author check, float epochs, unbound grant). The tests failed each time.
+
+**Deviations** (details in the report)
+- `offer!` decides before it stores, so a refused or duplicate offer stores nothing.
+- The judge's answer hook grants one proposal per occurrence and sends no refusals, because recording a refusal needs a fact kind C5 doesn't have.
+- The writer answers `invalid-value` for anything other than a grant, so lapses wait for C6.
+- No test yet proves `step!` holds the lock for the whole pass.
+
+The report lists 11 open questions. The ones that need a decision soonest:
+- **Occurrence form:** C4's inspector accepts any non-nil occurrence, but the authority now refuses non-UUIDs. A body that passes C4 can therefore be refused at offer.
+- **Refusals in the ledger:** plan 1.5 rebuilds the judge's answered set from recorded refusals, so C6 needs a refusal fact kind or the plan text changes.
+- **"The only binding for L" (UCF 7.7.8):** a reader with a partial view cannot prove a binding is unique, so the sentence should say which view counts.
+
+Files are in `/Users/sto/workspace/datomworld-c5grant`:
+- collab/1791108000000-compiler-engineer-ucf-c5-offers-grants.findings.md
+- src/cljc/yin/vm/ucf/custody.cljc
+- src/cljc/yin/vm/ucf/authority/grant.cljc
+- test/yin/vm/ucf/custody_test.cljc
+- test/yin/vm/ucf/authority/grant_test.cljc

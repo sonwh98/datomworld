@@ -1,0 +1,37 @@
+Completed-GMT: 2026-10-02 20:56:29 GMT
+Completed-Local: 2026-10-03 03:56:29 +0700
+
+I recorded the float-address ruling in `docs/design/yang.antlr.md` and added the short cross-reference in `docs/design/dao.jing.cbor.md`. The diff is 169 lines added and 2 removed, all ASCII, with no line over 80 columns. Nothing is staged or committed, and no other file was touched.
+
+**Sections touched**
+
+| Section | Change |
+|---|---|
+| `yang.antlr.md` header | New "Updated 2026-10-03" paragraph that cites both findings files, names the sections it amends (8.5, 8.5.1, new 8.5.5) and marks the work as pending in one preparatory slice. |
+| §8.5, float paragraph | The `:py/float` tag is Python type semantics only. Its payload must be Jing float64 content on every host. Points to §8.5.5. |
+| §8.5.1, owner decision 3 | Adds that the tagged payload is Jing float64 content, with a pointer to §8.5.5. |
+| §8.5.5 Float addresses (new) | The full ruling, marked pending with nothing landed. |
+| `dao.jing.cbor.md`, *Numeric identity*, float64-carrier bullet | Two sentences: carrying float kind is the producer's job and the codec never infers it; the Python ruling is `yang.antlr.md` §8.5.5. The codec contract itself is not restated or changed. |
+
+**Ruling-to-section mapping (all in §8.5.5 unless noted)**
+
+| Ruling | Where it is in §8.5.5 |
+|---|---|
+| Root cause: the codec conforms, the producers are defective | Opening paragraph and three producer bullets (source literals, prelude constants, runtime values), plus the 2^53 refusal on Node |
+| Why options (a) and (b) are rejected | The "Both rejected alternatives" paragraph |
+| Normative text, including fable correction 1 (runtime values in snapshots and continuations) | The block quote |
+| Carrier mechanism and its exact constraints | Constraint list: one representation, kind fixed at the producer, the prelude seam plus its JVM guard test, no capture inside the seam, no new tag or row shape, `cbor.cljc` and fixtures not edited |
+| Bridge scope, fable correction 2 | The execution-bridge paragraph: `plain-data?` and `machine-data?` in `yin.vm`, `scalar?` in `yin.vm.engine`, an audit of `yin.vm.values`, plus the `float-repr` and Node test-expectation audits |
+| Re-mint rule | Migration table |
+| Aliasing prohibition | The sentence right after the table |
+| Float-free gate, fable correction 3 (whole addressed payload including the prelude) | The "Float-free" paragraph, its list of what is not allowed (including C2-S5 cross-host goldens on float-bearing trees), and the release criteria |
+| What may proceed meanwhile | The list covering the slice 1 golden, C2-S5 and C3-S2, plus the rule that the float slice and C3-S2 land one after the other if both edit the scalar gates |
+| Codec contract unchanged | The `dao.jing.cbor.md` cross-reference |
+
+**Open: question recorded:** the ruling does not decide whether the float that C1's dict-key normalization puts into a map key is integer or float content. C3 ruling 6 replaces that normalization in slice S5, but the C1 key needs a decision until then.
+
+**Notes**
+- I cited functions and namespaces rather than file:line references, to match how the document already cites code.
+- I left out fable's mention of its earlier, looser text: that text never entered this document, and the gate list in §8.5.5 already states the stricter rule.
+- Fable's findings also ask for an amendment to the yin.vm data-domain doc, saying the float64 carrier is an admitted scalar. That file is outside this brief's scope, so it is still undone.
+- The existing header paragraph (yang.antlr.md lines 51–53) still says none of the 2026-10-02 rulings has landed. Recent commits show safepoint slice 1 and C2 slice S1 have landed, so that text is out of date. I left it alone because it is outside this task.

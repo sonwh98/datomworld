@@ -1,0 +1,62 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+The review is complete and drafted in the plan file (ExitPlanMode isn't available in this session's toolset, so I'm delivering the read-only review directly — the deliverable the prompt asked for):
+
+---
+
+Completed-GMT: 2026-09-29 04:12:14 GMT
+Completed-Local: 2026-09-29 11:12:14 +07
+
+Verdict on the ruling: **CONCUR WITH CHANGES**. The diagnosis is correct and the composite-id + router scheme is the right fix; the alternatives are worse for verifiable reasons. The changes are a missing file in the required list, an unspecified default for supplied pairs, and two refinements. None overturn the direction.
+
+## A. The P1 is real, and the diagnosis is right — both verified in code
+
+**The P1 (cross-caller silent acceptance).**
+- The call-out cursor is minted `:oldest` unconditionally — supplied pairs included — at `src/cljc/yin/vm.cljc:2045-2046`.
+- Call ids are per-VM: `park-continuation` mints `(keyword (str "parked-" id-counter))` (`src/cljc/yin/vm/engine.cljc:1491-1492`) from a counter that starts at 0 in every fresh VM (`src/cljc/yin/vm.cljc:2063`). That park id *is* the call id at all four call sites (`src/cljc/yin/vm/semantic.cljc:466`, `src/cljc/yin/vm/ast_walker.cljc:201`, `src/cljc/yin/vm/debruijn/stack.cljc:473-476`, `src/cljc/yin/vm/debruijn/register.cljc:480-491`).
+- `call-result` accepts on id equality alone (`src/cljc/yin/vm/ffi.cljc:97-100`).
+- So a second fresh VM over the same exported pair reads the first VM's retained responses from `:oldest` and, when both minted `:parked-0`, accepts the wrong result silently. The implementer reproduced exactly this (report §Unresolved 1: a second fresh VM returned the first VM's 3).
+
+**The diagnosis (id uniqueness alone is insufficient).** Verified mechanically:
+- `dao.stream.waitset/check` polls waiters one at a time in wait-set order and, on `ok`, commits the successor cursor to the shared cell *before later entries resolve* — the "shared-cursor write-back" law (`src/cljc/dao/stream/waitset.cljc:253-259`, stated at `:202-207`).
+- `check-wait-set` threads the VM's single call-out cursor cell and queues woken entries (`src/cljc/yin/vm/engine.cljc:1343-1362`); the id is checked only at resume, **after** the value was consumed from the stream (`src/cljc/yin/vm/ast_walker.cljc:348`, `src/cljc/yin/vm/debruijn/stack.cljc:404`, `src/cljc/yin/vm/debruijn/register.cljc:379`, `src/cljc/yin/vm/semantic.cljc:170`).
+
+Delivery is positional; validation is post-consumption. Globally unique ids would only convert silent wrong-answers into loud correlation failures when order inverts — both waiters still lose their answers. Matching must happen before consumption, i.e. inside the poll. The ruling is right. Corroborating nuance: with one strictly ordered responder, wait-set order happens to track response order today (a `full` writer retry re-appends its response entry at the tail — `stack.cljc:395-401`, `ast_walker.cljc:323-332`), so single-VM misdelivery is latent, not observed; the router removes the dependence on that coincidence rather than relying on it.
+
+## B. Composite id + FFI router is the right fix — alternatives weighed
+
+**The ruling's scheme.** Against the six invariants: the token is an explicit construction input (no hidden global state); the router is a synchronous poll beside `poll-links`, not implicit control flow; woken entries remain data on the ready queue (no callbacks); each VM owns its cursor cell while the medium stays many-interpreter by design (datom.world.md "one stream, many interpretations"); `dao.stream.waitset` still interprets only `:reason` over opaque entries (`waitset.cljc:27-30`) and `dao.stream.apply` is untouched (no layer collapse); correlation is identity carried in the data, per the host-boundary principle. Peer-observer: the VM reads through the same stream/cursor abstraction it already uses; reflection retry cadence stays in the composition (dao.stream.md §"The readiness extension": retry cadence belongs to the driver, not the stream). UCF migration: `:yin.k/call-id` and the retained envelope carry the composite verbatim (`src/cljc/yin/vm/ucf/remote.cljc:290, :354, :627, :647`); a resumer that mints a different token for new calls cannot collide with the migrated call, since tokens are globally unique. Portability: `apply/correlation-id?` is `some?` (`apply.cljc:24-28`), the id rides as a map value beside already-vector `args`, and `vm/plain-data?` admits `[token keyword]` (`vm.cljc:910-923`). The router also has a **direct precedent**: `poll-link-response` already advances past non-matching ids and acts only on exact correlation, raising terminal outcomes as errors (`engine.cljc:1207-1235`). This is the second instance of an established idiom, not a new mechanism.
+
+**Per-caller call pair — rejected.** (i) Unenforceable at the current endpoint: the mirror protocol carries no caller identity and descriptors are attachable by anyone; `export` gates on surface policy only (`responder.cljc:73-86`). (ii) Bootstrap regress: allocating a per-caller pair needs a pre-existing shared channel, reintroducing shared-caller correlation one level down. (iii) N pairs ⇒ N mirrors, leases and cursors on the serving peer. (iv) It contradicts the established rebind-under-same-identity semantics (responder test 6 keeps one endpoint across detach/reattach). (v) It leaves positional delivery in place.
+
+**Cursor-at-`:newest` alone — insufficient, as the ruling says.** Simultaneous callers still collide (`:parked-0` vs `:parked-0` on interleaved fresh responses ⇒ silent cross-acceptance). It also silently discards an in-flight answer of a rebinding exclusive caller — which is why the implementer's test-6 workaround keeps the cursor rather than re-minting. Correct as a *component* of the readiness step; wrong as the fix. (The anchor exists: `stream.cljc:42-49`.)
+
+**Extending `dao.stream.waitset` with id-routing — rejected.** Layer collapse: the library's contract is reason-only interpretation over host-opaque entries; apply ids belong to `yin.vm.ffi`.
+
+**Better option found: none.** Composite ids + router is the minimal change that fixes all four failure modes (cross-caller collision, stale history, tenure reuse, out-of-order responses) without touching the wire, the server, or the library.
+
+## C. Readiness — concur
+
+Composition-owned, state-threaded, before VM construction, installed via a trusted `:call-out-cursor` option paralleling `:link-request`/`:link-response` (`vm.cljc:2052-2056`). The problem is verified: construction mints synchronously (`vm.cljc:2045`) and only the test helper performs the pre-poll (`test/yin/vm/ffi/remote_serve/responder_test.cljc:278-293`, `poll!` at `:251-261`). Putting retry handling inside `create-vm` would violate the peer-observer principle; the composition already owns `drive!`. One change: the ruling specifies the retained mint only "for locally created pairs" and leaves supplied pairs unstated — Change 2.
+
+## D. Loss error — concur, with one refinement
+
+`:dao.stream.apply/ended` is the ruling vocabulary's terminal word; the responder provably cannot correlate an evicted request (a gap means the value, hence the id, is unreadable — `responder.cljc:180-187`), and the current path wakes `nil` on end and falls into the misleading "malformed envelope" (`waitset.cljc:118-119`, `ffi.cljc:95-96`). Reporting "ended before answered" is the honest caller-side observation. Refinement (Change 3): end and gap should be machine-distinguishable via an extra error-map key (the error map is open — `apply.cljc:63-67`, and the one-envelope ruling permits additional error-map keys), not only by message string.
+
+## E. Slicing — concur
+
+3c commits as server/holder composition after the focused gate: the holder grant-gap fix is already in the working tree **with** its evicted-grant test (`holder.cljc:240-241` sets `::lost`, step short-circuits at `:318/:323`, `lost` accessor at `:370`; `test/yin/vm/ffi/remote_serve_test.cljc:910-919`). The P1 pre-exists on master — the `:oldest` mint and per-VM ids are committed VM behavior, and no production composition shares a pair today — so 3c introduces no regression. 3d lands caller readiness + correlation/router + loss error as one correctness boundary, with the two-VM (responses in opposite order), readiness, gap, and migrated retained-call tests; claim end-to-end completion only after those pass.
+
+## Changes to the ruling (precise)
+
+1. **The required-files list is missing `src/cljc/yin/vm/debruijn_register_effects.cljc`.** The wait-entry validators enforce `(keyword? (:call-id entry))` for both the ffi-writer and ffi-reader shapes (`debruijn_register_effects.cljc:412` and `:432`). The composite `[caller-token local-park-id]` is a vector and fails both. The slice must extend those validators (and `test/yin/vm/debruijn_register_effects_test.cljc`) to the composite shape — e.g. a keyword *or* a plain-data 2-vector whose second element is the local park id. Without this, register-VM FFI waits are refused by the contract tests.
+2. **Decide the supplied-pair default.** Recommendation: when `:call-in`/`:call-out` are supplied without `:call-out-cursor`, refuse — extend the half-a-pair check (`vm.cljc:2012-2016`). An implicit `:oldest` mint on a shared exported medium is not merely slow but loss-prone: the router scans retained history, and a mid-scan eviction raises terminal gap-loss for waiters whose own answers may still be ahead — a likelihood an oldest anchor on a busy shared ring invites and a composition-supplied `:newest` cursor avoids. Softer fallback (owner decision): keep the `:oldest` default and document it as such.
+3. **End/gap distinguishing key** (D above).
+4. **Router dispatch details the ruling should name:** (a) the discriminator must match both entry shapes — the walker nests `:call-id` in `:k` (`ffi.cljc:56-59`) while semantic/stack/register place it at top level (`ffi.cljc:82`, `semantic.cljc:111-115`); (b) waiters are grouped per cursor cell, and lowered retained calls wait on *carried* cells that are not `vm/call-out-cursor-key` (`semantic.cljc:118-128`, `ucf/remote.cljc:622-633`) — "each response cursor cell" must explicitly include carried cells; (c) FFI response entries must be excluded from the generic sweep exactly as link entries are (`engine.cljc:1346-1350`); (d) the apply-value interpretation may live in `yin.vm.ffi` with `check-wait-set` dispatching into it (no cycle: `ffi.cljc` requires only `vm`/`telemetry`, so engine→ffi→vm is acyclic), which keeps envelope interpretation out of the engine; either placement conforms.
+5. **Token constraint:** the caller token must satisfy `vm/plain-data?` and the channel codec (string, uuid, or keyword). Add a CLJD assertion that a vector-valued parked key round-trips (ClojureDart vector equality as a map key).
+
+## OWNER decisions
+
+1. Authorization to edit the VM files — now **eight**: the ruling's seven plus `src/cljc/yin/vm/debruijn_register_effects.cljc` (and its test).
+2. Supplied-pair cursor policy: refuse-without-cursor (recommended) vs documented `:oldest` default.
+3. The deployment choices the ruling already lists (token minting authority, handler/renewal authority, channel adapter, capacity, lease timing) — unchanged; composition inputs, no further ruling needed.

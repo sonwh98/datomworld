@@ -1,0 +1,21 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done. Task complete, nothing staged or committed.
+
+**Test added** — `occurrence-aware-rules-resolve-mixed-free-and-bound-rows` in `test/dao/space/query_test.cljc:1237` (6 assertions):
+
+- **Premise verified both sides**: the map AST has two `{:type :variable :name x}` nodes (tree-walk count = 2), and the projection has exactly one `:variable x` row — the collapse is real, queried not assumed.
+- **Occurrence fixture**: hand-built `[root path row-id]` tuples using §2.5's own path encoding — `[]`, `[2]`, `[2 3]`, `[[3 0]]` — with real ids from the projection. The pair-step form is load-bearing: every pop of a real path is a real path, so the recursive walk never leaves the tree (the prompt's `[:operands 0]` spelling would emit a ghost `[:operands]` step).
+- **Rule set**: `p-up` (fn-clause `path-pop`, the path analogue of the row-level `edge`) → recursive `occ-anc` → `occ-bound?`, which joins the ancestor occurrence's path to its row via `[$occ ?r ?lam-path ?lam]` inside the rule body, then checks `:lambda` params.
+- **Results**: bound occurrences of the shared row = `#{[[2 3]]}` (body-x bound), free occurrences = `#{[[[3 0]]]}` (operand-x free), unioned free-name set = `#{[x]}`.
+- **Contrast, actually run**: the prior demo's row-only `bound?` on the *same* db returns `#{}` — drops `x` entirely. The §4.5 undercount is demonstrated, not narrated.
+
+```
+$ clojure -M:test -n dao.space.query-test
+Ran 51 tests containing 155 assertions.  0 failures, 0 errors.
+```
+
+(50/149 before → exactly +1 test, +6 assertions; verified standalone too.)
+
+Two new engine facts worth knowing beyond the prior findings: rule bodies see every `:in` source (leading `$sym` pattern selector), and — the sharpest trap — a bare non-`?` symbol in a pattern is a binding lookup that acts as a **wildcard** when unbound (`[?v :variable x]` silently matches all variables). My first premise check hit this; fixed with a scalar `:in` input.
+
+Findings: `collab/1789554609000-storage-indexing-occurrence-aware-free-variable-query.glm-5.3.findings.md`.

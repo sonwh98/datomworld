@@ -1,0 +1,29 @@
+Slice 1 is finished and every lane passes on the final run. As the brief says, nothing is staged or committed; that waits for your non-Claude gate.
+
+**What changed**
+- **Wire values:** rpc now puts `dao.stream.apply` envelopes on the wire, with no compatibility shim. The old rpc function names (`request-value`, `success-answer`, `answer-ok`, etc.) now just call the apply equivalents, so the yin.repl code keeps working under the same names.
+- **What rpc keeps:** its own events, diagnostics and completion keys, its ID allocator, cursor minting and `rebind` are unchanged.
+- **Answers:** an answer is accepted only if it passes `apply/response?` and has a safe id.
+  - An answer with an invalid error body is rejected with a `malformed-response` diagnostic.
+  - An answer whose id isn't a safe integer gets a new `unsafe-response-id` diagnostic. It is consumed once and the request stays outstanding.
+- **Outstanding cap:** `client-state` takes `{:max-outstanding n}` (default 64, must be positive or it throws). At the limit, `request!` returns `:dao.stream.rpc/backpressure` without allocating an id or appending anything. The REPL adapter reports this as `:yin.repl.adapter/backpressure`.
+- **Error reasons:** remote `no-surface` and `oversize` now get their own terminal reasons. Only `detached` can be rebound.
+- **Consumers:** yin.repl only needed small edits in `adapter.cljc` and `serve.cljc`. `connect`, `driver` and `dao.stream.observe` needed nothing.
+- **Tests:** five new tests in `rpc_test.cljc` cover every case the brief asked for. The serve and adapter tests were updated to the apply keys.
+
+**Test results**
+
+| Check | Result |
+|---|---|
+| Focused JVM (rpc, adapter, serve, connect, driver, embed, observe) | 77 tests, 0 failures |
+| Full JVM suite (final run) | 2287 tests, 183331 assertions, 0 failures |
+| Node lane | 2193 tests, 49957 assertions, 0 failures |
+| cljstyle and clj-kondo on the 6 touched files | clean |
+
+**Two problems on the way**
+- **Stale Dart peer:** the first full run had failures in the tests that pair with a Dart process. The prebuilt `build/yin-repl-peer` was compiled before this change and still used the old wire keys. I rebuilt it with `bb build:yin-repl-peer`, which also confirms `rpc.cljc` compiles under ClojureDart. Any Dart peer built before this commit needs rebuilding before the gate.
+- **Possible flake:** two `yin.repl.main-test` tests that use a JVM peer (`killing-the-connection…` and `reattaching-resumes…`) failed in two runs in a row. They then passed in a focused rerun and in the final full run. I've logged this as the known main-test intermittent, but because it failed twice in a row, the gate should watch it.
+
+One JVM test was skipped, unrelated to this change: `a-dart-dialer-reads-a-jvm-server`, because its `build/ws-project-peer` binary doesn't exist.
+
+The report, with line refs, exact commands and `git status`, is at `collab/1790577198000-vm-engineer-one-envelope-slice1.claude-opus-5-5.report.md`.

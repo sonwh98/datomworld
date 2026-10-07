@@ -1,0 +1,45 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+Completed-GMT: 2026-10-04 08:15:23 GMT
+Completed-Local: 2026-10-04 15:15:23 +07
+
+# Gate review — M-next C slice C1, journal transport
+
+## Verdict: APPROVE-WITH-NITS
+
+The slice matches the plan (1.6, 1.4, "C1, journal") on every point I was asked to check; the findings below are edge cases, one test gap, and doc pins — none blocks C2. No files edited, no suites run.
+
+## Findings
+
+1. **Sentinel collision in `replay` — Low.** `src/cljc/dao/stream/journal.cljc:166-167` (`decode-frame` at 131-136): a *final* frame that decodes to exactly the keyword `:dao.stream.journal/unreadable` satisfies `(= ::unreadable (peek decoded))` and is popped as a tear, then truncated — a specified `:malformed-frame` refusal becomes silent frame-dropping. Reachable only from hand-crafted media (every real frame is a map), and mid-file the same bytes are correctly refused, so this is an edge, not a live bug. **Fix:** have `decode-frame` answer a tagged pair (`[::ok v]` vs `::unreadable`) or a private sentinel record instead of a namespace keyword.
+
+2. **Engineer's choice 6 is untested in its distinguishing property — Low.** `test/dao/stream/journal_test.cljc`: no test appends a value whose host form differs from its decoded form, so mutating `append-frame!` (journal.cljc:207-210) to conj the caller's value instead of the `decode-snapshot` passes the entire suite (my mutation pass found this the only surviving mutation). **Fix:** one test appending a byte array that the caller mutates after the append (and optionally a JVM `(Float. 1.5)`), asserting the read value equals `(cbor/decode-snapshot (last @frames))`.
+
+3. **Readers-see-normalized-values is undocumented — Low, doc.** `docs/design/dao.stream.journal.md` §2 says only "`v` is any value the canonical codec accepts". Because visibility is `decode-snapshot` of the stored bytes, on Node a plain non-integral double reads back as the `Float64` carrier — host `=` against the appended value is false (`cbor.cljc:340-378`; the portable comparisons are `cbor/num=`/`equiv`); on the JVM `Float` reads back as `Double`; NaN never equals itself. Harmless for C3+ (exact integers ≤ 2^52), but a sentence in §5 step 3 would spare the next consumer a surprise.
+
+4. **`memory-log` ns preamble now overstates — Nit, doc.** `src/cljc/dao/stream/memory_log.cljc:1-27` still says a restarted process always sees "a new, empty logical stream with a new identity" and "durability is dao.jing's job"; `restore` (189-197) is the documented exception but only in its own docstring. One clause in the ns doc aligns them.
+
+5. **Choice 5 (torn header mints fresh identity) is neither tested nor argued — Nit.** `journal.cljc:169` (`{::kept 0}`) with `open!` at 279-284. Ruled safe below; pin it with a two-line test (medium of exactly one torn frame → open ok, fresh identity, empty values, one frame after) and a doc sentence giving the crash-model argument.
+
+Non-findings worth recording: `decode-frame` uses `cbor/decode` (ingress canonicality), so a non-canonical-but-decodable frame surfaces as `:unreadable-frame`/torn-tail — naming is cosmetic, behaviour is right; `open!` is unlocked against concurrent handles on one backend, which is the single-owner contract (C2 adds the directory lock).
+
+## The checked claims
+
+- **Frame grammar**: header strictly `{:version 1 :identity <string>}` (journal.cljc:139-148 — extra keys and wrong version refused, tested); entries exactly `{position value}` (151-158); positions dense from 0 (173-177); equal values at different positions kept (test 83-94, reopened too). ✓
+- **`append!` order and cut outcomes**: encode (197-201, throw → `invalid-value`, no write, no poison) → persist (203-204, failure/throw → poison) → visible (207-210). All three cuts assert their exact reopen result (test 156-174); the failed append never becomes visible; reopen clears poison and keeps positions dense. ✓
+- **Poison**: appends only, until reopen (190-213); reads keep serving (229-238) per 1.6 — authority-level read poison is C3's. The bound answers `transport-error`, writes nothing and does *not* poison the handle (194-196), matching 1.6's "the handle refuses … the authority poisons". ✓
+- **`open!` refusals and truncation**: missing header, gap, malformed, unreadable non-final all refuse without writing (test 187-212); torn tail is truncated *before* the handle exists (275-277). ✓
+- **JVM lock / Node-Dart sync**: `locking` on the state atom serializes encode/persist/visible plus the position bump (80-87, 243-245); the vlog's own transition is `swap!`-atomic; Node/Dart paths are synchronous in one isolate. ✓
+- **Conformance suite is real**: the manifest's induction fixtures all operate fresh real handles — including a real crash-cut backend for `append!`'s `transport-error` — and the law blocks run against `handle-factory` output (test 304-311); the produces/exclusions partitions match `dao.stream`'s contract sets. ✓
+- **Mutation pass**: dense-position, header-strictness, poison, truncation, bound off-by-one and reopen-identity mutations are all caught; sole survivor is finding 2. ✓
+- **Doc**: defect table matches the code exactly; outcomes/exclusions match the manifest; style matches the neighbours, and `open!`-as-host-act has precedent (`dao.stream.datagram.md:85`; the retired v1 file transport also used `open!`). The registry in `dao.stream.md` explicitly admits transports that create nothing via `create!`. ✓
+- **C2 seam sufficiency**: sufficient. `write-frame!` owns durability (`dao.jing.file` put = `append-frame!` + `sync-file!`, file.cljc:358-366); a `:present` answer or throw lands in the journal's non-ok → poison path exactly as the plan's defect rule requires; `truncate!` can be trivial because `records` already validate-then-truncates tears at open (file.cljc:441-452). Two C2 work-notes, not blockers: `records` answers decoded `[address value]` pairs, so the adapter re-encodes to bytes (canonical decode→encode is the identity for accepted content); and `open!`'s mint-on-empty needs `::frames` to answer `[]` for a fresh directory rather than an error.
+
+## The engineer's four open questions
+
+1. **Durable close — accept "no close surface".** The plan's close semantics live at the authority/target layer (1.10: `end` after an authority-authored close; C8 closure), recorded as values; a transport close frame would also collide with "close is irrevocable" against reopen-undo. Revisit only if a non-authority consumer ever needs it.
+2. **`memory-log/restore` — accept.** It widens the namespace's construction surface, not the transport contract: no operation, manifest, outcome or existing test changes (memory-log suite green, `restore` untouched by it), and the docstring marks it a non-creation with the owner answerable. The alternative — journal building `->MemoryLogHandle` over the private state shape — would break encapsulation worse. Ship with finding 4's doc clause.
+3. **Strict header keys — accept strict.** Frames are the journal's closed wire grammar in its own namespace, not DaoStream open maps; strictness is precisely what makes one ledger's bytes identical on every host (plan 1.7, C12's cross-host fixture).
+4. **Torn header on an empty medium — safe as implemented; accept, do not refuse.** Under the declared failure model a crash can only cut the tail, so a torn frame 0 cannot coexist with later persisted entries (that medium is `:unreadable-frame`-refused); the mint-fresh path therefore implies zero persisted values and an identity no `open!` ever answered — `open!` answers the identity only after the header write answers ok. Refusing would brick a medium crashed during its very first write with nothing recoverable at stake. Amend only by pinning it (finding 5).

@@ -1,0 +1,8 @@
+ExitPlanMode isn't available in this session, so I'll close out here — the review itself is complete and read-only.
+
+**Summary:** Phase R2's three drivers and their tests faithfully implement the plan. No correctness bugs, contract violations, or isolation breaks. Two minor items worth noting for the record:
+
+1. **cljd suite under-covers** the coalescing and internal-drain intents that the cljs suite verifies (Dart and JS drivers are identical, so the trickiest logic is untested on Dart).
+2. **A docstring nit** — "at most one continuation pending" isn't strictly true under re-entrant `schedule-work!` from a resume fn (benign in practice).
+
+Neither requires a change to accept the phase; the only optional follow-up is extending `driver_cljd_test.cljc` with the two missing cases. I've captured this in the plan file at `/Users/sto/.claude-deepseek/plans/read-collab-reviewer-dao-runtime-phas-rustling-melody.md`.

@@ -1,0 +1,7 @@
+Nothing else is pending: the Dart suite is still compiling (328 log lines, no test lines yet), the armed wait will notify me when it reaches a terminal line, and every other item in the brief is done and verified. Status so far:
+
+- JVM: 1992 tests, 0 failures, 0 errors.
+- Node: 1908 tests, 1 failure, 1 error, both the documented JavaScript `float64` carrier limitation in `yin.vm` consumers.
+- kondo, cljstyle, width and ASCII: clean on every touched jing source, the fixture, the digest table, and the jing-owned tests.
+
+I'll write the final report as soon as the Dart result lands.

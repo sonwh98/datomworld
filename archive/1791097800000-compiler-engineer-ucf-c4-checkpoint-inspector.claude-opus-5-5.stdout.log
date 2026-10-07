@@ -1,0 +1,42 @@
+C4 is in: a new inspector, `src/cljc/yin/vm/ucf/checkpoint.cljc`, plus 45 shared fixtures committed as bytes. It passes on the JVM and Node, but Dart and cljstyle were not run.
+
+**What it does.** `inspect` takes a body's address and its canonical bytes; `inspect-body` takes an already-decoded body. Checks run in order and the first failure decides:
+1. The bytes must hash to the address (BLAKE3).
+2. The bytes must decode as canonical `dao.jing.cbor`.
+3. Tag.
+4. Version gate (version 1 only), checked on the codec's integer kind, so `1.0` is refused on every host.
+5. Kind.
+6. Custody header, with different rules for a root and an install child.
+7. Operation-id rules on `:put`, `:ffi-request` and `:link-request`, then the same checks on each install child using the root's occurrence, origin and counter.
+
+It answers the baseline `{kind, occurrence, origin, arbitration, next-op-seq, ops {op-id intent-hex}}`, where each intent is stored as the hex of its canonical bytes. Refusals are always data. It requires no `yin.vm` engine namespace, and `handoff.cljc` is untouched.
+
+**Changed files** (all new):
+- `src/cljc/yin/vm/ucf/checkpoint.cljc`
+- `test/yin/vm/ucf/checkpoint_fixtures.cljc`
+- `test/yin/vm/ucf/checkpoint_test.cljc`
+- `test/resources/yin/vm/ucf/checkpoint-v1.txt`: the fixture bytes D will reuse. It is 514 KB and covers 9 accepted shapes and 36 refusal classes, including equal and different intents, nested install children, a child id outside the root counter range, floats, 2^52, -1 and non-canonical bytes.
+
+**Test results:**
+- **Red, against a stub inspector:** 11 of 14 tests failed (120 of 141 assertions). Three passed on the stub without ever being shown red: the file-parity test, the `inspect-body`/`inspect` agreement test and the coverage test.
+- **Green:** JVM (`clojure -M:test -n yin.vm.ucf.checkpoint-test`) and Node (shadow with `ns-regexp`) each ran 14 tests and 141 assertions with 0 failures.
+- **kondo:** clean. Every line is ASCII and at most 80 columns.
+- **Not run:**
+  - **Dart:** the compile command needed approval, and another worktree was running its Dart lane at the time.
+  - **cljstyle `fix`/`check`:** blocked by the permission gate. Run them before committing.
+  - A mistaken probe of the Dart test script started the Dart lane; it died within seconds and left nothing in the worktree.
+
+**Deviations:**
+- I added `:yin.k/kind` to the baseline so C5 and C8 can refuse a halted body. A halted root has no occurrence, arbitration or counter.
+- The accepted fixtures were built by hand as asked, so their code is a placeholder. D's restoration checks will refuse them; only the inspector stage is meaningful over them.
+- I generated the fixture file through a temporary test namespace, since deleted, because the direct `clojure -e` command needed approval. To regenerate it, run `(yin.vm.ucf.checkpoint-fixtures/write!)` in a JVM REPL.
+
+**Unresolved questions** (16 in the report; the main ones):
+- **Codec:** the UCF says canonical `dao.jing.cbor`, but the version-0 handoff encodes with `dao.stream.cbor`. D's version-1 export must switch codecs, or its bytes won't match their address and Node loses the float/integer distinction.
+- **Address:** I used the bare BLAKE3 hex rather than a `:segment/...` keyword, and `:yin.k/hash-mismatch` as the status when it doesn't match.
+- **Intents:** the baseline payload is the value as carried in the body, while admission computes intent from the decoded program value. Baselines compare against each other but not byte-for-byte against dedup records.
+- **Shapes I had to guess:** whether a halted root's origin is required, the required keys in origin and arbitration, and which status a child with an unpublished version gets.
+- **Install entries:** should C4 check `phase` and `parent`? I left them to D.
+- **D's fixtures:** should D regenerate the accepted fixtures through a real version-1 export, or test only the inspector stage on these?
+
+The full report is at `collab/1791097800000-compiler-engineer-ucf-c4-checkpoint-inspector.findings.md`.

@@ -1,0 +1,35 @@
+Completed-GMT: 2026-09-04 17:34:40 GMT
+Completed-Local: 2026-09-05 00:34:40 +07
+
+## Changed files
+
+- **`test/dao/stream/slice_peer.cljc`** (modified) — `:cljd` branches, all placed *first* in each reader conditional because the ClojureDart host-eval pass also matches `:clj`:
+  - requires `dart:convert`, `dart:io`, and `dao.stream.ws.dart` as `host`;
+  - `emit!` writes one line through `stdout.writeln`; `exit!` calls `io/exit`;
+  - `:connect!` is now the Dart host's `connect!` instead of `nil`;
+  - `-main` subscribes to `stdin.transform(utf8.decoder)` and reuses the existing shared `feed!` line-splitter — one isolate means stdin must be a turn on the event loop, exactly as on Node;
+  - a `#?(:cljd …)` top-level `^{:dart/name main} peer-main`, because the VM starts a program at `main` and `-main` munges to `$_main`.
+- **`test/dao/stream/slice_test.cljd`** (new, 612 lines) — process A on Dart: two serving endpoints over one ring buffer via `dart/bind!`/`dart/unbind!`, a `Timer.periodic` driver the test owns, and the five facts written with `await` over `Process.start`-spawned peers. Waiting is `poll-until`; nothing blocks and nothing self-schedules.
+- **`bb.edn`** (modified) — `test:cljd` now compiles the peer namespace alone, AOT-compiles it to `build/slice-peer`, then runs the suite.
+- **`deps.edn`** — unchanged, deliberately. The `:cljd` alias already puts `test` on the path and `cljd.build` takes explicit namespaces, so `clojure -M:cljd compile dao.stream.slice-peer` needed no new alias. Say the word if you want the peer build expressed as its own alias anyway.
+
+Why AOT: this project's `cljd.core` carries the Flutter extensions (`package:flutter/foundation.dart` → `dart:ui`), so no ClojureDart output here runs under a plain `dart run`. An AOT executable is self-contained, which also makes it immune to the test build rewriting the same `cljd-out` tree afterwards — hence "peer first" in the task. Compiling it costs ~5s; each spawn is ~50ms. If the program is missing, `start-peer!` fails immediately naming `bb test:cljd` rather than timing out.
+
+## Test and check outcomes
+
+| Check | Result |
+|---|---|
+| `bb test:cljd` | **exit 0** — `01:20 +1164: All tests passed!` (baseline before this change: 1159; the 5 new facts are the delta) |
+| `clojure -M:test -n dao.stream.slice-test` (JVM half, regression check) | 5 tests, 96 assertions, 0 failures, 0 errors |
+| `bb test:cljs` (Node suite, regression check) | exit 0 — 1215 tests, 34280 assertions, 0 failures, 0 errors |
+| `clojure -M:kondo --lint test/dao/stream/slice_peer.cljc bb.edn` | 0 errors, 1 warning: unused private var `feed!` — present identically on `HEAD`, since `feed!` is used only from non-`:clj` branches |
+
+I also mutation-checked the async assertions: breaking `#{:writer :closable}` and the `[:ws/opened :ws/payload :ws/closed]` walk both produced reported failures, so the `is` forms behind `await` genuinely execute rather than passing vacuously. Both mutations were reverted; the file on disk contains no leftovers.
+
+## Unresolved concerns
+
+1. **Failing Dart facts hang until the test timeout.** `cljd.test` runs each test in its own error-handling zone, so an `is` that fails *after* an `await` is reported immediately but never completes the test's future — the runner then adds a `TimeoutException` 30s later. The real failure is the assertion output above that timeout. I documented this in the namespace docstring and deliberately did **not** add `--timeout` to `bb.edn`, since raising it only lengthens failing runs (passing facts take ~0.2s each).
+2. **The plan's host matrix is now stale.** `docs/design/dao.stream.implementation-plan.md` still says Phase 4–5 target clj and cljs (Node) with "cljd ws follows once the slice is proven". It is not a named file, so I left it; it wants an update.
+3. **`dart` must be on `PATH`** for `bb test:cljd` (mise's Flutter provides it). Previously the task shelled out only to `clojure`.
+
+Nothing in the task was left incomplete.

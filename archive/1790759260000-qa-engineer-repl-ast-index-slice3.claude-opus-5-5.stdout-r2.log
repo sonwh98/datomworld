@@ -1,0 +1,32 @@
+The CLJD lane (`bb test:cljd`) is still running and I don't have its result yet. I'll write the r2 report once it finishes.
+
+Both Architect findings are fixed. I only edited `test/yin/repl/ast_query_e2e_test.cljc`.
+
+**Fix 1: shared rows, separate occurrences per root (test 3).** The substring checks are gone. The test now takes the two roots from the program stream and checks:
+- **Exact places:** reading the indexer's relations directly, the `+` node sits at exactly `#{[inner-root [2]] [outer-root [[3 0] 2]]}`.
+- **Per-root queries in the REPL:** a query with the root passed in as input returns exactly `#{[[2]]}` for the inner root and `#{[[[3 0] 2]]}` for the outer one.
+- **Counts:** there is exactly one `+` row in `$ast`, and a count query sees exactly 2 places.
+
+**Fix 2: repeated evaluation must not pass on empty relations (test 4).** After the first evaluation the test now checks that:
+- `$ast` holds exactly the rows `[:variable +]`, `[:literal 1]` and `[:literal 2]`.
+- `$occ` is not empty.
+- Every row has an occurrence, and every occurrence points to a row.
+- All occurrences sit under one root.
+
+Only after that does it compare the full relations across the repeats.
+
+**Mutation proof.** Each mutation went into `src/cljc/yin/repl/ast_index.cljc`, then was restored. `git diff -- src` is empty.
+- **Mutation 1** paired each occurrence path with every root seen so far. All the roots and paths still show up in the output, so the old substring checks would still pass (that's reasoning; I didn't run the old test against it). The new test failed 12 times, 3 per VM: the exact place set, the inner-root query, and the count.
+- **Mutation 2** let the indexer read packets but add no rows or occurrences. The new population checks in test 4 failed on all 4 VMs. As expected, the other tests failed too.
+
+**Checks run so far:**
+
+| Check | Result |
+|---|---|
+| kondo on the file | 0 errors, 0 warnings |
+| Focused JVM (e2e, query, ast-index) | 42 tests, 653 assertions, 0 failures |
+| Full `clj -M:test` | 2409 tests, 184936 assertions, 0 failures |
+| `bb test:cljs` | 2314 tests, 51386 assertions, 0 failures; the e2e namespace ran |
+| `bb test:cljd` | Still running |
+
+I didn't bring back the refusal test, and I didn't stage or commit anything.

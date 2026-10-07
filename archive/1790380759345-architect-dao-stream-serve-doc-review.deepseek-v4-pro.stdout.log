@@ -1,0 +1,85 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+I've read the document under review in full (1,085 lines), the contract (`dao.stream.md`), and the six neighbor documents and six source files it cites. Here is the complete review.
+
+---
+
+Completed-GMT: 2026-09-26 00:00:56 GMT
+Completed-Local: 2026-09-26 07:00:56 +0700
+
+# Independent review of `docs/design/dao.stream.serve.md`
+
+I judged the document against `dao.stream.md` (contract) and against the sources it cites, with no access to the prior review rounds. Overall: an unusually careful, honest document. Its architecture is sound and its invariant discipline is genuine — the server/client/privilege exclusions hold under adversarial reading, and its honesty about unauthenticated ids, symmetric NAT, browser limits, and deferred encryption is exactly right. However, it has one genuine write-path soundness flaw, one missing idempotency spec, and one load-bearing ambiguity that together mean an implementer would mis-implement the protocol. Details below.
+
+---
+
+## 1. Invariant compliance — PASS (no violation found)
+
+I checked every place a role could hide, and none leaks into protocol.
+
+- **Frame set (3.2, lines 126–149):** all eight frames (`open/opened/disclaim/close/request/response/ping/pong`) are symmetric. None names a peer kind.
+- **Dialer/acceptor (6.2, 477–488):** "Direction is establishment, not authority … nothing in this layer remembers who dialed." This matches the owner's Q2 ruling exactly.
+- **Meeting convention (7.3, 615–627):** "a peer running a convention, not a kind of node: the protocol has no frame for it." The `:meet/…` vocabulary is explicitly "a convention under `:meet/…`, not protocol."
+- **Service door (8, 752–778):** "That this looks like a client and a server is the point of the owner's clause: the shape is a convention some peers run over a symmetric protocol." Symmetric.
+- **Peer ids (7.3, 646–652):** "There is no assigner. Neither form authenticates a peer." Honest.
+- **Admission (12, 883; 15, 1003):** gating is deferred to "interpreter rule on that peer's own request medium," explicitly not a protocol frame.
+
+The one structural dependence the document does **not** call out is that session identity is built on peer-id uniqueness (see finding 4). That is a soundness leak, not an invariant violation, but it is the nearest thing to one.
+
+## 2. Contract consistency — PASS with two amendments correctly flagged
+
+- **OD-3 (a)/(2), OD-1, OD-2 (12, 868–873):** correctly identified as preconditions, not yet accepted, and moved to section 15. Accurate reading of the contract's Open Decisions (dao.stream.md 896–944, 851–894, 811–850).
+- **The two §4.1 amendments (364–387):** both are genuine extensions the contract does not yet state, and both are honestly flagged as proposed (15, 989–993). The `blocked` amendment ("may return blocked while fetching even if the source already holds a value or has evicted") is necessary and consistent in spirit with `blocked` = "not observable through this handle now." The anchors amendment (`:newest` may precede the tail but never follow; `:oldest` may precede the retained head → subsequent `next` reports `gap`) is the crux and is correctly not asserted as accepted.
+- **"Served stream is the original"** (35–38, 189–199): the mechanism that preserves this — outcome maps cross *verbatim*, the serve layer "never constructs, parses or rewrites a cursor," and `:serve/oldest`/`:serve/newest` are minted by the *source* (3.6) — is sound. The proxy hands out source-minted cursors only. No copy-with-new-positions is introduced anywhere, including through the relay (6.4, outer-gap vs final-gap).
+- **No-waiting rule:** held reads (3.7) are stepped ("the session holds state and the step returns"), not blocking, and are off-by-default. Consistent with OD-5.
+- **Exhaustiveness:** the proxy's per-op outcome tables (4, 312–331) reproduce the contract's full outcome sets, so "No outcome is excluded" (331) is accurate. `gap` is relay-only, never synthesized (359–360), which is the correct exclusion-by-nature.
+
+## 3. Protocol soundness — three findings
+
+**P1 | 3.4 (218–231), 6.3 (510–513) | evidence: "Window size one follows from the one-outstanding rule" / "it also makes UDP reordering harmless for writes" | fix: dedup against a bounded set of recent append ids, or a monotonic per-session append sequence number with a high-water mark.**
+
+The append dedup keeps "the id and outcome of the last `append!` it performed" (224). The one-outstanding rule bounds what the proxy *issues*, but retransmission (`:retry-after-ms` / `:max-attempts`, 6.3) plus network reordering means more than one copy of an append request can be *in flight* across the outstanding boundary. Sequence: proxy sends append A (id 1), retransmits A; serving side performs A, responds; proxy sends B (id 2); serving side performs B (record now holds id 2); a delayed copy of A (id 1) arrives → id 1 ≠ last id 2 → **A is re-appended**. The "window size one" record only dedups the *most recent* id, not any earlier id. This directly contradicts completion criterion 4 ("no duplicate append at the source," 948) and falsifies the stated claim that reordering is "harmless for writes." The fix is trivial (monotonic id + reject id ≤ last-performed), but as written an implementer will build the wrong thing.
+
+**P1 | 3.2 (127–131), 5 (399) | evidence: `:serve/open` carries `:serve/session s` and `:dao.stream/identity id` but no request id or nonce; `:sessions {[peer n] -> …}` with no open-idempotency rule | fix: specify that a duplicate `:serve/open` for an existing `[peer n]` returns the existing `:serve/opened` without re-minting the attachment or resetting `:last-append`.**
+
+`open` is the one session-control frame that creates state on the serving side (mints the attachment, seeds `:last-append`). Over UDP it can be retransmitted (it is issued by `proxy-step`, 4). Nothing says what a second `open` for the same `[peer n]` does. For a source that mints attachments per session, a retransmit re-mints a leaked attachment; for all sources it resets the append dedup record, defeating finding 1's fix. Reads and `close!` are idempotent by the contract; `open` is the protocol's own non-idempotent operation and needs its own rule.
+
+**P2 | 3.3 (172–175), 4 (319) | evidence: `:dao.stream/next` is "a vector of outcome maps … stopping at the first non-`ok`," but gap/end/blocked fidelity (test 2, "Gap fidelity") depends on that terminal non-`ok` reaching the proxy | fix: state that the response vector includes the terminating non-`ok` outcome (blocked/end/gap) as its final element.**
+
+"Stopping at the first non-ok" is ambiguous about whether the non-ok is *included* in the returned vector. If it is dropped, the proxy cannot distinguish `blocked` from `end` from `gap` at the batch tail, yet section 4 promises it relays "every source outcome" including `gap`, and test 2 requires gap fidelity. This is the single most load-bearing under-specified sentence in the document.
+
+**P3 | 3.3 (170) | evidence: `:dao.stream/cursor [anchor]` is listed as a wire op, but 3.6 says the proxy answers `cursor` locally from piggybacked anchors | fix: either remove the cursor wire op or state when it is used.** The mechanical derivation lists five ops for completeness, but the anchor-piggyback design (3.6) makes the cursor wire op dead protocol as far as the proxy is concerned.
+
+## 4. NAT and P2P feasibility — PASS, honestly stated
+
+The meeting convention + same-socket hole punching + relayed-inbox fallback is sufficient for the cases claimed, and the failure modes are stated rather than hidden: symmetric NAT "defeats punching and takes that path … reported as a failed candidate" (724–728); browsers have no UDP/listener and "cannot punch until a DataChannel channel exists" (823–825, 531–535); the 1,200-byte budget and "fragmentation is required before content is claimed over UDP" (521–529) are both correct and honest. The restricted-cone same-socket rule (728–729) is the standard STUN requirement, correctly stated. One implicit precondition — that the rendezvous M must itself be directly reachable for the inbox fallback — is only obliquely stated ("an inbox on M is reached by M's channel candidates," 601–602); worth one sentence, but not a defect.
+
+## 5. Security and resource honesty — PASS
+
+Address exposure (687–693), bounded meeting work (695–704), peer-id squatting (flagged at 7.3 and 15), unauthenticated ids ("opaque, unauthenticated correlation value," 651–652), and deferred encryption ("UDP serving is for trusted networks, as the DHT already says," 887–888) are all stated without overclaim. Nothing is claimed that the design does not deliver. The document is notably more honest than its predecessors here.
+
+## 6. Service convention and `dao.jing.remote` — CLAIM VERIFIED
+
+Section 8's claim is accurate against the source. `connect-content!` (remote.cljc 730) and `serve-content!` (932) are the WebSocket transport half (descriptor, endpoint/slot composition, `rpc.ws`/`serving` dependencies); `default-handlers` (71) and `dao.jing.remote.step` (step.cljc) are jing-level and survive; `call!` (553) is JVM host policy. The "three copies of the ingress check" claim (15, 1018) is confirmed: `accept-bytes!` (remote.cljc 35), `accepted-bytes` (step.cljc 253), and `content-client`'s inline `get-bytes-fn` check (remote.cljc 140–163). The per-peer pair convention is sufficient for request/response — the document's two named problems (rpc-id collision, shared response visibility) are both solved by a per-peer pair. Minor completeness: `content-client` (remote.cljc 109) and `dao.jing.remote.async` should be named explicitly as surviving jing-level pieces rather than subsumed under "the jing-level client."
+
+## 7. Completion criteria — sufficient but two gaps
+
+The 12 tests are falsifiable and cover the load-bearing claims (gap fidelity, loss/reorder/dup, relay without acceptance, punch/fallback, symmetry, portability). Two omissions:
+- **The ended-vs-detached distinction** (section 4's "two subtleties," 350–358) has no test, despite being a distinct protocol behavior (`:serve/close` with `:reason :ended` vs `:detached`).
+- **Oversize/`transport-error` handling** (3.5) and the frame budget are untested.
+
+Section 15 is complete — I found no decision the document makes silently that belongs there. Section 16's edit list is accurate against the cited files (spot-checked `dao.stream.ws.md` 16, `dao.stream.md` Close 596–597, UCF 7.4.3/7.5.3 521–538 and 727–738, `dao.lease.md` 288, `yin.vm.linker.md` 749/1880).
+
+## 8. Internal consistency and overclaim
+
+- **P3 | 17 (1071–1078) | "the serve protocol needs no reliability layer because reads are idempotent by cursor."** Overbroad: reads need none, but writes need the one-outstanding + dedup mechanism, which *is* a (minimal) reliability mechanism. The sentence should say "no *read* reliability layer."
+- **P3 | 3.3 (168) vs 4 (296) | `descriptor`.** The wire op returns the *source's* host-local descriptor; the proxy's own `descriptor` returns the *serve* descriptor. Both carry the same identity, so this is consistent with the contract ("different descriptors may reach the same logical stream"), but the two meanings of "descriptor" in adjacent sections should be disambiguated — a remote reader's meaningful reachability is the serve descriptor, never the source's native (e.g., ring-buffer) descriptor.
+
+---
+
+## Verdict
+
+The architecture is correct and the invariant is genuinely upheld; the document's honesty is a model for its neighbors. But three protocol-soundness findings (P1 append dedup, P1 `:serve/open` idempotency, P2 batched-`next` terminal-outcome conveyance) would each cause a mis-implementation if committed as-is, and one of them is directly contradicted by the document's own completion criterion 4. These are small, precisely-locatable spec fixes, not redesigns.
+
+Verdict: REQUEST CHANGES
+Sign-off: DENIED

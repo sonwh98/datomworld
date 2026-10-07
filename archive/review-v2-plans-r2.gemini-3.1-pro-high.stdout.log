@@ -1,0 +1,38 @@
+Here is the adversarial review of the two plans against the codebase and contract.
+
+### Findings
+
+**1. Critical Omission | `docs/design/yin.vm.implementation-plan.md:62` | "Six v1 idioms run through this code... Finding them all is most of the work."**
+The plan misses three major v1 idioms that pervade the VM and runtime code, all of which were retired by the v2 contract:
+- **`ds/drain-one!`** is used for destructive reads in `src/cljc/dao/runtime.cljc:94,197` and `src/cljc/yin/vm/engine.cljc:215,223`.
+- **`ds/closed?`** is used as a predicate in `src/cljc/dao/runtime.cljc:115`.
+- **The waiter extension (`ds/IDaoStreamWaitable`, `register-reader-waiter!`)** is heavily used for task parking in `src/cljc/dao/runtime.cljc:156,181`, `src/cljc/yin/vm/engine.cljc:245,442,484`, and `src/cljc/yin/vm/ast_walker.cljc:139`.
+**Correction:** Add these three to the list. Specify that `drain-one!` must be rewritten as non-destructive `next` + cursor advancement; `closed?` must be inferred entirely from operational outcomes (`:dao.stream/closed` / `:dao.stream/end`); and waiter registration must be ripped out entirely since DaoStream v2 delegates readiness to the runtime.
+
+**2. Architecture Overlap | `docs/design/yin.repl.implementation-plan.md:360` | "Fix the request/response envelope... agreed with dao.stream.apply's"**
+The plans design two parallel RPC layers. `dao.stream.apply` models "Function application over streams" (for the VM's FFI bridge), and `dao.stream.rpc` handles remote REPL evaluation. They are two manifestations of the exact same problem: request/response over a stream pair.
+**Correction:** They should be one thing, and it belongs to `dao.stream.apply`. Do not build a parallel `dao.stream.rpc.client` layer; instead, extract the RPC/Apply envelope and client/server driver into a unified prerequisite phase that both the VM (for FFI) and the REPL (for remoting) simply consume. 
+
+**3. Verified Correct | `docs/design/yin.vm.implementation-plan.md:35` | "Every transitive require was traced... Nothing dangles."**
+The VM plan's closure claim holds perfectly. Tracing the requires of `yin.vm.ast_walker` through `engine`, `ffi`, `telemetry`, `runtime-adapter`, and `vm` confirms that the only `dao.*` and `yin.*` dependencies are `dao.stream.*` (which is being ported) and the 10 namespaces listed in the table. The scope correctly excludes the `dao.space` subsystem.
+
+**4. Verified Correct | `docs/design/yin.vm.implementation-plan.md:91` | "Stream-ness is a surface question... This is legitimate"**
+The `satisfies? ds/IDaoStreamReader` judgment is correct. `dao.stream.md:364` states that a handle implements the subset of the public surface its transport declares. The forbidden "reaching" applies to *transport-owned operations* (like a custom `lag` function), not to the DaoStream public surface itself. Checking for the reader protocol is exactly how a host checks if a handle has the reader surface.
+
+**5. Verified Correct | `docs/design/yin.vm.implementation-plan.md:17` | "One evaluator: ast-walker."**
+The scope decision is sound. `semantic.cljc:640` directly requires `dao.space.query` and `dao.space.transact`, which would entangle the port with an entirely separate subsystem. The resulting `ast-walker` VM is fully useful for a REPL user: the REPL parses user input and compiles it (via `yang`) into a Yin AST, which `ast-walker` natively evaluates via `(vm/eval vm ast)`.
+
+---
+
+### What would fail first
+Someone starting VM Phase V1 tomorrow would fail immediately on `dao.runtime`. The plan instructs them to port it as a "leaf" with no v2-specific behavior, but `dao.runtime.cljc` contains `ds/drain-one!`, `ds/closed?`, and `ds/IDaoStreamWaitable`. None of these exist in `dao.stream`, and because the plan missed them, the implementer will have no blueprint for how to rewrite the VM's fundamental task-parking logic.
+
+### What an implementer cannot determine from these documents
+How to restructure `dao.runtime` and `yin.vm.engine` to function without `IDaoStreamWaitable`. The REPL plan correctly identifies that the REPL driver now owns its cadence, but the VM plan fails to explain how the VM's internal task execution (which previously relied on `register-reader-waiter!` to wake up) should work under the new non-blocking polling model. 
+
+### Whether the two plans should be one plan, two, or a different two
+They should be a **different two**. The RPC envelope and client/server logic (`dao.stream.apply` and `dao.stream.rpc`) solve the identical problem and should be merged into a single "RPC/Apply" design document. The VM plan (which needs FFI) and the REPL plan (which needs remote evaluation) should be stripped of their RPC mechanics and rewritten to simply consume that unified layer.
+
+### Whether either should be executed as written
+**Neither should be executed as written.** 
+The VM plan misses three critical v1 idioms, virtually guaranteeing compilation failures in Phases V1 and V4. The REPL plan successfully integrates the findings from its previous review (D3 descriptor lifecycle, REPL driver cadence, and gating on missing spec answers), but it mistakenly builds a parallel RPC layer that collides with the VM's `apply` phase. Both must be revised.

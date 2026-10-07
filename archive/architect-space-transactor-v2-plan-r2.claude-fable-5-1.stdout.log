@@ -1,0 +1,24 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+Whole revised plan written to `/Users/sto/.claude/plans/read-collab-architect-space-index-v2-pla-snappy-puddle.md`. Everything from r1 stands; here's what changed and where I had to correct your measurements.
+
+**1. Phase 5 (§8), full rigour.** Builds one rewritten `:dao.space.schema/published` body over `index/read-datoms` plus a private `PublishedSchemaRows` record; deletes `PublishedIndexStream`, the `:dao.space.index/published` defopen, and index's `ds` require. It's simpler than what it replaces — schema forces the whole row vector at open anyway (`ds/strict-vec` :1167), so nothing on that path ever needed the lazy trees or a retained store handle; the store now closes inside the opener, which also retires the comment at :1163-1166.
+
+**The ten sites are ten call sites across eight deftests**, tabulated per test with its covering survivor. Three of the eight are **moves, not deletions** — deleting them would drop coverage:
+
+- **#1 coordinate rejection (P1)** — nothing in `query_test` covers `open-published!`'s coordinate validation today.
+- **#5 open-time fetch count (P3)** — `lazy-published-node-budget-is-strictly-bounded` (`query_test`:737) bounds *total* gets after a query at ≤ 4; it never pins "exactly 1 at open, zero nodes faulted." Needs its own new test.
+- **#7 and #8 (P4, P2)** — rewritten onto `open-published!` and a v2 carrier.
+
+The rest are genuine deletions with named survivors: #2 → `read-manifest-guards-missing-and-invalid` (:823); #3 → P6 is v1 protocol vocabulary that dies with the adapter and P7 was already dropped, with EAVT order and idempotent close covered elsewhere; #4 → `publish-index-of-empty-input-is-readable` (:351), plus one addition for the opened path; #6 keeps its structural cases verbatim and moves only the opened-value case.
+
+**2. D7 restated (§1).** Your measurement is confirmed — I listed all five `ds/` occurrences in `index.cljc` (one is prose in a docstring at :444). One addition you didn't flag: **`[dao.jing.coordinate]` also goes**, since after Phase 5 index only *constructs* coordinate maps and never opens one. There's no `:require-macros [dao.stream]` in index to remove; its ns form ends at :41.
+
+**3. End condition (§9).** Both namespaces v1-free, the consumer list drops both, schema alone remains. Two corrections to your schema count: `ds/close!` is **3** call sites, not 4 — the fourth match is the prose mention at :1164 — and the total is 20 code sites across 8 APIs, falling to 15 after Phases 3+5. I also flagged something the count hides: Phase 5 *adds* the `PublishedSchemaRows` record, so it relocates index's v1 share into schema rather than net-reducing the repo's. That's the right trade — a remainder belongs with its owner, and schema's plan deletes the whole opener — but it shouldn't be presented as a saving.
+
+**4. Phase 5's bounds (§8)** are explicit: `:dao.space.schema/current`, the `SchemaWrapper` beyond D6's three edits, `ds/strict-vec` at :260, `ds/realization?` at :259/:318, and `schema_test:304`'s v1 fixture are all out of bounds. The phase's own proof is that **`schema_test` W38–W41 must pass unmodified** — if any needs editing, the opener's behaviour changed and the phase is wrong.
+
+**5. The capacity hazard (§6), own section.** Your asymmetry is confirmed at both line references. I measure **29** unbounded opens, one more than 28, and the more useful fact is that **all 29 are in `dao.space` tests** (transactor 22, index 2, schema 2, query 2, stigmergy 1) — no `src` namespace opens an unbounded ring buffer, so the hazard is fully inside the files this plan already touches. **Three of the 29 must not migrate**, and mistaking them is its own defect: `query_test:97` isn't an open at all (a literal map proving raw maps are rejected as db inputs), `schema_test:304` is schema's borrowed-input fixture, and `index_test:777` is deleted outright in Phase 5. That leaves 26.
+
+The rule: one named constant per test namespace (`local-capacity`, 65536), never an inlined literal, so review is one comparison instead of 26; a site that *wants* eviction takes an explicit small capacity and a comment naming the gap it provokes. And because an undersized capacity is only observable through a *second* read from position zero, I added `retained-history-survives-reopen-at-capacity` — overflow a deliberately small capacity, reopen, assert the retention-gap throw (T4), then repeat at the constant and assert success. Without it, T4 is pinned only by `index_test:379`'s hand-built gap stream, which is exactly the coverage shape that survives a capacity regression unnoticed.
+
+Want me to promote this to `collab/architect-space-transactor-v2-plan-r2.claude-fable-5-1.findings.md`?

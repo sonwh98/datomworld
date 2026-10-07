@@ -1,0 +1,32 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+Completed-GMT: 2026-09-19 18:47:20 GMT
+Completed-Local: 2026-09-20 01:47:20 +07
+
+## Changed sections
+
+**`src/cljc/dao/lease.cljc`** — new *The holder* section after `restart`; judge and vocabulary untouched. Namespace docstring amended: the holder no longer "joins when built", plus a holder paragraph (no ledger, no clock, renewal advances a bound only on `:dao.stream/ok`, bound bounds attention not access).
+
+- `initial-holder` — threaded plain-map state; validates `:self`, `:grantor`, `:resolver` (fn?), interval shape, unit table at assembly. Same refusal logic as `initial-judge`'s R1 resolver check: a holder with no working attribution would falsely never renew.
+- `renewal-interval` `[units duration proposed]` — H2 as amended: throws unless `interval + interval < duration` (exactly S1's relation), so equality-at-half throws; cross-unit via the shared table.
+- `observe-grant` `[holder source fact reading]` — H1: holds the grant only when it is structurally valid `:accepted`, names `:self`, and the composition's `(resolver source fact)` seam attributes it to `:grantor`. Anything else returns the holder unchanged (`:grant` nil = "no grant observed"). Keep-first basis; `reading` is the holder's own tick reading.
+- `observe-renewal` `[holder reading outcome]` — advances the basis only on `:dao.stream/ok`.
+- `due-to-renew?` `[holder reading]` — H2: fires when elapsed has *reached* the interval (equality included, vs the judge's strict `exceeds?`); false before any grant and after `stop`.
+- `at-bound?` `[holder reading]` — H3: reached (≥) the earlier of duration-since-later-of(last renewal, grant) and cap-since-grant.
+- `stop` `[holder]` — H4: returns `{:holder …stopped… :release (release lease-id)}`; throws with no grant observed. No `:lapsed` path and no reclaim exists in the section (structural).
+
+Naming note: §4.3's "`release` (H4)" is the Phase-1 fact constructor the holder authors; the new holder-side discipline function is `stop`, since `release` is taken in the namespace.
+
+## New deftests (7, in `test/dao/lease_test.cljc`)
+
+`initial-holder-rejects-misconfiguration-test` (7 asserts) · `observe-grant-attribution-gate-test` (12) — forged/non-grantor, other-holder, defective, refusal, keep-first · `renewal-interval-strictly-below-half-test` (11) — equality-at-half throws, cross-unit equality included · `due-to-renew-schedule-test` (5) — false before grant, true at the interval not the deadline · `observe-renewal-advances-only-on-ok-test` (15) — iterates all four non-ok append outcomes from `ds/outcomes-append` · `at-bound-test` (10) — cap fires with fresh renewals, earlier-bound, no-grant · `release-discipline-test` (8) — composed with the judge: grantor reclaims and records `:lapsed :release`, holder authored only `:released`. H5 is a structural note (no failing test writable), recorded like the Phase 1 purity comment. Total ≈ 68 new assertions.
+
+## Lane outcomes
+
+1. `clojure -M:test` — green: 1506 tests, 168383 assertions, 0 failures, 0 errors.
+2. CLJS — green: exit 0, 1423 tests, 38252 assertions, 0 failures, `Testing dao.lease-test` present in the Node output. Disclosed workaround: the literal `clj -M:cljs …` command fails in this delegated worktree (homebrew `clj` wrapper pins Java 17; shadow's closure-compiler is class-file 65), so per the established playbook I ran the identical shadow command on mise's Java 21 with the cached `:cljs` classpath (log: `target/cljs-p3.log`). C5 greps over the whole file: all zero.
+
+## Unresolved
+
+- One bug caught by my own tests before any lane ran: the sizing check first compared the interval against `duration+duration` (inverted formulation); fixed to compare `interval+interval` against the duration. The strict-equality cases are what caught it.
+- The plan's §5 host-matrix row and §6 "owed" wording still say the holder is unbuilt; updating `docs/design/dao.lease.implementation-plan.md` is outside my two-file scope — left to the orchestrator.
+- The CLJD lane is the orchestrator's, per the task. Nothing staged, nothing committed.

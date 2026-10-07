@@ -1,0 +1,33 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+r2 confirmed against the tree (`4b9f0e7`). I re-read the revised plan, `jing.cljc` (close! delegation), `query_test.cljc` (the spy and scripted-reader precedents), and the v2 ring-buffer/observe code. **r2 is clean.** No new defect survives; the four hunts below each resolve with at most a wording nuance, not a plan change.
+
+## Hunt 1 — "declared" as a hiding place: it is the honest resolution, not a hiding place.
+
+The re-scoping is truthful. I re-verified the mechanism the plan now leans on: the ring buffer's `:oldest` anchor resolves to `(:first s)` (ringbuffer.cljc:61-64), and `next` emits `:gap` only for a cursor whose position `< :first` (ringbuffer.cljc:88-98) — i.e. an eviction *spanned mid-read*. A fresh post-eviction snapshot reads the surviving suffix and answers `:blocked`/`:ended`. This is not just the plan's claim: `query_test.cljc:359-363` already carries the comment "a snapshot mints at `:dao.stream/oldest`, which by construction never trails a quiescent ringbuffer's first retained position," which is why that test uses a scripted reader. So `schema/current` genuinely cannot distinguish a suffix from complete history, and stating the limit instead of pretending a `:gap` check closes it is the correct contract — it matches T18 and the stream doc's *Explicitly Absent* retention predicate.
+
+Two sharpenings, neither a defect:
+
+- **"Detectable by the composition" overstates.** It is *knowable* at wiring time, not detectable at read time: nothing in the system — no status field, no assert, no type check — catches the mis-wiring. That is the same deliberately-unchecked position as T18, and the plan says so ("never by schema … declared, never interrogated").
+- **The snapshot value strips provenance.** The declaration the caller is asked to make is not representable in the value that flows to `schema/current` — a `:blocked` snapshot carries `:status` only, so a caller at a distance from the stream's creation literally cannot make the declaration knowledgeably. This is the one real softening versus T18 (whose declaration point is a single, local wiring), and the plan already places it correctly: the provenance/origin-cursor snapshot variant is deferred to query's own plan (§7 "Not owed"). Not hidden; bounded.
+
+## Hunt 2 — V15 as a pin: real, not vacuous.
+
+V15 asserts `(:status snap) = :blocked` and that both `"old"`/`"new"` survive. I traced the arithmetic: `schema-rows` is 22 rows (16 bootstrap + 6 user), plus two data rows = 24 appends into capacity 4, leaving positions 20–23 = two ident-less schema rows (`[22 :db/valueType …]`, `[22 :db/cardinality …]`) plus the two data rows. Entity 22's `:db/ident` row is evicted, so `extract-schema` ignores it (the `no-ident-property-rows-ignored` invariant) → no vocabulary → collapse doesn't fire. Correct.
+
+And it has teeth: if a future change makes eviction detectable through the snapshot (a `:gap` for a post-eviction read, or `schema/current` rejecting a `:blocked` suffix), assertion 1 or 2/3 fails and the design must change — exactly the T6-pin shape the plan claims. The one nuance: V15's teeth come partly from pinning `query/snapshot`'s status, so it is a cross-layer pin — a query-side refactor that changes the status while leaving the limit intact would also trip it. That's acceptable (it forces the re-examination the plan wants), but worth knowing it couples schema's documented limit to a query-side status choice.
+
+## Hunt 3 — the V14 counter: sound; it neither masks the close nor perturbs the read path.
+
+`jing/close!` delegates to `(:close-fn handle)` (jing.cljc:318-325). The counter wraps `[:store :close-fn]`, which changes only the `:store` key. Crucially, `schema/current` reads through `:rows` — a `(delay (index/read-datoms store …))` that closed over the **original** store at `open-published!` time — and never touches `:indexes` (it goes through `query/history` → `query/rows`, not `query/current`). So the wrap doesn't perturb the read path, and any close through `opened'` (the only store `schema/current` can reach) hits the counter, so a premature close is caught, not masked. `(when base (base))` also tolerates a store with no `:close-fn`. The "no `with-redefs`, runs on cljd" claim is verified against `query_test`: the existing close spies use `with-redefs` and skip cljd (`:701`, `:725`), while the plan's `assoc-in` is plain data.
+
+## Hunt 4 — r2 did not break what r1 had right.
+
+- **D7** unchanged: `publish!` = `(tx/publish! (:inner w) opts)`, no guard, no lock; `close!` closes only the flag — no use-after-close.
+- **D5's pins** now cite names and are the same pins I verified last round: `published-index-constructor-validates-its-arguments` (index_test:592), `open-published-rejects-unresolvable-and-malformed-coordinates` (query_test:936), `failed-open-closes-the-store-it-opened` (query_test:1076), `close-published-closes-once-and-is-idempotent` (:716).
+- **T19** now correctly names *both* `:1062` and `:1071` as changed (r1 had only `:1071`).
+- **D1 alignment** is now exact, and the new test is true on all four legs: I traced `tx/transact!`'s `[[:db/add 30 :db/foo :bar]]` on a closed transactor — the closed check short-circuits *before* `val->datoms`, so the malformed 4-vector answers `closed`, not "explicit datom t" (and on the open path the empty check outside the lock matches `tx/transact!`'s `:241-243`).
+- **Arithmetic** is self-consistent: `ds/` 16→14→0 in schema.cljc, 68→6→0 in schema_test, deftests 70→72→72; `:1123`, `:307`, `:621` all land where the plan says.
+
+## Verdict
+
+r2 is clean. All four of my r1 findings are settled the right way, and the routine reviewer's two arithmetic findings are incorporated. The three subtle points worth carrying into implementation — (1) "detectable" should read "knowable," (2) the snapshot value carries no provenance so the caller's declaration is unrepresentable, (3) V15 is a cross-layer pin — are sharpenings for the implementer's awareness, not changes to the plan.

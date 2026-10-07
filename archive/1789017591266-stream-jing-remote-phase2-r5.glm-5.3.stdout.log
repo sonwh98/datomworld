@@ -1,0 +1,27 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Round 5 complete. Report: `collab/1789017591266-stream-jing-remote-phase2-r5.glm-5.3.findings.md`; nothing staged or committed.
+
+## P1 — the timing domain is bounded on both ends
+
+New public `max-timing-ms` = **86400000 (one day)** — chosen because a timing option bounds how long *one connect or one call* may wait, and a day is the longest duration that can still be said to do that; at a day the deadline arithmetic has nine orders of magnitude of overflow headroom. The gate now enforces **int-shaped ms from 1 to `max-timing-ms` inclusive** — `int?` rejects the BigInt/BigDecimal shapes that `integer?` admits, and the bound makes both deadline additions safe over the whole domain. Same placement on both paths (`call!` before the lock/`request!`; `connect-content!` before descriptor/`attach!`).
+
+**Boundary proof**: at the bound, *accepted end-to-end on both paths* (call submits and answers; connect establishes) — the arithmetic-safety proof. Just over, `Long/MAX_VALUE`, and an oversized BigInt: rejected on both paths, allocator unmoved, the recording handler saw nothing. **Mutation check**: gate reverted to r4's shape → 8 failures, including `long overflow` thrown *after* submission and a `:too-big` request that reached the wire.
+
+One reading flagged for you: I took "at the bound … each rejected" as *pin the boundary*, and chose an inclusive domain — exclusive is a one-character change if you want it.
+
+## P2 — the close now bites
+
+The named mechanism works: the ninth-exit test `with-redefs`es **`jvm/connect!`** — a plain function var, reachable (unlike the protocol fn) — with a scripted raw socket whose `:close!` records. The real attacher, `WsHandle`, protocol dispatch and `stream/close!` all stay intact; the interrupt must reach the recorder. New `(is (= 1 @closes))`; **mutation-verified** (close line deleted → count 0 → fail). Bonus: the test needs no network at all, so it no longer pays N2's one-JDK-connection-per-run cost. The test ns's new `jvm` require uses the `:cljd`-first splice — the emitted Dart imports no `ws/jvm`.
+
+## Verification
+
+| lane | result |
+|---|---|
+| `clojure -M:test` | **1458 / 165538, 0 failures** (+12 assertions over r4) |
+| `bb test:cljs` | **1360 / 35026, 0 failures**; remote-test confirmed |
+| `bb test:cljd` | **+1314, all passed** |
+| demo | **212 files, 0 warnings** |
+| kondo | **0 / 0** |
+
+Greps at zero; `reset! (:rpc` exactly once, inside `settle!`. Plan and design docs untouched; your N11 wording "argument defects throw before the wire" is now true without qualification. HEAD moved again under me (`fa94413`, your agents-docs reorg) — none of my files affected; my r5 diff is exactly the two code files.

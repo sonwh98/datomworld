@@ -1,0 +1,35 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-13 13:28:05 GMT
+Completed-Local: 2026-09-13 20:28:05 +07
+
+**Task**: stream-observer-prereqs — kept-cursor `attach` arity + partial-session error carrying in the v2 observer, per `yin.vm.macro.md` §5/§7 Phase 0 and `dao.space.index.as-observer.md` §4.2.
+
+## Changed files
+
+- `src/cljc/dao/stream/observer.cljc`
+  - Extracted the shared attachment validation (capability call + `ok` outcome + reader surface) into private `attached-handle`; both arities build on it.
+  - `attach` gained the 3-arity `(attach attach! descriptor {:keys [cursor ingress-gaps]})` returning `{:stream handle :cursor cursor :ingress-gaps ingress-gaps}` **without** calling `stream/cursor`; the 2-arity is unchanged (mints at `anchor-oldest`, `ingress-gaps 0`). Namespace and function docstrings updated.
+  - `run-on-stream` now keeps every throw but carries the partial session in `ex-data` under `:session` (new private `carry-session`: original message/data preserved, original exception as cause, `:session` merged):
+    - `load` failure (catch around `observe/step`, whose effect is `load`): cursor **before** the failing batch, since the step commits only after the effect answers.
+    - `run` failure in the `:advance` branch: cursor **after** the loaded batch, `:consumer` = the state `load` returned (what the failing `run` was handed).
+    - `run` failure in the not-ready branch: current observer/consumer.
+    - Terminal read outcomes (wrap around `observation-terminal`): session reflecting all batches processed in the round; existing `:dao.stream/outcome`/`:cursor`/`:ingress-gaps` keys preserved.
+- `test/dao/stream/observer_test.cljc`
+  - New `attach-keeps-a-supplied-cursor-and-gap-count-test`: a handle whose `cursor` answers `transport-error` still attaches at the kept cursor (proves no mint), and observation resumes at the kept position with the seeded gap count.
+  - New `a-load-failure-carries-the-session-before-the-failing-batch-test`: A forwarded, B's load throws → carried cursor `{:pos 1}` (after A, before B); retry from `:session` yields `[[:a] [::poison] [::poison] [:c]]` — B re-read, A never repeated.
+  - New `a-run-failure-carries-the-session-after-the-loaded-batch-test`: consumer with pending work (expander shape); B's run refuses once → carried cursor `{:pos 2}` (after B) and consumer `{:pending [:b] :delivered [[:a]]}`; retry from `:session` delivers each batch exactly once (B not re-read, A not re-delivered).
+  - New `a-terminal-read-after-a-processed-batch-carries-the-session-test`: `transport-error` on the read after A processed → post-batch session carried alongside the preserved outcome.
+  - Updated `a-failing-loader-leaves-the-old-cursor-for-a-retry-test`: the exact-ex-data assertion now `(dissoc data :session)` plus an assertion that the carried cursor is pre-batch; its retry semantics are unchanged.
+
+## Verification (exact outcomes)
+
+- `clj -M:test -n dao.stream.observer-test -n yin.repl-core-test` → **Ran 38 tests, 139 assertions: 0 failures, 0 errors.**
+- `clj -M:kondo --lint src/cljc/dao/stream/observer.cljc test/dao/stream/observer_test.cljc` → **errors: 0, warnings: 0** (covers clj and cljs passes).
+- Extra sanity (not required): `clj -M:test -n yin.vm.ast-walker-test` → 25 tests, 73 assertions, 0 failures — the ast-walker composes `run-on-stream` and is unaffected.
+- `git diff` inspected: only the two files changed (240 insertions, 44 deletions); nothing committed.
+
+## Concerns / notes
+
+- **Exception identity**: the rethrow is a new `ex-info` with the original as cause (message and data preserved). A caller matching a specific exception *type* around `run-on-stream` would now see `ExceptionInfo`; no such caller exists — `yin.repl.core` and the ast-walker call it without type-specific catches, and the REPL suite confirms unchanged behavior.
+- **Run-failure consumer semantics**: the carried `:consumer` is the value `load` returned — the most the generic coordination can name, since a throwing `run` returns nothing. A `run` that can publish a richer mid-failure successor (the expander's flush, per §5) embeds it in its own ex-data; `:session` and that data compose.
+- Not run: the shadow-cljs `:node-test` and cljd builds for these files (the task's verification specified JVM tests + kondo only). The stale generated `test/cljd-out/...observer-test_test.dart` from a prior build was left untouched.

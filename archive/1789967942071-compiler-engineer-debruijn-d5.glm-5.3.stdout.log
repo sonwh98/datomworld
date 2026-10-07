@@ -1,0 +1,37 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-21 05:29:42 GMT
+Completed-Local: 2026-09-21 12:29:42 +07 (Indochina Time)
+
+D5 is implemented per the architect's pre-clearance, in exactly the cleared box: **two new files** (`src/cljc/yin/vm/pipeline.cljc`, `test/yin/vm/pipeline_test.cljc`); `debruijn.cljc` needed no envelope-constructor addition (it lives in pipeline.cljc), and nothing else was touched. Nothing staged, committed, merged, or pushed.
+
+## `persist-compiled!` (pipeline.cljc)
+
+- Takes `{:ast :named-writer :projected-store :provenance}` — plus `:datoms` as the alternative to `:ast` (see note below). Emits via `vm/ast->datoms-with-root`; the named writer receives the **complete** batch (root marker last) and its `:dao.stream/outcome` + whole receipt decide the named side.
+- **Named first**: the projected envelope `{:yin.debruijn/fingerprint fp :yin.debruijn/datoms (projected->datoms …)}` is materialized **only after** named persistence answers ok. Sides report independently: `:projected` is `{:outcome :ok, :fingerprint, :address}` / `{:outcome :diagnostic, :diagnostic}` (projection diagnostics ride `debruijn/exception-diagnostic`; store failures ride dao.jing's own ex-data) / `{:outcome :not-attempted}` after a named failure; `:named` is `:ok` (receipt under `:receipt`), the writer's non-ok keyword, or `:rejected`. A writer that throws propagates (caller-argument defect, the transactor's rule). `:provenance` is echoed opaque, never interpreted, never in either artifact.
+- **Dedupe** is `dao.jing/materialize!` alone — write-idempotent `:inserted`/`:present`, read-back verified, never overwrites, **no pre-write lookup** — and the result returns **both** identities: the physical segment address of the envelope and the semantic Merkle fingerprint inside it. Named artifacts are never deduped by fingerprint.
+- **Ordering**: only one complete root-framed batch is ever projected; framing/index state is per batch. A partial or rootless batch **rejects the whole call before either side persists** (`:named :rejected` / `:projected :not-attempted`, same `:rule`).
+
+**One flagged deviation**: the cleared input shape names only `:ast`, but `ast->datoms-with-root` always emits a complete batch — the clearance's §5 "reject a partial graph or missing root" is observable only on a pre-emitted batch, so `:datoms` is accepted as the alternative input with the complete-batch rule enforced there. Flagged for the orchestrator.
+
+## Tests (pipeline_test.cljc — jing-test's in-memory store fixture, recording/answering writers)
+
+Named/projected separation (complete batch to the writer, canonical envelope under its segment address, `:yin/*` vs `:yin.debruijn/*` never mixed, receipt + provenance riding); **projection-failure isolation** (defective literal: named `:ok`, projected `:diagnostic :unsupported-value`, store empty); **projected-write failure reported** (invalid backend answer → `:diagnostic`, dao.jing's ex-data verbatim); **named-failure skip** (`:dao.stream/full` → `:not-attempted`, store empty); **idempotent dedupe** (alpha-renamed programs: one fingerprint, one address, store still holds exactly one entry — the `:present` path — while the named writer keeps **both** distinct batches); different programs keep different fingerprints and addresses; **partial/rootless rejection** before any persistence; **adjacent batches reusing −16 tempids** projecting independently per batch.
+
+## Verification (exact commands and counts)
+
+| Check | Command | Result |
+|---|---|---|
+| Focused JVM (pipeline) | `clojure -M:test -n yin.vm.pipeline-test` | **8 tests, 39 assertions, 0 failures, 0 errors** |
+| Focused JVM (debruijn) | `clojure -M:test -n yin.vm.debruijn-test` | **63 tests, 249 assertions, 0 failures, 0 errors** |
+| kondo | `clojure -M:kondo --lint` all four touched files | **errors: 0, warnings: 0** |
+| cljstyle | `cljstyle fix` + `check` both new files | **clean** (reindent only; focused rerun stayed 8/39/0/0) |
+| CLJS lane (insurance) | shadow `compile test` (Node) | **1548 tests, 38936 assertions, 0 failures, 0 errors** |
+| CLJD lane (insurance) | `rm -rf test/cljd-out` + `clojure -M:cljd test` | **`01:57 +1511: All tests passed!`** — all 8 pipeline tests green on Dart (+376–+383) |
+
+**Completion (§7-D5) — met**: the named path wires to projected persistence with separate segments, fingerprint-only dedupe through DaoJing write-idempotence, and named consumers and runtime layers untouched (git shows only the two new files).
+
+## Unresolved concerns / incomplete work
+
+- The `:datoms` input deviation (above) is the one item for the architect's attention.
+- `materialize!` does not expose its `:inserted`/`:present` disposition to callers, so the pipeline reports address+fingerprint and the dedupe test observes `:present` through the store fixture's contents — the disposition itself is dao.jing's interior, per the clearance's "no pre-write lookup" rule.
+- No REPL or compiler caller was wired (the clearance: no current caller owns both sides, so none is forced).

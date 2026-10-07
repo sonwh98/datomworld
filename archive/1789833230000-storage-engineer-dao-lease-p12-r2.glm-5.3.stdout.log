@@ -1,0 +1,40 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-19 16:18:50 GMT
+Completed-Local: 2026-09-19 23:18:50 +07
+
+Scope held to `src/cljc/dao/lease.cljc` and `test/dao/lease_test.cljc`; nothing staged or committed; no other file touched. The three prescribed P1 tests that could run against the old code were written first and confirmed red (8 failing assertions, all in the new tests) before the fixes.
+
+## Per-finding disposition
+
+| Finding | Disposition |
+|---|---|
+| **P1-1** forged release poisons genuine | **Fixed.** The `:released` else-branch returns the judge unchanged — no `mark-seen`, no registration, no `:seen` growth. Test: `r2-forged-release-cannot-poison-a-genuine-one-test` (forged then genuine → `:release` lapse; `:seen` carries no `:released` from the forgery). |
+| **P1-2** truncated drain manufactures silence | **Fixed.** `drain-fact-cursor` records `:truncated?` when the budget exhausts (ok-yield or gap-resume) and clears it on `blocked`/`end`. `silence-suppressed` bars both `:silence` clauses for leases on truncated media and — only while some medium is truncated — leases on no medium yet; `:release`/`:cap`/`:policy`/pending never suppressed. Tests: `r2-truncated-drain-cannot-manufacture-silence-test` (the review's filler-filler-renewal scenario, a registered-lease variant, and the other-causes-still-fire variant). |
+| **P1-3** non-holder registration enables keep-alive | **Fixed.** `apply-valid-fact` returns `[judge counted-lease-id]`; only an authoritative fact (eligible renewal/release from the holder, or a self-authored grant) registers the lease on its medium. Test: `r2-keep-alive-attack-test` (attacker medium gap-flood marks nothing; the lease lapses `:silence` on time). |
+| **P1-4** overflow wedge | **Fixed, all three parts.** Stale-reading moved out of `admissible?` into `apply-tick-value` (ticks on fact cursors are noise); `magnitude-bound` (10⁶) enforced in `duration?`/`tolerance?` **and** in `initial-judge`'s table validation, so every product ≤ 10¹² — exact on JVM, below cljs 2⁵³, far from Dart wrap; both drains wrap their per-cursor call in `catch` → `:dao.stream/transport-error` abort. Tests: `r2-hostile-reading-cannot-wedge-the-drain-test` (over-bound reading dropped, no abort; max-legal `{s 1000000}` ordered), `r2-thrown-read-folds-into-abort-test` (throwing transport → abort, no reclaim). |
+| **P1-5** resolver takes source | **Fixed.** `wire-tick`/`wire-facts` take a `source`; the judge calls `(resolver source fact)` via `resolve-author`. Tests re-based on per-author media (`attribution-comes-from-the-source-test`: identical renewal text, two media, only the holder's counts). |
+| **P2-1** pending-before-reclaim, throwing reclaim | **Fixed.** `pending` assoc'd first; reclaim wrapped in try/catch → `false`. Test: `throwing-reclaim-does-not-lose-the-pass-test` (the other lease reclaims and records in the same pass). |
+| **P2-2** rejected grants re-waited | **Fixed.** `deliver-authored` is three-way (`:delivered`/`:rejected` counted once and discarded/`:retry` stays queued). Test: `r2-rejected-grants-are-discarded-not-rewaited-test` (foreign-unit grant: dropped once, never re-counted). |
+| **P2-3** deliverable statuses | **Fixed.** Only `:accepted`/`:rejected` deliverable; `author-grant` already threw at assembly on non-`:accepted`. Test: `r2-only-accepted-and-rejected-are-deliverable-test` (a hook's `:lapsed` is refused — no record without an act). |
+| **P2-4** `:answered` keyed by pid alone | **Fixed.** Keyed `[author pid]`. Because answers are always the grantor's, this structurally achieves the review's "smaller fix" too: a holder's *proposal* is never checked against the grantor's answer key, so holder B reusing A's pid poisons nothing (pinned in `admissibility-corpus-test`). |
+| **P2-5** gap before first renewal | **Fixed — conservative unknown-marking chosen and documented** in `mark-medium-unknown`'s docstring (the grant-declared-medium alternative is a Phase 4 constructor concern). Test: `gap-before-first-renewal-test`. |
+| **P2-6** restart | **Fixed, all three.** Returns `{:judge :unreclaimed :discarded-queue}`; failed/throwing reclaims reported, not skipped; stale queue cleared with its disposition recorded; `:seen`/`:answered` survive. Tests: `restart-reports-unreclaimed-and-clears-state-test` (four blocks, including the old self-`accepted` re-reading as inadmissible). |
+| **P2-7** growth | **As directed.** Attacker-driven growth eliminated by P1-1/P1-3; legitimate growth documented in `initial-judge`'s docstring as owed to the ledger-persistence design. No pruning built. |
+| **P2-8** abort starvation | **Fixed.** `drain-facts` compares `:abort` before/after each cursor's drain. Test: `tick-abort-does-not-starve-fact-cursors-test`. |
+| **P3 structural gate** | **Fixed.** Universal shape check for `:duration`/`:max`/`:reading` on any fact carrying them (corpus entries for `:rejected`/release/renewal); `proposal` throws on non-map ask; missing-cause no longer double-reports. |
+| **P3 misconfig** | **Fixed.** `initial-judge` throws on non-positive `:drain-budget`, validates unit-table shape/bound/commensurability/emptiness; an `:unknown` entry without `:resumed` is never due for silence (no mid-pass throw). Tests in `initial-judge-rejects-misconfiguration-test`. |
+| **P3 purity test** | **Removed, with the reason** stated as a comment at the former site: the final design gives `defective?` no seam a clock or global could be wired into, so the prescribed test could not fail; purity is pinned structurally as C5 is. |
+| **P3 surviving-renewal test** | **Restated** as `gap-does-not-advance-last-observation-test`: the direct proof (gap sets `:resumed`, leaves `last-observation` untouched) plus the Limits re-observation clause as a separate, documented testing block. |
+| **P3 unknown-silence tolerance** | **No code change**, per disposition — matches the contract's literal text; contract-owner question. |
+
+One judgment call to flag: my first cut of the P1-2 suppression keyed unregistered leases to *any* pass, which permanently silenced-suppressed queue-granted leases and broke the core never-renewed leak invariant (caught by the suite). The final rule suppresses unregistered leases only while some medium is truncated; a gapped medium needs no suppression because `mark-medium-unknown`'s conservative marking already covers it. J16's amendment text lives in the docstrings; the plan itself is untouched per the r2 scope.
+
+## Exact outcomes
+
+- Focused JVM: **40 tests, 331 assertions, 0 failures, 0 errors** (was 28/267 at r1; +12 deftests).
+- Full JVM (`clojure -M:test`): **1490 tests, 168279 assertions, 0 failures, 0 errors**.
+- CLJS lane (shadow `slice-peer` + `test`, Node): **1407 tests, 38148 assertions, 0 failures, 0 errors**; `Testing dao.lease-test` present; build 287 files, 0 warnings.
+- kondo: 0 errors / 0 warnings; cljstyle `check` passes; C5 greps zero; no namespace requires `dao.lease`; `dao.stream*` and all tracked files byte-for-byte unchanged.
+- CLJD lane: not run by me this round, per the r2 instruction that the orchestrator runs it.
+
+No finding is unresolved. Nothing committed — tree holds the two scoped files plus the orchestrator's collab artifacts and plan revision.

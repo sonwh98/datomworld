@@ -1,0 +1,35 @@
+Completed-GMT: 2026-09-28 14:41:58 GMT
+Completed-Local: 2026-09-28 21:41:58 +07
+Coding-Agent: claude
+Session-ID: 7fcb4501-80b2-43a3-8511-32424dd6f0d4
+
+The indexer no longer holds onto earlier rounds' publications, and it still publishes through `transactor/publish!` with no `dao.space` edits. The focused JVM tests and `bb test:cljs` pass; cljstyle was blocked by the permission gate, so formatting is still unchecked.
+
+## How it works
+- **Each round gets its own transactor.** The indexer now keeps only its local transaction log (`:local`) between rounds. When a round has code to commit, it creates a transactor over that log with one fresh memory-log intake, plus a dao.jing observer over the intake.
+- **Round sequence:** commit with `transact!`, publish with `transactor/publish!`, drain the intake into the store, read the manifest back. At the end of the round the transactor, intake and observer are all dropped.
+- **Transaction time carries over.** `transactor/create!` re-reads the log to pick the next `t`, so `t` keeps counting up across rounds. There is only ever one writer on the log at a time.
+- **Earlier guarantees still hold.** A publication of any size completes, because each round's intake keeps everything until it is drained. The status and warning behaviour from r2 is unchanged.
+- **Documented cost:** the namespace docstring now states that per-round publish time grows with history, as the accepted cost of the every-round cadence. Memory is bounded to one publication, held only during its round.
+
+## Tests
+- **New:** `no-earlier-publication-is-retained-between-rounds` runs four REPL rounds. After each one it checks:
+  - the indexer holds exactly the expected keys (no transactor, intake or observer left over);
+  - the local log contains only transaction records, one per round;
+  - the round was published.
+
+  It also checks that `t` runs 0, 1, 2, 3 across the four rounds.
+- **Updated:** the large-publication test now checks a recorded payload count, `:published-payloads`, for the more-than-4096 case, since the intake is gone after the round. It still reads the manifest and datoms back from the store. The failure test is unchanged, and the gap and projection tests changed only to read the transaction log from its new place.
+
+## Verification
+- **kondo:** 0 errors, 0 warnings on the three files. The first lint caught brackets left over from an edit; I fixed them and re-linted clean.
+- **cljstyle:** not run; the permission gate refused it.
+- **Focused JVM** (`yin.repl.index-test`, `dao.space.transactor-test`, `yang.clojure.stream-eval-test`, `yin.repl-test`): 74 tests, 695 assertions, 0 failures, 0 errors. `yin.repl.index-test` alone: 10 tests, 98 assertions, 0 failures.
+- **`bb test:cljs`:** 2204 tests, 50062 assertions, 0 failures, including `yin.repl.index-test`.
+- **Not run:** `bb test:cljd` (as instructed), and the other `yin.repl.*` namespaces, since `repl.cljc` didn't change this round.
+
+## Still open
+- Publish time still grows with history; an incremental publish in `dao.space.index` would fix that.
+- The ClojureDart compile and cljstyle formatting are both still unverified.
+
+The full report is at `/Users/sto/workspace/datomworld/collab/1790597280000-vm-engineer-repl-code-index.claude-opus-5-5.report-r3.md`.

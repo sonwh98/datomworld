@@ -1,0 +1,45 @@
+Completed-GMT: 2026-09-25 16:59:32 GMT
+Completed-Local: 2026-09-25 23:59:32 +07
+
+All three gate findings are fixed and all three test lanes pass; nothing is staged or committed. The full report is at `/Users/sto/workspace/datomworld/collab/1790347900000-vm-engineer-yin-def-rule-r-commit-one-fix1.claude-opus-5-5.report.md`.
+
+| Lane | Last round | Now |
+|---|---|---|
+| JVM | 2,045 / 180,913 | 2,049 tests / 180,956 assertions, 0 failures |
+| Node | 1,960 / 47,956 | 1,963 / 47,972, 0 failures |
+| Dart | 1,922 | 1,925 passed |
+
+kondo shows 0 errors, and its 8 warnings all exist at HEAD. cljstyle is clean. Every added line in the uncommitted diff is ASCII and within 80 columns, except Markdown grid-table rows, which have to span the full table.
+
+**P1, adapters stamping on the caller's behalf.**
+- `linearize/ast-loader` and `rows-loader` now take the incoming code's own contract as a third argument. They verify it against `vm/ast-contract` before lowering. They stamp only their own lowered output with `vm/semantic-contract`.
+- Automatic stamping now happens only through one explicitly named path, `vm/fresh-code-loader`. It is for a medium whose only producer is trusted fresh code. The test utilities and the suites that lower their own ASTs use it. The REPL's semantic loader passes `vm/ast-contract` explicitly, because the expander is its only producer.
+- **Same defect found elsewhere:** `ucf/canonicalize` stamped "v3" on any batch it was given. It now requires the batch's stamp and verifies it first.
+- New tests go through both adapters and `canonicalize`: an unstamped input fails with `:contract-missing`, a "v2" input fails with `:contract-mismatch`, and a "v3" input runs.
+
+**P2, the store-write audit.**
+- The audit now reads every source file as parsed forms, including every host's reader-conditional branch, instead of matching one line at a time.
+- It catches the listed write functions, `:store` key paths, calls whose target is a store, `store-put` calls, and map literals with a `:store` key. Each site is keyed by file, top-level form and call name, so the allowlist doesn't shift when line numbers change.
+- It fails on an unlisted site, on a listed site that no longer exists, and on a file it cannot read.
+- 13 negative fixtures prove it catches the common forms, including codex's `(assoc-in state [:store 'yin/def] v)` and a write hidden inside `#?(:clj ...)`.
+- Parsing found sites the old regex couldn't see. I added each to the allowlist with its reason.
+
+**P2, definition keys.**
+- A `:define` key is now a store-slice requirement, exactly like a `:store-put` key, on both the tree side and the segment side of the extraction queries. The test failed before the change.
+- The `code-as-tuples` table row now matches the UCF text.
+- This does not conflict with the earlier completion change: a definition still contributes no effects, the same as `:store-put`.
+- **One consequence to know about:** dependency completion now pulls every definition key of any reachable segment. The maker fixture defined `a` and `b` in the same segment as `mk`, so I split it into two loads. All its original per-key assertions still hold.
+- **Query engine:** a plain symbol written in a query pattern, such as `yin/def`, did not act as a constant filter. It seems to be treated as a variable, so I used a predicate clause instead. I did not change the engine.
+
+The stale "r3" in the UCF header now says r4.
+
+**Places that still supply a contract without checking one.** None of these relabels external input:
+- `vm/eval`
+- the expander's macro-body runner, whose input batches carry no stamp; the design names it trusted, and it is the place to change if expander input ever needs a stamp
+- the REPL program loaders
+- the handoff demo's sender stamp
+- `completion`'s default contract (analysis only, never loading)
+- the ledger's lowering profile
+- the browser and Dart demos
+
+Status: COMPLETE

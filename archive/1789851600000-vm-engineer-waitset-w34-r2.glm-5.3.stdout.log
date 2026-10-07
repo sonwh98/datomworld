@@ -1,0 +1,42 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-20 09:50:11 GMT
+Completed-Local: 2026-09-20 16:50:11 +07
+
+# r2 done — both P2 liveness defects fixed, all five P3s closed, all three lanes green
+
+## Per-finding disposition (all ACCEPT, as instructed)
+
+**P2 — throwing tick kills the owner (`driver.cljs`/`.cljd` `arm!`).** Fixed in the shell ticks (`yin/repl.cljc` `run-node!` and `run-dart!`) by the reviewer's sanctioned alternative: each tick arms the fallback (`tick-millis`) *first* and lets the body's own `arm!` replace it (cancel-and-rearm). A body that throws anywhere now leaves the fallback armed, so the owner retries at the base interval exactly as the old `setInterval`/`Timer.periodic` did; `finish!` still disarms, so a finished owner parks nothing. JVM untouched (thread death there is pre-existing behavior, per the review). **Test added** (`a-tick-whose-body-fails-before-its-own-arm-still-ticks-again`, cljs+cljd): a tick embodying the shell's exact guard shape whose first body round fails before its own arm. The docstring states the equivalence honestly: the test simulates the post-throw state (fallback armed, body arm missing), because a literal timer-callback throw is an `uncaughtException` on Node and lands in the cljd test zone's uncaught-error handler on either host — it would fail the lane rather than exercise the mechanism.
+
+**P2 — `nudge!` disarms before the pending check.** `(disarm! wake)` moved inside the `when-not @(:pending? wake)` branch in **both** `driver.cljs` and `driver.cljd`; the docstring's "costs nothing" clause corrected to: a nudge issued while the flag is up — from inside a tick, *before or after that tick's own `arm!`* — touches nothing: no disarm, no schedule, so the timer the tick last armed is the next round and the owner is never left with neither. **Test added** (`a-nudge-from-inside-a-tick-leaves-the-timer-it-armed-alone`, cljs+cljd): the tick arms its next round then nudges (a self-depositing composition), started from an outer nudge — the exact sequence that stranded the old code at one tick forever; asserts ≥ 3 ticks. This test fails against the old `nudge!` and passes against the fix.
+
+**P3 — cadence `init` validates existence, not values.** Now requires a numeric `:factor` ≥ 1 (below 1 shrinks toward a zero busy-loop; 0 zeroes it in one step) and a numeric `:ceiling-ms` ≥ `:poll-ms` (the curve must never idle faster than its base). Docstring updated. `parameters-are-validated-at-init` extended with three new `testing` blocks: factor 0.5 / 0 / `"2"`, ceiling 20 < poll 25, ceiling `nil`, plus the boundary acceptance (factor 1, ceiling = poll — a flat curve is not a defect).
+
+**P3 — nil-cursor probe spin.** `(some? (:cursor session))` added to both `maintain-probes`'s `observing?` and the resolver's guard; both docstrings now name the failed-mint case (probe wakes once as a diagnostic, is not re-parked — the cadence pin ends after one round).
+
+**P3 — latency record.** Not a plan edit (orchestrator's call). **The text I want recorded in the plan's W4 shell row**: *"The served composition's first-request latency can reach the ceiling (200 ms where it was 25 ms), because only the line producers and `request-stop!` nudge — the serving inbound path has none. Lower the ceiling for a served composition or add a serving-path nudge if it matters."*
+
+**P3 — `advance-sessions` docstring.** "in wait-set order" corrected to: sessions step in `:sessions` keys order — the same order every prior form of this driver reduced in.
+
+**P3 — probe-isolation assertion.** Added a `testing` block to `a-probe-carries-no-cursor-state-and-wakes-on-the-current-position`: every entry in `:probes` waits with `:reason :next`, with the comment closing rule 3 — this wait set holds nothing but identity-advance probes, so no advancing entry exists that could move cursor state a probe aliases; the commit authority stays `session-step`.
+
+One process note, disclosed: my first edit attempt for the resolver accidentally targeted the ns require line and briefly mangled `serve.cljc`'s ns form; it was restored immediately and verified (the require block reads exactly as before; the suite ran green right after). The final diff is clean.
+
+## Tests added
+
+Two new deftests on each event host (`driver_test.cljs` + `driver_test.cljd`): the failing-body liveness test and the in-tick-nudge-after-arm test. Plus extended assertions inside existing deftests (cadence validation cases, the serve isolation block) — no existing assertion was changed or removed.
+
+## Exact counts
+
+| Lane | Result |
+|---|---|
+| Full cljd (`clojure -M:cljd test`) | **`+1439: All tests passed!`** (was 1437; +2 = the new driver tests; `waitset.driver-test` confirmed in the log) |
+| Dart driver file alone | **8/8 All tests passed** (6 prior + 2 new) |
+| Full JVM (`clojure -M:test`) | **1557 tests / 168780 assertions, 0 failures, 0 errors** (test count unchanged; +7 assertions, all inside extended deftests) |
+| Full CLJS (Node, mise-Java-21 route) | **1476 tests / 38647 assertions, 0 failures, 0 errors** (was 1474/38636; +2 tests / +11 assertions = exactly the two new liveness tests) |
+
+Nothing staged, nothing committed.
+
+## Unresolved
+
+Nothing blocking. The only judgment call worth flagging: the P2-1 tests simulate the post-throw state rather than throwing literally from a timer callback — both because a real throw is process-fatal on Node and zone-swallowed-or-worse under cljd.test, and because the liveness property the fix guarantees ("a body that fails before its own arm never leaves the owner unarmed") is exactly what the simulation exercises. The reviewer's own alternative-fix framing ("arm a fallback at the start of the tick and let the final `arm!` replace it") is the shape shipped.

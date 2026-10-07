@@ -1,0 +1,29 @@
+Completed-GMT: 2026-09-22 09:34:18 GMT
+Completed-Local: 2026-09-22 16:34:18 +07 (Indochina Time)
+
+**Answer to (1): no protocol, no multimethod, no restore key on the state map.** The reason is not "only one instance exists". That premise is false. The AST walker in `src/cljc/yin/vm/ast_walker.cljc` is a live second instance today, with its own `ast-walker-restore`, a private run-queue wrapper, an inlined scheduler round, and inline park-entry builders. With v1's three VMs, five restore functions have been written against this engine across two engine generations, and the signature never varied: `base entry val -> state`, plus a two-arity shim that exists only because the engine itself calls restore with two arguments in one place and three in another. The 3-VM case this task worried about already ran on the bare-function convention and held. Meanwhile v2 deliberately made the seam less abstract than v1, removing `restore-fn` from `handle-effect`, `check-wait-set`, and `run-loop` so entries stay pure data. A protocol would trade a positional argument for type dispatch, break the engine tests' plain-map states, and buy nothing. A function-valued key on the state map would put a closure back into VM state, which v2 removed on purpose.
+
+**What was actually missing is a statement, not a mechanism.** The VM-specific surface is one function plus instruction-site builder closures that no VM-level dispatch can reach, because they close over hot-loop locals. The real interface is the entry key contract: the engine owns a closed key set on wait, ready, and parked entries, and everything else is the VM's opaque register payload preserved verbatim. I wrote that contract down and specified the two composed forms every VM was hand-writing.
+
+**What I designed.** Three additive edits, scoped into B4's file box:
+- `engine/scheduler-round [state restore-fn]`, the semantic VM's private function moved verbatim with its restore parameterized.
+- One restore arity. The engine passes three arguments at both call sites, which deletes the per-VM shim.
+- `ffi/response-wait-entry [entry call-id]`, a register-agnostic call-out reader builder, so B4's FFI two-step does not copy the semantic VM's private version.
+
+The FFI two-step itself is the only genuinely duplicated logic at this seam, and it is not lifted now. The two live VMs place it differently, restore-side versus continuation-frame-typed, and lifting it would force a refactor of the walker that B4 does not need. B4 uses the semantic VM's placement, and the helper makes a later three-instance extraction mechanical. The semantic VM and walker are not migrated in B4 because they are its parity oracles.
+
+**B4 decisions the seam forced, now recorded in section 4.1.** B3's `:status` field is replaced by the engine's `:halted?`/`:blocked?` so `run-loop` and the predicates apply directly. `value` reads `:value` as the engine writes it, with halt writing the stack top. The payload is `{:segment :pc :frames :stack :continuation}`. Continuation tags match the named VM's so the B0 normalizer's by-type comparison holds.
+
+**Files edited, all docs, no source touched:**
+- `docs/design/yin.vm.engine.md`, new. The contract, the payload table, the FFI placement, the reasoning against a protocol, the three edits, and findings.
+- `docs/design/yin.vm.debruijn.stack.md`, new section 4.1 and the B4 phase box (file box now names the additive engine and FFI edits, and adds the two named VMs and every existing engine outcome to must-not-change).
+- `docs/design/yin.vm.debruijn.register.md`, section 5, one clause pointing R4 at the same seam. It is a pointer to a contract, not a commitment to build R4.
+
+**Findings outside scope, for the owner:**
+- The walker passes a dead `:restore-fn` option to `handle-effect` at six sites. The v2 engine ignores it. B4 must not copy it.
+- `engine/ready-for-ingress?` reads named register keys. The stack VM does not consume it, but it would need its own idle predicate under the stream observer.
+
+**Owner decisions needed:**
+- Approve the three additive engine and FFI edits inside B4's box, or keep B4's box at "existing edits: none" and have B4 hand-write the round and shim like the two VMs before it.
+- Whether to migrate the semantic VM and walker to `engine/scheduler-round` afterwards, as a separate behavior-preserving commit.
+- Whether a new `yin.vm.engine.md` was the right home. I chose it because the contract belongs to no single VM, but it can be folded into the engine's namespace docstring at implementation time if you prefer one fewer document.

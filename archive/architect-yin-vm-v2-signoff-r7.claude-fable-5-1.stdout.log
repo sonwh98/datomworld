@@ -1,0 +1,22 @@
+Verification is finished. All five items check out against source and the contract. Writing the sign-off now.
+
+Completed-GMT: 2026-09-02 18:39:42 GMT
+Completed-Local: 2026-09-03 02:39:42 Asia/Shanghai
+
+All five items landed and I found nothing new that changes the plan's implementability.
+
+**Verified against source and contract:**
+
+1. **FFI-pair rule.** The three-way source of the pair is stated at plan lines 219-222 and matches `vm.cljc:539-540`. The before-park ordering is right: `park-continuation` runs at `ast_walker.cljc:126` and the first stream touch is the append at 145. `ffi/normalize` at `ffi.cljc:26-37` fabricates `{:position 0}` with no handle in scope, so moving the mint to `attach` or after the pair exists is the only workable placement.
+2. **All-or-nothing construction.** Stated at lines 228-233. The `create!` outcome set it names matches `dao.stream.md:285-292`, and the `cursor` additions match 464-466.
+3. **`:stream/make` totality.** Table row at 258 matches the contract. The nil-capacity reconciliation is correct: the module's zero-arity `make` at `ringbuffer.cljc:427-429` yields nil, and the AST path defaults to 1024 at `ast_walker.cljc:426`.
+4. **`:stream/put` totality.** Row 259 lists all five `append!` outcomes from `dao.stream.md:509-517`. The `:put` retry branch exists at `runtime.cljc:114-124`. Row 260 adds `invalid-anchor`. The re-scoping at lines 44-49, 271-274 and 361-367 now attributes park-on-full loss to the ring-buffer composition and keeps `full`-parking as VM behaviour. The REPL plan's lines 74-78 say the same thing from the consumer's side. That was the one you most wanted right, and it is.
+5. **Optional items.** V1 carries the handle-only dependency check at 411-415. V6 states the `:make-stream` requirement for every v2 test at 455-457, and the v1 suite does call `create-vm` bare.
+
+**Three non-blocking notes**, none of which touch the five items:
+
+- **A fourth fabricated cursor exists.** `vm.cljc:542` writes `call-in-cursor-key`, and the census says every fabricated cursor is minted the moment the VM holds its handle. Nothing reads that key in `src`. The four tests that mention it only assert the store contains it. The all-or-nothing rule names three mints. Either drop the key explicitly, since the bridge cursor already covers call-in, or count it as the fourth. Say which.
+- **Precedence between `:make-stream` and an explicit pair.** The rule puts `:make-stream` first, which silently discards `:call-in`/`:call-out` when both are supplied. v1's `or` puts the explicit handle first. No caller in `src` or `test` passes an explicit pair today, so this is latent. I'd still prefer the v1 precedence in one clause.
+- **`ffi/attach` on a pairless VM.** The construction-error rule covers `create-vm`, but `attach` runs on a built VM and now hosts the bridge mint. With no pair it has nothing to mint against and must error the same way. The text implies this but does not say it.
+
+SIGN-OFF: GRANTED

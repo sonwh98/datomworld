@@ -1,0 +1,14 @@
+Created-GMT: 2026-09-26 13:50:00 GMT
+Created-Local: 2026-09-26 20:50:00 +0700
+Coding-Agent: glm
+Session-ID: 134d70a7-27aa-470f-9315-284a6969bb72 (resumed)
+
+# Task: M5 fix2, codex gate REJECT
+
+Worktree /Users/sto/workspace/datomworld-m5 (branch m5, uncommitted; do NOT commit). Codex gpt-6-sol REJECTED M5; full text: collab/1790440400000-architect-linker-m5-gate.gpt-6-sol.stdout.log (last agent_message). Verify each finding against the code yourself and fix; if you disagree with one, say why in the report with evidence. Findings:
+1. P0 rolled-back child origins reused on the same link pair: install child origin comes from the parent's :origins counter (engine.cljc ~920); on failure or (abandon) the shell restores the round's base VM (repl.cljc ~799, ~1068) carrying only :id-counter, while the link pair survives; a later install mints the same child origin and link id, so a late response to the old child settles the later require. Preserve ALL identity generation used on the surviving pair (:origins as well as :id-counter, anything else that mints ids) across every rollback path, or replace the pair on rollback. Add a regression test: late response after failure, and after abandon, must not settle a later require.
+2. P1 failure path can lose newly minted root ids: run-evaluation snapshots `floor` before drive-links and restores it if driving throws (repl.cljc ~902); resume-pending restores the previously parked VM if driving throws (~1135). Carry the latest VM identity state, not the pre-drive snapshot, when retaining the pair.
+3. P1 (abandon) retires only ids in :pending-run :links, which can be empty while the VM waits at :install or a link response is outstanding (repl.cljc ~1058, ~811, ~860); the command then drops the parked VM without raising the promised abandonment error. Derive abandonment from the VM's live waits and handle install waits explicitly. Test each pending phase.
+4. P2 input silently consumed while a link remains pending (repl.cljc ~1164; asserted by require_test.cljc ~275): either provide an explicit recheck command and keep the line, or retain and evaluate the line exactly once when the link completes. Pick the smaller correct design and make the prompt notice say what happens to the line.
+5. P2 serve returns :progress? true when respond! failed and the cursor did not move (link.cljc ~284): report the response-medium failure accurately.
+Smallest diff, same rules (Rule R, ClojureDart traps: :cljd first, no bare `type`; portable cljc; ASCII; 80 cols; cljstyle; kondo via mise). Run touched-namespace JVM tests, cljstyle and kondo; the orchestrator reruns the three lanes. Append a "fix2" section at the top of your existing report (collab/1790437900000-vm-engineer-linker-m5-repl-wiring.glm-5.3-flash.report.md) with what changed and any disagreement. Write it even if you cannot finish.

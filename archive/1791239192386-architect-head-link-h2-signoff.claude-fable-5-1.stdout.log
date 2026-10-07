@@ -1,0 +1,65 @@
+Completed-GMT: 2026-10-05 22:29:58 GMT
+Completed-Local: 2026-10-06 05:29:58 +07
+Coding-Agent: claude
+Session-ID: a9e8873c-8ff1-4926-9343-8e3dd8489844
+
+Read-only review: I read the code, tests and doc diffs in both worktrees and edited nothing. I did not run any test lane; the "would fail without the branch" judgments are from reading the code.
+
+## Unit 1: the `link.cljc` kind-conflict fix (038b6a9e)
+
+**SIGNED OFF**
+
+No blockers.
+
+- **Matches ruling 3.** `dht-attempt` (`src/cljc/yin/repl/link.cljc:314-319`) has the branch directly after `(nil? status)`. It answers `{:status :refused :reason :dao.space.dht/kind-conflict :address address :recorded (:kind status)}` and returns the node untouched.
+- **No path forgets, waits on or links another kind.** The kind branch sits before `:loading`, `:failed` and the link branch, so those three are reachable only for a module-kind record. `load-module` runs only when there is no record, so `dao.space.dht/load`'s kind-conflict throw cannot be reached from a `require`.
+- **Matches head design 5.5.** A failed candidate or a failed index load made by hand stays with its owner, which is what Kinds do not mix and the Unloadable rule require.
+- **Doc matches.** `yin.vm.linker.dht.md` has the link-attempt bullet in step 2 and the section 9 response row, with `:address` and `:recorded`.
+- **The tests fail without the branch.**
+  - Failed records: the old code forgets them, so the "record is as it was" and retry-delay assertions fail.
+  - Loading records: the old code parks, so `(nil? (parked state))` fails.
+  - Loaded records of another kind: the old code answers `:yin.link.dht/not-loaded`, not `kind-conflict`.
+
+Non-blocking note: the main checkout has uncommitted edits to `docs/design/yin.vm.linker.dht.md` (7 inserted lines), a file this commit also changes. Check that before fast-forwarding master.
+
+## Unit 2: slice H2 (uncommitted, head-h2 worktree)
+
+**NOT SIGNED OFF**, on one blocker.
+
+**Blocker**
+
+low | `src/cljc/yin/vm/linker/head/ws.cljc:89-98` (`loopback?`) | head design 5.1 "Loopback only" and the H2 bullet "A bind host that is not a loopback literal composes no endpoint" | `clojure.string/split` drops trailing empty strings, so `"127.0.0.1."` and `"127.0.0.1.."` split to four parts and are accepted. I confirmed the split result with `bb`. A string with a trailing dot is not a literal; it falls through to the host's name resolver, which is the reason `localhost` is refused. Correction: refuse a host ending in `.` (or split with limit `-1`), and add `"127.0.0.1."` and `"127.0.0.1.."` to the refused vector in `a-bind-host-that-is-not-a-loopback-literal-composes-no-endpoint`.
+
+If the fix is exactly that and nothing else changes, this unit is signed off without another read from me, once the three lanes are green.
+
+**Everything else implements the rulings and the H2 slice**
+
+- **Rulings:**
+  - `connect!` as the argument: `head.ws/dial` takes it and composes a fresh attacher and traffic medium for every dial.
+  - Identity precedence: `well-formed-request?` treats any request carrying `:dao.stream/identity` as an identity request, pinned by `an-identity-request-is-answered-as-before`.
+  - Channel descriptor string: the `ws://host:port/head` identity names the channel only.
+  - Positive bind port: `serve` refuses `:yin.head.ws/no-port` before composing anything.
+  - Unsendable memory dropped: `resolve-name` returns the writer's own outcome and keeps nothing.
+  - Identity-key check: `absorb!` requires `(contains? v :dao.stream/identity)` before an answer can complete an identity request.
+  - No free-port retry: none exists.
+- **Identity requests answered as before:**
+  - The four-argument `mirror-step` is kept.
+  - `attacher` is `(:attach (links opts))` with the same body.
+  - The oversize fallback gives the same map as before when the answer carries an identity.
+  - The `remote_test.cljc` diff is additions only.
+- **Boundaries:**
+  - `dao.stream.md` is untouched.
+  - `remote.cljc` and `ws_project.cljc` contain no head vocabulary.
+  - No `dao.stream.apply` or rpc reference was added.
+  - No clock is read; `serve-step` takes `now` as an argument.
+  - No UDP serving, relaying or multi-source was built, and off-loopback serving is refused.
+- **Bullets pinned:** resolution, identity on the wire, H1's first case over a reflection, restart with `cursor-mismatch`, the shared key, the one-entry table with `no-surface` and `not-found`, IPv4 and IPv6 bind refusals, and port in use (in-process and on a real JVM socket).
+- **Docs match the code:** `dao.stream.remote.md` sections 2, 2.1, 2.3 step 0, 2.4 Resolve and section 5, the status lines, and head design section 6.
+
+**Non-blocking notes**
+
+1. The Node and Dart bullet rests on the in-process `loopback-net`; a real socket is crossed only on the JVM. H3's end-to-end case should cover Node's real listener.
+2. `head.ws/dial` composes no resend policy, so a named request lost on the wire leaves the dial `:resolving` forever. That is acceptable on a WebSocket, but H3 should pass `:dao.stream.remote/resend-after` or own the liveness.
+3. `dial` does not check its host. H3 decides what gets dialed and must keep that to the token's loopback address until section 8 lifts it.
+4. An attached dial never becomes `:lost`; loss is seen only as the follower's `:source-lost`. There is no `head.ws/stop`, so stopping goes through the host's unbind on `:listener`. H3 must close the old dial with `close!` before composing the next.
+5. A late `:bind-failed` replaces the server value with the refusal and drops `:listener`. That is fine as long as a failed bind holds no resources on any host.

@@ -1,0 +1,55 @@
+Completed-GMT: 2026-09-03 21:31:57 GMT
+Completed-Local: 2026-09-04 04:31:57 ICT (+07)
+Coding-Agent: claude
+Session-ID: none
+
+## Files changed (working tree only; nothing staged or committed)
+
+- `src/cljc/dao/stream/ringbuffer.cljc`
+- `src/cljc/dao/stream/forward.cljc`
+- `src/cljc/dao/stream/ws.cljc`
+- `src/cljc/dao/stream/rpc.cljc`
+- `src/cljc/yin/repl_adapter.cljc`
+- `test/dao/stream/ringbuffer_test.cljc`
+- `test/dao/stream/forward_test.cljc`
+- `test/dao/stream/ws_test.cljc`
+- `test/dao/stream/rpc_test.cljc`
+- `test/yin/repl_adapter_test.cljc`
+
+## Findings
+
+**1 + 2 (HIGH/MEDIUM, ringbuffer + forward loop) — resolved.**
+Ring-buffer gap recovery is now `(:first s)` — the contract's "earliest retained position, or the tail when nothing is retained" — instead of `(min first visible-tail)`. When eviction has passed a frozen attachment's tail, recovery now points past that tail and the following read answers `end`, so recovery always makes progress. Regression test: `attachment-lifecycle-regressions` → "gap recovery from a frozen attachment whose history is fully evicted" (capacity 1, first=2 > frozen tail=1; asserts position 2 and `end`, not a second gap).
+
+**2 (forward totality) — resolved, independently of the transport fix.** `forward-step` now carries a separate resume allowance equal to `:batch-budget`: a gap resume advances the cursor without forwarding, at most `budget` times, then returns `:continue` at the last recovery cursor. A recovery cursor equal to the cursor just read is treated as a transport fixed point and terminates as `:source-gap`. Tests: `gap-resume-is-bounded-and-total` (fixed-point source → one read, `:source-gap`; endlessly-retreating source, budget 3 → 4 reads, `:continue` at `{:pos 4}`). Both fixtures hang forever against the old code. The existing `gap-policy-is-explicit` semantics are unchanged (resume still reaches `:source-ended` with `forwarded 1`).
+
+**3 (MEDIUM, pending handoff slots) — resolved.** `endpoint-step` opens with a reclamation sweep: any `:pending` slot whose handle state has reached `:closed` is released. That covers pre-accept peer close, wire protocol failure, and a composition closing the pending handle (which is also how an endpoint-wide stop is expressed with the current surface — close each pending handle, then step; I did not invent a `stop!` operation, since none exists in the staged surface). Slot release is now one `release-slot!` helper used by all five paths (offer-failed, accept, accept-failed, invalid-ack, expiry); it also drops the retained `:handle`/`:handle-state`, so a released slot's later acknowledgement is stale by construction. Bounded admission is preserved: tests assert `:ws/full` while an offer is outstanding, `:free` + reusable only after the sweep, and that a stale ack for a released slot sends no `:ws/accept` frame and deposits nothing.
+
+**4 (LOW, `:ws/value nil`) — resolved.** `emit!` is now two arities (event / event+value) with a sibling `emit-reason!`; payload events always carry the `:ws/value` key, so `contains?` distinguishes "value nil" from "no value". `:ws/reason` stays optional. Existing envelope shapes are unchanged.
+
+**5 (LOW, reader-conditional order) — resolved within authorized scope.** `:cljd` moved to the head in `ringbuffer.cljc` (atom instance check), the five `catch` conditionals in `ws.cljc`, the one in `rpc.cljc`, and the `:require`, `read-forms`, and `catch` in `v2_adapter.cljc`. Host behavior unchanged. **Deferred:** `apply.cljc:182` and `serving.cljc:37,157,195` carry the same LOW issue but are outside the authorized file list.
+
+**6 (MEDIUM, concurrency oracle) — resolved.** `bounded-concurrent-linearizability-histories` (JVM-only, `#?(:cljd nil :clj …)`) runs five bounded families on real handles through `conformance/record-op!` with threads released from a common gate: append/append, append/next, append/close, cursor/close on an attachment, and two independent attachment readers after one completed append. Each asserts `:linearizable? true`. `linearizability-oracle-rejects-an-invalid-history` seeds a genuine ordering violation (append completes, then a `blocked` read) and asserts `:linearizable? false` with `:reason :no-legal-linearization`; that one is host-neutral. I verified empirically that the recorded intervals do overlap (majority of runs) rather than serializing, and ran the ringbuffer suite 13× with no flakes.
+
+**7 (LOW/INFO, rpc diagnostics + adapter) — resolved.** `rpc/take-diagnostics` mirrors `take-completed`, giving `:diagnostics` a publication boundary (test asserts two diagnostics publish once and the outbox stays empty). The adapter now reads command lines with `clojure.edn` on CLJ as well as CLJD (CLJS already used the EDN reader), so command sniffing cannot evaluate its input — the test proves `#=(clojure.core/list (quote help))` no longer becomes the `help` command. `'telemetry` moved out of `local-command-heads` into `rejected-command-heads`, emitting an explicit `:yin.repl.adapter/rejected-command` event rather than no-op'ing locally or shipping the line to the remote evaluator, per the v2 plan's "`(telemetry)` is out in every form".
+
+## Explicitly deferred (outside authorized edit list)
+
+- **`test/dao/stream/conformance.cljc:543-546`** still models gap recovery as `(min first-pos tail)`, i.e. the same defect I removed from the transport. No current history exercises the divergent case (frozen attachment with fully evicted history), so nothing fails — but the abstract model would accept the bug it should reject. The fix is one line: replace `(min first-pos tail)` with `first-pos`.
+- **`apply.cljc` / `serving.cljc` reader-conditional ordering** (finding 5, same LOW class).
+- **The `deps.edn` cljd gate** that does not reach the v2 tree (deps.edn is excluded from edits). I ran targeted compiles instead — see below.
+
+## Verification
+
+- `clj -M:test` focused suites (ringbuffer, forward, ws, rpc, serving, apply, v2-adapter): **46 tests, 224 assertions, 0 failures, 0 errors**.
+- Full JVM suite: **1195 tests, 166,082 assertions, 0 failures, 0 errors**.
+- `bb test:cljs` (Node): **1108 tests, 33,685 assertions, 0 failures, 0 errors**.
+- Targeted CLJD compile of all five changed source namespaces and all five changed test namespaces: **All clear**.
+- `clj -M:kondo --lint src/cljc/dao/stream src/cljc/yin/repl_adapter.cljc test/dao/stream test/yin/repl`: **0 errors, 0 warnings**.
+
+## Remaining risks
+
+- The concurrency histories are genuine thread races, so they are inherently schedule-dependent; they are bounded (≤3 ops) and passed 13 consecutive runs, but a pathological scheduler could produce a history the abstract model does not cover (e.g. an eviction interleaving) — capacities are chosen so eviction cannot occur in these histories.
+- Releasing a slot on `handle-state` phase `:closed` means an acknowledgement that arrives in the *same* step as the loss is dropped rather than accepted. That is intended (the handle is already torn down), but it is a behavior a composition could observe as "ack ignored".
+- The conformance model divergence above is the one place where the oracle is now weaker than the implementation it checks.
+- `forward-step`'s spent-allowance return is `:continue`, not terminal; a driver facing a transport that gaps forever with an advancing cursor will keep stepping. That is the driver's policy decision by design, but it is the residual liveness question the budget bound does not answer.

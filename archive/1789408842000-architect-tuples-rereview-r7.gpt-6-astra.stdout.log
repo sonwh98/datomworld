@@ -1,0 +1,340 @@
+OpenAI Codex v0.153.4
+--------
+workdir: /Users/sto/workspace/datomworld
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+--------
+user
+Created-GMT: 2026-09-14 18:00:42 GMT
+Created-Local: 2026-09-15 01:00:42 +07
+Coding-Agent: codex
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b (resume — your own review thread)
+
+# Task: Re-review the round-7 tuple code-representation design
+
+Role: Architect (reviewer)
+
+Implementers:
+- Model: gpt-6-astra | Assigned: 2026-09-15 01:00:42 +07 | Status: active | Rationale: re-review by the original reviewer; the author is claude-fable-5.1 (Anthropic family), independence preserved. The owner has directed iteration until agreement.
+
+## Context
+
+Your round-6 review (REJECT, 1 P1 — the allocation defect) was revised against (1601 → 1599 lines; author's mapping at the tail of `collab/1789408718000-architect-tuples-revision-r7.claude-fable-5-1.stdout.log`). The revision chose the token path: the incarnation is `{:yin.expander/token <token>}`, a fresh random UUID minted by the host at construction (`random-uuid`, the same mint the ring-buffer transport uses for its stream identity, `ringbuffer.cljc:27`); the construction record and the transactor-uniqueness claim are removed; §8.4.1 states why the log cannot supply identity (`prepare-tx` a pure function of supplied history, `transact!` allocating only `t`, T6's documented hazard); the warranty is the composition's, discharged by the token's randomness, covering independent constructions and restarts with no state that must survive a restart; minting is the first act of all-or-nothing construction, a retry mints anew, staged-flush reuse unchanged; §10.3 names the ctx field and minting step as macro-contract additions this document cannot make.
+
+## Task
+
+Re-review `docs/design/yin.vm.tuples.md` as it now stands:
+
+1. Verify your round-6 finding is actually resolved — resolved / not resolved / regressed, with line citations. Do not take the author's mapping at its word.
+2. Challenge the token mechanism on its merits: does it discharge your requirement (an explicitly unique composition token for all constructions, uniqueness covering independent constructions and restarts)? Is the removal of the transactor claim complete — no residual attribution of allocation guarantees to the log path anywhere in the document?
+3. New defects introduced by this revision are P1s regardless of origin. Cite file and line; run what you can.
+4. Per your own closes in rounds 4–6: unfinished implementation work belongs in §10 and does not by itself justify rejection. The owner wants the iteration to end at genuine agreement — APPROVE or APPROVE-WITH-FINDINGS where findings are implementation-phase obligations rather than design defects.
+
+## Deliverable
+
+Verdict (`APPROVE` | `APPROVE-WITH-FINDINGS` | `REJECT`), numbered findings (if any) with severity/line/defect/fix, a resolution note for the round-6 finding, and a short "verified sound" list. Produce the complete review in this turn — no plan-only responses, no requests for human input.
+
+Begin the final response exactly with:
+
+Completed-GMT: <actual GMT timestamp>
+Completed-Local: <actual local timestamp and named timezone>
+Coding-Agent: codex
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+codex
+I’ll verify the token rule, check that no log-allocation claims remain, and confirm that construction retries and staged flushes retain the intended identity behavior.
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '1171,1251p'; rg -n 'incarnation|construction record|construction-record|stamped.id|permanent.id|allocator|random-uuid|cursor value|log.identity|token' docs/design/yin.vm.tuples.md; nl -ba src/cljc/dao/stream/ringbuffer.cljc | sed -n '16,38p'; tail -22 collab/1789408718000-architect-tuples-revision-r7.claude-fable-5-1.stdout.log" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+  1171	#### 8.4.1 Attempt identity is scoped to an expander incarnation
+  1172	
+  1173	A record's address is the hash of its value, so two attempts whose records
+  1174	are value-equal are one record, whatever the encoder. A bare per-expander
+  1175	counter does not prevent that: two expanders observing one medium, batch,
+  1176	member, and call path, each at counter `0`, with one macro and one output,
+  1177	would write one record; so would one expander restarted and replaying the
+  1178	batch. The governing contract records every attempt separately
+  1179	(`yin.vm.macro.md:668-669`), so the attempt identity must be unique per
+  1180	attempt across expanders and across executions. It is:
+  1181	
+  1182	```clojure
+  1183	:yin.ledger/attempt [incarnation counter]
+  1184	```
+  1185	
+  1186	- **The incarnation** is a value held in the expander's process state
+  1187	  `ctx` (`yin.vm.macro.md:216-223`), as a new field `:incarnation`,
+  1188	  threaded through every call exactly as `:alloc` and `:t` are. It is
+  1189	  **allocated**, never observed: a cursor read reserves nothing, since a
+  1190	  cursor is a position minted by the stream for observation
+  1191	  (`dao.stream.md:471-477`) and the memory log's `:dao.stream/newest`
+  1192	  cursor is simply its current value count
+  1193	  (`src/cljc/dao/stream/memory_log.cljc:105-110`), so two constructions
+  1194	  with no append between them read one position. Nor does committing a
+  1195	  record on the log allocate anything: `prepare-tx` is a pure function of
+  1196	  the history it is handed (`src/cljc/dao/space/transact.cljc:189-207`),
+  1197	  so two preparations against one history assign one permanent id, and
+  1198	  `transact!` allocates only `t` under its lock and appends datoms that
+  1199	  are already resolved (`src/cljc/dao/space/transactor.cljc:231-254`);
+  1200	  two transactor values over one stream are a documented single-writer
+  1201	  hazard, not a coordination (`dao.space.transactor.md`, T6). **The log
+  1202	  therefore plays no part in incarnation identity.** The incarnation is a
+  1203	  **composition-minted token**, the one mechanism for every construction:
+  1204	
+  1205	  ```clojure
+  1206	  :incarnation {:yin.expander/token <token>}
+  1207	  ```
+  1208	
+  1209	  where `<token>` is a fresh random UUID minted by the host's library at
+  1210	  the moment of construction (`random-uuid`, as the ring-buffer transport
+  1211	  already mints its stream identity, `src/cljc/dao/stream/ringbuffer.cljc:27`).
+  1212	  The uniqueness warranty is the composition's, discharged by the token's
+  1213	  122 random bits: it covers two expanders on one log, two expanders on
+  1214	  two logs, and one expander constructed twice, with or without a
+  1215	  restart, and it needs no state that survives a restart, which is why a
+  1216	  random token and not a counter is the rule; a durable counter would
+  1217	  need an allocate-and-persist boundary of its own, which is the problem
+  1218	  being avoided. No id allocated by any transactor, and no position of
+  1219	  any stream, enters the incarnation.
+  1220	- **Allocation retry.** Construction is all-or-nothing, as it is for a VM
+  1221	  (`v2.cljc:21-23`): minting the token is the first act of construction,
+  1222	  and a construction that fails afterward, for any reason, leaves no
+  1223	  expander. A construction that is retried mints a **new token** and
+  1224	  obtains a new incarnation; it never reuses or reconstructs an earlier
+  1225	  one, because an incarnation is reachable only through the `ctx` that
+  1226	  holds it, and a `ctx` that was not retained is gone. A token under
+  1227	  which no attempt was ever recorded is harmless.
+  1228	- **The counter** is a per-incarnation attempt counter in `ctx`, advanced
+  1229	  once per attempt, initial or nested, successful or failed, exactly as
+  1230	  `:alloc` advances (`yin.vm.macro.md:360-365`); admission-failure events
+  1231	  advance it too, since they are attempts under §4.1.
+  1232	- **A staged retry reuses the identity; a distinct execution receives
+  1233	  another.** The expander stages `expand-batch`'s output and log payloads
+  1234	  and retries a failed flush from the staged data without re-running the
+  1235	  expansion (`yin.vm.macro.md:364-365`, `:765-773`): the record, and the
+  1236	  attempt identity inside it, are part of what was staged, so the retry
+  1237	  writes the same record to the same address, which is the idempotent
+  1238	  re-publication the ledger wants. A restart constructs a new expander,
+  1239	  which mints a new incarnation, so replaying a batch after a restart
+  1240	  mints new attempt identities and new records: that is a distinct
+  1241	  execution and is recorded as one. What separates the two cases is
+  1242	  whether `ctx` survived: a retry runs under the `ctx` that produced the
+  1243	  staged payload; a restart does not have it, and allocates (above).
+  1244	
+  1245	The parent-record chain of §8.4 is unchanged; it gains uniqueness from the
+  1246	attempt identity inside every record.
+  1247	
+  1248	### 8.5 Macro declarations travel beside the tree
+  1249	
+  1250	The `:macro?` flag is outside the canonical tree (§2.5). What replaces it
+  1251	is a **declaration fact bound to an occurrence**, produced by the frontend
+1036:| `:expand` | `{:yin.ledger/op :expand :yin.ledger/input tree-in :yin.ledger/call-root tree-in :yin.ledger/call-path path :yin.ledger/origin [:source medium batch j]` **or** `:yin.ledger/parent parent-record-addr` `:yin.ledger/output tree-out :yin.ledger/macro lambda-addr :yin.ledger/attempt [incarnation counter]}` | one expansion attempt; exactly one of `:yin.ledger/origin` (initial) and `:yin.ledger/parent` (nested) is present; failures carry `:yin.ledger/error` instead of `:yin.ledger/output` (§8.4). `:yin.ledger/attempt` is the portable attempt identity of §8.4.1, scoped to the expander incarnation, so two expanders or two executions of one expander observing one call never mint one record. The record holds no log-local id: a nested attempt names its parent by the parent's record **address**, so the record is minted only after the parent's record exists |
+1125: [:db/add ev :yin.ledger/attempt    [incarnation n]]     ; portable attempt identity, §8.4.1
+1171:#### 8.4.1 Attempt identity is scoped to an expander incarnation
+1183::yin.ledger/attempt [incarnation counter]
+1186:- **The incarnation** is a value held in the expander's process state
+1187:  `ctx` (`yin.vm.macro.md:216-223`), as a new field `:incarnation`,
+1197:  so two preparations against one history assign one permanent id, and
+1202:  therefore plays no part in incarnation identity.** The incarnation is a
+1203:  **composition-minted token**, the one mechanism for every construction:
+1206:  :incarnation {:yin.expander/token <token>}
+1209:  where `<token>` is a fresh random UUID minted by the host's library at
+1210:  the moment of construction (`random-uuid`, as the ring-buffer transport
+1212:  The uniqueness warranty is the composition's, discharged by the token's
+1216:  random token and not a counter is the rule; a durable counter would
+1219:  any stream, enters the incarnation.
+1221:  (`v2.cljc:21-23`): minting the token is the first act of construction,
+1223:  expander. A construction that is retried mints a **new token** and
+1224:  obtains a new incarnation; it never reuses or reconstructs an earlier
+1225:  one, because an incarnation is reachable only through the `ctx` that
+1226:  holds it, and a `ctx` that was not retained is gone. A token under
+1228:- **The counter** is a per-incarnation attempt counter in `ctx`, advanced
+1239:  which mints a new incarnation, so replaying a batch after a restart
+1544:   written. The expander incarnation (§8.4.1) is a composition-minted
+1545:   random token, never a log-allocated id or a stream position; its
+1546:   uniqueness is the composition's warranty, discharged by the token's
+1548:   `:incarnation` field of `ctx` and the token-minting step at
+    16	  [spec]
+    17	  (and (map? spec)
+    18	       (= transport-type (:dao.stream/type spec))
+    19	       (integer? (get spec capacity-key))
+    20	       (pos? (get spec capacity-key))))
+    21	
+    22	
+    23	(defn- fresh-state
+    24	  [capacity]
+    25	  ;; The logical identity is carried in descriptors and cursors.  It therefore
+    26	  ;; belongs to DaoStream's portable data domain, unlike a host UUID object.
+    27	  (atom {:identity (str (random-uuid))
+    28	         :capacity capacity
+    29	         :first 0
+    30	         :tail 0
+    31	         :values {}
+    32	         :closed? false
+    33	         :attachments {}}))
+    34	
+    35	
+    36	(declare attach!)
+    37	
+    38	
+Completed-GMT: 2026-09-14 18:00:03 GMT
+Completed-Local: 2026-09-15 01:00:03 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1599 lines (was 1601). Only this file changed; it remains untracked and `git diff --stat` is empty.
+
+**The single finding.** Mechanism chosen: the composition-minted token for all constructions, with no log-allocated ids at all. §8.4.1 now states why the log cannot supply identity, citing `prepare-tx` as a pure function of supplied history, `transact!` allocating only `t` and appending already-resolved datoms, and the transactor contract's T6 single-writer hazard. The incarnation is `{:yin.expander/token <token>}`, a fresh random UUID minted by the host library at construction, as the ring-buffer transport already mints its stream identity. The uniqueness warranty is the composition's, discharged by the token's randomness, and it covers independent constructions and restarts without any state that must survive a restart, which is the stated reason a random token rather than a durable counter is the rule. The construction record is removed, along with the claim that the existing transactor guarantees uniqueness. The retry rule is kept consistent: minting the token is the first act of an all-or-nothing construction, a retried construction mints a new token, and the staged-flush reuse rule is unchanged. §10.3 now describes the token mechanism and names the `ctx` field and the minting step as additions to the macro contract that this document cannot make there.
+
+No owner ruling was required.
+
+**Sections touched:** status line, §8.4.1 (incarnation and allocation-retry bullets), §10 item 3.
+
+**Verified against source myself:** `prepare-tx` at `transact.cljc:189-207` deriving ids from supplied history; `transact!` at `transactor.cljc:231-254` allocating only `t` under its write lock; T6 in `dao.space.transactor.md:75`; the memory log's newest cursor at `memory_log.cljc:105-110`; the ring buffer's `random-uuid` identity at `ringbuffer.cljc:27`; all-or-nothing construction at `v2.cljc:21-23`.
+
+**Taken from the review, not re-run:** the executed result that two preparations against one empty history both assign `{-1 16}` and that sequential commits through one transactor produced two records with entity id 16. I verified the code paths that produce that result but did not execute them.
+
+exec
+/bin/zsh -lc "bb -cp src/cljc -e '(require '\\''[yin.vm.linearize :as l] '\\''[dao.jing :as j])
+(let [raw (random-uuid)
+      mint #(hash-map :yin.expander/token (str (random-uuid)))
+      a (mint) b (mint)
+      record {:yin.ledger/op :expand :yin.ledger/attempt [a 0]}
+      staged record]
+ (prn {:raw-uuid-plain? (#'\\''l/plain-data? raw)
+       :string-token-plain? (#'\\''l/plain-data? a)
+       :distinct-constructions (not= a b)
+       :staged-identity-unchanged (= (:yin.ledger/attempt record) (:yin.ledger/attempt staged))
+       :staged-address-unchanged (= (j/segment-key record) (j/segment-key staged))}))'" in /Users/sto/workspace/datomworld
+ succeeded in 104ms:
+{:raw-uuid-plain? false, :string-token-plain? true, :distinct-constructions true, :staged-identity-unchanged true, :staged-address-unchanged true}
+
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '1028,1040p;1532,1552p'; nl -ba src/cljc/yin/vm/linearize.cljc | sed -n '45,58p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+  1028	
+  1029	Every non-naming ledger fact is first a **ledger record**: a plain map,
+  1030	content-addressed by `segment-key`, stored in `dao.jing` like any object.
+  1031	Record shapes:
+  1032	
+  1033	| Op | Record | Meaning |
+  1034	|---|---|---|
+  1035	| `:derive` | `{:yin.ledger/op :derive :yin.ledger/input tree-addr :yin.ledger/output seg-addr :yin.ledger/function fn-name :yin.ledger/profile profile-map}` | `output` was computed from `input` by `function` under the lowering profile (§5.2.1) |
+  1036	| `:expand` | `{:yin.ledger/op :expand :yin.ledger/input tree-in :yin.ledger/call-root tree-in :yin.ledger/call-path path :yin.ledger/origin [:source medium batch j]` **or** `:yin.ledger/parent parent-record-addr` `:yin.ledger/output tree-out :yin.ledger/macro lambda-addr :yin.ledger/attempt [incarnation counter]}` | one expansion attempt; exactly one of `:yin.ledger/origin` (initial) and `:yin.ledger/parent` (nested) is present; failures carry `:yin.ledger/error` instead of `:yin.ledger/output` (§8.4). `:yin.ledger/attempt` is the portable attempt identity of §8.4.1, scoped to the expander incarnation, so two expanders or two executions of one expander observing one call never mint one record. The record holds no log-local id: a nested attempt names its parent by the parent's record **address**, so the record is minted only after the parent's record exists |
+  1037	| `:publish` | `{:yin.ledger/op :publish :yin.ledger/subject occurrence-id :yin.ledger/output ucf-addr}` | a checkpoint occurrence was published as the UCF value at `output` (UCF §7.3.4) |
+  1038	
+  1039	A record is an object, so it is immutable, addressable, and verifiable,
+  1040	and it is what "the hash chain" is made of: a record names its input and
+  1532	   definition. This document now states it uniformly; the implementation
+  1533	   phase must not reintroduce a narrower one, and the corpus must contain
+  1534	   a numeric key beside the keyword one.
+  1535	3. **Complete occurrence identity** (§2.5, §5.3, §8.4) — design work
+  1536	   with stated mechanisms, not yet implementable. Source origins
+  1537	   `[:source medium batch j]` must be supplied to the lowering and
+  1538	   recorded in instruction provenance and initial expansion events;
+  1539	   nested expansion events must carry both the declared-ref parent link
+  1540	   and the parent record address, and the record must be minted after
+  1541	   the parent's. The medium identity coordinate is whatever the
+  1542	   composition names its program medium by; this document does not fix
+  1543	   its shape, and that shape must be fixed before an origin can be
+  1544	   written. The expander incarnation (§8.4.1) is a composition-minted
+  1545	   random token, never a log-allocated id or a stream position; its
+  1546	   uniqueness is the composition's warranty, discharged by the token's
+  1547	   randomness, and no transactor is claimed to provide it. The
+  1548	   `:incarnation` field of `ctx` and the token-minting step at
+  1549	   construction are additions to `yin.vm.macro.md`'s `ctx` and expander
+  1550	   construction that this document cannot make there.
+  1551	4. **Macro batch and admission preservation** (§8.5) — design work with
+  1552	   stated mechanisms. The ordered batch, the admission-order harvest
+    45	(defn- plain-data?
+    46	  "True when `x` is data a code datom may carry (§2.5): scalars and
+    47	   collections of them, never a host function or object. Metadata travels
+    48	   with the value, so it must be plain data too."
+    49	  [x]
+    50	  (or (nil? x)
+    51	      (and (cond (or (boolean? x) (number? x) (string? x) (keyword? x)
+    52	                     (symbol? x))
+    53	                 true
+    54	                 (map? x) (and (every? plain-data? (keys x))
+    55	                               (every? plain-data? (vals x)))
+    56	                 (coll? x) (every? plain-data? x)
+    57	                 :else false)
+    58	           (plain-data? (meta x)))))
+
+codex
+Completed-GMT: 2026-09-14 18:01:54 GMT  
+Completed-Local: 2026-09-15 01:01:54 Asia/Ho_Chi_Minh  
+Coding-Agent: codex  
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+**Verdict: APPROVE-WITH-FINDINGS**
+
+The remaining architectural finding is resolved. The draft can proceed to implementation under §10’s gates. No new P1 defect found.
+
+**Numbered findings**
+
+1. **P2 — Preserve the token’s portable representation during implementation.**
+
+   **Draft:** §8.4.1, [lines 1205–1211](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1205).
+
+   Implement the token as `(str (random-uuid))`, matching the cited [ring-buffer implementation, line 27](/Users/sto/workspace/datomworld/src/cljc/dao/stream/ringbuffer.cljc:27). A raw host UUID object is outside the existing plain-data domain.
+
+   I verified that `plain-data?` rejects the raw UUID and accepts the string-token incarnation map ([predicate, lines 45–58](/Users/sto/workspace/datomworld/src/cljc/yin/vm/linearize.cljc:45)).
+
+   **Required implementation check:** Assert portable token representation, fresh construction identity, and unchanged staged-retry identity. This enforces the existing portable-value contract; it does not require a new architectural mechanism.
+
+**Round-6 resolution**
+
+**Resolved.** The incarnation now comes from one composition-minted token mechanism for every construction ([lines 1202–1219](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1202)). The construction-record allocation recipe is removed. The draft accurately explains why transaction preparation and commitment do not supply its required allocation guarantee ([lines 1194–1202](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1194)).
+
+A document-wide search found no residual positive claim that log positions or transactor entity allocation guarantee incarnation uniqueness. §10.3 expressly disclaims that attribution ([lines 1544–1550](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1544)).
+
+**Verified sound**
+
+- **Independent construction and restart identity:** Fresh random UUID tokens remove dependence on shared log state, stale history, cursor positions, or surviving counters. This provides standard probabilistic UUID uniqueness, not a mathematical impossibility of collision; that is an acceptable engineering basis here.
+- **Retry distinction:** Failed construction mints anew; staged expansion flushes reuse the recorded identity without re-expansion ([lines 1220–1243](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1220)). The targeted probe preserved both staged attempt identity and record address.
+- **Explicit state:** The token is supplied at construction and threaded through `ctx`, rather than discovered through hidden global state.
+- **Dependency honesty:** The macro-contract additions and implementation gates remain explicit in §10. Previously accepted declaration, provenance, dependency-analysis, and FFI mechanisms remain accepted.
+
+Architectural review has reached agreement. Implementation and conformance work remain subject to the declared gates, particularly the canonical-encoder blocker.
+tokens used
+9,448
+Completed-GMT: 2026-09-14 18:01:54 GMT  
+Completed-Local: 2026-09-15 01:01:54 Asia/Ho_Chi_Minh  
+Coding-Agent: codex  
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+**Verdict: APPROVE-WITH-FINDINGS**
+
+The remaining architectural finding is resolved. The draft can proceed to implementation under §10’s gates. No new P1 defect found.
+
+**Numbered findings**
+
+1. **P2 — Preserve the token’s portable representation during implementation.**
+
+   **Draft:** §8.4.1, [lines 1205–1211](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1205).
+
+   Implement the token as `(str (random-uuid))`, matching the cited [ring-buffer implementation, line 27](/Users/sto/workspace/datomworld/src/cljc/dao/stream/ringbuffer.cljc:27). A raw host UUID object is outside the existing plain-data domain.
+
+   I verified that `plain-data?` rejects the raw UUID and accepts the string-token incarnation map ([predicate, lines 45–58](/Users/sto/workspace/datomworld/src/cljc/yin/vm/linearize.cljc:45)).
+
+   **Required implementation check:** Assert portable token representation, fresh construction identity, and unchanged staged-retry identity. This enforces the existing portable-value contract; it does not require a new architectural mechanism.
+
+**Round-6 resolution**
+
+**Resolved.** The incarnation now comes from one composition-minted token mechanism for every construction ([lines 1202–1219](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1202)). The construction-record allocation recipe is removed. The draft accurately explains why transaction preparation and commitment do not supply its required allocation guarantee ([lines 1194–1202](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1194)).
+
+A document-wide search found no residual positive claim that log positions or transactor entity allocation guarantee incarnation uniqueness. §10.3 expressly disclaims that attribution ([lines 1544–1550](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1544)).
+
+**Verified sound**
+
+- **Independent construction and restart identity:** Fresh random UUID tokens remove dependence on shared log state, stale history, cursor positions, or surviving counters. This provides standard probabilistic UUID uniqueness, not a mathematical impossibility of collision; that is an acceptable engineering basis here.
+- **Retry distinction:** Failed construction mints anew; staged expansion flushes reuse the recorded identity without re-expansion ([lines 1220–1243](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1220)). The targeted probe preserved both staged attempt identity and record address.
+- **Explicit state:** The token is supplied at construction and threaded through `ctx`, rather than discovered through hidden global state.
+- **Dependency honesty:** The macro-contract additions and implementation gates remain explicit in §10. Previously accepted declaration, provenance, dependency-analysis, and FFI mechanisms remain accepted.
+
+Architectural review has reached agreement. Implementation and conformance work remain subject to the declared gates, particularly the canonical-encoder blocker.

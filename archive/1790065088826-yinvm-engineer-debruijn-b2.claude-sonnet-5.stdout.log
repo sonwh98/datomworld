@@ -1,0 +1,36 @@
+Completed-GMT: 2026-09-22 08:32:29 GMT
+Completed-Local: 2026-09-22 15:32:29 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: pending (new session, caller-generated)
+
+**Files**: `src/cljc/yin/vm/debruijn_linearize.cljc` (new), `test/yin/vm/debruijn_linearize_test.cljc` (new). No existing file edited.
+
+**Rows to canonical vector**: I read `yin.vm.ast-walker/vm-load-rows` as instructed; it converts a *different* row shape (`{:root id :rows {id row}}` semantic-bytecode rows) back into an AST tree, not into a canonical instruction vector — it is not the precedent this step needs, and I say so in the namespace docstring. The actual named-path precedent for turning `lower`'s `:yin.code/*` datom rows into the canonical positional vector is `yin.vm.semantic/load-image`'s private local `canonical` closure (index the batch by entity, sort by `:yin.code/pc`, read each entity's operands off `yin.vm.code/vector-operand-table` with `:pc`-kind operands resolved to positions). That helper is private in a namespace this phase may only read, so I reimplemented the equivalent step as `named-canonical-vector` (public, so tests can reuse it independently).
+
+**Scope reconstruction**: `closure-body-ranges` and `layout-conforms?` reproduce `yin.vm.completion`'s private `closure-ranges`/`layout-conforms?` algorithm exactly, generalized to operate on either a named vector (`:closure` params at index 1) or a de Bruijn image (`:closure` arity at index 1) since both carry the body pc at index 2. `body-owner` derives pc → immediate enclosing `:closure` pc from those ranges (the `segment-scope` precedent, without the address/relation wrapping since no Datalog is needed here). `chain-of` walks `body-owner` from a pc outward to build the innermost-first enclosing-closure-pc chain — the explicit outermost→innermost reversal section 3 requires, documented at its definition. `resolve-var` builds the innermost-first parameter-vector stack from that chain and calls `yin.vm.debruijn/resolve-name`, the one reused projection helper.
+
+**Side table**: `{pc {:kind :closure, :params [sym...], :source src}}` for every `:closure` pc and `{pc {:kind :var, :source src}}` for every `:var` pc. No name is stored per `:var` occurrence — `lift` derives it from the owning `:closure`'s recorded (or synthesized) parameter vector at the resolved position, which `resolve-name`'s own contract guarantees is the occurrence's exact original spelling. This avoids a second, redundant name record.
+
+**Lift**: `lift-params` computes pc → parameter vector for every `:closure`, using the side table's entry when present and arity-matching, else synthesizing fresh, globally-unique names (`g__<pc>_<i>`) fresh against the image's free-name set and every other synthesized parameter. `lift-once` then rewrites `:load-bound`/`:load-free` back to `:var` and `:closure`'s arity back to its parameter vector; everything else copies unchanged. Public `lift` tries the supplied side table first, verifies it round-trips (`rewrite` of the result reproduces the exact same de Bruijn image), and falls back to full synthesis — which always round-trips by construction — when it does not.
+
+**Correctness law, per program** (`worked-example`, `duplicate-param` = `(fn [x x] x)`, `free-variable`, `nested-closure`):
+- Own side table: `lift-with-the-adapters-own-side-table-is-exact` asserts `= nv lifted` (exact equality), proven mathematically because `resolve-name`'s `position-in` only ever returns a position whose stored symbol equals the occurrence's own name, so reading it back is always exact — verified for the duplicate-parameter case too.
+- No side table: `lift-with-synthesized-names-is-alpha-equivalent` asserts the synthesized result differs in spelling but `(= image (:debruijn (rewrite lifted)))` — the operational alpha-equivalence definition this bytecode form admits (identical binding structure re-derived).
+- `a-foreign-side-table-that-fails-to-round-trip-falls-back-to-synthesis` checks a corrupted side table is discarded rather than trusted.
+
+**Completion criteria**:
+- Deterministic output — `adapting-twice-is-byte-identical` (11 corpus programs, `image-hash` equal both runs).
+- Every node/opcode handled — `every-corpus-program-adapts-to-a-valid-image`; corpus reaches all 21 named mnemonics; `rewrite`'s `case` default passes every non-`:var`/`:closure` op through unchanged (nothing silently skipped).
+- Lexical validation before rewriting — `a-malformed-named-vector-is-rejected-before-rewriting` (unclosed body; overlapping body spans), throws via `layout-conforms?`.
+- Structural opcode-by-opcode comparison — `structural-comparison-differs-only-at-var-and-closure`, position-by-position over 11 programs.
+- Image round trips — `dc/well-formed-image?`, `dc/image-defect` nil on every emitted image; B3: `push-free-images-load-and-run-on-b3` runs two push-free programs to `:halted`; `push-using-images-load-but-b3-cannot-yet-step-them` documents a **pre-existing B3 gap**: `yin.vm.debruijn-vm/step1` (already merged, outside this phase's file box) has no `:push` case, so any image containing an `:application` or FFI call — which the named lowering's own calling convention always wraps in `:push` — loads into a fresh `DebruijnVM` but throws `:not-yet-implemented` on stepping past the first `:push`. This is not a B2 defect; I did not touch B3.
+- B1 validator acceptance and hand-built rejection, by both validators — `hand-built-out-of-range-images-are-rejected-by-both-validators` (B1's `image-defect` and B2's independently implemented `image-scope-defect` agree on the design's own `[5 0]`-past-chain and position-past-arity fixtures).
+- Lift law — the three tests above.
+
+**Deviations / notes**: (1) `vm-load-rows` reference mismatch, explained above. (2) B3's missing `:push` case, explained above — I stopped at documenting it rather than working around or fixing it, per the Never list. (3) `image-scope-defect` is a defensive re-implementation, not delegating to B1's private `all-body-chains`/`scope-defect`.
+
+**What I ran**: `clojure -M:test -n yin.vm.debruijn-linearize-test` — 11 tests, 263 assertions, 0 failures/errors. Also re-ran the precedent suites (`debruijn-code-test`, `debruijn-vm-test`, `debruijn-vm-contract-test`, `linearize-test`) — 62 tests, 1678 assertions, 0 failures, confirming no interference. `npx shadow-cljs compile test` (Node/CLJS full suite, includes auto-discovered `yin.vm.debruijn-linearize-test`) — 1701 tests, 45137 assertions, 5 failures, all in `dao.stream.slice-test` (pre-existing socket-process flakiness unrelated to this change; my namespace shows zero failures there).
+
+**What I could not run**: `clj-kondo` (`clojure -M:kondo ...`) was denied ("This command requires approval") — I did not retry. `clojure -M:cljd test` (the ClojureDart lane) was likewise denied — not retried. cljstyle was not attempted since kondo was already denied and both are in the same "if denied, say exactly what was denied and stop" bucket.
+
+No stage/commit/merge/push performed, per instructions.

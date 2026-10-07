@@ -1,0 +1,30 @@
+S2 is implemented and passes on Node and in the targeted JVM tests. The full JVM lane is still running and the Dart lane hasn't produced a usable result yet. I'll check the JVM log in about 15 minutes.
+
+**Implemented (`src/cljc/yang/python/antlr/prelude.cljc`):**
+- **`GeneratorExit`:** a new builtin class under `BaseException`.
+- **Generator methods:** `send`, `throw`, `close`, `__next__` and `__iter__`, through a new `py/gen-attr` helper that `py/getattr` calls for generators.
+- **`throw(typ, val=None, tb=None)`:**
+  - A class is called with `val`, and a tuple `val` is spread into the arguments.
+  - If `val` is already an instance of the class, it is raised as is.
+  - An instance plus a separate value is a `TypeError`.
+  - Any non-None `tb` is a `TypeError`, since there are no traceback objects yet.
+- **`close()`:**
+  - If the generator finishes or raises `GeneratorExit` back, it returns `None`.
+  - Any other exception propagates.
+  - If the generator yields instead, it raises `RuntimeError("generator ignored GeneratorExit")` and the generator stays suspended.
+- **Already in S1:** the `send` validation, the "generator already executing" check, PEP 479, and throw-into-a-fresh-generator. I reused these as they were.
+
+**Tests:**
+- **`e2e_c2_test.clj`:** 9 new tests across all four evaluators: `send` and the iterator methods, `throw` caught and uncaught, `close` with `finally`, every `close` outcome, already-executing for all four entry points, PEP 479, `with` around a yield, and a yield inside a `finally` that a throw or close is unwinding. Every expected output was checked against your local CPython 3.9.6.
+- **`prelude_parity_test.cljc`:** one new portable test of throw and close through the prelude. The Python tests are JVM-only because the parser is, so this is what Node and Dart actually exercise.
+
+**Verification so far:**
+- **JVM, targeted:** `e2e-c2-test` ran 16 tests, 103 assertions, 0 failures; `prelude-parity-test` ran 9 tests, 0 failures.
+- **Node (`bb test:cljs`):** 2703 tests, 91884 assertions, 0 failures, and the parity namespace ran.
+- **Lint and style:** `clj -M:kondo` reports 0 errors and 0 warnings on the three changed files, and `cljstyle check` is clean on them. A repo-wide `cljstyle check` flags 19 files, none of them mine. I haven't run a separate ASCII or 80-column scan of the diff.
+- **JVM full lane (`bb test:clj`):** still running.
+- **Dart (`bb test:cljd`):** not verified yet.
+
+Background output capture kept losing results, so I started extra test runs by mistake. The duplicate JVM and Dart runs are still alive and the shell blocked me from killing them. They were all launched with only an error filter, so their results are lost either way. Once they finish I'll run Dart again on its own with output saved to a log file.
+
+Nothing is staged or committed.

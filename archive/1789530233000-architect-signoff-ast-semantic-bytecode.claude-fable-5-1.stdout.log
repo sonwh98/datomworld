@@ -1,0 +1,49 @@
+Completed-GMT: 2026-09-15 22:27:05 GMT
+Completed-Local: 2026-09-16 05:27:05 +07 (Asia/Ho_Chi_Minh)
+
+# Architect review: `yin.vm/ast->semantic-bytecode` (5-round working-tree diff)
+
+I reviewed the diff, the design doc §1/§2/§4/§6.5/§7.1–7.5/§10, `dao.jing.cljc`'s encoder and `dao.jing.md`'s contract, and the final verdicts of all five review rounds. I did not re-run the test suite (plan mode); I rely on the three independent JVM runs on record (gpt-6-astra r4, deepseek-v4-pro r5, orchestrator).
+
+## Rulings on the four questions
+
+**1. The deferred custom-comparator set case is an acceptable boundary. It is lower risk than the nested-metadata case that was wrongly scoped out in r3, not higher.** Three facts put it in `dao.jing.md`'s residual class:
+
+- The silent path needs the intersection of two residuals: a set whose comparator disagrees with `=`, AND elements that differ only in scalar metadata (the one thing the encoder still does not hash). Either alone is caught.
+- A comparator is a host function. Such a set cannot cross `dao.stream`, the transit codec, or the file backend; it re-reads as a plain hash set, where the case cannot exist. The nested-metadata case was reachable from reader syntax; this one is process-local programmatic construction only, exactly like `(symbol "42")`.
+- Even the address side already collapses it: `order-normalize` rebuilds sets with a `canonical-print` comparator, so two `=`-equal, metadata-distinct symbols become one element before hashing.
+
+The r5 docstring wording ("silent and order-dependent") is accurate and sufficient. Nonblocking recommendation: making it fail closed costs one line in the set branch of `same-meta?`, since a set admitting `=`-equal duplicates satisfies `(not= (count a) (count (into #{} a)))`. Track as follow-up, not as a commit condition.
+
+**2. The trajectory converged; I do not see a remaining structural gap in the metadata handling, but I see a structural duplication.** Rounds 2 through 5 were all one root cause: "metadata is itself a value and needs the same recursive treatment as structure." r2 fixed the surface, r3 fixed two leaves and mis-scoped the root, r4 adopted the model (both walkers recurse into `meta`), r5 fixed one leaf of the adopted model (`not-empty` on an entry-less carrier). That is a converging series, and r4's independent check of 40 nesting levels supports it. The number of rounds reflects the r1 implementation lacking the model, not an open-ended defect space.
+
+The structural observation: `dao.jing/order-normalize` already implements exactly this recursion (strip four position keys, recurse into metadata values and the metadata map's own metadata, drop empty metadata). `strip-reader-positions` re-implements it for the row body, and the two must agree byte for byte or the row's body no longer re-hashes to its id. Today they agree, and the round-trip law proves it, but the agreement is implicit: the key set `:line :column :end-line :end-column` is spelled out twice in two namespaces. This is the "hand-rolled below the boundary" pattern rather than a defect. Nonblocking: `dao.jing` should own and export the reader-position key set (or a `strip-reader-positions` function) and `v2` should consume it. Out of scope for this diff because the implementer was told not to edit `dao.jing.cljc`.
+
+**3. The partial validator is an acceptable unit boundary, with one claim to correct.** The design structures §7.3–7.5 as the loader's validator, distinct from the §6.1 codec pair, and §7.2 item 3 needs the same validator on both load paths, which this codec cannot be. Reconstruction enforcing shape, content-address, tag, arity, saturation, id-resolution, and the three slot kinds that break the round-trip law is the right minimum for a codec. I confirmed the omissions are exactly the ones that cannot change an address on re-projection: a correctly hashed `[:variable 42]` or a non-keyword `:op` reconstructs and re-projects to the same id, so they are validator work, not codec work. `:acyclic` is implied by the address check, as §7.4 says. The problem is the docstring: "Every reached row is validated before use" overclaims and invites a reader to treat this function as the §7.4 validator. Nonblocking: name the seven rules it enforces and state that §7.4 is a separate unit. Also note for that future unit that a non-address `node` slot currently surfaces as `:id-resolves`, whereas §7.4 names it `:slot-kind`; §7.2 item 3 will need them aligned.
+
+**4. Standard evaluation.**
+
+- **Invariants:** pass. Both functions are pure over their input; the two atoms are function-local accumulators, explicit and unshared. No callbacks, no hidden global state, no layer collapse.
+- **Ownership:** pass. `yin.vm` depending on `dao.jing/segment-key` is the §4.1 design. The grammar table is one datum driving both directions, which is the §2 "one table" intent.
+- **§4.2 gate:** this unit is the §7.2 conformance work that §4.2 explicitly permits ("addresses may be computed and carried"). The `same-meta?` collision guard is what makes storing rows keyed by id honest under the transitional encoder. Nothing in the diff lifts the block on cross-process identity uses; the commit message should not claim it does.
+- **Design contradiction found, outside this diff:** §4.2's table and §10 item 1 describe an encoder that coerces lists to vectors and drops metadata. `jing.cljc` no longer does either, and `test/dao/jing_test.cljc:189-234` already proves all three §4.2 conformance pairs distinct. The remaining residual is scalar metadata, which this diff's docstring states correctly. The design doc needs updating so the stated blocker matches the code.
+- **Portability:** CLJ and CLJS confirmed by the implementer. The code uses only portable core; the JVM-only reader test is correctly excluded with `#?(:cljd nil :clj ...)`. CLJD remains unverified, blocked by the untracked `test/bench/yin_vm_bench.cljc` (`measure-ms` undefined at line 113), which still exists in the working tree. This must be discharged before the branch merges to master; it does not block committing on the feature branch.
+- **Migration risk:** low. New functions only; no existing codec touched.
+
+## Findings table
+
+| Severity | file:line | Evidence | Correction |
+|---|---|---|---|
+| nonblocking | `src/cljc/yin/vm.cljc:717` | `semantic-bytecode->ast` docstring claims full validation | Name the seven enforced rules; point to §7.4 as a separate unit |
+| nonblocking | `src/cljc/yin/vm.cljc:665` | Set branch of `same-meta?` silent for comparator sets | Optional one-line count guard to fail closed |
+| nonblocking | `src/cljc/yin/vm.cljc:611` and `src/cljc/dao/jing.cljc:88` | Reader-position key set duplicated | `dao.jing` exports it; `v2` consumes |
+| nonblocking | `docs/design/yin.vm.code-as-tuples.md` §4.2, §10.1 | Describes superseded encoder behaviour | Doc update; separate docs commit |
+| nonblocking | `test/bench/yin_vm_bench.cljc:113` | Blocks `bb test:cljd` | Fix or move; run CLJD before merge |
+
+## Properties confirmed
+
+All 18 §2.3 tags with the specified kinds and arities; §2.4 saturation one-way; §2.5 exclusions (`:eid`, `:macro?`, `:yang/*`, symbol metadata on names, reader positions in payloads at every depth); §4.4 sharing by address with a loud collision on the encoder's scalar-metadata residual; §7.2 round-trip law in both directions over a corpus covering every tag; MapEntry, list, set, and map payload types preserved.
+
+## Verdict
+
+**APPROVE-WITH-FINDINGS (nonblocking).** Safe to commit on `dao.stream-redesign-v2`. Conditions before merge to master: the CLJD run, and the docstring correction on `semantic-bytecode->ast`. The other three findings are tracked follow-ups.

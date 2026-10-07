@@ -1,0 +1,68 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-09-25 12:14:42 GMT
+Completed-Local: 2026-09-25 19:14:42 +07
+
+# dao.stream.serve Q1–Q7 — round 2 cross-read (GLM-5.3)
+
+I read codex's round-1 answer verbatim (`collab/1790337700000-…mob-r1.gpt-6-sol.findings.md`) and opened every line it cites. Codex's citations check out where they point (two are off by a line or two but land on the right passages; noted inline). One of its claims moved me (Q5's OD-1 write-effect defect — I missed it in round 1 and say so below); the rest I hold or adopt on evidence.
+
+---
+
+## Q3 — HOLD (opaque ids now), adopting one of codex's concerns
+
+Codex: self-certifying from the start with proof of control at registration, because "an open relay routing by string equality can bind that name to the wrong registrant" (citing `dao.stream.discovery.md:70` — verified: mechanism 1; and design:224, which lands in §7.4's rendezvous text — the register/relay passage is §7.3 at 226; substance unaffected).
+
+The decisive fact codex's fix cannot answer: **the thing a dialer actually trusts — the logical-stream identity — is unauthenticated at this layer no matter what the peer id proves.** The contract records this itself: "Identity is an opaque value nothing authenticates… Self-certifying identities and signed or hash-chained elements live in the payload, above the stream" (`dao.stream.md:1087-1092`). With proof-of-control registration, an attacker who knows a descriptor's candidates can still serve a **fake stream under the real identity**; catching that requires kickoff-hash streams or the Noise-shaped channel — both correctly deferred (design §12, findings.md:284). So registration-proof closes one narrow attack (peer-id squatting on a shared relay) while leaving the adjacent, larger one (fake-stream impersonation) fully open: it is neither needed in the design's stated threat model (dev-only, trusted networks, findings.md:284) nor sufficient outside it. Also decisive: v1 peer ids are **composition-assigned** (findings.md:284); with unguessable assigned ids, squatting requires descriptor knowledge, which is the capability being protected. Relay routing stays string equality under either scheme (findings.md:226).
+
+What I adopt from codex: the concern is real and must be specified — duplicate/contested `:serve/register` must be defined relay behavior (refuse/evict as composition policy), which I flagged in round 1 and fold into Q4's policy seam. Named tripwire: **if a relay is exposed to non-trusted peers during v1's lifetime, the required work is channel authentication (Noise-shaped channel) and self-certifying stream identity — not registration-proof alone**; at that point my position flips. HOLD.
+
+## Q4 — CHANGE (adopt codex's formulation)
+
+Codex: composition-supplied relay admission policy, open admission only as the default of explicitly local/trusted deployments; postage a possible policy, not a settled protocol answer (citing findings.md:224/§7.3, `dao.stream.discovery.md:159` — verified: postage "Accepted" in principle — and `dao.stream.md:285` — verified: descriptors carry no authorization).
+
+I verified the load-bearing distinction and it is sound: the contract's no-gating rule governs **descriptors and `attach!`** (`dao.stream.md:285-292`); `:serve/register` and `:serve/dial` are relay-control frames the **serve layer** owns (findings.md:43), so an admission policy there contradicts nothing. Codex's shape is also more invariant-aligned than Fable's flat "v1 accepts any": policy-as-composition-data with an open default keeps the reference relay's dev behavior identical while refusing to bake "accept anyone" into the spec as a protocol property — and it subsumes my round-1 bounded-state flag (link/peer-table lifecycle, caps — otherwise criterion 5, findings.md:292, passes while the relay leaks links). Postage stays a future policy, consistent with `dao.stream.discovery.md:231-233` (design unspecified). CHANGE: my round-1 position plus codex's seam, merged.
+
+## Q5 — CHANGE (synthesis; codex found a real defect in OD-1's drafting, and its read-truth concern resolves declaratively)
+
+Codex: accept OD-3(a)+(2) and OD-2, revise OD-1 separately, resolve proxy read truth first. Three sub-points, checked individually:
+
+1. "`:retry?` needs no OD-1" — TRUE and I said the same in round 1 (open maps, `dao.stream.md:109-112`). Not load-bearing either way.
+2. **OD-1's "nothing appended" default is unsafe under OD-2 — TRUE, and I missed it.** The proposed rule reads "treats it as: not `ok`; nothing observed and **nothing appended**; and not retryable" (`dao.stream.md:836-838`), while OD-2's accepted semantics make an append's effect *unknown* unless clean failure is declared (`dao.stream.md:879-882`). A future write outcome meaning "effect unknown" would be consumed as "nothing appended, do not retry" — wrong on both halves. The fix is one clause: the unrecognized-outcome default for **writes** becomes "whether anything was appended is unknown" (reads keep "nothing observed"). I adopt codex's correction.
+3. **Deferring OD-1 entirely — I disagree, on code evidence.** Consumers throw today, not just in prose: `fail` is `(throw (ex-info …))` (`src/cljc/yin/vm/engine.cljc:41-43`), and `handle-put`/`handle-next` route every unrecognized outcome into it (`engine.cljc:192-195`, `245-254`; the doc's record at `dao.stream.md:818-821`). Serve relays outcome maps verbatim (findings.md:103), so a source on a newer contract makes this a **remotely triggered crash** the moment serve exists. The right sequence is accept-with-the-corrected-clause, not revise-indefinitely — and note the recursion: codex's own stricter alternative for the proxy (a truthful "fetching" answer instead of blocked-on-miss) would require a **new outcome**, which old consumers survive only under OD-1's rule. OD-1 acceptance is the prerequisite for the stricter design, not an alternative to it.
+
+**Synthesis position (CHANGE):** accept OD-3(a)+(2) and OD-2 as drafted; accept OD-1 with its write-effect clause corrected per codex; add one declarative paragraph to serve §4 naming the proxy's cached-read nature (see claim (a) below). Residual disagreement with codex: OD-1 acceptance timing — revise-then-accept vs accept-with-revision (same end state under the OD process, `dao.stream.md:796-801`).
+
+### The two directed verifications
+
+**(a) Codex's proxy-read-truth claim — PARTLY TRUE.**
+- *True as description:* the proxy answers `blocked` on a window miss regardless of what the source actually holds — the design says so itself ("`blocked` also for *not here yet*", findings.md:142; miss → demand → `blocked`, findings.md:137) — and `cursor` returns the last-observed anchors, not the current tail (findings.md:125-127).
+- *Not established: contract violation.* The IO model governs a handle that cannot yet know: "an operation that cannot yet know its answer returns the outcome true at the moment it is called, and the eventual answer arrives… as data" (`dao.stream.md:153-158`; also 81-82). The stale-`:newest` argument holds and is test-covered: stale is *earlier*, so it can only re-see, never skip (findings.md:127, criterion 3 at 290), a stale-`:oldest` degrades to the source's own `gap` with recovery cursor, and the proxy "never produces a `gap` the source did not" (findings.md:154). Both readings of `blocked`'s table row (`dao.stream.md:545`) are defensible — the text underdetermines it. That is a drafting gap, not a design flaw: the fix is the declaration paragraph (a transport declaring its outcome production reasons is already the contract's mechanism, `dao.stream.md:446-453`), not a redesign, and it does not touch the OD dispositions.
+- Verdict: behavior TRUE; "OD-1–3 do not make those answers satisfy the contract" PARTLY — the ODs were never claimed to; the missing piece is declarative and small.
+
+**(b) My claims — TRUE, now verified in code as well as docs.** Verbatim relay: findings.md:103 ("Outcome maps cross **verbatim**, including the cursors inside them"). Throwing consumers: `engine.cljc:41-43` (`fail` throws), `:192-195` (`handle-put` default → fail), `:245-254` (`handle-next` default → fail); doc record at `dao.stream.md:818-821`. `dao.lease` implemented: `src/cljc/dao/lease.cljc` — fact vocabulary, judge, holder disciplines, `make-judge`/`make-holder` composition constructors (86 defns).
+
+## Q6 — AGREE (positions converge; I adopt codex's two specifications)
+
+Both round-1 answers were lease-governed; the deltas were phasing and shape. Codex's "once grant, renewal, and **pre-grant lifetime** are specified" names exactly what my "composition-retired stopgap" was — the entry's lifetime before any lease exists is composition-governed; that is now stated as a specified phase rather than an apology. I adopt both of codex's additions, verified sound: **(i)** pre-grant lifetime = composition retirement until the grant exists; **(ii)** "a renewal sent through a proxy counts only when its required outcome is established under Q1" — correct and load-bearing: a renewal is an append returning `ok` (`dao.lease.md:207-209`), and through a proxy `ok` is outbound acceptance, so the renewal counts only on the observed source outcome — Q1's amended rule applied to lease facts; without it a false renewal could be counted from an append the source refused. Also keep: the lease must not govern source retention (`dao.lease.md:94-95` — unserving gates attachment, not retention); the judge sits on the serving host (`dao.lease.md:112-117`); the machinery already exists (`dao.lease.cljc`); and `dao.lease.md:286-289` must move from `:ws/closed` to `:serve/close` with `:serve/reason` (design's own flag, findings.md:328). Remaining open for the spec: holder attribution for a remote resumer in v1 (composition-assigned holder id until channel auth exists — ties to Q3's tripwire).
+
+---
+
+## Final table
+
+| Q | FINAL position | agrees with codex | what remains open |
+|---|---|---|---|
+| Q1 | As designed; amend UCF §7.4.3 to resume `:put` on the observed source outcome; `append-unknown` leaves the wait undischarged | yes (agreed since r1) | Fable must write the `append-unknown` sentence into §7.4.3 |
+| Q2 | Defer held reads from v1; keep §3.7 additive | yes (agreed since r1) | none |
+| Q3 | Opaque composition-assigned (unguessable) ids in v1; duplicate-registration defined as relay policy; self-certifying additive later; tripwire: public relay ⇒ channel-auth + self-certifying stream identity, not registration-proof alone | **no (HOLD)** | codex's reply; the tripwire condition |
+| Q4 | Relay admission is composition-supplied policy, open default for trusted/dev deployments; link/peer lifecycle and caps part of the seam; postage a future policy, never protocol | **yes (CHANGE — adopted codex)** | none material |
+| Q5 | Accept OD-3(a)+(2) + OD-2 now; accept OD-1 **with** its write-effect default corrected to "effect unknown"; add the proxy cached-read declaration to serve §4 | partly (CHANGE/synthesis) | OD-1 acceptance timing (accept-with-revision vs revise-then-accept — same end state); the declaration paragraph's wording/home |
+| Q6 | Lease-governed via `dao.lease` over serve-table entries; pre-grant lifetime = composition retirement; renewal counts only on observed source `ok`; judge on the serving host; update `dao.lease.md:286-289` to `:serve/close` + reason | **yes (AGREE, adopted its additions)** | remote-holder attribution in v1 |
+| Q7 | `dao.stream.serve`; rename `dao.stream.serving` → copy-serving; fix ws prose 18-26 | yes (agreed since r1) | none |
+
+CONSENSUS: Q1, Q2, Q4, Q6, Q7
+OPEN: Q3, Q5
+
+No concession was made to reach consensus: Q3 holds on the unauthenticated-identity evidence (`dao.stream.md:1087-1092`); Q5 moved because codex's OD-1 write-effect finding is genuinely correct, not as a trade.
+
+Read-only constraint honored: no repository file was edited. Round-2 working notes are appended to `~/.claude-glm/plans/read-collab-1790337700000-architect-dao-serene-shannon.md`.

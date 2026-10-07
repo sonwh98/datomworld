@@ -1,0 +1,20 @@
+<!-- Promoted from collab/reviewer-orchestrator-discipline-r8.gemini-3.1-pro-high.stdout.log
+     Conversation e671c7ca-f04c-4750-95ab-1178f25ba4bc (resumed). -->
+
+Completed-GMT: 2026-09-04 10:46:00 GMT
+Completed-Local: 2026-09-04 17:46:00 Asia/Ho_Chi_Minh
+Coding-Agent: agy
+Session-ID: e671c7ca-f04c-4750-95ab-1178f25ba4bc
+
+1. **High (Plan-Mode Harness)**: Fixed. The text now accurately evaluates a seat by its concrete capabilities (read, write, shell, test) rather than a permission mode label, correctly confirming that an agent requiring human approval for writes can still effectively orchestrate.
+2. **Medium (Redundancy)**: Fixed. The duplicate items were cleanly cut. The surviving session-boundary item (now Item 6) has been brilliantly reframed to handle context window exhaustion and safe checkpointing, making it entirely non-redundant and highly actionable.
+3. **Low (Advice-Shaped Item)**: Fixed. Item 7 is now fully structural. By mandating the explicit inclusion of raw commands, exact assertion counts, and concrete lists of omitted checks, it converts a previously moralizing instruction into a verifiable formatting requirement.
+4. **Declined Item (Test Flakes)**: Correctly declined. If the repository's test suite has proven strictly deterministic, adding rules for hypothetical flakes violates the evidence-based discipline this document establishes. Your reasoning is sound and rigorous.
+5. **New Caveat**: The addition to Item 5 ("Weigh it on the merits...") is perfectly balanced. It enforces necessary critical thinking against hallucinatory reviewer claims without diluting the strict mandate to fix valid defects.
+
+| Severity | File:Line | Evidence | Correction |
+| :--- | :--- | :--- | :--- |
+| None | N/A | No defects found. All r7 findings have been strictly resolved or soundly declined based on empirical repository evidence. | N/A |
+
+SIGN-OFF: GRANTED
+

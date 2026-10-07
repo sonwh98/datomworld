@@ -1,0 +1,10 @@
+Completed-GMT: 2026-09-24 19:58:45 GMT
+Completed-Local: 2026-09-25 02:58:45 Asia/Ho_Chi_Minh
+
+**R4 P1: CLOSED.** The blocking client now parses strict Base64, hash-verifies the requested address, and strictly decodes the payload before returning bytes ([remote.cljc:139](/Users/sto/workspace/datomworld/src/cljc/dao/jing/remote.cljc:139), [remote.cljc:157](/Users/sto/workspace/datomworld/src/cljc/dao/jing/remote.cljc:157)). Malformed found replies throw; absent replies return the caller’s not-found value without exposing bytes ([remote.cljc:164](/Users/sto/workspace/datomworld/src/cljc/dao/jing/remote.cljc:164)). A refusal also propagates through `jing/get` and the `materialize!` read-back before either can accept the reply ([jing.cljc:521](/Users/sto/workspace/datomworld/src/cljc/dao/jing.cljc:521), [jing.cljc:560](/Users/sto/workspace/datomworld/src/cljc/dao/jing.cljc:560)). The hostile-pair test targets the repaired boundary ([remote_test.cljc:407](/Users/sto/workspace/datomworld/test/dao/jing/remote_test.cljc:407)).
+
+The linker reconciliation is consistent with its documented fail-closed catch: a rejected RPC receipt becomes `:absent`, while local corrupt bytes reach the linker’s own `:address-mismatch` check ([debruijn_linker.cljc:182](/Users/sto/workspace/datomworld/src/cljc/yin/vm/debruijn_linker.cljc:182), [debruijn_linker.cljc:249](/Users/sto/workspace/datomworld/src/cljc/yin/vm/debruijn_linker.cljc:249), [debruijn_linker_test.cljc:233](/Users/sto/workspace/datomworld/test/yin/vm/debruijn_linker_test.cljc:233)). The new lines checked are ASCII and at most 80 columns. I did not rerun suites.
+
+P3 | [debruijn_linker_test.cljc:252](/Users/sto/workspace/datomworld/test/yin/vm/debruijn_linker_test.cljc:252) | The test name still says `...is-an-address-mismatch`, but its assertion now requires `:absent` ([debruijn_linker_test.cljc:267](/Users/sto/workspace/datomworld/test/yin/vm/debruijn_linker_test.cljc:267)). | Rename it to reflect the asserted classification.
+
+Verdict: READY

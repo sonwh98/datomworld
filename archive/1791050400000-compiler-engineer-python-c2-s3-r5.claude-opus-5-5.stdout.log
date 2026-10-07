@@ -1,0 +1,53 @@
+Completed-GMT: 2026-10-03 18:31:49 GMT
+Completed-Local: 2026-10-04 01:31:49 +07
+Coding-Agent: claude
+Session-ID: 8a064c70-5a78-4fc8-a2d8-1bcd34e27a0f
+
+All five items are done and every focused run is green. One process slip: I accidentally ran the whole JVM test suite once (details at the end). Changes are unstaged edits to `prelude.cljc`, `prelude_parity_test.cljc` and `e2e_c2_test.clj`. I ran no git write commands and left the design doc alone.
+
+**1. StopIteration thrown through a closed delegate (fixed).**
+- **Change:** a new `py/stop-as-return` turns a delegate's raised StopIteration (subclasses included) into delegation completion with its `.value`. It applies only when an exception is thrown into a generator delegate. A StopIteration escaping the delegate's own body still becomes RuntimeError, and so does one thrown at a list or other sequence delegate.
+- **CPython 3.9.6:**
+  - closed inner plus `throw(StopIteration(7))` gives `v 7`, then `after`;
+  - a subclass gives its first argument, and the plain class gives None;
+  - the body and sequence cases give RuntimeError.
+- **No oracle for one case:** a subclass whose `__init__` skips `super()` crashes CPython 3.9.6 (exit 139). Ours answers None; there's no test for it.
+- **Tests:** a four-VM e2e test and a parity form for all hosts.
+- **Separate S2 deviation, not fixed:** `fresh_gen.throw(StopIteration(4))` is RuntimeError in CPython but raises a plain StopIteration in ours. It can't reach `yield from`.
+
+**2. Dict/set iterator stays invalid (fixed).**
+- **Change:** `py/iter-step` now marks the iterator invalid (expected size -1) before raising, so later `next` calls keep raising even after the size is restored. CPython does the same for dicts and sets.
+- **Test:** a parity form that grows a dict, catches the error, restores its earlier content and checks the next advance still raises. It has to be a parity form because our Python subset has no `del` or `set.remove`. Size-only detection is unchanged (glm's P3, out of scope).
+
+**3. Deeper delegation tests and the retention measure.**
+- **New tests:** a parity form for all hosts and two e2e tests. They cover:
+  - a 3-deep chain resumed by the top level, a caller with its own handler frame, another generator and a delegating generator;
+  - a throw through three levels;
+  - yields inside `finally` and `except` while an exception unwinds through them.
+
+  All expected outputs come from CPython 3.9.6.
+- **Retention measure:** the cheap version was possible, so I added it and no doc sentence was needed. The new `^:slow` JVM test `reachable-heap-is-stable-under-delegation-test` works like this:
+  - It force-collects each VM's final state with `engine/collect`, rooted at the suspended outer generator.
+  - It measures the live cell count plus the full size of every live cell's content, with continuations followed.
+  - It asserts the measurement is equal after 10 and after 1000 items, with callers alternating between a function and throwaway generators.
+- **Sanity check:** a program that retains one value per item does change the measure (by exactly 20 between 10 and 30 items), so the test can fail.
+- **Limitation:** it measures what's reachable from the suspended generator after the run, not a snapshot taken mid-run.
+
+**4.** Goldens were not re-minted. `float-address-test` should fail on those five until the rebase after C3-S2 lands. I didn't run it this round.
+
+**5.** Noted only: the delegation entries do no recursion-limit check or `:base` rebasing. I didn't touch safepoint code.
+
+**Focused runs (JVM):**
+
+| Run | Result | Time |
+|---|---|---|
+| `prelude-parity-test` + `lower-test` | 41 tests, 148 assertions, 0 failures | 34 s |
+| `e2e-c2-test -e :slow` | 22 tests, 110 assertions, 0 failures | 37 s |
+| `e2e-c2-test -i :slow` (4 slow tests) | 4 tests, 94 assertions, 0 failures | 4:08 |
+| reachable-heap test alone | 12 assertions, 0 failures | 1:13 |
+
+kondo: 0 errors, 0 warnings. `cljstyle fix` then `check`: clean. The new parity forms haven't run on Node or Dart yet; those lanes are yours.
+
+**Accidental full JVM run:** my first probe used `clojure -A:test -M -e …`, which picked up the alias's test runner and ran the whole JVM suite: 2934 tests, 227308 assertions, 5 failures, 0 errors. It ran past the 10-minute cap and the harness moved it to the background; I waited for it in the foreground. The 5 failures are most likely the five goldens left un-re-minted on purpose, but the output was cut off so I can't confirm which tests failed. Later probes used an inline `-Sdeps` alias without the runner.
+
+The Round 5 section is appended to `collab/1791045188000-compiler-engineer-python-c2-s3-r2.claude-opus-5-5.findings.md`.

@@ -1,0 +1,89 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+```
+Completed-GMT: 2026-09-02 06:45:42 GMT
+Completed-Local: 2026-09-02 13:45:42 Asia/Ho_Chi_Minh
+```
+
+# Review: `docs/design/dao.lease.md` (rewritten)
+
+Read-only; no edits made. All five scope documents read in full; cross-checks cited by section.
+
+## Findings, most severe first
+
+**Critical** — none found.
+
+**High — 1 finding**
+
+**H1 | "A lease is facts, accreted" (fact table, L114–126) + "Judging lapse" (L309–311) + "Delegated renewal" (L469–473) | The vocabulary never names the lease's holder, yet the entire attribution story requires the judge to know it.**
+The grant requires `:dao.lease/subject`, `duration`, `max` — no holder. The judge's private state is enumerated as "each lease's terms — subject, duration, cap — and the observation time" — no holder. Yet the document's own load-bearing rules are author-checked: "Only grantor-authored facts establish terms"; a renewal "is evidence **about its author**"; the delegated-renewal escape hatch requires "the judge counting a renewal only **from the holder** or a designated renewer"; and the attribution section's threat is "any writer can append an `:accepted` fact naming itself and take tenure." A judge that cannot map lease → holder cannot reject a renewal from the wrong author, so any co-writer on a shared medium can keep a dead holder's lease alive (or, pre-grant, the threat the attribution section names). The document's own argument for `:dao.lease/subject` — "a reader of the grant alone must still be able to say what was granted" — applies verbatim and unanswered to *to whom* it was granted. Worse, the durability instruction ("make the terms durable — persisted by the judge") preserves exactly the state that omits the holder, so even the persisted-terms recovery path cannot attribute renewals; and for unsolicited grants there is no proposal whose authorship could be read back. **Correction:** add `:dao.lease/holder` to the grant's required keys (restated, like subject, so a reader of the grant alone knows both what and to whom), and add the holder to the judge's durable terms. Alternatively, state explicitly that the holder binding is compositional (which stream/attachment the grant rode) — but then the delegated-renewal "weakest sufficient mechanism" and the renewal-attribution rules must say where the judge gets the binding, because no fact and no stated judge state carries it.
+
+**Medium — 3 findings**
+
+**M1 | "Whose clock decides" (L288–295) vs sizing relations (L302–305) | "Transit delay… errs in the holder's favour" contradicts "the tolerance covers expected flight time."**
+The paragraph is true only of the post-observation effect: once a delayed renewal is observed, the fresh window is measured from the later observation, extending real tenure. But during the unobserved interval the renewal protects nothing — the interval since the *previous* observation keeps growing, and a tick inside the flight window false-lapses a holder that renewed on time. That is precisely why flight time must be covered by tolerance, and why the renewal fraction exists as margin. As written, an implementer sizing tolerance from the "errs in the holder's favour" paragraph would conclude flight time needs no budget. **Correction:** restate as: "Delay errs *against* the holder while a renewal is unobserved — this is what the tolerance must cover — and *for* the holder once observed, since the window is re-seeded from the later observation. The residual, deliberate trade is the late-observed renewal from an already-dead holder buying a fresh duration."
+
+**M2 | "Renewal is evidence" (L207–211) | The holder's stop-acting bound is not seeded by the grant — the grant-seeding fix was applied to the judge only.**
+"A holder whose own clock has passed the duration **since its last renewal** must cease acting" is undefined before the first renewal: a holder doing short work that never renews has no stated bound at all. The judge's window is defined as "the grant or the newest renewal, whichever is later" (L311); the holder's mirror rule omits the grant seed. This is the original never-lapsing-leak defect relocated to the holder's side, where it now looks handled. **Correction:** "…passed the duration since its last renewal or since it observed the grant, whichever is later."
+
+**M3 | Intro (L12–15) vs "Lapse is a conclusion" (L246–249) | The intro still promises each bounding invariant "appears below as a rule about what a lease may never do" — including the interpretation/execution collapse — but the body retracted that mapping and no rule in the list corresponds.**
+The retraction ("the same interpreter both judges and reclaims, so this is not the separation of interpretation from execution, and it should not be dressed as that invariant") is correct and landed. But the enumeration "bounded by the invariants against callbacks, implicit control flow, hidden global state, **and the collapse of interpretation into execution**; each appears below as a rule about what a lease may never do" re-asserts, by enumeration, the withdrawn claim: "Never fires into lease code" covers callbacks and implicit control flow, "Never a registry" covers hidden global state, and the fourth invariant has no corresponding rule. **Correction:** either drop the fourth invariant from the enumeration, or add one honest sentence to *What a lease may never do* stating that this invariant yields no lease-specific prohibition because judging and reclaiming are deliberately one interpreter.
+
+**Low-Medium — 2 findings**
+
+**LM1 | "Precedent" (L41, L60–67) | "The other three follow from the first" holds for two of the three; the obligation half of the fifth does not follow from "the guard's subject is not the applier."**
+The inline derivation (L47–51) legitimately yields the stateful-guard and presence/absence divergences. The fifth's *cadence* half ("a judge with a silent holder has nothing driving it") does follow transitively, via absence. But its *obligation* half ("a grantor that never judges leaks its resource without bound") follows from the lease being a held deviation from a safe default on a possessed resource — it would hold even with a local subject — not from subject-remoteness. The derivation is asserted by the count ("the other three follow") rather than demonstrated. **Correction:** attribute the obligation to what actually generates it (possession of the scarce resource; the revert is an act), e.g. "two follow from the first; the third follows from the first via absence for its cadence half, and from possession for its obligation half."
+
+**LM2 | "Lapse is a conclusion" (L236–238, 258–260) | How the judge observes "its own clock" is unspecified, and the tick's content is ambiguous.**
+The judge "notes on its own clock when it observes each fact" and "the clock is read at a tick, never armed by the judge" — but on the strict reading of `datom.world.md` host boundaries, reading a clock is itself a host effect whose outcome arrives later as data. Whether the tick datum carries the adapter's timestamp (host event data — exempt from "never puts absolute time on the wire," which governs lease facts) or the judge performs its own clock-read effect changes which clock defines rate skew and where measurement latency sits. The holder faces the same unnamed problem: on an event-driven host, "renews from its own control flow" needs its own driving event source. **Correction:** one sentence — either "a tick carries the adapter's timestamp, and the judge judges on that clock," or "the judge reads the host clock through an ordinary effect stream"; and name the holder's renewal driver as its own tick or control loop.
+
+**Low — 3 findings**
+
+**L1 | "Judging lapse" (L346–348) | The restart re-grant does not say it mints a new lease id, though "each status is authored exactly once" (L112) requires it.**
+"A restarting grantor… appends a fresh unsolicited `:accepted`" — if an implementer reuses the id, the medium carries two `:accepted` facts for one lease, violating exactly-once authorship. **Correction:** "…a fresh unsolicited `:accepted` under a new lease id, and the earlier lease is over by that act."
+
+**L2 | "A lease is facts" (L134–140) | "Non-negative" admits a zero duration, whose meaning under the strict `>` boundary is never addressed.**
+A zero-duration grant lapses at the first judgment point after any positive interval — a degenerate grant that survives validation. **Correction:** either declare zero defective alongside negative, or state plainly that a zero duration means "reclaim at the first judgment point," which is sometimes a useful primitive.
+
+**L3 | "Precedent" / "A lease is facts" (L107–109) | The lease merges the precedent's two streams into one medium with two dispatch keys — an unnamed divergence from "advisory *streams*."**
+The precedent separates patch and trace into two streams; the lease puts negotiation facts and renewals on one medium, distinguished by keys. The consequence (renewal traffic on a shared bounded medium can evict other leases' grants) is handled by the gap/unknown rules, but the divergence itself is not counted among the five. **Correction:** either name it or note that a composition may restore the precedent's shape by wiring two media.
+
+## Answers to the named contradiction checks (state plainly)
+
+- **Tick stream vs "never fires into lease code" (L254–260 vs L393–396):** no contradiction. The tick is exactly `datom.world.md`'s prescribed host-event form ("a timer fires — the adapter appends one plain-data event and returns"), the clock is read rather than armed, and cadence is composed. Only the clock-read channel is unspecified (LM2).
+- **Grant-seeded window vs restart rules (L311–316 vs L339–348):** no contradiction. Within a lifetime the seed is the grant; after state loss the seed is irrecoverable by design (renewals carry no time), so the one-duration-unknown rule and the re-grant path take over coherently. The asymmetry that *does* exist is on the holder's side (M2).
+- **Durable-terms requirement vs "never a registry" (L325 vs L397–398):** no contradiction — the prohibition targets *shared* lease tables, and judge-persisted terms remain that judge's private derived state, made durable. A near-miss worth one closing sentence, since "persisted by the judge" is the registry's shape minus its sharing.
+
+## Retraction completeness
+
+- Rebuildable-from-stream: retracted explicitly (L320) with consequences drawn (durability or restart rule). Complete.
+- Authorship-as-ambient: retracted and replaced (*Attribution is a composition duty*, accurate against `dao.stream.md` Concurrency/Envelopes and `dao.stream.ws.md`'s `:ws/attachment`). Complete — and it is this section's honesty that exposes H1: with attribution declared a real basis, renewal checking needs the holder, which nothing records.
+- Assembly refusal of an ungoverned grantor: retracted (L374–381), accurately against the ws deposit-admission contrast. One leftover only: M3's dangling enumeration. Nothing else rests on the withdrawn premise.
+
+## Precedent mapping honesty
+
+The precedent's own text is read accurately throughout (advisory patches, explicit safe points, deopt-and-baseline, explicit status; `:rolled-back`→`:lapsed` correctly described as renamed; `:released` correctly described as having no analogue; the optionality parenthetical at L65–67 is a fair repair). The judge/reclaim invariant claim is honestly disclaimed. The one defect is LM1: the "three follow from the first" count is asserted for a derivation that holds two-and-a-half times out of three.
+
+## What an implementer must still invent
+
+1. The holder binding (H1) — the largest.
+2. The clock-read channel and tick datum shape; the holder's renewal driver (LM2).
+3. Where tolerance and cadence are declared (creation spec? composition value?) — the doc requires declaration but names no home.
+4. Restart re-scan mechanics: cursor anchor after restart, and renewals naming leases whose grant was evicted *before* the anchor (no gap signal exists for pre-anchor history — the one-duration rule covers it, but only if the implementer knows to treat every unseen lease as unknown).
+5. Whether one subject may carry concurrent leases (relevant to the shared-work claim; not admission policy — lease semantics).
+6. The renewal ride-path for remote holders (ws: outbound path → server deposit medium, attributable by `:ws/attachment`) — implied, never traced once.
+
+## What is now overstated in the other direction
+
+- **"Nothing can refuse it" (L375–381) is true of cadence but is allowed to bleed over attribution.** Attribution conformity is *structural* — inspectable at the moment the judge interpreter is composed with its medium, exactly as `dao.stream.ws.md` inspects a deposit destination's declared nature at boundary composition. The document leaves the entire attribution defect review-only when the ws pattern demonstrates an enforceable subset.
+- **"That obligation cannot be a callback and cannot be a component" (L360)** — the judging interpreter *is* a component, and a good one; what cannot happen is discharging the obligation by mere inclusion. As worded it under-sells the design it then describes.
+- Nothing else: the no-close-code decision, the delegated-renewal denial, and the `:max` scoping are conservative *and correct* — the conservatism there is load-bearing, not timid.
+
+## What the rewrite made worse
+
+1. **M1** — the new rate-vs-offset skew material introduced an internal contradiction (delay's sign) that the old draft's vaguer clock section did not contain.
+2. **M2** — the grant-seeding fix was applied to the judge only, creating a visible judge/holder asymmetry where the draft had a uniform (if broken) rule; the defect now wears the fix's clothing.
+3. **H1 was sharpened, not closed** — the new attribution section and the new delegated-renewal "weakest sufficient mechanism" both make renewal authorship checking load-bearing, while the fact table and the judge's enumerated state still omit the one datum that checking requires. The rewrite deepened the dependency on a premise the vocabulary never supplies.
+4. **M3** — the retraction of the invariant claim orphaned the intro's four-invariant promise; the draft's (false) claim at least satisfied its own enumeration.
+
+Net: the four reviewers' findings genuinely landed — the tick stream, grant seeding, reclaim ordering, retractions, and the close-code reasoning are all real and internally consistent where the task asked me to look hardest. What remains is one structural hole the convergence of the fixes exposed (H1), one new internal contradiction (M1), and one relocated defect (M2).
+[?25h

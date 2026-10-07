@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-24 13:16:19 GMT
+Completed-Local: 2026-09-24 20:16:19 +07
+Coding-Agent: glm
+Session-ID: a2749e73-2e44-4716-8a1f-6ad0cc1d82d9
+
+`docs/design/yin.vm.linker.md` is now revision r7: 2,399 lines, pure ASCII, no line over 80 columns, uncommitted. Each round-6 finding, and what r7 did:
+
+**1. PARTIAL — Register return frames & nested attachments — agreed.**
+A new **Grow-only returns (r7)** rule in 7.3 act 3 extends hash-safe restore from parked entries to every transition: *no frame, entry, or restore assigns a code-space value; `:segment`, `:hash`, and the offset table are kernel state that only the loaders and `attach-image` write.* The register frame (whose `:call` builds `{:segment ... :hash ...}` today, and whose `return-transition` writes both back, per register.cljc) drops those fields — its absolute `:return-pc` survives every append — while the stack frame (`:return-pc`/`:frames`/`:stack-base`, `:return` never touches `:segment`) and the semantic frame (an immutable local id) already conform and are named as such. A lift derives a frame pc's image row from the offset table at lift time, so frames carry no identity either. Criterion 17 gains the attach-during-call-then-return case, as does the M4 test list.
+
+**2. PARTIAL — Module store routing & transitive stores — agreed.**
+The active-store context now routes **direct store instructions**, not just free reads: `:store-put` (and the `:vm/store-put` effect) writes the active module store — closing the gap at stack.cljc's `:store-put`, which writes ambient `:store` today — and `:store-get` reads it, falling through to ambient only for engine-filed gensym'd resource cells; the engine's own bookkeeping is untouched. The context threads through calls: frames record the caller's active `:store-of`, application makes the callee's active, return restores it. The slice now carries **one `:yin.k/store` snapshot per module reached transitively** — the child's own plus each dependency's instance *as it stands in the child at halt, including mutations made through the dependency's closures*; a missing snapshot refuses the lift (`:yin.k/non-portable`, `:yin.k/kind :missing-module-store`); lower instantiates what the task lacks and never overwrites a live instance (first link wins, one store per module per task). Registry entries gained `:stores {addr store}` (7.3 act 4, 8.3); criterion 23 and M4 tests extended; the must-not-change clause now names the r6+r7 kernel amendments together.
+
+**3. Walker lambda disambiguation — agreed.**
+The walker rule no longer assumes a body node belongs to exactly one `:lambda` row (content-addressed rows are shared — `semantic-bytecode->ast` rebuilds a row reached through several parents once and shared). The walker's decoder records the **source `:lambda` row id** in the closure at creation (it is decoding that very row); the lift reads the recorded id and verifies body slot and params, refusing `:unrooted-body` on disagreement; a fabricated closure with no recorded id resolves through a `[node params]`-keyed row index or refuses. The lift table's walker row now shows `:lambda id` in the closure shape.
+
+Section 13.1 carries the r7 record (round 6, one CLOSED noted as no-action); r6–r2 shifted to 13.2–13.6. Next step: hand r7 to `gpt-6-sol` for the round-7 consensus review.

@@ -1,0 +1,46 @@
+Completed-GMT: 2026-09-30 05:41:13 GMT
+Completed-Local: 2026-09-30 12:41:13 +07
+Coding-Agent: claude
+Session-ID: 771d73b8-33cb-4277-815e-2b72fe699c1c
+
+# Report r3: fix round 2 (owner addition: per-round AST-index warning)
+
+The warning is in and every required lane is green. I wrote the tests first and they failed on the old code (10 failures). Nothing is staged or committed, and every check ran in the foreground. Changed files: `src/cljc/yin/repl/ast_index.cljc`, `src/cljc/yin/repl.cljc` and `test/yin/repl/ast_index_test.cljc`. No existing `yin.repl` test changed, because healthy rounds print exactly what they did before.
+
+## What changed
+- **New `ast-index/notice`:** it returns nothing while the AST indexer is healthy, and one warning line when it isn't:
+  - after a reader gap: `Warning: the AST index lost a program batch; $ast and $occ are unavailable until (reset)`
+  - after a refused packet: `Warning: the AST index refused a program (<cause>); $ast and $occ are unavailable until (reset)`
+    - `<cause>` is the reason the packet was refused: `shape`, `duplicate-address`, `invalid-rows` or `address-mismatch`.
+    - If deriving the relations throws, the cause is `derive`.
+    - The text never includes a host exception message, so it is the same on every host and VM.
+- **`yin.repl`:** `with-index-notice` now takes a list of warnings and prints each non-empty one on its own line. The code-index warning always comes before the AST-index one.
+- **When it appears:** in the same place as the code-index warning, after the round's answer. It repeats every round until `(reset)` or `(vm ...)`, because it reflects the indexer's current state rather than what happened this round.
+
+**Decision for you:** a round whose macro expansion fails sends no program to the indexers, so it gets no AST warning. That matches how the code-index warning already behaves. If "each round" should include those rounds too, it's a one-line change.
+
+## Tests
+- **Gap:** every round shows the lost warning, and the first round after `(reset)` shows only `"3"`.
+- **Malformed packet:** two rounds in a row each show `refused a program (shape)`, and `(reset)` clears it.
+- **Duplicate row:** the warning names `(duplicate-address)`.
+- **Healthy rounds:** `["3" "5"]` with no warning on all four VMs.
+- **Same text everywhere:** the lost warning is identical on all four VMs.
+- **Both indexers unhealthy:** the answer, then the code-index warning, then the AST-index warning, and nothing else.
+
+To prove the tests catch real breakage, I broke the code three ways, one at a time, and restored it after each:
+
+| Mutation | Result |
+|---|---|
+| no warning when lost | 7 failures |
+| no warning when failed | 3 failures |
+| AST warning before the code-index warning | 2 failures |
+
+## Verification
+| Check | Result |
+|---|---|
+| kondo | 0 errors, 0 warnings |
+| Focused JVM (`ast-index-test`, `repl-test`, `index-test`) | 63 tests, 450 assertions, 0 failures |
+| `bb test:cljs` | 2303 tests, 51099 assertions, 0 failures; the new namespace ran |
+| `bb test:cljd` | 2265 tests, all passed |
+
+The CLJD total rose from 2261 to 2265, exactly the 4 new tests, so they run on CLJD too, including the check that the warning text matches across VMs.

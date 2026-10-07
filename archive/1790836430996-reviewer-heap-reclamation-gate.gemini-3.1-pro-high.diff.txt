@@ -1,0 +1,712 @@
+diff --git a/src/cljc/yin/vm.cljc b/src/cljc/yin/vm.cljc
+index 3ee14693..3afef29b 100644
+--- a/src/cljc/yin/vm.cljc
++++ b/src/cljc/yin/vm.cljc
+@@ -1981,6 +1981,24 @@
+                                    profiles))})
+ 
+ 
++(def default-gc-threshold
++  "The base heap-reclamation threshold: allocations between collections
++   while the live heap is small (owner decision 3 of the heap-reclamation
++   design)."
++  4096)
++
++
++(defn fresh-gc
++  "A task's empty collector state `:gc`: `:since` counts allocations since
++   the last collection, which runs when it reaches `:threshold`; after one,
++   the threshold is `max(:base, 2 x live)`. `:pinned` holds the cell ids a
++   stream or FFI request carried out of the VM's view, kept for the task's
++   life. `base` is the composition's parameter, nil for the default."
++  [base]
++  (let [base (or base default-gc-threshold)]
++    {:since 0, :base base, :threshold base, :pinned #{}}))
++
++
+ (defn empty-state
+   "Return an initial immutable VM state map.
+ 
+@@ -2027,6 +2045,8 @@
+                    an install child's secret; without it a child has none
+      :attach-stream (fn [descriptor] -> attach outcome): how a lowered
+                    stream reference (r9) attaches to its stream
++     :gc-threshold the base heap-reclamation threshold, in allocations
++                   (default `default-gc-threshold`); see `fresh-gc`
+ 
+    The FFI pair comes from explicitly supplied `:call-in`/`:call-out` first --
+    matching v1's precedence, so a composition handing over streams directly is
+@@ -2148,6 +2168,7 @@
+         :ffi-caller-id (:ffi-caller-id opts),
+         :parked {},
+         :heap {},
++        :gc (fresh-gc (:gc-threshold opts)),
+         :id-counter 0,
+         :ready-queue [],
+         :wait-set [],
+diff --git a/src/cljc/yin/vm/ast_walker.cljc b/src/cljc/yin/vm/ast_walker.cljc
+index ec4794f5..8ec78383 100644
+--- a/src/cljc/yin/vm/ast_walker.cljc
++++ b/src/cljc/yin/vm/ast_walker.cljc
+@@ -67,6 +67,7 @@
+    row-nodes      ; {row-id node}: each held row decoded once
+    resources      ; private engine resources: the link pair
+    heap           ; {cell-id {:value v :seal s}}: the task's cells
++   gc             ; {:since :base :threshold :pinned}: heap reclamation
+    origin         ; this task's origin tag for link ids
+    origins        ; counter for the origin tags of install children
+    ancestry       ; the modules installing on this task's install chain
+@@ -123,6 +124,7 @@
+                    (:row-nodes vm)
+                    (:resources vm)
+                    (:heap vm)
++                   (:gc vm)
+                    (:origin vm)
+                    (:origins vm)
+                    (:ancestry vm)
+@@ -205,6 +207,8 @@
+    here and name their outcome."
+   [state op args k env]
+   (let [{:keys [call-in]} (ffi/require-call-pair! (:resources state) op)
++        ;; the request carries `args` out of the VM's view
++        state (engine/pin-refs state args)
+         response-cont {:type :dao.stream.apply/eval-call, :next k, :env env}
+         parked-id (ffi/call-id state (engine/park-id state))
+         parked (engine/park-continuation state
+@@ -1072,7 +1076,7 @@
+                                      :call-capacity :link-request
+                                      :link-response :origin :ancestry
+                                      :capability-secret :secret-source
+-                                     :attach-stream])
++                                     :attach-stream :gc-threshold])
+                        :telemetry (:telemetry opts)
+                        :vm-model :ast-walker))]
+      (-> (map->ASTWalkerVM (merge base
+@@ -1106,6 +1110,31 @@
+                    :expected-format :yin.ast/code})))
+ 
+ 
++(def ^:private frame-continuations
++  "The continuation types whose `:frame` is an AST node: the code of the
++   pending application, test, or stream operation."
++  #{:eval-operator :eval-operand :eval-test :dao.stream.apply/eval-operand
++    :eval-stream-put-target :eval-stream-put-val :eval-stream-close-source
++    :eval-stream-cursor-source :eval-stream-next-cursor})
++
++
++(defn- gc-children-of
++  "Heap reclamation's view of a walker value. A frame continuation's
++   `:frame` is code with the runtime keys `:evaluated` and `:fn` assoc'd
++   in, so only those are traced, never the operand subtrees; the rest of
++   the continuation (`:next`, `:env`, a `:stream-ref`) is. A closure
++   contributes everything but its body and params, so its captured
++   environment. Anything else is plain data."
++  [x]
++  (when (map? x)
++    (cond (= :closure (:type x)) (into [] (vals (dissoc x :body :params)))
++          (and (contains? frame-continuations (:type x)) (contains? x :frame))
++          (let [frame (:frame x)]
++            (-> (into [] (vals (dissoc x :frame)))
++                (conj (:evaluated frame) (:fn frame))))
++          :else nil)))
++
++
+ (extend-type ASTWalkerVM
+   module/IModuleKernel
+   (link-format [_] {:format :yin.ast/code, :contract vm/ast-contract})
+@@ -1126,7 +1155,8 @@
+                      :ancestry ancestry,
+                      :capability-secret capability-secret,
+                      :secret-source (:secret-source vm),
+-                     :attach-stream (:attach-stream vm)})
++                     :attach-stream (:attach-stream vm),
++                     :gc-threshold (:base (:gc vm))})
+                   image
+                   vm/ast-contract))
+   (image-identity [_ image] (:root image))
+@@ -1165,4 +1195,6 @@
+                           (map (fn [[k x]] [k (decode x)]))
+                           (:yin.k/env marker))
+               store-of (assoc engine/store-of-key store-of)),
+-       :lambda id})))
++       :lambda id}))
++  (gc-roots [vm] [(:control vm) (:env vm) (:k vm) (:value vm)])
++  (gc-children [_ x] (gc-children-of x)))
+diff --git a/src/cljc/yin/vm/debruijn/register.cljc b/src/cljc/yin/vm/debruijn/register.cljc
+index d189b42b..dedaa6d5 100644
+--- a/src/cljc/yin/vm/debruijn/register.cljc
++++ b/src/cljc/yin/vm/debruijn/register.cljc
+@@ -64,7 +64,8 @@
+    store-of     ; the running body's module store address, or nil
+    resources    ; private engine resources: the link pair
+    origin       ; this task's origin tag for link ids
+-   ancestry])   ; the modules installing on this task's install chain
++   ancestry     ; the modules installing on this task's install chain
++   gc])         ; {:since :base :threshold :pinned}: heap reclamation
+ 
+ 
+ (def format-tag
+@@ -266,7 +267,7 @@
+                                           :link-request :link-response
+                                           :origin :ancestry
+                                           :capability-secret :secret-source
+-                                          :attach-stream])
++                                          :attach-stream :gc-threshold])
+                        :primitives (or (:primitives opts) {})))]
+      (-> (map->DebruijnRegisterVM
+            {:segment {:bodies [], :instructions []},
+@@ -292,6 +293,7 @@
+             :ready-queue [],
+             :parked {},
+             :heap (:heap base),
++            :gc (:gc base),
+             :id-counter 0,
+             :ffi-caller-id (:ffi-caller-id base),
+             :value nil,
+@@ -496,7 +498,11 @@
+         {:keys [call-in]} (ffi/require-call-pair! resources op)
+         payload (payload-of vm inst)
+         call-id (ffi/call-id vm (engine/park-id vm))
+-        parked (engine/park-continuation (assoc vm :pc (inc pc)) payload call-id)
++        ;; the request carries `args` out of the VM's view
++        parked (engine/park-continuation (assoc (engine/pin-refs vm args)
++                                                :pc (inc pc))
++                                         payload
++                                         call-id)
+         request (apply2/request call-id op args)
+         result (apply2/put-request! call-in request)
+         blocked (fn [entry]
+@@ -811,6 +817,7 @@
+                 :capability-secret capability-secret,
+                 :secret-source (:secret-source vm),
+                 :attach-stream (:attach-stream vm),
++                :gc-threshold (:base (:gc vm)),
+                 :contract vm/register-contract}))
+   (image-identity [_ image] (rcode/register-hash image))
+   (image-holds? [_ image segment] (= segment (rcode/register-hash image)))
+@@ -842,4 +849,11 @@
+                :body-pc pc,
+                :frames (mapv #(mapv decode %) (:yin.k/frames marker))}
+         (:yin.k/store-of marker)
+-        (assoc :store-of (:yin.k/store-of marker))))))
++        (assoc :store-of (:yin.k/store-of marker)))))
++  (gc-roots [vm] [(:frames vm) (:registers vm) (:continuation vm) (:value vm)])
++  ;; A register payload (a wait, ready or parked entry, or a reified
++  ;; continuation) names the code space as `:segment`; that is code, so
++  ;; every other key is traced. Closures and return frames hold no code.
++  (gc-children [_ x]
++    (when (and (map? x) (= format-tag (:format x)))
++      (into [] (vals (dissoc x :segment))))))
+diff --git a/src/cljc/yin/vm/debruijn/stack.cljc b/src/cljc/yin/vm/debruijn/stack.cljc
+index 79d025cb..7bf100fd 100644
+--- a/src/cljc/yin/vm/debruijn/stack.cljc
++++ b/src/cljc/yin/vm/debruijn/stack.cljc
+@@ -96,7 +96,8 @@
+    store-of     ; the running body's module store address, or nil
+    resources    ; private engine resources: the link pair
+    origin       ; this task's origin tag for link ids
+-   ancestry])   ; the modules installing on this task's install chain
++   ancestry     ; the modules installing on this task's install chain
++   gc])         ; {:since :base :threshold :pinned}: heap reclamation
+ 
+ 
+ (def format-tag
+@@ -252,7 +253,7 @@
+                                           :link-request :link-response
+                                           :origin :ancestry
+                                           :capability-secret :secret-source
+-                                          :attach-stream])
++                                          :attach-stream :gc-threshold])
+                        :primitives (or (:primitives opts) {})))]
+      (-> (map->DebruijnVM
+            {:segment [],
+@@ -278,6 +279,7 @@
+             :ready-queue [],
+             :parked {},
+             :heap (:heap base),
++            :gc (:gc base),
+             :id-counter 0,
+             :ffi-caller-id (:ffi-caller-id base),
+             :value nil,
+@@ -476,7 +478,10 @@
+         {:keys [call-in]} (ffi/require-call-pair! resources op)
+         regs (registers vm (inc pc) stack')
+         call-id (ffi/call-id vm (engine/park-id vm))
+-        parked (engine/park-continuation (assoc vm :pc (inc pc) :stack stack')
++        ;; the request carries `args` out of the VM's view
++        parked (engine/park-continuation (assoc (engine/pin-refs vm args)
++                                                :pc (inc pc)
++                                                :stack stack')
+                                          regs
+                                          call-id)
+         request (apply2/request call-id op args)
+@@ -811,6 +816,7 @@
+                 :capability-secret capability-secret,
+                 :secret-source (:secret-source vm),
+                 :attach-stream (:attach-stream vm),
++                :gc-threshold (:base (:gc vm)),
+                 :contract vm/stack-contract}))
+   (image-identity [_ image] (dcode/image-hash image))
+   (image-holds? [_ image segment] (= segment (dcode/image-hash image)))
+@@ -842,4 +848,11 @@
+                :body-pc pc,
+                :frames (mapv #(mapv decode %) (:yin.k/frames marker))}
+         (:yin.k/store-of marker)
+-        (assoc :store-of (:yin.k/store-of marker))))))
++        (assoc :store-of (:yin.k/store-of marker)))))
++  (gc-roots [vm] [(:frames vm) (:stack vm) (:continuation vm) (:value vm)])
++  ;; A register payload (a wait, ready or parked entry, or a reified
++  ;; continuation) names the code space as `:segment`; that is code, so
++  ;; every other key is traced. Closures and return frames hold no code.
++  (gc-children [_ x]
++    (when (and (map? x) (= format-tag (:format x)))
++      (into [] (vals (dissoc x :segment))))))
+diff --git a/src/cljc/yin/vm/docs/ast.md b/src/cljc/yin/vm/docs/ast.md
+index ceedf396..c239cd9f 100644
+--- a/src/cljc/yin/vm/docs/ast.md
++++ b/src/cljc/yin/vm/docs/ast.md
+@@ -652,6 +652,18 @@ Store operations are VM-level primitives that interact directly with the global
+ - 🌍 **Global** - The store is shared across all lexical scopes in the VM.
+ - ⚡ **Side Effects** - `:vm/store-put` and `:vm/store-update` are primarily used for their side effects.
+ 
++### 5. Cells and the Task Heap
++
++Runtime-allocated mutable locations are not AST nodes. They are the `cell` host module's `cell/new`, `cell/get` and `cell/set!`, ordinary applications whose effects the engine interprets on all four VMs. `cell/new` answers a sealed `{:type :cell-ref :id :cell-N :seal s}`; the content lives in the task's `:heap` (see `state.md`), never in the named store.
++
++**Reclamation.** The heap is collected (Architect heap-reclamation design, slice 1; this supersedes the cell ruling's "heap reclamation can wait"). The `:cell/new` effect counts allocations, and when the count reaches the threshold it runs a deterministic, stop-the-world mark-sweep before allocating:
++
++- **Roots:** the kernel's registers (`IModuleKernel/gc-roots`), the store and every module store, `:parked`, `:wait-set`, `:ready-queue`, the value being boxed, and every pinned cell. Code, images, the registry, primitives and `:resources` are not roots.
++- **Tracing:** a cell ref marks its cell and traces its content; a frame, closure or register payload contributes what the kernel's `gc-children` answers (a walker frame's `:evaluated` and `:fn`, never its operand subtrees); other data is walked whole.
++- **Pinning:** a cell ref inside a value appended by `:stream/put`, or inside FFI request arguments, is pinned for the task's life, because the VM cannot see inside a medium.
++- **Ids are never reused.** A ref to a swept cell is refused with `:dead-or-forged-reference`.
++- **Determinism:** collection is triggered by counts only, never by time or host memory, so it cannot change a program's result.
++
+ ---
+ 
+ ## Part 7: Continuation Control
+diff --git a/src/cljc/yin/vm/docs/state.md b/src/cljc/yin/vm/docs/state.md
+index f386de5b..599b8d73 100644
+--- a/src/cljc/yin/vm/docs/state.md
++++ b/src/cljc/yin/vm/docs/state.md
+@@ -108,6 +108,14 @@ The state is an immutable map that contains all information needed to continue e
+          2 [1 2 3]}}    ; address 2 contains vector
+ ```
+ 
++### `:heap` and `:gc` - Task Heap and Its Collector
++
++**Type:** `:heap` is `{cell-id {:value v :seal s}}`; `:gc` is `{:since n :base b :threshold t :pinned #{cell-id}}`
++
++**Purpose:** `:heap` holds the task's cells, the mutable locations `cell/new` allocates and a sealed `:cell-ref` reaches. It is VM state, not continuation state: a write is seen by every holder of the ref and survives continuation re-entry (box semantics). `:gc` is its collector's state. Both are declared record fields wherever a VM is a positional record, and both start empty in every constructor and `spawn-module` child.
++
++**Reclamation:** deterministic, allocation-triggered, stop-the-world mark-sweep, a pure `vm -> vm'` (`yin.vm.engine/collect`). `:since` counts allocations; when it reaches `:threshold`, the `:cell/new` effect collects before allocating, and the threshold becomes `max(:base, 2 x live)`. `:base` is a composition parameter (`:gc-threshold`, default 4096). Marking runs over the heap as it was when the cycle began, and the sweep removes only ids of that snapshot, so an id allocated at or after the cycle's counter start is spared; a budgeted marker can later reuse it. `:pinned` holds cells whose refs left the VM's view on a stream or in an FFI request; they stay live for the task's life. Ids are never reused (`:id-counter` only grows), and a ref to a swept cell is refused with `:dead-or-forged-reference`. This supersedes the cell ruling's "heap reclamation can wait".
++
+ ### `:continuation` - Return Context
+ 
+ **Type:** Continuation map or `nil`
+diff --git a/src/cljc/yin/vm/engine.cljc b/src/cljc/yin/vm/engine.cljc
+index 43c3c3fe..381c6ddc 100644
+--- a/src/cljc/yin/vm/engine.cljc
++++ b/src/cljc/yin/vm/engine.cljc
+@@ -311,15 +311,22 @@
+ (defn check-ref!
+   "The resource id a program-supplied `kind` reference names, once its
+    seal verifies (r10). Anything else fails closed with
+-   `:forged-resource-reference`, naming the effect and the id it named."
++   `:forged-resource-reference`, naming the effect and the id it named;
++   a cell ref whose id the heap does not hold is
++   `:dead-or-forged-reference` instead: its cell was swept, or never was.
++   Ids are never reused, so such a ref is never silently reallocated."
+   [state effect-kind kind ref]
+   (if (authentic-ref? state kind ref)
+     (:id ref)
+-    (fail "Forged resource reference"
+-          {:reason :forged-resource-reference,
+-           :effect effect-kind,
+-           :kind kind,
+-           :id (when (map? ref) (:id ref))})))
++    (let [id (when (map? ref) (:id ref))
++          dead? (and (= :cell-ref kind) (not (contains? (:heap state) id)))]
++      (fail (if dead? "Dead or forged cell reference" "Forged resource reference")
++            {:reason (if dead?
++                       :dead-or-forged-reference
++                       :forged-resource-reference),
++             :effect effect-kind,
++             :kind kind,
++             :id id}))))
+ 
+ 
+ (declare gensym)
+@@ -1814,6 +1821,155 @@
+   (assoc-in state [:heap id] {:value v, :seal seal}))
+ 
+ 
++;; =============================================================================
++;; Heap reclamation (Architect heap-reclamation design, slice 1)
++;; =============================================================================
++;;
++;; A deterministic, allocation-triggered, stop-the-world mark-sweep over
++;; `:heap`, as a pure `vm -> vm'`. The `:cell/new` arm counts allocations in
++;; `:gc` and collects when the count reaches the threshold, so two runs
++;; collect at the same allocation. Marking runs over the heap as it was when
++;; the cycle began (a persistent map, so the snapshot is a reference) and the
++;; sweep removes only ids of that snapshot: an id allocated at or after the
++;; cycle's counter start is not in it and is spared. A budgeted marker can
++;; later run the same `trace` k steps per round. Ids are never reused:
++;; `:id-counter` only grows, so a ref to a swept cell names nothing and is
++;; refused `:dead-or-forged-reference`.
++
++(defn- heap-ref-id
++  "The id the map `x` names when it is a `:cell-ref` authentic against
++   `heap`, else nil."
++  [heap x]
++  (when (= :cell-ref (:type x))
++    (let [id (:id x)
++          entry (get heap id)]
++      (when (and (some? entry) (= (:seal x) (:seal entry))) id))))
++
++
++(defn- trace
++  "`found` plus the ids of `heap` reachable from `roots`. Scalars hold
++   nothing; a value of the kernel's own shape contributes what the kernel's
++   `gc-children` answers; any other collection contributes its elements, a
++   map its keys and values. With `follow?` a newly found id's content is
++   traced too (marking); without, only the refs met directly (pinning).
++   Each value is visited once, so shared environments cost one walk and a
++   cell holding its own ref terminates. The worklist is explicit: a deep
++   continuation chain does not grow the host stack."
++  [vm heap roots found follow?]
++  (let [children-of (if (satisfies? module/IModuleKernel vm)
++                      #(module/gc-children vm %)
++                      (constantly nil))]
++    (loop [work (into () roots)
++           seen #{}
++           found found]
++      (if (empty? work)
++        found
++        (let [x (peek work)
++              work (pop work)]
++          (if (or (scalar? x) (contains? seen x))
++            (recur work seen found)
++            (let [id (when (map? x) (heap-ref-id heap x))
++                  new-id? (and (some? id) (not (contains? found id)))
++                  children (children-of x)
++                  work (cond-> work
++                         (and new-id? follow?) (conj (:value (get heap id)))
++                         (some? children) (into children)
++                         (and (nil? children) (map? x)) (-> (into (keys x))
++                                                            (into (vals x)))
++                         (and (nil? children) (not (map? x)) (coll? x))
++                         (into x))]
++              (recur work
++                     (conj seen x)
++                     (if new-id? (conj found id) found)))))))))
++
++
++(defn- gc-roots
++  "Every root of `vm` (design Q1): the kernel's registers, the store and
++   every module store, `:parked`, `:wait-set` and `:ready-queue`, then
++   `extra`. Code, images, the registry, primitives, `:callable-effects`,
++   telemetry and `:resources` are not roots: a literal can never be an
++   authentic ref, and a value inside a stream is the medium's (hence
++   pinning)."
++  [vm extra]
++  (-> [(:store vm)
++       (:module-stores vm)
++       (:parked vm)
++       (:wait-set vm)
++       (:ready-queue vm)]
++      (into (when (satisfies? module/IModuleKernel vm) (module/gc-roots vm)))
++      (into extra)))
++
++
++(defn- mark
++  "The ids of `heap` live from `roots` and from the `pinned` ids: a pinned
++   cell is a root, so its content is traced too."
++  [vm heap roots pinned]
++  (let [pins (filterv #(contains? heap %) pinned)]
++    (trace vm
++           heap
++           (into roots (map #(:value (get heap %))) pins)
++           (set pins)
++           true)))
++
++
++(defn- sweep
++  "`heap` without each id of the cycle's `snapshot` that `marked` lacks.
++   An id allocated after the snapshot is not in it, so it is spared."
++  [heap snapshot marked]
++  (reduce-kv (fn [h id _] (if (contains? marked id) h (dissoc h id)))
++             heap
++             snapshot))
++
++
++(defn- gc-of
++  [state]
++  (or (:gc state) (vm/fresh-gc nil)))
++
++
++(defn collect
++  "`vm` after one stop-the-world collection of its `:heap`, with `extra`
++   traced as additional roots. The allocation count restarts and the
++   threshold becomes `max(base, 2 x live)`, so the total work stays linear
++   in allocations. Pure: the same state always collects to the same heap."
++  ([vm] (collect vm nil))
++  ([vm extra]
++   (let [gc (gc-of vm)
++         snapshot (:heap vm)
++         marked (mark vm snapshot (gc-roots vm extra) (:pinned gc))
++         heap (sweep (:heap vm) snapshot marked)]
++     (assoc vm
++            :heap heap
++            :gc (assoc gc
++                       :since 0
++                       :threshold (max (:base gc) (* 2 (count heap))))))))
++
++
++(defn- count-allocation
++  "`state` with one allocation counted, collected first when the count
++   reaches the threshold. `v`, the value being boxed, is held by no
++   register yet, so it is traced as an extra root."
++  [state v]
++  (let [gc (gc-of state)
++        since (inc (:since gc))]
++    (if (>= since (:threshold gc))
++      (collect state [v])
++      (assoc state :gc (assoc gc :since since)))))
++
++
++(defn pin-refs
++  "`state` with every cell `v` holds a ref to pinned for the task's life
++   (owner decision 1). A value appended to a stream or carried by an FFI
++   request leaves the VM's view, so no trace could find a ref inside it
++   when it comes back."
++  [state v]
++  (if (or (scalar? v) (empty? (:heap state)))
++    state
++    (let [ids (trace state (:heap state) [v] #{} false)]
++      (if (seq ids)
++        (assoc state :gc (update (gc-of state) :pinned into ids))
++        state))))
++
++
+ (defn handle-effect
+   "Dispatch an effect and return {:state updated-state :value v :blocked? bool}.
+    park-entry-fns maps :stream/put and :stream/next to functions that build
+@@ -1849,7 +2005,8 @@
+                 [cursor-ref new-state] (handle-cursor s' effect id)]
+             {:state new-state, :value cursor-ref, :blocked? false})
+           :stream/put
+-          (let [result (handle-put state effect)]
++          (let [state (pin-refs state (:val effect))
++                result (handle-put state effect)]
+             (if (:park result)
+               (let [built-entry (when park-entry
+                                   (park-entry state effect result))
+@@ -1875,7 +2032,7 @@
+           ;; `:heap` is VM state, not continuation state: a write is seen
+           ;; by every holder of the ref and survives continuation invocation
+           :cell/new
+-          (let [[id s'] (gensym state "cell")
++          (let [[id s'] (gensym (count-allocation state (:val effect)) "cell")
+                 ref (issue-ref s' :cell-ref id)]
+             {:state (heap-write s' id (:seal ref) (:val effect)),
+              :value ref,
+diff --git a/src/cljc/yin/vm/module.cljc b/src/cljc/yin/vm/module.cljc
+index 4d73fc97..7ddc2090 100644
+--- a/src/cljc/yin/vm/module.cljc
++++ b/src/cljc/yin/vm/module.cljc
+@@ -409,7 +409,22 @@
+     "The closure `marker` denotes in `vm`'s coordinates, captured values
+      decoded by `decode`, carrying the marker's `:yin.k/store-of`. A
+      marker of another binding discipline or format is
+-     `:binding-mismatch`."))
++     `:binding-mismatch`.")
++
++  (gc-roots
++    [vm]
++    "This kernel's registers as heap-reclamation root values, each a whole
++     register, never selected keys, so no root is missed here. The engine
++     adds the store, the module stores, `:parked`, `:wait-set` and
++     `:ready-queue` itself.")
++
++  (gc-children
++    [vm x]
++    "The values `x` may hold a cell ref in, as a sequence, when `x` is a
++     value of this kernel's own shape that mixes code with runtime values
++     (a frame, a closure, a register payload naming the code space); nil
++     when `x` is plain data the engine walks itself. The engine never reads
++     a continuation's keys generically: this is the seam."))
+ 
+ 
+ (def link-request-resource
+diff --git a/src/cljc/yin/vm/semantic.cljc b/src/cljc/yin/vm/semantic.cljc
+index 5e6611c1..47eaa825 100644
+--- a/src/cljc/yin/vm/semantic.cljc
++++ b/src/cljc/yin/vm/semantic.cljc
+@@ -73,7 +73,8 @@
+    vm-model       ; telemetry model keyword
+    vm-id          ; telemetry instance id, minted by telemetry/install
+    code           ; {segment-id image}; built once per segment, never written
+-   code-aliases]) ; {address segment-id}; additive, one address one id (UCF §7.3.4)
++   code-aliases   ; {address segment-id}; additive, one address one id (UCF §7.3.4)
++   gc])           ; {:since :base :threshold :pinned}: heap reclamation
+ 
+ 
+ (declare semantic-restore scheduler-round)
+@@ -464,7 +465,9 @@
+                        ;; in :parked and consume an id counter.
+                        {:keys [call-in]}
+                        (ffi/require-call-pair! (:resources vm) ffi-op)
+-                       vm' (put-registers vm seg pc val St' E K)
++                       ;; the request carries `args` out of the VM's view
++                       vm' (put-registers (engine/pin-refs vm args)
++                                          seg pc val St' E K)
+                        call-id (ffi/call-id vm' (engine/park-id vm'))
+                        parked (engine/park-continuation
+                                 vm'
+@@ -920,7 +923,7 @@
+                                      :call-capacity :link-request
+                                      :link-response :origin :ancestry
+                                      :capability-secret :secret-source
+-                                     :attach-stream])
++                                     :attach-stream :gc-threshold])
+                        :telemetry (:telemetry opts)
+                        :vm-model :semantic))]
+      (-> (map->SemanticVM (merge base
+@@ -978,7 +981,8 @@
+                     :ancestry ancestry,
+                     :capability-secret capability-secret,
+                     :secret-source (:secret-source vm),
+-                    :attach-stream (:attach-stream vm)})
++                    :attach-stream (:attach-stream vm),
++                    :gc-threshold (:base (:gc vm))})
+                  image
+                  vm/semantic-contract))
+   (image-identity [_ image] (jing/segment-key image))
+@@ -1025,4 +1029,9 @@
+        :env (cond-> (into {}
+                           (map (fn [[k x]] [k (decode x)]))
+                           (:yin.k/env marker))
+-              store-of (assoc engine/store-of-key store-of))})))
++              store-of (assoc engine/store-of-key store-of))}))
++  (gc-roots [vm] [(:control vm) (:env vm) (:stack vm) (:k vm) (:value vm)])
++  ;; Nothing of this kernel's shape holds code: a closure names its segment
++  ;; and entry, and a frame or continuation its segment and pc, so every
++  ;; value is plain data and is walked whole.
++  (gc-children [_ _] nil))
+diff --git a/test/yin/vm/cell_test.cljc b/test/yin/vm/cell_test.cljc
+index 703fedd0..d1aa74b2 100644
+--- a/test/yin/vm/cell_test.cljc
++++ b/test/yin/vm/cell_test.cljc
+@@ -67,23 +67,31 @@
+ 
+ (defn- on-every-vm
+   "`[vm-key halted-vm]` for each VM; a throw becomes `[:thrown ex-data]`."
+-  [ast]
+-  (into {}
+-        (map (fn [k]
+-               [k (try (run-on k ast)
+-                       (catch #?(:clj Exception
+-                                 :cljs :default
+-                                 :cljd Object)
+-                              e
+-                         [:thrown (ex-data e)]))]))
+-        (keys builders)))
++  ([ast] (on-every-vm ast opts))
++  ([ast o]
++   (into {}
++         (map (fn [k]
++                [k (try (run-on k ast o)
++                        (catch #?(:clj Exception
++                                  :cljs :default
++                                  :cljd Object)
++                               e
++                          [:thrown (ex-data e)]))]))
++         (keys builders))))
++
++
++(def ^:private gc-thresholds
++  "Heap reclamation must not change a result: every program runs
++   collecting at every allocation and never collecting."
++  [1 1000000000])
+ 
+ 
+ (defn- every-vm=
+   [expected ast]
+-  (doseq [[k result] (on-every-vm ast)]
++  (doseq [threshold gc-thresholds
++          [k result] (on-every-vm ast (assoc opts :gc-threshold threshold))]
+     (is (= expected (if (vector? result) result (vm/value result)))
+-        (str k))))
++        (str k " at gc threshold " threshold))))
+ 
+ 
+ (defn- refusal-of
+@@ -280,21 +288,23 @@
+ 
+ (defn- forged-refusal
+   "Every VM refuses the forged ref `forge` builds from two live refs `a`
+-   and `b` with the qualified forged-reference error, naming `effect`."
+-  [effect forge]
+-  (let [use (fn [f]
+-              (if (= :cell/get effect)
+-                (get-cell f)
+-                (set-cell! f (lit :stolen))))
+-        ast (let1 'a (new-cell (lit :secret-a))
+-                  (let1 'b (new-cell (lit :secret-b))
+-                        (use forge)))]
+-    (doseq [[k result] (on-every-vm ast)]
+-      (is (= [:thrown {:reason :forged-resource-reference,
+-                       :effect effect,
+-                       :kind :cell-ref}]
+-             (update result 1 dissoc :id))
+-          (str k)))))
++   and `b` with the qualified `reason` (the forged-reference error unless
++   given), naming `effect`."
++  ([effect forge] (forged-refusal effect forge :forged-resource-reference))
++  ([effect forge reason]
++   (let [use (fn [f]
++               (if (= :cell/get effect)
++                 (get-cell f)
++                 (set-cell! f (lit :stolen))))
++         ast (let1 'a (new-cell (lit :secret-a))
++                   (let1 'b (new-cell (lit :secret-b))
++                         (use forge)))]
++     (doseq [[k result] (on-every-vm ast)]
++       (is (= [:thrown {:reason reason,
++                        :effect effect,
++                        :kind :cell-ref}]
++              (update result 1 dissoc :id))
++           (str k))))))
+ 
+ 
+ (deftest forged-cell-ref-refused-test
+@@ -304,9 +314,10 @@
+     (testing (str effect " with another live cell's id under this seal")
+       (forged-refusal effect (app (v 'assoc) (v 'a) (lit :id)
+                                   (app (v 'get) (v 'b) (lit :id)))))
+-    (testing (str effect " with an unknown id")
+-      (forged-refusal effect (app (v 'assoc) (v 'a) (lit :id)
+-                                  (lit :cell-999))))
++    (testing (str effect " with an unknown id: the heap holds no such cell")
++      (forged-refusal effect
++                      (app (v 'assoc) (v 'a) (lit :id) (lit :cell-999))
++                      :dead-or-forged-reference))
+     (testing (str effect " with a literal that has no seal")
+       (forged-refusal effect (app (v 'assoc) (v 'a) (lit :seal) (lit nil))))
+     (testing (str effect " with a stream-ref type tag")
+diff --git a/test/yin/vm/linker_require_test.cljc b/test/yin/vm/linker_require_test.cljc
+index 4b5dd25d..a0f23ec3 100644
+--- a/test/yin/vm/linker_require_test.cljc
++++ b/test/yin/vm/linker_require_test.cljc
+@@ -1126,7 +1126,9 @@
+       (assoc :yin.k/segment "an image this scheduler never verified")))
+   (lower-closure [t marker decode]
+     (when (= :lower (:stage (:fault t))) (injected! :lower))
+-    (module/lower-closure (as-stack t) marker decode)))
++    (module/lower-closure (as-stack t) marker decode))
++  (gc-roots [t] (module/gc-roots (as-stack t)))
++  (gc-children [t x] (module/gc-children (as-stack t) x)))
+ 
+ 
+ (extend-type FaultyTask

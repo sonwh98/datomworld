@@ -1,0 +1,31 @@
+```text
+Completed-GMT: 2026-09-23 18:05:00 GMT
+Completed-Local: 2026-09-24 01:05:00 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: 1ff9efa8-f088-467a-8507-c94697603dc5
+```
+
+All three findings are addressed, and the JVM and CLJS suites pass. I did not run `bb test:cljd` or `cljstyle check` this round, and I did not check ASCII or the 80-column limit on the `.cljc` files. Nothing is staged or committed.
+
+**Changed files:** `src/cljc/yin/vm/debruijn.cljc`, `test/yin/vm/debruijn_test.cljc`, `docs/design/yin.vm.debruijn-projection.md`, and `test/yin/vm/pipeline_test.cljc`. The last one is outside the earlier file box and is explained under finding 2.
+
+**New pins** (contract version still 1)
+- Descriptor hash: `1f4ec95cdfd666cf5da2be5f47fd3a7e3c942dfa2ea87e61e0062270f61a0803`
+- Essay fingerprint: `aed64f20d7150b6a149939f5af307eca809fd9b23000ed44e526353f7f4bfbc0`
+
+**Findings**
+1. **Descriptor stays universal.** I removed `:numbers :javascript` from `canonical-value-table` and the JS-specific wording from its docstring. The safe-integer policy now lives only in `js-number-class`, which is CLJS-only code.
+2. **Foreign-type refusal.**
+   - A JS host receives a JVM `1.0` as the plain number `1`, so its numeric class cannot be recovered on decode.
+   - Instead, on CLJS, when a record's hash does not verify and its `:yin.debruijn/value` holds an integral number, the reader now refuses with `:unsupported-value`. This covers bare and nested values.
+   - The catch is that a genuinely tampered record with an integer value also reports `:unsupported-value` on CLJS.
+   - The new test `integral-double-records-cross-hosts` uses JVM-minted fingerprints for `1.0`, `[1.0]`, `{:a 1.0}` and `#{1.0}`. On CLJS it expects `:unsupported-value`. On JVM and Dart it expects the fingerprint to match and the record to round-trip.
+   - The refusal also changed an existing CLJS pipeline test. A stored `-0.0` reads back as `0` and is now refused as `:unsupported-value` rather than `:hash-mismatch`. I widened the assertion in `test/yin/vm/pipeline_test.cljc` to accept either. Please confirm that edit is acceptable.
+3. **Doc typo.** The projection doc now names `:dim/contract-version`. I also documented the CLJS refusal and that the safe-integer policy is not in the descriptor.
+
+**Tests and lint**
+- `clojure -M:test -n yin.vm.debruijn-test -n yin.vm.pipeline-test`: 98 tests, 465 assertions, 0 failures.
+- `bb test:cljs`: 1857 tests, 46438 assertions, 0 failures.
+- Kondo on the source, `debruijn_test.cljc` and `pipeline_test.cljc`: 0 errors, 0 warnings.
+- The doc's over-80 line at 215 is fixed by my last edit, which I did not re-measure.
+- `cljstyle check` is still blocked pending approval.

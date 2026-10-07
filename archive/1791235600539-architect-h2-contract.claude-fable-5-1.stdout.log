@@ -1,0 +1,55 @@
+Completed-GMT: 2026-10-05 21:30:10 GMT
+Completed-Local: 2026-10-06 04:30:10 +07
+Coding-Agent: claude
+Session-ID: f56f11bb-ea1a-422e-8dc5-dd66b6ff7938
+
+**Sign-off on the contract text, conditional on three sentence corrections (A1, A2, A3 below); none is a design blocker.** The amendment to `dao.stream.remote.md` is correct and matches section 11 H2 of the head design, with no additions beyond it. `dao.stream.md` is not amended and nothing in H2 forces it to be. One code defect outside the contract text must be fixed before H2 lands: the ephemeral-bind placeholder (ruling 4). I ran no tests; this is a read of the diff, the code and the designs.
+
+## Part A: the contract text
+
+**Per amended place**
+
+| Place | Verdict | Code that obeys it |
+|---|---|---|
+| Status line (`dao.stream.remote.md:3-5`, `dao.stream.ws.md:3-4`) | Correct and minimal | All five named namespaces exist under `src/cljc/dao/stream/` |
+| Section 2, name map (`:76-78`) | Correct and minimal | `ws_project.cljc:178-191`, `:333-353`; `head/ws.cljc:206-207` |
+| 2.1 named request and answers (`:123-135`, `:140-142`, `:158-160`) | Correct; one clarity fix (A2) | `remote.cljc:63-78`, `:81-95`, `:178-199` |
+| 2.3 five-argument form and step 0 (`:193-202`, `:228`) | Correct and minimal | `remote.cljc:244-278`, `:178-199`, `:167-175` |
+| 2.4 Resolve (`:312-325`) | Correct; two rules the code obeys are missing (A3) | `remote.cljc:837-855`, `:812-834`, `:470-483`, `:795-809` |
+| Section 5 Stream names (`:552-560`) | Correct and minimal | `head/ws.cljc:58-61`, `:206-207`, `:334-338` |
+
+**Checks**
+
+- **Name is never an identity:** holds in code. The named request carries no `:dao.stream/identity` (`remote.cljc:801-804`), and the ok answer carries the entry's own identity (`:198-199`). One older sentence now reads against it (A1).
+- **`dao.stream.md` identity rule (277-285):** not contradicted. The resolved descriptor carries the ring's identity (`remote.cljc:824-830`), so after a restart the old descriptor finds `not-found`, never a different stream.
+- **No head knowledge in the stream layer:** `remote.cljc` requires only `dao.stream` and `dao.stream.middleware`; `ws_project.cljc:31-33` adds `remote` and `ws`. The head appears only as a section 5 convention, which H2 required.
+- **No rpc or apply dependency, no clock:** none added. Resend is counted in asks (`remote.cljc:852-853`), as 2.5 already rules.
+- **No server/client privilege:** both ends take `:names` (`ws_project.cljc:178`, `:333`), and both run the same five-argument mirror step (`:278-279`, `:454`).
+- **Scope against H2:** every amendment H2 lists is present and nothing else was added.
+
+**Findings**
+
+| Severity | Location | Invariant / evidence | Recommended correction |
+|---|---|---|---|
+| Medium (A1) | `dao.stream.remote.md:292` | "a name outlives what it named" uses "name" for the remote descriptor and its identity. Beside the new rule "A name is lookup data and never a `:dao.stream/identity`" it can be read as a name being an identity. | Replace with: "`descriptor` still answers `ok`: a descriptor outlives what it described." |
+| Low (A2) | `dao.stream.remote.md:140-142` | "Named request" is defined only by a code comment. The code's test is name present and identity absent (`remote.cljc:75-78`, `:270-272`). | Replace the two sentences with: "A request that carries `:dao.stream/identity` is an identity request whatever else it carries, a `:dao.stream.remote/name` included, which is then ignored. A request that carries `:dao.stream.remote/name` and no `:dao.stream/identity` is a named request; with any op other than `descriptor` it is malformed." |
+| Low (A3) | `dao.stream.remote.md:312-325` | The code obeys two rules the paragraph omits. A filed `oversize` for a named request is returned as `transport-error` with that reason (`remote.cljc:156-164`, `:820-821`). A resolve on a channel this peer does not reach answers `:dao.stream/not-found` (`remote.cljc:961-964`). | After "which marks nothing." add: "A filed `oversize` is returned the same way, with its own name as the reason." After the channel-loss sentence add: "On a channel descriptor this peer holds no channel for, `resolve` answers `not-found`, as `attach!` does." |
+| Info | `dao.stream.remote.md:76-78` and `:158-160` | "Each value a key of the table" is the composition's duty; the mirror's answer when it lapses (reclaim) is defined as `not-found` (`remote.cljc:189-197`). Consistent. | None. |
+| Info, not H2's | `dao.stream.remote.md:196` and `:228-229` | The "composition budget" is not in `mirror-step` (`remote.cljc:263-278`), and "no answer path calls a handle outside `apply-request`" already disagreed with step 3's direct `descriptor`. Both predate H2; the head design 8.3 records the first. Step 0 uses the same direct path, so it adds no bypass. | None in H2. Verify the budget before serving off loopback, as 8.3 says. |
+| Info | `dao.stream.remote.md:552` and `:562` | "Stream names" and "Peer names" both open "A name is". The bold leads scope them. | None required. |
+
+## Part B: rulings
+
+1. **Accept `:connect!`.** `ws-project/dial` needs the attacher together with its own traffic medium and cursor (`ws_project.cljc:333-341`), and each redial needs a fresh set. The host seam is the only host-specific part, so the design's intent holds: `head.ws` knows no host. Carry one wording fix in the head design section 6: "the listener and the host's connect seam are arguments".
+
+2. **Identity precedence is the rule.** The request map is open, and H2 requires identity requests to be answered as before. Making "both keys" malformed would change the answer to an existing request. The amended 2.1 says it, but not exactly; apply A2.
+
+3. **Legitimate as a channel identity; not the alias defect.** C3 is about a sequence with cursors, and a ws handle has no reader surface, so no cursor is ever minted against this string. It never crosses the wire, and each redial composes a fresh dial and link (`head/ws.cljc:297-316`), so nothing is carried across a restart under it. It matches 3.2, where a UDP channel is named by its address. No contract change.
+
+4. **Defect; fix in H2.** The engineer's claim that `accept-connection!` ignores the descriptor is false: it stamps it on every accepted handle (`ws.cljc:502`, `:188-197`). Those handles report port 1, against `dao.stream.ws.md:459-461` ("the actual bound port, including the assigned port after a bind to zero"). After `:bind-succeeded` the server's descriptor has the real `:ws/port` but still the identity `"ws://host:1/head"` (`head/ws.cljc:244-246`). The minimal fix is for `serve` to require a positive `:bind-port` and refuse otherwise as data. The design always has the number, since the board binds at the UDP socket's port (5.1). The JVM test at `head_ws_test.cljc:675` then needs a concrete free port.
+
+5. **H3's.** Section 6 lists only `serve`, `serve-step`, `dial` and `dial-step`. The listener is an argument, so stopping it is the host's `:unbind!`, and `serve-step` already observes `:stopped` (`head/ws.cljc:251-252`). H2's restart criterion is met through the host seam.
+
+6. **Sound.** The reason is the error's name, as 2.4 rules for every protocol error, and with no reflection there is nothing to mark. The caller knows which operation it called. Re-sending only on repeated `resolve` is 2.5's own rule ("when the caller has asked `k` further times"), and no driver step exists (`remote.cljc:573-574`, `:852-853`). A returned `not-found` is forgotten, so the next resolve asks afresh, which a later-mapped name needs.
+
+**`dao.stream.md`:** no change forced. `resolve` is a function of the link, not a seventh contract operation; it adds no `:dao.stream/` key, and `:dao.stream.remote/name` is in the transport-owned namespace. The slice does not stop.

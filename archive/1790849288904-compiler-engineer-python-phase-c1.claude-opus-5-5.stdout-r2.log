@@ -1,0 +1,84 @@
+Completed-GMT: 2026-10-01 12:10:23 GMT
+Completed-Local: 2026-10-01 19:10:23 +07
+Coding-Agent: claude
+Session-ID: 976059c2-629b-4b91-8b63-7c4d9604d7cf
+
+# Python phase C1, round 2
+
+Both required gate fixes and all six P3 items are dealt with, and every lane I could run is green. cljstyle could not run (it needs approval in this session), and CLJD was not run, per the brief. Nothing is staged or committed. The report, with this round appended, is `collab/1790849288904-compiler-engineer-python-phase-c1.claude-opus-5-5.report.md`; the round 1 text is unchanged there.
+
+**I checked expected outputs against real CPython.** `python3` (3.9.6) was available locally, so every new end-to-end program was run through it and its output copied into the tests. The one exception is ints that leave ±2^53, where this implementation raises OverflowError by design (CPython returns a big int).
+
+## Where the gate or brief disagreed with CPython
+
+I followed CPython in each case:
+
+- **P3a, `break`/`continue` in `finally`:** the gate says this is a syntax error in 3.8+. It isn't: 3.8 lifted the ban on `continue`, `break` was always legal, and 3.14 (PEP 765) only adds a warning. Our existing behaviour already matched CPython (the in-flight exception is swallowed); a test now pins it.
+- **P3e:** the gate quoted CPython's `5.9 % 1.1` as `0.39999999999999947`. CPython gives `0.3999999999999999`, and that is what the test expects.
+- **P1, nested tuples:** the brief asked for recursive matching in both forms. CPython only recurses in `isinstance`. In an `except` clause it checks every element of the tuple before matching anything, and a nested tuple or non-class is a TypeError, so `except (A, (KeyError, B))` misses even an `A`. Both behaviours are tested.
+
+## Required fixes
+
+**P1, tuples of classes.** `isinstance` and `except` now accept tuples as described above. A non-class target raises TypeError with CPython's message. Tested on all four VMs.
+
+**P2, integer bound.**
+- Int results outside the inclusive range [-2^53, 2^53] raise a guest OverflowError, identically on every VM and host.
+- Each check runs before the host arithmetic, which would otherwise throw on the JVM, round on JS or wrap on Dart.
+- The checks cover `+ - *`, unary minus, `sum`, `**`, `<<`, `>>`, `~`, bitwise ops and range length.
+- The literal limit now includes 2^53, matching the runtime range.
+- Tests: the boundary cases (`2**53`, `2**53+1`, `3**40`, `1<<52` against `1<<53`, `-(2**53)-1`, and others) run end to end on all four VMs. The overflow cases also run over real cells on JVM and Node.
+
+## P3 items
+
+- **a. `break`/`continue` in `finally`:** kept as is, since it already matches CPython (see above), and now pinned by a test.
+- **b. raise and `except ... as e`:**
+  - `raise` of anything that isn't a BaseException or a subclass is now a TypeError.
+  - `except E as e:` now unbinds `e` on every exit from the handler.
+- **c. `range`:** `len` and `in` on a range are now O(1).
+- **d. Dict/set mutation during a `for` loop:** changing the size of a dict or set while iterating it raises RuntimeError with CPython's message. Lists are still iterated live, as in Python.
+- **e. Float `//` and `%`:** these now use CPython's fmod-corrected algorithm, built on an exact fmod, and match CPython on all seven test values. One deviation remains: a quotient beyond ±2^53 raises OverflowError instead of returning a large float.
+- **f. Builtins, constructors, `with`:**
+  - Builtins reject keyword arguments. `sum` keeps `start=` as in CPython.
+  - A class without `__init__` that isn't an exception class raises "C() takes no arguments" when given arguments.
+  - `with` looks up `__enter__`/`__exit__` on the type. A missing protocol raises 3.11's TypeError; the test also accepts 3.9's AttributeError.
+
+## Mutation proof
+
+I made 12 deliberate breakages, one at a time, each restored before the next. Each made its test fail:
+
+- **Disabling the overflow checks** reproduced the gate's JVM `long overflow` host crash.
+- **The shared P3 test:** several items share one test, so for each breakage I read which output line diverged to confirm the failure came from the intended item.
+- **Dict/set size check:** fully removing it would loop forever, so that breakage iterates a snapshot instead, which drops both RuntimeError lines.
+
+Afterwards no mutation markers remain and all 102 Python tests pass.
+
+## Checks (all run in the foreground)
+
+| Check | Result |
+|---|---|
+| clj-kondo, 10 changed files as separate arguments | 0 errors, 0 warnings |
+| cljstyle | not run: "This command requires approval" |
+| `bb build:yin-repl-node`, then `bb gen:python-antlr` | both succeeded |
+| Focused JVM, the 7 Python namespaces | 102 tests, 414 assertions, 0 failures |
+| Full `clj -M:test` | 2699 tests, 187557 assertions, 0 failures |
+| `bb test:cljs` | 0 warnings; 2521 tests, 53202 assertions, 0 failures; the integer-bound parity test ran on Node |
+
+## Still open
+
+- **Integer range:** ints are limited to ±2^53; big ints are a later slice.
+- **Messages:** error messages mostly carry no counts.
+- **`print`:** it accepts no `sep`/`end` keywords.
+- **UnboundLocalError message:** it uses the 3.11 wording, while the local oracle was 3.9.
+- **Unchanged from round 1:**
+  - set order is insertion order, not CPython's hash order;
+  - `dict.items()`/`keys()`/`values()` return list snapshots;
+  - `(x) = 1` is rejected;
+  - `**` with a non-integral exponent raises NotImplementedError.
+
+## Files changed this round
+
+- `src/cljc/yang/python/antlr/prelude.cljc`
+- `src/cljc/yang/python/antlr/lower.cljc`
+- `test/yang/python/antlr/e2e_c1_test.clj`
+- `test/yang/python/antlr/lower_test.clj`
+- `test/yang/python/antlr/prelude_parity_test.cljc`

@@ -1,0 +1,27 @@
+I've applied checklist items 1 to 7. The JVM and Node focused runs pass (14 tests, 152 assertions, 0 failures each), but cljstyle `fix` and `check` were denied by the permission gate again, so formatting is unchecked. Please run or approve them before committing.
+
+**What changed:**
+1. **Address form:** `inspect` now takes a `:segment/<algo>-<hex>` address and verifies it with `jing/segment-bytes-match?` under the algorithm the address names. A test covers a sha256 address.
+2. **Hash-mismatch payload:** `:yin.k/hash-mismatch` now carries the claimed `:yin.k/address` and the `:yin.k/computed` one. A non-segment address gets the same refusal; tests cover a bare hex digest, a string, nil and an unknown algorithm.
+3. **Intent digests:** `:yin.k/ops` values are now BLAKE3 hex digests of the canonical bytes of `[:yin.k/append target payload]`. The private `hex` helper is gone.
+4. **Docstring:** it now says the carried intent is for variant comparison and membership only, never a dedup comparand.
+5. **Emitter:** the origin needs a non-nil `:yin.k/emitter`. New fixture: `origin-nil-emitter`.
+6. **Install entries:** every `:install` pending needs its entry, at the root and in every child, else `:yin.k/undecodable` at the pending's path. New fixture: `install-without-entry`.
+7. **Fixture file:** `checkpoint-v1.txt` is now 38,261 bytes (660 lines), down from 514 KB.
+   - Each of the 47 fixtures has a name and an address; only `first-park`, `successor` and `installs` keep their full bytes.
+   - `non-canonical` is built at test time by patching the `successor` anchor's bytes, and is pinned by address.
+   - Every refusal fixture is a mutation of one of five named base bodies.
+   - The test that the file equals `render` is kept.
+
+I also renamed the private `bases` var to `base-bodies`, because it shadowed `clojure.core/bases` and kondo and shadow both warned.
+
+**Red before, green after (JVM):**
+- **Old inspector:** 135 of 152 assertions failed. Every fixture failed on the old address form, which hid the two new rules.
+- **After items 1 to 4 only:** exactly the two new fixtures failed, because each body was accepted with a baseline instead of refused.
+- **After items 5 and 6:** 0 failures.
+
+kondo is clean (0 errors, 0 warnings), and every line is ASCII and at most 80 columns, including the data file.
+
+**Still open:** Dart was not run, since item 8 is yours. The pinned addresses will change when D regenerates the base bodies through a real version-1 export. `handoff.cljc` is untouched and I made no git writes.
+
+The findings file has the new "Amendments applied" section: `collab/1791097800000-compiler-engineer-ucf-c4-checkpoint-inspector.findings.md`.

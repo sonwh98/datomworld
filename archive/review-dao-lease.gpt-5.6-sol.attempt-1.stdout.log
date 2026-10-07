@@ -1,0 +1,84 @@
+OpenAI Codex v0.149.1
+--------
+workdir: /Users/sto/workspace/datomworld
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a060b4-756a-78a2-a03b-d41e6f221f03
+--------
+user
+Created-GMT: 2026-09-02 06:00:33 GMT
+Created-Local: 2026-09-02 13:00:33 Asia/Ho_Chi_Minh
+
+# Task: adversarial review of `docs/design/dao.lease.md`
+
+Role: Lead Systems Architecture Reviewer
+
+## What this is
+
+`docs/design/dao.lease.md` now exists. It is a reconciliation of five
+independent drafts — yours among them — written by the orchestrator. Your own
+proposal was one input; the document is not your draft and you owe it no
+loyalty.
+
+Review it as a document that must stand on its own.
+
+## Scope
+
+Read:
+
+- docs/design/dao.lease.md          — under review
+- docs/design/datom.world.md        — the governing authority
+- docs/design/jit-design.md         — the precedent it claims to follow
+- docs/design/dao.stream.md         — the contract it claims not to touch
+- docs/design/dao.stream.ws.md      — where carriage is said to live
+
+**No source code.** No ADRs, no `dao.space` documents, no `collab/` logs.
+
+## What to test
+
+1. **Does it hold together?** Section against section. In particular: the
+   negotiation vocabulary against "silence is absence"; the observed-window
+   discipline against the clock rules; "lapse is a conclusion, reclaim is an
+   act" against the obligation section.
+2. **Is the precedent claim honest?** It asserts it is the second instance of
+   `jit-design.md`'s pattern and names three divergences. Check the mapping
+   against that document rather than against the claim. If a fourth divergence
+   exists, or one of the three is spurious, say so.
+3. **Does it in fact touch nothing?** It claims to add no operation, no
+   component, and no key to any DaoStream result map, and that
+   `dao.stream.md` is unchanged by its existence. Verify against those
+   documents, both directions: something it changes without saying, and
+   something it needs that no document grants.
+4. **Is the reconciliation sound where the drafts disagreed?** One split was
+   real: whether the negotiation lifecycle belongs in the vocabulary at all.
+   The document keeps `:proposed`/`:accepted`/`:rejected` and adds "a proposal
+   creates no state — an unanswered proposal is not pending and is not queued."
+   Judge that resolution. If you argued the other side, say whether the added
+   rule answers your objection or papers over it.
+5. **What would an implementer have to invent?** Someone building a grantor
+   and a holder from this document alone.
+6. **What is missing that no draft raised?** The five drafts converged; that is
+   a reason for suspicion, not confidence.
+
+## Output
+
+Findings ranked most severe first: severity | section or line | the claim | the
+exact correction. Then one short section: **the thing in this document most
+likely to be wrong that I cannot prove is wrong.**
+
+State plainly if you find nothing at a given severity. Read-only; make no
+edits.
+
+Begin your final response with:
+
+```
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS Asia/Ho_Chi_Minh>
+```
+
+ERROR: Selected model is at capacity. Please try a different model.
+ERROR: Selected model is at capacity. Please try a different model.

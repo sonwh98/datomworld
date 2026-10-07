@@ -1,0 +1,59 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+# Architectural review — U16 Phase 1 macro expander
+
+**Scope reviewed:** `src/cljc/yin/vm/macro.cljc`, `test/yin/vm/macro_test.cljc` (untracked), against `docs/design/yin.vm.macro.md` and the governing docs. Evidence: full reads of design doc, implementation, and tests; direct verification of `dao.jing` addressing (`dao/jing.cljc:306-357`), the canonical grammar (`yin/vm.cljc:792-812`), the primitive registry (`yin/vm.cljc:160-204`), the observer contract (`dao/stream/observer.cljc:217-277`), walker/engine integration, and the test fixtures (real ring-buffer media, not mocks).
+
+## Verdict: REQUIRED FIXES
+
+One small code fix and four spec amendments before commit. **The architecture itself, and all six of Opus's decisions, are accepted** — nothing below requires redesign, and the fixes are local.
+
+---
+
+## The six decisions — all accepted
+
+**1. Phase 0 substrate inside `macro.cljc` — ACCEPT.** Admission (§7.1) is the expander's own responsibility (§1.4, "No assumed graph: admission indexes rows and validates…"). The genuinely missing Phase 0 piece — frontends/encoder emitting batches — remains Phase 0/2 work. The public surface (`valid-tree?`, `tree-packet`, `ast->packet`, `packet->row-set`, `definitions`) is reusable; keeping path navigation private is fine until a frontend needs it.
+
+**2. Post-harvest walks only the final occurrence tree — ACCEPT.** §3.2 step 5 and §3.5 say "the final occurrence tree" (singular): the expanded run tree. Disconnected trees are per-batch input (§2.1: "never independently forwarded"); the run tree is the program text that defines the next store. `stdlib-forms` placing `defn` in the run tree is the correct seed shape. Record the ruling (amendment A3).
+
+**3. New error kinds — ACCEPT, must be recorded in the spec.** They fill unnamed slots rather than contradicting named ones: §5.2 mandates rejecting effect constructors and treats body failure as data (decision 12) but names no kind — `:effect-guard`/`:body-error` fill that gap; §7.2's envelope already leaves `:reason` open, so `:packet-shape` and `:address-conflict` fit. Additive diagnostics (`:tree j`, `:ordinal nil` for missing entries) are within §3.2's diagnostics sentence.
+
+**4. Plain-value checks before the address check — ACCEPT.** `segment-key` hashes `order-normalized-print`; hashing a host object is nondeterministic or throwing, so checking `:host-value` first is *required* by §7.1's determinism guarantee. §7.1 pins within-rule order (addresses in byte order, slots in grammar order) — preserved via `sort-by name` over `:segment/sha256-<hex>` keywords — not inter-rule precedence. All other rules keep the table's relative order; only host-value/marker moved ahead of address verification. Reflect in the spec (A2).
+
+**5. Event path bases — ACCEPT.** A nested event's `call-path` is relative to the parent's output root, and its `input-root` *is* that root — each event's `(input-root, call-path)` resolves inside its own frame, exactly §8.3's portable chain. A call recognized after an operator rewrite logs the source occurrence coordinates `[origin root path]` (Appendix A.3 occurrence identity) rather than a transient rebuilt address — the correct choice; the rebuilt address would break occurrence identity. Define the base in §8.2 (A4).
+
+**6. Minor choices — ACCEPT.** Metadata-aware conflict comparison is forced by the transitional encoder: `pr-str` ignores scalar metadata (verified: `content-hash` at `dao/jing.cljc:306-317`; the encoder strips only reader positions/symbol meta, keeping other metadata), so metadata-distinct bodies legitimately share an address, and `same-value?` is the conservative, deterministic direction. The gensym volatile is invocation-local (§5.3 "invocation-local `n`"), not shared state. Counting all trees' rows for the batch guard matches "cumulative distinct batch workspace" — the working index does merge all trees.
+
+## REQUIRED FIX F1 (code)
+
+**`expand-batch` merges tree indexes without verification** — `src/cljc/yin/vm/macro.cljc:1132`, `(apply merge indexes)`. `valid-tree?` verifies one-address-one-body only *within* one packet (its `group-by first` conflict check); two trees may each be valid while carrying the same address with metadata-distinct bodies. The silent `merge` normalizes content (last tree wins) — precisely what the architecture forbids (`dao.jing`: no boundary "silently normalizes" content) and what §5.3's "Merging packets verifies that one address denotes one body" requires.
+
+*Fix:* merge with verification — reuse the `merge-packets` pattern (`macro.cljc:541-552`) and `same-value?` — surfacing an admission failure `{:kind :malformed-input :reason :address-conflict :tree j :address a}`. Add a regression test: two individually valid packets sharing an address with metadata-distinct bodies (the `(with-meta 'x {:tag 1/2})` construction the output-side test already uses works).
+
+## REQUIRED amendments A1–A4 (`docs/design/yin.vm.macro.md`)
+
+- **A1 (§5.2):** name `{:kind :effect-guard :tag t}` and `{:kind :body-error :message s}` as the runner's rejection data.
+- **A2 (§7.1/§7.2):** add `:packet-shape` and `:address-conflict` reasons; state that plain-value and marker checks precede address verification (host values are never hashed) and that cross-tree merges verify one-address-one-body; note `:tree j` on admission errors and `:ordinal nil` for missing entries.
+- **A3 (§3.5 or §2.1):** one sentence — post-harvest walks only the expanded run tree; declarations in other batch trees are batch-local.
+- **A4 (§8.2):** `call-path` is relative to the event's `input-root` frame; a call recognized after an operator rewrite logs its source occurrence coordinates.
+
+## Recommended (non-blocking)
+
+- **R1:** Run the CLJS and CLJD lanes before commit. Current evidence is JVM-only (25 tests / 184 assertions, full suite 1381 green, per the implementer's report); this worktree lacks `node_modules/ws` (CLJS blocked here) and CLJD was never compiled. §10.3's cross-host agreement is otherwise unverified.
+- **R2:** `:body-error :message` is host-dependent for host-thrown errors (prelude messages are fixed strings); worth one sentence in A1.
+
+## Invariant sweep — passes
+
+- **No hidden global state / no shared mutable state:** store, attempt counter, `:t`, and incarnation are explicit `ctx` fields; all volatiles are pass-local memos or the invocation-local gensym counter.
+- **No implicit control flow / no callbacks:** expansion occurs only in `expand-batch`; the observer is composed through `run-on-stream`; `:eval` is the spec's own ctx field.
+- **No layer collapse:** `yin.vm.macro` depends only on the `dao.stream` and `yin.vm` layers; no evaluator gained macro knowledge (the evaluator-boundary test proves output runs on a macro-free VM); the body runner is §1.4's sanctioned private synchronous capability. The prelude correctly keeps `yin/def` (§5.1: throwaway-machine definitions) and drops `require`/`bytes->str`; the mixed entry-map/raw-fn registry resolves via `vm/primitive-function`.
+- **No assumed graph:** admission validates shape, tag vocabulary, arity/kinds, addresses, children, cycles, reachability, paths, harvest catalogue, and declarations before any recursive reconstruction.
+- **Failure is data:** all input, output, and guard failures are data errors with events; throws are reserved for defects (working-index conflict, non-canonical final tree) and terminal observer outcomes, whose `:session`-carrying behavior is provided by `run-on-stream` (verified at `dao/stream/observer.cljc:234-246`).
+- **Determinism:** only grammar order, operand order, harvest ordinal, and explicit attempt state order anything; addresses sort in byte order; path rebuilding is deepest-first and order-free.
+
+## Test coverage
+
+Every §11 Phase 1 required test is present, plus two worthwhile extras (shared definition row at two paths; expanded output running on a macro-free evaluator). Observer tests exercise a real ring-buffer attachment, including per-destination `full` retry, error-log flush on failed expansion, and cursor preservation on both load and flush defects.
+
+---
+
+**Bottom line: REQUIRED FIXES — F1 plus A1–A4.** All six deviations are architecturally sound and need no code change beyond F1; with F1 applied, the amendments recorded, and the CLJS/CLJD lanes run, this is a sign-off. The full execution plan (findings-file write, F1 patch, amendments, verification commands) is staged in the plan file and applies on approval.

@@ -1,0 +1,15 @@
+**REJECT**, narrowly. All six R-fixes and the minor fixes are applied and read consistently across the document. One genuine gap remains in the vector rules, plus two small omissions.
+
+**1. §7.5 `:var-bounds` is undefined at the contract level** (line 1039). The rule refers to "the main sequence" and "a body whose enclosing `:closure` arities" but §7.5 defines neither a body region nor a nesting relation. The only constraint on a `:closure` body target is that it lands in `[0, length)`. Two `:closure` instructions with different arities may target one pc, and a `:jump` may cross into a body. So for a given `:var` pc, "enclosing arities" has no meaning. §7.4's `:variable-bounds` is sound because structural paths give nesting; the vector has no analogue.
+
+Minimal fix: delete the `:var-bounds` row. Index bounds are checked once on the rows, and §7.7.2 already fixes the vector-level behaviour by making an unbound index evaluate to nil. Add one sentence after the table saying there is no vector-level bounds rule and why. If you want a static vector check instead, you need a body-region rule first (regions disjoint, no jumps across boundaries, all `:closure` instructions targeting a body agree on arity). That is more text than the design needs.
+
+**2. The under-arity binding rule is missing from the amendment list.** §7.7.2 changes the execution contract: an under-arity call leaves missing slots nil instead of falling through by name. §5.1 and §10.14 tell `yin.vm.semantic.md` to gain only the three grammar forms. Add the binding rule to both. Also state the over-arity behaviour in §7.7.2, since it is currently unspecified.
+
+**3. Citation drift.** §9.1's mnemonics row cites `code.cljc:12-15`. §3.2 and §7.5 cite `12-16`, and the set spans 12 to 16 in the working tree.
+
+Optional and pre-existing: §7.4 `:arity` says "the tag's arity" while §2.3 defines a body arity. "Body arity plus one" would remove the ambiguity.
+
+Everything else checked clean: the De Bruijn convention against `:variable-bounds` and "indices never fall through", every row arity in the §6.3 and §7.7 queries, the footprint rows for `:global`/`:var`/`:closure`, the work-item context wording in §7.7.3, the "v2" stamp meaning across §5.1, §5.2, §7.7.1, and §8.2, the codec column in §2.3 against §9.1, and the §8.5 binding rule's use of a `:global` operator node. UCF line 1302 is the contract-publication bullet, so §5.1's claim holds.
+
+The full verdict with exact edit instructions is in the plan file at `/Users/sto/.claude/plans/read-collab-1789421900000-fable-rereview-jaunty-hinton.md`. Plan mode is active, so I made no edits to the design document.

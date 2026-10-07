@@ -1,0 +1,40 @@
+```text
+Completed-GMT: 2026-09-23 17:10:00 GMT
+Completed-Local: 2026-09-24 00:10:00 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: 1ff9efa8-f088-467a-8507-c94697603dc5
+```
+
+The Contract Version 2 change is implemented and passes on JVM and CLJD, but I could not verify CLJS or cljstyle here. CLJS failed to start because `node_modules` is missing (`Cannot find module '@noble/hashes/blake3.js'`). The `npm ci` I tried was blocked, and `cljstyle check` was also blocked pending approval. Nothing is staged or committed.
+
+I made two additions beyond the spec. On CLJS a JS number of magnitude 2^63 or more is still classified `:double`, as before. The CLJS classification is now a small CLJS-only helper `js-number-class`, so the JVM and Dart paths carry no integer-folding logic. I did not add the CLJS "refuse a foreign record claiming `:double` for an integral value" boundary check, so that acceptance item is not done.
+
+**1. Changed files** (the 4 in the file box, plus the untracked prompt file already in `collab/`)
+```
+docs/design/yin.vm.debruijn-projection.md | 35 ++++++-----
+public/chp/blog/yin-vm-vs-unison.blog     |  2 +-
+src/cljc/yin/vm/debruijn.cljc             | ~55 lines changed
+test/yin/vm/debruijn_test.cljc            | 61 ++++++-----
+```
+- **Source:** `contract-version` is 2 and appears in `descriptor`. `:integral-double-folding` is false and `:int64-integral-double-collision` is removed from the limits. On JVM and Dart every float is `:double`.
+- **Tests:** `7.0` and `0.0` now expect `:double` on JVM and Dart. `1` and `1.0` now project to distinct fingerprints and records. `{1 :a, 1.0 :b}` and `#{1 1.0}` no longer collide. The byte pin for `1.0` is now `0300000010000000000000f03f`. A stored `1.0` under `1`'s address now gives `:hash-mismatch`, and a double in an int64 slot gives `:unsupported-value`.
+- **Docs and blog:** the projection doc has the Version 2 section and the JS adapter boundary. The blog no longer says the projection folds `1.0` into `1`.
+
+**2. Test outcomes**
+- `clojure -M:test -n yin.vm.debruijn-test -n yin.vm.pipeline-test`: 97 tests, 457 assertions, 0 failures. `yin.vm.debruijn-test` alone is 78 tests, 350 assertions.
+- `bb test:clj`: 1940 tests, 179268 assertions, 0 failures.
+- `bb test:cljd`: "All tests passed!" (the raw output carries no assertion count).
+- `bb test:cljs`: not run to completion, for the `node_modules` reason above. The CLJS-gated test branches are unverified.
+
+**3. Pinned hashes**
+- Descriptor hash: `22f16c962e83cd5e683c2d5fc32847b49974280749fcf123d88398d0ca0abbda`
+- Essay fingerprint: `88f891572e7f151cfc46363b903a95bbc2fd2d3a2fcd8470467efc6eda9f333a`
+
+The old pin `095c83f7…` came from a test that also asserted the `1.0` variant produced the same fingerprint. That assertion is removed.
+
+**4. Lint and format**
+- Kondo on the source and test files: 0 errors, 0 warnings.
+- 80-column check: the doc file was checked last before my final edits and I could not re-run it. The `.cljc` files and the blog were not measured, and some existing lines in them already exceed 80.
+- ASCII: not verified. I wrote no new non-ASCII, but the source and test files already contain `§`, `—`, `é`, `€` and an emoji in existing comments and test data. Full pure-ASCII would mean rewriting them. My final ASCII check was also blocked.
+
+To finish, please run `npm ci` in the worktree, then `bb test:cljs` and `cljstyle check src/cljc/yin/vm/debruijn.cljc test/yin/vm/debruijn_test.cljc`. Or approve those commands and I'll run them.

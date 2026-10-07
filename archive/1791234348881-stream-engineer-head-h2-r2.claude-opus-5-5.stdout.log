@@ -1,0 +1,103 @@
+Completed-GMT: 2026-10-05 21:25:18 GMT
+Completed-Local: 2026-10-06 04:25:18 +07
+Coding-Agent: claude
+Session-ID: 820fb1cc-b82c-4ee6-96c7-7a170107243d
+
+# head-h2 report (re-dispatch r2, claude-opus-5-5)
+
+All four parts of H2 are built and green on the JVM. Node and Dart were not run, as the brief requires; those lanes are yours at landing. `docs/design/dao.stream.md` is not amended, and nothing needed it.
+
+## What I did with the inherited edit
+
+**Kept:**
+- The namespace docstring paragraph on names.
+- `named?`.
+- `well-formed-answer?`, which accepts a named `not-found` that carries no identity.
+- `answer-named!`, the mirror's step 0.
+- The five-argument `mirror-step` that takes a name map.
+- `new-link` now records its channel descriptor.
+- `absorb-named!`.
+- `channel-loss!` skips an entry that has no reflection.
+- `drain!` no longer counts asks on named requests.
+- `named-id`, `send-named!`, `resolved` and `resolve-name`.
+
+**Changed:**
+- **A request that carries an identity is an identity request, whatever else it carries.** The inherited edit made a request carrying both a name and an identity malformed. Since the request map is open, that would have changed how some identity requests are answered, which breaks the hard rule. A test pins it: the same requests are answered byte-for-byte the same with and without a name map, and with a stray name key.
+- The oversize answer is built with `select-keys`. For identity requests it is the same map as before.
+- A shared `descriptor-answer` helper now builds the descriptor answer for both step 0 and step 3.
+- `resolved`'s `ok` also carries `:dao.stream.remote/surface`.
+
+**Discarded:**
+- The dangling call to `absorb-reflected!`, which was the compile error. I restored the committed body of `absorb!` and put a single `named?` branch in front of it.
+
+**Finished:** the `links` restructure. `(remote/links opts)` returns `{:attach f :resolve g}` over one set of per-channel links. `attacher` is now just `(:attach (links opts))`.
+
+## Changed files
+- `src/cljc/dao/stream/remote.cljc`
+- `src/cljc/dao/stream/ws_project.cljc`
+- `src/cljc/yin/vm/linker/head/ws.cljc` (new)
+- `test/dao/stream/remote_test.cljc`: 7 tests appended; existing tests untouched.
+- `test/yin/vm/linker/head_ws_test.cljc` (new)
+- `docs/design/dao.stream.remote.md`
+- `docs/design/dao.stream.ws.md`: the status line only.
+
+## Commands and outcomes (all foreground)
+- `clj -M:test -n dao.stream.remote-test`: 29 tests, 204 assertions, 0 failures. Before my additions it was 22 tests and 163 assertions, all passing.
+- `clj -M:test -n yin.vm.linker.head-ws-test`: 9 tests, 75 assertions, 0 failures. This includes the real loopback socket case on the JVM.
+- The combined run covered `dao.stream.remote`, `ws-project`, `ws-project-jvm`, `ws`, `remote-pair`, `remote-meet`, `dao.lease-composition`, `yin.vm.linker.head`, `head-follow`, `head-ws`, `remote-transfer`, `yin.vm.ffi.remote-serve`, `remote-serve.responder`, the five `yin.vm.ucf` namespaces that use the mirror, `yin.repl.serve-test`, `connect-test` and `serve-connect-wire-test`: **296 tests, 2841 assertions, 0 failures, 0 errors.**
+- `clj -M:kondo --lint` on the five code and test files: 0 errors. There is 1 warning, `test/dao/stream/remote_test.cljc:661` (unused `peer2`); it predates this slice.
+- While debugging I ran one `clj -M:test -e …` command. It hung, was moved to the background automatically, and I stopped it with TaskStop. Nothing else ran in the background.
+
+## H2 criteria
+- **Resolution: done.**
+  - Mapped name, unmapped name, a name mapped to a missing entry, and named `next`/`cursor`/`append!` or a bad `args` all dropped: `a-named-descriptor-request-answers-the-entrys-own-identity`.
+  - Retry, then `ok`, then `attach!`: `resolve-answers-retry-then-a-descriptor-attach-accepts`.
+  - Existing tests are unchanged, and identity requests behave as before: `an-identity-request-is-answered-as-before`.
+  - Malformed answers are treated as data: `unexpected-answers-to-a-resolve-are-dropped`. Plus `resolve-of-an-unmapped-name-is-not-found`, `resolve-over-an-unreached-or-lost-channel` and `resolve-is-resent-after-k-asks`.
+- **Identity: done.** Pinned by `no-wire-value-carries-the-name-as-an-identity`, which decodes every frame in both directions, and by the reflection identity assertions in the head-ws tests.
+- **Serving node and dialing node on loopback, H1's first case over a reflection: done.** `a-first-contact-reader-follows-over-a-reflection` covers seq 0, then seq 1, `alib` resolving to v1 then v2, and the installed events. `the-board-crosses-a-real-loopback-socket` is the JVM case over http-kit.
+- **Restart: done.** `a-restarted-publisher-is-a-lost-source-then-a-new-identity`: `:source-lost` fires once, a new dial resolves a different identity, the head is judged `:duplicate`, and an old cursor gives `cursor-mismatch`.
+- **Shared key: done.** `two-nodes-with-one-key-serve-two-identities-for-one-name`.
+- **The table holds only the board; a writer op is `no-surface`; another identity is `not-found`: done.** `the-table-holds-the-board-and-nothing-else` checks this both over the served table and name map and through a reflection. Also `an-unmapped-name-loses-the-dial`.
+- **A non-loopback bind composes no endpoint, IPv4 and IPv6: done.** `a-bind-host-that-is-not-a-loopback-literal-composes-no-endpoint`; `listen!` is never called.
+- **A port in use is a refusal as data, and the node keeps running: done.** `a-port-in-use-is-a-refusal-and-the-node-keeps-running` covers both a bind that throws and one that fails later. The real JVM case also re-binds the same port.
+- **The same cases on Node and Dart: not run here.** The portable cases use an in-process loopback net (a fake `listen!`/`connect!` over `ws/adapter` and `ws/accept-connection!`), so they need no host sockets. Only the real-socket case is JVM-only, written as `#?(:cljd nil :clj …)`.
+
+## Wire shapes
+- **Named request:** `{:dao.stream.remote/name nm :dao.stream.remote/op :dao.stream/descriptor :dao.stream.remote/args [] :dao.stream.remote/id n}`. It carries no `:dao.stream/identity`.
+- **Ok answer:** the entry handle's descriptor outcome, plus `:dao.stream.remote/id n`, `:dao.stream/identity <the ring's own id>`, `:dao.stream.remote/surface #{:reader}` and `:dao.stream.remote/name nm`.
+- **Not-found answer:** `{:dao.stream.remote/id n :dao.stream.remote/name nm :dao.stream.remote/error :dao.stream.remote/not-found}`, with no identity.
+
+## Return shapes
+- **`(remote/links opts)`** gives `{:attach f :resolve g}`. `(g cd name)` returns one of:
+  - `{:outcome :transport-error :retry? true}`
+  - `{:outcome :ok :descriptor {:type :dao.stream/remote :identity id :channel cd} :identity id :dao.stream.remote/surface S}`
+  - `{:outcome :transport-error :dao.stream.remote/reason :not-found | :channel-gone}`
+  - `{:outcome :dao.stream/not-found}` when the channel is not reached.
+- **`ws-project/dial-resolve! dial cd name`:** the same outcomes. A dial with no channel yet runs the ws attach first, and a failed attach returns the ws attacher's own outcome. After that, `dial-reflect!` attaches through the same link.
+- **`ws-project/make-acceptor` and `dial`** take an optional `:names` map.
+- **`head.ws/serve`** returns `{:status :starting :identity :name :descriptor :acceptor :listener :lifecycle …}`, or `{:status :refused :reason :yin.head.ws/not-loopback | :yin.head.ws/bind-failed …}`.
+- **`serve-step server now`** returns the server, moving to `:serving` and recording the bound port in `[:descriptor :ws/port]`. A bind that fails later becomes the `bind-failed` refusal.
+- **`head.ws/dial`** returns `{:status :resolving :principal :name :channel :dial :handle nil}`, or a `:yin.head.ws/no-attacher` refusal.
+- **`dial-step`** moves to `:attached` (with `:handle` and `:identity`) or `:lost` (with `:outcome`).
+- **Also public in `head.ws`:** `handle`, `close!`, `board-name`, `loopback?`, `path` (`"/head"`) and `slot-count` (8).
+
+## Amendments in `dao.stream.remote.md`
+- **Status line:** now says "implemented" and names the namespaces.
+- **Section 2:** a name-map sentence inside the table bullet, including "a name is lookup data and never a `:dao.stream/identity`".
+- **2.1:** the named request and its two answers in the code block; the rule that a request carrying an identity is an identity request, and that a named request with another op is malformed; a sentence on what `not-found` means for a named request.
+- **2.3:** the five-argument signature; step 0; "Steps 0 to 4 are the mirror's only contacts".
+- **2.4:** a new **Resolve** paragraph.
+- **Section 5:** a new **Stream names** paragraph covering the convention and the head board.
+- **`dao.stream.ws.md`:** status line only.
+
+## Unresolved concerns, for the Architect
+1. **`head.ws/dial` takes the host `:connect!`, not a ready-made attacher.** A ws attacher is tied to its own traffic medium, and every redial after `:source-lost` needs a fresh one (`connect.cljc` makes the same point). Taking `:connect!` keeps the only host-specific thing as the argument. It departs from "the attacher is an argument".
+2. **Identity precedence** is my reading. The design says the name rides "in place of" the identity; it does not say what a request carrying both means.
+3. **The ws channel descriptor's identity** is `"ws://host:port/head"`. It never crosses the wire and is not the board's name, but it is a fixed address string.
+4. **Ephemeral bind:** the endpoint descriptor uses port 1 as a placeholder until `:bind-succeeded` reports the real port. `accept-connection!` ignores the descriptor.
+5. **No stop function in `head.ws`.** The tests stop the listener with the host's `:unbind!` on `:listener`. H3 may want a `stop`.
+6. **A resolve's not-found is reported with the same reason as a gone reflection** (`:dao.stream.remote/not-found`) but marks nothing. A named request is re-sent only by repeated `resolve` calls, never by a drain.
+
+## Incomplete work
+Only the Node and Dart lanes, which the brief left to the orchestrator.

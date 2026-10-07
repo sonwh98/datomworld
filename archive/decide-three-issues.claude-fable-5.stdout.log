@@ -1,0 +1,63 @@
+Decisions: **1A, 2B, 3C.** Reasoning and exact text below.
+
+---
+
+## Question 1 — **1A. Keep `ok`**, and rescope the contract's `attach!` `ok` row.
+
+The ninth invariant does not merely *permit* returning only what is locally true — it *forbids* returning anything else, so an `ok` that means "the far end serves this stream" is unimplementable by every remote transport on every host, forever, not just by WebSockets today. Under 1B, `:dao.stream/pending` therefore becomes the only reachable success for the entire remote class, and `ok` the only reachable success for the local class: no transport ever produces both, so the split does not let a caller distinguish anything at runtime — it just renames success per transport class and forces every generic caller to branch on two success-ish outcomes that are handled identically (hold the handle, read resolution as data). Worse, `pending` is promise vocabulary — an outcome whose meaning is "an answer is coming" — which reintroduces the request/report shape the IO Model expels; the contract's own words are that an operation "is a question about now," and the honest now-answer is "an operable handle on an attachment exists." The reviewer's falsification charge dissolves once `ok` claims only that: a later deposited `not-found` does not contradict it, because the handle was real and answered honestly throughout (`full` while establishing, `closed` after failure — the ws spec already specifies this). The cost of 1A is one wording change in one table; the cost of 1B is a permanently wider public surface encoding a distinction no caller can act on.
+
+**Exact text** — replace the `attach!` `ok` row in `dao.stream.md`:
+
+> | `:dao.stream/ok` | An attachment to the stream the descriptor names now exists here, with an operable handle on it. Whether what the descriptor names exists at the far end is answered now only where the transport resolves locally; a transport that cannot know at call time displaces that answer to a named channel, where it arrives as data (see Surfaces on displaced outcomes). `ok` never asserts an answer the transport has not heard. | `:dao.stream/handle` |
+
+---
+
+## Question 2 — **2B. Keep the ring buffer; amend the ws spec and ADR 0003 with an explicit, ending exception.**
+
+"The medium" is a claim about there being no *second stigmergic medium* — no parallel discovery surface with its own retention, addressing, and interpreter population — not a claim that a particular namespace must appear in every composition; and by `datom.world.md`'s own rule the adapter cannot tell what it deposits into, so the slice's code is byte-identical under either destination and only the test composition differs. 2A is not actually available at slice cost: ADR 0003 itself records that dao.space's writer face throws (`-append!` on closed/full/invalid) and names fixing it a *precondition* of depositing through it, and `DaoStreamLog` satisfies the legacy protocol, not the new `dao.stream` protocols — so 2A silently drags the dao.space migration inside the slice, exactly the big-bang coupling the two-namespace strategy exists to prevent. 2C is unsound for a documented reason the plan itself states: provisional things carried under delivery pressure become permanent by accident, and three reviews tripping over the same unamended contradiction is the drift already happening. So: keep the ring buffer, and make the exception explicit, named, and terminated.
+
+**Exact text** — in `dao.stream.ws.md`, immediately after "Per ADR 0003 there is no separate event bus: dao.space is the medium.":
+
+> During the v2 migration slice only, the host composition wires a conforming
+> ring buffer into this deposit slot. This is a stand-in, not an architecture:
+> the adapter cannot tell the difference, no interpreter discovers traces
+> through it, and it acquires no addressing or retention story of its own.
+> It stands in because dao.space's writer face does not yet answer with data
+> (ADR 0003 names fixing it a precondition of depositing through it) and
+> dao.space has not migrated to the v2 protocols. The exception ends when
+> dao.space migrates to v2 under its own plan; composing a production ws
+> boundary against a private ring buffer after that point violates ADR 0003.
+
+And append to ADR 0003:
+
+> **Amendment (2026-08-31).** The `dao.stream` WebSocket migration slice
+> deposits into a conforming ring buffer, not dao.space, because this ADR's
+> own precondition — a writer face that answers with data — is unmet and
+> dao.space is not yet a v2 consumer. This is a slice-scoped composition
+> stand-in, not a second medium: the adapter is unchanged, and the decision
+> above is unchanged. The exception ends when dao.space migrates to v2.
+
+---
+
+## Question 3 — **3C. Keep the envelope; add a reconciling clause to the ws spec.**
+
+The authority's sentence, read in its section, forbids a vocabulary events must be read *through* — a version field, a fact taxonomy, a wrapper a reader must decode to reach the data — yet the same section *mandates* that a transform "classifies them and emits a qualified value"; the envelope is precisely that qualified value, carrying only the two facts the boundary alone witnesses: which attachment delivered the event (a multiplexed medium is unattributable without it) and which of the socket's own event classes occurred (the distinctions the wire makes, not what any value means). 3B does not differ in what gets built: a decoded payload may be a string or a number, and a correlation field cannot sit "on" a scalar without a map around it, so 3B either rebuilds this exact map and declines to call it an envelope, or it cannot attribute non-map payloads — which makes it a naming position, not a design. 3A amends the authority to permit something the authority already permits, and a "minimal transport-owned envelopes where required" clause is the crack through which real fact taxonomies arrive. The per-attachment-medium escape does not remove attribution either: the ws spec already observes that the boundary lifecycle stream must then announce attachments, so the identity moves rather than disappears — "either shape carries the identity; only the sharing changes."
+
+**Exact text** — in `dao.stream.ws.md`, after the envelope example and the "Wrapping is not judging" sentence:
+
+> This map is not the bespoke envelope `datom.world.md` forbids. That rule
+> bars a vocabulary events must be read *through* — a version field, a fact
+> taxonomy, a wrapper a reader must know before the data is legible. These
+> keys carry only what this boundary is the sole witness to:
+> `:dao.stream/attachment`, because one medium multiplexes many attachments,
+> and `:ws/event`, naming the event classes the socket itself distinguishes —
+> never a claim about what any value means. `:ws/value` is opaque to the
+> adapter. The result is an ordinary open map of transport-qualified plain
+> data — the "qualified value" the authority's transform is instructed to
+> emit — with no version, no registry, and no taxonomy of meaning.
+
+---
+
+## Least confident, and what would change my mind
+
+**Question 1.** The reviewer's objection has genuine force: "attached" and "attaching" are different facts, and 1A resolves the tension by weakening what `ok` asserts rather than by adding a word for the difference. What would flip me to 1B: concrete consumer code that must behave differently on a synchronous-attach transport versus a deferred one *before any deposited event can arrive* — for example, a composition that must not `append!` until attachment is confirmed and cannot express that by reading the medium. If callers demonstrably need to branch on that distinction at the call site, then the distinction has earned an outcome keyword and the two-success surface pays for itself. Until such a caller exists, `pending` encodes a difference nobody can act on. (Secondary: on Q2, if a v2-conforming data-answering writer shim over `dao.space.transactor` turns out to be an afternoon's work rather than a migration, 2A becomes viable — but the amendment in 2B costs nothing and remains true even then.)

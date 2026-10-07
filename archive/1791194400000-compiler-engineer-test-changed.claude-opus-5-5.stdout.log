@@ -1,0 +1,40 @@
+I've built `bb test:changed`, and the JVM and Dart lanes work on real runs. The Node lane compiles but its tests never ran: this fresh worktree has no `node_modules`, and both `npm ci` and symlinking the main checkout's copy needed approval. No git writes, and I didn't run the full `bb test` or the full Node/Dart lanes.
+
+**What it does**
+- `src/dev/affected.clj` works out which test namespaces a change can reach, then runs them. All 474 code files under src/ and test/ read without error; the brief's estimate of ~700 was high.
+- Five new tasks in `bb.edn`: `test:changed`, `test:changed:clj`, `test:changed:cljs`, `test:changed:cljd` and `test:changed:list`. The existing tasks are unchanged.
+- `src/dev/cljd_agg.clj` takes `--only ns1,ns2`. It limits both the compile and the shards to those namespaces, and a namespace with no generated Dart file is fatal. Without `--only` it behaves as before; `--slow-regex` still prints the same output.
+- `docs/agents/build-n-test.md` has an 18-line section on when to use it and what the closure misses.
+
+**Verification**
+- Tests written first: red was 71 of 83 assertions failing against a stub, green is 16 tests, 83 assertions, 0 failures (`bb -cp src/dev -m affected-test`).
+- The test file sits in `src/dev/`, not `test/`, because the JVM runner loads everything under `test/` and this file needs babashka.
+- kondo reports 0 errors and 0 warnings.
+- **cljstyle was blocked** (it needed approval). I checked by hand that every line is ASCII and at most 80 columns; `cljstyle fix` and `check` still need running before landing.
+
+**Smoke checks with `test:changed:list`**
+- **This worktree's own diff:** a wide change, because it touches `bb.edn` and `src/dev/`. It exits 2 and lists all 223 test namespaces.
+- **`yin/vm/integer.cljc`:** 8 tests, including `prelude-parity-test` and `yin.vm.integer-test`. By hand, only `yang.python.antlr.prelude` requires that namespace, so this is right.
+- **`yin/vm/ucf/ledger.cljc`:** 16 tests, including all 9 ucf authority tests.
+- **docs/ only:** nothing selected, exit 0.
+
+**Timings** (same 5 namespaces each time)
+
+| Run | Result | Time |
+|---|---|---|
+| `test:changed:clj` | 66 tests, pass | 10 s |
+| `test:changed:cljd` | 63 tests, pass (includes compiling only those 5) | 38 s |
+| `test:changed:cljs` | compiled in 17 s, then node failed on a missing module | not timed |
+| `test:changed`, three lanes in parallel | Node failed as above, so exit 1 | 33 s wall |
+
+Shadow exited 0 even though node crashed, so the runner treats a log with no test counts as a failure and showed it as FAIL. To finish the Node timing, run `npm ci` in this worktree and re-time it.
+
+**Choices that differ from the brief or need your call**
+- **A wide change runs nothing.** It prints "wide change: run bb test" and exits 2. If you'd rather it ran everything in parallel and still exited 2, that's a small change.
+- **Tests that scan the source tree:** I added a rule for tests that walk a directory with `file-seq`. Without it, `store-write-audit-test` (scans src/) and `cbor-conformance-test` (scans test/ and src/dev/) would be missed. The cost is that every src change also selects the first, and every test/ change the second.
+- **`.md` files:** a `.md` under `test/resources/` counts as a fixture rather than being ignored, because `cbor-v1.errata.md` is read by path.
+- **Extra wide files:** `package*.json` and `pubspec.*` also count as wide, since they change the Node and Dart lanes.
+- **Lane collisions:** the lanes can't collide, except when a selected JVM test runs the Dart compiler. Then the JVM and Dart lanes run one after the other. Today that is only `cross-host-transfer-test`, which is `^:slow`, so the fast lane never actually runs it.
+- **Shared builds:** each runs once, before the parallel phase, and only if a selected test or something it requires names that build's output. A change to `yin/repl.cljc` triggers the Node REPL and Dart peer builds, `integer.cljc` triggers the ANTLR generation, and `ucf/ledger.cljc` triggers none.
+
+The full report, with the safety analysis and the closure's limits, is in `collab/1791194400000-compiler-engineer-test-changed.findings.md`.

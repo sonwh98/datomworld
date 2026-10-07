@@ -1,0 +1,57 @@
+Completed-GMT: 2026-09-21 23:45:45 GMT
+Completed-Local: 2026-09-22 06:45:45 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: 51cbe9c5-542b-4efc-99ce-082ca4a1beb8
+
+All three findings are applied. Every lane is green: lint, the generator check, JVM, Node and the full Dart suite. A deliberate mutation on Dart proved the runners no longer stop at the first failing case, and the mutation is reverted. Nothing is staged or committed.
+
+## Per finding
+- **GLM P3-1, runners stopping at the first failure on Dart: agree.**
+  - `guarded` no longer calls `is` inside its catch. A thrown case is recorded as `[id "threw ..."]` in that test's list of failures.
+  - A new `check!` records `[id what]` when a check fails. A new `assert-none!` makes one assertion per test: the list must be empty, and the message gives the failure count and the first 8 pairs.
+  - Applied to the canonical runner, the decode-refusal runner, `groups-hold-on-produced-bytes` (failures named by group id), `encoding-ignores-ambient-print-settings`, and every refusal-class branch of the encode-refusal runner.
+  - On JVM and Node a failing case still turns the lane red and names the case id.
+- **GLM P3-2, a test pinning the Dart merges: agree.**
+  - New Dart-only test `dart-host-merges-behind-the-e6-column`. It builds sets the way the fixture builder does.
+  - It asserts 0.0 and -0.0 merge to one member, and `[1]` and `(fresh-list [1])` merge to one member.
+  - It also asserts the live rows keep two members: int 1 and double 1.0, and two canonical NaNs.
+  - `fresh-list` in the fixture helpers is now public so the test can use it.
+- **Deepseek P2, no Dart column in the errata: agree.** I appended `## E6. Dart column of the E1 table (PENDING architect ratification at J3)` to the end of the errata; the diff is 38 lines added and nothing else changed. It holds:
+  - The Dart column: signed-zero and vector-list N/A (merged); the other seven live and refused with the frozen class.
+  - That `host-collapse` is never raised on Dart.
+  - The two Dart-only behaviors: `BigInt.compareTo` is normalized to -1, 0 or 1, and the reader restores the BOM the Dart decoder drops.
+
+  It is pure ASCII with no line over 80 columns. The two Dart N/A skip messages now cite E6; JVM and Node still cite E1.
+
+## Files changed
+- `test/dao/jing/cbor_test.cljc`
+- `test/dao/jing/cbor_fixtures.cljc` (`fresh-list` made public)
+- `test/resources/dao/jing/cbor-v1.errata.md` (E6 appended)
+
+The codec files are unchanged this turn. The corpus, README, generator and `cbor_fixtures_test.cljc` are untouched.
+
+## Mutation check
+I temporarily set the expected hex of `coll/empty-vector` (the first canonical case) and `opt/single-item` (the last) to `ff`, then ran `cljd-fast.sh`.
+- It failed with `canonical cases: 2 failing; first: (["coll/empty-vector" "encodes to the frozen bytes"] ["opt/single-item" "encodes to the frozen bytes"])`.
+- Both ids appear, so the loop kept running after the first failure.
+- The lane ended "+1568 -1: Some tests failed". The new Dart evidence test passed in that run.
+
+I reverted the mutation, and a grep for `opt/single-item` or `"ff"` in the test file finds 0 matches. The final Dart run below was on the reverted tree.
+
+## What I ran
+| Command | Result |
+|---|---|
+| `lint.sh fix`, then `lint.sh` | kondo 0 errors, 0 warnings; cljstyle clean both times |
+| `python3 test/resources/dao/jing/cbor-v1.generate.py --check` | matches byte for byte |
+| `clojure -M:test -n dao.jing.cbor-fixtures-test -n dao.jing.cbor-test` | 32 tests, 3193 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 1607 tests, 42289 assertions, 0 failures, 0 errors, 0 compile warnings |
+| `cljd.sh` (full lane) | exit 0, "01:54 +1569: All tests passed!" |
+
+The JVM and Node assertion counts are lower than before (4447 and 43538 previously) because per-case assertions became one assertion per test.
+
+The Dart run skipped by id, with reasons printed:
+- `coll/set-signed-zero-collapse` and `coll/set-vector-list-collapse` (merged by Dart's set, citing E6).
+- `num/js-unsafe-integer`, `host/character` and `host/nested-in-vector` (no such host value on Dart).
+
+## What I did not run
+The Java 17 full `clojure -M:test` suite, which the orchestrator runs.

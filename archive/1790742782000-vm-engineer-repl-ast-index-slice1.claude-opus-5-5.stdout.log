@@ -1,0 +1,47 @@
+Completed-GMT: 2026-09-30 04:50:38 GMT
+Completed-Local: 2026-09-30 11:50:38 +07
+Coding-Agent: claude
+Session-ID: 771d73b8-33cb-4277-815e-2b72fe699c1c
+
+# Report: $ast row relation, slice 1 (the observer and the $ast/$occ relations)
+
+Slice 1 is done: a new AST indexer builds the `$ast` and `$occ` relations and is wired into the REPL. All test lanes pass on JVM, CLJS and CLJD. The one exception is cljstyle: this session needed approval to run it and couldn't get it, so it was not run. Worked on master 2f030c66. Nothing is staged or committed, and every check ran in the foreground. The full report is in `collab/1790742782000-vm-engineer-repl-ast-index-slice1.claude-opus-5-5.report.md`.
+
+## What changed
+- **New `src/cljc/yin/repl/ast_index.cljc`:** an observer on `program-out` that belongs to the session.
+  - `:rows` maps each node address to its row, so `$ast` has one row per distinct address.
+  - `:occurrences` is the set produced by the existing `vm/occurrences`, so `$occ` has one tuple per distinct `[root path node]`.
+  - `step` indexes waiting packets and `skip` reads past them without indexing. In both, a gap marks the indexer lost.
+  - `relations` returns `{:ast :occ}`, or nil when the indexer is lost or failed. `available?` answers the same question as a yes/no. Slice 2 can use both as they are.
+  - `status` reports `{:programs :rows :occurrences :lost? :gaps :failure}`.
+  - A packet is merged only after it is fully checked. Four problems record a failure and leave both relations unchanged:
+    - a malformed packet (`:shape`)
+    - two different rows under one address (`:duplicate-address`)
+    - a row defect found by `vm/validate-rows` (`:invalid-rows`)
+    - an address whose row differs from the one already held (`:address-conflict`)
+  - A lost or failed indexer ignores later packets until `(reset)` or `(vm ...)`.
+  - Nothing is published to dao.jing, and neither relation has an origin or clock slot.
+- **`src/cljc/yin/repl.cljc`:**
+  - `make-session` adds `:ast-indexer`.
+  - `consume-failed-round` drains its reader when a round throws.
+  - A new `run-ast-index-stage` runs right after the existing code indexer: after expansion, before evaluation.
+  - `repl-state` reports it as `:ast-index`.
+  - An AST-index gap never stops evaluation, and the two indexers share only the stream.
+- **New `test/yin/repl/ast_index_test.cljc`** with 9 tests. No existing tests changed, and `yin.vm` is unchanged.
+
+## Verification
+| Check | Result |
+|---|---|
+| kondo | 0 errors, 0 warnings |
+| cljstyle | **not run** (needed approval this session couldn't get) |
+| Focused JVM (5 namespaces) | 90 tests, 973 assertions, 0 failures |
+| Full `clj -M:test` | 2394 tests, 184621 assertions, 0 failures |
+| `bb test:cljs` | 2299 tests, 51076 assertions, 0 failures; the new namespace ran |
+| `bb test:cljd` | 2261 tests, all passed; the new test file was freshly compiled |
+
+The tests cover every acceptance item, including all four VMs and the cross-VM `repl-state` check. To show the tests catch real breakage, I broke the code 9 ways, one at a time, and restored each change afterward. Every one made tests fail (2 to 42 failures each).
+
+## Things to know for slice 2
+- **Shared rows are only the leaves.** When `(+ 1 2)` is evaluated and then nested in `(* (+ 1 2) 3)`, the two `(+ 1 2)` roots get different addresses. Only the `+` variable and the literals are shared. The test checks that.
+- **Loss shows up only in `repl-state :ast-index`,** not as a warning in the round's output. Refusing AST queries is slice 2's job. A per-round warning like the code indexer's would be a small addition if the owner wants it.
+- **One bad packet disables the relations until `(reset)` or `(vm ...)`,** so a partial snapshot is never served.

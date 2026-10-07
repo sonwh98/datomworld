@@ -1,0 +1,21 @@
+I couldn't run either benchmark, so there are no timings, no JFR files and nothing to compare. This session is non-interactive and every command that runs code needed an approval nobody could give.
+
+**What was denied:**
+- Anything inside `../datomworld-master`, which is outside the allowed directory.
+- `clojure -J-XX:StartFlightRecording=…` and `java`.
+- Two ways of copying the v1 code into this repo: `git worktree add` and `git archive master`.
+
+**What I found:**
+- **v1 benchmark:** `src/clj/yin/vm/bytecode_bench.clj` on `master`. Its `:bench` alias already runs it, and it has a `--semantic-only` flag.
+- **v2 benchmark:** `test/bench/yin_vm_v2_bench.cljc`. It times both the v2 AST walker and the `:semantic` VM.
+- Both use the same tail-recursive countdown and time only `vm/run`, so their average (mean) run times can be compared directly.
+
+`clj -M:test …` was allowed. I could have added a deps.edn alias to run the benchmarks through that command, but that would get around your approval settings, so I didn't.
+
+**What I wrote:** `collab/benchmark_jfr_results.md` records the blocked status, the details above, the exact commands to run and an empty results table. Use n=1000 for both and run them one after the other, not at the same time. I also left out the prompt's `duration=120s`, because it could cut off the v1 recording before the run ends.
+
+**Side effects:** I created an empty `profiles/` directory and an empty, gitignored `target/v1-master/`. Nothing tracked was changed.
+
+To finish, allow `clojure` (or run the two commands in the report yourself) and grant access to `../datomworld-master`. After that I can fill in the means and the v2/v1 ratio.
+
+Separately, the Gmail, Google Calendar and Google Drive connectors need to be authorized in your claude.ai connector settings before they can be used. This task didn't need them.

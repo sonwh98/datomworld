@@ -1,0 +1,28 @@
+S2b is in place, and all tests pass on the JVM and Node. `cljstyle` could not run here because the session's permission gate refused it, so please run `cljstyle fix` then `check` before committing; clj-kondo is clean. I made no git writes and did not run the Dart lane. The findings are in `collab/1791100500000-compiler-engineer-python-c3-s2b.findings.md`.
+
+**Q1: float `is`**
+- `yin.vm.data` has a new `:pure` export `content=` (two arguments). It uses `cbor/content=`, except that functions, closures, continuations and refs compare with host `=`. Tuples recurse.
+- `py/is` is now `(data/content= a b)` and `py/is-not` is its negation.
+- `data` has no module-version (only `integer` has one), so there was nothing to bump for an added export. I added the export to the export list that `data_test` pins.
+- New tests in `prelude_parity_test` cover every case in fable's list on all four VMs. They include the law that `py/is` matches canonical-bytes equality, checked over all 17×17 pairs on each host. `data_test` has a direct `content=-test`.
+- Mutation check: before the change, with `py/is` still `=`, 24 assertions failed on the JVM (6 per VM). These include the `0.0 is -0.0` row and the two-NaN rows, so I confirmed that reverting to `=` fails them.
+
+**Q2: hex keys**
+- The four `integer/format` calls now take radix 16.
+- I updated the key expectations, the `two-1074`/`two-1022`/`max-finite` helper strings, and added rows for 10 → `"a"` and 2^53.
+- A new test checks that 2^20000 (6021 digits, past `max-digits 4300`) works as a key: it differs from 2^20000+1, and dict insert, replace, lookup, delete, set membership and tuple keys all work. Its decimal `integer/format` still refuses with `:digit-limit`.
+- Red before: with decimal formatting restored temporarily, the key rows, the big-key test and `dict-keys-test` failed.
+- One addition to the brief: `dict-keys-test`'s four keys are single digits, whose hex and decimal text are the same, so regenerating the golden alone would not have changed it. I added a 0.1 key so the golden actually pins hex, then regenerated it once on the JVM. It matches on Node.
+
+**Docs:** I made the five 8.5.4 edits you listed and added the pointer from 8.11. No other S-rows were touched.
+
+**Goldens:** I re-minted the prelude and program addresses in `float_address_test` once, last. The hook prelude's address did not change. C2-S4 is untouched.
+
+**Results**
+- **Node** (data, prelude-parity, float-address, safepoint, integer, plus lower-portable): 101 tests, 1333 assertions, 0 failures.
+- **JVM** (the Python antlr namespaces plus data and integer): 218 tests, 2361 assertions. All 54 failures were in `e2e_test`'s closed-names check, because `data/content=` was missing from `prelude/host-names`. I added it there, which changes no address. The `e2e_test` rerun passed: 38 tests, 461 assertions, 0 failures.
+
+**Also:**
+- I ran `bb gen:python-antlr` because this new worktree had no ANTLR classes.
+- I did not add astra's extra test with a small digit budget and float keys. It wasn't in your list and would need a second test setup.
+- The NaN shortcut for `in` and `list.index` is noted as an open item only.

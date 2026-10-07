@@ -1,0 +1,17 @@
+Completed-GMT: 2026-09-04 07:52:00 GMT
+Completed-Local: 2026-09-04 14:52:00 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: fde8b517-9c3f-48c6-a4d9-c455489fbebc
+
+## Verification
+
+I traced the single pumped tick of the revised test through `repl-step` against the current driver.
+
+- **Completion is created after the poll.** At tick start `retry-unsent` is skipped (the forced `/transport-error` terminal makes `remote-routed?` false) and `poll-remote` publishes nothing because rpc `:completed` is still empty. Only then does `handle-line` process `(disconnect)`, whose `abandon-unsent` appends the `operator-disconnect` completion to the old rpc state, unpublished. So the completion genuinely exists in the window between this tick's poll and the adapter replacement, which is the seam the round-4 finding described.
+- **The fresh connection is legal.** For the `(connect …9999)` line: the URL differs so no reattach; the "Still disconnecting" branch is false because a terminal has landed; `remote-routed?` is false because the operator detached; the fall-through is `open-connection`, the path round 2 granted for a non-reattachable terminal after an operator disconnect. The `(= 2 (count @(:wire h)))` assertion confirms a second boundary was composed.
+- **Unsent is nil at `open-connection`.** The disconnect's abandon cleared `:unsent` before the connect line runs, so `abandon-unsent-now` takes the no-abandon branch and relies solely on its unconditional `publish-completions` and `publish-adapter-events` to move the completion into the driver outbox before `attach-remote` discards the old adapter.
+- **The assertion discriminates.** Under the former implementation, which returned the state untouched when `remote-unsent?` was false, the completion would have been discarded with the old adapter and never printed, so `operator-disconnect` would be absent from that tick's lines and the test would fail. Under the current implementation it is published exactly once, in this tick.
+
+The forced terminal via `assoc-in` is a synthetic stand-in for the boundary's deposited `/transport-error` on a writer that keeps answering `full`; it does not create an impossible state, only shortcuts the deposit, and every step that matters is driven through real input lines. No finding.
+
+SIGN-OFF: GRANTED

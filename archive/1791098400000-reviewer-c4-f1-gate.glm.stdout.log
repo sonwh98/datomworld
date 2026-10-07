@@ -1,0 +1,41 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+Completed-GMT: 2026-10-04 07:27:34 GMT
+Completed-Local: 2026-10-04 14:27 +07 (+0700, Asia/Bangkok)
+
+# Gate review: yang.frontend catalog, slice F1
+
+**Verdict: APPROVE-WITH-NITS.**
+
+The slice does what 8.5.6 F1 and section 3 demand, on the evidence of the code and the orchestrator's green tri-host lanes: all nine 3.7 keys validated (plus the grammar map's package/entries/export-profile), SPI admission pinned to `#{1}`, host objects refused anywhere in the manifest with a `:path` (deep walk over maps/vectors/seqs/sets; records, fns, atoms and anything else land in the `:else`), the catalog is a plain value with no registry or mutation, `[id revision]` entries make revisions coexist and conflict-refuse, and `select` answers `:unknown`/`:incompatible`/`:ambiguous` — the multi-match case returns the `:revisions` choice record, never a silent pick. The `refused`/`refused?`/`ok?` helpers are byte-equivalent in shape to `yin/vm/linker.cljc:66-83` (`{:status :refused, :reason r}` + evidence); the reasons are namespaced (`:yang.frontend/...`) where the linker's are bare — correct per 10.2's "qualified keywords", and the divergence is disclosed. Both F1 acceptance bullets are directly tested. No reader conditionals, ASCII only, ≤80 columns in the new files; the Dart lane's compiled `test/cljd-out/yang/frontend-test_test.dart` (2921 lines) proves real CLJD compilation.
+
+Portability verified beyond "lanes green": `qualified-keyword?` ungated has precedent (`src/cljc/dao/gui/event.cljc:145`); the ungated `char?` at `frontend.cljc:64` is safe only because `string?` precedes it in the `or` — on CLJS `char?` *is* "1-char string" and on CLJD it misclassifies one-codepoint strings (`debruijn_code.cljc:284-295`, the repo's own caveat) — so the admission set is unchanged by it on every host. Worth a comment so nobody reorders that `or`.
+
+## Findings
+
+1. **docs/design/yang.antlr.md:2468-2469 — severity: low (docs consistency).** The 8.5.6 intro still reads "Its implementation is pending, in slices F1 to F3 … none of it has landed," now contradicting the edited F1 row ("landed in `src/cljc/yang/frontend.cljc`"). The engineer stayed inside the permitted one-row edit and disclosed it. Fix: orchestrator amends the intro sentence (e.g. "…F2 onward remain pending; F1 has landed"), since this review is read-only.
+
+2. **src/cljc/yang/frontend.cljc:88,129 — severity: low (portability).** `:yang.frontend/spi` is checked with `int?` then `(contains? supported-spi …)`. On JS, `1` and `1.0` are one value: integral floats satisfy `int?` and `(= 1 1.0)`, so Node admits `:spi 1.0` while JVM and Dart refuse `:malformed`. A manifest literal written in shared cljc would install on Node but not on the other hosts. Inherent to JS numerics — no portable predicate can split it — and pathological in practice. Fix: accept and document the edge in the `manifest-checks` docstring (a reader-conditional split would break the no-conditional property for no real gain).
+
+3. **src/cljc/yang/frontend.cljc:68-71 — severity: low (determinism of evidence).** `non-portable-path` walks map entries in host iteration order, so with two non-portable values in one map (or any >8-entry hash map) the reported *first* `:path` can differ across JVM/Node/Dart. Per-host behavior is stable, and F1 demands no cross-host refusal-path parity, but 10.3's determinism posture argues for a note. Fix: docstring line acknowledging host order, or walk entries sorted by `pr-str` of the key.
+
+4. **src/cljc/yang/frontend.cljc:69 — severity: low.** A non-portable map *key* reports the containing map's path (`(non-portable-path k path)` never conjs the key), so an atom used as an extra key is indistinguishable from the map itself being a host object. The docstring documents this only for sets. Fix: extend the docstring to keys (or `(conj path k)` for keys).
+
+5. **src/cljc/yang/frontend.cljc:98-103 — severity: low (validation completeness).** `:yang.grammar/lexer`/`:parser` are optional (accepted, see Q1) but when *present* are shape-unchecked — a manifest with `:yang.grammar/lexer 42` installs. Fix: when present, require a non-empty string.
+
+6. **test/yang/frontend_test.cljc:80-87 — severity: low (test coverage).** The `:revision-conflict` branch is tested only for a differing manifest; same manifest + *different binding* → conflict (open question 4's rebinding rule) and the set-member path rule (decision 7) are untested. Fix: two one-line `is` additions.
+
+Mutation check passes: keying entries by id alone, mutating in place, auto-picking on multi-match, or shallow-only portability walks each break a distinct assertion (the `identical?` binding checks and the exact refusal maps make the tests fail loudly, not vacuously).
+
+## The engineer's open questions — accept/amend
+
+1. **Nine keys required; grammar's lexer/parser optional — accept.** 3.2/3.6 say the SPI does not require ANTLR, and 8.5.6's Python profile pins grammar/entries/export-profile only. For the sub-question (should a reader-based Clojure frontend carry a grammar map?): yes — keep grammar required; a sentinel package address preserves uniform 3.7 pinning, and optionality can be granted at F3 if the Clojure install proves it awkward, not before.
+2. **Address = keyword or non-empty string, no digest check — accept.** The catalog treats addresses as opaque; the linker verifies real addresses at consumption time, and duplicating a digest grammar here invites divergence with the linker seat.
+3. **Extra keys allowed, portability-checked — accept.** The doc fixes no closed key set; rejecting extras would break forward compatibility across SPI revisions.
+4. **Identical re-install = identity, else `:revision-conflict`, rebinding needs a fresh catalog — accept.** Matches 3.7's "immutable once published" and the linker's first-link-wins posture. Amend only by adding the missing test (finding 6).
+5. **No-revision select: ok iff exactly one match, else `:ambiguous` — accept.** Uniqueness is not silence; 3.3's "rather than silently choosing" is honored, and the `:revisions` record lets F2 own any prefer/ask policy on top.
+6. **Binding opaque in F1 — accept.** The parse/lower/completeness stage shape is the REPL's (F2) to enforce; inspecting it here would couple F1 to an unsettled contract.
+7. **Set-member path ends at the set — accept**, with the docstring widened per finding 4.
+
+The deviations list is accurate (I confirmed the doc edit is exactly the one wrapped F1 row, ≤80 columns, table intact). None of the nits blocks F2 from building on this API as committed; findings 1 and 5 are the two I would clear before F3 pins manifests more tightly.

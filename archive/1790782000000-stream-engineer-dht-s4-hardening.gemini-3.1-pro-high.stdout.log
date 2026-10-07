@@ -1,0 +1,3 @@
+error: There was a network issue connecting to the server, please try again.
+AGY_ERROR: {"short_error":"agent executor error: generating and executing: stream reading error: read tcp [2401:d800:2580:eb10:a0fa:ef1b:aec0:5422]:58830-\u003e[2001:4860:4845:400::]:443: read: operation timed out","status":"UNKNOWN","error_code":2,"code_kind":"grpc","retryable":true,"error_id":"59a7d65a-5bec-49d0-a340-a9402d59ca84-38"}
+{"conversation_id":"9a82d1eb-1218-46b9-9bcc-94858f3ebb5f","status":"ERROR","response":"","error":"There was a network issue connecting to the server, please try again.","duration_seconds":286.406973,"num_turns":1,"usage":{"input_tokens":121190,"output_tokens":9775,"thinking_tokens":6775,"cache_read_tokens":398269,"total_tokens":130965}}

@@ -1,0 +1,38 @@
+Completed-GMT: 2026-09-29 04:45:25 GMT
+Completed-Local: 2026-09-29 11:45:25 +07
+Coding-Agent: claude
+Session-ID: 08d36f7d-b33d-404e-adcb-dc04d5b907ef (resumed)
+
+# Slice 3d fix round 1 (gate P2: caller readiness leaks reflections)
+
+**Status: fixed.** Every way the readiness step can fail now closes each reflection it attached, and there is a public teardown that is safe to call more than once. A successful step hands its reflections to the VM unchanged. I changed only `caller.cljc` and `responder_test.cljc`, and did not stage or commit anything. The report is at `collab/1790655248000-vm-engineer-ffi-caller-correlation.claude-opus-5-5.report-r2.md`.
+
+## Changes in `caller.cljc`
+- **`open`:** if call-out fails to attach, the call-in reflection that did attach is closed before the refusal is returned.
+- **`step`:** both terminal failures, `::exhausted` and `::refused`, now close both reflections. `::pending` and `::ready` close nothing.
+- **New public `close!`:** the teardown for a caller whose readiness ends without a VM.
+  - It closes both reflections once and marks the caller `::closed? true`.
+  - A caller that is already closed, or was refused at `open` and holds no reflections, comes back unchanged.
+  - Closing a reflection stays local: it releases the reflection's pending and outstanding work, and nothing crosses the wire.
+- **`ready?`:** now also requires the caller not to be closed, so `call-out-cursor` and `vm-opts` answer nil after teardown.
+
+## New test
+`a-readiness-attempt-without-a-vm-leaves-no-open-reflection` records every reflection the attacher hands out. A reflection counts as closed when both `cursor` and `append!` answer `:dao.stream/closed`. It covers:
+- **Call-out fails to attach:** the one attached reflection, call-in, is closed.
+- **`::exhausted`:** both reflections are closed.
+- **`::refused`** (an endpoint naming a call-out that isn't served): both reflections are closed.
+- **Ready but no VM built:** `close!` closes both, and calling it two or three times returns the same value.
+- **Refused at `open`:** `close!` does nothing.
+- **Success path unchanged:** a VM built from `vm-opts` completes a call, and `vm-opts` holds exactly the reflections that were acquired, in order.
+
+## Verification
+- **Lint:** `clj -M:kondo` on both files gives 0 errors, 0 warnings.
+- **Focused JVM** (`responder-test`, `remote-serve-test`, `ffi-test`): 55 tests, 553 assertions, 0 failures, 0 errors. There is no separate caller test namespace; these tests live in `responder_test`.
+- **Mutations** (each reverted afterwards; a grep found none left):
+  - No close of call-in when call-out fails to attach, plus no close on exhausted: 3 failures.
+  - No close on refused: 2 failures.
+  - `close!` returning a different value on each call: 2 failures.
+  - Removing `close!`'s already-closed guard: 0 failures. Closing a reflection twice has no visible effect, so that guard isn't needed for correctness.
+- cljstyle, CLJS and CLJD were not part of this round's verification list, so I didn't run them.
+
+`close!` doesn't check whether the pair was already handed to a VM, because the caller value doesn't record that. Closing a pair after it has gone to a VM is the composition's responsibility, and the docstring says so.

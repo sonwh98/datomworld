@@ -1,0 +1,50 @@
+Completed-GMT: 2026-09-15 21:23:59 GMT
+Completed-Local: 2026-09-16 04:23:59 +07 (Asia/Ho_Chi_Minh)
+
+# Architect review: dao.jing canonical encoder P0 fix
+
+I read the diff, the full `dao.jing.cljc`, the design docs, and all three prior findings files. I also ran pure computations on the JVM against the working tree to test claims rather than accept them. No files were edited.
+
+## Findings
+
+**1. HIGH | nonblocking today | `src/cljc/dao/jing/file.cljc:59`, `:66`, `:76` and `src/cljc/dao/stream/transit.cljc:6`, `:52`**
+Invariant: "equal supported values produce the same bytes on every participating platform", and fail-closed at the backend door.
+Evidence: metadata is now address-significant, but no durable or wire codec in the system carries metadata. The file backend writes with plain `pr-str` and validates every replayed frame by hash. I confirmed by computation that the EDN round trip of a metadata-bearing vector changes its content hash. So a metadata-bearing payload passes put validation, is written with its metadata dropped, and on reopen the replay validator throws for that frame, making the whole store unopenable. The transit codec states metadata is not on the wire, and its portable-value check admits metadata-bearing collections without complaint, so a publisher's locally computed address will not match what the far-side observer mints. The same class hits yin.vm v2's row id re-validation on load.
+Why nonblocking: no producer emits collection metadata today, both real consumers pass, and the failure is loud rather than silently corrupting. The frames remain on disk and are recoverable by a codec fix.
+Correction: record this as an Open Item in `docs/design/dao.jing.md` in this commit. Schedule the next unit: every backend and transport must either carry metadata or refuse a payload whose codec round trip does not hash to its address, before any producer emits metadata. This becomes blocking the moment the code-as-tuples work starts emitting metadata-bearing literals.
+
+**2. MEDIUM | nonblocking | `src/cljc/dao/jing.cljc:96`, `:102`, `:140`**
+Invariant: no hidden global state; the address must depend on the value alone.
+Evidence: the map and set comparators still sort by host `pr-str`, and scalars still print through it, so ambient dynamic bindings reach the address. I confirmed: binding print-length to one changes the hash of a two-key map whose keys are vectors, because tied keys collapse inside the sorted map and an entry is silently dropped. Binding print-meta true reorders a metadata-bearing key and changes the hash. Binding print-readably false makes the string and the symbol spelled the same collide. Pre-existing and reduced by this diff, which removed print-length, print-level, and namespace-map syntax from collection bytes. The implementer's claim that the hand printer removes all host-printer dispatch from the address is therefore overstated. The comparator still dispatches to it.
+Correction: sort by `canonical-print` instead of `pr-str` in both comparators, so a sort tie coincides exactly with byte identity. Optionally bind the print vars to their defaults at the `content-hash` entry. Small enough to ride in this commit since the lines are already touched.
+
+**3. MEDIUM | nonblocking | `docs/design/dao.jing.md:188`, `:165`, `:390`**
+Invariant: design docs are the contract.
+Evidence: the Canonical encoding section still says "order-normalized pr-str". The doc does not record that records throw, that collection metadata is address-significant, that reader position keys are stripped, that empty metadata is dropped, that lists and seqs share an address, or that the present read-back is verified by hash rather than equality. Each is a contract change a backend author must know.
+Correction: amend the doc in a `docs:` commit alongside this one, including the Open Item from finding 1.
+
+**4. LOW | migration note | `src/cljc/dao/jing/file.cljc:76`**
+Evidence: any file store minted under the current HEAD encoder that holds a set, list, seq, or metadata-bearing value fails replay validation after this change, because those addresses move. No durable stores are tracked in the repo, and the doc already promises every address changes with the encoder.
+Correction: state it in the commit message.
+
+**5. LOW | cosmetic and error framing | `src/cljc/dao/jing.cljc:83`, `:372`**
+Evidence: the record rejection message is a multi-line string literal, so the message carries embedded newlines and indentation runs. On a present read-back that returns a record, the hash check surfaces the record error rather than an integrity error. Both fail loudly.
+Correction: single-line message. Optionally catch and rewrap in the read-back.
+
+**6. LOW | test coverage | `test/dao/jing_test.cljc`**
+Evidence: the docstring's reader-position strip is covered only indirectly, and only on the JVM, through the quoted list versus seq pair.
+Correction: add one explicit assertion that a vector with line and column metadata hashes as the bare vector.
+
+## Properties that passed review
+
+- **Metadata P0 closed.** Every collection branch reattaches normalized metadata and the hand printer emits it. The six distinguishing pairs and the two agreement pairs are correct and test-backed on all three hosts.
+- **Set-tag P0 closed.** A normalized set stays a set and prints inside braces that no vector, list, map, or non-pathological scalar can produce. The old collision shape is asserted distinct.
+- **Records P0 closed, and rejection is the right decision.** A record is a domain-typed value. Addressing it as its map would be interpretation at the storage boundary, which the design forbids, and the hosts print records differently, so no portable tag exists inside a transitional encoder. Throwing at the door matches the fail-closed and no-ambiguous-truthiness discipline. Records are absent from the doc's supported representation list, so this tightens toward the doc, not away from it. Deferring a portable record encoding to the pinned encoding is correct.
+- **Hand printer host isolation.** It uses only portable predicates, comparator-defined iteration of sorted collections, and string join. Ordering by UTF-16 code unit compare is identical on JVM, JS, and Dart. Residual host dependence is confined to scalars and the comparator, per finding 2.
+- **Read-back by hash.** Verifying the present read-back against the address rather than by equality is the rule the doc states for backends, and it correctly accepts insertion-order and list-versus-seq idempotency while rejecting metadata-only mismatches. The absence sentinel stays identity-compared.
+- **Ownership, state, concurrency.** No atoms, globals, protocols, or multimethods introduced. The encoder knows nothing of datoms, manifests, or roots. Backend CAS and locking are untouched. Reader-position stripping is representation-level, not domain-level.
+- **Scope boundary.** Leaving byte-array identity hashing and pathological symbol prints out of this commit is right. Both are pre-existing, both are disclosed in the doc's Open Items or in the implementer's findings, and neither is reachable by any current producer. Byte arrays should get their own line in the Open Items since the doc lists them as supported.
+
+## Verdict
+
+**APPROVE-WITH-FINDINGS (nonblocking).** Commit the code diff. Carry finding 3's doc amendment, including finding 1 as a new Open Item, in the accompanying docs commit, and open a follow-up unit for finding 1's backend and wire fail-closed checks before any producer emits collection metadata. Finding 2 is cheap enough to fold into this commit.

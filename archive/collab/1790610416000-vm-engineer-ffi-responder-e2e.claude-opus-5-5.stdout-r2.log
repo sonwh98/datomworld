@@ -1,0 +1,32 @@
+Completed-GMT: 2026-09-28 16:15:04 GMT
+Completed-Local: 2026-09-28 23:15:04 +07
+Coding-Agent: claude
+Session-ID: 715a2230-3f6e-48b5-9260-4e2225debf68
+
+# Slice 3c fix round 1: the holder's silent lease-grants gap
+
+I fixed the gate's P2: a gap on the holder's `lease-grants` cursor is now a named terminal loss instead of a silent retry. A new test covers it, and the focused JVM lane passes. I did not touch the other findings (P1, the call-out readiness P2, Q3), which are with the Architect. Nothing is staged or committed.
+
+## Changed files
+- **`src/cljc/yin/vm/ffi/remote_serve/holder.cljc`**:
+  - While looking for its grant, a holder that reads a gap now records `::lost :dao.stream/gap`. Its grant may have been evicted before it read it, so it never re-reads that cursor.
+  - `step` does nothing more for a lost holder, and `holding?` answers false.
+  - A new public `lost` function reports the loss (`:dao.stream/gap`, or nil).
+- **`test/yin/vm/ffi/remote_serve_test.cljc`**, new test `an-evicted-grant-is-terminal-loss-for-the-holder`:
+  - The grantor's stream is a 2-slot ring.
+  - The holder gets its grants cursor, then two more facts push the unread grant out.
+  - The test asserts:
+    - `lost` is `:dao.stream/gap`;
+    - no grant was observed;
+    - `holding?` is false;
+    - five further holder passes send nothing on the channel, so there is no endless retry.
+
+## Verification
+- **Lint:** kondo on both files: 0 errors, 0 warnings.
+- **Focused JVM lane** (same seven namespaces as before plus the responder tests): **107 tests, 954 assertions, 0 failures, 0 errors.**
+- **The test catches the bug:** I temporarily restored the old behaviour, and the new test failed on two assertions. `lost` was nil, and the channel request count grew from 4 to 7 because the gapped read kept being re-sent. I reverted the change and grepped to confirm none of it remains.
+- **Not run:** cljstyle (the orchestrator runs it), and the CLJS and CLJD lanes (not requested this round).
+
+What a lost holder should do next, such as asking for a new lease or giving up the resource, is left to the composition; the holder only reports the loss.
+
+The report is at `collab/1790610416000-vm-engineer-ffi-responder-e2e.claude-opus-5-5.report-r2.md`.

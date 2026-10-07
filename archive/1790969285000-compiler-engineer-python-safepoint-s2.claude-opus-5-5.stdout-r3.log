@@ -1,0 +1,78 @@
+Completed-GMT: 2026-10-02 21:23:17 GMT
+Completed-Local: 2026-10-03 04:23:17 +0700
+
+# Python safepoint slice 2 (recursion): report
+
+Slice 2 is implemented, and the Node and Dart lanes passed in full. On the JVM, every namespace that touches this slice passed. One JVM group is not confirmed: the `yin.repl.*` tests with `yin.vm-test` and `yin.repl-test`, which this slice doesn't touch. It was still running when I wrote this. Nothing is staged or committed.
+
+## What was built
+- **One dynamic-context record.** `py.rt/handlers` is replaced by one cell, `py.rt/ctx`, holding `{:handlers :depth :frame}`. `py/try`, `py/try-finally` and `py/call-ec` save the whole record and restore it whole on re-entry or escape, so depth goes back to its value at capture rather than being decremented.
+  - Each handler frame now also records the depth it was pushed at, and a `finally` block runs at that depth while an exception unwinds.
+  - `:frame` is always nil for now; it is reserved for tracing.
+  - Generators save and restore the whole record at each crossing.
+- **Depth counting.** The stage now has an exit kind: at every `:call` site the `:return` hook is applied to the body's value, so it runs only on normal exit. It is still an ordinary `:application` row, with no new tag.
+  - `py.sp/call` polls for signals, then adds one to the depth. If the depth would go over the limit it raises `RecursionError` through `py/raise`.
+  - `py.sp/return` subtracts one and passes the value through.
+  - The no-op hooks gained `py.sp/return` as identity.
+- **`RecursionError`** is a builtin class in the base prelude, under `RuntimeError` as in CPython, so it is still under `Exception`.
+- **Recursion limit.** The limit lives in the cell `py.sp/limit`, default 1000. `py.sp/set-recursion-limit!` accepts an int of at least 1; 0 or less raises `ValueError` and a non-int raises `TypeError`. `py.sp/recursion-limit` reads it back.
+- **`sys.setrecursionlimit` and `sys.settrace` are refused.** The lowering rejects every `import` ("Unsupported Python construct: import"), so `sys` can't be reached from Python, and a test now pins that.
+  - Slice 1 never had an explicit settrace error; the import refusal is the behavior that remains.
+  - A composition can set the limit through `py.sp/set-recursion-limit!`, the same way signal handlers are registered through `py.sp/set-handler!`.
+
+## Changed files
+- `src/cljc/yang/python/antlr/prelude.cljc`: the record, escapes, generator crossings, `RecursionError`.
+- `src/cljc/yang/python/antlr/safepoint.cljc`: depth hooks, limit cell, setter and getter, the `:return` profile entry.
+- `src/cljc/yang/safepoint.cljc`: `exit-kinds`, and the exit hook wrapped around the body.
+- `test/yang/safepoint_test.cljc`: new `exit-hook-wraps-the-body-test`.
+- `test/yang/python/antlr/safepoint_test.cljc`:
+  - new tests: `recursion-error-test`, `escape-restores-depth-test`, `generator-depth-test`, `set-recursion-limit-test`;
+  - `py.sp/return` added to the slice-1 `parking-hooks`, which the new profile needs. This is not a weakening.
+- `test/yang/python/antlr/safepoint_programs.cljc` (new): the CST packets the real parser produces for four test programs, so Node and Dart can run the real lowering.
+- `test/yang/python/antlr/e2e_test.clj`: `RecursionError` as a naive builtin; a countdown from parsed source under the real hooks; the `sys` refusal; a check that every hand packet matches the parser's output.
+- `docs/design/yang.antlr.md` §8.5.2: one paragraph recording what slice 2 does and how it differs from CPython.
+
+## What the tests check (all four VMs, on JVM, Node and Dart)
+- **Default limit, exactly:** `f(999)` (1000 frames) completes, `f(1000)` raises and is caught by `except RecursionError`, and `probe(1)` finds exactly 1000.
+- **An escape restores depth (limit 100):**
+  - after a raise through 50 `try/finally` frames, `probe` finds 100, neither fewer nor more;
+  - from 11 frames down it finds 89;
+  - while a `RecursionError` unwinds, `finally` blocks in frames 1–99 call `h()` successfully (99 hits).
+- **Generators:** each crossing back restores the caller's depth exactly.
+- **Recursion limit:** a lowered limit takes effect, and an invalid argument raises a Python error while keeping the old limit.
+- **Slice-1 checks still hold:** e2e corpus output with no-op hooks matches the naive run; the derived program's prelude rows keep their ids.
+
+## Lanes
+`gen:python-antlr` and `build:yin-repl-node` ran first. The Bash tool caps foreground commands at 10 minutes, so I ran `bb test:clj`'s own command (`clojure -M:test`) in namespace groups. Three runs went past the cap and were moved to the background by the harness: the e2e namespace (ran 17:59), the Dart lane, and the `yin.repl` group.
+
+| Lane | Tests | Assertions | Result |
+|---|---|---|---|
+| JVM: `dao.*` and `datomworld.*` | 1412 | 211973 | 0 failures, 0 errors |
+| JVM: `yang.safepoint-test` and `yang.python.antlr.safepoint-test` | 25 | 367 | 0 failures, 0 errors |
+| JVM: `yang.python.antlr.e2e-test` | 34 | 408 | 0 failures, 0 errors |
+| JVM: `yang.python.antlr.e2e-c2-test` | 7 | 58 | 0 failures, 0 errors |
+| JVM: other `yang.*` | 139 | 981 | 0 failures, 0 errors |
+| JVM: `yin.vm.*` | 975 | 10509 | 0 failures, 0 errors |
+| JVM: `yin.repl.*`, `yin.vm-test`, `yin.repl-test` | — | — | **not confirmed**: still at `yin.repl.query-test` when I stopped |
+| Node: `bb test:cljs` | 2707 | 91913 | 0 failures, 0 errors |
+| Dart: `bb test:cljd` | 2662 | — | "All tests passed!" |
+| kondo, 7 touched files | — | — | 0 errors, 0 warnings |
+| cljstyle check, 7 touched files | — | — | clean |
+
+The new safepoint tests appear by name in the Dart log. `yang.safepoint-test` doesn't appear there, but the Dart reporter prints only some test lines, so its absence proves nothing; it ran by name on Node.
+
+## Unresolved concerns
+1. **The `yin.repl` JVM group is unconfirmed.** It is still running in the background and writing to `test-clj-yinrepl.log` in the worktree, which is untracked; delete it once read.
+   - My first attempt at this group was also backgrounded by the harness. I stopped that task, but its JVM (pid 77373) kept running and I wasn't permitted to kill it.
+   - Shell wait loops needed approval I didn't have, so I couldn't block until the group finished.
+2. **Generator depth differs from CPython.** A generator keeps the depth of the first frame that resumed it, even when later resumed from somewhere shallower (the test pins 79/79). CPython counts a resumed generator on top of whoever resumes it.
+   - This follows from the binding rule that escapes restore the *whole* record saved at capture.
+   - The CPython behavior would need the record to carry a base depth that restores leave alone, which changes that rule. That is an Architect decision.
+3. **Depth counts Python function frames only.** With limit n, n nested calls run and the next one raises. The module body isn't counted, and builtins and methods made in the prelude aren't counted. CPython's exact boundary varies by version.
+4. **Python-level `sys` doesn't work yet.** It needs `import` support (or a builtin `sys` module), which is beyond this slice.
+5. **The JVM safepoint run got slower.** It went from 1:35 to 3:32 because of the default-limit test (3000 frames on each of four VMs).
+6. **Base-prelude row ids changed** because of the new builtin class. No golden test failed.
+
+## Incomplete work
+- Confirming the `yin.repl` JVM group (concern 1).
+- `bb test:clj` was not run as a single command; it ran in namespace groups.

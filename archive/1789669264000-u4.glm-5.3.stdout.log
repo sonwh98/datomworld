@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a0b099-cd0e-7ce0-bd8e-db0948be43a6"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `glm-5.3` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"error","message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'glm-5.3' model is not supported when using Codex with a ChatGPT account.\"}}"}
+{"type":"turn.failed","error":{"message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'glm-5.3' model is not supported when using Codex with a ChatGPT account.\"}}"}}

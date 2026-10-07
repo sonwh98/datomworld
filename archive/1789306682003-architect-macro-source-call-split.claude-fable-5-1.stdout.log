@@ -1,0 +1,108 @@
+Completed-GMT: 2026-09-13 13:39:39 GMT
+Completed-Local: 2026-09-13 20:39:39 +07
+
+Audit of `docs/design/yin.vm.macro.md` found six occurrences of `:yin/source-call` (lines 676, 694, 699, 714, 909, 1154). No Decision 0 entry mentions it. Five replacements below; line 909 stays. Nothing was written to the doc. The plan file at `~/.claude/plans/read-collab-1789306682003-architect-macr-cuddly-torvalds.md` mirrors this list.
+
+## Replacements
+
+**1. Line 676 (§4.1 datom table).** Replace the single row with two rows. Column alignment matches the neighbouring rows.
+
+Old:
+```
+[ev :yin/source-call    <call-eid>           t default-op]   ; eid in that batch, or in the log copy of the enclosing expansion; absent on an admission failure
+```
+New:
+```
+[ev :yin/source-call    <call-eid>           t default-op]   ; VALUE, undeclared: the call's eid as it appeared in the source batch, qualified by :yin/source-batch; only on an initial (non-nested) expansion
+[ev :yin/source-node    <node-eid>           t default-op]   ; DECLARED REF, log-local: the call node in the log copy of the enclosing expansion's output; only on a nested expansion
+```
+
+**2. Lines 694–696 (§4.1 prose after the table).**
+
+Old:
+```
+a cross-medium ref (§4.2). A nested expansion's `:yin/source-call` names a
+node in the log copy of the enclosing expansion's output, which is how the
+chain source → event → root → event → root is walked for generated syntax.
+```
+New:
+```
+a cross-medium ref (§4.2). An initial expansion's `:yin/source-call` is a
+value, not a ref: the call's eid as it appeared in the source batch,
+qualified by `:yin/source-batch`, which no index or transactor resolves. A
+nested expansion carries `:yin/source-node` instead — a declared ref to a
+node in the log copy of the enclosing expansion's output — which is how the
+chain source → event → root → event → root is walked for generated syntax.
+A successful expansion carries exactly one of the two; an admission failure
+carries neither. Only `:yin/source-node` is a declared ref. The names:
+`:yin/source-call` keeps its existing name in this narrowed value role so
+that existing log data is not invalidated by the split; `:yin/source-node`
+is new and is named for what it points at — a node of the log copy, the
+term this document already uses for AST nodes there — because "call" would
+mislead: a nested expansion names the outer expansion's output node, not a
+call site in any source batch.
+```
+
+**3. Lines 699–700 (§4.1 `event-schema` sentence).**
+
+Old:
+```
+`yin.vm.macro/event-schema` declares these attributes (`:yin/source-call`,
+`:yin/macro`, `:yin/expansion-root` as refs) for compositions that commit a
+```
+New:
+```
+`yin.vm.macro/event-schema` declares these attributes (`:yin/source-node`,
+`:yin/macro`, `:yin/expansion-root` as refs; `:yin/source-call` deliberately
+undeclared, so its value is left alone) for compositions that commit a
+```
+Lines 701–702 are unchanged and still follow.
+
+**4. Lines 714–718 (§4.2 second bullet).**
+
+Old:
+```
+- `:yin/source-call` on an event names the call's eid *as it appeared in
+  the source batch*, qualified by `:yin/source-batch`; it is descriptive
+  until both media are committed under one resolution. `:yin/macro` is
+  written only when the macro's id is durable; otherwise `:yin/macro-name`
+  carries the name. Names are metadata, never identity repair.
+```
+New:
+```
+- `:yin/source-call` on an event is a value, never a ref: the call's eid
+  *as it appeared in the source batch*, qualified by `:yin/source-batch`.
+  It is descriptive until both media are committed under one resolution,
+  and the join that would make it a ref is the composition's
+  (`dao.space.index.as-observer.md` §3.2). `:yin/source-node` is the
+  log-local counterpart: a declared ref, resolved within the log batch it
+  appears in and never across media. `:yin/macro` is written only when the
+  macro's id is durable; otherwise `:yin/macro-name` carries the name.
+  Names are metadata, never identity repair.
+```
+
+**5. Line 1154 (Appendix C, row 10).** Same character width, so the grid table stays aligned.
+
+Old:
+```
+| 10 | Provenance identity: same tempid in two batches, generated syntax, program↔log | §4.1 `:yin/source-batch`; nested `source-call` into the log copy;                |
+```
+New:
+```
+| 10 | Provenance identity: same tempid in two batches, generated syntax, program↔log | §4.1 `:yin/source-batch`; nested `source-node` into the log copy;                |
+```
+
+**6. Line 909 (Phase 0 retired-attrs list). No change.** That list names attributes dropped from `yin.vm/schema`, which only ever held the unified `:yin/source-call` (still declared a ref at `src/cljc/yin/vm.cljc:309`). The attribute is dropped there whether or not it is split, and `:yin/source-node` never lived in that schema, so adding it would be wrong.
+
+## Verification against the checklist
+
+- After the replacements, `:yin/source-call` appears at 676, 695, 700, 703, 714, 909. All are the value or external-coordinate role, or the Phase 0 drop.
+- `:yin/source-node` appears at 677, 697, 702, 699 (event-schema), 718, 1154. All are the declared-ref, log-local role.
+- The `event-schema` parenthetical lists `:yin/source-node`, `:yin/macro`, `:yin/expansion-root` as refs and names `:yin/source-call` as undeclared.
+- The phrase "eid in that batch, or in the log copy" no longer appears.
+- No new sections. Appendix C row 10 is the only appendix edit, and it is a one-word swap.
+
+## Flagged for the orchestrator, outside this task's scope
+
+- The source schemas at `src/cljc/yin/vm.cljc:309` and `src/cljc/yin/vm.cljc:239` still declare `:yin/source-call` a ref. Phase 0 removes it from the v2 schema, and the future expander `event-schema` must declare `:yin/source-node` rather than `:yin/source-call`.
+- The v1 doc `src/cljc/yin/vm/docs/yin-defmacro.md` line 262 still mentions `:yin/source-call`. It is superseded and was not touched.

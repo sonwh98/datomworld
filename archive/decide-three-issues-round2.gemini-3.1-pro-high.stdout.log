@@ -1,0 +1,36 @@
+Based on a thorough review of the `dao.space` cluster and the core architecture documents, here is my reconsidered position on the three design questions.
+
+### Q1 — Is `ok` from a still-connecting `attach!` a false success?
+**Answer Now:** 1A (keep `ok`, rescope its wording so it claims the attachment, not the resolution).
+**Change:** Yes (from 1B to 1A).
+
+**What changed my mind:** 
+**Item 6 moved me.** The new material on Fault Tolerance in `dao.space.md` explicitly details the crash-only semantics of the space: a reader tailing a stream natively handles the absence of data by yielding `:blocked` on `ds/next` and waiting. Consumers do not need to branch on a `pending` vs `ok` distinction because the system already expects and gracefully handles asynchronous delays. Adding a `:dao.stream/pending` state (1B) would needlessly complicate the consumer contract. Returning `ok` to claim attachment without asserting resolution is perfectly aligned with the asynchronous, crash-only read model.
+
+### Q2 — May the WebSocket slice deposit boundary events into a ring buffer?
+**Answer Now:** 2C (keep the ring buffer, no amendment — the ADR governs production composition, not a migration slice).
+**Change:** Yes (from 2A to 2C).
+
+**What changed my mind:** 
+- **Item 1 moved me:** `dao.space` is emergent behavior over shared storage, not an instantiable component. Therefore, a "conforming dao.space writer" (2A) is not an artifact you can explicitly wire.
+- **Item 2 moved me:** The authority's own example uses a ring buffer for both the intake pool and the transactor's local stream. This legitimizes the ring buffer as a foundational stream primitive rather than an inherent violation.
+- **Item 3 moved me:** The stigmergy invariant explicitly forbids wiring producers to readers. If the slice explicitly wires a deposit destination to an interpreter, it fails the stigmergy test *regardless* of whether that destination is a ring buffer or a transactor. Thus, 2A fails to fix the violation in the context of an explicitly wired migration slice.
+- **Item 4 moved me:** `dao.space.transactor` (the true conforming writer) writes to a local ring buffer anyway, but it hasn't been ported to v2, making 2A practically infeasible for the current slice.
+- **Conclusion:** Explicit wiring in a slice fails stigmergy regardless of the medium. Since the ring buffer is a valid local stream, 2C is the correct call: keep the ring buffer for the migration slice without amending the ADR, as the ADR governs the final production composition.
+
+### Q3 — Does the ws deposited-event envelope violate `datom.world.md`?
+**Answer Now:** 3B (drop the wrapper; correlation as fields on ordinary event values).
+**Change:** Yes (from 3A to 3B).
+
+**What changed my mind:** 
+**Item 5 moved me.** The new documents make the ws envelope significantly less defensible. `dao.space.query.md` emphasizes that interpretation belongs entirely to the reader (accepting mixed-dimensional tuples) and that entity maps must explicitly carry a `:db/id`. The ws wrapper's reserved keys (`:ws/event`, `:ws/value`) constitute exactly the rigid fact taxonomy the authority declines. Furthermore, its lack of a `:db/id` breaks native ingestion via `query/entity-map-relation` without an artificial wrapper inventing a tempid. The envelope is an unwarranted schema imposition and must be dropped.
+
+***
+
+### The Strongest Argument Against My Q2 Answer (2C)
+
+**The Argument:** 
+ADR 0003 is a binding architectural constraint ("There is no system event bus"). Explicitly wiring a ring buffer between a boundary and an interpreter builds exactly the system event bus the ADR forbids. If a migration slice validates the v2 architecture by violating its core stigmergic invariant, the validation is meaningless. By deferring compliance to "production composition," we risk cementing an anti-pattern and shipping a coupled system.
+
+**Why I still reject it:** 
+Migration slices are designed to validate specific layers in isolation. The WS slice's purpose is to validate the WebSocket transport and boundary protocols, not the storage-layer coordination medium. Forcing the full `dao.space.transactor` → `dao.jing` → `dao.space.query` pipeline to be ported to v2 before the WS slice can deposit a single event would completely stall transport development on storage dependencies. The explicitly wired ring buffer is a necessary local-stream scaffold to unblock the slice. In production, that exact ring buffer will be wrapped by an agent transactor and published to the DaoJing intake pool, organically satisfying ADR 0003 without requiring an amendment.

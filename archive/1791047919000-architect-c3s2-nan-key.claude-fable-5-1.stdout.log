@@ -1,0 +1,52 @@
+Completed-GMT: 2026-10-03 17:20:08 GMT
+Completed-Local: 2026-10-04 00:20:08 +07 (+0700)
+
+# C3-S2 NaN key: Architect answer (claude-fable-5-1)
+
+**Verdict: confirm (a), one shared NaN key `[:py.numeric/nan]`. The diff's key logic is exact for every case asked; sign off once the 8.5.4 note and two test additions below are in.** This was a read-only review: nothing was executed, so every claim is from reading the code.
+
+## 1. Is "every NaN is one key" acceptable? Yes, (a).
+
+- **(a) is the only option the invariants allow.** CPython's dict lookup is "same object, or equal". Floats have no object identity here, and Jing makes every NaN the one value `7ff8000000000000`. So the identity arm of that rule degenerates to "is a NaN", which is exactly one shared key, and nothing new is persisted.
+- **(b) is out.** It needs an identity we do not have, and it breaks `d[x]` for the same `x`, which is the case real programs hit. It also leaves unreachable entries whose count depends on insertion history.
+- **(c) is out.** It turns valid Python (`{float('nan'): 1}`, sets of floats from data) into an exception. That is a larger departure than merging NaNs.
+- **The ruling's "keeps today's behavior" was wrong on its premise.** The host double is not one behaviour across hosts, so the engineer was right to pin instead of keep. I withdraw that sentence of my earlier ruling.
+
+## 2. Doc note and tests
+
+**Doc.** The engineer's paragraph is right but should grow by two sentences:
+- State the three observable cases in Python terms: `d[x]` works as in CPython; `d[float('nan')]` returns the entry where CPython raises KeyError; `len({nan, nan2})` is 1 where CPython gives 2.
+- State that this is the float-identity departure, the same family as ruling 8's value-based `is`, and that a tuple containing NaN inherits it through `:py/tuple-key`.
+- "Jing's private `exact-key` has a similar shape and is not reused" now lacks its reason, since the old reason (it collapses NaN) no longer distinguishes it. Give the real reason or drop the sentence.
+
+**Tests.** The current set pins the key value, two NaNs from different computations being equal keys, NaN not being infinity's key, and a dict fill of two NaNs giving one slot with the latest value. That is not quite enough. Add to the cross-host prelude lane:
+- A lookup: `py/dict-has?` or get with a third, separately computed NaN finds the entry, and a set built from two NaNs has count 1.
+- A NaN made from literal `##NaN` content alongside the computed ones, plus a tuple key `(nan,)` matching another `(nan2,)`.
+
+A "same object" case is not separately testable, since there is no object; say so in the test comment rather than faking it.
+
+## 3. Exactness of `py/key` and the float helpers: holds, with one hole
+
+Holds as written:
+- **Infinities:** `py/finite?` is false, `(<= x x)` is true, and the sign comes from `(< x 0)`, giving two distinct keys. NaN fails `<=` and never touches host `=`.
+- **2^53 and 2^53+1:** the int arm formats the exact integer. Float 2^53 takes the halving path (m = 2^52, e = 1) and formats to the same string as int 2^53.
+- **Negative zero:** `py/zero?` catches it before decomposition, so it keys as 0/1. The `(= v 0)` / `(= v (float-value 0))` pair covers the JVM telling 0.0 from 0.
+- **Bool:** `py/num` gives 1 or 0, so True shares 1/1 and False shares 0/1.
+- **Huge floats:** at most about 971 exact halvings, then a shift, well inside `max-bits`.
+- **Subnormals:** doubling is exact and the first integral value is odd, so m / 2^-e is already reduced. The largest denominator, 2^1074, is 324 digits.
+- **No collision with other keys:** only numbers produce a vector key; strings and tuples are maps.
+
+The hole:
+- **Integer keys past the digit limit refuse.** `integer/format` in radix 10 is refused beyond `::max-digits` (4300 in the test config), so an int over about 4300 digits cannot be a dict or set key. CPython's limit applies to `str()`, not to hashing or keying. This is not reachable from source yet, because big literals and promotion are later slices. Either record it as a known limit in 8.5.4 or key with a power-of-two radix, which the limit exempts. That is a ruling-6 text change, so I would take it as its own decision and not block this slice on it.
+
+One smaller thing to confirm with a test: an integer `-0` on JS (for example from `(* -1 0)`) reaching the int arm should format as "0".
+
+## Adjacent finding, outside this diff
+
+`py/is` is host `=` on the wrapped float, and it has the same nondeterminism the engineer just removed from keys:
+- JS: the Float64 carrier's equality treats NaN as equal to NaN and +0.0 as different from -0.0.
+- JVM: `=` on doubles gives NaN ≠ NaN unless it is the same box, and 0.0 = -0.0.
+
+So `nan is nan2` and `0.0 is -0.0` likely answer differently per host. I'd open a follow-up to pin float `is` to float64 content equality (one NaN, signed zeros distinct) with a cross-host test.
+
+(Plan mode was active in this session; no plan file was written since the brief is a read-only review and this response is the deliverable.)

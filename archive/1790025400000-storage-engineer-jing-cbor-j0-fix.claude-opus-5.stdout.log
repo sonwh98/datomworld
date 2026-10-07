@@ -1,0 +1,65 @@
+Completed-GMT: 2026-09-21 21:21:48 GMT
+Completed-Local: 2026-09-22 04:21:48 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: 51cbe9c5-542b-4efc-99ce-082ca4a1beb8
+
+All the agreed findings are applied, the corpus has been regenerated, and the focused JVM test passes: 14 tests, 2705 assertions, 0 failures, 0 errors. `--check` reports the JSON matches the generator output byte for byte. Nothing is staged or committed.
+
+## Per finding
+- **qwen P2-1 (metadata map with its own metadata): agree.** Both the generator's encode side and its decode checker now raise `malformed-frame` instead of crashing. I added the decode fixture `meta/decode-meta-with-own-meta` and an encode twin, `meta/meta-with-own-meta`. The ruling is recorded under A3 and A10.
+- **qwen P3-1 / deepseek P3-1 (required refusals and categories): agree.** The test now requires all 16 refusal classes and checks that set equals the corpus header's `refusal-classes`. `unsupported-values` is now a required category in both the test and the generator.
+- **qwen P3-2 (integer-width duplicate): agree.** Added `coll/map-integer-width-duplicate`, refused as `duplicate-key`.
+- **qwen P3-3 / deepseek P3-2 (sorted collection with metadata): agree.** Added `meta/sorted-map-b-a-doc`, which has the same bytes as `meta/map-a-b-doc`. Also added `meta/sorted-set-reader-meta`, which has the same bytes as the plain set `{1 2 3}`.
+- **deepseek P3-3 (float versus decimal collapse): agree.** Added `coll/set-float-decimal-collapse` and its decode twin `mal/collapse-float-decimal-set`. I expect it to be constructible on the JVM only, since Clojure's `=` treats 1.0 and 1M as unequal there; I did not run this.
+- **qwen P3-4 (N/A collapse cases): agree.** The README now has a JVM/Node/Dart table saying which encode-side collapse and duplicate refusals can actually be built on each host. It is labelled as a review estimate, not something I ran.
+- **qwen P3-5 (symbol metadata wrapping): agree.** A4 now covers symbols as well as lists.
+- **qwen P3-6 (symbol slash crossings): agree.** Added `id/symbol-ns-a-slash-b-name-c` and `id/symbol-ns-a-name-b-slash-c`. I also added `id/symbol-empty-name`, the optional addition under the A8 ruling.
+- **qwen P3-7 (frame-name matching): agree.** The test's `includes-bytes?` now matches frame names only at byte boundaries (even offsets).
+- **A9 ruling (validate before strip): applied.**
+  - The encoder now checks the values under stripped keys before dropping them.
+  - Encode fixture `meta/surrogate-under-stripped-line` is refused as `unpaired-surrogate`.
+  - On the wire a surrogate can only appear as invalid UTF-8, so the decode fixture `meta/decode-invalid-utf8-under-line` is refused as `invalid-utf8`. It deliberately has two defects, to pin that validation comes before the canonical check. The README records it as the one exception to the single-defect rule.
+- **A4, A5, A6, A8, A11 rulings: applied** to the ambiguity text. All the rulings are also gathered in a new "Rulings" section so a J1 implementer can read them in one place.
+- **deepseek P3-4 (A8 note): agree.** Covered by the A8 ruling text.
+- **qwen P3-8 (commit and wire `--check` into CI): declined.** Committing is not allowed for me, and CI files are outside the file box.
+- **deepseek P2-2 (confirm A4 against Boring): declined for J0.** It needs Boring. The README now says J1 must confirm Boring can emit this shape or build the frame explicitly.
+- **deepseek P2-3 (possible Dart loader problems): declined, no change.**
+  - Bare `List`/`Map` already work without an import in `dao.stream.transit.cljd`, which requires only `dart:convert`.
+  - `Uint8List.fromList` over Clojure data follows the pattern `file_test.cljc` already uses.
+  - Both points stay unverified until the CLJD lane runs.
+
+One further change: I found my generator source contained raw non-ASCII characters (the Unicode test strings). I rewrote them as `\u` escapes, and `--check` confirmed the bytes did not change. I also replaced `×` and `…` in the README with ASCII. All five files are now pure ASCII (checked with grep).
+
+## Files changed
+- `test/resources/dao/jing/cbor-v1.generate.py`
+- `test/resources/dao/jing/cbor-v1.json` (regenerated)
+- `test/resources/dao/jing/cbor-v1.README.md`
+- `test/dao/jing/cbor_fixtures_test.cljc`
+
+`cbor_fixtures.cljc` is unchanged by me; I kept the orchestrator's edit to its ns form as it was.
+
+## New case ids (13)
+- **Collections:** `coll/map-integer-width-duplicate`, `coll/set-float-decimal-collapse`
+- **Metadata:** `meta/map-a-b-doc`, `meta/sorted-map-b-a-doc`, `meta/sorted-set-reader-meta`, `meta/meta-with-own-meta`, `meta/surrogate-under-stripped-line`, `meta/decode-meta-with-own-meta`, `meta/decode-invalid-utf8-under-line`
+- **Identifiers:** `id/symbol-ns-a-slash-b-name-c`, `id/symbol-ns-a-name-b-slash-c`, `id/symbol-empty-name`
+- **Malformed:** `mal/collapse-float-decimal-set`
+
+## Counts by kind
+| Kind | Cases |
+|---|---|
+| Canonical | 209 |
+| Encode refusals | 31 |
+| Decode refusals | 132 |
+| **Total** | **372** |
+
+There are 30 equivalence groups and 25 retained-distinction groups.
+
+## What I ran
+- `python3 test/resources/dao/jing/cbor-v1.generate.py > test/resources/dao/jing/cbor-v1.json`: succeeded, meaning every check inside the generator passed.
+- `python3 test/resources/dao/jing/cbor-v1.generate.py --check`: printed "cbor-v1.json matches the generator output byte for byte". I ran it twice, once before and once after the ASCII-escape rewrite.
+- `clojure -M:test -n dao.jing.cbor-fixtures-test`: "Ran 14 tests containing 2705 assertions. 0 failures, 0 errors." I ran it twice, with the same result both times.
+- A grep for non-ASCII across all five files found none.
+
+## What I could not run
+- The `awk` check for README lines over 80 columns needed approval, so line width is unchecked. The tables were already wider than 80 columns.
+- Per the brief, I did not run kondo, cljstyle, the CLJS lane (it failed earlier because the worktree has no `node_modules`), the Java 17 lane or the CLJD lane.

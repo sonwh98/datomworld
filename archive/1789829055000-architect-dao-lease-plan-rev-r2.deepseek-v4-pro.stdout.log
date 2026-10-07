@@ -1,0 +1,34 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+Completed-GMT: 2026-09-19 14:47:47 GMT
+Completed-Local: 2026-09-19 21:47:47 +07
+
+Revised `docs/design/dao.lease.implementation-plan.md` in place per the adversarial review. Disposition of all twenty findings (none rebutted — the four load-bearing source citations were spot-checked by the orchestrator as accurate, and every required change is consistent with the contract text, so each is applied rather than argued):
+
+| # | Disposition |
+|---|---|
+| 1 | **Applied.** §0.1 states the `dao.stream.md:752-755` / `dao.lease.md:14` contradiction plainly, proposes the one-sentence amendment, builds plain maps, flags `unresolved-contract` in §6 (did not edit `dao.stream.md`). |
+| 2 | **Applied.** Reference tick producer is now the `tick` constructor + a host driver in the test tree; no timer/callback in `dao.lease.cljc`; C5 grep scope widened to the whole file. |
+| 3 | **Applied.** D2/§1/§4.2 reworded to "effectful, state-threaded interpreter step" (not pure). |
+| 4 | **Applied.** D5 rewritten to explicit `judge-step` sequencing; the `observe/step` mechanism dropped. |
+| 5 | **Applied.** Added V6–V7, J12–J16, H5, C7–C8, S1–S4; §6 records out-of-scope and unresolved items. |
+| 6 | **Applied.** J7 reordered to eligibility-before-policy, with test 4.2 #2. |
+| 7 | **Applied.** J9 completes absence-over-window, no-inference-of-newest, tick-gap≠fact-gap; test 4.2 #7. |
+| 8 | **Applied.** D7 + J16 add a `:drain-budget`; test 4.2 #10. |
+| 9 | **Applied.** D4 widens the resolver to `(resolver source fact)`; C2 binds the source. |
+| 10 | **Applied.** C2 requires an explicit, validated medium declaration in config, not handle introspection. |
+| 11 | **Applied.** Phase 1 corpus extended + adversarial purity test (V5). |
+| 12 | **Applied.** 4.2 enumerates all J invariants incl. a scripted fake reader for the defect outcomes. |
+| 13 | **Applied.** 4.2 #1 enters through the real grant path, asserting tenure-start and last-observation equal the pass-wide stamp. |
+| 14 | **Applied.** H2 + 4.3 #2 make the interval strictly below half, equality a violation. |
+| 15 | **Applied.** 4.3 #1 (forged grant) and #5 (release) prove H1/H4. |
+| 16 | **Applied.** 4.4 #1 enumerates the full refusal matrix incl. incompatible resolver and durable-without-prerequisites. |
+| 17 | **Applied.** C4 + 4.4 #2 make the process-scoped fallback a declared, constructor-enforced property. |
+| 18 | **Applied.** V4 (`defective?`, structural) split from V7 (`admissible?`, judge-local); D6 states where each runs. |
+| 19 | **Applied.** J10 classifies `cursor-mismatch`/`invalid-cursor` as pass-aborting; test 4.2 #9. |
+| 20 | **Applied.** Tests hardened for cause precedence, per-medium gap, no reclassification, pass-wide `now`, no partial reclaim on abort, non-`ok` `:lapsed` after `full`/`closed`/`transport-error`. |
+
+**Rebuttals:** none — the orchestrator verified the reviewer's four load-bearing citations (`observe/step` effect-outcome set, `outcomes-next` cursor outcomes, `forward-step` batch budget, the ring buffer's atom) against source, so no finding could be rebutted on citation grounds, and every required change is grounded in contract text.
+
+**Could not resolve:** one item, by design — the `dao.stream.md` fact-carrier wording. This plan is forbidden from editing that contract, so it is handed to the orchestrator as §0.1's one-sentence amendment and remains flagged `unresolved-contract` in §6 until applied.
+
+No commit was made; only `docs/design/dao.lease.implementation-plan.md` was edited, per scope.

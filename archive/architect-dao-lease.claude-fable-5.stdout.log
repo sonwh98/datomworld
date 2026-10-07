@@ -1,0 +1,300 @@
+Completed-GMT: 2026-09-01 16:22:04 GMT
+Completed-Local: 2026-09-01 23:22:04 Asia/Ho_Chi_Minh
+
+# 1. Is this a good idea?
+
+**Yes.** Leases-as-datoms is not merely compatible with the architecture — it is what a lease *becomes* when Jini's insight is pushed through the four axioms. The flow-control section of the implementation plan (4d) already independently invented it ("a pause is a lease, not a switch"), which is the strongest evidence the generality is real rather than speculative: the concept arrived before the vocabulary did. But the proposal as stated needs three load-bearing clarifications, without which it is vulnerable to exactly the objections listed in the task.
+
+**"Expiry is interpretation" survives the reclaiming grantor — via possession, not truth.** The apparent problem: if lapse is a perspective and perspectives may differ, who decides when the socket actually closes? The answer is that the disagreement is resolved by *possession*, not by adjudicating whose interpretation is truer. The interpreter composed with the resource — the one that can actually stop the forwarder, close the socket, free the entry — is the one whose judgment becomes a reclaim, and it appends the reclaim as a fact. Authority follows the resource. This is precisely what "without consensus" means: the holder's agreement was never needed, so its differing interpretation is not a conflict, just another perspective. One honest cost must be admitted plainly: **nothing fires**, so lapse becomes actionable only when the judging interpreter next runs. Reclamation latency is duration plus judgment cadence — eventually-timely, never instantaneous. This is a feature (it is the no-callbacks invariant), and it is not a regression from Jini, whose expired leases are likewise enforced only when the grantor next notices.
+
+**Axioms and invariants: no conflict, and several direct derivations.** Renewals as appends is Axiom 1. Lapse as judgment is Axiom 2 verbatim. No expiry event is "no callbacks." No lease table is "no hidden global state" — the grantor's view of outstanding leases is private interpreter state, the moral equivalent of a cursor: derived from facts, rebuildable from them, consulted by nothing else. Judging lapse versus acting on it is exactly "do not collapse interpretation and execution." The one trap to name and forbid: Jini's `LeaseRenewalManager`. A background thread renewing on the holder's behalf is a callback in a thread, and worse, it destroys the *meaning* — renewal is evidence the holder is alive, and machinery that keeps renewing for a wedged program manufactures precisely the false liveness the lease exists to end.
+
+**Clock discipline works, and skew errs in the safe direction.** Durations only; the judging interpreter timestamps *observations* on its own clock, so the comparison happens entirely on one clock and skew cannot enter it. What skew becomes is transit delay, and delay widens the grantor's window (a renewal is observed at or after it was appended), so lateness errs in the holder's favor. The dangerous direction — early reclaim — needs no clock error, only a slow pipe on the last renewal, so the holder's discipline is to renew at a fraction of the duration (half, as DHCP does) and treat the duration as its safety bound, never its cadence.
+
+**Bounded retention is safe under one rule: absence is evidence only over an observed window.** Eviction is oldest-first, so if any renewal for a lease is retained, the newest is — and only the newest matters. What eviction actually threatens is the judge's *knowledge*, not the holder's trace: a judge that restarts, or hits a gap over the window it was watching, cannot distinguish "no renewal appended" from "no renewal observed." It must wait one full duration from resumed observation before concluding lapse. The asymmetry is deliberate: a late reclaim costs patience; a false one costs a live holder its grant.
+
+**A hostile holder gains little, and what it gains is priced.** Renewal buys tolerance for silence — nothing else. Renewing forever holds the lease forever, which the optional cap bounds; and renewal costs presence, which is the honest price. Whether a leased grant is *dangerous* depends on what it grants, judged where it is granted — the plan's own analysis (a paused forwarder retains nothing extra; pause harms only the pauser) is grantor-side reasoning the vocabulary cannot and should not do for the composition.
+
+One guard against the generality curdling into speculation: the deliverable must be **a vocabulary and a judging discipline only** — no lease manager, no lease service, no new operation on any contract. The moment `dao.lease` grows a component, it has stopped being what makes it right.
+
+# 2. Proposed `docs/design/dao.lease.md`
+
+---
+
+# DaoLease — Leases as Facts
+
+Status: proposed design target, derived from and subordinate to
+[`datom.world.md`](./datom.world.md). This document defines a vocabulary and
+an interpretation discipline, not a mechanism: it adds no operation to any
+contract, no component to any host, and no key to any DaoStream result map.
+`dao.stream.md` is unchanged by its existence.
+
+## Purpose
+
+A recurring shape in this system is the question *how do I stop caring about
+something that may never answer*. A holder is granted something — a pause, a
+connection's server-side composition, an entry in a table — and then dies,
+hangs, or partitions away without saying so. The grantor must eventually take
+the grant back, and must be able to do so without detecting death, which is
+undetectable in general; without consensus, which an unreachable peer cannot
+give; and without a stuck state, which any switch left on becomes.
+
+Java Jini solved this class of problem with the lease, and this document keeps
+its insight while rejecting its design. The insight: a grant that lapses
+unless renewed inverts the problem. Instead of the grantor proving a holder
+dead, the holder must keep proving itself interested, and the absence of proof
+is the reclaim condition. Silence — the one thing a dead holder reliably
+produces — becomes the signal.
+
+The design rejected: Jini's lease is a live object with methods, whose
+`renew` is a synchronous remote call that blocks and fails by exception, whose
+`getExpiration` is absolute time in the holder's milliseconds, and whose
+holders delegate renewal to a background `LeaseRenewalManager` thread. Each of
+those violates a rule this project holds: a live object cannot travel a
+stream, be stored, replayed, or interpreted from another perspective; a
+synchronous remote call is a host boundary worn as a function call; an
+exception is an operational outcome in the wrong clothes; absolute time on the
+wire binds two clocks that share nothing; and a renewal manager is a callback
+in a thread. What survives the translation is the concept alone: time-bounded
+tolerance, renewed by the holder, lapsing by silence.
+
+## What this rests on
+
+**Axiom 1 — Everything is a Stream.** A grant, a renewal, a release, and a
+reclaim are plain values appended to ordinary streams. There is no other
+channel and no other representation.
+
+**Axiom 2 — Interpretation Creates Semantics.** "Expired" is not a property
+of any datom. It is a perspective taken on facts, judged against the judge's
+own clock and tolerance, and two interpreters may legitimately disagree about
+it. This document's whole content is the discipline for taking that
+perspective honestly.
+
+Of the invariants, three do the work. *No callbacks*: nothing fires when a
+lease lapses; there is no timer holding a continuation and no notification on
+expiry. *No hidden global state*: there is no lease registry; a grantor's view
+of its outstanding leases is private interpreter state, derived from facts and
+rebuildable from them, and nothing else may consult it. *Do not collapse
+interpretation and execution*: judging that a lease has lapsed is
+interpretation; reclaiming the resource is an act of the grantor's
+composition; the two are separate, and only the second touches anything.
+
+## A lease is facts, accreted
+
+No lease object exists. The record of a lease is its trace on a medium: a
+grant fact, zero or more renewal facts, and either a terminal fact — a release
+by the holder, a reclaim by the grantor — or no terminal fact at all, which is
+the common case for a holder that simply vanished and precisely the case this
+vocabulary exists for.
+
+Each fact is a plain-data value on an ordinary stream. Which stream is the
+composition's choice, as it is for every deposited value: the vocabulary owns
+no medium, no transport, and no envelope beyond its own keys. Keys live under
+`:dao.lease/…`, and maps are open in the usual way — a consumer ignores
+qualified keys it does not understand. How a lease comes to be requested or
+negotiated is domain vocabulary around the grant, not in it; this document
+begins at the grant.
+
+**Grant** — appended by the grantor:
+
+```clojure
+{:dao.lease/event    :dao.lease/grant
+ :dao.lease/lease    <id>       ; minted by the grantor; plain data, unique among its leases
+ :dao.lease/duration <millis>   ; silence tolerated after each renewal before lapse
+ :dao.lease/max      <millis>}  ; optional: total consecutive time this lease may be held
+```
+
+The duration is the grantor's declared tolerance — a statement of its nature,
+like a transport's retention policy, not a negotiated term. The grant fact is
+also how the holder learns the identity it must renew.
+
+**Renewal** — appended by the holder:
+
+```clojure
+{:dao.lease/event :dao.lease/renewal
+ :dao.lease/lease <id>}
+```
+
+A renewal carries no time. It says one thing — *I still want this* — and the
+fact of it, that it was appended and when it is observed, is its entire
+content. A renewal that asked for a duration would be negotiating, and
+negotiation, where a composition wants it, is domain vocabulary beside the
+lease, never inside it.
+
+**Release** — appended by the holder: *I am done early; you may reclaim now.*
+Release is courtesy, not obligation. A system in which no release is ever
+appended is fully correct and merely slower, by at most one duration per
+lease.
+
+**Reclaim** — appended by the grantor when it acts, recording that it judged
+lapse, or honored a release, or reached the cap, and took the resource back.
+The reclaim is appended so the lease's whole story lives on the medium —
+replayable, auditable, open to perspectives nobody has taken yet — but the
+append is a record of the act, never the act itself, and never a
+notification: nobody is obliged to read it.
+
+## Expiry is an interpretation
+
+Nothing fires when a lease lapses. A lease lapses the way a stream has a
+newest value: as the answer to a question someone asks. The grantor runs an
+interpreter that reads the medium through its own cursor, notes on its own
+clock when it observes each renewal, and judges: when now minus the last
+observed renewal for a lease exceeds the granted duration, plus whatever
+tolerance this judge chooses, the lease has lapsed.
+
+Two consequences are accepted deliberately.
+
+Lapse becomes actionable only when the judge next runs. Reclamation latency is
+therefore the duration plus the judgment cadence, and cadence belongs to the
+runtime driving the interpreter, exactly as read cadence does in
+`dao.stream.md`. A lease promises eventual reclamation within a chosen bound,
+never instantaneous reclamation — and this is no regression from the object
+design, whose expired leases are likewise enforced only when the grantor
+notices.
+
+Two interpreters with different tolerances may disagree about whether a lease
+has lapsed, and neither is wrong. What resolves the disagreement is
+possession, not truth: the interpreter composed with the resource — the one
+that can actually close the socket, stop the forwarder, free the entry — is
+the one whose judgment becomes a reclaim, and its reclaim fact then records
+which judgment prevailed. Authority follows the resource and never needs the
+holder's agreement. That is what reclaiming *without consensus* means, stated
+as a rule about who acts rather than a claim about who is right.
+
+## Whose clock decides
+
+No absolute time crosses a boundary. A grant carries a duration, a renewal
+carries nothing, and an expiry timestamp appears in no fact. The judging
+interpreter's clock is the only clock in the judgment, and it never leaves
+that interpreter: it measures the interval between its own observations, so
+the comparison happens entirely on one clock and skew between hosts cannot
+enter it.
+
+What skew becomes instead is transit delay, and delay errs in the safe
+direction: a renewal is observed at or after it was appended, so the grantor's
+window opens late relative to the holder's, and the grantor tolerates at
+least as long as the holder expects. The dangerous direction — reclaim earlier
+than the holder expects — requires no clock error at all, only a slow pipe
+under the last renewal. A holder therefore renews early, at a fraction of the
+duration — half being the customary choice, for the reason DHCP renews at
+T/2 — and treats the duration as the outer bound of its safety, never as the
+interval of its cadence. The holder measures its own intervals on its own
+clock; the discipline is symmetric and the clocks still never meet.
+
+## Judging lapse
+
+An interpreter that would conclude lapse must do the following, and nothing
+less.
+
+It reads the medium through its own cursor and keeps, as private interpreter
+state, the newest renewal it has observed per lease and the observation time
+on its own clock. That state is the moral equivalent of a cursor — derived,
+private, rebuildable from the facts — and it is not a registry: nothing else
+consults it, and the facts on the medium remain the one truth.
+
+Absence is evidence only over a window the judge actually observed. Silence
+means lapse only when the judge was in a position to hear. Concretely: on a
+`gap`, the judge recovers its cursor and re-reads before judging or renewing
+any conclusion — eviction is oldest-first, so if any renewal for a lease is
+retained, the newest is, and a judge that has caught up to the retained window
+has seen everything that matters. And after losing its state — a restart, or a
+gap spanning the window it was watching — a judge knows nothing about
+silence: "no renewal observed" and "no renewal appended" are different
+absences. It must wait one full duration from the moment it resumes
+observation before concluding lapse. The rule errs toward grace: a resource
+held a little longer, never a reclaim founded on ignorance. The asymmetry is
+deliberate — a late reclaim costs patience; a false one costs a live holder
+its grant.
+
+The cap is judged under the same discipline, from the judge's own observation
+of the grant, with the same conservative restart.
+
+## What a lease may never do
+
+A lease is never a live object: everything one can do about a lease is
+appending a fact or judging one. It never fires: no timer holds a callback,
+no notification marks a lapse, and a composition that wants to observe
+reclaims reads the medium like any other interpreter. It never has a
+registry: a shared lease table is hidden global state, and the grantor's
+private derived view is as far as any accounting goes. It never puts absolute
+time on the wire. It never erases: a reclaim frees the resource, not the
+record, and the medium's retention policy is the only eraser here as
+everywhere. It is never renewed by machinery: a holder renews from its own
+control flow, at a cadence its driver chooses — the same discipline as a
+reader retrying `blocked` — because renewal is evidence the holder is alive,
+and a background renewer that outlives its holder's purpose manufactures
+exactly the false liveness the lease exists to end.
+
+And it is never a promise to the holder. A lease bounds the grantor's
+tolerance of silence; it does not oblige the grantor to keep providing. A
+grantor may reclaim early for reasons of its own — shutdown, the cap, policy —
+and records that reclaim identically. The two sides never need to agree on
+the moment: a holder discovers reclaim the way it discovers everything, by
+what its next operation answers or its next read observes.
+
+## Renewal forever
+
+A hostile holder gains little by renewing forever, and what it gains is
+priced. Renewal buys tolerance for silence and nothing else; a holder
+renewing forever holds the lease forever, which `:dao.lease/max` bounds —
+past it, the grantor lapses the lease regardless of renewals, and an honest
+long-lived holder re-acquires. Renewal also costs presence: the resource is
+held only while someone keeps showing up, which is the honest price, and a
+holder able to pay it indefinitely is indistinguishable from a legitimately
+long-lived one. Distinguishing them is admission policy — who receives a
+grant at all, eventually gated by Shibi — never lease vocabulary. Whether a
+leased grant is *dangerous* is likewise judged where it is granted: a paused
+DaoStream forwarder retains nothing extra, so that pause harms only the
+pauser, while a lease over a genuinely scarce resource needs its cap. The
+vocabulary carries the cap; the composition decides it.
+
+## Out of scope
+
+What is leasable is the domain's business. How a lease is requested or
+negotiated is domain vocabulary around the grant. Carriage — which frames or
+files or media carry these facts across any particular boundary — belongs to
+the transport documents, beginning with `dao.stream.ws.md`. Cancellation of
+in-flight work is untouched: a lease reclaims what silence abandons and
+cannot retract a request already made. Transfer or delegation of a lease
+between holders waits for a real need. Authorization is Shibi's, reserved. A
+renewal service is forbidden above, not deferred.
+
+---
+
+# 3. What it does not replace
+
+Of the four problems: **pause requests** it solves outright — 4d's flow
+control is already a lease, and this vocabulary is the "durable home" the ws
+Deferred list demands for the pause vocabulary before it is built; the plan's
+duration-carrying pause request reconciles cleanly as the domain *ask*, with
+the grant's duration as the capped *answer*. **A dead client holding
+server-side resources** it solves — the canonical case: the per-connection
+composition (forwarder, state) is held under a lease that inbound evidence
+renews. **Connection liveness** it only bounds: a lease answers *when the
+server may stop caring*, but it does not detect a dead TCP peer, keep NATs
+open, or tell the *client* anything about a dead server. The reclaim half of
+the ws Deferred liveness item ("how many unanswered probes end a connection")
+becomes a lease judgment; the probe half — how evidence is elicited from a
+quiet peer, ping/pong or otherwise — stays transport-deferred, with one
+observation worth recording there: a protocol-level pong from a wedged
+application is false liveness, so a renewal is arguably *better* evidence
+than a pong. **A connection cancelled before it resolves** it leaves
+untouched, correctly, as the team already concluded — that resolves through
+the resolution event and teardown, not through tolerance of silence.
+
+# 4. The seam to DaoStream
+
+The proposed split is confirmed, with two sharpenings. `dao.stream.md` needs
+zero changes — a lease fact is a stream element like any other, and the
+contract cannot even tell. `dao.stream.ws.md` owns carriage only: lease facts
+travel as ordinary payload values on the socket the holder already writes to,
+arriving as `:ws/payload` envelopes on the deposit medium, correlated by
+attachment like all traffic; and the close code with which an endpoint that
+reclaims a connection closes it — an application-range code sibling to the
+ended-stream code, settled at the existing wire-contract gate. The
+sharpenings: the keys inside those payloads are `:dao.lease/…`, and the ws
+document must never define lease vocabulary — only which frames carry it and
+how a reclaim reaches the wire; and 4d's caps become `:dao.lease/duration`
+and `:dao.lease/max` rather than a second, parallel naming.
+
+*(Made no edits per the task; the proposal above is the full content for a future `docs/design/dao.lease.md`.)*

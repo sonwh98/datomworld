@@ -1,0 +1,617 @@
+```diff
+diff --git a/docs/design/dao.stream.md b/docs/design/dao.stream.md
+--- a/docs/design/dao.stream.md
++++ b/docs/design/dao.stream.md
+@@ -81,6 +81,10 @@
+ - A logical stream has an identity that is plain data, the same through every
+   handle on it, stable across attachment lifecycles and across serialization.
+   Projecting that identity never fails.
++  The identity that is the same through every handle across a serialization
++  boundary is the one the descriptor carries — for a served stream, its
++  serving name. A transport may additionally hold a host-local identity that
++  never crosses a boundary; it exists for `cursor-mismatch` and nothing else.
+ 
+ Every clause below must be consistent with these invariants, and most derive
+ from one directly. Where a clause is instead an interoperability decision — the
+@@ -478,8 +482,10 @@
+   works with that interpreter's own handle. Whether a cursor survives
+   serialization to another host is transport-owned and TBD, like the
+   descriptor.
+ - A cursor carries enough identity to detect misuse — the mismatch outcomes
+-  in the Reading table depend on it.
++  in the Reading table depend on it. Positions are not authenticated: misuse
++  detection is by stream identity, and totality of `next` over any position
++  is the guarantee.
+ - Advancing is receiving a successor cursor from `next`. The stream never
+   advances a reader; the stream holds no reader positions at all. Dropping a
+   cursor is how a reader detaches — there is nothing to unregister.
+@@ -545,12 +551,13 @@
+ names — because the outcome set has no room for it and the transition has
+ already happened.
+ 
+ `close!` closes **what the handle is on**. A handle that owns a stream — its
+-creator, or its server-side host — closes the logical stream. An attached
+-handle is on an attachment: closing it ends that attachment only — the
+-stream persists, its descriptor remains valid, and `attach!` may rejoin
+-later. Which scope a transport's handles carry is part of its declared
+-nature.
++creator, or the serving host's own handle on it — closes the logical stream.
++An attached handle is on an attachment: closing it ends that attachment only
++— the stream persists, its descriptor remains valid, and `attach!` may
++rejoin later. A server-side accepted-connection handle is on an attachment,
++not on the served stream. Which scope a transport's handles carry is part of
++its declared nature.
+ 
+ `:dao.stream/closed` and `:dao.stream/end` are handle-relative: they speak of
+ what *this handle* is on. (Not every outcome is: `gap` is retention-relative
+diff --git a/docs/design/dao.stream.implementation-plan.md b/docs/design/dao.stream.implementation-plan.md
+--- a/docs/design/dao.stream.implementation-plan.md
++++ b/docs/design/dao.stream.implementation-plan.md
+@@ -68,12 +68,20 @@
+ reject-mode declaration at assembly. This is configuration provenance, not
+ runtime introspection. Runtime behavior is unchanged: every non-`ok`
+ deposit result tears the connection down.
+ 
+ **Logical-stream identity is minted in Phase 2.** `cursor-mismatch` in
+-Phase 2 and stable descriptor identity in Phase 3 are the same identity.
+-It is allocated when a logical stream is created, and both cursors and
+-descriptors denote it. Their *representations* need not match and need not
+-be equally serializable — cursor serialization across hosts stays TBD per
+-the contract — but they must refer to the same thing.
++Phase 2 and stable descriptor identity in Phase 3 are the same identity
++for a host-local stream. It is allocated when a logical stream is created,
++and both cursors and descriptors denote it. Their *representations* need not
++match and need not be equally serializable — cursor serialization across
++hosts stays TBD per the contract — but they must refer to the same thing.
++
++**A served stream's portable identity is its serving name.** Once a stream
++is served over ws, the identity that crosses the wire is the endpoint address
++plus `:ws/path`; the ring buffer's minted id is host-local identity used for
++`cursor-mismatch` only and appears in no ws descriptor. A server restart that
++serves a fresh ring buffer under the same path serves the same logical stream
++as far as any remote handle can tell. This is what Phase 5 fact 2 and the
++REPL plan's R5 fact 3 verify, and the descriptor gate below records it.
+ 
+ ## Phase 1 — Contract core (`src/cljc/dao/stream.cljc`)
+ 
+@@ -247,10 +255,14 @@
+   directly as a Transit value, while WebSocket frames encode their control
+   or value envelope with the same codec. Framing differs; value encoding
+   does not.
+ - Phase 3 owns the cross-host codec conformance corpus and round trip on
+   clj, cljs, and cljd. The v2 namespace must not depend on the legacy
+   `dao.stream.transit` namespace merely because it uses the same Transit
+   format.
++  Integral-valued doubles (`1.0`) are excluded from the corpus, with the
++  reason recorded in it: a JS host cannot distinguish `1.0` from `1`, so a
++  clj→cljs→clj round trip decodes a Long, and "structurally unchanged" is
++  false for them (see `dao.stream.ws.md`, Elements and Serialization).
+ - A **host-kept local directory** — a map from stream identity to live
+   handle, owned by the test composition, not by DaoStream and not by any
+   transport. It is deliberately test-only: the ws serving side in Phase 4
+@@ -264,12 +276,16 @@
+   surface.
+ - `not-found` for descriptors nothing backs.
+ 
+ **Decision gate — descriptor key set.** The contract leaves the descriptor
+ envelope TBD and this phase produces the evidence for settling it. Phase 4
+ must not start against provisional keys: review the round trip's key set,
+ settle it in `dao.stream.md`, and settle `:ws/…` in `dao.stream.ws.md`
+ against it. Provisional keys carried into a wire format under delivery
+ pressure become permanent by accident.
++The gate also carries the identity decision from *Settled before Phase 1*
++into the key set: a ws descriptor names its stream by serving name and
++carries no minted id, and Phase 4a does not start until that is written into
++both documents.
+ 
+ **Decision gate — wire contract, settled in `dao.stream.ws.md`.** The
+ Handshake and Elements and Serialization sections there now specify the
+@@ -325,6 +341,13 @@
+   offer, under `:ws/attachment`. Admission is enforced at assembly against
+   the declarations passed alongside the media, and every non-`ok` deposit
+   follows `dao.stream.ws.md`'s teardown rule.
++- **`endpoint-step`**: the serving endpoint's public surface includes one
++  pure step over the handoff slots, shaped like `forward-step`: it reads each
++  slot's acknowledgement medium, sends the wire `:ws/accept` for a matching
++  acknowledgement, releases the slot, expires offers per the composition's
++  policy, and returns. It schedules nothing and is called by the composition's
++  driver (4c); a self-scheduling loop inside the transport would be the
++  relocated callback 4b forbids.
+ - No callbacks in the public surface; the legacy `on-open!`/`on-message!`/
+   `on-close!` shape does not reappear.
+ - **Dependency check**: `v2/ws.cljc` requires only `dao.stream` — never
+@@ -435,6 +458,9 @@
+ - one forwarder per connection — a driver stepping `forward-step` from the
+   served stream to that connection's ws handle — with the cadence, batch
+   budget, and `gap` policy this composition chooses;
++- driving the transport's `endpoint-step` at a cadence the composition
++  chooses — the endpoint driver is this composition's loop, not the
++  transport's;
+ - whether inbound payload events are interpreted into appends on the served
+   stream, and if so by which interpreter — the boundary itself judges
+   nothing;
+@@ -480,15 +506,19 @@
+   a parity break here is cheapest to find here.
+ - **Phase 4–5** target clj and cljs (Node) — Node server plus Node client is
+   the slice. Browser-client behavior is not validated by a Node target and
+-  is out of the slice. cljd ws follows once the slice is proven; beware the
+-  `#?(:cljd nil :clj ...)` reader-conditional trap.
++  is out of the slice. cljd ws follows once the slice is proven; beware the
++  `#?(:cljd nil :clj ...)` reader-conditional trap. The cljd ws transport and
++  its manifest are owned by `yin.repl.implementation-plan.md`, which
++  claims them under its *Prerequisites*; this plan's end condition waits on
++  that deliverable without owning it.
+ - **`forward.cljc` is host-agnostic** — `forward-step` takes no scheduler
+   and has no host dependency at all; cadence lives in the driver — so it
+   compiles and its ring-buffer-to-ring-buffer tests pass on all three hosts,
+   including where the ws transport does not yet exist.
+-- Per host, name explicitly: how transient send-buffer `full` is detected,
+-  how a send racing a concurrent close is handled, and that the codec
+-  produces structurally identical values across all three.
++- Per host, name explicitly: the outbound high-water threshold above which
++  `append!` answers `full` — `dao.stream.ws.md` requires one on every host —
++  how a send racing a concurrent close is handled, and that the codec
++  produces structurally identical values across all three.
+ 
+ ## What v1 callers lose, and what replaces it
+ 
+@@ -575,8 +605,8 @@
+   may not settle what its superior left open.
+ 
+   Resuming it needs three things in order: `dao.space` on the v2 contract, a
+-  `dao.lease.md` that claims the pause and liveness semantics its *Neighbouring
+-  deferrals* section currently declines, and a reconciliation of the pause
++  `dao.lease.md` that claims the pause and liveness semantics its *Out of
++  scope* section currently declines, and a reconciliation of the pause
+   request with that contract's negotiation — a reader asking "hold for *n*" is
+   a proposal, and a proposal creates no state until the serving side grants.
+ 
+diff --git a/docs/design/dao.stream.ws.md b/docs/design/dao.stream.ws.md
+--- a/docs/design/dao.stream.ws.md
++++ b/docs/design/dao.stream.ws.md
+@@ -40,6 +40,15 @@
+ connection joined. A descriptor names a stream, never a connection, so there
+ is nothing else for it to name; two connections to the same served stream
+ answer identically, and `:dao.stream/attachment` is what tells them apart.
++
++The identity that descriptor carries is the stream's **serving name** — the
++endpoint address plus `:ws/path` — and nothing else. A served ring buffer's
++minted id is host-local identity, used for `cursor-mismatch` on the serving
++host and never carried in a ws descriptor; a client builds its descriptor
++from a URL alone and can hold no other. A server that restarts and serves a
++fresh ring buffer under the same path therefore serves the same logical
++stream as far as any remote handle can tell, which is what makes rejoining
++after a restart the same `attach!` as rejoining after a dropped connection.
+ 
+ The writer surface is on the connection's **ordered outbound path** — the
+ sequence of values accepted for sending on this attachment — never on the
+@@ -113,8 +122,12 @@
+ The acceptance-offer event carries the value under `:ws/attachment`, and
+ every later deposited event for the connection carries the same value. The
+ offer, its acknowledgement, the handle, and all later events therefore
+ denote one attachment. Client-side `attach!` continues to return the
+-corresponding client-local identity under `:dao.stream/attachment`.
++corresponding client-local identity under `:dao.stream/attachment`. The same
++non-reuse rule binds the client side: a client-local identity is never reused
++within its boundary's lifetime, so an event retained on the deposit medium
++from a closed attachment can never be attributed to a later one that filters
++by its own identity.
+ 
+ **Deposited events are envelopes**, so that payload and lifecycle are
+ distinguishable and both are attributable:
+@@ -164,6 +177,12 @@
+ attachment isolates them. This choice does not alter acceptance handoff:
+ server writer capabilities always travel through the bounded handoff slots
+ defined under Serving, never through an evictable shared traffic history.
++
++On the serving side the transport is handed a deposit destination per
++accepted attachment: the composition chooses it when it reads the offer and
++may name it in the acknowledgement (see Serving), so isolation is a
++composition decision the transport never makes. The accepted offer already
++announces each attachment, so per-attachment media need no announcement
++stream beyond it.
+ 
+ ```clojure
+ (def result (ws/attach! {:dao.stream/type :dao.stream/ws
+@@ -231,11 +250,17 @@
+  :ws/command    :ws/accept}
+ ```
+ 
+-to that slot's acknowledgement medium. The endpoint driver accepts only an
+-acknowledgement whose identity matches the slot's outstanding offer. It then
+-sends the wire `:ws/accept` frame, enables value delivery, and releases the
+-slot for reuse. Stale acknowledgements are ignored; attachment identities are
+-not reused.
++to that slot's acknowledgement medium, at most once per offer — a second
++append into a capacity-one medium can evict the correct acknowledgement
++before it is read. The acknowledgement may carry `:ws/deposit`, a
++composition-chosen deposit destination for this attachment's traffic; absent
++it, the boundary's traffic medium is used (see Traffic granularity). The
++endpoint driver is the composition calling the transport's `endpoint-step`,
++a pure step over the handoff slots that the transport exposes and never
++schedules. It accepts only an acknowledgement whose identity matches the
++slot's outstanding offer. It then sends the wire `:ws/accept` frame, enables
++value delivery, and releases the slot for reuse. Stale acknowledgements are
++ignored; attachment identities are not reused.
+ 
+ An outstanding accepted offer cannot be evicted: it is the slot's sole
+ value, and the transport does not append another offer to that slot before
+@@ -254,18 +279,28 @@
+ 
+ - if the offer deposit is non-`ok`, the endpoint closes the pending
+   connection;
+ - before acknowledgement, the endpoint retains the handle and can close it
+-  on peer loss, endpoint stop, or composition-selected admission expiry;
++  on peer loss, endpoint stop, or composition-selected admission expiry.
++  Such a pre-acknowledgement teardown frees the slot and marks its offer
++  stale: a later acknowledgement for that identity is ignored, and the
++  endpoint deposits `:ws/closed` for that attachment identity into the
++  traffic medium so a composition that reads the offer afterwards can drop
++  the dead handle from its session state;
+ - after reading the offer, the composition also holds the handle and closes
+   it if acknowledgement cannot be deposited;
+ - after acknowledgement, the composition owns the session handle, while the
+   endpoint continues to own its host connection for endpoint-wide stop;
+ - any non-`ok` traffic deposit after acceptance tears down the connection
+   under Deposit Admission.
++- lifecycle deposits — `:ws/closed`, `:ws/ended` — originate solely from the
++  host's close callback through the adapter, never from a `close!` caller.
++  Two owners may both call `close!` on one socket; the host closes it once,
++  so exactly one lifecycle event is deposited.
+ 
+ No callback reaches the composition. Offer and acknowledgement are ordinary
+-stream values, and the endpoint driver polls acknowledgements without
+-waiting or installing a waiter.
++stream values, and the endpoint driver — the composition's loop calling
++`endpoint-step` — polls acknowledgements without waiting or installing a
++waiter.
+ 
+ **That stream is not the served stream.** A client's `append!` is a request to
+ the server, never a broadcast: what a client writes lands in a medium only the
+@@ -381,8 +416,9 @@
+ 
+ - The descriptor is self-contained and exists to cross the network: it
+   carries what any host needs to reach the served stream — host and port,
+-  plus the served stream's identity (a path or stream id; endpoint address
+-  alone does not name a stream), perhaps TLS parameters.
++  plus the served stream's identity — its serving name, `:ws/path`; endpoint
++  address alone does not name a stream, and no host-local minted id appears
++  (see Surfaces) — perhaps TLS parameters.
+ - The descriptor carries identity only. Where inbound traffic lands is the
+   host boundary's composition (see The Duplex Model) and appears in no
+   envelope and no argument of `attach!`.
+@@ -461,11 +497,18 @@
+   and retrying it may succeed on its own. A caller's retry policy is as
+   deterministic as before; it reads the answer from the medium instead of
+   from a return value.
+ - `append!` returns `:dao.stream/full` when the send buffer cannot accept
+   the value now — **transient**: the network drains the buffer on its own,
+-  and a later append succeeds. An attachment still establishing its
+-  connection answers `full` for the same reason and with the same remedy.
++  and a later append succeeds. Every host's transport declares an outbound
++  high-water threshold above which `append!` answers `full` — Node's
++  `bufferedAmount`, a still-incomplete `sendText` future on the JVM, bytes
++  handed to `add` and not yet reported done on Dart — so no host has an
++  unbounded outbound buffer and no host excludes `full`. An attachment still
++  establishing its connection answers `full` for the same reason and with
++  the same remedy; establishment ends only on the first server frame, so the
++  client handle answers `full` until `:ws/accept` is observed and `closed`
++  after `:ws/disclaim`, never `ok` merely because the socket opened.
+   `:dao.stream/closed` once the connection is down, which includes an
+   attachment whose connection never succeeded. A value that cannot be
+   encoded for the wire is `:dao.stream/invalid-value`. A local send that
+@@ -510,6 +553,12 @@
+ handlers or metadata participate in this protocol. A sender unable to
+ encode a value in this domain returns `:dao.stream/invalid-value` and sends
+ nothing.
++
++Numeric identity is preserved only within the safe-integer domain. A JS host
++cannot distinguish `1.0` from `1`, so an integral-valued double may decode as
++an integer after passing through a cljs peer; doubles cross the wire as
++values but may lose their type through such a host, and the conformance
++corpus excludes integral-valued doubles for that reason.
+ 
+ All protocol keywords use exactly one namespace separator — for example
+ `:ws/frame`, never a multi-slash spelling such as `:ws/wire/frame` — so the
+@@ -533,6 +582,14 @@
+ deposit-admission teardown rule applies.
+ 
+ Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` is the authoritative not-found close following the disclaimer frame. Code `4002` is a protocol-error teardown. For an established attachment, completion of a 4002 teardown deposits exactly one `:ws/closed` at both the endpoint that initiated the close and the peer that observed it. The detecting endpoint therefore deposits `:ws/error` first and `:ws/closed` when the connection terminates. Before client resolution, the existing handshake rule applies instead: closure before `:ws/accept` or `:ws/disclaim` deposits exactly one `:ws/transport-error` resolution. Every other peer close or connection loss maps to `:ws/closed`.
++
++After a terminal resolution or lifecycle event — `:ws/not-found`,
++`:ws/transport-error`, or `:ws/ended` — no further lifecycle event is
++deposited for that attachment, and a decoder ignores one that arrives: the
++4004 close following a disclaimer deposits nothing. A self-initiated close —
++the client's own `close!` before resolution — deposits `:ws/closed` as that
++attachment's sole event; the `:ws/transport-error` rule above covers only a
++closure the client did not ask for.
+ 
+ ## Deferred
+ 
+@@ -543,6 +600,9 @@
+ - Resumption protocol: stream identity is stable across reconnects, so
+   resumption is possible by design; what history a rejoining client receives
+   (and how it states where it left off) is not yet specified.
++- A close code for lease reclaim: `dao.lease.md` defers distinguishing a
++  reclaim on the wire to this document, and an accepted session reclaimed
++  under a lease currently closes as an ordinary `:ws/closed`.
+ - Backpressure protocols above the stream (a reader publishing its progress
+   as data is interpretation, outside both this transport and the contract).
+   Needing nothing from this transport does not mean needing no specification:
+diff --git a/docs/design/yin.repl.implementation-plan.md b/docs/design/yin.repl.implementation-plan.md
+--- a/docs/design/yin.repl.implementation-plan.md
++++ b/docs/design/yin.repl.implementation-plan.md
+@@ -33,8 +33,9 @@
+ `:ast-walker`, see *The VM* — `(lang :lang)`, `(compile …)`, `(reset)`,
+ `(connect "url")`, `(disconnect)`, `(quit)`, ordinary source evaluation
+ locally, datom-literal evaluation, and ordinary source evaluation forwarded to
+-a connected remote. `--port`, `--host` and `--headless` behave as they do
+-today.
++a connected remote. `--port`, `--host` and `--headless` behave as they do
++today; `--host` defaults to `127.0.0.1`, loopback (see *Boundary of this
++plan*).
+ 
+ It must do that on **all three hosts — clj, cljs (Node), and cljd** — because
+ the REPL is the one surface people actually run on each of them, and because a
+@@ -94,17 +95,17 @@
+ 
+ | New | File |
+ |-----|------|
+-| `dao.stream.rpc.client` | `src/cljc/dao/stream/rpc/client.cljc` |
+-| `dao.stream.rpc.server` | `src/cljc/dao/stream/rpc/server.cljc` |
+ | `dao.stream.rpc.ws` | `src/cljc/dao/stream/rpc/ws.cljc` |
+ | `yin.repl.core` | `src/cljc/yin/repl/core.cljc` |
+ | `yin.repl.driver` | `src/cljc/yin/repl/driver.cljc` |
+ | `yin.repl` | `src/cljc/yin/repl.cljc` |
+ | `yin.repl.runner` | `src/clj/yin/repl/runner.clj` |
+ 
+ `dao.stream`, `dao.stream.ringbuffer` and `dao.stream.ws` are the
+-sibling plan's deliverables. The cljd half of `dao.stream.ws` is this plan's,
++sibling plan's deliverables; `dao.stream.apply`, `dao.stream.rpc.client`
++and `dao.stream.rpc.server` are the VM plan's V1 deliverables, consumed
++here and not built here. The cljd half of `dao.stream.ws` is this plan's,
+ per *Prerequisites*.
+ 
+ **Build configuration — the two additive exceptions.** `deps.edn` gains
+ `:clj-yin-repl`,
+@@ -152,8 +153,8 @@
+ `dao.stream.rpc.*` cannot be ported. The diagnosis was checked against the code
+ by four reviewers and holds: v1 reads responses from the same duplex handle it
+ wrote to (`rpc/client.cljc:155` through `WebSocketStream`'s hidden
+-`:remote-stream` inbox, `ws.cljc:68` — the very thing `dao.stream.ws.md:160`
+-forbids); its cursors are `(:position …)` arithmetic seeded from
++`:remote-stream` inbox, `ws.cljc:68` — the very thing `dao.stream.ws.md`
++forbids under The Duplex Model); its cursors are `(:position …)` arithmetic seeded from
+ `(atom {:position 0})` (`rpc/client.cljc:29-42, 129`); and it returns a Promise
+ on cljs and a Future on cljd (`rpc/client.cljc:55-57, 108-111`).
+ 
+@@ -215,8 +216,11 @@
+   current attachment but reconnectable: it loses every outstanding request and
+   permits `rebind`. `:ws/ended` is terminal for the served stream, loses every
+   outstanding request, and is not converted into reconnectable closure.
+   `:ws/not-found` and `:ws/transport-error` are terminal resolution failures and
+-  likewise lose every outstanding request. By contrast, `:ws/error` is a
++  likewise lose every outstanding request. Once a binding is terminal, a later
++  lifecycle event for the same attachment — a `:ws/closed` trailing a
++  `:ws/not-found` — is ignored and reopens nothing, per `dao.stream.ws.md`'s
++  post-terminal rule. By contrast, `:ws/error` is a
+   diagnostic: it is forwarded as a non-terminal
+   diagnostic and retains the writer, cursor, and requests.
+ - **Reattachment is a rebind.** `rebind` swaps a dead writer for a fresh
+@@ -321,7 +325,7 @@
+   missing input. Other `next` outcomes follow the same total cursor discipline as
+   the output drain.
+ 
+-**Per host, because cadence is the runtime's** (`dao.stream.md:178-180`):
++**Per host, because cadence is the runtime's** (`dao.stream.md`, What it costs):
+ 
+ - **clj** — the main reader thread parks in `read-line` (`repl.cljc:856`) and
+   only appends each returned line to the input medium. One separate owned
+@@ -347,6 +351,11 @@
+ is printed by the driver when it completes. Input typed while a request is
+ outstanding is queued, not evaluated — v1 has a clobber race there
+ (`repl.cljc:1044-1047`) that must not be copied.
++Local commands — `(disconnect)`, `(quit)`, `(repl-state)`, `(help)` — are
++exempt from that queue and run at once, so a request that never completes
++cannot trap the user. The driver owns the deadline: `repl-step` receives
++`now`, and after a configured number of ticks with no completion it reports
++the outstanding request lost, clears it, and resumes accepting input.
+ 
+ The claim that host divergence disappears is **withdrawn**. It moves: out of the
+ RPC layer, which now has one shape everywhere, and into one small named driver
+@@ -356,7 +365,7 @@
+ 
+ **D2 — a reply travels on the connection's server-side handle. Settled.**
+ The accepted-connection handle is writer+closable with its writer surface on
+-that connection's ordered outbound path (`dao.stream.ws.md:44-48`), so replies
++that connection's ordered outbound path (`dao.stream.ws.md`, Surfaces), so replies
+ are private by construction. The alternative — a per-conversation served stream
+ driven by `forward-step` — buys an outbound replay history that is worthless
+ until resumption is specified, and resumption is deferred. `forward-step` (4b)
+@@ -381,6 +390,12 @@
+ stream, capacity 1 cannot evict in a correct composition. A `gap` is therefore
+ evidence that forbidden traffic was appended; it is a fatal endpoint assembly
+ fault, not a resumable loss.
++
++Its portable identity is its serving name — endpoint plus `/repl` — per
++`dao.stream.ws.md`'s Surfaces. A restarted endpoint that `create!`s a fresh
++ring buffer under `/repl` serves the same logical stream to every remote
++handle; the new buffer's minted id is host-local and reaches no client, so
++R5's third fact holds across a server restart as well as a dropped socket.
+ 
+ Only the descriptor **key names** wait for the gate. The shape is settled here.
+ A pathless `daostream:ws://host:port` normalizes to the `/repl` path.
+@@ -393,6 +408,14 @@
+ and threads a single explicit REPL state serially. Connecting clients share one
+ remote shell, which is what v1 does today and what the existing tests assume —
+ they send sequentially (`repl_test.cljc:581`), so they never settled it.
++
++**An unbudgeted evaluation is a whole-server hang, accepted in this slice.**
++`serve-once!` bounds how many times a handler runs, not how long: one
++client's `(loop [] (recur))` stalls every session, the endpoint driver, and
++the lifecycle cursor until it returns. The slice accepts and records that
++rather than hiding it. The way out is an eval handler that is a multi-tick
++state machine over the VM's own step engine with a step budget per
++`serve-once!`, which is a later phase, not this one.
+ 
+ **Chain-forwarding is out.** v1's `:op/eval` handler forwards to the server's
+ own remote endpoint when one is connected, and that is tested
+@@ -422,13 +445,16 @@
+ - **The cljd v2 ws transport**, which the sibling plan defers and **this plan
+   owns**, over `dart:io`. It owes the same manifest and conformance evidence as
+   the other two hosts.
+-- **Both decision gates**: the descriptor key set (still open), and the wire
+-  contract (settled in `dao.stream.ws.md`, 2026-09-03).
++- **Both decision gates**: the descriptor key set (still open; it is Phase 3's
++  decision gate, fed by Phase 3's round-trip evidence, and it also settles
++  served-stream identity as the serving name), and the wire contract (settled
++  in `dao.stream.ws.md`, 2026-09-03).
+ 
+-**Not prerequisites:** Phase 3 (the REPL attaches to a ws endpoint by URL, never
+-to a ring buffer by descriptor), 4b (dead under D2a), 4c (R4 builds the REPL's
+-own serving composition, which re-derives 4c's list minus the forwarder), and
+-Phase 5 (this plan is that proof).
++**Not prerequisites:** Phase 3's directory test fixture (the REPL attaches to a
++ws endpoint by URL, never to a ring buffer by descriptor; Phase 3's decision
++gate *is* a prerequisite, listed above), 4b (dead under D2a), 4c (R4 builds the
++REPL's own serving composition, which re-derives 4c's list minus the
++forwarder), and Phase 5 (this plan is that proof).
+ 
+ **The three spec answers, settled (2026-09-03).** The amendments this plan
+ waited on are now in `dao.stream.ws.md`:
+@@ -512,11 +538,10 @@
+ 
+ - `connect` normalizes the URL to a descriptor whose keys come from the settled
+   gate, calls `attach!`, and gets a handle at once. No promise on any host.
+ - The composition wires the deposit medium — **one medium per boundary**,
+-  capacity 8192, matching 4a and demultiplexed by `:ws/attachment`, which the
+-  client already does. Per-attachment media would need the boundary-level
+-  announcement stream `dao.stream.ws.md:140-143` requires, which 4a does not
+-  build.
++  capacity 8192, demultiplexed by `:ws/attachment`, which the client already
++  does. A client boundary holds one attachment at a time, so isolation buys
++  nothing here; the server side (R4) isolates per attachment instead.
+ - The RPC client is built from the ws handle, that medium, a minted cursor
+   anchored at `:dao.stream/newest`, and the whole `attach!` result for `:me`.
+ - **`Connected to …` moves** to when the driver observes `:ws/opened`.
+@@ -530,8 +555,13 @@
+ - The endpoint creates its `/repl` service-lifetime stream at start (D3) and
+   registers its capacity-1 handle in a host-owned resolution table; any `gap`
+   is the fatal assembly fault defined by D3.
+-- One request medium per boundary, capacity 8192, demultiplexed by
+-  `:ws/attachment`.
++- **One request medium per accepted attachment**, capacity 8192, created by
++  the composition when it reads the offer and named in the acknowledgement
++  under `:ws/deposit`, per `dao.stream.ws.md`'s Serving. A shared medium
++  would let one chatty client gap every other session's requests before the
++  one driver reads them; per-attachment media need nothing 4a does not
++  already build, since the accepted offer announces each attachment, and
++  `dao.lease.md` names them as the isolation its leases assume.
+ - **Acceptance handoff is consumed, not reinvented.** The composition
+   supplies the endpoint's acceptance handoff as a fixed pool of 8 slots
+   (configurable at `serve!`, minimum 1), per `dao.stream.ws.md`: each
+@@ -546,8 +576,14 @@
+   `:ws/accept` and enables no value delivery before it. Slot exhaustion is
+   admission control, not an error: the transport closes the new connection
+   pre-acceptance and the client resolves `:ws/transport-error`.
+ - One server driver advances every session against a single serially-threaded
+-  REPL state (D4), running V1's `serve-once!` per session.
++  REPL state (D4), running V1's `serve-once!` per session, and drives the
++  transport's `endpoint-step` at a cadence it chooses — the endpoint driver
++  `dao.stream.ws.md` names is this driver, not a loop inside the transport.
++  A handler that never returns hangs the whole server, per D4. Session count
++  is bounded only by the handoff slots before acknowledgement; after it,
++  accepted sessions accumulate without bound until leases land, since
++  liveness probing is deferred.
+ - **Serving lifecycle is composition-owned data.** `serve!` returns immediately
+   with an endpoint value containing a composition-owned lifecycle ring buffer
+   (capacity 256), its cursor, the service handle, and host resources.
+@@ -607,12 +643,14 @@
+ 
+ All three hosts, first class, every phase.
+ 
+ - **Declare the `append!` outcome subset per host, with reasons**, which is what
+-  the contract asks (`dao.stream.md:417-424`). Transient `full` may not be
+-  detectable anywhere: `java.net.http sendText` buffers, Node's `ws.send`
+-  buffers, and Dart's `WebSocket.add` buffers, none exposing backpressure. If
+-  `full` is excluded by nature on a host, say so with the reason rather than
+-  inventing a signal.
++  the contract asks (`dao.stream.md`, Surfaces). `full` is produced on every
++  host and may be excluded on none: the establishing state answers it
++  everywhere, and `dao.stream.ws.md` requires each host's transport to declare
++  an outbound high-water threshold above which `append!` answers `full`. Only
++  the send-buffer trigger varies — Node's `bufferedAmount`, a still-incomplete
++  `sendText` future on the JVM, bytes handed to `add` and not yet reported
++  done on Dart — and each host's manifest names its trigger.
+ - On cljd, `add` after close throws `StateError` synchronously and must be
+   classified to `:dao.stream/closed`. The codec exists at
+   `src/cljd/dao/stream/transit.cljd`.
+@@ -636,8 +674,11 @@
+ proving nothing `connect` does not; the `:semantic`, `:register` and `:stack`
+ and `:space` evaluators, which follow in the VM plan; chain-forwarding through a
+ server's own remote (D4); the Flutter widget; `retry`, `dedup` and a v2 UDP
+-transport; ws-level resumption; flow control; and authentication — `--host
+-127.0.0.1` remains the only boundary, as in v1.
++transport; ws-level resumption; flow control; and authentication. `--host`
++defaults to `127.0.0.1`, the loopback address, and that default is the sole
++boundary: any host that can reach the endpoint evaluates code in the server
++process and can `(reset)` other clients' state, which is deferred explicitly
++and stated here rather than inherited from v1.
+ 
+ ## End condition
+ 
+diff --git a/docs/design/yin.vm.implementation-plan.md b/docs/design/yin.vm.implementation-plan.md
+--- a/docs/design/yin.vm.implementation-plan.md
++++ b/docs/design/yin.vm.implementation-plan.md
+@@ -138,7 +138,7 @@
+ local registration." Under v2 no transport is waitable, every `satisfies?` guard
+ goes false, and the existing polling wait-set is the path taken. This is a
+ deletion of an optimisation branch. Cadence comes from the driver above the VM,
+-per `dao.stream.md:178-180`.
++per `dao.stream.md`, *What it costs*.
+ 
+ **`:stream/take` is removed from the v2 `stream` module.** Destructive read is
+ gone deliberately — "one reader's progress every other reader's data loss." v1's
+@@ -202,7 +202,7 @@
+   file, or anything implementing the v2 protocols. This is the contract's own
+   instruction for an interpreter that needs what a transport provides: it
+   "receives the operation as an ordinary argument from the composition that
+-  wired it… rather than on a transport it detected" (`dao.stream.md:385-393`).
++  wired it… rather than on a transport it detected" (`dao.stream.md`, Surfaces).
+ - **`:make-stream` has no default.** `:primitives` has one; this must not,
+   because a default would smuggle the hardcoded transport and its require back
+   in. Absent a supplied constructor, `:stream/make` is unsupported and says so —
+@@ -325,7 +325,7 @@
+ `:stream/make` gets it; and `engine.cljc:22,157` **parks the continuation on
+ `:full`**. That is real backpressure, and `engine_test.cljc:263,365` tests it.
+ The sibling plan's v2 ring buffer is evict-oldest with `append!` never returning
+-`full` (`dao.stream.implementation-plan.md:139-141`).
++`full` (`dao.stream.implementation-plan.md`, Phase 2).
+ 
+ Ported as-is, puts never park, slow readers get gaps instead, and Phase V5's
+ "same results as v1" is false for any program that relies on backpressure. The
+@@ -347,7 +347,7 @@
+ This plan deletes destructive take. So a v2 reject-mode ring buffer, once full,
+ would be full forever: no operation frees a slot, and the contract forbids the
+ one mechanism that could — eviction waiting on a reader
+-(`dao.stream.md:612-619`). A `:stream/put` parked on `full` would never wake. A
++(`dao.stream.md`, Retention and Gaps). A `:stream/put` parked on `full` would never wake. A
+ silent hang is worse than a reported `gap`.
+ 
+ **Consequence, for the register:** programs relying on park-on-full behave
+@@ -395,9 +395,13 @@
+ the only part that needs a transport. This deletes the bidirectional "should
+ agree" and makes the sequencing honest: V1 before the REPL's R1.
+ 
+ It also becomes a step: `serve-once!` returns its next cursor and state rather
+ than looping, and retains a computed response until its append succeeds, so a
+-handler executes exactly once.
++handler executes exactly once. Exactly once bounds invocations, not duration:
++`serve-once!` blocks its caller for as long as the handler runs. A
++composition whose handler evaluates unbounded programs — the REPL — accepts
++that as a whole-server hang in this slice, per its D4; budgeting the handler
++over the VM's own step engine is a later phase.
+ 
+ **Consequence for sequencing:** the REPL plan's R1 depends on this phase.
+ 
+```

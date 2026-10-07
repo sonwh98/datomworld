@@ -1,0 +1,37 @@
+Completed-GMT: 2026-09-24 16:17:56 GMT
+Completed-Local: 2026-09-24 23:17:56 +07 (Asia/Bangkok)
+
+All six work items are done in the uncommitted tree on `dao-jing-cbor-swap`. Nothing is committed.
+
+**1. P1, VM carrier awareness (Node green).**
+- `src/cljc/yin/vm/debruijn.cljc:227` classifies the `float64` carrier as `:double` on every host, and `debruijn.cljc:299` routes carriers into `numeric-class`. Nothing else in the classifier changed.
+- `test/yin/vm/pipeline_test.cljc:512`, `:591`, and the "exact" arm near `:559` compare with `cbor/content=`, since host `=` cannot see through the carrier on JavaScript.
+
+**2. P2, copy before validate.**
+- `src/cljc/dao/jing/mem.cljc:53` and `src/cljc/dao/jing/file.cljc:348` take the snapshot first. Validation, framing, and the duplicate comparison now use only the snapshot.
+
+**3. P2, trusted reads no longer re-encode.**
+- `src/cljc/dao/jing/cbor.cljc:1524` adds `decode-snapshot` (structural and profile checks, no re-encode). `decode` at `:1541` keeps full ingress strictness on top of it.
+- `src/cljc/dao/jing.cljc:471`: `segment-value` hash-verifies, then uses `decode-snapshot`. All ingress sites (remote, DHT, node, file replay, linker) still call strict `decode`.
+
+**4. P2, hash-registry doc.**
+- `docs/design/dao.jing.hash-registry.md:129` and `:511` now describe the completed clean break: `canonical-bytes` delegates to `cbor/encode`, digests are over canonical CBOR bytes.
+
+**5. P3, file-handle isolation tests.**
+- `test/dao/jing/file_test.cljc:228` and `:254` mutate the input array after put and the output array after get, then reopen the file and check both the value and `records`.
+
+**6. P3, hygiene on added lines.**
+- Reflowed the five flagged lines in `cbor.cljc`, `remote/step.cljc`, `dht_test.cljc`, `remote_test.cljc`, and the `§` in `btree/storage.cljc:3`. A scan of every added line in the touched files now reports none over 80 columns or non-ASCII. Pre-existing violations were left alone.
+
+**Verification**
+
+| Check | Result |
+|---|---|
+| JVM (`bb test:clj`) | 1994 tests, 180199 assertions, 0 failures, 0 errors |
+| Node (`bb test:cljs`) | 1910 tests, 47300 assertions, 0 failures, 0 errors |
+| clj-kondo on touched files | 0 errors, 0 warnings |
+| cljstyle on touched files | clean |
+
+The Dart suite was started but is still in its build phase at completion time; it was not required by this brief.
+
+Status: COMPLETE

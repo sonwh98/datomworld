@@ -1,0 +1,42 @@
+Completed-GMT: 2026-09-15 21:14:08 GMT
+Completed-Local: 2026-09-16 04:14:08 +07 (Asia/Ho_Chi_Minh)
+
+Review done. I read the full working-tree diff, the whole target document, the architecture axioms, all three prior review rounds, and the source lines the diff cites. No files were edited.
+
+## Findings
+
+**1. Medium | `docs/design/yin.vm.code-as-tuples.md:156` and `:1194` | migration risk, completion criteria**
+The diff hides a real execution-contract change. Line 156 was rewritten from "must be adapted" into present tense, and line 1194 deleted the sentence "This is a deliberate execution-contract change from today's fallback." Today's code contradicts the new text in two ways:
+
+- The walker's `:variable` arm calls `resolve-var`, which falls through env, then store, then primitives, then modules. See `src/cljc/yin/vm/ast_walker.cljc:361-363`.
+- The semantic VM's `:var` opcode does the same. See `src/cljc/yin/vm/semantic.cljc:256-259`.
+
+Neither evaluator has a `:global` arm today. So "Variables never fall through to globals" is a rule the evaluators must be changed to obey, and an under-arity call today leaves a name unbound rather than bound to nil. The new justification "(since `:variable` and `:global` are distinct nodes)" is not a mechanism. Node distinctness does not stop an evaluator from calling `resolve-var`.
+Correction: keep the rule, but restore the change flag, cite the two resolution sites above, state the no-fallthrough property as an evaluator rule, and add "`:global` arm added; `:variable` arm consults the lexical environment only" to the §9.1 walker row at line 1734.
+
+**2. Low | `docs/design/yin.vm.code-as-tuples.md:217-249` | design contradiction, internal**
+The §2.3 table now types `:lambda params` as `syms` and the §7.4 slot-kind rule checks `syms` slots, but the §2.2 kind dictionary defines no `syms` kind. §2.2 says every slot has exactly one kind from that table. The r2 fix added the constraint in two places and missed the dictionary.
+Correction: add a `syms` row to §2.2 ("a vector of symbols, possibly empty; one slot, so arity stays fixed however many parameters there are").
+
+**3. Low | `docs/design/yin.vm.code-as-tuples.md:268,272` | migration surface accuracy**
+The Walker arm and Codec arm cells read "changes: index -> name" and "changes: `:yin/index` -> `:yin/name`". Those columns cite where today's code lives. Today's code is already name-based and never had an index. The codec emits `:yin/name` and `:yin/params` at `src/cljc/yin/vm.cljc:417-422`. The cells describe a change relative to the De Bruijn draft, which was never code, and imply code work that is not needed.
+Correction: cite `ast_walker.cljc:361-363` / `v2.cljc:417-418` for `:variable` and `:361-370` / `v2.cljc:419-422` for `:lambda`, marked unchanged.
+
+**4. Wording only | `:1004`, `:1912-1917`**
+The rule keeps the name `:variable-bounds` though nothing is bounded, and its cell is not phrased in the table's "Defect when" form. Item 14 says the semantic grammar must be amended "to reflect the Named variable instruction grammar" while also saying that grammar is already name-based. The real amendment is the `:global` opcode plus the binding rule.
+
+**Pre-existing, not introduced by this diff:** the `:variable-bounds` rule assumes frontends classify free names as `:global`. No frontend does scope analysis today, and the §9.1 frontends row does not list it. Worth a follow-up item, not a blocker here.
+
+## Properties that passed
+
+- The diff reflects the Named-Variables ruling completely. Both De Bruijn mentions defer or exclude it correctly. All prior-round fixes are present. I spot-checked the worked examples, the alpha-equivalence rewrite, the side-table removal, and the codec row.
+- No new architectural claim. The alpha-equivalence loss in §4.4 is a derived consequence of the ruling, stated correctly.
+- Nothing silently decided. The under-arity nil rule and the no-fallthrough rule both predate this diff.
+- None of the six invariants is weakened. No hidden global state, implicit control flow, callbacks, shared mutable state, layer collapse, or graph assumption is introduced.
+- Host isolation and CLJ/CLJS/CLJD portability are unaffected. Symbols compare by value on all three hosts and print stably under `pr-str`.
+- Concurrency and linearization are untouched.
+- Grid tables that were strict in HEAD remain aligned.
+
+## Verdict
+
+APPROVE-WITH-FINDINGS (nonblocking). The diff may be committed as-is. Finding 1 should be addressed in a follow-up edit before the implementation phase, since it is the only place the document would otherwise mislead an implementer about what the evaluators do today. Findings 2 and 3 are one-line corrections.

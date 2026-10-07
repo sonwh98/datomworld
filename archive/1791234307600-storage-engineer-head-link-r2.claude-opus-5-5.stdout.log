@@ -1,0 +1,60 @@
+Completed-GMT: 2026-10-05 21:10:43 GMT
+Completed-Local: 2026-10-06 04:10:43 +07
+Coding-Agent: claude
+Session-ID: be16d160-e4bb-4c07-85d1-b72a200384bc
+
+## Report: head-link (re-dispatch)
+
+The fix is finished. All 109 focused JVM tests pass and kondo is clean. With the new branch switched off, the three new tests fail with 36 failures, so they really depend on it.
+
+### Changed files (only the three allowed)
+- **`src/cljc/yin/repl/link.cljc`**: the kind-conflict branch in `dht-attempt` is now on, plus the new docstring.
+- **`test/yin/repl/dht_test.cljc`**: two helpers (`conflict-require`, `follow-tick`) and three new tests. No existing test was edited.
+- **`docs/design/yin.vm.linker.dht.md`**:
+  - a bullet in the link-attempt order (around line 432);
+  - the `:dao.space.dht/kind-conflict` response row in section 9 (around line 2016).
+
+### Commands and outcomes (all in the foreground)
+- **Green run:** `clj -M:test -n yin.repl.require-test -n yin.repl.dht-test -n yin.vm.linker.dht-test -n yin.vm.linker.head-follow-test -n yin.vm.linker.dht-end-to-end-test` gave **109 tests, 1632 assertions, 0 failures, 0 errors**.
+- **Red check:** I put back `(and false …)` and ran `clj -M:test -n yin.repl.dht-test`. It gave 46 tests, 455 assertions, **36 failures**, in all three new tests and nowhere else.
+  - The failed-candidate test fails at lines 1428–1436, the retry-delay checks: without the branch the record is forgotten and a module load starts in its place.
+  - I then restored the branch and got the green run above.
+- **Lint:** `clj -M:kondo --lint src/cljc/yin/repl/link.cljc test/yin/repl/dht_test.cljc` gave 0 errors, 0 warnings.
+
+### The refusal shape
+The branch answers `{:node node :body {:status :refused :reason :dao.space.dht/kind-conflict :address address :recorded (:kind status)}}`.
+- This is the same `{:node … :body <refusal map>}` shape every other refusal from `dht-attempt` and `answer` uses, such as the `load-refusal` and dependency-binding branches.
+- `serve` then adds `:yin.link/id` and appends it to the response stream as data.
+- `:node` is the unchanged node, so nothing is forgotten. There is no `:waits` and the body is not `::pending`, so the require is never parked.
+
+The branch sits right after `(nil? status)` and before `:loading`, `:failed` and `:loaded`, as the ruling says. That order is what lets it catch another kind in any status before those branches can wait on, forget or link it. Module-kind records still reach the same branches as before.
+
+### What `module-status` does for another kind, and why the nil branch is safe
+`linker.dht/module-status` passes straight through to `dao.space.dht/load-status`, which answers every record with its `:kind`, whatever the kind. It never hides a non-module record.
+- So `(nil? status)` is only true when there is no record at the address at all.
+- In that case `load-module`, and the `dht/load` under it, takes the "no record" path and cannot throw `kind-conflict`.
+- Any record of another kind falls through to the new branch and is refused as data. A `require` never throws a kind conflict through the host interpreter.
+
+### The four cases and the tests that pin them
+1. **Failed candidate-kind record** (`a-require-of-a-failed-candidate-s-address-leaves-it-to-the-follower`): a real head follower's candidate load fails. The require is refused with the kind conflict, and the record is still there and still `:failed`. On every tick until the retry is due, the follower's candidate state is unchanged. After that the follower restarts the load itself, with the delay doubled.
+2. **Failed index-kind record made by hand** (`a-require-of-a-failed-index-load-made-by-hand-leaves-it-in-place`): the require is refused and the record is left in place. A second require is refused the same way, which shows nothing was forgotten.
+3. **Loaded or loading record of another kind** (`a-require-of-a-loading-or-loaded-record-of-another-kind-is-refused`): four records are each refused, not parked and not linked:
+   - a loaded index;
+   - a loaded `:test/another` record at the address of a real module that would otherwise link;
+   - a loading index;
+   - a loading candidate.
+4. **Module-kind behaviour unchanged:** every existing test in the five namespaces passes and none was touched.
+
+`conflict-require` checks each refusal: the response text, the exact refusal map, nothing parked, exactly one new request, the record unchanged, and the module not linked.
+
+### What I kept, changed or discarded from the inherited work
+- **`link.cljc`:** I kept the branch, its position and its refusal map, after checking all three as described above. I changed one thing: I removed `and false`, which was the left-over red half of the previous engineer's red-then-green check. I kept the docstring.
+- **Tests:** I kept all three tests and both helpers unchanged. I checked them against the four cases, made sure they fail without the branch, and found them sound.
+- **Doc:** I kept both doc additions unchanged. They match what the code does: another kind in any status is refused, with `:address` and `:recorded`, and the record is left as it is.
+- I discarded nothing.
+
+### Unresolved concerns and incomplete work
+- **Doc width not machine-checked:** the 80-column and ASCII check on the doc lines was done by eye from the diff, because the brief allows no git commands and the shell checks I tried needed approval. The added lines are visibly under 80 columns and plain ASCII.
+- **`yin.vm.linker.dht.head.md`:** no sentence there needs to change.
+- **Not run:** Node and Dart lanes, per the brief; those are yours to run.
+- Nothing else is incomplete.

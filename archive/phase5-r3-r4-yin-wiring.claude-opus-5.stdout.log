@@ -1,0 +1,42 @@
+Completed-GMT: 2026-09-03 22:37:00 GMT
+Completed-Local: 2026-09-04 05:37:00 ICT
+Coding-Agent: claude
+Session-ID: none (new implementation)
+
+## Files
+
+**New**
+- `src/cljc/yin/repl/host.cljc` — the host-socket seam. `websocket` returns nil (no v2 host package exists in this tree); `owed` states what clj/cljs/cljd each still owe; `adapter?`/`binder?` are the composition gates `connect` and `serve!` check.
+- `src/cljc/yin/repl/connect.cljc` — R3. Canonical request-target normalization (dot-segment removal, unreserved percent-decoding, upper-cased remaining hex, `%2F` left encoded, query/fragment dropped, empty path → `/repl`, explicit `/` kept), URL→descriptor, `boundary` (one capacity-8192 medium, response cursor and lifecycle cursor both minted before `attach!`), `open`, `close!`, `reattachable?`, `reattach` (`attach!` + `rpc-ws/rebind`), and `observe`, which translates deposited envelopes through the R1 decoder and interprets only the neutral `:dao.stream.apply/…` vocabulary.
+- `src/cljc/yin/repl/serve.cljc` — R4. `serve!` creates the capacity-1 `/repl` service stream, capacity-1024 control medium, 8 capacity-1 offer/ack handoff slots, and the capacity-256 lifecycle medium — every cursor minted before any bind — then composes `ws/make-endpoint` + `dao.stream.serving` and returns immediately. `step` is the one server driver (lifecycle → transport/serving → session adoption → one bounded session step against a single serially threaded shell). `stop!` closes the service stream and claims nothing; only the `:stopped` event marks completion and releases the resolution entry.
+
+**Modified** (all v2-slice; no legacy file touched, no build config changed)
+- `src/cljc/yin/repl/driver.cljc` — `:host`/`:connection` in state; `(connect …)` opens or rebinds; `(disconnect)` is `close!` keeping the connection value; lifecycle published from `observe`; `(repl-state)` reports the connection; input typed while terminal is queued, not fired at a dead client.
+- `src/cljc/yin/repl.cljc` — `boot-server` for `--port`, `step-all` (one ticker owns shell *and* endpoint), headless has no reader on any host.
+- `src/cljc/yin/repl_adapter.cljc` — `command-head` split so `command-form` (the URL argument) is reachable.
+- `test/yin/repl_driver_test.cljc`, `test/yin/repl_test.cljc` — the two assertions naming the old "not carried" messages.
+
+**New tests** — `test/yin/repl_connect_test.cljc` (16 tests), `test/yin/repl_serve_test.cljc` (9 tests): URL normalization, established/detached/ended/not-found transitions published once, disconnect→reattach preserving medium/cursor/monotonic ids, queued-while-disconnected, serve!/stop! data ownership, and request→response round trips through injected `:connect!` / `:bind!` functions on both sides.
+
+## Tests
+
+- `clj -M:test` — 1264 tests, 166400 assertions, 0 failures.
+- `npx shadow-cljs compile test` with the broken sibling namespace excluded — 1174 tests, 33990 assertions, 0 failures; the v2 REPL namespaces alone: 59 tests, 241 assertions, 0 failures in Node.
+- `clj -M:kondo --lint src/cljc/yin/repl test/yin/repl` — 0 errors, 0 warnings.
+- `clj -M:cljd-yin-repl-build compile` — `connect.dart`, `serve.dart`, `host.dart`, `driver.dart` all emitted; full cljd namespace compilation passes.
+
+Two blockers I did **not** touch, both in other lanes' uncommitted/committed work:
+- `test/dao/stream/ws/node_test.cljs` (untracked, another lane) has a nested `#()` and fails the whole `:test` shadow build; I excluded it by `:ns-regexp` rather than editing it.
+- `test/dao/stream/ws_test.cljc:77,139` use `#?(:clj (Object.) :cljs (js-obj))` with no `:cljd` branch, so under cljd they reduce to a one-argument `stream/append!`. That is a compile error in the shared Dart test unit, so **`clj -M:cljd test` executes nothing repo-wide**, mine included — my six `yin/repl*` test files do generate and compile. It needs a `:cljd`-first branch.
+
+## Readiness against R3/R4/R5
+
+**Proven**
+- R3 in full, minus a socket: canonical path normalization; one capacity-8192 medium reused across reconnects with both cursors minted before `attach!`; RPC client built from the whole `attach!` result; `Connected to …` printed on neutral `/established` and never on `attach!`'s return; `/not-found` reported as an authoritative disclaimer, `/transport-error` as a retryable reachability failure; `disconnect` = `close!`; reattach = `attach!` + `rebind` keeping the cursor and taking the new attachment id, with ids staying monotonic across the reconnect.
+- R4 in full, minus a listener: `/repl` created at start and registered; control/handoff/lifecycle media and cursors all before bind; per-attachment capacity-8192 request medium with its cursor minted before acknowledgement; acceptance handoff consumed, not reinvented; one driver, one shell, serially threaded; `serve!` returning immediately with lifecycle observed as data (`:bind-succeeded`, `:bind-failed`, `:stopped` exercised; wildcard bind refused); a lifecycle `gap` triggers shutdown; `stop!` closes the service stream and completion waits for the host event.
+- R5 fact 1 (evaluation round-trips; two clients get their own answers), fact 2 (departure observable on both sides, outstanding requests reported lost not timed out), fact 3 (same descriptor, cursor resumes across the socket's death) — all in-process through the real transport with only the raw socket injected. Fact 4's two halves are proven separately: the endpoint sends close code 4000 on service-stream close, and a client boundary given 4000 resolves `/ended`, distinct from 1000 → `/detached`.
+
+**Blocked**
+- Every R5 fact *as a two-process claim*, and the cross-host pair: blocked on a host WebSocket package. `yin.repl.host/websocket` is nil, so `(connect …)` and `--port` report the prerequisite by name instead of pretending. (A Node adapter appears to be in flight in another lane — `src/cljs/dao/stream/ws/node.cljs`, untracked — but nothing here depends on it.)
+- Still blocked on missing `yin.vm`, unchanged by this phase: the shell runs the v1 `yin.vm` ast-walker, so "requires no v1 namespace" remains aspirational, datom-literal evaluation still reports its unmet prerequisite, and `--port`'s shared shell inherits both limits.
+- `src/cljc/yin/vm/docs/yin.repl.md` (R5's document) is not written — the prompt excludes docs edits.

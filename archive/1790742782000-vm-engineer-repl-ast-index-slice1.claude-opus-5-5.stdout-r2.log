@@ -1,0 +1,39 @@
+Completed-GMT: 2026-09-30 05:31:12 GMT
+Completed-Local: 2026-09-30 12:31:12 +07
+Coding-Agent: claude
+Session-ID: 771d73b8-33cb-4277-815e-2b72fe699c1c
+
+# Report r2: fix round 1 (gate findings P1, P2)
+
+Both gate findings are fixed. The new tests reproduced both defects before the fix, and every required lane is now green. Nothing is staged or committed, and every check ran in the foreground. Changed files: `src/cljc/yin/repl/ast_index.cljc` and `test/yin/repl/ast_index_test.cljc`. `yin.vm` and `dao.jing` are unchanged.
+
+## P1: forged row ids
+- **Fix:** each row's id is now checked against its body with the existing `dao.jing/segment-matches?`, the same check `yin.vm.macro/valid-tree?` uses. No new hash scheme was added. The check runs after `vm/validate-rows`, so structural problems are still reported as `:invalid-rows`.
+- **On a mismatch:** the indexer records `:reason :address-mismatch` and merges nothing from that packet.
+- **Test:** a well-formed `[:literal 1]` row under the address of `[:literal 3]`. Before the fix it was accepted: it appeared in `$ast` and later packets kept being indexed.
+- **Knock-on change:** the old "row disagrees with the one already held" check (`:address-conflict`) can no longer trigger. Once an address must match its body, two rows under one address are always equal. I removed that check. Its test now expects `:address-mismatch`, and it still shows such a row is refused.
+
+## P2: identical duplicate rows
+- **Fix:** repeated ids are caught by comparing the number of rows in the packet with the number of distinct addresses. This happens before the rows are used, and the failure is `:duplicate-address`.
+- **Test:** a packet with the same row twice. Before the fix it was accepted.
+
+Before the fix the two new tests produced 6 failures; after it, 9 tests with 114 assertions pass.
+
+## Mutation proof
+Each mutation was applied, the tests run, and the source restored.
+- Forcing the address check to always pass: 5 failures, in both forged-row tests.
+- Putting back the old duplicate check: 3 failures, in the duplicate-row test.
+
+## Verification
+| Check | Result |
+|---|---|
+| kondo | 0 errors, 0 warnings |
+| Focused JVM (`yin.repl.ast-index-test`, `yin.repl-test`) | 49 tests, 337 assertions, 0 failures |
+| `bb test:cljs` | 2299 tests, 51084 assertions, 0 failures; the new namespace ran |
+| `bb test:cljd` | 2261 tests, all passed |
+
+The CLJD log never shows `ast-index-test` by name, because the Dart output doesn't list every test. To confirm it runs, I temporarily added a test that always fails and ran the CLJD lane. It reported exactly that one failure ("+2261 -1"). I then removed the test and ran the lane again: all 2261 passed.
+
+Not run this round:
+- `dart test` on the single file, which needed approval this session couldn't get.
+- cljstyle, which wasn't on this round's check list.

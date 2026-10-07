@@ -1,0 +1,127 @@
+Updated 1.39.3 → 1.40.1
+Completed-GMT: 2026-09-02 06:45:00 GMT
+Completed-Local: 2026-09-02 13:45:00 Asia/Ho_Chi_Minh
+
+# Adversarial Review: `docs/design/dao.lease.md`
+
+## 1. Executive Summary & Core Verdict
+
+`docs/design/dao.lease.md` achieves a clean, self-consistent philosophical stance on leases as append-only facts, but it accomplishes this apparent harmony by **papering over the foundational asymmetry between an execution trace and a temporal lease**.
+
+The document asserts three divergences from `jit-design.md`, but it obscures a critical fourth divergence: **JIT traces are bounded and self-clocking via program instruction execution, whereas lease judging requires an extrinsic time reference and periodic execution that neither `dao.stream.md` nor `datom.world.md` provides without either callbacks or polling ruts**. Furthermore, the document's resolution of the proposal negotiation lifecycle ("a proposal creates no state; silence is absence") is architecturally incompatible with causal, asynchronous stream consumption: without explicit correlation or state, a holder cannot distinguish whether a silent grantor dropped a proposal, rejected it, is lagging in processing it, or has already accepted an earlier proposal.
+
+---
+
+## 2. Findings Ranked by Severity
+
+### [CRITICAL] 1. The Phantom Driver: Execution Invariant Breach for Lease Judges
+- **Section / Line:** §"Whose obligation" (lines 260–285), §"Lapse is a conclusion; reclaim is an act" (lines 188–195).
+- **The Claim:**  
+  "The judgment points are the precedent's safe points: points the grantor's composition *already passes through* — the runs of an interpreter its runtime already drives. The clock is *read there, never armed*. A timer that fires is a callback; a clock read at a judgment point is a question about now... every lapsed lease eventually produces reclaim attempts until the resource is reclaimed or authoritatively found absent, within duration plus cadence."
+- **The Defect:**  
+  This is a false equivalence with `jit-design.md`. In JIT, safe points (loop headers, backward jumps, function calls) are visited *naturally by the active thread of execution running the bytecode*. A VM does not need an external clock or synthetic drive to hit safe points; the computation itself drives it.  
+  Conversely, a grantor holding an idle, leased resource (e.g., a paused stream forwarder, an idle reserved partition, an inactive WebSocket composition) **has no work to do**. If no new traffic arrives on its input stream, its interpreter loop does not run. Under `dao.stream.md`, reading is non-blocking polling returning `:dao.stream/blocked`. To satisfy the promise that a lapsed lease is reclaimed "within duration plus cadence", the grantor must either:
+  1. Spin-poll `next` in a busy loop (wasting CPU on single-threaded runtimes like JS/Dart);
+  2. Register a host timer/callback (e.g. `setTimeout`, `Future.delayed`), which violates `datom.world.md` ("Do not introduce callbacks; every callback is events on a stream"); or
+  3. Hang forever in `:dao.stream/blocked` and **never reclaim the leaked resource** until some unrelated external event happens to wake the interpreter.
+  
+  The document dismisses this as "host assembly defect" and equates it to the runtime retrying `:dao.stream/blocked`. But `dao.stream.md` line 185 explicitly states: *"retry cadence is the concern of the interpreter or the runtime driving it, not of the stream"*. If `dao.lease.md` claims to provide a bounded reclamation guarantee without a timer callback, it demands an active runtime execution engine that the passive stream substrate explicitly does not supply.
+- **The Exact Correction:**  
+  Acknowledge that safe points in an idle grantor are not free and cannot be piggybacked on user execution. Specify that a grantor runtime *must* compose an external clock/tick stream (e.g., periodic tick datoms deposited by a host timer adapter as permitted by `datom.world.md` lines 70–82: *"a callback is replaced by a function that transforms an event to data on a stream"*) into the grantor's judging cursor. Strike the claim that judgment cadence is "reached as a side effect of running" for idle resources.
+
+---
+
+### [HIGH] 2. Spurious Reconciliation: Unanswered Proposals vs. Causal Asynchrony
+- **Section / Line:** §"A lease is facts, accreted" (lines 119–124).
+- **The Claim:**  
+  "**A proposal creates no state.** An unanswered proposal is not pending and is not queued — it is simply not a lease. Nothing exists until `:accepted`, and a reader that finds a proposal with no acceptance has found a lease that was never granted. Silence means absence here as everywhere in this document..."
+- **The Defect:**  
+  This papers over the disagreement between the drafts and breaks causal protocol modeling.  
+  1. In an asynchronous, non-blocking stream architecture (`dao.stream.md`), an append is pipelined. When a holder appends `{:dao.lease/status :dao.lease/proposed, :dao.lease/lease L}`, the grantor's interpreter may not have consumed that position yet. If the proposal "creates no state" and "an unanswered proposal is not pending", how does the grantor know what it is accepting when it subsequently appends `{:dao.lease/status :dao.lease/accepted, :dao.lease/lease L}`? If `:accepted` is the *first* fact that creates state, the grantor is magically accepting an identity minted by the holder without acknowledging the proposal.  
+  2. How does the holder know whether to re-propose or wait? If silence is absence immediately, an in-flight proposal is indistinguishable from a rejected proposal. If the holder re-proposes, it risks duplicate grants or race conditions on the same lease identity.  
+  3. In `jit-design.md`, `:yin.jit/status :proposed` **is** a queryable state that the VM evaluates at its next safe point. Denying that `:proposed` creates state in an append-only log contradicts Axiom 1 and Axiom 3: once appended, the proposal datom *is* immutable state in the stream.
+- **The Exact Correction:**  
+  Clarify that while an unanswered proposal creates no *grant or resource hold* at the grantor, it **does** create an observation state in the interpreter: an unaccepted proposal is an open, uncommitted offer that lapses implicitly after the grantor's observation window advances past it. Strike "creates no state" and replace with: *"A proposal creates no hold on the resource and confers no tenure. The grantor evaluates the proposal at its judgment point; if the grantor passes the proposal without appending `:accepted` or `:rejected`, the proposal is considered expired by omission."*
+
+---
+
+### [HIGH] 3. Unchecked Fourth Precedent Divergence: Reclaim Finality and Deopt Irreversibility
+- **Section / Line:** §"Precedent" (lines 42–60).
+- **The Claim:**  
+  "Three things do not carry over, and this document diverges exactly there. **A patch is presence; a lapse is absence... A patch guard is stateless; a lease guard is stateful... Checking the patch stream is optional; judging leases is not.**"
+- **The Defect:**  
+  The document claims there are *only three* divergences, but conceals a fundamental architectural divergence regarding **recovery semantics**:
+  - In `jit-design.md`, deoptimization is a **transparent, lossless fallback** to the baseline interpreter: state and continuation are preserved, values in registers/stack are reconstructed, and the running program observes no interruption or loss of capability.
+  - In `dao.lease.md`, a lease reclaim is **destructive and unrecoverable**: line 48 notes *"a false lapse has no deopt"*, but fails to name this as a structural divergence in the precedent mapping. When a lease is falsely lapsed (e.g. Due to network transit delay exceeding the tolerance), the held resource is destroyed (socket closed, forwarder dropped, buffer freed). A deopt in JIT reconstructs baseline execution; a deopt in DaoLease severs execution.  
+  Claiming the deopt model fits DaoLease while burying the fact that JIT deopt is idempotent/transparent whereas Lease deopt is an unrecoverable side-effect is dishonest to the precedent.
+- **The Exact Correction:**  
+  Add the **Fourth Divergence**:
+  "**JIT deopt is transparent and state-preserving; lease reclaim is destructive.** A failed JIT guard seamlessly drops down to bytecode interpretation with zero state loss. A failed lease guard terminates a live tenure and destroys the granted capability, which the holder cannot transparently resume without re-acquiring baseline resources."
+
+---
+
+### [MEDIUM] 4. Temporal Paradox in Observed-Window Restart Discipline
+- **Section / Line:** §"Judging lapse" (lines 249–256).
+- **The Claim:**  
+  "After losing its state — a restart, or a gap spanning the watched window — a judge knows nothing about silence. The honest state is then **unknown**, not lapsed... The judge must observe for one full duration from resumed observation before concluding lapse."
+- **The Defect:**  
+  Consider a grantor leasing a critical exclusive resource (e.g. an agent holding an exclusive write lease on a persistent store) with a duration of 30 seconds. The grantor crashes and restarts. Under this rule:
+  - If the holder had *already crashed* 10 minutes before the grantor restart, the grantor cannot know that silence.
+  - The grantor enters the `:unknown` state and is forced to wait one full duration (30 seconds) of silence *from the restart timestamp* before it can reclaim the resource.  
+  This creates two severe hazards:
+  1. **Exclusive hold deadlocks**: During those 30 seconds, is the resource considered held or unheld? If unheld, a new holder can be granted the lease, resulting in split-brain if the original holder wakes up. If held, dead holders paralyze the system on every grantor restart.
+  2. If the medium is an append-only log (e.g. file or disk-backed log) that *did not* lose history, the judge did NOT lose stream facts; it only lost its volatile in-memory cursor. By forbidding the judge from inspecting historical datoms already in the log prior to restart (demanding observation of *future* silence for one full duration), it forces artificial latency onto a system whose facts are already fully retained.
+- **The Exact Correction:**  
+  Differentiate between a volatile crash where stream history is retained vs. an actual eviction gap (`:dao.stream/gap`). When retained history is available, the judge must reconstruct its cursor from the retained log up to the current wall-clock/monotonic point rather than waiting for a full duration of future silence. If history was truly lost (gap), explicitly specify whether the resource remains locked or is preemptively revoked during the grace window.
+
+---
+
+### [MEDIUM] 5. Undefined Correlation for Unsolicited Grants & Connection Close
+- **Section / Line:** §"A lease is facts, accreted" (lines 125–127), §"Carriage" (lines 384–390).
+- **The Claim:**  
+  "`:dao.lease/lease` is the lease's identity: plain data, minted by whichever party authors the lease's first fact... A grantor may grant unsolicited — a lease whose first fact is `:accepted` — because the canonical case, a server leasing a per-connection composition, asks nobody first... renewals ride as ordinary payload values, and a reclaimed connection closes with a distinguishing close code. That close code is the deopt datom reaching the wire..."
+- **The Defect:**  
+  1. When a grantor issues an unsolicited lease (`:accepted`), how does a remote client know which connection, stream, or channel that lease applies to? In `dao.stream.ws.md`, a WebSocket handle has no reader surface; inbound messages arrive on a host-composed deposit medium correlated by `:ws/attachment`. If a grantor appends an unsolicited lease fact `{:dao.lease/status :dao.lease/accepted, :dao.lease/lease L}` to a shared stream, there is no standardized link between `L` and `:ws/attachment` or `:dao.stream/descriptor`.  
+  2. If a reclaimed connection closes with a WebSocket close code, that close code is a 16-bit integer (e.g., `4000-4999`). A close code cannot carry `:dao.lease/lease` or `:dao.lease/cause`. The document claims "that close code is the deopt datom reaching the wire", but a close code conveys neither the entity ID nor the metadata required by a datom `[e a v t m]`.
+- **The Exact Correction:**  
+  Explicitly specify that an unsolicited grant must bind to a host or stream attachment by including a target identifier (such as `:ws/attachment` or the target descriptor) in the `:accepted` map. Clarify that the WebSocket close code is only a coarse carrier transport signal that causes the client-side adapter to deposit a local `:ws/closed` event, which the client interpreter correlates with the lease.
+
+---
+
+### [LOW] 6. Implementer Omission: Monotonic Clocks Across Machine Suspensions
+- **Section / Line:** §"Whose clock decides" (lines 224–226).
+- **The Claim:**  
+  "The judge's clock must be monotonic within its own domain, and a judge recovering from restart must never resume behind an observation it has already treated as authoritative."
+- **The Defect:**  
+  The document assumes a monotonic clock behaves predictably. On portable targets (CLJS in browser/Node, CLJD on mobile/Flutter, JVM), monotonic time (e.g., `System/nanoTime`, `performance.now()`) typically **stops ticking or skews wildly during OS system sleep/hibernation**.  
+  If a host machine goes to sleep for 2 hours and wakes up:
+  - Does the monotonic interval jump forward 2 hours, instantly lapsing every lease simultaneously upon wake?
+  - Or does the monotonic clock pause, artificially extending the lease of a dead remote holder?  
+  An implementer building a grantor on Node or mobile cannot build a deterministic judge without an explicit rule for handling host sleep/wake boundaries.
+- **The Exact Correction:**  
+  Add an operational note in §"Whose clock decides": *"Monotonic clocks across host suspension (system sleep/wake) must be treated as a discontinuity equivalent to a judge restart: intervals measured across an OS sleep boundary are untrusted, forcing the judge into the `:unknown` observation state rather than triggering an avalanche of false lapses."*
+
+---
+
+## 3. What an Implementer Would Have to Invent
+
+An implementer tasked with writing a grantor and a holder in Clojure/ClojureScript/ClojureDart from `docs/design/dao.lease.md` alone would be forced to invent:
+
+1. **The Scheduler / Drive Loop:** Neither `dao.stream.md` nor `dao.lease.md` provides a mechanism to drive the judge when the stream is idle. The implementer must invent an engine (a tick thread on JVM, a recursive `js/setTimeout` loop on JS, a `Future.delayed` loop on Dart) to pump the judge at the declared cadence.
+2. **The Lease-to-Resource Binding Map:** The document forbids a "lease registry" as hidden global state (line 293). But when a lease lapses, how does the grantor know *which* resource to reclaim? The document states "the interpreter composed with the resource... Closes the socket, stops the forwarder". An implementer must invent private closure state mapping `lease-id -> resource-handle` inside the judging interpreter.
+3. **The Wire Envelope for In-Band Renewals:** When renewals travel over WebSocket, `dao.stream.ws.md` deposits them as `{:ws/attachment id, :ws/event :ws/payload, :ws/value msg}`. The implementer must invent the protocol for distinguishing lease renewal payloads from normal application messages within `:ws/value`.
+4. **Renewal Timing Heuristics:** The document gives only proportional inequalities ("granted duration exceeds twice the holder's renewal interval"). The implementer must invent jitter algorithms, backoff on transport errors, and the exact fraction of duration (e.g., 1/3 vs 1/2) at which renewals are dispatched.
+
+---
+
+## 4. The Thing in this Document Most Likely to Be Wrong That Cannot Be Proved Wrong
+
+**The premise that "silence is evidence" can be cleanly separated from clock synchronization in distributed systems.**
+
+The document proudly proclaims: *"Durations cross boundaries; moments never do. The comparison happens entirely on one clock and skew cannot enter it."*
+
+While mathematically elegant, this assumes that the *experience of the passage of time* is strictly local and that transmission delay is benign because it "errs safe" (lines 216–220: *"delay errs safe... The grantor tolerates at least as long as the holder expects"*).
+
+This premise is subtly, dangerously flawed in the presence of asymmetric network degradation. When a network link degrades, the holder believes it is renewing well within its safety bound (say, every 5 seconds on a 15-second lease). But if queuing delay on the outbound transport spikes to 16 seconds while the link remains technically alive, the grantor judges silence and reclaims the resource. The holder is still executing, believes it holds the lease, and continues to act upon that belief until the delayed reclaim notice reaches it. 
+
+The document asserts this is avoided because a lease is only "a bound on the grantor's tolerance of silence." But in any real coordination problem (such as the 3rd stated use case: *"a claim an agent leaves on shared work"*), a holder acting under the belief that its lease is valid while the grantor has already lapsed it and granted it to another agent causes **concurrent mutation of supposedly exclusive work**. The document relies on the fiction that leases without shared clocks or mutual exclusion are sufficient for work claims; in reality, without fencing tokens (which are completely unmentioned in the document), two holders can and will overlap in execution.

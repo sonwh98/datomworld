@@ -1,0 +1,1545 @@
+OpenAI Codex v0.149.1
+--------
+workdir: /Users/sto/workspace/datomworld
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a05708-a372-7aa1-99b9-c04947962113
+--------
+user
+Created-GMT: 2026-08-31 07:45:00 GMT
+Created-Local: 2026-08-31 14:45:00 +07
+
+# Role: Adversarial design reviewer — scoped clean-room review
+
+## Scope, strictly
+
+Read exactly two files:
+
+- docs/design/dao.stream.md      — the contract (authority of the two)
+- docs/design/dao.stream.ws.md   — the WebSocket transport spec, subordinate
+
+**Do not read anything else.** Not the source tree, not the implementation
+plan, not ADRs, not `datom.world.md`, not the `dao.space` documents, not
+previous review logs. If a claim cannot be evaluated from these two documents,
+say so and name what is missing — do not go find it.
+
+The point of this constraint: earlier rounds pulled in the surrounding corpus
+and the disagreements widened rather than converged. This round asks a
+different question — **do these two documents hold together on their own
+terms?** A specification a reader cannot evaluate without a corpus is itself a
+finding.
+
+## What to evaluate
+
+1. **Internal coherence of the contract.** Does every section agree with every
+   other? Look especially at: the nine invariants against the sections that
+   claim to derive from them; the outcome tables against the prose that
+   qualifies them; the IO Model's "no operation waits" against every operation;
+   handle-relative semantics (Close says outcomes are handle-relative
+   throughout — is that carried consistently?).
+
+2. **Whether the subordinate spec conforms.** The ws spec may produce a subset
+   of an operation's outcomes and must declare why. It may not produce an
+   outcome the contract does not define, contradict the contract, or rely on
+   something the contract never grants. Check both directions: the spec
+   overreaching, and the spec depending on a contract guarantee that is not
+   actually written.
+
+3. **Completeness for an implementer.** Someone with only these two documents
+   must be able to build the WebSocket transport and a conforming reader
+   transport, and write a conformance suite. Name what they would have to
+   invent.
+
+## Three open questions, to be answered from these two documents alone
+
+**Q1.** `attach!`'s `ok` row says "Attached to the existing logical stream."
+The ws spec returns `ok` with "a handle on an attachment still being
+established," and says how the connection resolved arrives later as data.
+Is that conformant, is it a contradiction, or is the contract's row wrong?
+If the row needs changing, give its exact replacement text. If instead a new
+outcome is needed (for example a `pending`), say why the displaced-answer
+mechanism the contract already describes does not suffice.
+
+**Q2.** `append!`'s `ok` now reads "accepted at the next position in the
+sequence this handle's writer surface is on," while Concurrency still says
+"a successfully appended value occupies exactly one definite position in that
+sequence" of the logical stream, and "whether an append landed before a close
+is answered by the sequence itself." Are those consistent? Does the ws spec
+ever state which sequence its writer surface is on, as the Writing section
+requires? Give exact replacement text for whatever is wrong.
+
+**Q3.** The ws spec mandates a deposited-event envelope
+`{:dao.stream/attachment … :ws/event … :ws/value …}`. Judged only against the
+contract: is a transport permitted to mandate the shape of values it appends
+to a stream the host composed? Consider the contract's "Stream elements are
+data. DaoStream assigns them no intrinsic meaning," its rule that result
+keywords live under `:dao.stream/…`, and its treatment of transport-owned keys
+in envelopes. Does the envelope conform, overreach, or fall outside what the
+contract governs at all?
+
+## Output
+
+Findings ranked most severe first: severity | file:line | the claim | the
+exact correction. Then your three answers. Then one section: **what an
+implementer cannot determine from these two documents**, which is the part of
+this review only this scoping can produce.
+
+Be decisive. State plainly if you find nothing at a given severity.
+Read-only. Do not edit files.
+
+codex
+I’m using the code-review skill because this is a formal adversarial specification review. I’ll confine substantive evidence strictly to the two named design documents, make no edits, and cite exact line numbers.
+exec
+/bin/zsh -lc "sed -n '1,240p' /Users/sto/workspace/datomworld/.agents/skills/code-review-pr/SKILL.md" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+---
+name: code-review-pr
+description: >-
+  Performs comprehensive, high-quality code reviews on Git pull requests, branches, commit ranges, or local working tree diffs. Analyzes code correctness, security, architecture, test coverage, and performance using automated diff analysis and structured review checklists.
+---
+
+# Code Review PR Skill
+
+## Overview
+
+The `code-review-pr` skill provides an end-to-end framework for conducting rigorous, actionable code reviews on Git pull requests, feature branches, commit ranges, or working tree diffs. It combines automated diff scanning via `scripts/pr_reviewer.py` with structured review checklists across security, correctness, architecture, performance, and testing.
+
+Use this skill whenever asked to:
+- Review a pull request or feature branch (`git diff main...HEAD`).
+- Review recent commits (`git diff HEAD~1` or commit range).
+- Review uncommitted local changes (`git diff` or staged changes).
+- Perform a security, quality, or architecture audit of proposed code changes.
+
+---
+
+## Quick Start
+
+Run the automated PR reviewer script to generate an initial risk assessment, churn metrics, and automated smell scan:
+
+```bash
+# 1. Review branch changes against main (Default PR review)
+python3 .agents/skills/code-review-pr/scripts/pr_reviewer.py analyze --target main...HEAD
+
+# 2. Review last commit
+python3 .agents/skills/code-review-pr/scripts/pr_reviewer.py analyze --target HEAD~1
+
+# 3. Review uncommitted working tree changes
+python3 .agents/skills/code-review-pr/scripts/pr_reviewer.py analyze --target working
+
+# 4. Save review report to file
+python3 .agents/skills/code-review-pr/scripts/pr_reviewer.py analyze --target main...HEAD --output review_report.md
+```
+
+---
+
+## Code Review Workflow
+
+Follow this step-by-step process when executing a code review:
+
+### Step 1: Run Automated Diff Analysis
+Execute `scripts/pr_reviewer.py analyze` for the target Git ref/range. Review the output to determine:
+- Total lines added/deleted and file churn distribution.
+- High-risk modified files (e.g., Security/Auth, Database/Schema, Infrastructure, API Contracts).
+- Test-to-source additions ratio.
+- Automated static findings (hardcoded secrets, debug leftovers, swallowed exceptions, SQL injection risks).
+
+### Step 2: Deep-Dive Code Inspection
+Inspect the diffs for high-risk files using `git diff <target> -- <path>` or `view_file`. Focus on:
+1. **Logic & Edge Cases**:
+   - Boundary checks, null/nil handling, empty collections, zero division.
+   - Resource leaks (unclosed streams, file handles, DB connections).
+   - Race conditions, shared state mutation, concurrency locks.
+2. **Security & Credentials**:
+   - No hardcoded API keys, passwords, or tokens.
+   - Input validation before execution or query interpolation.
+   - Proper authorization checks on new or updated endpoints.
+3. **Architecture & Contracts**:
+   - Preserving backward compatibility on existing API functions/endpoints.
+   - Proper module separation and clean interface boundaries.
+4. **Test Coverage & Quality**:
+   - Ensuring new source logic is accompanied by unit/integration tests.
+   - Verifying tests validate actual assertions rather than just non-crashing execution.
+
+### Step 3: Reference Checklist & Severity Taxonomy
+Consult [references/review_checklist.md](references/review_checklist.md) to classify findings:
+- **P0 (Critical / Blocker)**: Security breaches, data loss risks, severe crashes, hardcoded credentials.
+- **P1 (High / Must Address)**: Logic bugs, broken API contracts, swallowed exceptions, missing critical tests.
+- **P2 (Medium / Recommended)**: Performance bottlenecks, code duplication, missing parameter validation.
+- **P3 (Low / Suggestion)**: Minor formatting, naming improvements, leftover comments/TODOs.
+
+### Step 4: Formulate Structured Review Report
+Present findings to the user using the following template:
+
+```markdown
+# 🔍 Code Review Report
+
+## Executive Summary
+- **Target:** `<git-ref>`
+- **Verdict:** `[ APPROVED | REQUEST CHANGES | COMMENT ]`
+- **Overall Risk:** `[ LOW | MEDIUM | HIGH ]`
+- **Metrics:** `X files changed, +Y / -Z lines`
+
+## 🚨 Critical Findings (P0 / P1)
+- **[Severity]** `path/to/file.ext:L123` - Short issue description.
+  ```diff
+  - problematic code
+  + suggested fix
+  ```
+
+## 💡 Improvements & Suggestions (P2 / P3)
+- **[Severity]** `path/to/file.ext` - Recommendation details.
+
+## 🧪 Test Coverage & Quality Assessment
+- Evaluation of test ratio and edge case coverage.
+
+## 🌟 Positive Highlights
+- Clean implementations, thorough documentation, or well-structured refactoring.
+```
+
+---
+
+## Utility Script Reference
+
+The bundled helper script `scripts/pr_reviewer.py` supports the following options:
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--target` | String | `main...HEAD` | Git range/ref (`main...HEAD`, `HEAD~1`, `staged`, `working`) |
+| `--output` | String | None | File path to write report output |
+| `--format` | String | `markdown` | Output format (`markdown` or `json`) |
+| `--repo-dir` | String | Current Dir | Path to the target Git repository |
+
+---
+
+## Common Review Pitfalls
+
+1. **Nit Tunnel Vision**: Focusing heavily on formatting or naming while missing underlying logic bugs or edge-case crashes.
+2. **Ignoring Test Ratio**: Approving large source code changes without verifying corresponding test coverage additions.
+3. **Swallowing Symptoms**: Suggesting `try/except` wrappers around failing code rather than addressing root cause invalid inputs or broken state.
+
+codex
+The skill’s normal diff scan is inapplicable here because your scope is document-internal, not change-set review; I’m using its severity discipline and structured findings format only. I will not inspect Git history, tests, surrounding architecture, or any repository file beyond the two specified documents.
+exec
+/bin/zsh -lc "sed -n '1,260p' /Users/sto/workspace/datomworld/.agents/skills/code-review-pr/references/review_checklist.md" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+# Code Review PR Checklist & Taxonomy
+
+When performing code reviews, evaluate changes using this structured checklist and severity taxonomy.
+
+---
+
+## 1. Finding Severity Taxonomy
+
+| Severity | Label | Definition | Examples |
+| :--- | :--- | :--- | :--- |
+| **P0** | **Critical (Blocker)** | Security vulnerabilities, data loss risks, production crashes, secret leakage. Must be fixed before merging. | Hardcoded tokens, unhandled NullPointer on critical path, SQL injection, broken auth check. |
+| **P1** | **High (Must Address)** | Logic bugs, breaking API changes, missing error handling on external calls, race conditions, lack of tests for complex logic. | Swallowed exceptions, broken retry loop, missing backward compatibility in API schema. |
+| **P2** | **Medium (Recommended)** | Performance inefficiencies, code duplication, sub-optimal data structures, non-idiomatic style. | Unnecessary DB query inside loop, missing index, missing parameter validation. |
+| **P3** | **Low (Nit / Suggestion)** | Minor formatting, naming improvements, leftover comments/TODOs, minor doc polish. | Variable naming clarity, typos in docstrings, cleaning leftover TODO comments. |
+
+---
+
+## 2. Comprehensive Review Checklist
+
+### A. Logic & Correctness
+- [ ] **Edge Cases**: Does the code handle null/nil/undefined, empty collections, zero values, boundary numbers, and unexpected inputs?
+- [ ] **State & Concurrency**: Are shared state mutations thread-safe? Are locks acquired/released properly without deadlock risks?
+- [ ] **Control Flow**: Are all conditional branches covered? Do loops have guaranteed termination conditions?
+- [ ] **Error Propagation**: Are errors caught and logged/surfaced appropriately, rather than swallowed silently (`catch (Exception e) {}`)?
+
+### B. Security & Credentials
+- [ ] **No Hardcoded Secrets**: Are API keys, passwords, bearer tokens, or private keys excluded from code and config?
+- [ ] **Input Validation & Sanitization**: Are external inputs validated before processing or passing to system shells, DB queries, or HTML rendering?
+- [ ] **Authentication & Authorization**: Do endpoints verify user identity and check permissions before executing state changes?
+- [ ] **Safe Dependencies**: Are newly added packages pinned to trusted versions without known vulnerabilities?
+
+### C. Architecture & API Design
+- [ ] **Preserve API Contracts**: Are public method signatures, REST endpoints, and schema definitions backward compatible?
+- [ ] **Single Responsibility**: Are modules, classes, and functions focused on a clear, single responsibility?
+- [ ] **Coupling & Cohesion**: Is the new code properly modularized without introducing circular dependencies or leaky abstractions?
+- [ ] **Idempotence**: Are retry loops or state-changing operations safe to re-execute on transient failures?
+
+### D. Performance & Resource Efficiency
+- [ ] **N+1 Queries**: Are database or remote API calls executed in batches rather than inside loops?
+- [ ] **Resource Cleanup**: Are file handles, database connections, streams, and web sockets closed explicitly (or managed via try-with-resources / context managers)?
+- [ ] **Memory & Allocation**: Are large datasets streamed or paginated rather than loaded fully into memory at once?
+
+### E. Test Coverage & Quality
+- [ ] **Test Coverage**: Do new features or bug fixes include corresponding unit or integration tests?
+- [ ] **Test Quality**: Do tests verify actual assertions rather than just checking that code runs without throwing?
+- [ ] **Edge Case Tests**: Are failure modes, invalid inputs, and error handlers covered by unit tests?
+
+---
+
+## 3. Review Feedback Guidelines
+
+1. **Be Specific**: Always reference the exact file line number, function name, and context.
+2. **Explain the "Why"**: Don't just say "change this". Explain the risk or benefit (e.g., "This could lead to a race condition if two threads call `transact!` simultaneously...").
+3. **Provide Concrete Fixes**: Offer concrete, copy-pasteable diff snippets where appropriate.
+4. **Acknowledge Good Work**: Highlight well-crafted solutions, thorough tests, or clean refactorings.
+
+exec
+/bin/zsh -lc 'nl -ba docs/design/dao.stream.md
+nl -ba docs/design/dao.stream.ws.md' in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+     1	# DaoStream Design
+     2	
+     3	Status: agreed design target. This document is the DaoStream contract. It does
+     4	not redesign Yin.VM. Yin.VM is a downstream consumer and will be addressed only
+     5	after this contract is implemented and tested.
+     6	
+     7	## Purpose
+     8	
+     9	This contract derives from the foundational axioms and non-negotiable
+    10	invariants of [`datom.world.md`](./datom.world.md). Two axioms bear on it
+    11	directly, named here once so the sections below can cite rather than restate
+    12	them:
+    13	
+    14	1. **Everything is a Stream** — all IO and data flow through append-only
+    15	   streams.
+    16	2. **Interpretation Creates Semantics** — data is syntax; semantics emerge
+    17	   only through interpretation. One truth, many perspectives.
+    18	
+    19	DaoStream is the passive substrate for IO in datom.world — passive because
+    20	interpretation and execution must not collapse into one layer. Axiom 1 is
+    21	what makes this the layer every host boundary crosses. A stream carries
+    22	values and decides nothing about them:
+    23	
+    24	- **What the values mean** is not its business — Axiom 2. An element
+    25	  judged, filtered, or typed at this layer destroys the perspectives nobody
+    26	  has taken yet.
+    27	- **Which interpreter observes them** is not recorded — a registry of who
+    28	  is listening would be hidden global state.
+    29	- **When an interpreter runs** is not its decision — "do not introduce
+    30	  callbacks; every callback is events on a stream", seen from the stream's
+    31	  side: DaoStream invokes nothing, so control is never inverted and
+    32	  causality stays explicit (see The IO Model).
+    33	
+    34	The Invariants below are these denials in operational form.
+    35	
+    36	The design separates four concepts:
+    37	
+    38	1. A **creation specification** is data for creating a new logical stream.
+    39	2. A **handle** is a host-local operational stream value — the
+    40	   implementation of the `dao.stream` protocols.
+    41	3. A **portable descriptor** is data used to attach to an existing stream.
+    42	4. A **cursor** is immutable interpreter-owned observation state for one
+    43	   logical stream.
+    44	
+    45	Creation is not attachment. A descriptor is not a creation specification. A
+    46	handle is not portable identity. A cursor is not handle-owned state.
+    47	
+    48	Seven operations range over them, each returning an outcome map (see
+    49	Result Convention):
+    50	
+    51	| Operation    | Consumes               | Yields             |
+    52	|--------------|------------------------|--------------------|
+    53	| `create!`    | creation specification | handle outcome     |
+    54	| `attach!`    | portable descriptor    | handle outcome     |
+    55	| `descriptor` | handle                 | descriptor outcome |
+    56	| `cursor`     | handle, anchor         | cursor outcome     |
+    57	| `next`       | handle, cursor         | read outcome       |
+    58	| `append!`    | handle, value          | write outcome      |
+    59	| `close!`     | handle                 | close outcome      |
+    60	
+    61	A handle implements the subset of these operations its transport
+    62	declares (see Surfaces).
+    63	
+    64	## Invariants
+    65	
+    66	- Stream elements are data. DaoStream assigns them no intrinsic meaning.
+    67	- Reading is non-destructive. A reader advances its own cursor, not the stream.
+    68	- Multiple cursors may observe the same retained value independently.
+    69	- Interpreters own cursors and decide when to call `next`.
+    70	- A runtime may drive an interpreter, but DaoStream does not require a runtime.
+    71	- Closing a stream changes future availability but does not itself erase
+    72	  retained history.
+    73	- Retention may be bounded. A cursor over evicted history receives a gap
+    74	  outcome as data; the reader decides what missing data means.
+    75	- All expected operational outcomes are data, not exceptions or callbacks.
+    76	- No operation waits. Every operation returns what is true at the moment it is
+    77	  called; an answer not yet knowable arrives later as data.
+    78	
+    79	Every clause below derives from these invariants. A proposed addition that
+    80	cannot be derived from one of them does not belong in this contract.
+    81	
+    82	## Result Convention
+    83	
+    84	Every DaoStream operation returns data.
+    85	
+    86	- Each operation's set of outcomes is **exhaustive**: a transport may produce
+    87	  fewer of them, never any outside the set. Which subset it produces is part of
+    88	  its declared nature (see Surfaces). An outcome is a map whose
+    89	  `:dao.stream/outcome` key names the outcome with a qualified keyword. Every
+    90	  operation returns such a map — including projections like `descriptor` and
+    91	  `cursor`, whose success map carries the projected value.
+    92	- Result maps are **open**: the contract fixes which keys are required per
+    93	  outcome, and a consumer must ignore keys it does not understand. This is
+    94	  what allows future extensions (for example readiness notification) to be
+    95	  added without breaking existing consumers.
+    96	- Exceptions are reserved for defects in the host's own assembly of
+    97	  DaoStream, detected before any operation runs. Everything observable at an
+    98	  operation returns data: closed, full, blocked, end, gap, not found,
+    99	  malformed input, and transport defects are all outcomes, never exceptions
+   100	  and never callbacks.
+   101	- All qualified keywords in results live under `:dao.stream/…`. (The legacy
+   102	  `:daostream/gap` spelling is retired.)
+   103	
+   104	## The IO Model
+   105	
+   106	Three models are available for expressing IO. DaoStream is deliberately the
+   107	third.
+   108	
+   109	**Blocking (synchronous) IO.** The operation parks until it has an answer,
+   110	then returns it. Control flow stays sequential and the call site reads as
+   111	ordinary code, which is the whole of its appeal. The cost is that something
+   112	must wait — a thread per pending operation, held for its duration — and it
+   113	requires a host that can park at all.
+   114	
+   115	**Callback (asynchronous) IO.** The operation registers a continuation and
+   116	returns at once; the runtime invokes the continuation when the answer
+   117	arrives. Nothing waits, so one thread carries many pending operations: this
+   118	is the model that scales. Its cost is inverted control. The caller no longer
+   119	decides when it observes the answer, and the inversion is viral — on a host
+   120	without blocking, a promise cannot be absorbed inside a function, because
+   121	awaiting returns to the caller at the first suspension point and makes the
+   122	caller's own result a promise in turn. Whatever is reached from a callback
+   123	is reached from a callback.
+   124	
+   125	**Non-blocking polling.** The operation returns immediately with whatever is
+   126	true now, including the answer "nothing yet, ask again." Nothing parks and
+   127	nothing is inverted: the caller keeps control and decides when to ask again.
+   128	This is POSIX `O_NONBLOCK` without `select`, and it is DaoStream's model.
+   129	
+   130	`next` is total and non-blocking (see Reading): every state of the stream
+   131	has a defined data answer, and `:dao.stream/blocked` is `EAGAIN` — this
+   132	position holds nothing yet. `append!`'s `:dao.stream/full` is the same
+   133	answer for writes. No operation in this contract parks, and none takes a
+   134	callback; the Result Convention's "never exceptions and never callbacks" is
+   135	this model stated as a rule about results.
+   136	
+   137	The rule generalizes past `next`: **no operation waits.** An operation that
+   138	cannot yet know its answer returns the outcome true at the moment it is
+   139	called, and the eventual answer arrives the way every other fact does — as
+   140	data, observed later, through an ordinary operation or on a stream. A
+   141	DaoStream operation is never a request for something to happen and be
+   142	reported back. It is a question about now.
+   143	
+   144	### Why this model and not the other two
+   145	
+   146	The hosts do not offer the same choices. The JVM has both blocking and
+   147	asynchronous IO. JavaScript and Dart have only the asynchronous kind: there
+   148	is no blocking read to call and no way to wait for one, because the single
+   149	event loop that would deliver the answer is the one a waiting call would be
+   150	occupying — waiting deadlocks rather than merely costing a thread.
+   151	
+   152	A blocking contract is therefore unimplementable on most of the targets. A
+   153	callback contract is implementable on all of them and inverts control on all
+   154	of them, including the host that never needed it. Non-blocking polling is
+   155	the only one of the three that means the same thing everywhere — the same
+   156	operations, the same outcome sets, the same control flow — which is what
+   157	lets one surface serve clj, cljs, and cljd without the shape of the API
+   158	differing by host.
+   159	
+   160	### What it costs
+   161	
+   162	Polling without readiness notification is O(n) in streams observed: a reader
+   163	holding ten thousand idle streams must ask all ten thousand to learn which
+   164	have data. This is `select` without `select`, and it is a real limit rather
+   165	than an oversight — the extension that answers it is reserved below. The
+   166	cost also lands where it can be paid: DaoStream schedules nothing, so
+   167	cadence belongs to the runtime driving the interpreters, and a readiness
+   168	mechanism belongs there too.
+   169	
+   170	### The readiness extension
+   171	
+   172	This contract has no readiness or waiter extension. A reader that receives
+   173	`:dao.stream/blocked` retries `next` when it chooses; retry cadence is the
+   174	concern of the interpreter or the runtime driving it, not of the stream.
+   175	
+   176	A future readiness extension would be additive: an optional protocol on
+   177	transports that support it, plus optional keys in operation results (for
+   178	example a wake token list on `append!`), which the open-map rule already
+   179	permits. Nothing in this contract needs to change for that; no consumer of
+   180	this contract may depend on it existing.
+   181	
+   182	## Creation and Attachment
+   183	
+   184	Creation brings a new logical stream into existence. Attachment joins an
+   185	existing one. They are separate operations with separate inputs.
+   186	
+   187	- `create!` consumes a creation specification and returns a handle on a
+   188	  new logical stream. The handle's portable identity is available as a
+   189	  descriptor via `descriptor`, whose outcome set is `{ok}` with
+   190	  `:dao.stream/descriptor` — identity is universal and outlives any
+   191	  attachment, so `descriptor` has no failure outcome.
+   192	- `attach!` consumes a portable descriptor and returns a handle on the
+   193	  **same** logical stream the descriptor names. Attaching never creates.
+   194	- A creation specification says how to build a stream. A descriptor only
+   195	  names one — never executable code, never a construction program, never a
+   196	  request to load a plugin.
+   197	
+   198	Streams are values that can be sent through streams — up to a serialization
+   199	boundary. An in-memory stream holds references, so a handle can ride it
+   200	intact, and an interpreter that receives a handle simply uses it —
+   201	every operation takes a handle, and attaching to what you already hold
+   202	is meaningless. But a handle does not survive encoding, and any
+   203	transport that encodes its elements — a file as much as a network socket —
+   204	is a serialization boundary. Descriptors exist for crossing those
+   205	boundaries, where the live value cannot travel and a name must. (What a
+   206	transport can carry is transport-owned: handing an encoding transport a
+   207	value it cannot encode is reported as data like any other outcome.)
+   208	`attach!` therefore consumes only descriptors, and
+   209	resolves them against the transport's inherent operational state — the
+   210	streams a network endpoint serves because serving them is what it is, the
+   211	files a filesystem holds. There is no stream table in this contract: no
+   212	registry maps descriptors to live handles, so a descriptor arriving
+   213	somewhere with nothing behind it — a ring buffer's descriptor on any other
+   214	host, or on its own host absent a directory some composition chose to keep —
+   215	honestly resolves to `:dao.stream/not-found`.
+   216	
+   217	### Envelopes
+   218	
+   219	A **creation specification** is a map with one required key:
+   220	
+   221	- `:dao.stream/type` — a qualified keyword naming the transport. This is the
+   222	  dispatch key.
+   223	
+   224	Every other key is transport-owned, qualified under the transport's namespace
+   225	(for example a ring buffer's capacity), and validated by the selected handler
+   226	— generic validation checks only the envelope, and a handler that rejects its
+   227	own keys returns `:dao.stream/invalid-spec`.
+   228	
+   229	The **portable descriptor** is inspired by CORBA's interoperable object
+   230	reference. Its exact definition is not designed yet; these properties are
+   231	settled, and the key set that realizes them is TBD:
+   232	
+   233	- It carries `:dao.stream/type` — the transport, as above — as its dispatch
+   234	  key.
+   235	- It names exactly one logical stream, and that identity is stable: the same
+   236	  descriptor attaches to the same stream every time.
+   237	- It is self-contained. If the stream is remote, it contains whatever is
+   238	  needed to connect — perhaps an IP address and port. The entry data is
+   239	  transport-owned; a handler that cannot make sense of it returns
+   240	  `:dao.stream/invalid-descriptor`.
+   241	- Like an IOR, it may carry authorization: an optional `:dao.stream/shibi`
+   242	  key holding Shibi capability tokens that gate whether an interpreter may
+   243	  attach. Shibi is not yet designed or built; until it is, the key is
+   244	  reserved, no attachment is gated, and the `:dao.stream/denied` outcome
+   245	  reserved in the `attach!` table below is unreachable.
+   246	
+   247	For the time being, the operative guarantee is the round trip: `descriptor`
+   248	on a live handle returns `:dao.stream/ok` with `:dao.stream/descriptor`,
+   249	a value that can be sent on a stream and reconstructed on the other end,
+   250	where `attach!` on the reconstructed value reaches the stream it names —
+   251	provided the receiving host can reach what it names at all (see Creation and
+   252	Attachment on reachability).
+   253	
+   254	Both envelopes are plain data through and through: every value must survive
+   255	the host serialization codec structurally unchanged, so equality is
+   256	structural, and no key holds a function, a host object, a live handle, or
+   257	identity smuggled in metadata. Like every DaoStream map, envelopes are open —
+   258	a consumer ignores qualified keys it does not understand.
+   259	
+   260	`create!` outcomes:
+   261	
+   262	| Outcome                       | Meaning                                       | Required keys        |
+   263	|-------------------------------|-----------------------------------------------|----------------------|
+   264	| `:dao.stream/ok`              | A new logical stream exists.                  | `:dao.stream/handle` |
+   265	| `:dao.stream/invalid-spec`    | The creation specification is malformed.      | —                    |
+   266	| `:dao.stream/not-found`       | No transport here matches `:dao.stream/type`. | —                    |
+   267	| `:dao.stream/transport-error` | The handler failed.                           | —                    |
+   268	
+   269	`attach!` outcomes:
+   270	
+   271	| Outcome                          | Meaning                                                                             | Required keys        |
+   272	|----------------------------------|-------------------------------------------------------------------------------------|----------------------|
+   273	| `:dao.stream/ok`                 | Attached to the existing logical stream.                                            | `:dao.stream/handle` |
+   274	| `:dao.stream/invalid-descriptor` | The descriptor is malformed.                                                        | —                    |
+   275	| `:dao.stream/not-found`          | The descriptor names no stream here, or no transport matches its type.              | —                    |
+   276	| `:dao.stream/denied`             | Attachment refused by capability gating (reserved; unreachable until Shibi exists). | —                    |
+   277	| `:dao.stream/transport-error`    | The handler failed.                                                                 | —                    |
+   278	
+   279	### Host Dispatch
+   280	
+   281	When a creation specification or portable descriptor arrives dynamically —
+   282	for example off a stream — the host looks at it and dispatches on
+   283	`:dao.stream/type`. The type resolves to a map that has the transport's
+   284	`:dao.stream/create` and `:dao.stream/attach` implementations:
+   285	
+   286	```clojure
+   287	{:dao.stream/ringbuffer {:dao.stream/create ringbuffer/create!
+   288	                         :dao.stream/attach ringbuffer/attach!}
+   289	 :dao.stream/ws         {:dao.stream/attach ws/attach!}}
+   290	```
+   291	
+   292	The entries are per-transport and may be partial. A transport that creates
+   293	no streams supplies no `:dao.stream/create` — the WebSocket transport owns
+   294	no stream, it serves streams the host composed, so nothing there creates
+   295	one. A creation specification naming it finds no create implementation and
+   296	returns `:dao.stream/not-found`, the same answer as an absent transport and
+   297	the correct one: nothing here creates that.
+   298	
+   299	Entry values are **host-composed**: ordinarily closures produced by a
+   300	transport constructor that already received whatever composition state the
+   301	transport needs — a boundary's deposit destination and its admission
+   302	declaration, a directory some composition keeps. The bare vars above are
+   303	schematic. A bare namespace var could reach that state only through namespace
+   304	globals, which is the hidden state this contract retires.
+   305	
+   306	This table is ordinary data owned by the host, and the dispatch is an
+   307	ordinary map lookup done by the host — DaoStream neither performs nor
+   308	standardizes it. A host that cannot dispatch on `:dao.stream/type` returns
+   309	`:dao.stream/not-found` — never creation or discovery.
+   310	
+   311	Code that knows its transport statically calls the transport's functions
+   312	directly; no dispatch is involved. There is no ambient namespace-global
+   313	registry and no namespace-load registration side effect. (The legacy `open!`
+   314	multimethod and `defopen` macro are retired.)
+   315	
+   316	## Surfaces
+   317	
+   318	A handle implements the subset of the public surface its transport can
+   319	honor — **reader** (`cursor`, `next`), **writer** (`append!`), **closable**
+   320	(`close!`) — and the transport declares which. The Cursors, Reading, and
+   321	Retention and Gaps sections govern handles with a reader surface only.
+   322	
+   323	The reader surface is a promise: the handle presents its elements as
+   324	one positioned, append-only, retained sequence that cursors can observe and
+   325	re-observe. A transport whose medium retains nothing cannot make that
+   326	promise and has no reader surface: its inbound events are deposited by the
+   327	host's adapter onto the stream the host composition wired for that boundary
+   328	— where the reading model applies in full. The log lives beside such a
+   329	transport, composed explicitly by the host, never hidden inside the
+   330	transport. A deposit destination must admit every valid boundary event per
+   331	its declared retention; wiring one that can refuse is a host assembly
+   332	defect. (`dao.stream.ws.md` specifies one such transport and the admission
+   333	rule in detail.)
+   334	
+   335	A transport also declares **which outcomes it produces**, and for each one it
+   336	excludes, why. There are three honest reasons: the outcome's precondition is
+   337	impossible by the transport's nature (an unbounded log never evicts, so never
+   338	reports `gap`); another policy answers the same condition, named (a ring buffer
+   339	evicts rather than refusing, so pressure surfaces as a reported `gap` and never
+   340	as `full`); or the answer is displaced to another channel, named (a transport
+   341	that cannot know a remote answer at call time reports it as data elsewhere). An
+   342	exclusion with no stated reason is an unimplemented outcome, not a declaration.
+   343	
+   344	### Where the asynchrony goes
+   345	
+   346	The IO Model makes this contract non-blocking; hosts are asynchronous
+   347	whether or not it is. A network message arrives when the runtime says so, in
+   348	a callback, on a thread or event loop DaoStream does not own. DaoStream does
+   349	not pretend otherwise; it confines the inversion to one place. The host's
+   350	boundary adapter *is* callback code, and its entire job is to `append!` what
+   351	arrived. Past that append the event holds a position in a sequence, and
+   352	every reader above observes it with its own cursor, in its own control flow,
+   353	when it chooses.
+   354	
+   355	This is an un-inversion. The real cost of callback IO is not performance but
+   356	that the inversion spreads through everything it touches; depositing into a
+   357	retained sequence pays that cost once, at the boundary, and returns ordinary
+   358	code to everyone above. The reader-surface rule above is the same thing
+   359	stated structurally: a transport that retains nothing has no reader surface,
+   360	and its inbound events are deposited onto a stream that does.
+   361	
+   362	## Cursors
+   363	
+   364	A cursor is an immutable value owned by the interpreter that holds it.
+   365	
+   366	- Cursors are minted by the stream: `cursor` on a handle takes an **anchor**
+   367	  and returns `:dao.stream/ok` with `:dao.stream/cursor`. The contract
+   368	  defines two anchors — `:dao.stream/oldest`, the earliest retained
+   369	  position, and `:dao.stream/newest`, positioned after the newest appended
+   370	  value so the first `next` observes the next value to arrive. A transport
+   371	  whose medium is naturally addressable may accept additional
+   372	  transport-owned anchors (a byte offset, a timestamp). An anchor that is
+   373	  malformed or not honored by this transport yields
+   374	  `:dao.stream/invalid-anchor`. On a handle whose attachment has closed,
+   375	  `cursor` yields `:dao.stream/closed`; a handle on the logical stream
+   376	  itself keeps minting cursors after close, so retained history remains
+   377	  readable. `cursor`'s outcome set is therefore `:dao.stream/ok` (with
+   378	  `:dao.stream/cursor`), `:dao.stream/invalid-anchor`, and
+   379	  `:dao.stream/closed`.
+   380	- Every valid cursor comes from the stream: minted by `cursor`, received as
+   381	  a successor from `next`, or recovered from a gap outcome. Consumers never
+   382	  construct cursor internals or fabricate positions — there is no `seek`. A
+   383	  cursor's representation belongs to the transport.
+   384	- A cursor binds to the logical stream, not to a handle: any handle on the
+   385	  same logical stream accepts it, so a cursor handed to another interpreter
+   386	  works with that interpreter's own handle. Whether a cursor survives
+   387	  serialization to another host is transport-owned and TBD, like the
+   388	  descriptor envelope.
+   389	- A cursor carries enough identity to detect misuse — the mismatch outcomes
+   390	  in the Reading table depend on it.
+   391	- Advancing is receiving a successor cursor from `next`. The stream never
+   392	  advances a reader; the stream holds no reader positions at all. Dropping a
+   393	  cursor is how a reader detaches — there is nothing to unregister.
+   394	- Because cursors are immutable values, a reader may retain an old cursor and
+   395	  re-read retained history, or hand a cursor to another interpreter. What a
+   396	  cursor can still observe is governed only by retention.
+   397	
+   398	## Reading
+   399	
+   400	`next` takes a handle and a cursor and returns an outcome immediately.
+   401	It is total and non-blocking: every state of the stream has a defined data
+   402	answer.
+   403	
+   404	| Outcome                       | Meaning                                                                       | Required keys                                                                           |
+   405	|-------------------------------|-------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+   406	| `:dao.stream/ok`              | A value was observed.                                                         | `:dao.stream/value`, `:dao.stream/cursor` (successor)                                   |
+   407	| `:dao.stream/blocked`         | Nothing at this position yet; retry later.                                    | —                                                                                       |
+   408	| `:dao.stream/end`             | What this handle is on is closed and this position is past the retained tail. | —                                                                                       |
+   409	| `:dao.stream/gap`             | This position was evicted.                                                    | `:dao.stream/cursor` (earliest retained position, or the tail when nothing is retained) |
+   410	| `:dao.stream/cursor-mismatch` | The cursor was minted by a different logical stream.                          | —                                                                                       |
+   411	| `:dao.stream/invalid-cursor`  | The value is not a cursor.                                                    | —                                                                                       |
+   412	
+   413	Reading never mutates the stream. Two readers with cursors at the same
+   414	position observe the same retained value; neither can starve or affect the
+   415	other. There is no destructive read anywhere in the contract — no drain, no
+   416	take. An operation that removes an element as it reads would make one
+   417	reader's progress every other reader's data loss.
+   418	
+   419	## Writing
+   420	
+   421	`append!` takes a handle and a value and returns an outcome:
+   422	
+   423	| Outcome                       | Meaning                                                                                                                                              | Required keys |
+   424	|-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|
+   425	| `:dao.stream/ok`              | The value is accepted at the next position in the sequence this handle's writer surface is on. Implies neither local readability nor remote delivery. | —             |
+   426	| `:dao.stream/full`            | The transport cannot accept the value now; nothing was appended.                                                                                     | —             |
+   427	| `:dao.stream/invalid-value`   | The transport cannot carry this value (for example, it cannot be encoded); nothing was appended.                                                     | —             |
+   428	| `:dao.stream/closed`          | What this handle is on is closed to new appends; the value was not appended.                                                                         | —             |
+   429	| `:dao.stream/transport-error` | The transport failed to perform the append; nothing was appended.                                                                                    | —             |
+   430	
+   431	Acceptance is handle-relative, as close outcomes are. **Which sequence** a
+   432	handle's writer surface is on is part of the transport's declared nature: for a
+   433	ring buffer it is the logical stream itself, so `ok` places the value in it; for
+   434	a transport that carries values toward a stream elsewhere it is the ordered
+   435	outbound path, and what becomes of the value at the far end is reported there,
+   436	not here. No remote transport can say more — under *no operation waits*, an
+   437	answer from the far end cannot arrive before `append!` returns.
+   438	
+   439	The writer decides what to do about any non-`ok` outcome; DaoStream does not
+   440	retry, buffer, or notify on its behalf.
+   441	
+   442	## Close
+   443	
+   444	`close!` takes a handle and returns a map whose outcome set is `{ok}` — no
+   445	other outcome exists for it. It is idempotent: closing an already-closed scope
+   446	is also `:dao.stream/ok`.
+   447	
+   448	`close!` closes **what the handle is on**. A handle that owns a stream — its
+   449	creator, or its server-side host — closes the logical stream. An attached
+   450	handle is on an attachment: closing it ends that attachment only — the
+   451	stream persists, its descriptor remains valid, and `attach!` may rejoin
+   452	later. Which scope a transport's handles carry is part of its declared
+   453	nature.
+   454	
+   455	Outcome meanings are handle-relative throughout: `:dao.stream/closed` and
+   456	`:dao.stream/end` speak of what *this handle* is on. After an attachment
+   457	closes, the handle's `append!` answers `closed`; `descriptor` still answers
+   458	`ok` — identity outlives any attachment; a reader surface, where the
+   459	handle has one, answers `end` from `next` once observation through this
+   460	handle is exhausted, and `closed` from `cursor` — no new cursors are
+   461	minted through a closed attachment. Cursors bind to the logical stream,
+   462	not to a handle, so a kept cursor resumes through a newly attached handle.
+   463	
+   464	Closing the logical stream changes future availability only:
+   465	
+   466	- Subsequent `append!` returns `:dao.stream/closed`.
+   467	- A reader that exhausts retained history receives `:dao.stream/end` instead
+   468	  of `:dao.stream/blocked`.
+   469	- Retained history remains readable. Close erases nothing; eviction is a
+   470	  retention concern, not a lifecycle one.
+   471	
+   472	There is no `closed?` predicate in the public surface. Operation results are
+   473	authoritative; a predicate answer is stale the moment it is returned.
+   474	
+   475	## Concurrency
+   476	
+   477	Each logical stream is one append-only sequence: a successfully appended
+   478	value occupies exactly one definite position in that sequence, and every
+   479	operation's outcome reflects the sequence at one moment. DaoStream
+   480	guarantees nothing further about concurrent operations.
+   481	
+   482	This follows from Axiom 2. The sequence is the one truth; each outcome is
+   483	one perspective on it at one moment. A reader that observes
+   484	`:dao.stream/blocked` and then a value has not caught the stream in a
+   485	contradiction — it made two observations from its own cursor, and no global
+   486	view exists to contradict. Whether an append landed before a close is
+   487	answered by the sequence itself: the value has a position or it does not.
+   488	What an ordering between writers *means*, and any coordination among them —
+   489	a merge interpreter, a one-log-per-writer discipline — is interpretation,
+   490	and interpretation happens above the stream.
+   491	
+   492	## Retention and Gaps
+   493	
+   494	Retention and overflow behavior are transport-owned, declared by the
+   495	creation specification. A ring buffer retains a bounded window and evicts
+   496	the oldest; a file or append-only log retains everything; a network send
+   497	buffer refuses transiently. Which outcomes a given stream can produce —
+   498	`full` on append, `gap` on read — and whether its `full` is transient or
+   499	permanent follow from the transport's declared nature. DaoStream names the
+   500	outcomes and standardizes no policy.
+   501	
+   502	When bounded retention evicts a value, a cursor still pointing at it gets the
+   503	gap outcome from the Reading table. The stream reports honestly and decides
+   504	nothing: an interpreter replaying a log may treat a gap as fatal; a live
+   505	telemetry viewer may adopt the returned cursor and continue. Silently
+   506	skipping evicted history is forbidden — a reader must be able to know it
+   507	missed values.
+   508	
+   509	## Composition
+   510	
+   511	DaoStream defines only streams, cursors, and the operations above. Anything
+   512	that transforms one stream into another is an interpreter — it reads via its
+   513	own cursor and appends to an ordinary output stream — and that lives entirely
+   514	outside this contract, needing no support from it. As in a Unix pipeline, the
+   515	pipe is dumb; the transforming happens in the processes on either end.
+   516	
+   517	## Explicitly Absent
+   518	
+   519	Absent from the public surface, by derivation from the invariants: `open!`
+   520	and `defopen` (ambient registry), `closed?` (stale predicate), `drain-one!`
+   521	and any destructive read (readers advance cursors, not the stream), `seek`
+   522	(every valid cursor comes from the stream; anchored minting and kept
+   523	cursors cover repositioning), `take!!` (blocking), waiter registration
+   524	(no readiness extension), and throwing conveniences such as `strict-vec`
+   525	(operational outcomes are data).
+     1	# DaoStream WebSocket Transport
+     2	
+     3	Status: design target, subordinate to `dao.stream.md`. That document is the
+     4	contract; this one specifies the WebSocket transport's implementation of it.
+     5	Where the two disagree, the contract wins.
+     6	
+     7	## What the Descriptor Names
+     8	
+     9	A WebSocket descriptor names a **server-hosted stream**, never a connection.
+    10	The stream exists on the serving host — created there, retained there,
+    11	closed there by its owner — and it exists whether or not any client is
+    12	currently connected. A connection is the mechanics of one attachment:
+    13	connecting joins the stream, disconnecting detaches from it, and neither
+    14	event creates, closes, or destroys anything. That is what makes `attach!`
+    15	honest here: the same descriptor reaches the same stream every time, because
+    16	the stream's identity and lifecycle belong to the server, not to the wire.
+    17	
+    18	This framing generalizes: **serving is what makes any stream remotely
+    19	attachable.** A ring buffer is host-local only because nothing speaks for
+    20	it. A host that composes a WebSocket endpoint in front of one is serving
+    21	that ring buffer; its descriptor now carries an address, and remote
+    22	interpreters can attach. The transport owns no stream — it serves streams
+    23	the host composed, which is exactly the contract's rule that descriptors
+    24	resolve against "the streams a network endpoint serves because serving them
+    25	is what it is."
+    26	
+    27	A server that wants per-conversation state does not bend attachment into
+    28	creation: it `create!`s a fresh stream for the conversation and offers that
+    29	stream's descriptor.
+    30	
+    31	## Surfaces
+    32	
+    33	A WebSocket handle is **writer** and **closable** only. It has no
+    34	reader surface: a socket retains nothing, so it cannot make the reader
+    35	surface's promise — a positioned, append-only, retained sequence that
+    36	cursors can observe and re-observe. `cursor` and `next` do not exist on it.
+    37	
+    38	## The Duplex Model
+    39	
+    40	A WebSocket is two independent directions sharing one connection, and the
+    41	design keeps them separate:
+    42	
+    43	- **Outbound**: `append!` on the socket handle encodes the value and
+    44	  sends it. Sending is appending; nothing is converted.
+    45	- **Inbound**: each arriving message is a host event. The host's adapter
+    46	  deposits it — payloads and connection lifecycle events alike, judging
+    47	  nothing — onto the stream the **host composition** wired for this
+    48	  boundary. Per ADR 0003 there is no separate event bus: dao.space is the
+    49	  medium. From that moment the traffic has positions, retention, cursors,
+    50	  and gaps — the reading model of the contract applies in full, on that
+    51	  stream.
+    52	
+    53	The deposit destination is wired once, when the host composes the boundary
+    54	— it is not a parameter of `attach!`, and no attaching caller chooses or
+    55	knows it. Every interpreter takes its own perspective on the same deposited
+    56	truth: one indexes the traffic, another copies it to a file, a third ignores
+    57	it. How arrivals are interpreted is the interpreter's business, not the
+    58	transport's configuration.
+    59	
+    60	**Attachment identity.** A descriptor names the served stream, so it cannot
+    61	distinguish two attachments to it, and a handle is a host-local object that
+    62	cannot be compared against data that crossed a codec. So a ws `attach!`
+    63	success map carries `:dao.stream/attachment` — a structurally serializable
+    64	value, unique per attachment — and every event deposited for that attachment
+    65	carries the same value. Without it a shared medium is a multiplexed sequence
+    66	with no demultiplexing key: every event present, in order, and
+    67	unattributable.
+    68	
+    69	**Deposited events are envelopes**, so that payload and lifecycle are
+    70	distinguishable and both are attributable:
+    71	
+    72	```clojure
+    73	{:dao.stream/attachment <id>
+    74	 :ws/event              :ws/payload  ; or :ws/opened :ws/closed :ws/error
+    75	                                     ;    :ws/not-found :ws/transport-error
+    76	 :ws/value              <decoded>}   ; payload events only
+    77	```
+    78	
+    79	Wrapping is not judging — the adapter never looks inside `:ws/value`. Nothing
+    80	of this crosses the wire: the receiving side already knows which socket
+    81	delivered a message, so correlation is added locally, on both ends
+    82	independently, and the wire carries bare payloads.
+    83	
+    84	**Granularity is the composition's choice.** One medium per boundary
+    85	multiplexes every attachment onto one sequence and one retention window, so a
+    86	flood from one attachment evicts another's events. One medium per attachment
+    87	isolates them, but the boundary must then announce new attachments on a
+    88	boundary-level lifecycle stream, since nothing discovers a stream by itself.
+    89	Either shape carries the identity; only the sharing changes.
+    90	
+    91	```clojure
+    92	(def sock (-> (ws/attach! {:dao.stream/type :dao.stream/ws
+    93	                           :ws/host "example.org"
+    94	                           :ws/port 9090
+    95	                           :ws/path "/streams/telemetry"})
+    96	              :dao.stream/handle))
+    97	
+    98	;; write: (append! sock msg)
+    99	;; read:  interpreters observe the medium the host boundary deposits into,
+   100	;;        filtering on this attachment's identity
+   101	```
+   102	
+   103	Nothing accumulates inside the transport: a hidden per-socket inbox would
+   104	be a retention window with an eviction policy nobody composed, sized by
+   105	nobody. Retention lives in the medium the boundary deposits into, composed
+   106	and sized by the host.
+   107	
+   108	There are no callback hooks. The legacy `on-open!` / `on-message!` /
+   109	`on-close!` surface is retired: every socket event becomes data on the
+   110	deposit stream — payload and lifecycle (opened, closed by peer, error)
+   111	alike, distinguishable by shape. A boundary deposits everything; whether
+   112	anyone reads it is not the boundary's concern.
+   113	
+   114	### Deposit Admission
+   115	
+   116	The adapter runs in a callback context: it cannot wait, cannot park, and
+   117	cannot record a refused deposit in the medium that refused it. So the
+   118	deposit destination must be one that always admits, and this is enforced
+   119	where it can be — at assembly, against the destination's declared nature:
+   120	
+   121	- The destination must declare **evict-oldest retention with a
+   122	  host-declared capacity**. It never answers `:dao.stream/full`; under
+   123	  pressure, loss surfaces as reported `gap`s at lagging readers — the one
+   124	  loss mode the contract blesses. Unbounded in-memory retention is not an
+   125	  alternative: it trades a refused deposit for eventual host death, the
+   126	  most silent failure of all. (A genuinely durable medium — a disk-backed
+   127	  log — plays the same game with a much larger declared window; exhausting
+   128	  it at runtime surfaces as `:dao.stream/transport-error` on the deposit,
+   129	  like any storage failure.)
+   130	- Wiring a reject-mode destination is a **host assembly defect**, refused
+   131	  when the boundary is composed — the same category as supplying both
+   132	  dispatch shapes. Throwing is reserved for defects detected there, before
+   133	  the boundary operates; everything at deposit time is data.
+   134	- The destination must outlive the boundary, and **every non-`ok` deposit
+   135	  result tears the connection down**: `closed` means the destination is
+   136	  gone; `full` or `invalid-value` from a supposedly conforming destination
+   137	  is a host or transport defect, evidenced by the returned data;
+   138	  `transport-error` is runtime storage failure. In every case, a boundary
+   139	  that can no longer turn events into data stops claiming to be attached.
+   140	  Disconnection is fully observable — the peer's boundary deposits the
+   141	  departure, the local handle answers `:dao.stream/closed`, and
+   142	  re-attaching after the host repairs its composition is ordinary
+   143	  `attach!`.
+   144	
+   145	Sizing the window is choosing how much reader lag to tolerate before gaps
+   146	appear — an explicit engineering decision in the host's composition. Where
+   147	the destination transport supports it, the window may be resized live
+   148	(a transport-owned operation on the owning handle): growing it only slows
+   149	the eviction horizon, shrinking it is ordinary early eviction reported as
+   150	gaps, and positions never renumber. An adaptive policy — grow on rising
+   151	gap rate, shrink when quiet — is an interpreter reading its own telemetry,
+   152	not a transport behavior.
+   153	
+   154	The accounting is then complete: overload is a reported `gap`, a dead
+   155	destination is an observable disconnection, and silent loss is
+   156	unconstructible.
+   157	
+   158	## Envelope
+   159	
+   160	Transport-owned keys, qualified under `:ws/…`. The exact key set is TBD
+   161	alongside the portable descriptor's definition in the contract; settled
+   162	properties:
+   163	
+   164	- The descriptor is self-contained and exists to cross the network: it
+   165	  carries what any host needs to reach the served stream — host and port,
+   166	  plus the served stream's identity (a path or stream id; endpoint address
+   167	  alone does not name a stream), perhaps TLS parameters.
+   168	- The descriptor carries identity only. Where inbound traffic lands is the
+   169	  host boundary's composition (see The Duplex Model) and appears in no
+   170	  envelope and no argument of `attach!`.
+   171	
+   172	## The Handshake
+   173	
+   174	Attaching presents the served stream's identity, and the endpoint either
+   175	accepts it or **authoritatively disclaims** it. Both halves are wire protocol
+   176	specified here, not per-composition: a client transport must recognize the
+   177	disclaimer to deposit `:ws/not-found` rather than a generic failure, so a
+   178	composition inventing its own would not interoperate with any client. What a
+   179	composition owns is only which identities it serves — its resolution table —
+   180	and never the vocabulary of asking and disclaiming.
+   181	
+   182	## Operations
+   183	
+   184	- There is no `create!`. The transport owns no stream, so it creates none;
+   185	  a host serves a stream it composed elsewhere, and starting an endpoint is
+   186	  a host composition step, not a DaoStream operation. A creation
+   187	  specification naming this transport returns `:dao.stream/not-found`.
+   188	- `attach!` begins connecting and returns without waiting, per the
+   189	  contract's rule that no operation waits. It answers what is decidable
+   190	  locally, at the moment it is called: `:dao.stream/invalid-descriptor` for
+   191	  a descriptor it cannot read, otherwise `:dao.stream/ok` with a handle on
+   192	  an attachment still being established. It never returns an answer it has
+   193	  not heard. This is not a concession to convenience: on a host with no
+   194	  blocking IO the endpoint's answer cannot arrive before `attach!` returns,
+   195	  and an `attach!` that waited for it would have to hand back a promise —
+   196	  breaking the result convention on three of four hosts and giving the same
+   197	  transport different outcome sets per host.
+   198	- **How the connection resolved arrives as data**, on the same host-composed
+   199	  medium as every other socket event, correlated by attachment identity.
+   200	  The distinction survives intact, only its channel moves:
+   201	  `:dao.stream/not-found` is the authoritative answer that what the
+   202	  descriptor names does not exist — the endpoint responded and disclaimed
+   203	  the stream — and is not retried automatically (though a server may serve
+   204	  that identity later; retrying on external evidence is interpreter
+   205	  policy), while `:dao.stream/transport-error` covers transient
+   206	  reachability and connection failures — DNS, timeout, routing, refusal —
+   207	  and retrying it may succeed on its own. A caller's retry policy is as
+   208	  deterministic as before; it reads the answer from the medium instead of
+   209	  from a return value.
+   210	- `append!` returns `:dao.stream/full` when the send buffer cannot accept
+   211	  the value now — **transient**: the network drains the buffer on its own,
+   212	  and a later append succeeds. An attachment still establishing its
+   213	  connection answers `full` for the same reason and with the same remedy.
+   214	  `:dao.stream/closed` once the connection is down, which includes an
+   215	  attachment whose connection never succeeded. A value that cannot be
+   216	  encoded for the wire is `:dao.stream/invalid-value`. A local send that
+   217	  fails for neither reason is `:dao.stream/transport-error`. Operating the
+   218	  handle therefore tells a caller **that** the attachment is not writable,
+   219	  needing no reader at all — but never why: an authoritative `not-found` and
+   220	  a transient failure both reduce to `closed` here, and the distinction
+   221	  survives only as the correlated lifecycle event on the deposit medium.
+   222	- `close!` on an attached handle means **disconnect from the server**: the
+   223	  handle is on the attachment, so closing it ends the connection,
+   224	  idempotently, and this handle's subsequent `append!` returns
+   225	  `:dao.stream/closed`. The served stream is untouched — closing *it*
+   226	  belongs to its server-side owner. Disconnection is not final: the
+   227	  descriptor remains valid and `attach!` rejoins the same stream. The
+   228	  peer's boundary deposits the departure into its host-composed event
+   229	  medium, correlated by attachment identity.
+   230	- Connection loss is the same detachment, uninvited: the served stream
+   231	  persists, its descriptor remains valid, and `attach!` with the same
+   232	  descriptor rejoins the same stream.
+   233	
+   234	## Elements and Serialization
+   235	
+   236	The wire is a serialization boundary. Every element must survive the codec
+   237	structurally unchanged; a handle can never travel — its portable
+   238	descriptor can.
+   239	
+   240	## Deferred
+   241	
+   242	- Exact envelope key set (tracks the contract's descriptor TBD).
+   243	- Resumption protocol: stream identity is stable across reconnects, so
+   244	  resumption is possible by design; what history a rejoining client receives
+   245	  (and how it states where it left off) is not yet specified.
+   246	- Backpressure protocols above the stream (a reader publishing its progress
+   247	  as data is interpretation, outside both this transport and the contract).
+   248	- Relationship to the RPC layers built over streams.
+
+exec
+/bin/zsh -lc "sed -n '316,525p' docs/design/dao.stream.md | nl -ba -v316" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   316	## Surfaces
+   317	
+   318	A handle implements the subset of the public surface its transport can
+   319	honor — **reader** (`cursor`, `next`), **writer** (`append!`), **closable**
+   320	(`close!`) — and the transport declares which. The Cursors, Reading, and
+   321	Retention and Gaps sections govern handles with a reader surface only.
+   322	
+   323	The reader surface is a promise: the handle presents its elements as
+   324	one positioned, append-only, retained sequence that cursors can observe and
+   325	re-observe. A transport whose medium retains nothing cannot make that
+   326	promise and has no reader surface: its inbound events are deposited by the
+   327	host's adapter onto the stream the host composition wired for that boundary
+   328	— where the reading model applies in full. The log lives beside such a
+   329	transport, composed explicitly by the host, never hidden inside the
+   330	transport. A deposit destination must admit every valid boundary event per
+   331	its declared retention; wiring one that can refuse is a host assembly
+   332	defect. (`dao.stream.ws.md` specifies one such transport and the admission
+   333	rule in detail.)
+   334	
+   335	A transport also declares **which outcomes it produces**, and for each one it
+   336	excludes, why. There are three honest reasons: the outcome's precondition is
+   337	impossible by the transport's nature (an unbounded log never evicts, so never
+   338	reports `gap`); another policy answers the same condition, named (a ring buffer
+   339	evicts rather than refusing, so pressure surfaces as a reported `gap` and never
+   340	as `full`); or the answer is displaced to another channel, named (a transport
+   341	that cannot know a remote answer at call time reports it as data elsewhere). An
+   342	exclusion with no stated reason is an unimplemented outcome, not a declaration.
+   343	
+   344	### Where the asynchrony goes
+   345	
+   346	The IO Model makes this contract non-blocking; hosts are asynchronous
+   347	whether or not it is. A network message arrives when the runtime says so, in
+   348	a callback, on a thread or event loop DaoStream does not own. DaoStream does
+   349	not pretend otherwise; it confines the inversion to one place. The host's
+   350	boundary adapter *is* callback code, and its entire job is to `append!` what
+   351	arrived. Past that append the event holds a position in a sequence, and
+   352	every reader above observes it with its own cursor, in its own control flow,
+   353	when it chooses.
+   354	
+   355	This is an un-inversion. The real cost of callback IO is not performance but
+   356	that the inversion spreads through everything it touches; depositing into a
+   357	retained sequence pays that cost once, at the boundary, and returns ordinary
+   358	code to everyone above. The reader-surface rule above is the same thing
+   359	stated structurally: a transport that retains nothing has no reader surface,
+   360	and its inbound events are deposited onto a stream that does.
+   361	
+   362	## Cursors
+   363	
+   364	A cursor is an immutable value owned by the interpreter that holds it.
+   365	
+   366	- Cursors are minted by the stream: `cursor` on a handle takes an **anchor**
+   367	  and returns `:dao.stream/ok` with `:dao.stream/cursor`. The contract
+   368	  defines two anchors — `:dao.stream/oldest`, the earliest retained
+   369	  position, and `:dao.stream/newest`, positioned after the newest appended
+   370	  value so the first `next` observes the next value to arrive. A transport
+   371	  whose medium is naturally addressable may accept additional
+   372	  transport-owned anchors (a byte offset, a timestamp). An anchor that is
+   373	  malformed or not honored by this transport yields
+   374	  `:dao.stream/invalid-anchor`. On a handle whose attachment has closed,
+   375	  `cursor` yields `:dao.stream/closed`; a handle on the logical stream
+   376	  itself keeps minting cursors after close, so retained history remains
+   377	  readable. `cursor`'s outcome set is therefore `:dao.stream/ok` (with
+   378	  `:dao.stream/cursor`), `:dao.stream/invalid-anchor`, and
+   379	  `:dao.stream/closed`.
+   380	- Every valid cursor comes from the stream: minted by `cursor`, received as
+   381	  a successor from `next`, or recovered from a gap outcome. Consumers never
+   382	  construct cursor internals or fabricate positions — there is no `seek`. A
+   383	  cursor's representation belongs to the transport.
+   384	- A cursor binds to the logical stream, not to a handle: any handle on the
+   385	  same logical stream accepts it, so a cursor handed to another interpreter
+   386	  works with that interpreter's own handle. Whether a cursor survives
+   387	  serialization to another host is transport-owned and TBD, like the
+   388	  descriptor envelope.
+   389	- A cursor carries enough identity to detect misuse — the mismatch outcomes
+   390	  in the Reading table depend on it.
+   391	- Advancing is receiving a successor cursor from `next`. The stream never
+   392	  advances a reader; the stream holds no reader positions at all. Dropping a
+   393	  cursor is how a reader detaches — there is nothing to unregister.
+   394	- Because cursors are immutable values, a reader may retain an old cursor and
+   395	  re-read retained history, or hand a cursor to another interpreter. What a
+   396	  cursor can still observe is governed only by retention.
+   397	
+   398	## Reading
+   399	
+   400	`next` takes a handle and a cursor and returns an outcome immediately.
+   401	It is total and non-blocking: every state of the stream has a defined data
+   402	answer.
+   403	
+   404	| Outcome                       | Meaning                                                                       | Required keys                                                                           |
+   405	|-------------------------------|-------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+   406	| `:dao.stream/ok`              | A value was observed.                                                         | `:dao.stream/value`, `:dao.stream/cursor` (successor)                                   |
+   407	| `:dao.stream/blocked`         | Nothing at this position yet; retry later.                                    | —                                                                                       |
+   408	| `:dao.stream/end`             | What this handle is on is closed and this position is past the retained tail. | —                                                                                       |
+   409	| `:dao.stream/gap`             | This position was evicted.                                                    | `:dao.stream/cursor` (earliest retained position, or the tail when nothing is retained) |
+   410	| `:dao.stream/cursor-mismatch` | The cursor was minted by a different logical stream.                          | —                                                                                       |
+   411	| `:dao.stream/invalid-cursor`  | The value is not a cursor.                                                    | —                                                                                       |
+   412	
+   413	Reading never mutates the stream. Two readers with cursors at the same
+   414	position observe the same retained value; neither can starve or affect the
+   415	other. There is no destructive read anywhere in the contract — no drain, no
+   416	take. An operation that removes an element as it reads would make one
+   417	reader's progress every other reader's data loss.
+   418	
+   419	## Writing
+   420	
+   421	`append!` takes a handle and a value and returns an outcome:
+   422	
+   423	| Outcome                       | Meaning                                                                                                                                              | Required keys |
+   424	|-------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|
+   425	| `:dao.stream/ok`              | The value is accepted at the next position in the sequence this handle's writer surface is on. Implies neither local readability nor remote delivery. | —             |
+   426	| `:dao.stream/full`            | The transport cannot accept the value now; nothing was appended.                                                                                     | —             |
+   427	| `:dao.stream/invalid-value`   | The transport cannot carry this value (for example, it cannot be encoded); nothing was appended.                                                     | —             |
+   428	| `:dao.stream/closed`          | What this handle is on is closed to new appends; the value was not appended.                                                                         | —             |
+   429	| `:dao.stream/transport-error` | The transport failed to perform the append; nothing was appended.                                                                                    | —             |
+   430	
+   431	Acceptance is handle-relative, as close outcomes are. **Which sequence** a
+   432	handle's writer surface is on is part of the transport's declared nature: for a
+   433	ring buffer it is the logical stream itself, so `ok` places the value in it; for
+   434	a transport that carries values toward a stream elsewhere it is the ordered
+   435	outbound path, and what becomes of the value at the far end is reported there,
+   436	not here. No remote transport can say more — under *no operation waits*, an
+   437	answer from the far end cannot arrive before `append!` returns.
+   438	
+   439	The writer decides what to do about any non-`ok` outcome; DaoStream does not
+   440	retry, buffer, or notify on its behalf.
+   441	
+   442	## Close
+   443	
+   444	`close!` takes a handle and returns a map whose outcome set is `{ok}` — no
+   445	other outcome exists for it. It is idempotent: closing an already-closed scope
+   446	is also `:dao.stream/ok`.
+   447	
+   448	`close!` closes **what the handle is on**. A handle that owns a stream — its
+   449	creator, or its server-side host — closes the logical stream. An attached
+   450	handle is on an attachment: closing it ends that attachment only — the
+   451	stream persists, its descriptor remains valid, and `attach!` may rejoin
+   452	later. Which scope a transport's handles carry is part of its declared
+   453	nature.
+   454	
+   455	Outcome meanings are handle-relative throughout: `:dao.stream/closed` and
+   456	`:dao.stream/end` speak of what *this handle* is on. After an attachment
+   457	closes, the handle's `append!` answers `closed`; `descriptor` still answers
+   458	`ok` — identity outlives any attachment; a reader surface, where the
+   459	handle has one, answers `end` from `next` once observation through this
+   460	handle is exhausted, and `closed` from `cursor` — no new cursors are
+   461	minted through a closed attachment. Cursors bind to the logical stream,
+   462	not to a handle, so a kept cursor resumes through a newly attached handle.
+   463	
+   464	Closing the logical stream changes future availability only:
+   465	
+   466	- Subsequent `append!` returns `:dao.stream/closed`.
+   467	- A reader that exhausts retained history receives `:dao.stream/end` instead
+   468	  of `:dao.stream/blocked`.
+   469	- Retained history remains readable. Close erases nothing; eviction is a
+   470	  retention concern, not a lifecycle one.
+   471	
+   472	There is no `closed?` predicate in the public surface. Operation results are
+   473	authoritative; a predicate answer is stale the moment it is returned.
+   474	
+   475	## Concurrency
+   476	
+   477	Each logical stream is one append-only sequence: a successfully appended
+   478	value occupies exactly one definite position in that sequence, and every
+   479	operation's outcome reflects the sequence at one moment. DaoStream
+   480	guarantees nothing further about concurrent operations.
+   481	
+   482	This follows from Axiom 2. The sequence is the one truth; each outcome is
+   483	one perspective on it at one moment. A reader that observes
+   484	`:dao.stream/blocked` and then a value has not caught the stream in a
+   485	contradiction — it made two observations from its own cursor, and no global
+   486	view exists to contradict. Whether an append landed before a close is
+   487	answered by the sequence itself: the value has a position or it does not.
+   488	What an ordering between writers *means*, and any coordination among them —
+   489	a merge interpreter, a one-log-per-writer discipline — is interpretation,
+   490	and interpretation happens above the stream.
+   491	
+   492	## Retention and Gaps
+   493	
+   494	Retention and overflow behavior are transport-owned, declared by the
+   495	creation specification. A ring buffer retains a bounded window and evicts
+   496	the oldest; a file or append-only log retains everything; a network send
+   497	buffer refuses transiently. Which outcomes a given stream can produce —
+   498	`full` on append, `gap` on read — and whether its `full` is transient or
+   499	permanent follow from the transport's declared nature. DaoStream names the
+   500	outcomes and standardizes no policy.
+   501	
+   502	When bounded retention evicts a value, a cursor still pointing at it gets the
+   503	gap outcome from the Reading table. The stream reports honestly and decides
+   504	nothing: an interpreter replaying a log may treat a gap as fatal; a live
+   505	telemetry viewer may adopt the returned cursor and continue. Silently
+   506	skipping evicted history is forbidden — a reader must be able to know it
+   507	missed values.
+   508	
+   509	## Composition
+   510	
+   511	DaoStream defines only streams, cursors, and the operations above. Anything
+   512	that transforms one stream into another is an interpreter — it reads via its
+   513	own cursor and appends to an ordinary output stream — and that lives entirely
+   514	outside this contract, needing no support from it. As in a Unix pipeline, the
+   515	pipe is dumb; the transforming happens in the processes on either end.
+   516	
+   517	## Explicitly Absent
+   518	
+   519	Absent from the public surface, by derivation from the invariants: `open!`
+   520	and `defopen` (ambient registry), `closed?` (stale predicate), `drain-one!`
+   521	and any destructive read (readers advance cursors, not the stream), `seek`
+   522	(every valid cursor comes from the stream; anchored minting and kept
+   523	cursors cover repositioning), `take!!` (blocking), waiter registration
+   524	(no readiness extension), and throwing conveniences such as `strict-vec`
+   525	(operational outcomes are data).
+
+codex
+No P0/critical findings. There are several P1 contract and interoperability defects. No purely cosmetic P3 findings.
+
+## Findings
+
+- **P1 | [dao.stream.md:187](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:187), [dao.stream.md:273](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:273), [dao.stream.ws.md:188](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:188) |** The contract says `attach! :ok` means attachment is complete; WebSocket returns it before remote resolution. This contradicts both the outcome row and “returns a handle on the same logical stream,” although the contract explicitly permits displaced remote answers at lines 335–342. **Exact correction:** replace the `ok` row with:
+
+  > `:dao.stream/ok` | A handle for an attachment attempt exists. The attachment may already be established or, when its transport cannot know the remote answer at call time, may still be establishing; that transport reports eventual resolution as data on its declared channel. | `:dao.stream/handle`
+
+  Replace lines 192–193 with:
+
+  > `attach!` consumes a portable descriptor and returns a handle scoped to an attachment attempt to the logical stream the descriptor names. Attaching never creates. A transport that cannot determine remote resolution at call time may return the handle while establishment is pending and must declare where the eventual resolution appears as data.
+
+  The round-trip promise at lines 247–252 also needs “eventually reaches” rather than implying that `attach!` has already reached the stream when it returns.
+
+- **P1 | [dao.stream.md:425](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:425), [dao.stream.md:477](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:477) |** Writing permits `ok` to mean placement on an outbound-path sequence, but Concurrency says every successful append occupies the logical stream and that logical-stream membership settles its race with close. Those claims are inconsistent. **Exact correction:** replace lines 477–487 with:
+
+  > Each writer surface is on one append-only sequence declared by its transport. A successfully appended value occupies exactly one definite position in that sequence, and the `append!` outcome reflects that sequence at one moment. When the writer sequence is the logical stream itself, the value’s presence or absence in that stream answers whether the append landed before logical-stream close. When the writer sequence is an outbound path, `ok` establishes only acceptance on that path; remote delivery and placement in another logical stream are separate facts reported at the far end. DaoStream guarantees nothing further about concurrent operations.
+
+- **P1 | [dao.stream.ws.md:43](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:43), [dao.stream.ws.md:210](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:210) |** WebSocket never makes the declaration the Writing section requires: it does not normatively state which sequence its writer surface is on. “Encodes and sends it” is not a sequence declaration and may imply delivery. **Exact correction:** replace lines 43–44 with:
+
+  > **Outbound:** this handle’s writer surface is on the ordered outbound path of this attachment. `append! :dao.stream/ok` means the value was accepted at the next position on that path for encoding and transmission. It implies neither peer receipt nor placement in the server-hosted logical stream.
+
+- **P1 | [dao.stream.ws.md:9](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:9), [dao.stream.ws.md:53](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:53), [dao.stream.ws.md:84](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:84) |** The descriptor supposedly names a server-hosted logical stream, but the spec never normatively relates that stream to the composition-selected deposit destination. It even permits one destination per attachment. Consequently, a successful connection may expose only unrelated event streams, making “attachment to the named stream” vacuous. **Exact correction:** add:
+
+  > At the serving endpoint, inbound payload events for an accepted attachment MUST be deposited into the logical stream named by the descriptor. A separate boundary or lifecycle stream may carry transport telemetry, but it is not the served stream. If the composition creates a distinct payload stream per attachment, each such logical stream requires its own descriptor; it is not an alternative realization of one descriptor naming one pre-existing stream.
+
+- **P1 | [dao.stream.ws.md:160](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:160), [dao.stream.ws.md:174](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:174), [dao.stream.ws.md:242](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:242) |** The spec says the handshake is wire-protocol-specified “here,” but defines no request or response frames. The descriptor’s exact form is also explicitly TBD. Independent implementations cannot interoperate or distinguish authoritative `not-found` from generic connection failure. **Exact correction:** either add normative descriptor and handshake grammars, or replace the claim with:
+
+  > The interoperable descriptor grammar and handshake wire protocol are not specified in this document. Until they define framing, stream identity, acceptance, authoritative `not-found`, protocol/version negotiation, and malformed-message behavior, independent WebSocket implementations and wire-level conformance tests are not possible.
+
+- **P1 | [dao.stream.md:335](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:335), [dao.stream.ws.md:182](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:182) |** The subordinate spec does not provide the required per-operation outcome declaration. In particular, it omits `descriptor`, never explicitly accounts for excluded `attach! :denied`, and describes outcomes narratively rather than exhaustively. **Exact correction:** add this normative declaration:
+
+  > `descriptor` produces `{ok}`.  
+  > `attach!` returns `{ok, invalid-descriptor}` directly; `not-found` and `transport-error` are displaced to the declared deposit stream because they require a remote answer; `denied` is excluded while capability gating is contractually unreachable.  
+  > `append!` produces `{ok, full, invalid-value, closed, transport-error}`.  
+  > `close!` produces `{ok}`.  
+  > `cursor` and `next` are absent because the handle has no reader surface.  
+  > `create!` is absent; dynamic dispatch for this type returns `not-found`.
+
+- **P1 | [dao.stream.ws.md:116](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:116), [dao.stream.ws.md:127](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:127), [dao.stream.ws.md:134](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:134), [dao.stream.ws.md:154](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:154) |** The claimed loss accounting is impossible under the spec’s own failure case. If depositing an arrival returns `transport-error`, that arrival was not deposited, and the local teardown event cannot be deposited into the same failed destination. “Disconnection is fully observable” and “silent loss is unconstructible” therefore overstate the guarantee. **Exact correction:** replace lines 154–156 with:
+
+  > Declared retention pressure surfaces as reader-visible gaps. A runtime deposit failure tears down the attachment, but the triggering event and local teardown event may be absent from the failed destination. In that case local failure is observable only through the deposit result held by the adapter and subsequent handle operations; peer observation is guaranteed only if teardown reaches the peer.
+
+- **P2 | [dao.stream.ws.md:74](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:74), [dao.stream.ws.md:198](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:198) |** The normative example uses `:ws/not-found` and `:ws/transport-error`, while the explanation calls the displaced facts `:dao.stream/not-found` and `:dao.stream/transport-error`. A conformance test cannot determine which keyword is actually deposited. **Exact correction:** change the prose to:
+
+  > The deposited event `{:dao.stream/attachment id :ws/event :ws/not-found}` is the authoritative disclaimer that the named stream does not exist. The deposited event with `:ws/event :ws/transport-error` represents reachability or connection failure.
+
+  These are transport events, not DaoStream operation-result maps.
+
+- **P2 | [dao.stream.ws.md:118](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:118) |** Assembly validation checks retention behavior but does not require the destination to accept the actual event-envelope value domain. A destination can evict oldest yet still return `invalid-value`. **Exact correction:** add:
+
+  > Assembly MUST also verify that the destination can carry every deposited envelope defined by this transport, including attachment identifiers, lifecycle events, and every value admitted by the negotiated wire codec. Retention mode alone is insufficient.
+
+- **P2 | [dao.stream.ws.md:48](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:48) |** The specification relies on ADR 0003 and an undefined `dao.space` medium. Under the stated clean-room scope, that dependency is unevaluable and unnecessary. **Exact correction:** replace the sentence with:
+
+  > There is no separate event bus in this specification: the adapter appends each inbound event to the host-composed DaoStream deposit destination.
+
+- **P2 | [dao.stream.md:494](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:494) |** Retention is said to be declared by the creation specification, but attached streams and transport-created operational paths need not have a creation specification available to the attaching implementer. This conflicts with the broader “declared nature” language. **Exact correction:** replace the first sentence with:
+
+  > Retention and overflow behavior are transport-owned and form part of the stream or writer surface’s declared nature; a locally created stream records them through its creation specification.
+
+No P3 findings.
+
+## Answers to the three open questions
+
+### Q1
+
+As written, it is a contradiction. The WebSocket behavior is compatible with the contract’s no-wait rule and displaced-answer mechanism, but incompatible with the existing `attach! :ok` meaning.
+
+The row should be:
+
+> `:dao.stream/ok` | A handle for an attachment attempt exists. The attachment may already be established or, when its transport cannot know the remote answer at call time, may still be establishing; that transport reports eventual resolution as data on its declared channel. | `:dao.stream/handle`
+
+No `pending` outcome is needed. `pending` would duplicate information already represented by the returned establishing handle, `append! :full`, and the mandatory displaced resolution event. More importantly, `pending` would not provide the eventual remote answer; the reader would still need the declared data channel. The contract already expressly allows such displacement at lines 335–342.
+
+The WebSocket spec must nevertheless define the exact displaced event vocabulary and ordering.
+
+### Q2
+
+They are not consistent. The `append!` row and Writing prose distinguish the writer-surface sequence from the logical stream; Concurrency collapses them back into one sequence.
+
+Use the Concurrency replacement given above. For WebSocket, replace its outbound description with:
+
+> **Outbound:** this handle’s writer surface is on the ordered outbound path of this attachment. `append! :dao.stream/ok` means the value was accepted at the next position on that path for encoding and transmission. It implies neither peer receipt nor placement in the server-hosted logical stream.
+
+The current WebSocket text never states this normatively. “Encodes and sends” is not enough and is stronger than the contract permits an immediate `ok` to prove.
+
+### Q3
+
+The deposited-event schema falls outside what the DaoStream contract governs as element semantics, and is therefore permitted provided the host composition knowingly selects a destination capable of carrying it.
+
+“Stream elements are data” prohibits DaoStream itself from assigning intrinsic meaning; it does not prohibit a writer or boundary adapter from constructing structured data. Likewise, the `:dao.stream/…` keyword rule applies to operation-result maps, not arbitrary stream elements. The contract’s transport-owned-key rule applies specifically to creation specifications and portable descriptors, not to every map ever appended.
+
+Therefore:
+
+- The envelope is not a contract-defined DaoStream envelope.
+- It does not violate the contract merely by being appended.
+- The WebSocket transport may specify it as its own boundary-event data format.
+- It may not imply that all DaoStream consumers understand it or that the contract grants it universal meaning.
+
+For clearer ownership, I would use `:ws/attachment` inside deposited event values while retaining `:dao.stream/attachment` in the `attach!` result map:
+
+```clojure
+{:ws/attachment <same-id>
+ :ws/event      :ws/payload
+ :ws/value      <decoded>}
+```
+
+That namespace change is hygiene, not a requirement currently stated by the contract.
+
+## What an implementer cannot determine from these two documents
+
+An implementer cannot determine:
+
+- The exact portable descriptor grammar, required keys, canonicalization, validation rules, or stable identity comparison.
+- The WebSocket URL construction rules, TLS rules, subprotocol name, protocol version, headers, authentication placement, or codec negotiation.
+- The handshake request, acceptance, and authoritative-disclaimer frames.
+- Whether text or binary frames are used, how fragmentation is handled, or which host values the codec supports.
+- The normative relationship between the named server-hosted stream and each endpoint’s deposit destination.
+- The server-side API for serving a stream, installing the identity-resolution table, composing the deposit destination, or stopping the endpoint.
+- The complete public protocol signatures and how a transport declares surfaces and outcome subsets in machine-testable form.
+- The concrete representation and uniqueness scope of attachment identifiers.
+- Required event ordering: whether `opened` precedes every payload, whether all accepted payloads precede `closed`, whether `error` must be followed by `closed`, and whether lifecycle events may repeat.
+- What happens when the served logical stream already exists but is closed: accept an attachment whose writes are closed, disclaim it, or use another event.
+- How server-originated values enter the outbound WebSocket direction.
+- How a client discovers or obtains its host-composed deposit stream; the example assumes knowledge that the prose says the attaching caller does not have.
+- How displaced resolution is observed by a caller that has the handle but no reader access to the composition-owned medium.
+- How assembly verifies “always admits,” especially the destination’s accepted value domain and runtime storage failures.
+- The conformance points for races among `append!`, local `close!`, peer close, handshake completion, send-buffer acceptance, and deposit failure.
+- Any executable definition of structural serialization equality across the stated hosts.
+- What `dao.space` contributes; that information exists only through the forbidden external reference.
+
+Accordingly, these documents are sufficient to communicate the intended architecture, but not sufficient to build interoperable WebSocket endpoints or a complete black-box conformance suite without inventing protocol and composition rules.
+tokens used
+35,408
+No P0/critical findings. There are several P1 contract and interoperability defects. No purely cosmetic P3 findings.
+
+## Findings
+
+- **P1 | [dao.stream.md:187](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:187), [dao.stream.md:273](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:273), [dao.stream.ws.md:188](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:188) |** The contract says `attach! :ok` means attachment is complete; WebSocket returns it before remote resolution. This contradicts both the outcome row and “returns a handle on the same logical stream,” although the contract explicitly permits displaced remote answers at lines 335–342. **Exact correction:** replace the `ok` row with:
+
+  > `:dao.stream/ok` | A handle for an attachment attempt exists. The attachment may already be established or, when its transport cannot know the remote answer at call time, may still be establishing; that transport reports eventual resolution as data on its declared channel. | `:dao.stream/handle`
+
+  Replace lines 192–193 with:
+
+  > `attach!` consumes a portable descriptor and returns a handle scoped to an attachment attempt to the logical stream the descriptor names. Attaching never creates. A transport that cannot determine remote resolution at call time may return the handle while establishment is pending and must declare where the eventual resolution appears as data.
+
+  The round-trip promise at lines 247–252 also needs “eventually reaches” rather than implying that `attach!` has already reached the stream when it returns.
+
+- **P1 | [dao.stream.md:425](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:425), [dao.stream.md:477](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:477) |** Writing permits `ok` to mean placement on an outbound-path sequence, but Concurrency says every successful append occupies the logical stream and that logical-stream membership settles its race with close. Those claims are inconsistent. **Exact correction:** replace lines 477–487 with:
+
+  > Each writer surface is on one append-only sequence declared by its transport. A successfully appended value occupies exactly one definite position in that sequence, and the `append!` outcome reflects that sequence at one moment. When the writer sequence is the logical stream itself, the value’s presence or absence in that stream answers whether the append landed before logical-stream close. When the writer sequence is an outbound path, `ok` establishes only acceptance on that path; remote delivery and placement in another logical stream are separate facts reported at the far end. DaoStream guarantees nothing further about concurrent operations.
+
+- **P1 | [dao.stream.ws.md:43](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:43), [dao.stream.ws.md:210](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:210) |** WebSocket never makes the declaration the Writing section requires: it does not normatively state which sequence its writer surface is on. “Encodes and sends it” is not a sequence declaration and may imply delivery. **Exact correction:** replace lines 43–44 with:
+
+  > **Outbound:** this handle’s writer surface is on the ordered outbound path of this attachment. `append! :dao.stream/ok` means the value was accepted at the next position on that path for encoding and transmission. It implies neither peer receipt nor placement in the server-hosted logical stream.
+
+- **P1 | [dao.stream.ws.md:9](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:9), [dao.stream.ws.md:53](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:53), [dao.stream.ws.md:84](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:84) |** The descriptor supposedly names a server-hosted logical stream, but the spec never normatively relates that stream to the composition-selected deposit destination. It even permits one destination per attachment. Consequently, a successful connection may expose only unrelated event streams, making “attachment to the named stream” vacuous. **Exact correction:** add:
+
+  > At the serving endpoint, inbound payload events for an accepted attachment MUST be deposited into the logical stream named by the descriptor. A separate boundary or lifecycle stream may carry transport telemetry, but it is not the served stream. If the composition creates a distinct payload stream per attachment, each such logical stream requires its own descriptor; it is not an alternative realization of one descriptor naming one pre-existing stream.
+
+- **P1 | [dao.stream.ws.md:160](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:160), [dao.stream.ws.md:174](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:174), [dao.stream.ws.md:242](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:242) |** The spec says the handshake is wire-protocol-specified “here,” but defines no request or response frames. The descriptor’s exact form is also explicitly TBD. Independent implementations cannot interoperate or distinguish authoritative `not-found` from generic connection failure. **Exact correction:** either add normative descriptor and handshake grammars, or replace the claim with:
+
+  > The interoperable descriptor grammar and handshake wire protocol are not specified in this document. Until they define framing, stream identity, acceptance, authoritative `not-found`, protocol/version negotiation, and malformed-message behavior, independent WebSocket implementations and wire-level conformance tests are not possible.
+
+- **P1 | [dao.stream.md:335](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:335), [dao.stream.ws.md:182](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:182) |** The subordinate spec does not provide the required per-operation outcome declaration. In particular, it omits `descriptor`, never explicitly accounts for excluded `attach! :denied`, and describes outcomes narratively rather than exhaustively. **Exact correction:** add this normative declaration:
+
+  > `descriptor` produces `{ok}`.  
+  > `attach!` returns `{ok, invalid-descriptor}` directly; `not-found` and `transport-error` are displaced to the declared deposit stream because they require a remote answer; `denied` is excluded while capability gating is contractually unreachable.  
+  > `append!` produces `{ok, full, invalid-value, closed, transport-error}`.  
+  > `close!` produces `{ok}`.  
+  > `cursor` and `next` are absent because the handle has no reader surface.  
+  > `create!` is absent; dynamic dispatch for this type returns `not-found`.
+
+- **P1 | [dao.stream.ws.md:116](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:116), [dao.stream.ws.md:127](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:127), [dao.stream.ws.md:134](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:134), [dao.stream.ws.md:154](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:154) |** The claimed loss accounting is impossible under the spec’s own failure case. If depositing an arrival returns `transport-error`, that arrival was not deposited, and the local teardown event cannot be deposited into the same failed destination. “Disconnection is fully observable” and “silent loss is unconstructible” therefore overstate the guarantee. **Exact correction:** replace lines 154–156 with:
+
+  > Declared retention pressure surfaces as reader-visible gaps. A runtime deposit failure tears down the attachment, but the triggering event and local teardown event may be absent from the failed destination. In that case local failure is observable only through the deposit result held by the adapter and subsequent handle operations; peer observation is guaranteed only if teardown reaches the peer.
+
+- **P2 | [dao.stream.ws.md:74](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:74), [dao.stream.ws.md:198](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:198) |** The normative example uses `:ws/not-found` and `:ws/transport-error`, while the explanation calls the displaced facts `:dao.stream/not-found` and `:dao.stream/transport-error`. A conformance test cannot determine which keyword is actually deposited. **Exact correction:** change the prose to:
+
+  > The deposited event `{:dao.stream/attachment id :ws/event :ws/not-found}` is the authoritative disclaimer that the named stream does not exist. The deposited event with `:ws/event :ws/transport-error` represents reachability or connection failure.
+
+  These are transport events, not DaoStream operation-result maps.
+
+- **P2 | [dao.stream.ws.md:118](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:118) |** Assembly validation checks retention behavior but does not require the destination to accept the actual event-envelope value domain. A destination can evict oldest yet still return `invalid-value`. **Exact correction:** add:
+
+  > Assembly MUST also verify that the destination can carry every deposited envelope defined by this transport, including attachment identifiers, lifecycle events, and every value admitted by the negotiated wire codec. Retention mode alone is insufficient.
+
+- **P2 | [dao.stream.ws.md:48](/Users/sto/workspace/datomworld/docs/design/dao.stream.ws.md:48) |** The specification relies on ADR 0003 and an undefined `dao.space` medium. Under the stated clean-room scope, that dependency is unevaluable and unnecessary. **Exact correction:** replace the sentence with:
+
+  > There is no separate event bus in this specification: the adapter appends each inbound event to the host-composed DaoStream deposit destination.
+
+- **P2 | [dao.stream.md:494](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:494) |** Retention is said to be declared by the creation specification, but attached streams and transport-created operational paths need not have a creation specification available to the attaching implementer. This conflicts with the broader “declared nature” language. **Exact correction:** replace the first sentence with:
+
+  > Retention and overflow behavior are transport-owned and form part of the stream or writer surface’s declared nature; a locally created stream records them through its creation specification.
+
+No P3 findings.
+
+## Answers to the three open questions
+
+### Q1
+
+As written, it is a contradiction. The WebSocket behavior is compatible with the contract’s no-wait rule and displaced-answer mechanism, but incompatible with the existing `attach! :ok` meaning.
+
+The row should be:
+
+> `:dao.stream/ok` | A handle for an attachment attempt exists. The attachment may already be established or, when its transport cannot know the remote answer at call time, may still be establishing; that transport reports eventual resolution as data on its declared channel. | `:dao.stream/handle`
+
+No `pending` outcome is needed. `pending` would duplicate information already represented by the returned establishing handle, `append! :full`, and the mandatory displaced resolution event. More importantly, `pending` would not provide the eventual remote answer; the reader would still need the declared data channel. The contract already expressly allows such displacement at lines 335–342.
+
+The WebSocket spec must nevertheless define the exact displaced event vocabulary and ordering.
+
+### Q2
+
+They are not consistent. The `append!` row and Writing prose distinguish the writer-surface sequence from the logical stream; Concurrency collapses them back into one sequence.
+
+Use the Concurrency replacement given above. For WebSocket, replace its outbound description with:
+
+> **Outbound:** this handle’s writer surface is on the ordered outbound path of this attachment. `append! :dao.stream/ok` means the value was accepted at the next position on that path for encoding and transmission. It implies neither peer receipt nor placement in the server-hosted logical stream.
+
+The current WebSocket text never states this normatively. “Encodes and sends” is not enough and is stronger than the contract permits an immediate `ok` to prove.
+
+### Q3
+
+The deposited-event schema falls outside what the DaoStream contract governs as element semantics, and is therefore permitted provided the host composition knowingly selects a destination capable of carrying it.
+
+“Stream elements are data” prohibits DaoStream itself from assigning intrinsic meaning; it does not prohibit a writer or boundary adapter from constructing structured data. Likewise, the `:dao.stream/…` keyword rule applies to operation-result maps, not arbitrary stream elements. The contract’s transport-owned-key rule applies specifically to creation specifications and portable descriptors, not to every map ever appended.
+
+Therefore:
+
+- The envelope is not a contract-defined DaoStream envelope.
+- It does not violate the contract merely by being appended.
+- The WebSocket transport may specify it as its own boundary-event data format.
+- It may not imply that all DaoStream consumers understand it or that the contract grants it universal meaning.
+
+For clearer ownership, I would use `:ws/attachment` inside deposited event values while retaining `:dao.stream/attachment` in the `attach!` result map:
+
+```clojure
+{:ws/attachment <same-id>
+ :ws/event      :ws/payload
+ :ws/value      <decoded>}
+```
+
+That namespace change is hygiene, not a requirement currently stated by the contract.
+
+## What an implementer cannot determine from these two documents
+
+An implementer cannot determine:
+
+- The exact portable descriptor grammar, required keys, canonicalization, validation rules, or stable identity comparison.
+- The WebSocket URL construction rules, TLS rules, subprotocol name, protocol version, headers, authentication placement, or codec negotiation.
+- The handshake request, acceptance, and authoritative-disclaimer frames.
+- Whether text or binary frames are used, how fragmentation is handled, or which host values the codec supports.
+- The normative relationship between the named server-hosted stream and each endpoint’s deposit destination.
+- The server-side API for serving a stream, installing the identity-resolution table, composing the deposit destination, or stopping the endpoint.
+- The complete public protocol signatures and how a transport declares surfaces and outcome subsets in machine-testable form.
+- The concrete representation and uniqueness scope of attachment identifiers.
+- Required event ordering: whether `opened` precedes every payload, whether all accepted payloads precede `closed`, whether `error` must be followed by `closed`, and whether lifecycle events may repeat.
+- What happens when the served logical stream already exists but is closed: accept an attachment whose writes are closed, disclaim it, or use another event.
+- How server-originated values enter the outbound WebSocket direction.
+- How a client discovers or obtains its host-composed deposit stream; the example assumes knowledge that the prose says the attaching caller does not have.
+- How displaced resolution is observed by a caller that has the handle but no reader access to the composition-owned medium.
+- How assembly verifies “always admits,” especially the destination’s accepted value domain and runtime storage failures.
+- The conformance points for races among `append!`, local `close!`, peer close, handshake completion, send-buffer acceptance, and deposit failure.
+- Any executable definition of structural serialization equality across the stated hosts.
+- What `dao.space` contributes; that information exists only through the forbidden external reference.
+
+Accordingly, these documents are sufficient to communicate the intended architecture, but not sufficient to build interoperable WebSocket endpoints or a complete black-box conformance suite without inventing protocol and composition rules.

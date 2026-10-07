@@ -1,0 +1,175 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-flash","query_source":"generate_session_title"}
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+# Adversarial review: yin.vm and yin.repl implementation plans
+
+I read both plans, the four authorities, and every source file the plans port or diagnose. Verdict up front: the VM plan's two load-bearing claims — the closure table and the "six idioms" — are both wrong in ways that an implementer would hit on day one. The REPL plan is substantially better and its previous round's fixes mostly landed, but it inherits the VM plan's errors and it repeats the envelope-circularity defect it names.
+
+---
+
+## Findings, most severe first
+
+### 1. Closure claim omits `dao.stream.ringbuffer` → `dao.stream.ringbuffer`
+**severity: critical | `docs/design/yin.vm.implementation-plan.md:33-36,38-49` | the claim | the exact correction**
+
+The plan asserts: *"Every transitive require was traced. Every v1 dependency is either `dao.stream` itself — which becomes v2 — or a namespace in this table. Nothing dangles."* The table has ten rows and a note that `yin.module` is reused.
+
+The claim is false. Two namespaces in the ast-walker closure require a v1 namespace that is neither `dao.stream` itself nor in the table:
+
+- `yin/vm.cljc:6-9` requires `dao.stream.ringbuffer` on all three hosts, and calls it at `yin/vm.cljc:137` (`ringbuffer/make-ring-buffer-stream nil` on cljd).
+- `yin/vm/engine.cljc:7` requires `dao.stream.ringbuffer`, and uses it at `yin/vm/engine.cljc:137` (`handle-make`'s `ds/open!` with `:type :ringbuffer`).
+
+`dao.stream.ringbuffer` is a distinct namespace from `dao.stream` — it is not covered by "`dao.stream` itself," and it has no table row. Its v2 counterpart is `dao.stream.ringbuffer`, owned by the sibling plan's Phase 2. So the *complete* transitive closure of an ast-walker on v2 is the ten ported namespaces **plus** `dao.stream` (Phase 1) **plus** `dao.stream.ringbuffer` (Phase 2) **plus** `yin.module`.
+
+**Correction:** restate the closure as eleven-to-thirteen namespaces and name `dao.stream.ringbuffer` explicitly. The plan's own Prerequisites (§124-134) does list Phase 2, so nothing strictly *dangles* — but the section is titled "The closure, verified," and its "nothing dangles" sentence and "~3,142 lines" figure describe only the ten namespaces this plan ports, not the closure. Since the review brief says the plan's scope, line count, and independence claim all rest on this table, the omission is the single most valuable correction available.
+
+---
+
+### 2. The "six idioms" list is missing four retired idioms that the ast-walker closure actually uses
+**severity: critical | `docs/design/yin.vm.implementation-plan.md:62-100` | the claim | the exact correction**
+
+The plan says *"Six v1 idioms run through this code… Finding them all is most of the work"* and then enumerates six. Reading the sources, the ast-walker closure uses **at least four more** v1 idioms that `dao.stream.md` and the sibling plan's "What v1 callers lose" table explicitly retire, and none of them appears anywhere in the plan:
+
+**(a) Waiter registration (`IDaoStreamWaitable` / `register-reader-waiter!` / `register-writer-waiter!`).** Retired: `dao.stream.md:636-650` ("waiter registration — there is no readiness extension"), sibling table `IDaoStreamWaitable — 2 fns — gone`. Present in:
+- `dao/runtime.cljc:156-157` (`satisfies? ds/IDaoStreamWaitable`, `register-reader-waiter!`) and `:181-182` (`register-writer-waiter!`);
+- `yin/vm/engine.cljc:442-447` and `:484-492` (same two registrations);
+- `yin/vm/ast_walker.cljc:139-140` (`satisfies? ds/IDaoStreamWaitable` + `register-reader-waiter!`).
+
+**(b) Destructive reads (`drain-one!`).** Retired: sibling table `IDaoStreamDrainable / drain-one! — gone`; contract "destructive reads" (`dao.stream.md:644`). Present in `dao/runtime.cljc:94` (the `:take` branch of `check-wait-set`) and `:197` (`handle-take`); and `yin/vm/engine.cljc:208-227` (`handle-take`).
+
+**(c) The `closed?` predicate.** Retired: `dao.stream.md:575`, `:640` ("no `closed?` predicate"). Present in `dao/runtime.cljc:115` (`(ds/closed? stream)` in `check-wait-set`'s `:put` branch). The VM plan never mentions it (only the REPL plan does, for `repl.cljc`).
+
+**(d) v1 operation result shapes `{:result … :woke […]}` and wake tokens.** Retired: v2 results are outcome maps under `:dao.stream/outcome`; there is no `:woke` mechanism. Present throughout `dao/runtime.cljc` (`:74-93`, `:122-132`, `:173-190`, `:219`) and `yin/vm/engine.cljc` (`:156-159`, `:237`, `:455-465`, `:520-530`), plus `ffi.cljc:110-114` and `make-woken-run-queue-entries` (`engine.cljc:101-128`). The plan's "append! outcomes are read" (§86-89) covers only the *discarding* of results, not this wholesale *shape* change.
+
+Two of the six idioms it *does* list are also far wider than its citations, and that undercount is itself a defect:
+
+**(e) Cursor-internals reach.** The plan cites only `stream_driver.cljc:25` and `apply.cljc:170,184`. The closure also fabricates or destructures `{:position …}`/`{:stream-id …}` cursors at `vm.cljc:542-545` (the call-in/call-out store cursors), `ast_walker.cljc:786` (`:in-cursor {:position 0}`), `ffi.cljc:31-32,96`, `engine.cljc:24-30,168,191-192,261,274,481`, `runtime_adapter.cljc:8-11`, `apply.cljc:220` (`serve-once!`'s 1-arity), and — critically, because it is never mentioned — `telemetry.cljc:131-133` (`cursor-map?`) and `:168-171`, which summarize a cursor by reaching into `:stream-id` and `:position`. Under v2 a cursor is opaque (`dao.stream.md:444-470`), so telemetry's cursor summarization has no v2 equivalent and must be redesigned.
+
+**(f) A second `ds/open! :mode :create` site.** The plan cites `vm.cljc:139` only; `yin/vm/engine.cljc:137` (`handle-make`, the `:stream/make` effect) opens with `{:mode :create, :capacity capacity}` and must also become `create!` with declared retention.
+
+**Correction:** the idiom list must be expanded to at least ten items (a–f above), and Phase V2/V4 must specify what replaces each: how the wait-set is re-polled without waiters, what the `:stream/take` effect becomes without `drain-one!`, how `check-wait-set`'s `:put` branch learns a stream is closed without `closed?`, and how opaque cursors are summarized. As written, "finding them all is most of the work" understates the port's actual difficulty by roughly half.
+
+---
+
+### 3. Phase V1 declares `dao.runtime` a leaf with "no v2-specific behaviour" — false
+**severity: high | `docs/design/yin.vm.implementation-plan.md:136-147` | the claim | the exact correction**
+
+The plan lists `dao.runtime` among *"the three namespaces with no v2-specific behaviour of their own"* and describes it as *"the ready-queue and wait-set state, with its single `dao.stream` reference moved to v2."*
+
+That is not what `dao/runtime.cljc` is. It is 258 lines that include `check-wait-set` (the `:next`/`:take`/`:put` transport-polling loop at lines 56-134), `handle-read`/`handle-write`/`handle-take`/`handle-close` (141-221), `drain-one!`, `closed?`, waiter registration, `:position` cursor arithmetic, and `:woke` wake-token parsing (all itemized in finding 2). Porting it is real v2 work, not a moved require.
+
+Similarly, `yin.vm` is described as having *"one substantive change… the in-stream `create!` with declared capacity"* (line 141-142). It also contains `empty-state`'s fabricated call-in/call-out cursors (`vm.cljc:542-545`), `open-local-stream` (`vm.cljc:134-139`, including the cljd `ringbuffer/make-ring-buffer-stream` branch), and the bytecode `opcase`/opcode machinery — several of which must change.
+
+**Correction:** reclassify `dao.runtime` (and parts of `yin.vm`) out of "leaves," and give Phase V1 its own rewrite list, or split the runtime's transport layer into a later phase. As written, the phase deliverable ("three namespaces compiling… with tests for `yin.vm`'s datom conversion and primitives") is achievable only by keeping v1 `dao.runtime` behavior, which contradicts the plan's own "no v1 dependency" end condition (line 231-233).
+
+---
+
+### 4. The request/response envelope is circularly specified and should be one thing
+**severity: high | VM plan `:116-120,168-169`; REPL plan `:212-216,359-362,338-353` | the claim | the exact correction**
+
+Both plans say the envelope "must agree," then each defers the decision to the other:
+
+- VM Phase V3: *"`dao.stream.apply` … with its envelope agreed against the REPL plan's."*
+- REPL R1: *"Fix the request/response envelope … agreed with `dao.stream.apply`'s."*
+
+Neither document fixes the envelope. Consequently the REPL plan's statement that *"R1 and R2 are executable today once the envelope is fixed"* (line 351) is wrong twice over: the envelope is not fixed anywhere, and the only natural owner (`dao.stream.apply`, VM Phase V3) is not a prerequisite of R1. The blocked list for R3–R5 (lines 338-353) does not include this dependency.
+
+**Should they be one thing?** Yes — and the precedent already says whose. v1's RPC server does not define its own envelope; it requires `dao.stream.apply` and reuses `request`/`response`/`dispatch-request` (`dao/stream/rpc/server.cljc:24-38`). The envelope (request id / op / args, response id / value, error wrapping) is the lower-level primitive; RPC is a consumer of it. **Correction:** own the envelope in `dao.stream.apply` (VM plan Phase V3), have `dao.stream.rpc` require and consume those constructors under `:dao.stream.apply/…` keys, and make the VM plan's apply section the single place the id representation and error encoding are defined. "Each keeps its own key namespace" (REPL plan line 362) is exactly the "two designs for one problem" both plans denounce — it just relocates the divergence to key naming.
+
+---
+
+### 5. Reusing `yin.module` imports hidden global state and load-time registration
+**severity: high | `docs/design/yin.vm.implementation-plan.md:53-58` | the claim | the exact correction**
+
+The plan says `yin.module` *"requires only `clojure.string`, has no v1 coupling of any kind, and a copy would be identical code carrying drift risk for no benefit."*
+
+"no v1 coupling" is true only if "v1" means `dao.stream`. `yin.module` contains two `defonce` atoms (`module.cljc:21-22`) — a global module registry and a global effect registry — and performs load-time registration (`register-effect-handler!` at `module.cljc:97-114`). Both are precisely what `datom.world.md`'s non-negotiable invariants forbid ("Do not introduce hidden global state", `datom.world.md:22`) and what `dao.stream.md`'s "Explicitly Absent" section retires for its own layer. The v2 VM's effect dispatch (`engine` uses `module/get-effect-handler`; `ast_walker` uses `module/effect?`) would consult ambient global state.
+
+**Correction:** either thread the module/effect registry as explicit state in the VM (a real change, which then invalidates "reused, not forked"), or record an explicit, time-boxed exception — the sibling plan sets that precedent for its deposit-into-ringbuffer exception. At minimum, the plan may not claim the reuse carries "no coupling of any kind" without noting this.
+
+---
+
+### 6. The `satisfies?` judgment is correct — but the plan under-defends it and misses a behavior change
+**severity: low-medium | `docs/design/yin.vm.implementation-plan.md:91-95` | the claim | the exact correction**
+
+Verdict on the question asked: **the plan is right.** Asking a v2 handle `satisfies? v2-reader-protocol` is asking about a *contract-declared surface* (reader/writer/closable, `dao.stream.md:362-375`), not a transport-owned extension. The Surfaces prohibition is on reaching for "an operation the contract never promised" (`dao.stream.md:380-383`); the reader surface is promised by the contract itself. So `satisfies?` on the reader protocol is legitimate, and the plan's phrasing ("a declared surface is exactly what a handle publishes") is the correct reading.
+
+**Correction needed nonetheless:** the plan should state the consequence it does not. In v1 every ws handle was also a reader (via the hidden `:remote-stream` inbox, `dao/stream/ws.cljc:68`), so `satisfies? IDaoStreamReader` was true for it. In v2 a ws handle is writer+closable with **no** reader surface (`dao.stream.ws.md:31-36`); such a value now classifies as non-stream and falls through to `:map`/`:opaque` in `telemetry/type-tag`. That is a real, probably desirable, behavior change and belongs in the v2 telemetry tests the plan writes, not left implicit.
+
+---
+
+### 7. Scope decision is sound; two factual errors sit around it
+**severity: medium | VM plan `:17-29,236`; REPL plan `:66-67` | the claim | the exact correction**
+
+**The reasoning is correct** — `semantic.cljc` does reach `dao.space` (`query/current-state-seq` at 640, `transact/prepare-tx` at 694, and 1118), while `ast_walker.cljc` and its closure have zero `dao.space` references (verified by grep). **And the resulting VM is useful** — an ast-walker-only VM runs what a REPL user types: `eval-ast` evaluates UAST maps produced by the `yang.*` compilers, `eval-datoms` works because `vm-load-program` converts in-stream datoms via `datoms->ast` (`ast_walker.cljc:687-696`), and `(compile …)` only needs `yang.*` + `ast->datoms`. So the scope cut is the right cut.
+
+Two errors to fix:
+
+1. **The v1 REPL default is `:semantic`, not `:ast-walker`** (`yin/repl.cljc:183`, `:or {… :vm-type :semantic}`). The REPL plan's "The v2 REPL defaults to it [`:ast-walker`]" (line 66) is a change, not a preservation. The plan does acknowledge "one user-visible reduction," but "defaults to it" should read "the default changes from `:semantic` to `:ast-walker`."
+2. **"The other three evaluators follow" (lines 29, 236) undercounts.** `yin.vm.space` is a fifth evaluator — it has `SpaceVM`, `extend-type … vm/IVM`, and `create-vm` (`space.cljc:83,854-879`), and `parity_test.cljc:9,32,66-67` runs it alongside the other four. The scope line lumps `space` with `macro`/`wasm` (non-evaluators), which is a misclassification. It doesn't change the ast-walker closure, but the plan's account of what remains to port is wrong: four evaluators, not three.
+
+(Minor, same area: `semantic`'s `dao.space` dependency is also understated — `semantic.cljc:1118-1119` calls `query/collect`, `query/current`, and `query/relation` in addition to the three sites the plan names. The conclusion survives.)
+
+---
+
+### 8. The no-parity-test decision is defensible only under a condition the plan doesn't state
+**severity: medium | `docs/design/yin.vm.implementation-plan.md:200-203` | the claim | the exact correction**
+
+Refusing a same-process v1/v2 parity test is defensible: co-loading v1's `ast-walker` would indeed pull in v1 `dao.stream`, the very coupling the plan exists to avoid. But the justification — *"Divergence is caught by the evaluation suite covering the same programs, not by running both"* — is true **only if the fresh v2 suite asserts the same expected outputs that `test/yin/vm/ast_walker_test.cljc` already records.** "Covering the same programs" with freshly chosen expectations would pass under silent divergence. The plan should require: generate the v2 evaluation expectations from v1's recorded values (which is a parity test against recorded evidence, without co-loading). Also note v1 already has a cross-VM parity suite (`parity_test.cljc`) that loads all five VMs in one process; a v2-vs-v1 comparison is possible as a *separate-process* test over serialized outputs, an option the plan doesn't consider before rejecting all parity.
+
+---
+
+### 9. Previous-round fixes: five landed, one relocated its defect
+**severity: low | REPL plan throughout | the claim | the exact correction**
+
+Checking each convergent finding from the prior review against the current text:
+
+| Prior finding | Status | Where |
+|---|---|---|
+| No REPL driver specified | **Fixed.** `yin.repl.driver` with one `repl-step`, per-host cadence, "never loops on `blocked`" | lines 221-267 |
+| D3 left `/repl` naming nothing | **Fixed.** Endpoint `create!`s a composition-owned ring buffer, registers it under `/repl`; close → ended-stream code | lines 279-296 |
+| RPC client needed `me` + envelope decoding | **Fixed.** Client state has `:me` and `:decode`; `ws.cljc` consumes the whole `attach!` result | lines 146-195 |
+| `serve-step` needed pending-response state | **Fixed.** `:pending-response`/`:pending-request-id`, retry before reading, one advance/execute per request | lines 197-210 |
+| Duplication estimate wrong | **Fixed in method.** Estimate is replaced by a function-level inventory as R2's first deliverable | lines 115-129 |
+| R3–R5 blocked, not merely sequenced | **Fixed, with a gap.** Three blockers named and owned | lines 338-353 |
+
+**The relocated defect:** the blocker list for R3–R5 is correct, but R1 is *also* gated — on the envelope decision — and that gate isn't listed. R1 line 359 says "Fix the envelope… agreed with `dao.stream.apply`'s," while V3 line 168 says the opposite. The previous review flagged "R3–R5 are blocked"; the rewrite fixed that and moved the unresolved dependency *into* R1 without calling it a blocker. This is the same defect as finding 4, seen from the REPL plan's side.
+
+(Secondary nit on the D3 fix: "the shape is settled here" while "only the descriptor key names wait for the gate" is slightly optimistic — the resolution table, its host ownership, and the accept-notification path that fills it are all in the still-blocked list at lines 344-347. D3 names the policy but depends on machinery that doesn't exist yet.)
+
+---
+
+## What would fail first, if someone started VM Phase V1 tomorrow
+
+1. **Compile-time, in `yin.vm`:** the port hits `empty-state`/`open-local-stream` (`vm.cljc:134-139, 542-545`) and the fabricated call-in/call-out cursors, plus the `#?(:clj …)` rewrites. The plan told them "one substantive change," so this is unplanned work, but it is mechanical and they'd survive it.
+2. **Compile-time, in `dao.runtime`:** this is where they'd stop. Told it's a leaf with "a single `dao.stream` reference moved to v2," they would port `check-wait-set`/`handle-*` and immediately find `drain-one!`, `closed?`, `register-reader-waiter!`/`register-writer-waiter!`, `:woke`, and `:position` — none of which exist in v2, and none of which the plan says what to replace with.
+3. **Design-time, at Phase V3:** `dao.stream.apply`'s envelope says "agreed against the REPL plan's," which says "agreed with apply's." There is no source of truth to implement.
+
+The single most likely "first failure" is therefore `dao.runtime`, because it combines a false "leaf" classification with an unsolved semantics question (how a parked wait-set re-polls without the readiness extension).
+
+---
+
+## What an implementer cannot determine from these documents
+
+- **What the request/response envelope is.** Keys, id representation, error encoding — owned by neither plan.
+- **What replaces the retired idioms** in `dao.runtime`/`engine`: the `:stream/take` effect without `drain-one!`; the `:put` wait-set branch without `closed?`; the re-poll cadence for parked `:stream/put`/`:stream/next`/`:stream/take` without waiters; the `:woke` wake-token plumbing.
+- **How opaque v2 cursors are summarized** by telemetry, given `cursor-map?` and the `:stream-id`/`:position` extraction have no v2 counterpart.
+- **Retention semantics for the `:stream/make` effect** (`engine.handle-make` takes a user `:capacity`; how that maps to declared retention vs. the VM's internal 4096 in-stream is unspecified).
+- **Whether `yin.module`'s global registries are accepted or threaded as state.**
+- (From the REPL side, already owned by its blocked list): server-side attachment identity, accept notification, and the wire contract's contents.
+
+---
+
+## Should the two plans be one plan, two, or a different two?
+
+**Two plans, but not these two at the envelope boundary.** The split is right: the VM slice is a transport-free consumer of Phases 1–2; the REPL slice is a consumer of the VM plus a ws transport owner. Different owners, different prerequisites, different end conditions — keep them separate.
+
+What's wrong is the *shared* surface. The envelope must have exactly one owner (recommendation: `dao.stream.apply`, in the VM plan, with the REPL's RPC as a consuming layer exactly as v1's `rpc/server` consumes `dao.stream.apply`). "Two plans that agree" is how the current draft gets two envelopes; "one owns, the other consumes" is the correction. If neither plan can own it, then it is a third artifact — a one-page envelope spec — but it must be an artifact, not a mutual promise.
+
+---
+
+## Should either be executed as written?
+
+**No.**
+
+- **VM plan: not as written.** Its two central evidence claims are wrong (closure table omits the ringbuffer; the six-idiom list omits waiters, `drain-one!`, `closed?`, and `:woke`), and Phase V1's "leaves" claim is false. The *scope* decision (ast-walker only) is right and the line count is accurate, but an implementer cannot follow the phases as written without discovering, mid-phase, that the plan understated the port by roughly half. Correct findings 1–5, then execute.
+- **REPL plan: not as written, but close.** Its previous-round fixes are real and mostly landed; the driver, D3, client/server state, and blocked-list are genuinely improved. The blocker is inherited: it runs on a VM plan whose closure and idiom list are wrong, and its R1 is gated on an envelope that no document owns. Fix finding 4 (and the VM plan above), and the REPL plan becomes executable for R1–R2 as claimed.

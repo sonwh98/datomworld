@@ -1,0 +1,41 @@
+S3a is implemented and green on the JVM: the 10 focused namespaces (slow tests excluded) ran 214 tests and 2253 assertions with 0 failures. I haven't run the Node or Dart lanes; that's yours at landing. I made no git writes. The full report is in `collab/1791192600000-compiler-engineer-python-c3-s3a.findings.md`.
+
+**What changed**
+- **Integer module, version 2** (`src/cljc/yin/vm/integer.cljc`):
+  - A limit breach now returns `:yin.vm.integer/bit-limit` or `:yin.vm.integer/digit-limit` instead of throwing.
+  - `quot-rem` and `floor-div-mod` never return a pair with one half refused.
+  - The other seven reasons still throw `ex-info`.
+  - Nothing in the repo reads `module-version`, so the bump is just the constant plus a test. The module must still be installed explicitly.
+  - Its other callers in `values`, `data` and `engine` only use the host shim, so they needed no change.
+- **Prelude** (`src/cljc/yang/python/antlr/prelude.cljc`):
+  - `py/int-result` is the one translator. A bit-limit raises a bare `MemoryError()`, a digit-limit raises `ValueError("Exceeds the limit for integer string conversion")`, and the seven thrown-only reasons fail the run.
+  - Every `sub`, `neg`, `mul`, `shift-left`, `format` and `floor-div-mod` call in the key and hash paths is wrapped.
+  - `MemoryError` is added under `Exception`.
+  - The 2^53 `OverflowError` path is untouched.
+- **`floor-div-mod` can breach**, contrary to the brief. When an operand is already past the limit, the remainder breaches too. Unwrapped, that would silently become `nil`, so I wrapped it. `compare` cannot breach, and `py/int-canon` makes no module call.
+- **Goldens:** re-minted once, last. Five addresses in `float_address_test.cljc` moved; the hook prelude's did not.
+- **Docs:** one S3a row ("Landed.") in the 8.5.4 slice table.
+
+**Tests**
+- I wrote the tests first and confirmed each failed before implementing, except the source-level e2e test, which I wrote after the code.
+- I broke each key guarantee once on purpose (six mutations) and confirmed a test failed each time, then reverted.
+- **`integer_test`:** limit results are returned, never half a pair; the other reasons still throw; the version is 2; on all four VMs a breach is the program's value.
+- **`prelude_parity_test`** (no parser, so it runs on every host): a new 60-bit, 5-digit composition.
+  - The guest catches `MemoryError`, continues, and `finally` runs.
+  - A failed key leaves the dict or set unchanged for insert, lookup, membership, delete, tuple key and set add.
+  - The digit limit gives `ValueError`.
+  - `wrong-type`, `arity` and a thrown-only reason fail the run and can't be caught.
+- **`e2e_test`:** the same scenarios from Python source on the JVM, on four VMs, with and without no-op hooks.
+
+**Environment notes**
+- `cljstyle fix` was blocked by permissions. `cljstyle check` ran; I applied its one suggested change by hand, and it's now clean. kondo reports 0 errors and 0 warnings.
+- The fresh worktree needed `bb gen:python-antlr` before the e2e tests would load.
+- My last test run went past the 600 s foreground limit and the harness moved it to the background; it finished green.
+
+**Questions (I took the smallest choice)**
+1. **Unknown reasons only partly fail closed.** Guest code has no way to test for a keyword, so I check against the module's nine documented reasons. A made-up `:yin.vm.integer/*` keyword would slip through anywhere the result should be a string or a pair. Should we add a `data/keyword?` export, or a translator per result shape?
+2. **`MemoryError` text:** it has no message, as in CPython. A descriptive message is the alternative.
+3. **`ValueError` text:** it omits the digit count (N), because the module no longer returns the limit value.
+4. **Cost:** each wrapped call runs up to nine `=` checks. A `data/number?` check first would make it one module call instead.
+
+**Out of scope (left as is):** `py/exc-matches` at about line 635 of the prelude passes `{:py/str (data/str-concat ...)}`. Map literal values aren't evaluated in prelude code, so that `TypeError`'s message is the unevaluated form rather than the string.

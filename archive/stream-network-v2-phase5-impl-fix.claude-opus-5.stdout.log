@@ -1,0 +1,33 @@
+Both P1 issues are fixed in both files, verified locally.
+
+## P1 #1 — descriptors now carry the ring buffer's own identity
+
+The ring buffer mints its identity as a `(str (random-uuid))` string, so it drops straight into `ws/descriptor?`'s `string?` gate.
+
+- `logical-identity` takes it from `(stream/descriptor source)` (the contract's sibling projection); `table-descriptor` uses it instead of the `served-identity` constant, which is gone.
+- Fact 5 now asserts the whole chain against the value **the stream minted**, not a constant the test chose: `stream/descriptor`'s outcome and `string?` identity, sibling identity == the identity inside the descriptor envelope, then `= identity` for `d-1`, `d-2`, and both attached WS handles' `handle-descriptor` projections.
+- The cursor check no longer stands alone against the source handle — it now asserts `(= identity (:dao.stream.ringbuffer/identity (:dao.stream/cursor minted)))`, tying the cursor's identity to the served descriptors'.
+
+**Note on the starting state:** a prior fix run had already changed the derivation but left two dangling `served-identity` references (`slice_test.clj:523`, `slice_test.cljs:558`). Both files were failing to compile when I picked this up. That's resolved.
+
+## P1 #2 — attachment correlation now covers lifecycle events
+
+Fact 3 previously asserted attribution while both attachments were still live, so the histories held only resolution and payload events and the `every?` was vacuous over `:ws/closed`.
+
+- Both attachments are now closed **before** the assertions.
+- New `terminal-event` / `await-terminal` helpers poll each server-side medium until its history is complete; `await-event` does the same for each client medium.
+- Attribution is asserted over the complete histories, plus explicitly: `(some? terminal)` — so a missing terminal can't satisfy `every?` vacuously — and `(= attachment (:ws/attachment terminal))` on both sides.
+- Fact 1 got the same treatment, since the reviewer noted the detachment tests checked `:ws/closed` by kind but never its `:ws/attachment`.
+
+## Verification
+
+| Suite | Result |
+|---|---|
+| `bb test:clj` | **1294 tests, 166627 assertions, 0 failures** (was 166608) |
+| `bb test:cljs` | **1215 tests, 34280 assertions, 0 failures, 0 warnings** (was 34262) |
+
+`Testing dao.stream.slice-test` present at line 119 of both full logs. The slice namespace alone went from 77 to 96 assertions on the JVM.
+
+**Negative controls** — both fixes were the kind that pass vacuously, so I proved they bite. Inverting `(is (some? terminal))` and pointing `logical-identity` at a constant produced **8 failures on each host, identically**: 4 showing the asserted histories really do contain `:ws/closed` with the correct attachment UUIDs (client and server, both attachments), and 4 showing all four identity projections are checked against the real minted value (`cca85bfc-…` on the JVM, `82024812-…` on Node). Both files were then restored and re-verified clean — no `NEGATIVE-CONTROL` or `nil? terminal` markers remain.
+
+Nothing staged or committed. cljd was not re-run; these edits are to `.clj`/`.cljs` files the Dart build doesn't see.

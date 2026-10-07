@@ -1,0 +1,392 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-flash","query_source":"generate_session_title"}
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+Completed-GMT: 2026-09-01 16:27:49 GMT
+Completed-Local: 2026-09-01 23:27:49 Asia/Ho_Chi_Minh
+
+# 1. Is it a good idea?
+
+**Yes.** It is a good idea, and it is the right idea for this project — on one
+condition that must be stated in the document itself, or the design looks like
+it leaks resources forever.
+
+The condition: **"expiry is an interpretation, not an event" survives contact
+with a socket only if reclamation is understood to be a separate, driven act.**
+"Nothing fires when a lease lapses" is true of the lease. It is not true of the
+grantor. The grantor is an interpreter that a driver runs on a cadence — the
+same driver pattern `dao.stream.implementation-plan.md` §4b already names
+("a driver calling a function repeatedly is ordinary control flow"). On each
+pass it reads the trace, judges lapse against its own clock, and — if lapsed or
+released — *acts*: it closes the socket, resumes the sender, drops the claim,
+and records that act as data. The lease vocabulary gives the grantor a
+fact-shaped question; the driver supplies the "particular moment." The moment of
+reclamation is the moment the interpreter runs and judges lapse, not a
+mathematical instant of expiry. That is exactly consistent with "no operation
+waits" and "cadence belongs to the runtime." So the idea survives contact, but
+the spec must say the one sentence the proposal leaves implicit.
+
+The remaining considerations:
+
+- **Axioms and invariants.** No conflict. The proposal is a direct application
+  of Axioms 1–3 (facts on an append-only medium; semantics by interpretation;
+  state as datoms) and is silent on Axiom 4 (a lease is permission, not the held
+  computation). Of the six invariants it satisfies the hardest ones *because of*
+  its shape: "no callbacks" is satisfied because lapse is a conclusion, not a
+  signal; "no shared mutable state" because there is no mutable deadline slot —
+  the trace is append-only and the grantor's observation state is
+  interpreter-owned, advanced like a cursor; "do not collapse interpretation and
+  execution" because judging and reclaiming are two steps, and only the second
+  acts. Jini's live `Lease` object violates this family; the datom form repairs
+  it.
+
+- **Generality.** Real but thin, which is the correct amount. What generalizes
+  is a *vocabulary and a lapse rule*, not a mechanism — there is no mechanism to
+  over-generalize. It generalizes something the project already does:
+  `dao.space.md`'s "claim by appending" (`:work/claims`) is already
+  structurally a lease with the expiry half missing — a dead worker's claim
+  currently sticks forever. The lease doc supplies the missing half. That is
+  earned generality, not speculative. The discipline is that the doc must
+  standardize nothing that runs: no timer, no registry, no renewal manager, no
+  second medium. My draft below refuses all of those explicitly.
+
+- **Clock discipline.** The holder writes *durations*, never instants. An
+  instant is a claim about a clock the holder does not own; it drifts, and a
+  hostile holder writes whatever serves it. A duration is a relative interval
+  both sides can share without agreeing what time it is. The grantor applies its
+  own clock when it reads the fact. Skew is designed out because there is no
+  wire instant to skew.
+
+- **Bounded retention eviction.** The correct rule is that eviction resolves
+  toward lapse, never toward holding: a grantor that cannot see the evidence
+  holds nothing. Consequence: a medium carrying leases must retain at least as
+  long as the longest grant it will honor; evicting a live holder's newest
+  renewal is a composition defect (the analogue of wiring a reject-mode deposit
+  destination), not a lease defect. A `gap` therefore accelerates lapse. This
+  is the "bounded retention stays bounded" rule stated from the reader's side.
+
+- **Hostile holder renewing forever.** Gains nothing. Renewing forever is
+  indistinguishable from a legitimate long-lived holder, and it asks only for
+  what the grantor was already willing to grant. The grantor applies caps at
+  judgement time — maximum duration, maximum total hold, maximum consecutive
+  hold — so a renewal can only *ask* for more than the cap, never receive it.
+  What the lease defends against is the *silent* dead holder, and silence is
+  exactly what lapse reclaims. The attack surface the lease removes is the
+  silent one; the noisy one was always the grantor's policy to bound.
+
+# 2. The proposed specification
+
+Below is the full content for `docs/design/dao.lease.md`.
+
+---
+
+```markdown
+---
+description: Leases as accreted datoms — grant, renew, release by appending; lapse by interpreting. A datom.world vocabulary, not a mechanism.
+---
+
+# DaoLease — Leases as Accreted Facts
+
+Status: proposed design target, derived from and subordinate to
+[`datom.world.md`](./datom.world.md). This is a datom.world-level document: it
+defines no transport, no stream, no host boundary, and no component. Where a
+concrete medium or wire carries a lease, that medium or wire owns the carriage;
+for DaoStream's WebSocket transport that is `dao.stream.ws.md`.
+
+## Purpose
+
+Four recurring problems share one shape: how does a holder of a resource, or a
+peer that should stay reachable, say "I still want this" in a way that makes its
+*silence* enough to release it? A pause request must not strand a sender; an
+idle connection must not outlive its client; a dead client must not keep holding
+server-side resources. Java Jini answered this class with the lease — a grant
+that lapses unless renewed. The insight is right; Jini's design is not: its
+`Lease` is a live object with methods, its `getExpiration()` returns absolute
+time in the holder's milliseconds, and its renewal manager is a background
+thread.
+
+This document keeps the insight and drops the object. A lease is facts,
+accreted. The grant is a datom; a renewal is another datom; release is a third;
+lapse is not a datom at all but a conclusion an interpreter draws. There is no
+lease object to hold, serialize, or replay — the record of the lease is the
+trace on the medium, and any interpreter with a cursor on that medium can read
+the same lease from its own perspective.
+
+Three axioms bear on it directly, named once here so the sections below can
+cite rather than restate them:
+
+1. **Everything is a Stream** — the trace is datoms on an append-only medium.
+2. **Interpretation Creates Semantics** — "expired" is a perspective taken on
+   facts, not a fact in the medium.
+3. **Code and State are Datoms** — a lease is state, and state is datoms.
+
+Axiom 4, everything is a continuation, is not engaged: a lease records a
+permission to keep holding, never the held computation itself.
+
+## Invariants
+
+A lease obeys the non-negotiable invariants of datom.world, and each rule below
+is one of them in operational form:
+
+- **No hidden global state.** There is no registry of leases, holders, or
+  grantors, and no ambient record of who holds what. A grantor learns of a lease
+  by reading the medium, exactly as it learns of any other fact.
+- **No implicit control flow.** Nothing runs because a lease exists. A
+  grantor's reclamation is an interpreter driven by a composition; the driver is
+  the only moving part, and it is explicit.
+- **No callbacks.** Lapse fires nothing and notifies nobody. A lease is not an
+  event source, and expiry is not an event.
+- **No shared mutable state.** A lease has no mutable deadline slot. The only
+  thing that changes is the append-only trace, plus the grantor's own
+  observation state — and that state is interpreter-owned, advanced by reading,
+  and never shared, exactly as a cursor is advanced by `next`.
+- **Interpretation and execution are not collapsed.** Judging a lease lapsed
+  and acting on that judgement are two steps; only the second acts, and the
+  acting is the grantor's.
+- **No assumed graphs.** Holder, scope, and duration are attributes of a lease
+  entity; whatever relates leases to resources is constructed by query, never
+  assumed to exist.
+
+## A lease is facts
+
+A lease is an entity `L` on one medium. Its identity is local to that medium,
+and all its assertions share that one entity; an assertion on a different entity
+is a different lease. The holder causes its assertions to land on the medium —
+directly, or through a boundary that deposits for it — and the grantor reads
+them there. Neither side holds a reference to the other; each encounters the
+trace.
+
+The vocabulary has four roles:
+
+```clojure
+;; grant — the opening assertion, with the lease's terms
+[L :lease/holder H]          ; who wants the hold
+[L :lease/scope  S]          ; what is held
+[L :lease/grant  D]          ; "hold this, for D" — the lease exists from here
+
+;; renewal — each later assertion that the holder still wants it
+[L :lease/renew  D']         ; "still want it, for D' more"
+
+;; release — the holder is finished; reclaim now
+[L :lease/released true]
+```
+
+- **Grant** is the opening datom (with the term datoms that name holder and
+  scope). It carries the duration the holder asks for first. The lease exists
+  from this datom; before it, there is nothing to lapse.
+- **Renewal** is each later datom in which the holder asserts "I still want
+  this," carrying the duration it asks for next. Renewals accrete; only the most
+  recent one is operative.
+- **Release** is a datom in which the holder asserts it is finished. It is an
+  assertion of the end, not a retraction: the medium is append-only, nothing is
+  erased, and the grant remains on record.
+- **Lapse** is not a datom. Lapse is a reader's conclusion that the most recent
+  operative datom is a grant or renewal older than the reader's tolerance, and
+  that no release has been seen. The holder never writes a lapse; whoever reads
+  judges it.
+
+`H` and `S` are values that name — the holder's identity and the held resource —
+stable and comparable for the life of the lease; their exact form is the
+composition's. `D` is a duration: a non-negative scalar in a unit the grantor
+and holder both know. The vocabulary fixes that `D` is a relative interval,
+never an instant; it does not fix the unit, which is a convention of the
+composition, like a schema choice.
+
+A **reclamation** is what the grantor does after release or lapse: it acts on
+the resource it held — closes the connection, resumes the sender, drops the
+claim — and, because side effects must appear as stream emissions, it records
+that act as data where its own effects are observable. Reclamation is not part
+of the holder's trace; it is what the trace exists to license.
+
+## Whose clock decides
+
+The clock that decides is the grantor's, because the grantor is the one whose
+judgement has a consequence. No other clock appears, and no absolute time
+crosses a boundary.
+
+The holder writes durations, never instants. "Hold this for thirty seconds" is
+a quantity both sides can share without agreeing what time it is; "it is
+23:41:07 here" is a claim about a clock the holder does not own — it would
+drift, and a hostile holder would write whatever serves it. So every assertion
+carries a duration, and the grantor applies its own clock to that interval when
+it reads the fact. Skew between the two sides is thereby absent from the data:
+there is no wire instant to skew.
+
+Because the grantor reads the medium on its own cadence, the interval runs from
+the grantor's *observation* of an assertion, not from the holder's writing of
+it. That is the safe direction: observation can only be later than writing, so
+the grantor holds at least as long as the holder intended, never less. The
+holder pays for that with the **lease discipline**: it must renew often enough
+that, under the grantor's polling cadence and any clock-rate tolerance, a fresh
+renewal is always observed before the previous interval expires. A holder that
+renews with no margin is asking to be reclaimed at the grantor's first late
+poll.
+
+## Judging lapse
+
+An interpreter judges one lease `L` at its own now. It reads the medium and
+finds, for `L`, the most recent operative datom by trace position — transaction
+order, not clock — where operative means grant, renewal, or release. It then
+applies four rules:
+
+1. If the most recent operative datom is a release, the lease is released: the
+   interpreter treats it as ended now and does not wait for any interval.
+2. If it is a grant or renewal, the interpreter compares its own clock to the
+   moment it first *accepted* that datom. Its observation state for `L` is a
+   pair — the trace position of the newest operative datom it has accepted, and
+   the clock reading at which it accepted it. When a pass finds a newer
+   operative datom, the state advances to (new position, now); when it finds the
+   same one, the state does not move and the clock reading is not refreshed.
+   (Refreshing on every re-read would make a stale renewal forever young.) The
+   lease is live while the interpreter's clock has not advanced past the
+   accepted datom's duration, extended by the interpreter's own tolerance, and
+   lapsed once it has.
+3. If the medium shows no operative datom for a lease the interpreter has
+   already accepted, the lease has lapsed: absence of a trace is
+   indistinguishable from a holder that fell silent, and the grantor treats both
+   alike. A lease the interpreter has never read is no lease to it — it holds
+   nothing for it.
+4. If retention has evicted the position where the evidence should be and the
+   read reports a gap, the interpreter treats the lease as lapsed. Eviction
+   resolves toward lapse, never toward holding; a grantor that cannot see the
+   evidence holds nothing. A medium carrying leases must therefore retain at
+   least as long as the longest grant it will honor — evicting a live holder's
+   newest renewal is a composition defect, and it surfaces here as a premature
+   lapse, exactly as a reject-mode deposit destination surfaces as a refused
+   deposit.
+
+Two interpreters with different clocks, different observation histories, or
+different tolerances may legitimately reach different answers for the same
+trace. That is Axiom 2, not a defect: each answer is a perspective on the same
+facts, and the disagreement is itself observable data for whoever reads both.
+
+## What a lease may never do
+
+A lease is a vocabulary and a rule of reading; it is not a mechanism, and it
+must not become one. A lease may never:
+
+- **be a live object with methods.** There is no `renew`, `cancel`, or
+  `getExpiration` to call. Renewing is appending; cancelling is releasing;
+  reading an expiration is judging lapse.
+- **carry absolute time.** The holder's trace holds durations only. An instant
+  is a clock's property, and the only clock with a consequence is the
+  grantor's.
+- **fire.** Nothing happens when a lease lapses. Lapse is a conclusion, not a
+  signal, and a conclusion is reached by whoever chooses to read.
+- **register.** There is no registry of leases, holders, or grantors, and no
+  subscription to be told of expiry.
+- **hold a mutable deadline.** The trace is append-only; the only deadline is
+  the one an interpreter computes from its own clock and a duration it read.
+- **enforce itself.** A lease cannot reclaim a resource. Only the grantor acts,
+  and its acting is ordinary, observable behavior.
+- **retract.** Release asserts the end; it erases nothing, because the medium is
+  append-only and a lease's history is part of its record.
+- **assume a shared clock.** No two interpreters are required to agree on what
+  time it is; the vocabulary is defined so that they need not.
+- **require a conversation.** Holder and grantor need never be present at the
+  same time; each leaves data for the other to find.
+
+## What it does not replace
+
+A lease solves the problems whose shape is *an ongoing hold that must not
+outlive its holder's silence.*
+
+- A **pause request** is a lease: the reader holds it and renews while it is
+  still behind, and the sender resumes when the lease lapses or is released. A
+  lost resume can no longer strand the sender, because silence itself resumes
+  it.
+- A **dead client holding server-side resources** is the archetype: the server
+  holds the resource only while the holder's trace is fresh, and reclaims on
+  lapse without ever detecting death.
+- **Connection liveness**, at the application layer, is a lease the client
+  renews; the server reclaims the connection when the renewals stop. What the
+  lease gives here is a *bound* — a dead peer is reclaimed no later than the
+  duration plus the grantor's cadence — and it gives nothing faster: detecting a
+  half-open socket before that bound is a transport concern (ping/pong), which
+  the lease neither provides nor replaces.
+
+It leaves untouched the problem whose shape is different. A **connection
+cancelled before it resolves** is a one-shot answer that may never arrive, not
+an ongoing hold. A lease governs a hold; it cannot cancel a pending operation,
+and modelling the cancellation as a lease would model a request as the hold it
+is not.
+
+## Explicitly out of scope
+
+- **The driver.** A grantor's reclamation is an interpreter, and an interpreter
+  runs because a composition drives it. Cadence, scheduling, and timers are the
+  runtime's and the composition's, never the lease's.
+- **The medium.** Which medium carries lease facts, and with what retention, is
+  the composition's choice — dao.space, a deposit destination, or any retained
+  stream. The lease adds no medium of its own and no event bus beside the one
+  the project already has (ADR 0003).
+- **The wire.** How a renewal rides a particular transport, and how a
+  reclamation is made observable as a close or a deposited event, is that
+  transport's document; for the WebSocket transport it is `dao.stream.ws.md`.
+- **The caps.** A grantor may bound any renewal — a maximum duration, a maximum
+  total hold, a maximum consecutive hold — but the numbers are the grantor's
+  policy, not part of the vocabulary. The vocabulary requires only that a
+  grantor be able to refuse what it would not grant.
+- **Authorization.** Whether a holder may hold a given scope is a capability
+  question (Shibi), orthogonal to whether its hold lapses.
+- **Clock synchronization.** The vocabulary needs none and provides none; no
+  distributed "now" is required or defined.
+
+## Relationship to DaoStream
+
+This document names facts and a rule of reading; it names no transport and adds
+no operation, outcome, or surface to the DaoStream contract. A lease over a
+DaoStream medium is an interpreter of the kind the contract's Composition
+section permits: it reads with its own cursor and appends to an ordinary
+stream. The transport that carries the facts owns only their carriage. On the
+WebSocket transport, a renewal is an ordinary payload on the writer surface — no
+new frame, no new envelope — and a reclamation is the endpoint's close,
+distinguished by a close code of its own so a client can tell "reclaimed" from
+"ended" and "dropped." Which code, and how the distinction is deposited, is
+`dao.stream.ws.md`'s to specify.
+```
+
+---
+
+# 3. What it does not replace
+
+The four problems, classified:
+
+- **Pause requests — solved.** A pause is a lease the reader holds and renews;
+  the sender resumes on lapse or release. This is the durable home for the
+  rule `dao.stream.implementation-plan.md` §4d already states ("a pause is
+  a lease, not a switch").
+- **Dead client holding server-side resources — solved.** The archetype. The
+  server holds while the trace is fresh and reclaims on silence; it never has
+  to detect death.
+- **Connection liveness — solved at the application layer, and simultaneously
+  bounded.** The bound is the lease duration: a dead peer is reclaimed no later
+  than duration plus the grantor's poll cadence, and never faster. Active
+  transport-level probing (protocol ping/pong, half-open-socket detection) is
+  neither provided nor replaced; it remains `dao.stream.ws.md`'s deferred
+  liveness question, with the lease as the "ordinary deposited values"
+  alternative.
+- **Connection cancelled before it resolves — untouched.** A one-shot awaited
+  answer is a different shape from an ongoing hold. A lease cannot cancel a
+  pending operation.
+
+# 4. The seam to DaoStream
+
+The split is confirmed, with one correction to the wording.
+
+- `dao.lease.md` owns **meaning**: what the renewals say, what a duration is,
+  whose clock judges, how lapse is concluded, what caps a grantor may apply.
+- `dao.stream.ws.md` owns **carriage**, and only carriage: that a renewal is an
+  ordinary payload value (no new frame — the existing inbound deposit model
+  already carries it), and the close code by which a reclamation is
+  distinguishable on the wire from a dropped connection (`:ws/closed`) and an
+  ended stream (`:ws/ended`).
+
+The correction: the task phrased it as "which frames carry a renewal." There is
+no new frame and no new envelope. Renewals ride the writer surface the ws
+transport already has, as ordinary values; the *only* genuinely new wire element
+is the reclamation close code (and, if the ws doc chooses, the deposited event
+that mirrors it for the client adapter). Everything else the lease doc requires
+of the ws doc is already there. The one thing to guard is that the reclamation
+close code is a *third* code, distinct from the ended-stream code — otherwise a
+client could not tell "the endpoint evicted my lease" from "the stream ended and
+I should stop reattaching." That distinction is the fast-path correctness the ws
+doc already cares about for `:ws/ended` vs `:ws/closed`.

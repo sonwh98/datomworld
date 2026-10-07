@@ -1,0 +1,67 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"auto_mode"}
+Review complete. All three verification passes (register kernel, value/scalar encoder, engine seam + parent-doc constraints) have returned source-grounded evidence, and I independently re-verified the headline claims (opcode count, boundary set, validator rule count, line ranges).
+
+---
+
+```
+Completed-GMT: 2026-10-03 09:19:19 GMT
+Completed-Local: 2026-10-03 16:19:19 +07:00
+```
+
+# Adversarial review: `docs/design/yin.vm.rust-kernel.md`
+
+**Verdict:** No P0/P1 findings. The design is fundamentally sound: its four properties that justify the register image as the LLVM integration point (section 1), the 23-opcode set, the six boundary opcodes, the fourteen validator rules, the sparse continuation, offset-table identity, and "R4 as oracle" all verify byte-for-byte against source. The findings below are two genuine design flaws and a set of factual/citation errors that would mislead the implementer or the owner.
+
+## P2 — design-correctness findings
+
+**P2-1 · §4.4 (lines 436–453) · the return frame *does* store `live`; the `ReturnFrame` struct drops a field the port target has, and the doc states the opposite as fact**
+
+The doc asserts *"`live` is not stored: it is re-read from the call instruction at `site_pc` when a payload is built."* The source stores it:
+```clojure
+;; register.cljc:606-612 — the pushed return frame
+{:site-pc pc, :return-pc (inc pc), :frames frames,
+ :regs (mapv (fn [r] [r (nth registers r)]) live),
+ :live live, :dest rd}
+```
+It is also read *back out of the frame* by the payload builder — `debruijn_register_effects.cljc:163` destructures `{:keys [site-pc return-pc frames regs live dest]}` and `:190-194` compares the frame's `live` against the call instruction's re-derived `live`. So the correct field list is `{site_pc, return_pc, frames, regs, live, dest, store_of?}`; the Rust `ReturnFrame` (§4.4) omits `live`, and the surrounding prose asserts the source doesn't have it.
+
+*Why this matters:* `:live` is in fact derivable (it equals the call's `live` operand, which `live-exact-rule` already recomputes), so dropping it is probably behavior-preserving — but that is a *deliberate divergence* from the port target, not a description of it. The K2 completion criterion (byte-identical payload parity, §10) makes an omitted field a real parity risk.
+
+**Concrete fix:** Add `live: Vec<u16>` to `ReturnFrame`, or — if the optimization is kept — mark it as an explicit divergence (an amendment in §11) with a parity test asserting the re-derived `live` equals the Clojure frame's stored `:live` for every fixture.
+
+**P2-2 · §4.1 dec.2 + §7.4 (lines 343–348, 800–815) · retain/release is placed in the "inline tier," which is `repr(C)`-only — but the refcount is a Rust `Rc` layout detail, and "first word is the refcount" is false**
+
+The doc claims (§4.1 dec.2) *"Every pointer payload points at an object whose first word is a non-atomic reference count."* For `Rc<T>` (and `Arc<T>`), the refcounts sit in an `RcBox` header **before** the pointed-to `value` — the pointer points at the data, and the counts are at a *negative* offset, in a non-`repr(C)` layout. The same §7.4 table puts "retain and release fast paths" in the inline tier, which is defined as operating "over `repr(C)` layouts only" and being reached without depending on "Rust's unspecified type layout." Those two statements contradict: retain/release *inherently* depends on the `Rc` refcount layout, which is exactly the "unspecified Rust layout" the tier split says the inline tier must not touch.
+
+**Concrete fix:** Move retain/release to the out-of-line tier (it touches a Rust-layout header), and correct dec.2 to state the refcount is at a fixed *negative* offset defined by `Rc` (which risk 3 already implicitly acknowledges as ABI, but mis-labels as `repr(C)`). The inline tier then genuinely covers only tag tests / immediates / file load-store.
+
+**P2-3 · §5.3 rule 3 + §2.6 (lines 603–604, 225) · safe-Rust slice indexing panics, and release aborts — so a validator bug is a node-wide crash, not a `Refuse`**
+
+The doc says operands were "validated at load, so the loop performs no bounds check," and that indexing "uses checked slices in the safe crate." In safe Rust, `code[pc]` *always* bounds-checks and **panics** on OOB; there is no error-return form. §2.6 states "release builds abort on panic," and §4.6 states a node runs *many* machines. The "check-then-commit → `Refuse`" rule (§5.3 rule 2) therefore does **not** cover the residual case of a validator bug (or a translator bug emitting an OOB access in un-bounds-checked LLVM IR): one bad image aborts the entire node. The equivalence law (§7.2) bounds the native path for a *correct* translator but is silent on translator bugs, where native code is memory-unsafe rather than a diagnostic.
+
+**Concrete fix:** Use `.get(idx)` mapping `None` to `Refuse` on the interpreter path (so a validator bug degrades to a refusal, not an abort); revisit `panic = "abort"` or add per-machine panic isolation; and add a K0 fixture class that feeds validator-adversarial images to assert the kernel returns `Refuse` rather than panicking.
+
+## P3 — factual / citation errors
+
+**P3-4 · §6.3 item 6 (line 668) · module-kernel method list is wrong.** "the link-install path" does not exist; `IModuleKernel` (`register.cljc:806-875`) actually exposes `link-format`, `spawn-module`, `image-identity`, `image-holds?`, `attach-module` (this is the link/install step), `lift-closure`, `lower-closure`, `gc-roots`, `gc-children`. Fix: name `attach-module` (and the three omitted methods), since Level 2 / K5 ports this seam.
+
+**P3-5 · scattered line-citation errors:**
+- §2.4 cites the heap collector at `engine.cljc:1887-1903`; that range is the *design comment*. The collector lives at `1989-2055` (trigger `:cell/new` at `2136-2139`).
+- §6.3 item 2 gives one range `engine.cljc:1658-1672` for five functions; that range is `run-loop` only (`check-wait-set` `:1592`, `resume-from-run-queue` `:1733-1765`, `scheduler-round` `:1768-1779`, terminal-outcome check `:1686-1705`).
+- §6.2 cites `continuation-payload` at `debruijn_register_effects.cljc:83-119`; it spans `84-120` (off by one).
+- §4.1 dec.4 cites `values.cljc:23-24` for sealed refs; the text is at `26-27`, and it says "sealed plain data" that "name table entries," not "plain-data maps."
+- §4.1 dec.5 cites `values.cljc:39-62` for equality; `Closure` is `39-72`, `Continuation` is `75-108`, and vector/list sequential equality is **not** in `values.cljc` at all (it is the host default).
+
+**P3-6 · §11 Q5 (line 1130) · "the float64 kind" does not exist, and bigint/ratio are not deferred.** `scalar-classes` (`debruijn_code.cljc:105-106`) declares 14 classes; `:ratio` and `:bigint` are already first-class. There is no `:float64` class — the `float64` carrier (`cbor/float64?`) is folded into `:double` (`host-double?` `:354`). The third host-gated class is `:char`, not "float64."
+
+**P3-7 · §4.1 (line 334) · closure shape is incomplete.** The closure payload is `{:type :closure, :arity, :body-pc, :frames}` with `:store-of` present *only when truthy* (`register.cljc:564-569`). The doc lists `{owner, arity, body_pc, frames, store_of}` — omitting `:type` and treating `store_of` as unconditional.
+
+**P3-8 · §3.2 stmt 2 / §7.5 · "one code layer" tension is an argument, not a citation.** `code-as-tuples.md` §1 states code lives "in one layer only, content." A native artifact is *executable code* outside the content layer. The doc's "projection / derived / recomputed at will" framing satisfies "never an identity" and "no code in a ref," but does not squarely satisfy "one code layer." This is correctly surfaced as owner question 1 (C1/A3), but should be recorded as *unratified*, not honored. (Similarly, §7.2's extension of semantic.md §6.4 "immutability observable only at park points" from the operand stack to register contents is a faithful but unratified generalization.)
+
+---
+
+**Summary:** 3 P2 (return-frame `live` omission, retain/release tier contradiction, panic→abort node-wide DoS) and 5 P3 (module-method names, line-number drift, "float64 kind", closure shape, one-code-layer tension). All are actionable and cite repository evidence; none block the design, and the doc's own §11 already tees up the ratification items (owner questions 1–5) that P2-2 and P3-8 depend on.
+
+No code was modified — this was a read-only review as instructed.

@@ -1,0 +1,35 @@
+Completed-GMT: 2026-09-20 19:54:00 GMT
+Completed-Local: 2026-09-21 02:54:00 +07 (Indochina Time)
+
+# D2 fix confirmation
+
+The P1 and both P2s are resolved, and the accepted P3 is applied. Two new P3 notes follow; neither blocks sign-off. I edited nothing and ran nothing.
+
+| Finding | Status | Evidence |
+|---|---|---|
+| P1: hash-consing memo keyed by `=` | **Resolved** | `merkle-node` now hashes children first and builds the preimage with `(apply str (slot-encodings pre-record))`. The memo lookup is `(find hashcons preimage)`. A preimage hit implies the same hash, so the memo cannot merge terms or let traversal order into identity. `the-consing-memo-separates-what-the-hash-separates` puts `(list 1 2)` beside `[1 2]` in one program. It asserts two literal records with different hashes, and a fingerprint that differs from the all-list program. It asserts the same for `0.0` beside `-0.0`. Neither case is vacuous. |
+| P2: keyword and symbol parts bypass the NFC seam | **Resolved** | `ident-content` passes both the namespace and the name through `normalize-nfc`. `decomposed-and-composed-ident-parts-hash-identically` compares the fingerprints of a free `e\u0301` and a free `\u00e9`. |
+| P2: reader does not verify content addresses | **Resolved** | `datoms->projected` compares each claimed hash with `(node-hash (slot-encodings record))` and raises `:hash-mismatch`. The mint path and the reader share `slot-encodings`, so the two cannot drift apart. The tampered-`:bound` test asserts `:hash-mismatch`. |
+| P3: non-string hash raises a host exception | **Resolved** | A `string?` guard comes before `re-matches`. The test with hash `42` asserts `:malformed-hash`. |
+| P3: provisional `:int64` content | **Resolved** | The content is `(str (long v))`, and the operand count is rendered the same way. `integral-doubles-and-integers-share-one-fingerprint` compares `(lit 1)` with `(lit 1.0)`. |
+| Deferred: unreachable records; UTF-16 length prefix | **Deferral is sound** | The reader verifies every record it returns and checks that every child link resolves, so an unreachable record cannot corrupt a reachable one. The length prefix counts the same on all three hosts, and it is a byte rule that D3 will replace anyway. |
+
+Only `debruijn.cljc` and `debruijn_test.cljc` are modified.
+
+## New P3 notes
+
+**P3 | `debruijn.cljc`, `merkle-node` docstring ("the first spelling is the record written") | A record's content is not a function of its hash.**
+- Some values share one preimage by declared limit: `1` and `1.0`, an NFC and an NFD string, and an NFC and an NFD name.
+- For these, the stored scalar is whichever spelling was walked first.
+- Two projections can therefore have equal fingerprints but unequal `:records`. On the JVM, `{:value 1}` and `{:value 1.0}` are not `=`.
+- The reader accepts either spelling, so content addressing still holds.
+- D3 should canonicalize scalars inside the record: `long` for an integral double, and the NFC form for strings and ident parts. One address would then hold one content.
+
+**P3 | `datoms->projected` | The hash check runs before the slot-type checks.**
+- A child or tuple slot holding a value of the wrong type reaches the encoder first.
+- Examples are `:yin.debruijn/bound 5` and a numeric child ref.
+- These can raise a host exception from `map` or `count` where `:hash-mismatch` or `:unsupported-value` was expected.
+- Wrap the recomputation, or validate slot types first.
+- The existing operand test still reaches `:unsupported-value`. A list encodes the same as a vector, so it passes the hash check and is caught by the later type check.
+
+READY for architect sign-off.

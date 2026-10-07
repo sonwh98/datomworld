@@ -1,0 +1,54 @@
+# U16 Phase 2: REPL and builds
+
+Phase 2 is wired up and passes on the JVM. The Node and Dart test suites did not run (details under Verification). Nothing is committed or staged, as the prompt asked.
+
+## What changed
+
+Both REPL evaluators (the AST walker and the semantic VM) now receive code only from the expander:
+
+```
+frontend AST → encoder/program-batch → program-in → expander observer → program-out → evaluator observer
+```
+
+- **`src/cljc/yin/vm/encoder.cljc`**: new `program-batch`. It turns frontend output (a map AST or a datom batch) into `[:yin.program/batch trees run-index declaration-rows harvest-rows]`.
+  - It adds one harvest row for every `(yin/def <symbol> value)`, in the source order from §3.5. That includes definitions in branches that never run and in other members of the batch.
+  - It adds a declaration row when the lambda carries the frontend's `:macro?` flag. That flag is dropped when the AST becomes rows, so macro-ness never appears in a code row.
+  - The older encoder stage and the source-envelope code are still there because other tests use them. The REPL no longer uses them.
+- **`src/cljc/yin/repl/core.cljc`**:
+  - **Sessions:** each session builds `program-in`, an expander, `program-out`, and the evaluator's observer.
+  - **Standard forms:** the expander starts with `defn`, loaded by running `macro/stdlib-forms` through `seed-store`.
+  - **Evaluation:** each input is encoded, appended to `program-in`, and expanded, and the expander's errors are read back. The evaluator runs only if a program was forwarded.
+  - **Expansion failure:** shown as `Error: Macro expansion failed: {...}`. The failed batch is consumed, the macro store is left as it was, and the next input runs normally.
+  - **`(compile …)`:** now shows the AST, the input rows, the expanded rows (or the expansion error), and the event rows. It previews against the current macros and changes nothing. The old `Datoms:` section is gone and the one test that checked for it is updated.
+  - **`repl-state`:** gains `:macros {name root-address}`.
+  - **`(reset)`:** builds a new expander (new token, only `defn`), along with new media and a new VM.
+- **`src/cljc/yang/clojure.cljc`**: the `:yin/macro-expand` output is removed. It was already retired from the row grammar, so it could never reach an evaluator.
+  - `defmacro` now becomes plain `(yin/def name (fn …))` with the lambda marked `:macro?`, and it works anywhere, not just at the top level.
+  - A call to a macro compiles as an ordinary function call.
+  - I deleted the unused `compile-macro-operands` and the old `:eid` handling.
+
+## Verification
+
+- **JVM:** the full suite passed before I added the two new test files: 1389 tests, 0 failures. After that I ran the new and changed namespaces on their own, and all pass:
+  - `yin.repl.core-test`: 30 tests
+  - `yin.vm.encoder-test`: 5 tests
+  - `yin.vm.macro-build-test`: 1 test with 13 assertions
+- **The acceptance items from the prompt:**
+  - **Reset:** user macros are cleared, a new expander is created, and evaluation continues.
+  - **Calls from other languages:** a macro defined in Clojure expands when called from Python (`unless(False, 1, 2)`, `twice(21)`) and from PHP (`twice(21);`). A Clojure `defn` can also be called from both.
+  - **Evaluation after a failed expansion:** tested with an arity failure and a depth-guard failure, on both evaluators. The cursor moves past the failed input and the next input succeeds.
+  - **File-backed media:** there is no file-backed stream type in the repo, so the build test uses:
+    - one EDN file each for input batches, output packets, and the log
+    - a `dao.jing.file` content store that holds every row under its address
+
+    Output rebuilt from addresses alone equals the original and evaluates to the right result (9). A rebuild with the same token produces byte-identical files. A new token gives the same output addresses but new event addresses.
+- **Node (CLJS):** the tests compiled, but the runner stopped straight away with `MODULE_NOT_FOUND` for the `ws` package, because this worktree has no `node_modules`. None of the Node tests ran. Running `npm install` in the worktree should fix it; I didn't change the environment.
+- **ClojureDart:** not run, because `clojure -M:cljd test` needed permission.
+
+## Decisions for you
+
+1. **The Clojure frontend still turns `defn` into a definition itself.** I kept this because three CLJS demos (`compilation_pipeline`, `equation_plotter`, `continuation_stream`) compile `defn` with no expander. The output is the same as the stored `defn` macro's, and the stored one is still used for any `defn` call that reaches the expander unconverted (tested with a map-AST input). The catch is that a `(defmacro defn …)` typed in one REPL input is ignored by the frontend in later inputs, which goes against "frontends do no macro lookup" (§2.3). The strict fix is to remove this conversion and send those demos through the expander.
+2. **How the frontend marks a macro.** `yang.clojure` puts `:macro? true` on the lambda in its AST, and the encoder turns that into the declaration row. `:yin/macro?` datoms carry the same fact, so datom input declares macros the same way.
+3. **`(compile …)` borrows attempt numbers.** Its preview uses the live expander state and throws the result away. The events it shows can therefore reuse attempt numbers that a later real evaluation will also use. No log records them, so nothing conflicts today.
+4. **An expander crash rolls its state back.** If the expander step itself fails (for example, `program-out` is closed), the round is consumed but the expander goes back to its state from before the round. The progress that the exception carries is not reused.
+5. **Old docs are out of date.** `src/cljc/yin/vm/docs/yin-defmacro.md` and parts of `ast.md` and `yin.repl.md` still describe `:yin/macro-expand`. I didn't edit them.

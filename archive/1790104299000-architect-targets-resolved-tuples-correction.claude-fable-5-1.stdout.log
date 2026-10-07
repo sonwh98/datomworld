@@ -1,0 +1,27 @@
+The remaining "decode" hits are all legitimate (the historical note, CBOR and scalar decoders, and raise decoding the lowerer's pattern). Width and ASCII checks are clean, and only the targets document changed.
+
+Completed-GMT: 2026-09-22 16:30:23 GMT
+Completed-Local: 2026-09-22 23:30:23 +07 (Indochina Time)
+
+**Conclusion: a hybrid, and the owner is right about the half that matters.** Direction A emitters now consume the resolved tuples. They are lowerings, and the topology this project settled on twice today puts every lowering as a peer branch off the resolver's output. My first revision had emitters decode the stack image, and its own section 3.6 gave the game away: "decode an image into basic blocks with static stack effects" was reconstructing the expression tree the resolved tuples already are. Starting from the tree, an emitter does the same walk `lower-stack` does and prints target syntax. The Scheme printer becomes nearly trivial. That analysis is gone from the document.
+
+Direction B hosts stay on the stack image. A foreign host is a kernel, and the topology places kernels below formats, not beside lowerers. The register design's own rule is the precedent: a register kernel executes R, not resolved tuples. Interpreting the tuples directly would make them an executable format, which the stack design and register decision 3 deny, and they would then need a sharing identity, which D12 denies. I did not change this.
+
+**How my two original reasons are answered rather than dropped.**
+- Identity: the tuples still get none. A compiled artifact is keyed by H plus target plus emitter version, where H is `lower-stack` of the same tuples, run beside the emitter. That pairing is deterministic and is composition data, exactly as R pairs with H. Option (a) is declined: a tuple identity would be equivalent to H and is the "third identity no request needs".
+- Fetchability: the common case, compiling where the program is written, needs no fetch. For fetch-by-H then compile locally, I propose `raise`, the inverse of `lower-stack` on images it produced, with two round-trip laws as completion criteria and a `:not-raisable` refusal for hand-built images. Option (b), lift then resolve, does not work: I checked the implemented `lift`, and it produces a `:yin.code/*` linear vector, not named datoms. The stack design states the image "is not an inverse encoding". Raise is that decompiler placed where it is smallest, and it is deferred so no early phase depends on it.
+
+**What changed in the document.**
+- Status line: names the two source representations and records the revision.
+- Section 1: Direction A defined as a lowering of resolved tuples.
+- Section 3.1: rewritten in full, with the topology diagram, the kernel-versus-lowering distinction, both original reasons answered, and the raise laws.
+- Section 3.5 item 3 and T-D10: continuation labels for emitted code are the stack pcs from `lower-stack` over the same tuples, needed only when offload reaches emitted code.
+- Section 3.6: front end is a walk of the tuples with named intermediates and return-point marks; no block or stack-effect analysis.
+- Section 5.2 and 5.3: T4 consumes tuples; T1 and T4 share runtime, differ in input.
+- Sections 6.2 and 6.3: Scheme printing from the tree with a resolver-style name stack; Clojure emitter as a peer lowering, with closure-compiling the image explicitly noted as a different thing.
+- Section 7: T0 records corpus ids and exports no tuples; T3 and T4 completion criteria use the register design's address law as the peer cross-check; new T8 raise phase, deferred.
+- Section 8: T-D2 reversed for Direction A and reworded; new T-D11 (artifact pairing) and T-D12 (raise); one new DEFERRED item.
+- Section 9: risks renumbered, walk divergence and raise pattern drift added.
+- Section 10: one new owner decision.
+
+**Still for the owner:** whether T8 is worth scheduling at all, and if so whether raise output may feed `lower-register`, which would let a host holding only H derive R. My recommendation is to leave T8 unscheduled until a foreign host actually needs to compile an image it did not produce. The edited document is uncommitted in the working tree.

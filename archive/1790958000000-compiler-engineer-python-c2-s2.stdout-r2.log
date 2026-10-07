@@ -1,0 +1,17 @@
+I haven't applied either fix: this session can no longer read or write the C2-S2 worktree, `/Users/sto/workspace/datomworld-py-c2gen1`. The session restarted with `/Users/sto/workspace/datomworld` as its only allowed directory. Reading and editing in the worktree were both blocked, and switching into it needs an approval this non-interactive session can't give.
+
+I did read the reviewer log (`collab/1790972650100-reviewer-python-c2s2-gate.gpt-6.1-sol.stdout.log`), and both findings are clear:
+
+1. **P1 (constructor runs before the check):** `it.throw(C, 7)` calls `C.__init__` even when `C` isn't an exception class. The fix is to move the BaseException check in `py/throw-exc` ahead of the constructor call:
+   - If `typ` is a class that doesn't derive from `BaseException`, raise `TypeError("exceptions must be classes or instances deriving from BaseException, not ...")` right away, without calling `typ` or switching into the generator.
+   - Only classes that pass that check get the existing handling of the value (called with it, a tuple spread, an instance used as is).
+   - The regression test: a non-exception class whose `__init__` appends to a log, thrown into a suspended generator. It checks that the caller gets `TypeError`, the log stays `[]`, and the next `next(it)` still returns the generator's next value. That is the e2e test on all four evaluators, plus a matching prelude parity case so Node and Dart cover it too. The expected output gets checked against CPython 3.9.6 as before.
+2. **P2 (lines over 80 columns):** wrap the 11 listed lines, then re-check width, kondo and cljstyle.
+
+After that come the three lanes one at a time (`bb test:clj`, `bb test:cljs`, `bb test:cljd`), each saved to its own log under `target/`, with exact counts reported.
+
+To unblock this, either:
+- re-run this session from `/Users/sto/workspace/datomworld-py-c2gen1`, or
+- approve entering that worktree when asked.
+
+Once I have access I'll apply both fixes and run the lanes, without staging or committing.

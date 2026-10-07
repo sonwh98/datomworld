@@ -1,0 +1,66 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+ExitPlanMode isn't available this session, so I can't request the write that way. The full report is written to the plan file at `/Users/sto/.claude-deepseek/plans/read-collab-1789557950000-review-free-va-melodic-octopus.md` — here is the deliverable itself. The only remaining action is copying it to `collab/1789557950000-review-free-variable-query-demos.deepseek-flash.findings.md` (the repo's findings-file convention); say the word and I'll write it, since plan mode blocks it for now.
+
+---
+
+# Adversarial review: free-variable Datalog demos
+
+## Check results
+
+### 1. Test run + baseline arithmetic — PASS on the headline; the prompt's baseline is WRONG
+
+`clojure -M:test -n dao.space.query-test` → `Ran 51 tests containing 155 assertions. 0 failures, 0 errors.` (exit 0). Confirmed.
+
+The prompt's parenthetical — "baseline before both additions was 49 tests / 143 assertions" — is wrong on both counts. Measured by running the namespace with the new test vars excluded at three states:
+
+| state | tests | assertions |
+|---|---|---|
+| current (both rounds) | 51 | 155 |
+| minus `occurrence-aware-…` (= after round 1) | 50 | 149 |
+| minus all three new tests (git HEAD baseline) | **48** | **142** |
+
+Corroborated statically: HEAD's `query_test.cljc` has 48 `(deftest` / 140 `(is` forms; current has 51 / 153 — a +3 / +13 delta matching the runtime +13 assertions (155 − 142).
+
+The prompt's 49/143 is exactly "after round 1" (50/149) **minus round 2's delta** (1 test / 6 assertions) — a double-subtraction. Both findings files are correct as filed (round 1 reported 50/149, round 2 reported 51/155); only the review prompt's baseline is off.
+
+### 2. Contrast assertion is real, not staged — PASS (independently reproduced)
+
+`query_test.cljc:1315-1324` genuinely calls `qq` with the **old** `free-name-rules` over the **same** `db`, asserting `#{}`. I reran that query myself and got `#{}`. Not vacuous: `:1296` proves the db holds an `x` `:variable` row, so `#{}` can't arise from an empty match; a `bound?` matching nothing would give `#{['x]}`, not `#{}`.
+
+### 3. Occurrence fixture is honest — PASS (one documentation nit)
+
+- **Row ids real.** `ast-row-id` (`:1146-1152`) scans `(vals (:rows (v2/ast->semantic-bytecode ast)))`; `(:root bc)` is the real root. Both `x` occurrences resolve to the same real `:segment/sha256-2e2988cb…` id, and that id literally sits in the root application row's operands slot.
+- **Paths correct and self-consistent.** Re-derived independently from the §2.3 grammar (row = `[id tag & slots]`; `:node` → step `2+i`; `:nodes` → pair step `[2+i j]`): got exactly the fixture's `[] → :application`, `[2] → :lambda`, `[2 3] → :variable x`, `[[3 0]] → :variable x`. Every `path-pop` lands on another fixture path, so the walk never leaves the tree. §2.5's `[slot i]` pair-step rule (doc:384-385) is faithfully implemented.
+- **Nit:** the tuple is `[root-address path row-id]`, not §2.5's occurrence key `[origin root-address path]` (doc:407). §4.5:713 calls it "of §2.5's shape" and :708 quotes `[origin root-address path ...]`; the fixture drops `origin` and appends a row address. Sound *for this fixture*, and findings #2 is honest about eliding origin — but §4.5's "lift that test's rule set as-is" (723-724) is loose: a production indexer emitting true §2.5 keys needs `[$occ ?o ?r ?p ?v]`.
+
+### 4. Adversarial probe — FOUND A REAL GAP
+
+### 5. Engine quirks — PASS, citations exact
+
+- **Bare non-`?` symbol as silent wildcard — CONFIRMED at source and empirically.** `resolve-binding` (`query.cljc:786-788`) returns `FREE` for any unbound symbol; `wildcard?` (`409-411`) includes `FREE`/`nil`; `FREE` is `::free` (`406`). Over the `(fn [x] (+ x 1))` db, `[:find ?v :where [?v :variable x]]` with bare `x` returns **both** variable rows (`+` and `x`); passing `'x` as an `:in` scalar returns only the `x` row.
+- `eval-fn-clause` (`1103-1110`) throws "Unbound variable in fn clause" on a FREE arg; return unifies into the trailing var (`1131-1134`) — predicates can't bind their args, but a `:fns` clause *can* bind an output var. CONFIRMED.
+- Rule-head constants: `eval-rule` (`1181-1186`) does `(get res hv FREE)` → throws; `unify` (`791-796`) treats a non-symbol as an equality check. CONFIRMED.
+- `not` requires pre-bound vars: `eval-not` (`927-940`) throws. CONFIRMED.
+- Recursion guard is a per-call-key active check, not a fixpoint (`1150-1155`; cited 1153 exact). `clause-db-and-pattern` `872-876` exact. Rule seed `(select-keys binding [::dbs '%])` `1174` exact.
+- Only drift: findings #1 cites `1112-1135` for the "predicates can't bind args" throw, which is at `1103-1110`. Cosmetic.
+
+## Findings
+
+**A. The row-only rule silently OVERCOUNTS free names on any tag outside `:lambda`/`:application` — undisclosed.** `edge` covers three node-valued slots. Per §2.3 (doc:269-302), node-valued slots also exist in `:if` (test/consequent/alternate), `:dao.stream.apply/call`, `:vm/resume`, `:stream/put`, `:stream/cursor`/`:stream/next`/`:stream/close`. Measured on `(fn [x] (if c x y))` through the real codec:
+
+```
+edges from the row relation : #{[lambda→if]}      ; nothing leaves the :if row
+row-only free-name set      : #{x c y}            ; x is bound; truth is #{c y}
+```
+
+No error — just a wrong set. Direction is **overcount**, i.e. conservative-safe for §7.6.1's "must never undercount dependencies", so *not* a security defect; but it falsifies exact-set and nearest-binder claims outside the two tags, and findings #1 discloses only the mixed-occurrence undercount. §4.5's general claim (653-658) is correct — the demo implements 3 of ~13 node-valued slots while 683-687 presents it as computing "the free-name set of a row tree" without a tag-coverage caveat. **Recommend narrowing §4.5's wording, not changing the tests.**
+
+**B. The occurrence rule has an analogous silent mode.** `occ-bound?` requires an occurrence tuple at the *lambda's own path*. Removing just the lambda tuple makes the same `:if` fixture return `#{x c y}` — the identical wrong answer, different cause. An indexer emitting tuples only for name occurrences fails this way silently; the hand-built fixture supplies the lambda tuple, so the demo can't expose it.
+
+**C. In the doc's favour, and currently unstated.** The occurrence rule handles `:if` correctly (`#{c y}`) because it walks path prefixes, not per-tag edges — its soundness generalizes across the whole §2.3 grammar, unlike the row-only rule. A stronger argument for §4.5's conclusion than the doc makes today.
+
+**D. Latent test fragility (not triggered).** `:1218`'s `(apply min-key second (binder-depths x 'x))` breaks ties over an unordered set; both fixtures have distinct depths (2 vs 3), so it doesn't bite today.
+
+## Verdict
+
+**Safe to commit as-is.** Both tests pass (51/155/0), the contrast assertion genuinely executes and reproduces (`#{}` vs `#{'x}`), the fixture's ids and paths are real and independently re-derivable, and every reported engine quirk checks out against `query.cljc` source. A and B are omissions in the *documentation's* framing (and in findings #1's limitations list), not test defects, and both are silent overcounts in the conservative-safe direction. The one thing I'd do alongside the commit is a one-sentence scope caveat in §4.5 plus the `[$occ ?o ?r ?p ?v]` pattern note.

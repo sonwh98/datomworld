@@ -1,0 +1,34 @@
+Completed-GMT: 2026-09-22 20:09:00 GMT
+Completed-Local: 2026-09-23 03:09:00 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: not exposed to this session (caller-generated; header said "pending")
+
+# Verdict: READY
+
+All three in-scope findings from deepseek-v4-pro's review are closed by 0e497a44. The fix introduces no defect. One cosmetic inaccuracy in a new test comment is noted below; it does not affect correctness.
+
+Process note: my first REPL check accidentally invoked the `:test` alias main, which ran the full suite once (1836 tests, 175904 assertions, 0 failures, identical to the orchestrator's run). I then re-ran my checks in a plain REPL without the runner. Nothing was edited or committed.
+
+## Finding-by-finding disposition
+
+**P2, cross-body `:jump`/`:branch-false` not rejected: CLOSED.**
+- `jump-scope-rule` at `src/cljc/yin/vm/debruijn_register_code.cljc:479` builds the pc-to-body map via `owner-of` and, for every `:jump` (target at operand index 1) and `:branch-false` (target at index 2), returns a `:jump-scope` tuple defect when the target's owner differs from the instruction's owner. Operand indices match `opcode-table`.
+- Wiring in `body-rules` at line 601 is `[body-scope-rule jump-scope-rule register-bounds-rule terminator-rule live-shape-rule ...]`. It runs immediately after `body-scope-rule`, which is what makes `owner-of` total (bodies must contiguously cover every pc), and before `terminator-rule` and all four live-set rules, so `body-liveness` is never invoked on a cross-body image. This is the ordering the prior review asked for.
+- The regression fixture is genuine. I evaluated it: the program lowers to body 0 at pcs 0-7 and body 1 at pcs 8-9. The test mutates the first `:jump`/`:branch-false`, which is the `:branch-false` at pc 2, retargeting 5 to 8. Pc 8 is in range (10 instructions), so `target-bounds-rule` passes; `body-scope-rule` only inspects `:closure` targets, so it passes too. The observed defect is exactly `{:rule :jump-scope, :pc 2}`, and the unmodified image still validates as nil. I additionally retargeted the `:jump` at pc 4 to 8 and got `{:rule :jump-scope, :pc 4}`.
+
+**P3, unbacked `:move`/`:store-get`/`:store-put` absence claim: CLOSED.**
+- `move-and-store-mnemonics-are-never-emitted` at `test/yin/vm/debruijn_register_compile_test.cljc:236` iterates every instruction of every image in `register-corpus` (the parity corpus minus deferred-node programs) plus the six B2 fixtures, asserting the mnemonic is not in the forbidden set. This is the full register-lowerable corpus, not a narrower sample.
+- Corpus coverage is meaningful. Evaluated histogram over the 23 lowerable parity programs: branch-false, jump, closure, call, load-bound, load-free, const, return, halt all appear; none of the three forbidden mnemonics do. The `opcode-table` docstring's "asserted by this phase's own tests" claim is now true.
+
+**P3, fixture E off-by-one comment: CLOSED.**
+- The comment now reads reg1 reserved for the return register, `f` in reg2, `x` in reg3, call `[:call <ret-reg> 2 [3] true live]`. Evaluated image confirms: `[:load-free 2 f] [:load-bound 3 0 0] [:call 1 2 [3] true []]`.
+
+## New-defect check on the fix itself
+
+- **No false positive on within-body backward jumps.** I hand-retargeted the `:jump` at pc 4 to pc 0 (a backward loop inside body 0). `register-image-defect` returned nil, and `body-liveness` converged without error.
+- **Rule cannot be skipped.** `register-image-defect` runs `structural-rules` then `some` over `body-rules`, and `jump-scope-rule` is the second body rule, so it runs on any image that passes shape and body-scope checks.
+- **No lookup hazard.** Both `get owner` calls are total because `target-bounds-rule` guarantees the target is in range and `body-scope-rule` guarantees every in-range pc has an owner.
+
+## Cosmetic note (not blocking)
+
+The comment above `validator-rejects-cross-body-jump-target` says the fixture retargets "an in-body `:jump` at pc 4". The test actually mutates the first control instruction found, which is the `:branch-false` at pc 2. The test is correct either way. Worth a one-line comment fix in a later pass.

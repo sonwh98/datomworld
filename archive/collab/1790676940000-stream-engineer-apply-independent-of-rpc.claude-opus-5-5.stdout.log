@@ -1,0 +1,58 @@
+Completed-GMT: 2026-09-29 10:27:25 GMT
+Completed-Local: 2026-09-29 17:27:25 +07
+Coding-Agent: claude
+Session-ID: e2ea0334-6c5f-4339-bd39-f3b0c39625b8
+
+# dao.stream.apply is now independent of rpc
+
+All five steps of the Architect ruling are in the working tree as one breaking change. Nothing is staged or committed, and I didn't touch `docs/orchestrator-log.md`. Tests pass on JVM and CLJS; two things are still open: cljstyle wasn't run, and `build/yin-repl-peer` needs a rebuild.
+
+## What changed
+1. **Reason words:** the six reasons are now `:dao.stream.rpc/{not-found,detached,ended,no-surface,oversize,transport-error}`. The rename covers:
+   - `rpc.cljc`: the remote-to-rpc translation, the terminal path, and `rebind`
+   - `connect.cljc` and `driver.cljc`
+   - the `serve.cljc` docstring, where the old keyword was split across a line break so the grep missed it
+
+   `:dao.stream.remote/*` and `:dao.stream/gap` are unchanged. Only `detached` rebinds.
+2. **Pending response cursor:**
+   - `rpc/request!` now returns `:dao.stream.rpc/cursor-pending` with the identical state while the response cursor is an unresolved anchor. The check runs before an unsent envelope is retried, too.
+   - New public predicate `rpc/cursor-pending?`, and the adapter maps the outcome to `:yin.repl.adapter/cursor-pending`.
+   - The driver's own send guard (`response-cursor-unminted?`, from dce6282c) is gone from both send paths. A held line goes back where it came from, so queue order and cadence are unchanged, and `pending-write?` now reads `rpc/cursor-pending?`.
+3. **VM FFI loss:** the code is now `:yin.vm.ffi/response-lost`; `:yin.vm.ffi/loss` still says `end` or `gap`. The `responder.cljc` doc is updated.
+4. **apply.cljc:** "transport-neutral" is removed from the namespace doc. The `correlation-id?` doc now says the id is any non-nil opaque value whose allocation belongs to its user. Behaviour is unchanged.
+5. **Docs:** a short boundary paragraph in `docs/design/dao.stream.md` (~923), and the two stale examples fixed in `docs/design/dao.jing.remote.implementation-plan.md` (lines 749 and 879).
+
+## Verification
+| Check | Result |
+|---|---|
+| clj-kondo, 15 changed files | 0 errors, 0 warnings |
+| cljstyle | **not run**: the command needs permission this session doesn't have |
+| Focused JVM, all 12 namespaces | 160 tests, 1151 assertions, 0 failures |
+| Full `clj -M:test` | 2362 tests, 184307 assertions, 0 failures |
+| `bb test:cljs` | 2267 tests, 50789 assertions, 0 failures |
+
+I broke three things on purpose, confirmed the tests caught each one, and reverted:
+- **Disabling the rpc gate:** 18 failures, including the driver race test `no-request-crosses-before-its-response-cursor-is-minted`. That test now depends on rpc, since the driver's own guard is gone.
+- **Putting "transport-neutral" back in apply's doc:** the new vocabulary test fails.
+- **Mapping remote `oversize` to `no-surface`:** the reason test fails.
+
+The final grep finds nothing in src, test, or the design docs. Its only hit is `docs/orchestrator-log.md:8317`, which is off-limits.
+
+**The driver changed, so `build/yin-repl-peer` is stale and needs a rebuild before any cross-host test.**
+
+## New and changed tests
+- **New in `apply_test`:**
+  - A JVM-only check that apply depends only on `dao.stream` and that its docstrings contain no rpc or transport words.
+  - A test running request, response and `serve-once!` over a small framebuffer-like medium, using a map as the id.
+- **New in `rpc_test`:** tests for `cursor-pending`, for an unsent envelope not being retried before the mint, and for a terminal mint preventing any send.
+- **New in `adapter_test`:** a test for the new outcome mapping.
+- **Replaced in `rpc_test`:** `a-mint-failure-loses-an-already-outstanding-request-too` sent a request before the mint, which the new gate now forbids. `a-terminal-mint-prevents-sending` replaces it.
+
+No test file outside the allowed list asserts a renamed word.
+
+## Concerns
+- **Terminal mint with work outstanding:** the ruling says a terminal mint completes outstanding work. `request!` can no longer create outstanding work before the mint, so that path is only reachable from a hand-built state. The code is unchanged and still covered by the read-failure tests.
+- **`docs/design/dao.stream.apply.md` still uses "transport" language** ("Transport Independence", "Transport Examples"). It wasn't on the allowed list, so it's left for a later change.
+- **Line ordering (pre-existing, not introduced here):** a line typed in the same tick a held queue becomes sendable is sent ahead of the queued lines. This change keeps that ordering exactly as it was.
+
+The full report is at `collab/1790676940000-stream-engineer-apply-independent-of-rpc.claude-opus-5-5.report.md`.

@@ -1,0 +1,10 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+r2 complete. Uncommitted diff in `src/cljc/dao/jing.cljc` + `test/dao/jing_test.cljc`; findings at `collab/1789523100000-storage-jing-canonical-fix-r2.glm-5.3.findings.md`.
+
+**Finding 2** — both comparators now `#(compare (canonical-print %1) (canonical-print %2))` (map-key and set-element sorts); `canonical-print` moved above `order-normalize` so the reference points backward (no `declare`, cljd compile confirms). Before/after on the Architect's repro `{[1 2] :a, [1 3] :b}` under `*print-length*` 1: **before** the hash changed (tied keys → silent entry drop), **after** it's stable and the two entries still hash distinctly from the one-entry map.
+**Finding 5** — record-rejection message is one line.
+**Finding 6** — explicit `:line`/`:column`-meta-vs-bare-vector test added.
+
+**Verification:** `clojure -M:test -n dao.jing-test` → 38 tests / 227 assertions, 0 failures. Full `bb test:clj` → 1453 / 165,971, 0 failures. CLJS clean for jing (same 2 pre-existing `##Inf` failures elsewhere). CLJD: compile clean + full jing namespace 38/38 on the Dart VM.
+
+Disclosed residual: ambient `*print-readably*` still reaches scalar `pr-str` bytes — the Architect's optional default-binding at `content-hash` wasn't applied (optional, out of this prompt's scope); the findings recommend it ride with Finding 1's fail-closed unit. Findings 1/3/4 untouched as instructed.

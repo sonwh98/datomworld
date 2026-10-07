@@ -1,0 +1,44 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+```
+Completed-GMT: 2026-10-03 10:43:59 GMT
+Completed-Local: 2026-10-03 17:43:59 +07:00
+```
+
+# Consensus follow-up: P2-1 (`:live` omitted from in-memory `ReturnFrame`)
+
+I re-read the three lines that decide this: the push at `register.cljc:606-612`, the payload builder `continuation-payload` (`debruijn_register_effects.cljc:84-120`), and the decode-time validator `return-frame-defect` (`:155-210`), plus `body-liveness` (`debruijn_register_code.cljc:342-377`). The Architect is **technically correct**. The optimization is safe, and my P2-1 over-rated it.
+
+## Finding → disposition
+
+**Finding (P2-1, as filed).** `:live` is a field of the Clojure return frame, so omitting it from the Rust `ReturnFrame` looked like a parity risk.
+
+**Final disposition: ACCEPT the Architect's pushback; downgrade to a documentation note (P3), not a parity defect.**
+
+The decisive fact is that the field is *provably redundant*, on two independent grounds:
+
+1. **`live` is exactly the index column of `regs`, by construction.**
+   `register.cljc:609-610` builds the frame's `:regs` as `(mapv (fn [r] [r (nth registers r)]) live)` — the pairs are produced *from* `live`, in `live` order. So `live ≡ (mapv first regs)` for every frame, unconditionally. There is no path that writes `regs` and `live` independently.
+
+2. **`live` is re-read from the instruction, not from the frame, everywhere it is consumed on the wire.**
+   `continuation-payload` never reads the frame's `:live`: line 99 does `live (nth instruction live-idx)` — it takes the call's `live` operand straight off the instruction at `site_pc`. That is *exactly* the Architect's stated derivation. The only other consumer, `return-frame-defect`, destructures `:live` (`:163`) and checks two things before it is trusted: `(= call-live live)` (`:190`) and `(= live (mapv (fn [p] (nth p 0)) regs))` (`:198`). Both are re-derivable from data the Rust struct *does* keep (`site_pc` → instruction, and `regs`).
+
+So on serialize the Rust side can emit `:live` = instruction operand at `site_pc` (identical bytes to Clojure's line-99 emission); on decode it validates the received `:live` against both `call-live` and `(map first regs)` and then discards it. No in-memory field is required.
+
+**Order-safety is also closed.** `body-liveness` computes every live set in `sorted-set` (`:354`, `:360-361`) and its docstring commits to "strictly ascending vector" (`:345-346`). So `live` — and therefore `regs` — is ascending, the doc's §4.4 "ascending" annotation is accurate, and `(map first regs)` reproduces `live` with no re-sort/order ambiguity.
+
+**`attach-image` relocation does not break it.** `regs` stores resolved `(u16, Value)` pairs, not pooled offsets, so `(map first regs)` is relocation-independent; and re-derivation-from-instruction resolves the `live` pooled operand afresh against the current pool each time, which the doc §4.2 already guarantees ("no existing pc … changes meaning").
+
+## Remaining action (non-blocking)
+
+Two things, both documentation/test hygiene, not correctness:
+
+1. **Reword §4.4 accurately.** The current text ("`live` is not stored: it is re-read from the call instruction…") reads as a statement about the *Clojure source*, which is false — Clojure *does* store it (`register.cljc:611`). The correct wording records it as a deliberate divergence: *"The Clojure frame stores `:live` redundantly; the Rust `ReturnFrame` omits it because it is recoverable from `(map first regs)` and from the call instruction at `site_pc`, and is re-derived at serialization / validated-then-discarded at decode."* If the Architect's "fix" kept the phrase "not stored" without the "in Rust / diverges from Clojure" qualifier, the fix is incomplete.
+
+2. **Add a K2 regression fixture** that asserts byte-identical `:live` **and** `:regs` on serialize — including one park/re-serialize *after* an `attach-image` (the relocation case), and one tampered-`:live` payload refused with `:continuation-live` and `:continuation-registers`. This turns the "derivable, therefore identical" argument into a tested invariant.
+
+## Ready to commit?
+
+The *design decision* (omit `:live` in-memory) is correct and ready to commit. I would hold the §4.4 wording as-is until item 1 is applied — otherwise the committed text will continue to assert a falsehood about its own port target. The memory savings is one pooled `(offset,len)` operand per frame (marginal), so this is a taste call the Architect is entitled to make; the reviewer's only obligation is that it be *described* truthfully and *tested* once.
+
+No files were edited.

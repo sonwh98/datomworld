@@ -1,0 +1,72 @@
+# Engineer report: linker over dao.jing.dht, slice L2
+
+L2 is done in `/Users/sto/workspace/datomworld-linker-l2` (branch `linker-l2`, at `a5e47c8d`). Every acceptance bullet has a test, and all five lanes pass. Nothing is staged or committed. The report is written to `collab/1790812000000-engineer-linker-L2.claude-opus-5-5.report.md`.
+
+## Lanes (each run in the foreground to its verdict)
+
+| Lane | Result |
+|---|---|
+| kondo on the 5 changed files | 0 errors, 0 warnings (run as `clj -M:kondo`; the sandbox refused `clojure -M:kondo`) |
+| `bb test:clj` | 2643 tests, 223729 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2557 tests, 89884 assertions, 0 failures, 0 errors; both new test namespaces ran |
+| `bb build:yin-repl-peer` | exit 0, peer built |
+| `bb test:cljd` (after `rm -rf test/cljd-out`) | +2512, "All tests passed!" |
+
+**Dart detail.** Both new test files were compiled and are in the lane's glob. The compact reporter overwrites its progress lines, so I can't show per-test names on Dart. A per-test run with `dart test -r expanded` was refused by the sandbox.
+
+## Files (only the L2 list in section 12)
+
+- **New `yin/vm/linker/closure.cljc`:** the walker of section 4.2.
+- **New `yin/vm/linker/dht.cljc`:** `publish!`, `load-module`, `module-status`, `snapshots`, `names`, `dependency-bindings` and `link`.
+- **`publish.cljc`:**
+  - Each required module's closure is walked before anything is written.
+  - The minted closure is walked before anything is linked.
+  - New public helpers `code-formats` and `link-local`.
+- **New tests:** `closure_test.cljc` (8 tests) and `dht_test.cljc` (7 tests, over the mesh).
+
+## Acceptance → evidence
+
+1. **The publisher walks what it minted.**
+   - A backend that loses a row's write is refused `:yin.link.publish/incomplete-closure`.
+   - Forged bytes at a required address are refused `:invalid-requirement` and nothing is written. The old publisher threw here.
+2. **`:missing` names the exact blob.** Removing any one blob, in turn, gives `:missing` with that address and role (12 cases):
+   - the manifest, the root, a leaf row and an interior row;
+   - each of the three records and each of the three images;
+   - the required module's manifest and one of its rows.
+3. **Every closed code is produced.**
+   - All 8 codes of section 4.2 appear, plus each of the three bounds.
+   - Through `dao.space.dht/load`, each fails the load with one event, stays failed and issues zero fetches.
+4. **`:requires` is complete.** A diamond (top requires base and mid; mid requires base) lists all three requirements in walk order and walks base once.
+5. **`dependency-bindings`, with real Ed25519 envelopes in loaded snapshots:**
+   - **Matching:** `:ok`; `app` links on all four formats and runs (`g` = 43).
+   - **Missing:** `:absent` both when P1's snapshot isn't loaded and when P1 isn't declared; the second carries the `:undeclared-principal` diagnostic.
+   - **Conflicting:** `:mismatch` when P1 has republished `base` elsewhere, `:ambiguous` when P2 also asserts it elsewhere.
+   - **Both on the pinned address:** `:ok`, with both asserters in provenance.
+   - **Direct entry:** `:ok` with no signature.
+6. **Mesh load, then a link with no fetch.**
+   - A's publication is acknowledged, and B loads the closure by address.
+   - B links on all four formats with the same `:jing/get` count before and after.
+   - Each link result and each run is B0-equal to A's local one.
+7. **Linking one format never makes a load `:loaded`.** With B holding everything but the H image, the semantic format links locally after every step, yet the load is never `:loaded`.
+8. **Failures carry the miss cause.**
+   - An image no peer holds fails with cause `/exhausted`.
+   - A closure held only by a non-publishing A fails `/exhausted` on the manifest.
+9. **`link` before `:loaded`** is refused `:yin.link.dht/not-loaded`, both with no load at all and while loading.
+
+Time advances only through the readings handed to `step` and mesh ticks.
+
+## Tests first, and mutations
+
+- **Red runs:**
+  - The closure tests against a stub walker: 44 failures and 1 error, every test failing.
+  - The DHT tests against a stubbed `yin.vm.linker.dht`: all 7 tests failed (6065 assertion failures).
+- **Mutations:** 11, at least one per core property, each applied to a saved copy, run, and restored (restore checked with `git diff --no-index`). All 11 were caught. The table is in the report.
+
+## Decisions for the reviewer
+
+1. **`snapshots` and `names` are built now, not in L4.** The L2 `dependency-bindings` bullet needs the fold over loaded snapshots, so they exist now.
+   - HEAD is not in the snapshot set yet. The node exposes no current-HEAD reading, and `dao/space/dht.cljc` isn't an L2 file, so that part is left to L4.
+2. **`snapshots` reads the node's internal load table.** It lists loads with `(keys (:loads node))` because `dao.space.dht` has no public "list loads" function. Each address is then filtered through the public `loaded-datoms`.
+3. **Two refusal reasons are not in section 9:** `:yin.link.publish/incomplete-requirement` and `:incomplete-closure`. L0's `:invalid-requirement` keeps its exact shape.
+4. **`link` maps `:absent` after `:loaded`** to `:yin.link.dht/closure-incomplete`. No test reaches this path.
+5. **`:ok` entries keep the exact shape of section 7.4.** The "both asserters" evidence is read from `names` provenance instead.

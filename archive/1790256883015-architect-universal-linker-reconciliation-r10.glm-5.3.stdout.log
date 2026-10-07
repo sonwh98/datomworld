@@ -1,0 +1,15 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-24 14:45:48 GMT
+Completed-Local: 2026-09-24 14:45:48 +07 — correction: 2026-09-24 21:45:48 +07
+Coding-Agent: glm
+Session-ID: a2749e73-2e44-4716-8a1f-6ad0cc1d82d9
+
+`docs/design/yin.vm.linker.md` is now revision r10: 2,631 lines, pure ASCII, no line over 80 columns, uncommitted. As with rounds 5, 8, and 9, the round-9 findings file was not present in `collab/`, so r10 worked from the two items in the task; the 13.1 record says so. Each finding, and what r10 did:
+
+**1. P1 — Reference forgery at effect boundaries — agreed.**
+A new **Sealed references (r10)** block in 7.3 closes the last read path r8/r9 left open: references were plain maps with predictable ids, and effect dispatch accepted literals, so a program or linked module could write `{:type :stream-ref, :id :stream-0}` or an FFI cell id itself and reach a resource it was never handed. The fix is unguessability, not shape-checking (per UCF 7.5.1's own philosophy): each task's resources are bound to a **task-scoped capability secret** minted once by the composition at task creation — never in a program value, never on a stream, never counter-derived; every issued reference (`stream-ref`, `cursor-ref`, FFI cell id) carries a seal over its id under that secret; every effect dispatch resolving a program-supplied reference verifies the seal against the active task's secret before touching `:resources`, and a wrong or missing seal fails closed with `:forged-resource-reference` naming the effect and id. Lift strips the emitter's seal (the marker is the portable encoding); lower installs the attachment or cell and issues a fresh reference sealed under the receiver's secret — giving r9's "remapped reference" its precise meaning. Recorded as a UCF 7.5.1 amendment in criterion 12; forged stream, cursor, and FFI-cell tests (plus the lifted-then-lowered sealed reference) added to criterion 23 and the M4 checklist; the file box's engine line names sealed references.
+
+**2. P2 — Migration document citations — agreed; corrected.**
+Verified against UCF's own heading list: the document is numbered from §7, so "UCF 4.1" named no section. The store model is §7.6.2's own opening statement; the r8 block and criterion 12 now cite sections 7.5.1, 7.5.3, and 7.6.2 (with a correction note in place), and the Section 10 file box lists every UCF amendment explicitly, 7.6.2 included.
+
+Section 13.1 carries the r10 record; r9–r2 shifted to 13.2–13.9. Next step: hand r10 to `gpt-6-sol` for the round-10 consensus review.

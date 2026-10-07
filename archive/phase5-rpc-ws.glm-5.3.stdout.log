@@ -1,0 +1,26 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-03 22:09:14 GMT
+Completed-Local: 2026-09-04 05:09:14 ICT
+Coding-Agent: glm
+Session-ID: none (new implementation)
+
+## Files
+
+- `src/cljc/dao/stream/rpc/ws.cljc` (new) — `dao.stream.rpc.ws`, the only layer above the transport that knows `:ws/…` events:
+  - `decoder`/`decode` — pure envelope→event function closing over one attachment id (`me`, nil = unfiltered private medium): foreign/unattributable envelopes → `ignore-event`; `:ws/payload` → exact `:ws/value` unwrap (core classifies response vs. malformed); exact neutral translation of opened/accepted→`/established`, closed→`/detached`, ended→`/ended`, disclaim resolution (`:ws/not-found`)→`/not-found`, transport-error→`/transport-error`, error→`/diagnostic` (non-terminal); unknown current-vocabulary events → `unhandled-event` diagnostic preserving the whole envelope; malformed frames (non-map, no/invalid `:ws/event`, payload without `:ws/value`) → `:dao.stream.rpc.ws/malformed-envelope` diagnostic. Envelope extra keys (`:ws/reason`, `:ws/handle`) never cross.
+  - `init-client` — RPC client state from the whole `attach!` result (handle→writer, `:dao.stream/attachment`→`:me`, decoder wired as `:decode`); throws on a non-ok or handleless attach result (composition defect, matching `ws.cljc` precedent).
+  - `rebind` — `/detached`-only reattachment that also rebuilds the decoder's filter (the core's `rpc/rebind` swaps `:me` but not `:decode`), keeping reader, cursor, and the monotonic allocator.
+  - No sockets, callbacks, promises, futures, loops, globals, or hidden state; zero reader conditionals (host-neutral by construction).
+- `test/dao/stream/rpc_ws_test.cljc` (new) — 13 tests / 87 assertions.
+
+## Tests
+
+`clj -M:test -n dao.stream.rpc-ws-test` → **0 failures, 0 errors**. `clj -M:kondo --lint` on both files → 0 errors, 0 warnings. Coverage: exact lifecycle translation of all 8 deposited kinds (incl. accepted-offer handle never crossing); value/apply response unwrap (success, error, nil vs. missing key); malformed frames consumed once and published once as diagnostics; unknown-vocabulary forwarding with zero request-state change; foreign-attachment traffic ignored even when it carries our own correlation id; round-trip id preservation, completions published exactly once, ids monotonic after clearing; `:ws/error` then `:ws/closed` (one terminal completion, one diagnostic); `:ws/not-found` then `:ws/closed` plus duplicate post-terminal event (`event-after-terminal`, no new completions); `:ws/ended` not reconnectable; multi-request conservative loss bounded by one step; rebind with fresh attachment filter and no id reuse; private-medium (nil `:me`) decoding; `init-client` attach-result validation. Nothing staged/committed; no existing file edited (the `deps.edn`/`shadow-cljs.edn` diffs are the parallel R2 phase's pre-existing additive aliases).
+
+## Remaining risks
+
+1. **`:ws/accepted` → `/established` is an interpretive call.** The prompt lists "accepted" among mapped events; I mapped both establishment spellings to the one neutral fact and dropped the host-local handle. If review prefers it as an unhandled-event diagnostic (it never appears on a client medium), it is a one-entry change to `lifecycle-translation`.
+2. **Rpc core double-nests `:diagnostics` entries** (`{code, value {code, value envelope}}`); tests assert that published shape rather than fixing the core, which was out of bounds to edit.
+3. **No CLJD compile run** — the full cljd build needs flutter; the source has no reader conditionals and the test's two use `:cljd`-first ordering per the plan, but `test:cljd` should be run before the phase gate.
+4. **Close-code classification stays in `dao.stream.ws`** (transport), as the layering requires; actual wire-close and two-endpoint behavior belongs to the sibling plan's Phase 4a conformance suite, not these socket-free tests.
+[?25h

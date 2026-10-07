@@ -1,0 +1,37 @@
+ExitPlanMode isn't available in this session, so I'll deliver the completed review directly. The plan file at `/Users/sto/.claude/plans/read-collab-1789550856420-architect-sign-enchanted-book.md` also holds this same content.
+
+---
+
+Completed-GMT: 2026-09-16 09:45:00 GMT
+Completed-Local: 2026-09-16 16:45:00 +07
+
+## Findings
+
+None rise to defect status.
+
+- **info** | `src/cljc/dao/data.cljc:45-127` | fidelity to `docs/design/dao.data.md` | `tag`'s branch order, `summarize`'s per-type dispatch, and the `char-node`/`number-node`/`stream-node`/`container-node` helpers match the frozen spec exactly, including the subtle bits: `:count` gated by `counted?` *before* probing, `items+1` probe cap on non-`counted?` sequences, depth-0 skipping the probe entirely, `:items`/`:entries` always `mapv`'d into plain vectors, keyword/symbol truncation on printed form. No correction needed.
+- **info** | `src/cljc/yin/vm/telemetry.cljc`, `src/cljc/yin/vm/ffi.cljc:214-215` | stub-completion question | Architecturally coherent — see analysis below; coherent in a stronger way than the prompt's framing assumed.
+- **info** | `docs/design/dao.data.md:256-266`, `src/cljc/dao/data.cljc:63-74` | throwing-descriptor resolution | Sound — see analysis below.
+- **note** | `test/yin/vm/parity_test.cljc:118` | unrelated `:host-fn` literal | A VM-parity test-normalization helper independently maps `fn? → :host-fn`, unrelated to `dao.data`/`telemetry` and untouched by this diff. Not residual duplication of the retired `telemetry/type-tag` — different purpose (test comparison, not diagnostic classification). No action needed.
+
+## Analysis
+
+**Throwing-descriptor resolution.** Sound. `dao.data` is a general-purpose value→plain-data utility, not a DaoStream host-boundary transform, so the master doc's "host error types never cross the boundary; a transform classifies them" rule (`datom.world.md:130-131`) governs the host-adapter layer, not a diagnostic formatter over already-materialized values. Catching an arbitrary throw portably needs a host-specific `catch`, which only a reader conditional can express — confirmed against `dao/stream/ws.cljc`'s existing three-way conditional — directly conflicting with `dao.data`'s own no-reader-conditionals constraint. The narrower, explicit, load-bearing constraint correctly wins over the implicit nice-to-have. Treating a throwing descriptor like an adversarial non-terminating lazy sequence (caller's problem, documented rather than silently absorbed) is consistent with "Restrictions are a feature" and with `summarize`'s existing stance on lazy-sequence risk.
+
+**Telemetry stub / `dao.data/tag` wiring.** The prompt's framing doesn't match what the diff does. `telemetry.cljc`'s `type-tag` is **deleted outright**, not partially filled in — the three-surface-ordering logic moves *out* to `dao.data/tag`, a separately-owned, separately-tested namespace, and `ffi.cljc` now calls `data/tag` directly instead of `telemetry/type-tag`. Telemetry's own docstring drops "ordering the three surface protocols" from its deferred list, because that's no longer telemetry's job. `enabled?`/`emit-snapshot` stay pure no-ops. So the stub remains a *pure* stub — it does no more real work than before — while logic that had been misplaced inside it relocates to the namespace that actually owns it. This is ownership correction, not partial completion, and is a cleaner outcome than either horn the prompt's question poses.
+
+  Non-defect consequence worth naming: `:arg-shape` vocabulary at the FFI bridge changes (`:host-fn`→`:fn`, always-`:opaque`-for-handles→`:stream`). No observable effect today since `emit-snapshot` is still a no-op; once telemetry actually emits, the new vocabulary is the correct one per `dao.data.md`'s own stated rationale.
+
+## Confirmed properties
+
+- No reader conditionals in `dao.data.cljc` — portable across CLJ/CLJS/CLJD as claimed.
+- No host objects escape `summarize`; `:stream` handling reuses the existing `dao.stream` descriptor protocol rather than reaching into handle internals.
+- No hidden global state / no mutation — `summarize`/`tag` are pure; each of the 5 consumer sites defines its own local `diagnostic-bounds` rather than sharing an implicit default.
+- No new concurrency surface.
+- No premature extension hook (`dao.data.md:273`), consistent with not designing for hypothetical future requirements.
+- Test coverage independently verified to exercise every branch, truncation rule, and the `counted?`-decides-`:count` / items+1-probe-discipline edge cases via a genuinely non-chunked counting sequence.
+- The prior adversarial review (`gemini-3.1-pro-high.findings.md`) was treated as a claim to verify, not authority — all five of its specific claims were independently re-derived from primary sources, not accepted on say-so. All five hold up.
+
+## Verdict
+
+**APPROVE.**

@@ -1,0 +1,42 @@
+Completed-GMT: 2026-09-22 18:53:52 GMT
+Completed-Local: 2026-09-23 01:53:52 +07 (Indochina Time)
+
+Edited `docs/design/yin.vm.debruijn.register.md` only, section 1. Width and ASCII checks pass.
+
+**What I added and where.** The single "worth building" paragraph in section 1 is now two connected paragraphs. The first states the governing philosophy; the second states the specific mechanism it is demonstrated through. Text of the first, verbatim:
+
+```
+This path is worth building on its own merits, and the merit is not
+performance. The governing reason, in the owner's words, is that it
+demonstrates the philosophy that one universal AST can be interpreted by
+different VMs: one truth, many interpretations. The named datoms are this
+project's single source of truth. The named VM, the stack VM, and the
+register VM are not competing implementations with one canonical and the
+others alternates; they are peer witnesses to the same truth, each free to
+interpret it by its own execution model, bound only by agreement on
+observable behavior under the B0 normalizer and never on internal
+mechanism. This is not new here. It is axiom 2 of `datom.world.md`,
+"Interpretation Creates Semantics ... one truth, many perspectives", made
+concrete for evaluators the way its Streams section already makes it
+concrete for a `yin.vm` evaluator and `dao.space` reading one stream with
+no privileged reader ("one stream, many interpretations, none of them the
+stream's own"), and the way `docs/agents/architecture.md`, "COMPILATION AS
+STREAM PROCESSING", already states it for backends ("Same datoms, multiple
+interpreters ... same wave function, different measurements"). The same
+file's "AGENTS" section, under Continuation Migration, already relies on
+it: the AST datoms are the canonical payload, bytecode is a projection for
+one execution model, and a destination projects the datoms into whatever
+model it prefers. A third evaluator over the same datoms is that
+established idea with one more witness.
+```
+
+The second paragraph opens "The specific mechanism for it is the one this epic has been building toward" and carries the earlier `dao.stream` configurable-pipeline text unchanged in substance, plus one added clause: a running kernel is "what makes the philosophy demonstrated rather than asserted".
+
+**Precedent check.** Real precedents exist and are cited in the text above, each verified against the file:
+
+- `docs/design/datom.world.md`, Foundational Axioms, axiom 2: "one truth, many perspectives". The owner's phrase is nearly this axiom verbatim.
+- `docs/design/datom.world.md`, Streams section: the `yin.vm` evaluator and `dao.space` index as peer observers of one stream, "no privileged reader", "one stream, many interpretations, none of them the stream's own". Also listed under Architectural Commitments as "Peer observers, one stream".
+- `docs/agents/architecture.md`, "COMPILATION AS STREAM PROCESSING": "Same datoms, multiple interpreters" and "same wave function, different measurements".
+- `docs/agents/architecture.md`, "AGENTS", Continuation Migration: AST datoms are the canonical payload, bytecode is a projection for one execution model, and the destination projects into whatever model it prefers. This is the closest existing statement to the owner's claim about multiple VMs.
+
+Nothing needs the owner's decision.

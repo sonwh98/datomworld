@@ -1,0 +1,27 @@
+Completed-GMT: 2026-09-14 17:28:36 GMT
+Completed-Local: 2026-09-15 00:28:36 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1352 lines (was 1132). Only this file changed; it remains untracked and `git diff --stat` is empty. The one remaining mention of the withdrawn "encoder-domain" rule is the sentence in §7.4 stating that no such rule exists.
+
+**Finding-by-finding:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Store keys narrowed to symbols and keywords | Fixed. §2.2 defines `key` as the `data` domain, citing the linearizer's `plain-data?` admission of any key and the loader pass-through; §7.4 and §7.5 validate keys as `data`; §7.7 extracts keys by value; §7.2's corpus adds a numeric key; §10.2 records the uniform-definition obligation. |
+| 2 | "Returns plain data" still admits effects | Fixed. §3.1's result condition is now "plain data and not an effect descriptor under the applicable execution contract", citing `module/effect?` and the walker's direct store. The exclusion stays justified by host-function syntax alone. |
+| 3 | Restricted encoder domain unsound | Withdrawn, not patched. §4.2 states that every identity and deduplication use is blocked until the encoding is fixed, across trees, vectors, ledger-record maps, projection collapse, DAG sharing, caches, and reads. The list, seq, and metadata counterexamples are tabled as encoder conformance pairs. The validator rule is removed from §7.4 and §7.5; §6.1 forbids dropping duplicate rows; §10.1 records the withdrawal. |
+| 4 | Paths do not identify sources or generated occurrences | Fixed. §2.5 defines occurrence keys as `[origin root-address path]` with origins `[:source medium batch]` and `[:expansion event-id]`; side tables, §5.3 instruction provenance, §4.4, and §8.4's event links carry the origin. Nested expansions name the enclosing event, mirroring the macro contract's `:yin/source-node`. |
+| 5 | Whole-batch admission not preserved; stray marks silently dropped | Fixed. §8.5 replaces the single tree with an ordered batch `{:yin/batch :yin/root :yin/declarations}` preserving every definition and batch order, states explicitly that the old contract is not narrowed, and requires marks to be validated before stripping with `:stray-macro-lambda` rejection. §9.1's adapter row states the reject, declare, strip order. |
+| 6 | Any-carried-environment satisfaction unsound | Fixed. New §7.7.2 makes name obligations per context with a table of what discharges what; an unrelated carried binding never discharges; unplaceable occurrences are retained and yield `:incomplete`. §10.8 records that UCF §7.6.1 needs the same amendment. |
+| 7 | Segment effect query returns mnemonics | Fixed. New §7.7.1 publishes a contract-versioned footprint table mapping every tag and mnemonic to effect identifiers, with explicit empty sets for internal instructions and FFI routed to `:yin.k/ffi-ops` plus the store-slice requirement, applied before unioning with profile effects, and a tree/segment requirement-set equality obligation. |
+| 8 | Derivation stamp does not pin lowering | Fixed. New §5.2.1 defines a dedicated lowering profile pinning input grammar, normalization, emission rules, label and body order, terminators, and target contract. §5.2.2 separates object-integrity verification from derivation verification with distinct outcomes. §8.2 carries the structured profile map exactly, with no string form. |
+
+No finding was overruled.
+
+**Sections touched:** §1, §2.2, §2.5, §3.1, §4.2, §4.4, §5.2 (new §5.2.1 and §5.2.2), §5.3, §6.1, §7.2, §7.4, §7.5, §7.7 (new §7.7.1, §7.7.2, §7.7.3), §8.2, §8.4, §8.5, §9.1, §10 (rewritten as twelve items).
+
+**Verified against source myself:** `module/effect?` at `module.cljc:77-79`; the semantic hot-loop effect arms at `semantic.cljc:360-403` and the FFI arm at `:405-420`; `resolve-var` at `engine.cljc:46-65`; `plain-data?` collection and metadata admission at `linearize.cljc:56` and `:58`, and the operand rejection at `:79-85`; `order-normalize` at `jing.cljc:63`; `local-datom?` at `datom.cljc:42-58`; `:yin/params` at `v2.cljc:302`; the macro contract's admission and harvest at `yin.vm.macro.md:229-249` and its nested-event linkage at `:692-708`; the UCF stamp scope at §7.3.3.
+
+**Taken from the review, not re-run:** the executed results that `lower-ast` accepts a numeric store key and emits `[[11 42 11] [23]]`, that `{:effect :vm/store-put …}` passes `plain-data?`, and that `(seq [1 2])` and a metadata-bearing vector collide with `[1 2]` under `segment-key`. I verified the code paths those results follow but did not execute them.

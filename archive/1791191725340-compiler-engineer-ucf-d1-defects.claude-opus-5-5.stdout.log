@@ -1,0 +1,39 @@
+I couldn't read the prompt file, so I haven't started the task.
+
+The file is at `/Users/sto/workspace/datomworld/collab/1791191725340-compiler-engineer-ucf-d1-defects.prompt.md`. It sits in the main checkout, outside this session's allowed directory, `/Users/sto/workspace/datomworld-d1`. Both the Read tool and `cat` were refused. The worktree's own `collab/` has no copy.
+
+Either of these would unblock me:
+- Copy the brief into the worktree, for example `/Users/sto/workspace/datomworld-d1/collab/`, and tell me the path. `collab/` files are never committed, so this is safe.
+- Grant read access to the main checkout's `collab/` directory.
+
+The brief probably also names a report path. If it does, that path will need to be inside the worktree as well.
+Completed-GMT: 2026-10-05 09:18:39 GMT
+Completed-Local: 2026-10-05 16:18:39 +07
+
+The D1 fix is done: `export-task` now returns an `:address` that is the digest of the exact `:bytes` it emits. The body bytes are unchanged. I ran only the handoff test namespace on the JVM, not the full suite or the cljs and cljd lanes.
+
+**What changed**
+- `src/cljc/yin/vm/ucf/handoff.cljc`: a new private `bytes-address` builds the jing segment address (`:segment/blake3-<hex>`) from the emitted bytes. `export-task` uses it for `:address` instead of `jing/content-hash` over the body.
+- `test/yin/vm/ucf/handoff_test.cljc`: I strengthened the existing "export is canonical bytes under their address" assertions.
+
+**Cause:** the old address was `jing/content-hash` over the body map. That encodes with `dao.jing.cbor`, while the emitted bytes use `dao.stream.cbor`, so the two digests disagreed.
+
+**Test evidence (JVM, `clj -M:test -n yin.vm.ucf.handoff-test`)**
+- **Red, before the fix:** 24 tests, 164 assertions, 2 failures, 1 error. A receiver check, `jing/segment-bytes-match?` on the address and `:bytes`, rejected the old address. Parsing the old address as a segment address returned nil.
+- **Green, after the fix:** 24 tests, 164 assertions, 0 failures, 0 errors.
+- **kondo:** 0 errors, 0 warnings on both files.
+
+The new assertions check that:
+- the address is a valid segment address;
+- the digest recomputed from `:bytes` equals the address digest;
+- `jing/segment-bytes-match?` accepts the address against `:bytes`;
+- different bytes are rejected.
+
+**Unresolved concerns**
+- `:address` changes shape from a bare hex string to a segment keyword. I did not search for other consumers of the old shape, so the orchestrator's full three-lane run is the real check.
+- The receiver path covered is `jing/segment-bytes-match?`, which `checkpoint/inspect` also uses. I did not call `checkpoint/inspect` itself, because it decodes with `dao.jing.cbor` and gates on version 1.
+- cljstyle was not run, as expected.
+
+I made no git writes. `git status` shows only the two edited files plus the staged brief.
+
+The report is at `collab/1791191725340-compiler-engineer-ucf-d1-defects.findings.md`.

@@ -1,0 +1,47 @@
+## Review: M4 S5, UCF amendments (`docs/design/yin.vm.universal-continuation-format.md`, +200/−1)
+
+I checked the diff, the implementer's report, `yin.vm.linker.md` (7.2, 7.3, section 11 items 10 and 12), and `src`/`test`. I did not rerun any suite.
+
+**Summary.** The amendments track the linker spec closely, with no material drift in the pending variants, the closure markers, the resource split, the seal rule or the module stores. The one real defect is that 7.5.4 still says its kind set is closed while the diff now uses kinds outside that set.
+
+### P1 (fix before merge)
+
+**1. The 7.5.4 closed kind set is not extended.** At lines 961–964 (unchanged by the diff) the doc says "The kind set is closed", and lists `:host-object … :foreign-parked-ref`.
+- The diff emits `:yin.k/kind :forged-resource-reference` (diff hunk near new line 776–779) and `:yin.k/kind :missing-module-store` (new hunk near 1099–1118). It also refers to `:unrooted-body` (new hunk near 750), which the linker spec (linker.md:1333, and :897 in the ast walker) files under `:yin.k/non-portable`.
+- Read as written, these three kinds are refused by a set that declares itself closed, which is an internal contradiction.
+- The implementer's scope note says 7.5.4 is out of scope. That is a reasonable caution, but item 12 asks the amendments to keep the doc consistent, and this is a one-line addition.
+- Fix: add `:forged-resource-reference | :missing-module-store | :unrooted-body` to the set, with a "(linker M4)" cross-reference. This confirms the known gap from (c): it is **still missing**.
+
+### P2
+
+**2. Future behavior is stated as fact.** `src` has no `:link-request`, `:link-response`, `:install`, `forged-resource`, `missing-module-store`, `module-stores` or `:resources`.
+- Only `ast_walker.cljc`, which has the `:unrooted-body` refusal, and `attach_image_test.cljc` match my greps, which covered `src`/`test` for those names plus `binding-mismatch` and `store-of`.
+- The new blocks use present-tense indicatives such as "the engine issues" and "every effect dispatch verifies".
+- The section header still says "Proposed", so this isn't false. But each "(M4)" block should say it is specified by `yin.vm.linker.md` and lands with M4 slices later than S1/S2, so a reader doesn't take it for shipped behavior.
+
+**3. `:binding-mismatch` has no outcome status.** The diff (near new line 745) says "the reverse is `:binding-mismatch`". The linker's refusal table (linker.md:588) lists it as a refusal kind, not as a `:yin.k/non-portable` kind. The doc should name the status it returns under (lower-side refusal, not lift-side non-portable), otherwise it will be added to 7.5.4 by mistake.
+
+**4. Pending variants use `:yin.k/cell` where the linker uses `:cursor`.** UCF's own terminology for a lifted cursor is a cell, so the rename is defensible. The mapping should be stated once, since linker.md:994–1026 uses `:cursor` and a reader diffing the two will be confused.
+
+### P3
+
+**5. Linker citation slip.** `linker.md:1031` cites "section 11, item 10", but the amendment list is item 12 (linker.md:2124–2126). Item 10 is the require-flow test.
+
+### Answers to your four questions
+
+- **(a) Technical accuracy.** The variants, envelope, link-id pair, `:newest` cursor mint order, `full` retry, exact-correlation skipping, install state and `gap` outcome all match linker.md 7.2 steps 3–7 and the 7.3 install rules. The `:unrooted-body` and `:binding-mismatch` semantics match too. The only accuracy issue is the missing "future" marking (finding 2).
+- **(b) Item 10 vs 12 conflict.** The implementer was right to follow the decision text and item 12 and not stop. Every other amendment citation says item 12, and item 12 names 7.4.3 and 7.5.1. It was a slip in the linker doc (finding 5), not a design conflict.
+- **(c) 7.5.4.** Not extended; see finding 1.
+- **(d) Internal consistency.** The 7.4.1 reason comment and the new safepoint table agree with the effectful-call row: `pc+1`, and the stack is St minus the popped operator and args. The 7.5.3 cell lowering, 7.6.2 resource split and "no merge at the module grain" text are consistent with their parent sections. The only inconsistency is finding 1.
+
+**Verdict: APPROVE-WITH-FIXES**
+
+Must-fix:
+1. Extend the 7.5.4 kind set with `:forged-resource-reference`, `:missing-module-store` and `:unrooted-body`.
+
+Recommended before merge (P2):
+2. Mark each M4 block as specified by linker.md, not yet implemented.
+3. State the status `:binding-mismatch` returns under.
+4. Note the `:cell`/`:cursor` naming mapping.
+
+P3: fix the item-10 citation at `linker.md:1031`.

@@ -1,0 +1,27 @@
+C8 is done and green on the JVM and Node test runs I could complete, with no git writes. I didn't get cljstyle, Dart, or a full Node run to finish (details below). The report is at `collab/1791112800000-compiler-engineer-ucf-c8-completion.findings.md`.
+
+**What was built**
+- **Code:** the new namespace `src/cljc/yin/vm/ucf/authority/completion.cljc`, plus two test namespaces: `completion_test` (16 tests) and `completion_fold_test` (5 tests).
+- **Report:** the holder reports its successor, and the authority checks it before recording it. The bytes must match the address and pass the C4 inspector. The origin must name this occurrence and lease, with the same arbitration identity. The successor's occurrence must be one the ledger has never seen, and its counter must continue the predecessor's.
+- **Completion:** a release of a reported lease becomes one transaction holding the lapse, the closure, the one edge and the epoch change. Any other reclaim stays a plain reclaim, and so does a release at the epoch bound.
+- **Fold:** each new fact kind refuses anything malformed. It also refuses a closure without its edge, a closure outside its lapse's transaction, and an edge to an occurrence the ledger has already seen. That last rule is what keeps the chain acyclic.
+- **Other rules:**
+  - A closed occurrence never grants again. This is checked in the fold, the writer and the judge's answer hook.
+  - A successor offer is refused as `:awaiting-completion` until its predecessor completes, and as `:orphan` after that unless it is the recorded successor.
+- **Shared files:** the edits to `ledger.cljc` and `grant.cljc` are small and additive. The report lists each one with its line range for the merge.
+
+**Testing**
+- **Red before green:** against a stub, 19 of the 21 tests failed (74 failures, 24 errors). The other two passed because they pin existing C5/C6 behavior.
+- **Mutations:** I broke each guarantee 22 ways, and every mutation turned the tests red. One mutation (ignoring the closing lease on a successor offer) survived at first, so I added a test that kills it.
+- **JVM:** 189 tests, 1444 assertions across the UCF set, all passing. The C3 cross-host byte fixture is unchanged.
+- **Node:** 256 tests, 1934 assertions across every UCF namespace, all passing. The whole Node suite didn't finish within my 590 s limit in two tries; probably the other engineers' lanes were running at the same time. So I ran the UCF namespaces alone, using the same `--config-merge` form bb.edn uses.
+- **kondo:** clean. Files are ASCII only, with no line over 80 columns.
+
+**Not run**
+- `cljstyle fix` and `check`: the permission gate blocked it again, so please run both on the five touched files.
+- Dart and the full lanes: yours, as the brief said.
+
+**Decisions for you**
+1. **Halted successors** are refused, so a computation that halts can never complete. Its occurrence goes back to offered and could be granted and run again. The UCF text allows a result as a successor, but the brief's checks only apply to a continuation.
+2. **A third fact kind:** the brief named two (closure and edge). I added a recorded `:yin.k/resumed` so the report survives a crash between the report and the release.
+3. **Unknown predecessors:** a successor whose predecessor this ledger never saw is still admitted as a first offer, as C5 did. The C5 and C6 tests depend on that. It's no weaker than any first park, but it gets no place in the chain.

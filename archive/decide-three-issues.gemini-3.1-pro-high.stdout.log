@@ -1,0 +1,34 @@
+### Question 1
+**Option 1A**
+
+In a non-blocking contract, operations report local state synchronously. For a remote attachment, the local truth is that the handle was successfully allocated and the connection attempt begun; the network's truth is not yet knowable. Introducing `:dao.stream/pending` alongside `ok` forces every caller to branch on a distinction that does not change their behavior, as both outcomes provide a handle that must be held while awaiting asynchronous events. This violates the goal of minimal, declarative surfaces. The error is not that `ok` substitutes a false success, but that its current definition claims a remote truth it cannot know. By rescoping `ok` to mean the local handle is ready, we preserve the exhaustive outcome set and the invariant that the unknowable arrives later as data.
+
+**Exact text for `dao.stream.md`:** 
+"A local handle for the attachment was successfully created; for remote streams, connection resolution arrives later as data."
+
+---
+
+### Question 2
+**Option 2C**
+
+ADR 0003 governs the final production host assembly, while the implementation plan describes a vertical test slice whose host composition is temporary scaffolding. Since the adapter code itself is blind to the transport it deposits into (per `datom.world.md`), using a ring buffer in the slice's tests requires no changes to the boundary code. The ring buffer satisfies the transport's mechanical requirement for a writer surface without violating the architecture. An ADR specifies the architecture of the system, not the temporary mechanical wiring of isolated integration tests.
+
+**Exact text for `dao.stream.implementation-plan.md`:**
+"The serving composition uses a ring buffer as the deposit destination for this test slice only; this satisfies the transport's requirement for a writer surface while respecting ADR 0003, which governs production composition rather than test scaffolding."
+
+---
+
+### Question 3
+**Option 3C**
+
+The authority forbids injecting semantic taxonomies (judging *what* the payload means), not structural framing. The socket boundary must distinguish lifecycle events from payloads to prevent collisions, and must attribute events to attachments if a shared medium is used. Without a structural wrapper, a payload that coincidentally looks like a socket lifecycle event would be indistinguishable from one, breaking the boundary's transparency. The envelope is therefore an objective representation of the host event itself, not a subjective interpretation of its contents. Keeping the envelope and reconciling the spec clarifies this boundary between structural fidelity and semantic judgment.
+
+**Exact text for `dao.stream.ws.md`:**
+"The envelope is an objective structural record of the host event, providing required attribution and lifecycle distinction without injecting a semantic taxonomy or judging the payload's meaning."
+
+---
+
+### Least Confident
+I am least confident about **Question 3**. 
+
+What would change my mind is a compelling demonstration showing that one-deposit-medium-per-attachment completely eliminates the need for correlation, *and* that lifecycle events (opened, closed, error) can be structurally differentiated from payloads using purely standard datoms. If we could construct standard `[e a v t m]` tuples where the attribute `a` cleanly distinguishes payload from lifecycle without needing to invent a new `ws` namespace for an envelope map, the wrapper would truly be superfluous. This would prove that option 3B is viable, and that the current envelope is indeed a premature semantic vocabulary.

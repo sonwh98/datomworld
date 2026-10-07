@@ -1,0 +1,26 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Phase 1 complete. Both deliverables are in place, uncommitted per the standing rule.
+
+## What was built
+
+**`src/cljc/yin/vm/semantic.cljc`** — the linear CESK interpreter:
+
+- **`create-vm`** — mirrors the walker's constructor (`:in-stream` rejected before allocation, all-or-nothing FFI pair, `:vm-model :semantic`), plus `:code {segment-id image}` and `:stack` fields on the `SemanticVM` record.
+- **`load-image`** — checks `yin.vm.code/well-formed?` first (violation throws a load error naming rule and entity, §2.6), then decodes into one vector indexed by pc of `[opcode & operands]` with every `:yin.code/target`/`:body` ref resolved to a pc integer. Mnemonic aliases per §2.4 (`:const`→`:literal`, `:call`+`:tail?`→`:tailcall`, …); `vm-load-program` stores the image and sets control to `{:segment id :pc 0}`.
+- **The hot loop** — seg/pc/val/St/E/K live in `loop` locals; the record is touched only at effect points and exits. Dispatch is a literal-integer `case` (I deliberately did *not* use `vm/opcase` — its CLJD expansion needed a compat patch per `bytecode-vm-optimization.md`). All required transitions are implemented: `const, var, closure, push, call, return, jump, branch-false, halt, gensym, store-get, store-put, current-continuation, park, resume` — plus the stream ops and `ffi-call`, since `well-formed?` admits the full §2.4 vocabulary and the effect machinery was already needed for primitive effects. `step` is the same loop with fuel 1, so single-stepping and full runs share one transition path.
+- **Scheduler integration** — wait entries carry `{segment pc env stack k}` exactly as §3.5 specifies; `semantic-restore` also interprets the two FFI extras (`:call-id` response readers via `ffi/call-result`, `:request-sent` full-appended retries). Empty K is stored as `nil`, not `[]`, so `engine/ready-for-ingress?` — untouched — sees a machine between evaluations. `eval` refuses an AST until Phase 2's linearizer exists; `vm-load-program` already accepts its output shape.
+
+**`test/yin/vm/semantic_test.cljc`** — 14 deftests over hand-assembled segments: arithmetic, the §2.7 worked segment, env-capturing closures, `if` branches (truthy/false/nil), store/gensym, park→halt-with-record→**cross-segment resume**, current-continuation reification round-tripped through `pr-str`/`edn/read-string`, single-step, reset, blocked `stream-next` waking from the wait set, and an ffi-call through the bridge. The bounded-memory case parks at the countdown bottom: **k = 1 frame at depth 10⁵** (non-tail contrast: k = 1001 at depth 10³), stack `[]` — both then resumed to completion.
+
+## Verification
+
+| Lane | Result |
+|---|---|
+| `bb test:clj` | 1404 tests, 165,673 assertions, 0 failures |
+| `bb test:cljs` | 1305 tests, 35,169 assertions, 0 failures |
+| `bb test:cljd` | all passed (+1261) |
+| `clj -M:kondo` | 0 errors, 0 warnings |
+
+The 10⁵ tail countdown runs in ~370 ms cold on the JVM — no performance claims made; that's Phase 4's measurement.
+
+One honest gap: the `stream-put` full→park and ffi `full`→`request-sent` paths mirror the walker's code but are untested — the ring-buffer transport evicts rather than fills, so exercising them needs a scripted non-evicting transport (the same divergence-register situation the walker suite records).

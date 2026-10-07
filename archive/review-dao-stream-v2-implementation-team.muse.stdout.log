@@ -1,0 +1,103 @@
+# DaoStream v2 Implementation Review — Adversarial
+
+**Scope:** staged `src/cljc/dao/stream.cljc`, `src/cljc/dao/stream/ringbuffer.cljc`, `src/cljc/dao/stream/transit.cljc`, `src/cljd/dao/stream/transit.cljd`, `test/dao/stream/conformance.cljc`, `test/dao/stream_test.cljc`, `test/dao/stream/ringbuffer_test.cljc`, `test/dao/stream/transit_test.cljc` vs `dao.stream.md`, `dao.stream.ws.md`, `dao.stream.implementation-plan.md`.
+
+**Verdict: REQUEST CHANGES** — two confirmed P0s break the Phase 3 round-trip and cljd parity; P1s leave the conformance harness unable to check the reference transport.
+
+**Test report:** `clojure -M:test -n dao.stream-test -n dao.stream.ringbuffer-test -n dao.stream.transit-test` → 16 tests, 131 assertions, 0 failures. Green but thin (see P1 test gaps below). Additional manual probes: UUID-identity descriptor fails `encode-descriptor` (confirmed); ringbuffer cursor uses different keys than the oracle expects (confirmed).
+
+---
+
+## P0 — Confirmed defects
+
+### P0-1. Ringbuffer logical-stream identity is `java.util.UUID` — not in the portable domain, breaks descriptor round trip
+- `src/cljc/dao/stream/ringbuffer.cljc:16` (`(random-uuid)` in `fresh-state`), `:31-33` (descriptor envelope carries raw UUID), `:114`/`133` (attachment ids also `random-uuid` — those are fine, they stay local; the *stream* identity is the problem).
+- Contract (`dao.stream.md` Creation/Envelope + `dao.stream.ws.md` Elements): every envelope value must survive the v2 portable codec structurally unchanged. Portable domain is nil/bool/string/keyword/symbol/safe-int/finite-double/vector/list/set/map — **no UUID**.
+- `src/cljc/dao/stream/transit.cljc:40-51` correctly rejects UUID in `portable-value?`; `:59-66` gate then rejects the whole descriptor.
+- Probe (clj): `create!` → `descriptor` gives `:dao.stream/identity #uuid "ff6d…"`, `portable-value? → false`, `valid-descriptor? → false`, `encode-descriptor` throws `invalid DaoStream v2 descriptor`. So Phase 3 ("descriptor → encode → decode → attach → kept-cursor resumes") is currently impossible with the reference transport. Existing tests miss it because they use string identities (`v2_test.cljc:235,253`, `transit_test.cljc:8,20`), never a real ringbuffer descriptor.
+- **Fix:** mint a portable identity, e.g.:
+```clojure
+(defn- fresh-identity [] (str (random-uuid)))
+;; fresh-state stores a string; descriptor/cursor carry the string unchanged
+```
+Keep `=` structural (string equality survives Transit on all hosts; `java.util.UUID` vs `TransitUUID` wrapper would not). Update `resolve-state`/`make-attacher` directory keys accordingly. Add a regression test: `create!` → `descriptor` → `codec/encode-descriptor` → `decode-descriptor` → `attach!` succeeds.
+
+### P0-2. `finite-number?` has no `:cljd` branch — every number is non-portable on cljd
+- `src/cljc/dao/stream/transit.cljc:17-23`:
+```clojure
+#?(:clj (and …) :cljs (and (number? x) (js/isFinite x)))
+;; no :cljd → nil → falsy
+```
+`safe-number?` (`:25-31`) ANDs on it, so on cljd all numbers fail `portable-value?`, `encode` throws, `decode` throws. Phases 1–2 must compile/pass on clj+cljs+cljd; Phase 3 corpus must pass identically on all three (plan, Host matrix).
+- **Fix:**
+```clojure
+#?(:clj (…) :cljs (…) :cljd (and (number? x) (…finite? check…)))
+```
+Pick the Dart finite check available in cljd (`double.isFinite` or equivalent) and cover int vs double explicitly. Add a cljd-parity test with safe-int boundaries, finite doubles, and rejections (NaN/Inf/`9007199254740992`).
+
+### P0-3. `ringbuffer.cljc` is not cljd-portable (reader conditionals, host classes, id generation)
+- `:16,:114,:133` `random-uuid` — verify availability on cljd or wrap per-host.
+- `:122-123` `(instance? #?(:clj clojure.lang.IAtom :cljs cljs.core/Atom) x)` — no `:cljd` branch; on cljd this is a compile error or wrong test. `resolve-state` also reaches into `.-state` (`:122`), a JVM/Clojure field idiom.
+- Plan Host matrix requires Phases 1–2 pure `.cljc` passing on all three hosts; beware-`#?(:cljd nil …)` trap is called out for Phase 4–5, same discipline applies here.
+- **Fix:** add `:cljd` branches (or better, avoid host classes entirely — e.g. `(satisfies? clojure.lang.IAtom …)` is still hosty; use `(atom? x)` if available on all hosts, else a `deftype`-agnostic predicate + accessor function rather than `.-state`). Gate with a cljd compile check.
+
+## P1 — Confirmed defects / harness gaps
+
+### P1-1. Linearizability oracle hardcodes cursor shape; unusable for the reference transport
+- `test/dao/stream/conformance.cljc:408,415` (`get-in result [:dao.stream/cursor :position]`), `:424` (`(:stream-identity cur)`), `:428` (`(:position cur)`), `:434,442` (same).
+- Ringbuffer cursors (`ringbuffer.cljc:43-48,68-75`) are `{:dao.stream.ringbuffer/identity … :dao.stream.ringbuffer/position …}`. Probe: real cursor has no `:position`/`:stream-identity`, so `abstract-stream-step` returns nil for a valid history → false `no-legal-linearization`. Mocks in `v2_test.cljc:24,76` use `{:stream-identity … :position …}` and match the oracle, hiding the mismatch.
+- Contract: "cursor's representation belongs to the transport"; "consumers never construct cursor internals". An oracle that pattern-matches fixed keys violates transport-agnosticism.
+- **Fix:** parameterize the oracle with transport-supplied projectors, e.g. manifest carries `:cursor-identity-fn` / `:cursor-position-fn` (or `:cursor-protocol {:identity-key … :position-key …}`), and `abstract-stream-step` uses them. Alternatively model cursors opaquely (equality + successor relation) without inspecting positions.
+
+### P1-2. Abstract model does not model attachments / frozen tails
+- `conformance.cljc:361-366` builds `:attachments {}` but `abstract-stream-step` (`:368-454`) never reads/writes it. Attachment freeze (`dao.stream.md` Close: "closing an attachment freezes what that handle can still observe… `end` at the position the stream had reached") and the Phase 2 "one coherent atom… attachment lifecycle" model are unchecked. The listed Phase 2 concurrency cases (append/close, cursor/close) cannot be linearized.
+- **Fix:** extend model state with per-attachment `{open? frozen-tail}` + owner flag; thread handle identity through `args`; add `close!`-on-attachment transitions and `next`-vs-`frozen-tail` rules.
+
+### P1-3. Ringbuffer is never run through the conformance suite
+- `test/dao/stream/ringbuffer_test.cljc` has four focused tests, zero `run-conformance-suite` calls, zero manifest. Plan Phase 2: "The Phase 1 conformance suite runs here for the first time…". The manifest/exclusion table in the plan (`create!` ok/invalid-spec, `attach!` ok/invalid-descriptor/not-found, `cursor` ok/invalid-anchor/closed, `next` ok/blocked/end/gap/mismatch/invalid-cursor, `append!` ok/closed, `close!` ok) has no machine-checked counterpart.
+- **Fix:** add the ringbuffer manifest verbatim from the plan plus `:handle-factory`/`:fixtures` inducers for every produced outcome, and call `run-conformance-suite`. This also forces P0-1 (descriptor fixture via codec) and P1-1 to surface.
+
+### P1-4. Law blocks incomplete vs plan; shared-handle mutation makes them order-dependent
+- `run-reader-laws` (`conformance.cljc:169-197`): only oldest/newest mint + `next`-twice equality on the *current* (possibly empty) stream. No provenance (mint/successor/gap-recovery only), no anchor `invalid-anchor` on the handle path, no multi-reader independence with values, no gap/end/blocked licensing. Empty-stream `blocked = blocked` passes trivially.
+- `run-writer-laws` (`:199-210`): single append validity; no ordering/unique-token sequencing the oracle section promises.
+- `run-close-laws` (`:212-227`): closes the *passed-in* handle twice. `run-conformance-suite` (`:229-271`) runs induction fixtures first (which may `close!` the same handle — cf. `v2_test.cljc:487` `:close!` inducer closing the shared mock), then reader/writer/close laws on that same mutated handle. The mock full-run passes by accident (mock cursor ignores close; writer `closed` is still "valid").
+- `run-induction-coverage` (`:112-150`): enforces "every produced outcome has an inducer" but never probes for *excluded* outcomes appearing; the `undeclared-outcome-observed` check only looks at inducers' own outputs.
+- **Fix:** fresh handle per block (use `:handle-factory` per law group, not one shared handle); seed writer/reader laws with known values; add provenance test (fabricated cursor → `invalid-cursor`/`cursor-mismatch` where licensed); assert excluded outcomes never observed during the seeded run; document inducer isolation (each inducer gets a fresh handle or explicitly states shared-state ordering).
+
+## P2 — Confirmed minor defects / risks
+
+- **P2-1. Dead `:dao.stream/transport-error` in ringbuffer `next` contradicts the declared exclusion.** `ringbuffer.cljc:70-76`: `contains?`-else → `transport-error`. Plan manifest excludes `transport-error` for `next` ("coherent in-memory state has no failure channel"). Currently unreachable (eviction dissocs exactly one slot per append), but if ever hit it is an undeclared outcome. Fix: remove the branch (assert invariant) or move `transport-error` into `produces` with a reason.
+- **P2-2. `outcome-required-keys` can't enforce conditional `:dao.stream/attachment`.** `v2.cljc:98-105`: `[:attach! :ok]` requires only `:handle`; contract requires `:attachment` "where the transport distinguishes attachments". A distinguishing transport that omits it passes `valid-outcome?`. Fix: validator takes manifest/flag, or harness asserts attachment presence when manifest declares distinguishable attachments.
+- **P2-3. `valid-descriptor?` accepts nil identity.** `v2.cljc:269-274` + `ringbuffer.cljc:128-130` use `contains?` only. `{:type … :identity nil}` passes generic validation, then `not-found` (or worse, resolves `nil` if a directory has it). Fix: `(and (contains? …) (some? (:identity …)))` in both.
+- **P2-4. `host-dispatch-*` doesn't validate transport results.** `v2.cljc:333-357` returns `(create-fn spec)` unchecked. A malformed transport map propagates. Fix: validate with `validate-outcome` and return a defect map / throw at composition time (document which).
+- **P2-5. `canonical-op` aliases (`:create`/`:attach`/`:append`/`:close`) are contract-external.** `v2.cljc:112-124`. Harmless but undocumented; a typo'd op normalizes instead of failing as `:unknown-operation`. Fix: document as test convenience or drop aliases.
+- **P2-6. Codec/transit test gaps.** `transit_test.cljc`: no safe-int boundary (`±9007199254740991` vs `±9007199254740992`), no NaN/±Inf rejection on clj, no ratio/BigDecimal/BigInt rejection, no cross-host corpus assertion. Add table-driven corpus per plan Phase 3.
+- **P2-7. `resolve-state` host-type coupling.** `ringbuffer.cljc:120-124`: accepting a raw atom *or* a `RingHandle` via `instance?` bakes host classes into the transport; `(.-state …)` breaks encapsulation. Fix: resolver maps identity → state atom only (document), or expose an accessor `(handle-state h)`.
+
+## P3 — Design questions / non-blocking notes
+
+- **Owner attachment-entry leak:** `ringbuffer.cljc:109-118` mints an attachment id for the owner handle that `owner?` then ignores; `close!` on owner (`:99-107`) sets `:closed?` but leaves the orphan entry. Harmless, but state grows per `create!`. Consider not registering owner attachments.
+- **`create!` extra `:dao.stream/identity` top-level key** (`:116-118`): allowed by open maps, but contract's `create! ok` requires only `:handle`. Either document as transport-owned convenience or drop it to avoid consumers depending on it (Surfaces: "code written against this contract may not reach for [transport-owned ops]").
+- **`swap!` + `out` atom idiom** (`:84-97`): correct here (idempotent overwrite, serialized by `swap!`) but fragile under retry; a `compare-and-set` loop or returning `[next-state outcome]` from the swap fn is clearer.
+- **Gap recovery vs frozen tail:** after attachment close + owner eviction, `gap` returns global `:first` which may exceed the frozen tail; adopting it then yields `end`. Literal-spec-compliant, but confirm this is the intended reader experience (vs returning the frozen tail).
+- **Codec hardening:** `transit.cljc:74-92` has no size/depth limits — a hostile frame can exhaust memory before `ensure-portable!` runs. Acceptable for the slice, but note as residual risk alongside the plan's livelock/identity-reuse notes.
+- **Metadata silently dropped:** `portable-value?` ignores metadata; cljd writer (no `write-meta` transform in the v2 path) drops it. Equality still holds, but "no metadata participates" should be an explicit strip-or-reject rule.
+- **Missing test-only directory warning:** plan Phase 3 requires the host-kept directory to say test-only so it isn't mistaken for infrastructure. `make-attacher` (`ringbuffer.cljc:140-142`) docstring doesn't. Add one line.
+- **cljd transit specifics (no legacy dependency — good):** `src/cljd/dao/stream/transit.cljd` requires only `dart:convert`, `dart:core`, `dart:typed_data` — independence requirement satisfied. Writer omits cache, wraps top-level scalars (`write`, `:529-536`), handles Dart `List`/`Map` in `parse-node` (`:413-428`) — all reasonable for interop. `cache-size 1936` (`:21`) and `cacheable?` char set (`:98-104`) are unexplained vs the standard 96-entry cache; add a comment citing the source algorithm.
+
+## What is good (for the record)
+
+- Outcome tables in `v2.cljc:48-96` match the contract exactly; `validate-outcome`/`valid-envelope?`/`descriptor-identity-consistent?` correctly enforce sibling-identity equality.
+- `descriptor` on every handle, no surface bundling; undeclared-surface calls throw at protocol dispatch (tests at `v2_test.cljc:329-342` assert the host's behavior, per contract).
+- Host dispatch as ordinary data (`host-dispatch-create!/attach!`), no registry/multimethod/load-time side effects.
+- Ringbuffer single-deref `next`/`cursor`, evict-oldest never waits on readers, attachment freeze + owner-keeps-minting-cursors + retained-history-readable-after-close all match the Close/Retention sections (modulo P0 identity encoding).
+- cljd codec is v2-owned, no require of `dao.stream.transit` legacy namespace — as the plan demands.
+
+## Concrete fix checklist (in order)
+
+1. Portable stream identity (P0-1) + regression round-trip test.
+2. `:cljd` finite-number branch + numeric corpus (P0-2).
+3. `:cljd` branches for id generation / atom test / state access + cljd compile gate (P0-3).
+4. Oracle cursor projectors + attachment/frozen-tail model (P1-1, P1-2).
+5. Ringbuffer manifest + conformance run (P1-3); isolate handles per law block (P1-4).
+6. Remove or declare the dead `transport-error` branch (P2-1); tighten `valid-descriptor?`/attachment-key validation (P2-2, P2-3).

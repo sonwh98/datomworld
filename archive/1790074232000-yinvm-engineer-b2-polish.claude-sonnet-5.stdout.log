@@ -1,0 +1,24 @@
+All four findings are closed and the full suite is green (1798 tests, up from 1796, 0 failures). Here's the completion report per the prompt's required format:
+
+---
+
+Completed-GMT: 2026-09-22 10:34:09 GMT
+Completed-Local: 2026-09-22 17:34:09 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: (this session)
+
+**Finding 1 (P2 — inverse-law test omits shared-entity fixtures):** Closed in `test/yin/vm/debruijn_resolve_test.cljc`, `unresolve-inverts-resolve-over-the-corpus`. Added a second `doseq` in the same test over `shared-variable-under-two-contexts` and `shared-lambda-under-two-contexts` (chosen over extending `corpus` since it's the smaller diff and keeps the shared-entity round trip localized to the one test the finding is about).
+
+**Finding 2 (P3 — `walk-scope` has no cycle guard):** Closed in `src/cljc/yin/vm/debruijn_resolve.cljc`. Added an `active` set parameter to `walk-scope`, checked on entry and threaded through every recursive call, mirroring `visit!`'s guard; a revisit returns `{:rule :cycle, :entity e}` instead of recursing. Updated the sole call site in `validate-resolved` to pass `#{}`. Test: `validate-resolved-rejects-a-cyclic-scope-walk`, using deepseek's exact hand-built two-entity cycle, asserting the defect map is returned (not a `StackOverflowError`).
+
+**Finding 3 (P3 — missing `:yin/operands` passes validation):** Closed in `src/cljc/yin/vm/debruijn_resolve.cljc`. `get-attr` can't distinguish an absent `:children`-kind attribute from one present with `[]` (both come back as `[]`), so added `attr-present?`/`missing-children-defect`, which check `by-entity` (raw datom presence, now destructured from `vm/index-datoms` in `validate-resolved`) directly. Wired into `validate-resolved` as a new `missing` check. Test: `validate-resolved-rejects-a-missing-operands-attribute`, a hand-built `:application` with `:yin/operator` but no `:yin/operands` datom at all, asserting `{:rule :missing-operands, :entity 1, :attr :yin/operands}`.
+
+**Finding 4 (P3 — no `:yin/macro?` fixture):** Closed in `test/yin/vm/debruijn_resolve_test.cljc`. Added `macro-lambda` (a `[x]` lambda with `:macro? true`, defined before `corpus` so the corpus map can reference it) and added it to `corpus` as `:macro-lambda`, so it runs through `every-corpus-program-resolves`, `resolving-twice-is-identical`, and `unresolve-inverts-resolve-over-the-corpus` automatically.
+
+**Test counts:** Before: 1796. After: 1798 (two new `deftest`s for findings 2 and 3; findings 1 and 4 extended existing tests rather than adding new ones).
+
+**Commands run:**
+- `clojure -M:test -n yin.vm.debruijn-resolve-test -n yin.vm.debruijn-linearize-test` — 25 tests, 352 assertions, 0 failures/errors.
+- `clojure -M:test` (full suite) — 1798 tests, 175431 assertions, 0 failures/errors.
+
+**Deviations:** None from the brief. Did not touch `visit!`, the occurrence memo, the `unresolve` merge-by-source step, or host-value-rejection scope, per "Never." Did not stage, commit, or push.

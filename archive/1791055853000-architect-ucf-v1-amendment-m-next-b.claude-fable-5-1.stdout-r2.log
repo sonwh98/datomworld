@@ -1,0 +1,35 @@
+Completed-GMT: 2026-10-03 19:59:00 GMT
+Completed-Local: 2026-10-04 02:59:00 +07
+Coding-Agent: claude
+Session-ID: a22aafbc-6499-4a8f-be89-f6ebe80ae496
+
+**Verdict:** r6 is reconciled; every change astra required is applied and none declined, so the amendment is ready to commit as published design (not implemented; C to E remain).
+
+Docs only: no source, tests or git writes, and nothing was run. Every added line is ASCII and at most 80 columns, and nothing was renumbered. The UCF document still has its 111 pre-existing over-wide lines.
+
+## What changed in r6
+
+- **`yin.vm.universal-continuation-format.md`** (now +785, -7 against master): header, 7.2, 7.2.1, 7.4.3, 7.7.6, 7.7.8, 7.9, 7.11.1. The 7 removed lines are pre-existing sentences in 7.2 and 7.9 that item 6 required narrowing; r5 had removed nothing.
+- **`yin.vm.linker.dht.md`** (+78, -30): 14.2.2 dedup ownership wording, the split of sequence and epoch exhaustion, the settled-points list, and 14.3's record of the two version-0 defects.
+- **`yin.vm.ucf-revisions.md`** (+45, -5): section 6 records r5, astra's review and r6 as published design, uncommitted, with stamps unchanged and implementation pending.
+
+## Applied with a change of my own
+
+Ten of the fourteen items are applied as astra wrote them. Three carry a choice of mine that astra has not seen:
+
+- **Item 1, inherited-id scope:** astra's rule is in, with occurrence-based ids kept and the single acyclic successor chain stated. I added that admission answers `:suspended` when the accepted checkpoint cannot be read, because deriving membership needs a fail-closed answer.
+- **Item 10, install grammar:** astra required allowed phase values and a phase/child-state pairing without naming them. I wrote `:running` or `:parked`, with `:parked` requiring a `:blocked` child and `:running` a `:halted` one. That comes from reading `engine/advance-install`, not from a run.
+- **Item 12, Q6 diagnostic:** astra asked for the diagnostic contract to be published before C, so I published one in 7.7.8. The shape is mine: a `:yin.k/diagnostic` dispatch key, a closed set of four defects, and the envelope's readable fields nested under `:yin.k/claimed`.
+
+Item 8 is applied in substance but placed differently: the rollback qualification is a new paragraph after 7.7.6 instead of an edit to its over-wide non-ASCII sentence.
+
+## New open questions
+
+1. **N1 (astra, affects C):** is `:suspended` the right answer when the granted checkpoint cannot be read, and may snapshot variants of one occurrence differ in their pending ids? I assumed they may not; I recommend C has the authority refuse a variant that does.
+2. **N2 (D):** the phase/kind pairing should be verified against the engine by test before it is coded. If a `:running` child can be exported while blocked, my text refuses a valid body.
+3. **N3 (astra):** whether the four-defect set is right and where the diagnostic stream is wired. I left the wiring to the composition.
+
+None of these blocks the commit. N1 should be settled before C starts and N2 before D.
+
+The Round r6 section, with an applied / applied-with-change line for each of the fourteen items, is appended to:
+`/Users/sto/workspace/datomworld-ucf-b/collab/1791055853000-architect-ucf-v1-amendment-m-next-b.claude-fable-5-1.findings.md`

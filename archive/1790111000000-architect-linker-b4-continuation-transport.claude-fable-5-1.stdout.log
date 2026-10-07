@@ -1,0 +1,29 @@
+Completed-GMT: 2026-09-22 19:20:31 GMT
+Completed-Local: 2026-09-23 02:20:31 +07 (Indochina Time)
+
+Edited the B6 box in `yin.vm.debruijn.stack.md` and the R5 box plus section 5 in `yin.vm.debruijn.register.md`. Width and ASCII checks pass on both; the stack doc's only non-ASCII characters are its pre-existing section signs. No source file touched, no fourth document created.
+
+**Gap 1: the linker is dao.jing over dao.stream, one function, two formats.**
+
+Decision on H versus the Jing address: H is not the address and no translation makes it one. Verified against the code: `segment-key` is sha256 over the order-normalized print of a value, a transitional encoder whose every minted address changes when the CBOR encoding lands. H is sha256 over B1's own exact byte encoding plus the descriptor hash and must not fork when the storage encoder does. D9 already says Jing addresses are storage locations, not H. The relation is that the image vector is stored as its own value at its `segment-key`, exactly as the existing content namespace already stores named vectors, and the pairing of H with that address is an "H index" held as composition data, a map or datoms. Jing has no roots or names by design, so the index is the one yin.vm-specific piece that Jing cannot cover. B7 later turns that index into a name environment with trust and provenance.
+
+Boundary: the DHT hands back a payload verified against its address; the linker then checks the format hash against H, the descriptor, the D11/D15 closure check, and the format validator, in that order. The two hash checks have different preimages and prove different things, so neither layer is weakened or duplicated. Jing never learns what an image is; the linker never re-verifies an address.
+
+What is genuinely new: a format record shape, one seven-step fetch function, the H and R indexes, the refusal vocabulary, and tests. Inherited wholesale: addressing, peer lookup, DaoStream transport, hash-before-trust, local caching, the server side, and unreachable-peer and malformed-envelope handling. The responder namespace is dropped from B6's box; D16's wording still holds, read as the index plus the DHT. One real dependency risk is named: the transitional content hash. Tests pin H and R only, never addresses.
+
+Sequencing: R5 is the second format of B6's function, depends on R1 and B6 only, and is built together with B6 as one unit.
+
+**Gap 2: dependency order and recommended dispatch.** B4 gates R4's effects tier and gap 3. R4's pure tier needs R1 plus the live-set version bump. R2 needs nothing new. B6 and R5 need neither B4 nor R4. Dispatch order below.
+
+**Gap 3: same-model resume only, deliberately.** New section 5.1 in the register doc. Every parked record carries its model and image identity as register payload, and a mismatched restore refuses with a qualified outcome. Pairwise lifts are rejected as the wrong shape: no pc correspondence exists, a register file is not an operand stack, and a third VM would need six lifts. The project's own rule in the AGENTS section of architecture.md settles it: AST datoms are the canonical migration payload and bytecode is a projection, so the cross-model form is a continuation over source occurrences, which both images already reach through their pc side tables. That is the universal continuation format the stack design defers. It is a shared concern and belongs in its own document, which I propose as `docs/design/yin.vm.continuation-format.md`, not created. Live sets lose nothing observable at that boundary; only pc identity, temporary ids, and dead values fail to round-trip, which section 1 of the stack design already declines to promise. The stack doc's section 4 sentence and B4 box already say heterogeneous transport is not promised, so they stay consistent without edits.
+
+**Needing the owner.**
+- Whether to commission the continuation-format document, and when.
+- Outside my allowed scope this turn but now stale: the register doc's DEFERRED item on continuation lifting should point to 5.1, and the engine doc's payload table still calls the register kernel "gated, hypothetical".
+
+**Recommended dispatch order.**
+1. B4 now. It is the longest pole, gates R4's effects tier and gap 3, and its parity oracles already exist.
+2. In parallel on the register track: finish the live-set change, then R2, then R4's pure tier.
+3. In parallel on the linker track: B6 and R5 as one unit, thin and independent of B4.
+4. R4's effects tier after B4 and R2 land.
+5. The continuation-format design, then its implementation, last.

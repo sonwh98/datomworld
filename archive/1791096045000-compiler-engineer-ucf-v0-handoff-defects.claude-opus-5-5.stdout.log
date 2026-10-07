@@ -1,0 +1,29 @@
+Completed-GMT: 2026-10-04 06:44:41 GMT
+Completed-Local: 2026-10-04 13:44:41 +07 (+0700)
+Coding-Agent: claude
+Session-ID: ca67385c-91bf-415b-b38b-aadb290f6936
+
+Both version-0 defects were real, and both are now fixed. The focused JVM tests pass, but kondo has not been run: this session wasn't allowed to run it.
+
+**Changed files**
+- `src/cljc/yin/vm/ucf/handoff.cljc` (+15 −1):
+  - **Parked frames:** when `resume-task` restores a parked body, it now puts back that body's other waits as well (`:wait-set entries`); before, it set them to `[]`. The export side was already correct and is unchanged.
+  - **Missing install entry:** `validate-body` now refuses an install wait that has no install entry under its name. It uses the existing `:yin.k/undecodable` status with `:yin.k/kind :incomplete-install` (no new status). The check runs before anything is restored and also applies to child bodies.
+- `test/yin/vm/ucf/handoff_test.cljc`: two new `.cljc` tests plus one helper; no existing assertion changed.
+  - `a-park-beside-ordered-waits-keeps-the-waits`: a real machine blocked on a read that then parks. The test checks export, restore, and that the waits match the source after a resume and drive.
+  - `an-install-pending-without-its-entry-refuses-before-restoration`: one copy of a real export has its install entries removed, another has the entry renamed. Both must be refused before any stream is attached.
+- `docs/design/yin.vm.ucf-revisions.md` §6: a one-sentence status note (it wraps to two lines) saying both defects are fixed in version 0 and the wire is unchanged.
+- The findings are written to `collab/1791096045000-compiler-engineer-ucf-v0-handoff-defects.claude-opus-5-5.findings.md`.
+
+**Test results**
+- **Red, on the unchanged source:** `clojure -M:test -n yin.vm.ucf.handoff-test` gave 24 tests, 158 assertions, 6 failures, 0 errors. Two failures came from the parked-frames test: the restored wait set was `[]` instead of `[:next]`, and the wait counts were 1 vs 0. Four came from the install test: both bad bodies were accepted with `:ok` and streams were attached first. The 22 existing tests passed.
+- **Green, after the fix:** the same namespace gave 24 tests, 158 assertions, 0 failures, 0 errors.
+- `-n yin.vm.ucf.remote-test -n yin.vm.ucf-test -n yin.vm.linker-test` gave 104 tests, 754 assertions, 0 failures, 0 errors.
+- `cljstyle fix` then `check` came back clean on both `.cljc` files. All added lines are ASCII and at most 80 columns.
+
+**Deviations and unfinished**
+- **kondo not run:** `clojure -M:kondo --lint …` needed approval this session didn't have, and there is no standalone clj-kondo binary under mise. Please run it on the two `.cljc` files.
+- Node and Dart were not run, as the brief says; the full lanes are yours.
+- An install entry that no wait refers to is still accepted, as it was before; tightening that was outside the brief.
+- Nothing touched the Python prelude, so no address goldens moved.
+- No git write commands were run.

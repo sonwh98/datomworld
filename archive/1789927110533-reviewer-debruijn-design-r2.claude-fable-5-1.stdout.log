@@ -1,0 +1,71 @@
+Completed-GMT: 2026-09-20 17:59:31 GMT
+Completed-Local: 2026-09-21 00:59:31 +07 (Indochina Time)
+
+# Confirmation round: the de Bruijn projection
+
+Eight of the nine findings are resolved in substance; finding 8 is only partly resolved (R2). The revision also introduced, or left open, three rules that affect the hashed bytes. Each needs a one-sentence edit to the document. I edited nothing and ran nothing.
+
+## Per-finding resolution
+
+| # | Finding | Status | Resolving section |
+|---|---|---|---|
+| 1 | P1 duplicate parameters | **Resolved** | §3 searches each frame right-to-left and states rightmost-wins "matching VM `bind-params`". §8 adds the `(fn [x x] x)` test row. D0 and D1 record the rule. |
+| 2 | P1 identity depends on node sharing | **Resolved, with one ambiguity (R1)** | §5 defines `hash(node)` as SHA-256 over the dimension hash, the tag, the scalar slots and the ordered child hashes. The fingerprint is the root's hash. §4 says local eids, ordinals, row count, the root ordinal and the `-16` base "are never identity". §2 demotes the memo to "only an optimisation". §8 tests the same term emitted as a tree and as a graph. |
+| 3 | P2 macro-expansion domain | **Resolved** | §1 requires a fully macro-expanded input, and an unexpanded call site is a diagnostic. See R5 for how such a site is detected. |
+| 4 | P2 `:yin/tail?` in identity | **Resolved** | §2 excludes it from rows and hashes. §8 tests present against absent. |
+| 5 | P2 root selection against order-independence | **Resolved** | §2 requires exactly one root and makes several roots a diagnostic. |
+| 6 | P2 retractions | **Resolved** | §2 accepts asserts only and makes a retract a diagnostic. See R6 for the wording. |
+| 7 | P2 framing on end-of-stream | **Resolved** | §2 and §6 frame a graph on the root marker. A partial graph at end-of-stream is a diagnostic. D4 and §8 cover adjacent graphs. |
+| 8 | P2 unknown attributes and `:yin/macro-name` | **Partially resolved (R2)** | §2 ignores other namespaces and makes an unknown `:yin/*` attribute a diagnostic. `:yin/macro-name` is now named, but the rule chosen for it is wrong. |
+| 9 | P2 numerics and NFC across hosts; "lexical context" undefined | **Mostly resolved (R3, R4)** | §5 gives the numeric table, records the NFC limit and gates Dart NFC before D3. §2 defines the lexical context as the complete stack of frame parameter vectors. |
+
+All earlier P3s and the six rulings are adopted:
+- §3 adopts the `[frame-depth position]` pair.
+- §5 sorts sets by their canonical encoded bytes.
+- §4 publishes the `:yin.debruijn/*` dimension, and its descriptor hash is the domain separator.
+- §4 keeps operands as an ordered vector and never stores them cardinality-many.
+- §4 keeps the side index ephemeral.
+
+## Residual findings
+
+**R1 (P2) | §4 slot list, §5 | The node hash may include the root marker.**
+- `:yin.debruijn/root` and `:yin.debruijn/hash` both appear in the declared slot order.
+- §5 hashes "scalar-slots" without saying which slots that means.
+- If the root marker is hashed, a term hashes differently as a program root than as a subterm. That breaks hash-consing and breaks equality across programs.
+- §5 should say that the node hash covers only the slots of the node's tag, in descriptor order. The root marker and the hash slot are excluded.
+
+**R2 (P2) | §2 | "`:yin/macro-name` … is copied as a projected scalar."**
+- The schema defines it as "the macro operator's name when it was a `:variable`" (`vm.cljc:465`). That records how the term came to exist.
+- A term written by hand and the identical term produced by macro expansion would hash differently.
+- The name also changes under renaming when the macro was bound locally.
+- This is the same defect that `:yin/tail?` was removed for.
+- Correction: tolerate the attribute, exclude it from rows and hashes, and drop `:yin.debruijn/macro-name` from the descriptor.
+
+**R3 (P2) | §5 | "`+0`/`-0` are unified."**
+- `datom.md:87` lets a dimension declare them distinct or unified.
+- Unifying them makes `0.0` and `-0.0` hash the same, although `(/ 1 x)` tells them apart at runtime.
+- Unlike the NFC limit, this collision is a free choice, so the correction is to declare them distinct.
+
+**R4 (P2) | §5, D3 | The design must rule on integral doubles.**
+- The JVM hashes `1` as an int64 and `1.0` as a double.
+- JavaScript cannot tell them apart, and the design encodes both as int64 there.
+- The same program with a `1.0` literal therefore hashes differently by host.
+- D3's completion criterion, identical bytes on all three hosts, cannot hold for such a fixture.
+- I recommend encoding every integral double in the int64 range as int64 on all hosts. The `1` against `1.0` collision should then be recorded beside the NFC limit.
+- The alternative is to reject non-integer-typed integral literals. One of the two must be written down.
+
+**R5 (P3) | §1 | No criterion says how an "unexpanded macro call site" is detected.**
+- The obvious rule is an application whose operator is a `:lambda` carrying `:macro? true`.
+- A free variable that names a registry macro cannot be detected from the datoms.
+- D0 should state the rule and its limit.
+
+**R6 (P3) | §2 | "`m = datom/default-op`" is the wrong test for an assert.**
+- `m` is a metadata entity, and only `:db/retract` is reserved (`datom.cljc:17, 71-73`).
+- An assert that carries other provenance metadata would be refused.
+- The test should be "`m` is not the retract op".
+
+**R7 (P3) | §2 framing | Emitter temporary ids restart at `-16` for every graph.**
+- The fact index must therefore reset at each frame boundary.
+- "Current graph frame" implies this. D1 should state it, and D4 should cover it with a test of adjacent graphs that reuse eids.
+
+NOT READY for implementation dispatch — residuals: P1: none; P2: R1, R2, R3, R4; P3: R5, R6, R7. The four P2s are single-sentence edits to §2, §4 and §5. If they are applied as written above, no further review round is needed.

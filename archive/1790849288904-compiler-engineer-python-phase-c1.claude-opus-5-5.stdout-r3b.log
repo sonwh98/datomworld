@@ -1,0 +1,78 @@
+Completed-GMT: 2026-10-01 13:25:01 GMT
+Completed-Local: 2026-10-01 20:25:01 +07
+Coding-Agent: claude
+Session-ID: 976059c2-629b-4b91-8b63-7c4d9604d7cf
+
+# Python phase C1, round 3
+
+All seven gate r2 findings are fixed. Every new test fails when its fix is reverted, and all lanes pass. Two caveats:
+- **Full JVM suite not entirely in the foreground:** it passed its 600-second limit and the harness moved it to the background. It finished green.
+- **cljstyle:** blocked by permission again.
+
+The edits are uncommitted, on top of `7a8493e1`. The full report is `collab/1790849288904-compiler-engineer-python-phase-c1.claude-opus-5-5.report.md`, with this round appended as "Round 3".
+
+**Resuming after the interruption.** When I picked up, all seven items and their tests were already on disk. One deliberate breakage from the mutation proofs (eager `sum`) was still applied, so I restored it, then finished the remaining mutations and every check. The D7 rebase (host-typed closures) needed no change: all Python tests passed on the rebased base before I edited anything.
+
+Expected outputs again come from running the same source through CPython 3.9.6; every value in this round is within ±2^53, so they match CPython exactly.
+
+## Fixes
+
+1. **Range elements differed between hosts (P1).** An element is now computed without forming `i·step`, so the reviewer's `range(-2**53, 2**53, 6004799503160661)` gives the same four elements on the JVM and on Node. That case is now in the cross-host parity tests.
+2. **Range length and `in` (P2).** Both now use per-bound quotients and remainders, and only the length itself is range-checked, so `len(range(-2**53, 2**53, 2**53)) == 2`. A length beyond 2^53 is an OverflowError, as `len()` of such a range is in CPython.
+3. **Generators passed to `any`/`all`/`sum`/`set` (P2).**
+   - `any` and `all` now stop at the first decisive element, which fixes the reviewer's ZeroDivisionError cases.
+   - I changed `sum` and `set` too, after CPython showed that building the list first changes when an exception fires: CPython stops `sum` after `[1, 'a']` and `set` after `[1, [2]]`.
+   - If `globals()` has rebound one of these names, a generator argument raises NotImplementedError ("phase C2") rather than giving a wrong answer.
+4. **Float `%` (P2).** It no longer computes the quotient, so `1e20 % 3.0 == 1.0`. A float `//` whose quotient is beyond ±2^53 still raises OverflowError, as already documented.
+5. **`range` arguments (P2).** All three must be ints (booleans count) and are checked before any arithmetic, so `range('a')` is a guest TypeError.
+6. **Keywords to exception constructors (P3).** The built-in constructor rejects them; a class with its own `__init__` still binds them.
+7. **`*` after an explicit keyword (P3).**
+   - `f(a=1, *[2])` is now accepted and raises "got multiple values for argument 'a'", as in CPython. Positional and `*` arguments are evaluated before keyword values, matching CPython.
+   - `*` after `**`, and a positional argument after either, remain syntax errors with CPython's messages.
+
+## Mutation proof
+
+| Breakage | Result |
+|---|---|
+| range element computed the old way | fails on Node on all 4 VMs, passes on the JVM (the reviewer's divergence exactly) |
+| length / membership via the old differences | fails |
+| `any`, `all`, `sum`, `set` built eagerly | each fails on its own output line |
+| rebound-name guard removed | fails |
+| float `%` via the quotient | fails with the reviewer's OverflowError |
+| `range` validation weakened | fails |
+| exception constructor accepts keywords | fails |
+| `*` after keyword rejected | fails |
+
+All 12 were restored, and a grep confirms none remain.
+
+## Checks
+
+| Check | Result |
+|---|---|
+| clj-kondo, 5 changed files as separate arguments | 0 errors, 0 warnings |
+| cljstyle | not run: "This command requires approval" |
+| `bb build:yin-repl-node`, then `bb gen:python-antlr` | both succeeded |
+| Focused JVM, 7 Python namespaces | 105 tests, 427 assertions, 0 failures |
+| Full `clj -M:test` | 2720 tests, 187948 assertions, 0 failures; partly in the background (see above), overlapping the Node run |
+| `bb test:cljs` | 0 warnings; 2539 tests, 0 failures; both portable Python namespaces ran on Node |
+
+## Still open
+
+- **Integer range:** ints are limited to ±2^53, and a float `//` quotient beyond that raises OverflowError.
+- **Generator expressions:** accepted only as the sole argument of `list`/`tuple`/`set`/`sum`/`any`/`all`; everything else is phase C2.
+- **Carried over from earlier rounds:**
+  - error messages without counts;
+  - no `print` keywords;
+  - insertion-ordered sets;
+  - dict views as list snapshots;
+  - `(x) = 1` rejected;
+  - non-integral `**` raises NotImplementedError;
+  - the 3.11 UnboundLocalError wording.
+
+## Files changed (relative to 7a8493e1)
+
+- `src/cljc/yang/python/antlr/prelude.cljc`
+- `src/cljc/yang/python/antlr/lower.cljc`
+- `test/yang/python/antlr/e2e_c1_test.clj`
+- `test/yang/python/antlr/lower_test.clj`
+- `test/yang/python/antlr/prelude_parity_test.cljc`

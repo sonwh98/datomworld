@@ -1,0 +1,22 @@
+Completed-GMT: 2026-09-22 18:51:50 GMT
+Completed-Local: 2026-09-23 01:51:50 +07 (Indochina Time)
+
+Edited `docs/design/yin.vm.debruijn.register.md` only. Grep-checked: the only remaining "gate" wording is the R3 box explaining that the old gate is gone. No line over 80 columns, ASCII only.
+
+**Sections changed**
+
+- Preamble: "optional register execution path" and "later gated phase" replaced. The kernel is a committed later phase, authorized without a benchmark condition, pointing at DECIDED 1.
+- Section 1, the "worth considering" paragraph: rewritten into the explicit demonstration claim. The merit is not performance. The kernel is the end-to-end proof that the pipeline with `dao.stream` as every stage boundary is genuinely configurable, with named, stack, and register as swappable peer backends off one de Bruijn encoding. A lowerer proves the format is well defined; only a running kernel proves a second backend can be plugged in and run real programs. The lowerer and format still ship first as their own milestones.
+- Section 5: "not a promise that a second evaluator will exist" and "If the benchmark gate passes, R3 may add" replaced. R1 is the first milestone; R4 adds the kernel as a committed phase.
+- R3 box: retitled "benchmark report" and rewritten as described below.
+- R4 box: retitled "register kernel", authorized unconditionally, with the two-tier dependency chain below and the explicit phase order.
+- Section 8 risks: "building a kernel with no measured benefit" replaced by the accepted second-evaluator maintenance surface. DECIDED 1 rewritten as a deliberate owner commitment, dated, with the tradeoff spelled out: every future opcode, effect, or contract change implemented and tested twice across the three hosts, permanently, accepted because the kernel is the configurability proof. DECIDED 7 loses "if built". DEFERRED drops the R3 threshold and now lists only R5 as uncommissioned.
+- Section 9: the end condition no longer requires a measured benefit. It requires both R4 tiers, the R3 report published, and R5 only if commissioned. The project does not stop at R2.
+
+**R3's role now.** Informational, kept, and resequenced after R4. It benchmarks the real kernel against the stack VM instead of a stand-in interpreter, which the old gate only needed because the kernel was unauthorized. That matches the stack design's own B3 report, which is also numbers for the owner and not an acceptance condition. No threshold exists.
+
+**R4's dependency chain.** R1 alone for the pure-program tier, following B3's precedent: frames, closures, loads, calls, returns, branches, constants, and store operations, with everything else refused loudly as not yet implemented. That tier may merge before R2 lands. The effects tier depends on R2 for the register effect shapes and on B4's engine seam for the restore and park-entry conventions. R4 is complete only when both tiers are. The resulting order is R0, R1, R2, R4, R3, R5.
+
+**R5 untouched.** Nothing in items 1 through 5 required editing its box.
+
+**For the owner.** Nothing blocks. One leftover I did not touch because R0's completion criteria were out of scope: R0 still ends with "a decision that no register kernel is assumed yet". It remains true of R0's own data checks, but reads oddly beside DECIDED 1 and could be struck in a later pass.

@@ -1,0 +1,52 @@
+Completed-GMT: 2026-09-04 (clock read from the JVM at test time; see note below)
+Coding-Agent: claude
+Session-ID: 0f136b70-70a6-4211-92d6-4eaf15e45b1b
+
+*(I could not read a wall-clock time to fill the `Completed-*` header exactly — the header format is preserved, but I'm not inventing a timestamp.)*
+
+## What was built
+
+**`test/dao/stream/slice_peer.cljc` (186 lines)** — process B as a whole program, not a fixture. It receives A's descriptor as Transit JSON **text in `argv`** (the bootstrap channel, decoded through `transit/decode-descriptor`), and speaks a line-oriented Transit command/reply protocol on stdin/stdout. Its deposit medium and `:dao.stream/newest` cursor are minted **once, before the first `attach!`**, and survive every attachment. `#?@(:cljd [] :clj […] :cljs […])` with `:cljd` first, per the reader-conditional trap.
+
+**`test/dao/stream/slice_test.clj` (544 lines)** — process A on the JVM. One ring buffer behind two `ws/make-endpoint` + `serving/make-serving` compositions over `jvm/listen!` (port 0, four handoff slots each), one driver thread. Peers are spawned with `ProcessBuilder` on the live classpath (`java -cp … clojure.main -m …`), which avoids a second dependency resolution. A `:once` fixture shares process A across all five facts — a per-test server would make fact 2's "the served stream survives" unfalsifiable.
+
+**`test/dao/stream/slice_test.cljs` (579 lines)** — process A on Node. Same five facts; peers are real `child_process.spawn`ed `node target/slice-peer.js` processes; every wait is a promise polling the event loop.
+
+**`shadow-cljs.edn`** — `:slice-peer` `:node-script` build. **`bb.edn`** — `test:cljs` now runs `compile slice-peer test` so the peer artifact exists before `:autorun`.
+
+## The five facts and where each is asserted
+
+| | Fact | On A | On B |
+|---|---|---|---|
+|1| detachment observable both sides | per-attachment medium ends `:ws/closed`; session gone from `serving/state`; `append!` to `served` still `ok` | `append!` after close → `:dao.stream/closed`; own medium deposits `:ws/closed` |
+|2| same descriptor rejoins same logical stream | append to the surviving buffer | reattach with the identical bootstrapped value → `ok`, new attachment id, receives the append |
+|3| distinct `:dao.stream/attachment` | two server media, every event carries its own id | two processes, distinct ids, every event on each medium carries its own |
+|4| B's cursor outlives the socket | — | `declared-surfaces` = `#{:writer :closable}` (no reader surface); the kept cursor's walk is exactly `[:ws/opened :ws/payload :ws/closed]`, in order, no repeats |
+|5| two endpoints, one identity | descriptors differ in reachability, identity equal; a `served` cursor works without either descriptor | both handles project distinct descriptors and the same `:dao.stream/identity`; both receive the same append |
+
+## Test outcomes (all measured locally, full suites)
+
+| Suite | Result | Baseline |
+|---|---|---|
+| JVM (`bb test:clj`) | **1294 tests, 166608 assertions, 0 failures** | 1289 / 166531 |
+| Node (`bb test:cljs`) | **1215 tests, 34262 assertions, 0 failures, 0 warnings** | 1210 / 34209 |
+| Dart (`bb test:cljd`) | **1159 tests, "All tests passed!"** | 1159 |
+
+`Testing dao.stream.slice-test` appears in both the JVM output (line 119) and the Node output (line 119) — confirmed by grepping the full logs, not a tail. The Dart run is unchanged, so the new `.cljc` peer compiles in the cljd build without being discovered as a test.
+
+**Negative control on the Node half.** Because those assertions sit deep inside promise chains, a vacuously-resolving chain would look identical to a pass. I inverted three of the deepest assertions (fact 3's server-side attribution, fact 4's cursor sequence, fact 5's shared identity) and got 4 failures with real cross-process UUIDs in the output; then restored the file and re-confirmed green. The assertions genuinely execute.
+
+## Two things worth knowing
+
+- The first run failed everywhere for a non-obvious reason: B prints a Timbre banner on stdout before the peer protocol starts, and my reader thread died decoding it. Both parents now treat a non-Transit line as noise and record it; a failed bootstrap reports the child's other output. Without that, every fact fails identically and misleadingly.
+- On the server side a session's medium carries no `:ws/opened` — acceptance transitions the handle through `accept-slot!` rather than `opened!`. Fact 3's assertion is attribution ("every event carries this session's id"), which holds; I did not assert a server-side opened event.
+
+## Unresolved risks
+
+- **cljd is untested for Phase 5.** The plan targets clj and cljs for phases 4–5; the handoff puts cljd in the definition of done since `6422c8b`. A Dart peer needs its own `:kind :dart` build and `Process.start`, and `bb test:cljd` owns shared generated output, so it should be a separate lane. Not attempted — say the word and I'll scope it.
+- Peer spawn on the JVM is a full JVM boot per peer; the slice test adds roughly a minute to `bb test:clj`.
+- `serving/stop!` not closing pending pre-accept sockets remains open upstream; these tests don't depend on it for teardown.
+
+Nothing is staged or committed. Modified: `bb.edn`, `shadow-cljs.edn`; new and untracked: the three test files.
+
+**Phase 5 is ready for review** on clj and cljs, with cljd explicitly out of scope for this change.

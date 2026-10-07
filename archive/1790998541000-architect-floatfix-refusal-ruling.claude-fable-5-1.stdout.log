@@ -1,0 +1,55 @@
+Completed-GMT: 2026-10-03 03:36:31 GMT
+Completed-Local: 2026-10-03 10:36:31 +07
+
+**Verdict: SHIP-WITH-CHANGES** — keep the refusal in the float-fix slice, with these four changes:
+
+1. Drop `:yin.k/status :yin.k/non-portable` from the error.
+2. Refuse every non-native numeric carrier, not just float64.
+3. Record it in 8.5.5 and in `dao.jing.cbor.md` *Numeric identity*, not in the UCF scalar-arm paragraph.
+4. Pin every op in `carrier-refusing` in the test.
+
+I read the diff, the docs and the test; I ran nothing.
+
+## 1. Ship it
+
+The refusal is correct and belongs in this slice, for three reasons.
+
+- **This slice creates the hazard.** It admits the carrier at `plain-data?`, `machine-data?` and the `scalar?` gate, so a JS `Float64` object can now reach `+` from a decoded row. Before the slice it could not. Admitting the carrier without guarding arithmetic ships a silent wrong answer: `(+ carrier 1)` on JS goes through `toString` and yields the string `"21"`.
+- **It protects "same address on every host".** Without it, the JVM continues with `3.0` and JS continues with `"21"`, and both lift to valid but different addresses. With it, JS produces no address at all.
+- **It does not make yin.vm profile-aware.** The check references only `dao.jing.cbor`, the substrate `yin.vm.values` already depends on. The Python seam `data/float-value` lives in `yin.vm.data`, and the VM never calls it. The alternative, unwrapping inside `+`, is the choice that would violate "one representation": JS would return bare `3`, an integer, where the JVM returns float `3.0`.
+
+There is also direct precedent. `dao.space.query/host-arithmetic` (`src/cljc/dao/space/query.cljc:897`) already does this. `dao.jing.cbor.md` *Numeric identity* records it as "reject carrier operands loudly rather than computing garbage … consistent with VM arithmetic remaining outside this migration". The VM refusal applies that ruling at the point where the VM first meets carriers.
+
+## 2. Changes, recording, asymmetry, coverage
+
+**Change 1: drop the `:yin.k/non-portable` status.** UCF §7.9 is a closed outcome algebra, and `:yin.k/non-portable` is raised by lift with `:yin.k/path`, `:yin.k/kind` and `:yin.k/hint`. `ucf.cljc:231` dispatches on that status in thrown ex-data. A primitive's runtime type refusal is not a lift outcome, and reusing the status risks it being caught and reported as one. Use the shape of the query precedent (`{:fn op, :operand x, :type …}`) or a plain primitive-error ex-data with no `:yin.k/status`.
+
+**Change 2: refuse every numeric carrier.** The current check is `(and (cbor/float64? x) (not (number? x)))`. Decimal and Rational carriers coerce through `+` just as badly on JS. Use the query predicate `(and (cbor/numeric? x) (not (number? x)))`, with one caveat: confirm it does not start refusing BigInt, which C3 ruling 4 routes through `integer-host`. If it would, exclude `big-carrier?`.
+
+- I would also drop the `#?(:cljs … :default f)` gate and let the predicate decide per host, as the query version does. The rule then reads the same everywhere: host-native arithmetic refuses non-native numeric carriers.
+- The Dart Decimal and Rational carriers would then refuse too, which is correct.
+
+**Change 3: where it is recorded.**
+
+- **8.5.5** gets one sentence: generic-yin `+ - * / < > <= >=` refuse the carrier, `= == !=` stay host `=`, and Python reaches float arithmetic only through `data/float-value`.
+- **`dao.jing.cbor.md` *Numeric identity*** gets the extension, next to the query-builtins sentence. That sentence currently says VM arithmetic is "outside this migration", which this change makes stale.
+- **The UCF scalar-arm paragraph stays as is.** It governs what lifts, not what primitives compute.
+
+**The asymmetry is acceptable.** A uniform refusal is not implementable, and the two reasons are worth recording.
+
+- On the JVM and Dart, float64 content is a host double, with no carrier to detect. Refusing uniformly would mean refusing all double arithmetic in generic yin.
+- The divergence is not created by the refusal. Generic-yin float arithmetic was already non-portable, since a bare JS `2.0 + 1` is the integer `3`. The refusal turns one silent case into a loud one.
+
+**Change 4: `+`-only coverage is not enough.** Each op is a separate registry entry, wrapped only by set membership, so a typo or rename in `carrier-refusing` silently unwraps one. Extend the test with:
+
+- a `doseq` over all eight ops, with the carrier in each operand position;
+- one variadic call with the carrier third, to exercise the `& more` arm;
+- one positive pin that `(= carrier carrier)` still answers.
+
+**Follow-up, not this slice:** the query builtins route `< > <= >=` through Jing's portable compare, while the VM refuses them. Ordering could later compute portably in the VM. Refusing now is the conservative choice and can be relaxed without breaking anything.
+
+## 3. If it did not ship
+
+Not applicable. For the record, removing it would also require reverting the carrier's admission at `plain-data?`, `machine-data?` and `scalar?`, which is the core of 8.5.5, so REMOVE is not a coherent option.
+
+Plan mode was active, so I wrote no findings file (the brief is read-only anyway); this response is the deliverable.

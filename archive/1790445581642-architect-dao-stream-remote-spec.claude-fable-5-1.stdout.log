@@ -1,0 +1,68 @@
+Completed-GMT: 2026-09-26 18:13:03 GMT
+Completed-Local: 2026-09-27 01:13:03 +07
+Coding-Agent: claude
+Session-ID: 506ecf77-3b05-43cf-9579-ad73759f7aa6
+
+## 1. Files
+
+**Created**
+
+| File | Lines |
+|---|---|
+| `docs/design/dao.stream.remote.md` | 725 |
+| `docs/design/dao.stream.middleware.md` | 153 |
+| `docs/design/shibi.md` | 45 |
+
+**Edited**
+
+- `docs/design/dao.stream.md`: OD-1, OD-2 and OD-3 accepted and moved into Result Convention, Writing, Envelopes and Cursors; their entries removed from Open Decisions and the intro paragraph rewritten; `:dao.stream/refused` added to Result Convention, the `cursor` outcome list, the Reading table and the Writing table; the composed-handle sentence added to Surfaces; `append!`'s `transport-error` row reworded per OD-2.
+- `docs/design/dao.lease.md`: carriage sentence and the two named subjects. Status line untouched.
+- `docs/design/dao.stream.ws.md`: descriptor framing (stream held by the accepting peer; copy path versus attachment to the original); dialer-side and acceptor-side; deferred liveness, resumption and RPC items point to the new spec; `dao.jing.remote` marked deprecated in the establishment-cancel item.
+- `docs/design/yin.vm.universal-continuation-format.md`: 7.4.3 facade paragraph, the put resume rule, 7.5.3 portability paragraph, the pending-completeness blocker, the facade acceptance row, and the M4 landing note.
+- `docs/design/daostream-udp-design.md`: superseded status line.
+- `docs/design/dao.jing.md`: remote transport sentence, coordinate shape, the `dao.jing.remote` backend bullet marked deprecated, the ingress check named as one shared function, and a 2026-09-27 status under Async hydration.
+- `docs/design/yin.vm.linker.md`: 1.2 responder line, the 6.1 table row, the content pair vocabulary, 6.3's shape reference, M3, the Depends line, and the failure-policy timing sentence.
+- `docs/design/dao.data.btree.md`: the 5.4 backend row, the `hydrate!` comment, and the Phase 4 landing note.
+- `docs/design/dao.jing.dht.md`: the NAT limitation.
+- Other design docs with sentences that became false, one edit each: `yin.vm.debruijn.linker.md` (three: substrate bullet, non-goal bullet, cross-host transfer item), `dao.jing.cbor.md` (two framing mentions), `dao.space.query.md` (the backend list), `yin.vm.debruijn.stack.md` (the fetch-over sentence), `dao.jing.remote.implementation-plan.md` (a historical status line at the top).
+
+**Deleted:** `docs/design/dao.stream.serve.md`.
+
+## 2. Settled choices and departures
+
+- **Length.** The spec is 725 lines against a target under 600. The ASCII box tables cost most of the overage. I kept every section the brief required rather than compress rules into prose.
+- **Key namespaces.** Wire keys the contract does not own live under `:dao.stream.remote/` (op, args, id, budget, more, oldest, newest, reason, credential). The credential key is therefore `:dao.stream.remote/credential`, not `:dao.stream/credential`, because the contract namespace is reserved for the contract. The operation map used by middleware borrows this vocabulary, and `dao.stream.middleware.md` says so.
+- **Reclaimed entry.** `not-found` from the mirror; the reflection marks itself gone and answers `transport-error` with `:dao.stream.remote/reason :dao.stream.remote/not-found`. To keep a surface miss from marking a reflection gone, a miss carries reason `no-surface` and marks nothing. This distinction was not in the rounds.
+- **`blocked` reword.** Not made. The Concurrency section already makes every outcome one handle's perspective at one moment; the reflection declares its nature in the spec.
+- **Retry key.** Declared in `dao.stream.md` as part of accepted OD-1.
+- **`:more` and anchor piggyback.** Both optional on the mirror, required to be accepted by the reflection.
+- **Board postings** carry the lease id of the registration or pair they belong to.
+- **`dao.stream.apply`.** Retired as a wire envelope; the `:dao.stream.apply/call` AST node and the VM's FFI bridge keep the name and are declared unrelated to the network.
+- **Replacement for `dao.jing.remote`.** One new module `dao.jing.content`: `serve-step`, `step`, `driver` (clj host policy), `async`; ingress check moved to `dao.jing/accept-bytes!`; the coordinate becomes two remote descriptors on every host and the `:url` form is gone. Request ids are self-minted random values so callers sharing an answers stream do not collide.
+- **Departure from the brief's file list.** Five docs outside the enumerated set were edited, listed above, each for a sentence that became false. `docs/dao.space.stigmergy.md` also mentions `dao.jing.remote` but is outside `docs/design/` and my ownership.
+
+## 3. Contradictions and errors found, not fixed
+
+- `docs/design/dao.stream.ws.md` still uses "client" and "server" throughout its deposit model, host matrix and close-code sections. Only the sentences the brief named were changed.
+- `docs/design/dao.stream.md` Close section still says "a server-side accepted-connection handle" and "the serving host". The brief said to keep every other part unchanged, so it stands. The word "capability" appears once at Explicitly Absent ("Where the capability went"), pre-existing and unrelated.
+- `docs/design/dao.jing.md` line 398 still says the coordinate interpreter recognizes `:dao.jing/remote` on the JVM only. True of the code today; it becomes false at slice 4.
+- `docs/design/yin-repl-design.md`, `docs/design/dao.stream.waitset.implementation-plan.md`, `docs/design/dao.jing.call-site-classification.md`, `docs/design/dao.jing.hash-registry.md` and `docs/design/yin.vm.debruijn.stack.md` lines 713 and 717 name `dao.jing.remote` functions or the URL as inventories of current code or as historical plans. Still accurate until the code changes; left.
+- `docs/design/dao.stream.md` OD-5 cites `dao.jing.remote` as evidence. Evidence of the past; left.
+- `docs/design/dao.lease.md` had been modified on disk since my earlier read (the Status line, as the brief said). My edits applied cleanly.
+
+## 4. Owner-visible and blocking
+
+- **ShiBi seam check: passes.** A ShiBi built as index and query interpreters plugs in with no change to the seam: the index interpreter is the gate's `fold` over its source streams, the query interpreter is the gate's `verify`, tokens are the credential slot's values, and metered decisions are decision emissions the index also observes. Nothing in the seam is hostile to that shape. No blocker.
+- **`dao.jing.remote` deprecated whole.** Every consumer verified by grep: `dao.jing.coordinate`, `dao.data.btree.storage`, `yin.repl.link`, `yin.vm.linker`, and the tests. The JVM blocking driver survives as `dao.jing.content.driver`, host policy for `dao.space.index`, btree hydration and `yin.vm.content`. `dao.jing.coordinate`'s `:url` coordinate is a clean break.
+- **Impossibilities**, stated in section 1 of the spec: double-unreachable peers need a third reachable peer; browsers cannot listen; plaintext and unauthenticated without composed middleware; UDP messages bounded by a composed maximum; a reclaimed lease is gone, not disconnected; false lapse under partition.
+- **Until ShiBi exists**, gating is an allow-list keyed on the channel or a pre-shared value in the slot. Budgets across peers wait on the capability-versus-currency decision.
+
+## 5. Mechanical checks
+
+Ran: non-ASCII scan of the three new files (none); line length over 170 in the new files (none); every box-table row in the spec ends with a border; `server` and `client` in the spec appear only inside the owner's quoted invariant, the worked convention ("server" in quotes), and the names of existing code; no `collab/` reference in any design doc; the word "capability" was not added to `dao.stream.md`; no `OD-1`, `OD-2` or `OD-3` heading remains in `dao.stream.md`; citations to `dao.stream.md` section names, `dao.space.security.md`, `dao.stream.discovery.md`, `docs/bootstrap.md` and `yin.repl.link-policy.md` checked against the files.
+
+Not verified: column alignment of the box tables by tool (the awk check was denied; alignment is by construction and visual); `git status` was denied, so the changed-file list above is from my own edits; no build or test was run, per the brief; citations inside companion docs to section numbers I did not open were not re-verified.
+
+## 6. Gate readiness
+
+Ready for an independent gate. The reviewer should look hardest at three places: the `no-surface` reason distinction in sections 2.3 and 2.4 of the spec, which the architect rounds did not rule on; the 725-line length against the 600-line target; and the `dao.jing.content` replacement in section 8, which is the one design decision the rounds left to me.

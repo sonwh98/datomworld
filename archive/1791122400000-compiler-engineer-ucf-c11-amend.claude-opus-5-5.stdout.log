@@ -1,0 +1,21 @@
+The front now passes its store to C9's `admit!`, and the gate follow-ups are done. Both are uncommitted edits to `front.cljc` and `front_test.cljc` on top of cea819a7; I ran no git writes. The JVM focused run passes: 291 tests, 2188 assertions, 0 failures, including the new `inherited-test`. kondo is clean. cljstyle was blocked by the permission gate again, so please run fix and check on both files. Node and Dart were not run.
+
+**The C9 adaptation:**
+- The front already held the offers' store, so the admit arm now passes that same store to `admit!` and the constructor needed no new key. The docstrings say admission reads accepted checkpoints from it.
+- Both direct `admit!` calls in the tests now pass the store.
+- Before the fix, 12 of 27 tests failed. Every admit path failed because the old arity threw and the catch-all turned it into a `:malformed` diagnostic; the new unenrolled-admit and throwing-lease-media tests also failed.
+- I added `an-inherited-admission-reads-the-fronts-store` so a test fails if the store is not passed. It sets up a completed chain and admits an inherited op id: with the front's own store it commits, with an empty store it is `:suspended`.
+
+**Gate findings 1 and 2** (coverage):
+- New tests for `:no-lease-medium`; `:uncarried` from a closed or a throwing lease-fact stream; a closed or throwing reply stream, where the reply failure comes back as data and the ledger still matches the direct path; a closed inbound halting with `:dao.stream/end`; and a throwing reader halting with `{::threw true}`.
+- The defective list gained the missing `:yin.k/medium` case.
+- An admit to an unenrolled target sends no reply, appends no diagnostic, commits nothing, and its answer carries `::admission/unenrolled`.
+
+**Gate finding 3:**
+- A throwing `lease-media` function now answers `:suspended :uncarried` instead of a `:malformed` diagnostic. A throwing landed function stays `:malformed`.
+- The namespace docstring gained the gate's Q3 (request id), Q7 (throws) and Q10 (closed or poisoned authority) sentences, plus the carriage answers.
+- The vocabulary guard still passes.
+
+**Mutations:** 9 mutations, one per new or pinned arm, were each caught by a test and then reverted, with `cmp` confirming the restore. Most of the gate's coverage tests passed on first run because they pin arms that already existed; their red evidence comes from these mutations.
+
+The findings file has a new "Adaptation and gate follow-ups" section with red and green for each new test.

@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+Completed-GMT: 2026-09-19 17:51:29 GMT
+Completed-Local: 2026-09-20 00:51:29 +07
+
+Phase W0 is recorded in `docs/design/dao.stream.waitset.implementation-plan.md` — the census table (verified row by row against source at `79cea49e`) plus the status line's W0-complete sentence. Nothing else touched; the diff is that one file, +35/−1.
+
+**Expected rows, all found:**
+
+- `yin.vm.engine` inline sweep — `augment-wait-entry`/`poll-wait-entry`/`check-wait-set` (`engine.cljc:266/283/316`), swept by `run-loop` (`:381`); multiplexed; → W2.
+- `dao.stream.rpc/poll!` (`rpc.cljc:426`) — single response medium, returns `:idle` on `blocked`; nothing inside changes, only cadence callers could adopt a driver.
+- `dao.stream.apply/serve-once!` (`apply.cljc:301`) — one session per call, request `blocked` then response `full`; no production loop drives it in src (only the delegate `rpc.cljc:106`), so nothing changes today.
+- `dao.stream.observer/run-on-stream` (`observer.cljc:217`) — single-stream per session; callers are `yin.repl.core` (`:543`), `yin.vm.macro` (`:1341`), `yin.vm.encoder` (`:296`), `dao.space.index` walks (`:601-627`); stays, as expected.
+- `dao.stream.forward` callers inside `dao.stream.serving` — `advance-forwarder!` (`serving.cljc:310`) over `forward-step` (`forward.cljc:67`), inside the multiplexed tick `step!` (`:330`); → W4 candidate.
+- `dao.jing`'s materializer `observe-step!` (`jing.cljc:505`) — round-robin over an N-member intake pool, so genuinely multiplexed, but no production caller yet (tests only).
+- `dao.gui.event`'s pump `advance` (`event.cljc:762`) — single input medium per binding plus pending-`put` retries; demo drivers are append-driven, never idle-poll, so W4's expectation resolves to the host drivers, not `advance` itself.
+- `yin.repl`'s host shell — three per-host tick owners (`repl.cljc:194/267/352`) stepping `step-all` (`:93`) at 25 ms; multiplexed; the fixed-timer shape W3's driver + `nudge!` replaces.
+
+**Beyond the expected rows:** `dao.jing.remote`'s two JVM sleep-poll waits (`connect-content!`'s establishment at `remote.cljc:733-747`, `call!`'s request wait at `:587-636` — documented blocking host policy, OD-5); `dao.postgraphics.terminal`'s `step-until-blocked` pump (`terminal.cljc:169`, drain-on-progress, nothing to change); and the one-shot catch-up drains (`dao.space.query/snapshot`, `continuation_transport.cljc:121,153`) — reads that end, not waiters.
+
+**Not found:** none missing. Steps verified loop-free and so given no row: `observe/step`, `forward-step`, `dao.jing.remote.step`, `yin.repl.connect/observe`, `dao.await` (effects only — its waiting *is* the engine row).

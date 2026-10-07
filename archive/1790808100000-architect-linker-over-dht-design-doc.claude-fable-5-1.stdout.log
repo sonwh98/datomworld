@@ -1,0 +1,29 @@
+The design doc is written at `docs/design/yin.vm.linker.dht.md` in the `linker-dht` worktree, with cross-references added to the three related docs. Nothing is staged or committed, and no code changed.
+
+## What the contract fixes
+
+- **Content source.** The DHT node's local store is the linker's content source. A module's closure is loaded onto the node first, and the node stays the only step owner.
+- **Closure walker.** An explicit walker answers missing, complete or invalid as data. It always covers the tree, all three lowered images and transitive requires, whichever format a request names.
+- **Staged load.** The index loader is generalized into a load over any walk. Failure reasons become data carrying the DHT's miss cause, replacing S5's strings.
+- **Rows every round.** The indexer materializes each evaluated program's rows, per the owner's decision. The publish banner must say the code itself is shared.
+- **Names.** Signed envelopes in explicitly loaded index snapshots resolve names. The doc fixes the envelope, proof, signed bytes with a domain prefix, hex key encoding, the key-as-principal id and the cross-host vectors.
+- **Key file.** A stable key is loaded from a versioned file and never minted silently. The sequence is derived from the publisher's own index. Loss, replacement, a lost index directory and disclosure each have a stated consequence and remedy.
+- **Consensus.** The same address from several declared principals resolves. Different addresses refuse as ambiguous.
+- **Re-check.** The ticker re-checks only when a load that a pending link waits on completes or fails.
+- **Budget is not a lease.** A request budget bounds one fetch, never the pending run.
+- **API and slices.** The plain Clojure API is listed with an interface gate forbidding a second loader in the REPL. Slices L0 to L5 carry files and the tightened acceptance, followed by a deferrals section.
+
+## Things I added beyond the inputs
+
+These came out of reading the tree while consolidating. Each is worth a look from the second reviewer.
+
+- **Row writes will hit the DHT's pending-write bound.** The bound is 64, and rows every round means many puts per round. I specified a replicate backlog in `dao.space.dht` so a large program is never reported busy. This is new work in L4.
+- **Republishing a name needs a retraction.** The fold has no recency rule, so one principal asserting a name twice with different manifests is ambiguous. Publish therefore writes a retraction and the new assertion together.
+- **Inter-definition modules link on two VMs only.** A module whose export reads another module-level definition links on the stack and register VMs today. The doc leaves that linker rule alone, makes the publisher report per-format link outcomes, and scopes the four-VM gate to the closed corpus.
+- **Transitive requires still resolve by name.** The reader's name environment must resolve each dependency to the pinned address, so a publisher asserts its dependencies in the same index.
+- **A canonical encoder change invalidates every signature.** The doc states this and promises no migration.
+- **Dart needs a synchronous Ed25519 package.** The fold verifies synchronously, so an async-only package is ruled out. The doc leaves the package choice and pin to L0.
+
+## Open item for the owner or the L4 brief
+
+The doc does not specify how a derived module's footprint is computed. It defers to the dependency-completion doc and tells the engineer to stop and report if that computation is unavailable, with no empty default.

@@ -1,0 +1,6 @@
+The red Dart run with the new reader test is still compiling. I'm waiting for it to reach `yin.repl-test` before touching `src/cljc/yin/repl.cljc`, so the red result stays clean.
+
+The planned fix (CLJD branch of `read-forms` only; JVM and Node untouched):
+- **Why:** outside `#()`, ClojureDart's reader treats `%` as an anonymous-argument literal. The Dart failures fit it swallowing the next token, so `% ?root` reads as just `?root`.
+- **Before reading:** a small scanner replaces each `%`-led token with a placeholder symbol. It skips strings, comments, character literals and any `#(...)` frame.
+- **After reading:** a `postwalk-replace` puts back the plain symbol (`%`, `%1`, `%&`), which is what JVM and Node produce.

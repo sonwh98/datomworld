@@ -1,0 +1,50 @@
+Completed-GMT: 2026-09-30 10:57:11 GMT
+Completed-Local: 2026-09-30 17:57:11 +07
+Coding-Agent: claude
+Session-ID: adc2ad2b-7804-4513-bdbe-b35cd38d01bf
+
+# Durable index store, slice 2: fix round 2
+
+Both HIGH findings from gpt-6-sol's round 2 are fixed, and every lane is green. Nothing is staged or committed. The full report is at `collab/1790751145000-storage-engineer-repl-durable-index-slice2.claude-opus-5-5.report-r3.md`.
+
+I wrote the tests first. Against the current code, `bb test:cljs` gave 2 failures:
+- A crashed takeover marker refused startup ("…remove …/lock.takeover…").
+- A write that stores only 3 bytes per call left HEAD as `"{:v"`, a partial record synced and renamed into place.
+
+Both pass after the fix.
+
+**1. A crashed takeover marker bricked the directory (Node).**
+- **Why not reclaim the marker:** making the marker itself reclaimable brings back round 1's race one level down. A contender that saw a dead marker can remove a newer, live one, because check-then-remove isn't atomic.
+- **Fix:** I replaced the Node lock file and the marker with claim entries.
+  - Each contender creates its own uniquely named `lock.<pid>.<uuid>`, then reads the others.
+  - A live entry means the contender withdraws its own and is refused, naming the directory.
+  - A dead entry is removed, whether it belonged to an owner that crashed or a contender that crashed mid-claim.
+- **Why it's safe:** removing a dead entry can't hit a newer live claim, because a unique name is never created again. Since every contender creates before it reads, two owners are impossible. At worst, two exactly simultaneous starts both refuse. No crash ever needs an operator to clean up.
+- The JVM and Dart are unchanged; they keep their operating-system lock.
+- **Tests (Node):** a live claim is refused and left intact; a dead claim is reclaimed; a live rival arriving mid-claim wins cleanly; a crash mid-takeover opens with no operator step. A mutation where contenders ignore live claims fails 5 assertions (plus 1 error), and was reverted.
+
+**2. Short writes could reach HEAD (Node).**
+- **Fix:** `write-fully!` keeps writing from the byte count each `writeSync` returns until the whole record is stored, and throws if a write stores nothing. Then it fsyncs, closes the file, and only then renames and syncs the directory.
+- **Test:** `a-short-write-never-becomes-a-partial-head` patches `writeSync` to store at most 3 bytes per call; HEAD now holds the full record.
+- **JVM and Dart:** checked for the same bug. Neither can do a partial write on the paths we use: Java's `OutputStream.write(byte[])` and Dart's `writeAsStringSync` both write everything or throw.
+
+**Docs:** the namespace and `lock-name` docstrings and the design doc now describe the claim entries and full writes. The round-1 marker text is removed.
+
+**Verification:**
+
+| Check | Result |
+|---|---|
+| kondo on the 7 changed Clojure files | 0 errors, 0 warnings |
+| Focused JVM (store, main, repl, index, query) | 112 tests, 826 assertions, 0 failures |
+| Full `clj -M:test` | 2411 tests, 184,678 assertions, 0 failures |
+| `bb test:cljs` | 2319 tests, 51,114 assertions, 0 failures |
+| `bb build:yin-repl-peer` | built |
+| `bb test:cljd` | All tests passed (+2278); all 23 store tests also passed when run alone |
+
+cljstyle is still blocked by the approval gate. The mechanical formatting checks (whitespace, tabs, blank lines, final newline) are clean.
+
+**Still open:**
+- Slice 3 must land before this branch ships. Until then, a restarted session's first publication moves HEAD off the recovered snapshot.
+- On Node, a dead claim whose pid has been reused by an unrelated live process is treated as live, so startup refuses until that process exits. That errs on the safe side and is inherent to checking liveness by pid.
+
+The Gmail, Google Calendar and Google Drive connectors still need authorizing in your claude.ai connector settings. Nothing here needed them.

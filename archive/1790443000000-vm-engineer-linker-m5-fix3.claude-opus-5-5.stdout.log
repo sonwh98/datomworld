@@ -1,0 +1,28 @@
+I fixed codex's P1 in `src/cljc/yin/repl.cljc` and also did the optional real-late-child-response test. The full JVM suite passes: 2202 tests, 182790 assertions, 0 failures. I did not run a ClojureDart compile, and the Node and Dart lanes are yours. Nothing is committed.
+
+**The fix (+8 lines, no new state keys):**
+- **Replay stops at a new pending require.** `fold-queued` (`repl.cljc:1164`) now stops as soon as a replayed line parks the shell on its own require. The lines after it stay retained, in typing order, on the new pending require.
+- **The triggering line is queued last.** When the pending require completes, `resume-pending` (`repl.cljc:1184`) replays the retained lines and then the line just typed. If an earlier line parks the shell, the typed line stays retained behind it.
+- **Refusal behaves as before.** If the pending require is refused, the retained lines are still dropped and reported, and the typed line still runs against the rolled-back shell.
+- **The unchecked second evaluation is gone.** `eval-parsed` (`repl.cljc:1235`) now just calls `resume-pending`.
+
+**Regression test:** `a-retained-require-that-parks-stops-the-replay-test`. A retained `(require 'other)` parks again while `mod` completes. It checks:
+- `(+ 1 2)` runs exactly once (value history `[3 mod nil]`), and the lines after the new require are not run.
+- The `other` pending state is kept.
+- `(+ 3 4)` and `(+ 5 6)` stay retained, in that order.
+- `(abandon)` reports "dropped 2 lines".
+
+With my three `repl.cljc` changes reverted, this test fails: the old code loses both the retained lines and the second pending state.
+
+**Test rig:** to keep `other` pending while `mod` completes over the same source, I added a `withholding` helper (about 30 lines). It wraps the content request medium so the request for one manifest address is never delivered. I found nothing simpler, because a local source answers every request, and a missing manifest is refused as absent rather than left pending. `cljstyle` requires some odd blank lines inside its `reify`.
+
+**Late child response (the optional item):** I rewrote `an-install-wait-abandons-explicitly-test` to use a real install child instead of the fake install wait.
+- `foo`'s body requires `bar`, and `bar`'s manifest request is withheld. The child parks on its own link and the root waits on the install.
+- The test then runs `(abandon)`, switches to a source that answers everything, and requires `foo` again.
+- It checks that the late answer to the abandoned child's request is skipped (logged as an `:unknown` diagnostic), that all four request ids are distinct, and that `foo` links through a new child.
+- With the child-origin carry disabled, this test fails because the new child reuses the abandoned child's id.
+- To support it, `publish-module` gained an optional manifest `overlay` argument, which the other tests leave out.
+
+**Other checks:** `yin.repl.require-test` is 8 tests / 80 assertions / 0 failures. kondo reports 0 errors and 0 warnings, `cljstyle` is clean, and the files are ASCII within 80 columns.
+
+The report is at `collab/1790443000000-vm-engineer-linker-m5-fix3.claude-opus-5-5.report.md`.

@@ -1,0 +1,28 @@
+The C6–C11 doc amendments are written into four docs, and `dao.stream.journal.md` needed no change. Nothing is committed and I ran no git write commands. Every added line is ASCII and prose stays within 80 columns; only Markdown table rows run longer. I checked each sentence against the code on master, and C11 against the uncommitted `front.cljc` in `datomworld-c11front`. Nothing else was run.
+
+**What landed:**
+- **UCF** (`yin.vm.universal-continuation-format.md`):
+  - **7.7.2:** two new tables, one for the grantor's facts from C6, C7 and C10 and one for C8's completion facts as the authority records them.
+  - **7.7.6:** a halted result completes its occurrence through a terminal edge.
+  - **7.7.7:** the reopen steps in the order the code runs them (rebuild after reclaim), the retry rule and the `:stale`-after-reopen recovery sentence.
+  - **7.7.8:** the epoch-change fact, the refusal pair, exhaustion as derived from the ledger, a seq of 2^52-1 is `:malformed`, C9's ancestry-before-checkpoint order, the successor-offer rule, and that a quarantined occurrence cannot complete.
+  - **7.9:** intents are digests, the `:suspended` arbitration shape, the outcome projection, and the trusted-identities rule.
+- **`dao.lease.md` *Composition duties*:** the reclaim adapter contract, plus reading proposal media from the oldest anchor at restart.
+- **linker-dht:** 14.2.2 gets the input protocol and the cost note; 14.2.4 gets row 6 reworded and the full contract for the remote front.
+- **`yin.vm.ucf-revisions.md`:** a new dated status sentence with your hashes and "C11 (landing next)" for you to fill. I left the published C1–C5 sentence alone, so its "C6 to C12 remain" is now out of date.
+
+**Where the code overrode a reviewer** (eight cases in the report). The ones that changed wording:
+- **C7 Q5:** I dropped "C11's fronts add reach data", because the front adds nothing.
+- **C9 cost note:** it says one store read per variant tried, not one per admission.
+- **C6 exhaustion:** the ledger flags it when the epoch change carries the lease's own binding epoch. That only happens at the bound, which tests may lower.
+- **C6 ruling (a):** only refusals are rebuilt from `:yin.k/refused`; grants also feed the answered set.
+- **C11 Q8:** the real keyword is `:yin.vm.ucf.authority.front/threw`.
+- **C11 finding 3:** a throwing lease-media function now answers `:suspended :uncarried`, not `:malformed`.
+
+**Anchored somewhere other than named, or not at all:**
+- **Plan text:** I couldn't read the plan (it's in the main checkout, outside this session's permissions), and it isn't one of the five files I may edit. So the plan 1.3, 1.5 and 1.10 content went into dao.lease and UCF instead, and C8 gate debt items 6–8 are still unwritten in the plan itself.
+- **"Row 6" of 14.2.4 is a guess:** I took it to be the partition bullet. If plan §5 means another row, only that rewording moves; the front contract stands as written.
+- **Re-propose rule:** it sits in the 7.7.8 refusal bullet with a pointer to 7.8, not in 7.8 step 5.
+- **One-attribution cross-reference in dao.lease:** not added, since your brief puts that rule in 14.2.4 only.
+
+The report, with line numbers for each amendment, is at `collab/1791123000000-writer-ucf-c6-c11-doc-amendments.findings.md`.

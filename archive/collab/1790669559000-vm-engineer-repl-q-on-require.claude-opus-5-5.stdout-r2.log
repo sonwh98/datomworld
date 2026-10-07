@@ -1,0 +1,56 @@
+Completed-GMT: 2026-09-29 09:05:31 GMT
+Completed-Local: 2026-09-29 16:05:31 +07 (+0700)
+Coding-Agent: claude
+Session-ID: c2557c35-ba40-4377-b51a-aad2152a95cb (resumed)
+
+# Report r2: q on require, fix round 1 (gate P2s)
+
+Both P2s are fixed. Each has a new test on all four VMs that fails when I temporarily break the fix. Lint, the focused JVM set and the CLJS lane pass. `cljstyle check` was blocked by the permission gate, so formatting is still unchecked. Nothing is staged or committed. The report is at `/Users/sto/workspace/datomworld/collab/1790669559000-vm-engineer-repl-q-on-require.claude-opus-5-5.report-r2.md`.
+
+## P2 1: rollback left the VM's response cursor behind evicted answers
+
+- **Fix:** a new `yin.repl.query/discard-answers` moves a rolled-back VM's response cursor to the newest response, using the public `vm/cursor-entry`.
+  - This is safe because the round's base has no call outstanding, so every retained response belongs to the abandoned run.
+  - Call ids stay unique because rollbacks already carry the id counter forward.
+- **Applied at three rollback sites:** `run-evaluation`, `recheck-pending*`, and `abandon-pending`. The last one was not in the gate's list, but it restores a round base the same way.
+- **Test:** `a-failed-round-of-more-calls-than-the-pair-holds-leaves-no-gap`. A failed round makes 70 `q` calls (more than the pair's 64) and then errors; the next `q` returns `42`.
+
+## P2 2: a program calling `q` without end never left the drive
+
+- **New constants:**
+  - `query-drive-budget` = 1024: the most `q` calls one drive answers, where a drive is one evaluation or one pending-run re-check. The limit is cumulative across the drive, and it also caps each serve step.
+  - `query-call-limit-text`: the message shown when the budget runs out.
+- **What happens when it runs out:**
+  - The VM, still waiting on its 1025th call, raises this error as its own:
+    `Error: the evaluation called dao.space.query/q more than 1024 times and was stopped (:yin.repl.query/call-limit)`
+  - The error data is `{:reason :yin.repl.query/call-limit :limit 1024}`.
+  - The unanswered request is skipped, so it is never answered.
+  - The round then ends like any failed round: it rolls back, printed output is drained, and the session stays usable.
+  - If it happens during a pending-run re-check, the run is dropped and the error printed through the existing error path.
+- **Test:** `a-program-calling-q-without-end-is-stopped-at-the-drive-budget`. `(spin 2049)` returns exactly that error; the next `q` returns `42`; and call ids stay distinct.
+
+## Mutation proofs
+
+Each mutation was reverted and the file confirmed byte-identical to the original; a grep found no leftovers.
+
+| Mutation | Failures |
+|---|---|
+| `discard-answers` made a no-op | 8: the >64 test on all four VMs, plus the budget test, whose stopped round also exceeds 64 calls |
+| Drive budget removed | 4: the budget test on all four VMs |
+
+## Verification
+
+| Check | Result |
+|---|---|
+| kondo (3 files) | 0 errors, 0 warnings |
+| `cljstyle check` | Blocked by the permission gate, not run |
+| Focused JVM (`yin.repl.query-test`, `yin.repl-test`, `yin.repl.index-test`, `yin.vm.ffi-test`) | 77 tests, 588 assertions, 0 failures |
+| `bb test:cljs` | 2261 tests, 50744 assertions, 0 failures |
+| `bb test:cljd` | Not run, as instructed |
+
+The full `clj -M:test` was not re-run this round.
+
+## Notes
+
+- The call-id uniqueness check in the budget test only sees the last 64 requests, because the pair's media hold 64 elements. Uniqueness overall comes from the carried id counter.
+- The owner still needs to approve the limits: 1000 rows, 256 KiB, and now `query-drive-budget` 1024.

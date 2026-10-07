@@ -1,0 +1,34 @@
+The investigation is finished. The report is at `collab/1791201600000-engineer-python-test-cost-investigation.findings.md`, and the test-side prototype is left uncommitted in 5 test files (+34/−11). There were no git writes, I never ran the full suite, and every run passed with the same pass counts before and after.
+
+**Why every Python test costs seconds**
+- **The prelude is not re-lowered per test.** `prelude/uast` is built once when the namespace loads. Per test, marking tail calls on the whole tree and converting it to datoms take only 1-3 ms.
+- **~99% of each run is compiling and admitting one whole image on each VM.** Each image is the prelude plus the program together. The tests can't cache the prelude part, because each VM compiles that whole image as one unit.
+- **Per-run floor:** a parity run costs 1.44 s on the JVM, 2.99 s on Node and 10.8 s on Dart. The register VM is 60% of that on the JVM and 83% on Dart.
+
+**What is slow on Dart:** two product functions account for about 7-8 s of the 10.8 s.
+- **`dao.jing/sha256`:** the Dart version is a hand-written SHA-256. It takes 3.7-5.0 s to hash the 2.2 MB register image. `package:crypto`, already a dependency in `pubspec.yaml`, takes 27 ms and gives the same digest.
+- **`body-liveness`:** for each of 835 bodies it allocates a vector as long as the whole image (11,304 slots), so cost grows with the square of prelude size. It runs twice per register run, about 1.4 s each time on Dart.
+
+The three Dart outliers have no problem of their own. Each is just its number of runs times the Dart floor: `set-recursion-limit-test` is 10 hooked runs at ~13-15 s each.
+
+**Test-side prototype**
+- **What it does:** stack and register now share one `resolve` per run instead of resolving twice. `adapt` is defined as exactly that composition. Separately, `derived-ast` in the safepoint tests is memoized.
+- **One dropped piece:** I first memoized `derive*` too. That would have made `insertion-is-deterministic-test` compare a cached value with itself, so I removed it.
+- **Saving:** about 6% of the JVM fast form and 8% on Node (parity: 14.4 s → 13.3 s). Multi-run slow tests gain more; `set-recursion-limit-test` went from 18.6 s to 15.3 s.
+- **Measurement caveat:** load average reached 29, so the JVM numbers rely on call counts and CPU time rather than wall time.
+- **Checks:** Dart compiles and passes the safepoint fast form. kondo is clean. I did not run cljstyle; four changed lines are over 80 columns, so run `cljstyle fix` before landing.
+
+**Recommendation**
+1. **Land now:** the test-side change, after cljstyle. It is small and safe.
+2. **Schedule next:** small product fixes, none in the engine or ucf directories:
+   - Use `package:crypto` for SHA-256 on Dart: about −5.4 s per Dart run.
+   - Give `body-liveness` per-body vectors: prototyped on the JVM with identical output and hashes, −0.2 s per run; on Dart I estimate about −2.9 s per run.
+   - Rewrite `to-hex` without per-digit string building: −0.1 s per JVM run.
+   - Stop rebuilding the AST walker's 45-field record through the positional constructor on every step: this is about 66% of walker time on the JVM.
+
+   With the test-side change I estimate the floor drops to ~1.0 s on the JVM and ~2-2.5 s on Dart. The Python fast form would then be roughly JVM ~90 s and Dart ~30-35 s, down from ~120 s and ~100 s.
+3. **Later:** the linked prelude described in `yang.antlr.md` §8.5.6 (prerequisites L-a, L-b and P2) is the real fix for the floor. It also needs a cache of admitted images keyed by identity, because `attach-image` hashes the combined image again.
+
+I don't recommend running fewer VMs in the fast lane now: after these fixes the register VM is much cheaper, and it is where cross-host bugs show up. All the "after" totals are estimates from per-phase costs; only the test-side change was measured end to end.
+
+The Gmail, Google Calendar and Google Drive connectors need to be authorized in your claude.ai connector settings before they can be used. They weren't needed for this task.

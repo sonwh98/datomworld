@@ -1,0 +1,32 @@
+Completed-GMT: 2026-10-05 22:33:19 GMT
+Completed-Local: 2026-10-06 05:33:19 +07
+Coding-Agent: claude
+Session-ID: 820fb1cc-b82c-4ee6-96c7-7a170107243d
+
+# head-h2 round 5 report
+
+The blocker is fixed: `loopback?` now refuses a host that ends in a dot, and the 21-namespace JVM run passes.
+
+## The change
+
+**`src/cljc/yin/vm/linker/head/ws.cljc`, `loopback?`:**
+- The IPv4 branch now starts with `(not= \. (last host))`, before the existing four-part, `"127"` and `octet?` checks.
+- The docstring now says a host ending in a dot is not a literal, because a resolver would treat it as a name, and that `split` drops trailing empty parts.
+- The IPv6 branch is unchanged.
+
+I did not use `str/split` with a `-1` limit: it would need checking on every host, and `str/ends-with?` appears only in a Python-lowering namespace. The char comparison follows the same `\x` literal approach `octet?` already uses for digits.
+
+**`test/yin/vm/linker/head_ws_test.cljc`:** `"127.0.0.1."`, `"127.0.0.1.."` and `".127.0.0.1"` are added to the refused vector in `a-bind-host-that-is-not-a-loopback-literal-composes-no-endpoint`.
+
+## The tests pin it
+- **Without the fix** (the new check temporarily replaced with `true`), `yin.vm.linker.head-ws-test` gave 11 tests, 89 assertions, **4 failures**. Both trailing-dot hosts returned `:status :starting` with an endpoint whose descriptor names host `"127.0.0.1."`, and the "nothing listened" call count was off.
+- `".127.0.0.1"` was already refused without the fix, because it splits into five parts. It now pins that behaviour.
+- **With the fix restored:** 11 tests, 89 assertions, 0 failures.
+- The accepted literals `127.0.0.1`, `127.1.2.3`, `::1` and `[::1]` still compose an endpoint, and `listen!` is called exactly 4 times.
+
+## Commands and outcomes (foreground)
+- **`clj -M:test -n yin.vm.linker.head-ws-test`:** 11 tests, 89 assertions, 0 failures, 0 errors.
+- **The same 21-namespace combined run as rounds 2-4** gave **302 tests, 2988 assertions, 0 failures, 0 errors**.
+- **`clj -M:kondo --lint src/cljc/yin/vm/linker/head/ws.cljc test/yin/vm/linker/head_ws_test.cljc`:** 0 errors, 0 warnings.
+
+No git, no formatter, no Node or Dart runs, and no background processes.

@@ -1,0 +1,40 @@
+Completed-GMT: 2026-09-25 18:04:21 GMT
+Completed-Local: 2026-09-26 01:04:21 +07
+
+The pipeline gap codex found is fixed, and all three lanes pass. Nothing is staged or committed. The full report is at `/Users/sto/workspace/datomworld/collab/1790351100000-vm-engineer-yin-def-rule-r-commit-one-fix3.claude-opus-5-5.report.md`.
+
+| Lane | Last round | Now |
+|---|---|---|
+| JVM | 2,051 / 180,998 | 2,051 tests / 181,066 assertions, 0 failures |
+| Node | 1,964 / 47,987 | 1,964 / 47,987, 0 failures |
+| Dart | 1,926 | 1,926 passed |
+
+The only change in counts is 68 more assertions in the JVM-only audit test; no tests were added. kondo shows 0 errors, and its 7 warnings all exist at HEAD. cljstyle is clean. Every added line is ASCII and at most 80 columns, except Markdown grid-table rows.
+
+**The fix.**
+- The audit now treats a pipeline as carrying a store from its starting value, not only from a later `:store` step. That covers a store symbol, `(:store x)`, `(get x :store)`, `(get-in x [:store ...])`, and a `let`-bound alias.
+- It applies to `->`, `->>`, `some->`, `some->>`, `cond->`, `cond->>` (form positions only) and `doto`.
+- In `as->`, the bound name counts as a store alias once the value is a store.
+- It is deliberately conservative: once a pipeline carries a store, every later mutation step is flagged, even after a step that leaves the store.
+- Codex's `(-> (:store vm) (assoc 'yin/def v))` is caught now.
+
+**Fixtures.**
+- There are 37 new negative fixtures:
+  - every threading form, seeded both from an extracted store and from a `let`-bound alias;
+  - `as->` and `doto`;
+  - `cond->`/`cond->>` from an extracted store;
+  - a store passed as the first argument of a threaded call.
+- I re-read every claim in the docstring against the fixtures and filled the gaps: `vswap!`, `vreset!`, the `store0` spelling, the `let*`, `loop*`, `when-some`, `if-some` and `binding` aliases, and the `(:store)` and `get-in` steps.
+- I dropped one claim. `when-first` binds the first element of a collection, never the store itself, so it is no longer listed as an alias form.
+
+**Documented residual, pinned as undetected by fixtures:**
+- a store passed across a function boundary;
+- a store carried inside a map, an atom, or a collection read by `when-first`;
+- `apply`, `partial` and `comp`;
+- a mutation function bound to another name.
+
+Transients, host interop and macros that expand to a write are stated as outside the detector, with no fixture. `yin.vm.engine.md` §1.1 now matches the test docstring exactly. The `engine/store-put` docstring and the `datom.world.md` line already made no claim beyond detection, so they are unchanged. The `src` allowlist is also unchanged, because no pipeline or aliased store write exists in `src` today.
+
+**Harvest limitation.** `yin.vm.macro.md` §4.2 now states that harvest is sound only for fresh source syntax. The expander cannot tell a fresh batch from a stored one, so admitting stored batches as code would need a design with stamped input, which doesn't exist yet. No design was built.
+
+Status: COMPLETE

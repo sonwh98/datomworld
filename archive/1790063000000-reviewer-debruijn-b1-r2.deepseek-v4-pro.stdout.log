@@ -1,0 +1,76 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Read the r2 prompt, both round-1 artifacts, the design doc (§1, §2, B1 box), and — critically — I compared the staged index against the working tree before tracing anything, because the prompt's claim that "both are current" turned out to be false. Full review below.
+
+---
+
+Completed-GMT: 2026-09-22 07:45:51 GMT
+Completed-Local: 2026-09-22 14:45:51 +07 (Indochina Time)
+Coding-Agent: deepseek
+Session-ID: pending
+
+## Verdict: READY WITH CHANGES
+
+All nine round-1 findings are genuinely fixed in the working tree; P1-2's fix in particular generalizes beyond the exact reviewed fixture. Two changes are required before commit, one code (a CLJD test-lane syntax bug) and one process (the fixes are **unstaged** — see below).
+
+---
+
+## ⚠️ Process finding (blocks a clean commit): the fix round was never staged
+
+The prompt states the B1 files are "STAGED but UNCOMMITTED — `git diff --cached` or read the working tree directly, **both are current**." That is false, and it matters a lot for a "last check before commit":
+
+- `git status` reports `AM` on both files — **A**dded in the index, **M**odified (unstaged) on top.
+- `git diff --cached --stat` → `debruijn_code.cljc | 763` and `..._test.cljc | 291` — this is the **pre-fix** round-1 code (e.g. the index still holds `:str (framed :string (or x ""))` and `(and (number? v) …)` for `host-double?`; confirmed via `git show :src/...`).
+- `git diff --stat` (working tree vs index) → `139/50` on source, `96/7` on test — this is exactly the fix round's 235-line change, **present only in the working tree, not the index**.
+
+The prompt's `HEAD b39f3e8c` is also stale: actual `HEAD` is `562dd46d`, and `b39f3e8c` ("…B1's process error and correction…") is not an ancestor of it.
+
+**Consequence:** any `git commit` performed now commits the *unfixed* round-1 code with all nine findings live. A reviewer who, per the prompt, inspects "what changed since the prior review round" via `git diff --cached` sees the *old* code and would wrongly conclude nothing was fixed. Smallest fix: `git add src/cljc/yin/vm/debruijn_code.cljc test/yin/vm/debruijn_code_test.cljc` before committing (and correct the stale `HEAD` reference in the orchestration). All findings below are against the **working tree** (the fixed code), which is the only version worth reviewing.
+
+---
+
+## Round-1 findings — verdicts
+
+**P1-1 — CONFIRMED FIXED** (`:str` surrogate guard, both entry points). `encode-operand`'s `:str` case is now `(if (nil? x) (framed :string "") (encode-scalar x))` (`debruijn_code.cljc:503`), routing non-nil `:str` through the same `well-formed-utf16?` guard `:const` strings get. `image-defect` also rejects structurally: `operand-kind-checks` `:str` is now `(fn [x] (or (nil? x) (and (string? x) (well-formed-utf16? x))))` (`:650`). Hand-trace of `[[:gensym "\uD800"] [:return]]`: `encode-scalar` → `scalar-class` → `(string? v) (when (well-formed-utf16? v) :string)` → nil (lone high surrogate at a terminal code unit is `false` in `well-formed-utf16?`, `:263-266`) → falls to the qualified `(throw (ex-info … {:rule :unsupported-value …}))` (`:460-461`). Structural path returns `{:rule :operand-kind, :pc 0}`. Both correct.
+
+**P1-2 — CONFIRMED FIXED** (and generalizes). `walk-body` now returns `{:conflict pc}` when a pc it reaches is already owned under a different chain (`:763-766`), and `all-body-chains` returns `{:conflict entry}` when a queued body entry disagrees with an owned chain (`:796-798`). Hand-traced the reviewer's fixture in **both** orders — `[[:closure 2 3] [:closure 1 3] …]` and swapped — both yield `{:rule :scope-conflict, :pc 3}` (the second declared chain `'(1)` meets owned `'(2)` at the queue level). Then constructed the three adversarial variants the prompt asks about, all caught by the *same* `(not= chain-a chain-b)` comparison:
+- **three declarations** `[[:closure 1 3] [:closure 2 3] [:closure 3 3] …]` → second differing body triggers conflict;
+- **cross-body `:jump`** `[[:closure 1 4] [:jump 4] [:return] [:return] [:return]]` → root body (chain `'()`) reaches pc 4 via the jump, closure body declares pc 4 with chain `'(1)` → conflict at 4;
+- **length-differing chain** — `not=` compares whole vectors, so any length or content difference trips it.
+
+Re-joins *within* one body (a `:branch-false` loop reaching an already-owned pc with the *same* chain) are correctly skipped (`:764`), so no false positive and no BFS non-termination. `scope-defect` was updated to the new `{:owner …}`/`{:conflict …}` return shape (`:830-832`); no other caller of `all-body-chains`/`walk-body` exists.
+
+**P2-1 — CONFIRMED FIXED** (JVM only; CLJS/CLJD untouched). `host-double?` is now `#?(:clj (instance? Double v) :default (and (number? v) (not (host-long? v)) (not (host-ratio? v)) (not (host-bigint? v))))` (`:342-343`). On the JVM, BigDecimal/Float are no longer `Double` → `scalar-class` nil → qualified `:unsupported-value`; CLJS and CLJD both take `:default` (no `:clj` match), which is the unchanged complement rule. The report's own caveat stands: P2-1 has **no dedicated pinned-literal test** (verified only manually) — see new-finding note below.
+
+**P2-2 — CONFIRM FIXED**, but the CLJD branch has a defect — see **NEW P2** below. The cross-host test `unsupported-value-is-refused-not-silently-hashed` (`debruijn_code_test.cljc:202-216`) exercises all four sites: `encode-scalar` direct, `image-hash` of a `:const`, `image-defect` of a `:str` (returns `:operand-kind`, not a throw — so "four throw sites" is loose wording for "three throws + one structural rejection", but all four *entry points* are covered), and `image-hash` of a `:str`. The `unsupported-value-rule` helper's catch clause `#?(:cljd Object :clj Exception :cljs :default)` (`:199`) is the correct per-host catch-all spelling.
+
+**P3-1 — CONFIRMED FIXED.** `saturated-operands` now `#{[:gensym 1] [:stream-make 1] [:call 2] [:ffi-call 2]}` (`:679`).
+
+**P3-2 — CONFIRMED FIXED.** The JVM `:ratio` branch range-checks both components against `Long/MIN_VALUE`/`MAX_VALUE` and throws the qualified diagnostic (`:436-442`); the `:cljs`/`:cljd` stubs are unchanged dead code.
+
+**P3-3 — CONFIRMED FIXED.** `nonneg-int?` gained `#?(:cljs (js/Number.isSafeInteger x) :default true)` (`:636`), and `target-bounds-rule` switched its `:pc` check from `(integer? x)` to `(nonneg-int? x)` (`:701`) so `:pc` is bounded too. CLJS `[:call 1e30 true]` now yields `:operand-kind`; JVM was already correct (`integer?` false for a Double).
+
+**P3-4 — CONFIRMED FIXED, minimal blast radius.** The descriptor (`:113-141`) is now pure data — `:image-hash "SHA-256(…)"` removed, `:dim/lift-to` collapsed to `[:yin.code/*]`. The new test asserts no string anywhere: `(not (some #(some string? (tree-seq coll? seq %)) dc/descriptor))` (`:353-354`) — I verified by inspection that the descriptor contains only keywords, numbers, booleans, and nested vectors/maps. `encode-image` never touches the descriptor, so instruction bytes are provably unchanged; only `descriptor-hash` (hence `image-hash`) forked, and the re-pin is documented (`:289-295`).
+
+**P3-5 — CONFIRMED FIXED.** `image-scalar-classes` now `keep-indexed` over `:data`-kind operands across every tuple (`:553-567`), strictly more conservative than the `:const`-only floor the design wording describes — no weakening.
+
+---
+
+## NEW findings
+
+**NEW P2 — CLJD `lone-surrogate` uses static-method slash syntax for a named constructor.** `test/yin/vm/debruijn_code_test.cljc:192`: `:cljd (String/fromCharCode 0xD800)`. Dart's `String.fromCharCode` is a **factory/named constructor**, not a static method, and this codebase's ClojureDart convention for named constructors is **dot** syntax — `String.fromCharCodes` (`test/dao/jing/cbor_fixtures.cljc:164`), `dart:core/String.fromCharCodes` (`src/cljc/yin/vm.cljc:192`), `BigInt.parse` (`test/dao/jing/cbor_test.cljc:345`). Slash (`/`) is used only for genuine static methods on the lowercase core types (`double/parse`, `int/parse` in `src/cljc/yang/python.cljc:110,113`). `String/fromCharCode` therefore resolves `String` as a namespace and `fromCharCode` as a var in it — likely a "could not resolve" at CLJD compile time, which would break the whole test namespace on that lane (not just this deftest). This is exactly the branch the implementer flagged UNVERIFIED. Smallest fix: `:cljd (String.fromCharCode 0xD800)`, then actually run the CLJD lane (the orchestrator's "CLJD 0 failures" is not trustworthy against this fixture given the implementer reported CLJD denied).
+
+**NEW P3 — P2-1 has no pinned-literal regression test.** `host-double?` (`:342`) was changed to `instance? Double` on JVM, but no test asserts that a JVM BigDecimal/Float is refused (the report admits this was "verified manually"). A one-line `#?(:clj (is (= :unsupported-value (unsupported-value-rule #(dc/encode-scalar 0.1M)))))` would pin it and prevent a silent regression to the old complement rule. Not blocking, but worth closing while this exact class of refusal is being pinned.
+
+---
+
+## Checked and found clean
+
+- **`well-formed-utf16?`** (`:250-267`) is a correct reimplementation: lone low surrogate → false; high surrogate without a following low surrogate → false; pairs skipped. `code-unit-at` per-host (`:171-175`) matches.
+- **No regression from the `:str` reroute**: for a *valid* `:str`, `(encode-scalar x)` == `(framed :string x)`, and for nil both paths yield `(framed :string "")` — bytes unchanged (`:503` vs old `(framed :string (or x ""))`).
+- **`scope-defect` re-check of `nonneg-int?` depth/position** is dead-but-harmless (negative depths are already rejected earlier by `operand-kind-rule`, per the test at `:58-60`).
+- **No stray callers**: `all-body-chains`/`walk-body` are only reached from `scope-defect`; the changed return shape is fully propagated.
+- **Golden bytes**: `encode-image` is descriptor-independent, so the four byte strings are provably untouched by P3-4; the four re-pinned hashes are self-consistent (each 64-hex, asserted against live `image-hash` on every lane, so any half-update would fail the suite on all three hosts). I did not recompute the sha256 preimages (read-only, no run) — correctness rests on the suite, which the implementer reports clean for JVM+CLJS.
+- **`#?` hygiene on the new code**: `host-double?`'s `:clj`/`:default` split is safe for CLJD/CLJS (no `:clj` fallthrough); `nonneg-int?`'s `:cljs`/`:default` has no `:clj` branch and defaults to the portable rule; the ratio range-check stays inside `:default` so Dart/JS never resolve `numerator`/`denominator`.
+
+Findings only; no file edited.

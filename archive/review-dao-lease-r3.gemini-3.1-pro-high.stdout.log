@@ -1,0 +1,25 @@
+Completed-GMT: 2026-09-02 07:13:42 GMT
+Completed-Local: 2026-09-02 14:13:42 Asia/Ho_Chi_Minh
+
+Findings ranked most severe first:
+
+**Severity 1** | *Lapse is a conclusion; reclaim is an act* | "The judge is an interpreter over two streams... observation time is the most recent tick observed before the fact" | **The exact correction:** Two independent streams have no causal ordering (`dao.stream` invariant). It is impossible to know which tick occurred "before" the fact. Ticks and facts must be multiplexed onto a single stream by the host adapter, or the adapter must attach host timestamps to envelopes upon deposit. (A round-2 fix moved the cadence defect into a stream-synchronization contradiction).
+
+**Severity 2** | *Judging lapse* | "For every resource it still possesses it performs the reclaim first — ending whatever tenure existed... and only then appends a fresh unsolicited :accepted." | **The exact correction:** Reclaim is defined as the act of closing/freeing the resource. Appending an `:accepted` for a resource that was just destroyed (e.g., a closed socket) is impossible. The recovery must either revoke the lease without reclaiming the resource, or accept that the resource is gone and cannot be re-granted. (A round-2 fix moved the gap defect into an impossible re-grant).
+
+**Severity 3** | *Lapse is a conclusion; reclaim is an act* | "At each judgment pass the judge, in this order: 1. Drains the lease-fact cursor... 2. Judges... 3. Reclaims... 4. Appends :lapsed." | **The exact correction:** The algorithm forgot to drain the tick stream. If ticks are never drained, time never advances. An implementer would have to invent this step. The sequence must explicitly drain the tick cursor to update current time (or interleave it if multiplexed).
+
+**Severity 4** | *Judging lapse* | "Judges. Compares each lease's interval against its duration and tolerance." | **The exact correction:** This ignores `:dao.lease/released`. If the judge only compares intervals, a released lease waits for its duration to expire, contradicting the claim that release "buys promptness". Step 2 must be updated to judge a lease as lapsed if the interval exceeded the duration OR if a `:released` fact was observed. (A round-2 fix added release semantics but failed to implement them).
+
+**Severity 5** | *Whose obligation* | "a grantor completing judgment passes at its declared cadence reclaims every lapsed lease within duration plus tolerance plus cadence" | **The exact correction:** This is overstated. Because the judge relies on an external tick stream for time, any upstream delay in the adapter depositing ticks (or tick eviction) extends the lease indefinitely, regardless of how strictly the judge completes its passes.
+
+**Severity 6** | *Where the collector's problem differs from the collector's evidence* | The fence lists three breaks in kinship to prevent promising what a lease cannot deliver. | **The exact correction:** The fence is inadequate. It fails to state that a lease cannot perform cycle collection (e.g., two holders leasing each other). A reader primed by the GC metaphor will expect cycle collection unless explicitly told the timeout substitution breaks it. 
+
+**Severity 7** | *Delegated renewal* | The framing claims (implicitly or via structure) to confirm the delegation denial via the reference-cycle parallel. | **The exact correction:** This is ornament. The section argues from "manufacturing false liveness" but never mentions reference cycles. The GC framing decorates here: it sets up a metaphor that would perfectly explain delegation as a detached root or cycle, but fails to actually use it in the text.
+
+
+### Whether the GC reframe was worth making
+**Yes.** Despite missing the opportunity to leverage the cycle metaphor in the delegation section, casting duration as a timeout standing in for reachability elegantly derives all the conservative behaviors (marking, sweeping, root sets) and anchors a fuzzy network concept into a rigorous, mechanical lineage.
+
+### The thing most likely wrong that you cannot prove is wrong
+The assumption that a `:lapsed` fact appended to the "grantor's own log" has any actual utility. If the resource is already closed/freed (sweep), and the holder learns of the reclaim by observing the resource's death on its own medium (e.g., `:ws/closed`), then the `:lapsed` fact is an administrative tombstone. It satisfies the GC "record" phase theoretically, but in practice, no interpreter is specified that actually needs to read it, making it likely a write-only operation.

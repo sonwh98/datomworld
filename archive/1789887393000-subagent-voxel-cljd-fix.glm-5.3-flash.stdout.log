@@ -1,0 +1,23 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+Completed-GMT: 2026-09-20 07:26:05 GMT
+Completed-Local: 2026-09-20 14:26:05 +07
+
+**ROOT CAUSE (two sentences):** The 29 failures were never in the voxel code — they died in ClojureDart's own fixture machinery: `cljd.test/fixture-callbacks` (pinned SHA `81b5c03`, see compiled `lib/cljd-out/cljd/test.dart:676`) splits each `use-fixtures :each` fixture into a setUp that calls it with **zero args** and a tearDown that calls it with the setup's return, so the shared tests' standard `(fn [run] …)` fixture threw `Closure call with mismatched arguments` before every test body and then ran it with `run` = nil (`No extension of protocol IFn found for type Null`). Once tests could actually run, a second host gap surfaced in 2 runner tests: cljd compiles `#'runner/player*` to a bare symbol (no first-class Vars), so the JVM-idiom `(:pos @@#'runner/player*)` threw `No extension of protocol IDeref found for type Symbol`.
+
+**THE FIX:**
+1. Both shared test files: replaced the standard fixture with a dual-contract one — zero-arity half = cljd setup, one-arity half dispatches on `(fn? run)`: bracket for JVM/CLJS, teardown-only for cljd.
+2. `voxel_runner.cljc`: added a public read-only `player-pos` accessor (mirrors the existing `pressed-controls` precedent); the test helper now reads `(:pos (runner/player-pos))`.
+
+**FILES CHANGED** (3, all in scope; nothing under `src/cljc/dao/` touched; no staging, no commit):
+- `test/datomworld/demo/voxel_input_test.cljc` — `with-input-reset` fixture
+- `test/datomworld/demo/voxel_runner_test.cljc` — `with-runner-input-reset` fixture + `player-pos` helper via public accessor
+- `src/cljc/datomworld/demo/voxel_runner.cljc` — new `player-pos` accessor (additive)
+
+**LANE OUTCOMES (final runs):**
+1. `clojure -M:cljd test` → **`+1419: All tests passed!`** — all 29 target failures gone, zero failures anywhere. (Peers `build/slice-peer` + `build/yin-repl-peer` built first, exactly as bb's `test:cljd` orders; a bare `clojure -M:cljd test` on a fresh worktree otherwise fails 5 `slice-test` tests with "build/slice-peer is missing" — environmental, seen in my first run.)
+2. `clojure -M:test` → **1540 tests / 168705 assertions, 0 failures, 0 errors** (master's 1527/168550 plus this branch's newer tests — green).
+3. CLJS lane (Java 21 shadow `compile slice-peer test`, bb's exact task command — mise is untrusted here) → **1456 tests / 38569 assertions, 0 failures, 0 errors**.
+
+**STOP GATE:** not hit — root cause was bounded (test-file fixture contract + one JVM-only idiom), not in `dao.gui.event`'s or `dao.stream`'s signed surface.
+
+**Disclosures:** (a) one intermediate full-lane run failed to compile from a malformed `if` in my first fixture draft — caught by the JVM lane, fixed, all three lanes re-verified after; (b) sandbox blocked `cljstyle check` and reads outside the worktree — formatting follows the files' existing conventions, and cljd runtime facts were verified from the compiled `test.dart` in-tree rather than the gitlibs checkout; (c) lanes were driven through the ProcessBuilder route with mise's flutter/dart/Java-21 paths per known worktree constraints. Memory updated with the cljd fixture/var contract for future cross-host tests.

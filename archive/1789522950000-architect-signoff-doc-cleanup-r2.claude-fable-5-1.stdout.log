@@ -1,0 +1,32 @@
+Completed-GMT: 2026-09-15 21:20:14 GMT
+Completed-Local: 2026-09-16 04:20:14 +07 (Asia/Ho_Chi_Minh)
+
+Re-review done. I re-read the full working-tree diff, the edited sections in context, and the cited source lines, and re-ran the terminology sweep and table-width check. No files were edited.
+
+## The four r1 fixes
+
+**Fix 1 lands.** Line 156 is back in "must be adapted" framing and now names both fall-through sites. Line 1197 states the no-fallthrough property as an evaluator obligation, explicitly rejects node distinctness as the mechanism, and cites the same two sites. The §9.1 walker row at line 1737 adds the `:global` arm and the `:variable` arm change. All three places say the same thing about `ast_walker.cljc:361-363`: it currently calls `resolve-var` and must change to consult the lexical environment only. No contradiction between them.
+
+**Fix 2 lands.** The `syms` row is in §2.2 at line 242. The "one slot, so arity stays fixed" framing is accurate for both kinds. It is a statement about the row's body arity, and both `nodes` and `syms` hold one vector in one slot, so the tag's arity is independent of the vector's length. The reference-versus-value difference shows up correctly in the second clause: `nodes` maps ids in the row to maps in the semantic layer, while `syms` says the symbols are the same on both sides. That is right, since a symbol is a value and needs no reconstruction.
+
+**Fix 3 lands.** Rows 271 and 275 now cite today's code as unchanged. One small imprecision remains, noted below.
+
+**Fix 4 lands.** The rule is `:variable-scope` and its cell is in "Defect when" form. Item 14 now says the amendment adds the `:global` opcode, which no longer contradicts the adjacent sentence.
+
+## Remaining findings
+
+**1. Low | `docs/design/yin.vm.code-as-tuples.md:156`, `:1737`, `:1749` | completion criteria**
+The under-arity rule at line 1197 ("missing parameter names bound to `nil`") requires a change that no migration row names. Today both evaluators bind parameters with `zipmap`, which stops at the shorter sequence and leaves missing names unbound. The sites are `ast_walker.cljc:191` (and the hot-path copies at 511 and 553) and `semantic.cljc:200`. HEAD's text flagged "today's `(zipmap params args)` fallback" and the diff dropped that mention while adding the `resolve-var` one. Line 156 also says the `:lambda` arm "must be adapted to bind `params`", but the `:lambda` arm already does that. The binding change belongs to the application arm and the semantic VM's apply, not to `:lambda`. Correction: in line 156 drop the `:lambda` adaptation claim, and in the §9.1 walker and load-image rows add "closure application at `ast_walker.cljc:191` / `semantic.cljc:200` changes from `zipmap` to nil-filling missing params".
+
+**2. Wording only | `:275`**
+The `:lambda` row cites `ast_walker.cljc:361-370`, which spans both arms. Line 456 elsewhere cites the `:lambda` arm as `:364-370`, which is the accurate range. The codec cite `v2.cljc:419-422` omits the body emit at 423-424. Harmless, but `:364-370` and `v2.cljc:419-424` would match the rest of the document.
+
+## Sweep and formatting
+
+- Terminology sweep: no stale index, arity, positional-environment, or alpha-equivalence claims remain. The remaining "positional" hits refer to tuple layout and Datalog unification, which is correct usage. Both De Bruijn mentions defer or exclude it.
+- Grid tables: the §2.2 table is uniformly 170 characters including the new `syms` rows, the §7.4 table is uniformly 169 including the renamed rule, and the §1 table is uniformly 170. The §2.3 and §9.1 tables were already variable-width in HEAD. Counted in characters, not bytes.
+- Invariants: none of the six is touched. No new architectural claim and nothing silently decided. Finding 1 is a completeness gap in the migration table, not a design change.
+
+## Verdict
+
+APPROVE-WITH-FINDINGS (nonblocking). All four r1 findings are correctly fixed and introduce no new inconsistency. Finding 1 is worth a one-line fix in the two migration rows before the implementer starts on the evaluator changes, since it is the second half of the same execution-contract change that Fix 1 now documents. Finding 2 is cosmetic.

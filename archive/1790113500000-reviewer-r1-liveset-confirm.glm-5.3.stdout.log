@@ -1,0 +1,3 @@
+[33m"glm-5.3" isn't described by this version's model catalog; update Claude Code, or map it with behavesAs on a modelPicker row (or modelOverrides, if it is a provider id of a model this version knows). Until then auto-compact keeps this session within 200k tokens (the context window it assumes); if the model accepts more, append [1m] to the model name for 1M, or set CLAUDE_CODE_MAX_CONTEXT_TOKENS to its real window; CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 restores the previous wait-for-the-API behavior.[39m
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+There's an issue with the selected model (glm-5.3). It may not exist or you may not have access to it. Run --model to pick a different model.

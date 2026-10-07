@@ -1,0 +1,37 @@
+Completed-GMT: 2026-10-05 14:30:18 GMT
+Completed-Local: 2026-10-05 21:30:18 +07
+Coding-Agent: claude
+Session-ID: c7244636-7620-475e-b23a-a591106058b2
+
+The `judge` crash is fixed: an odd-length list envelope now answers `:yin.head/malformed`. A new portable regression test shows that no input shape makes `judge` or `verify` throw. The focused JVM tests and kondo are green.
+
+## What changed and why each entry point is now safe
+Only `src/cljc/yin/vm/linker/head.cljc` changed in code.
+
+- **`judge`:** it now runs `(well-formed? trace)` first and answers `:yin.head/malformed` if that fails. It destructures the envelope only after the shape check passes. The old code destructured first; on the JVM, map-destructuring an odd-length seq throws `IllegalArgumentException`. I confirmed that with the old expression on `(list 1 2 3)`. Every case that already worked gives the same answer, since the shape check was already the first branch.
+- **`well-formed?`:** it checks `map?` and the closed key set of the trace before reading the envelope or proof. It then checks `map?` and the key sets of those two before reading any field inside them. A host that decodes a map as something that isn't `map?` gets `false`. The existing `try`/`catch` stays as a backstop.
+- **`verify`:** it reads nested values only after `well-formed?` passes, inside its own `try`.
+- **`trace`:** it only builds maps from its own arguments, then validates. It is meant to throw on bad input, so I left it alone.
+- **`sign.cljc`:** no change was needed.
+  - `verify-trace` and `verify-envelope` do no destructuring, only keyword lookups, all inside their existing `try`/`catch`.
+  - `sign-trace` reads one keyword and, as a signing call, may throw.
+
+## Commands and outcomes
+- `clj -M:test -n yin.vm.linker.head-test -n yin.vm.linker.sign-test`: **13 tests, 220 assertions, 0 failures, 0 errors.** Last round it was 12 tests and 155 assertions; the new test adds 65.
+- `clj -M:kondo --lint src/cljc/yin/vm/linker/head.cljc test/yin/vm/linker/head_test.cljc`: **0 errors, 0 warnings.**
+- No Node or Dart runs and no git commands.
+
+## Regression cases
+New test `no-shape-makes-judge-or-verify-throw` in `test/yin/vm/linker/head_test.cljc`. Each call goes through a helper that turns a throw into a failed assertion, so no exception type is assumed on any host.
+
+- **The envelope**, and separately **the proof**, is each of: an odd-length list, an even-length list, a vector, a number, a string, `nil`, a set, a keyword. That is 16 cases.
+- **The trace itself** is `nil`, a number, a vector, a list or a string. That is 5 cases.
+- For each of the 21 cases:
+  - `judge` answers `:yin.head/malformed` with the floor and installed manifest both `nil`, and again with floor 0 and the installed manifest set.
+  - `verify` answers `false`.
+- **Kept explicitly:** the case that threw before the fix, an odd-length list envelope.
+- **Control:** a good trace still judges `:duplicate`.
+
+## Unresolved
+- **Bad caller arguments can still throw.** `judge` checks only the trace. A non-number `floor` passed by the caller would still throw at `<`. That argument is the caller's own state, not channel input, so I left it unchecked; say if you want it guarded too.
+- **Node and Dart are untested** for the new cases; they're for your landing lanes.

@@ -1,0 +1,47 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-03 19:27:30 GMT
+Completed-Local: 2026-10-04 02:27:30 +07
+
+# Review: mesh/sent start arity (dart-dht-profile, uncommitted, 2 files +13/−11)
+
+Read-only review performed against `git diff` in this worktree (master a4efc99a). No files edited, no suites run.
+
+## Findings
+
+**No actionable findings.**
+
+Non-blocking observations (not defects of this diff, no fix requested):
+
+- P3 | test/dao/jing/dht_test.cljc:211 | five more call sites (`:211`, `:234`, `:249`, `:322`, `:362`) and `mesh/sent-from` (test/dao/jing/dht/mesh.cljc:266) still decode the whole log per call, the very pattern this diff removes from the hot loop | none — behavior-unchanged is the requirement; the new `(sent net start)` arity is a ready-made fix if any of these ever grows a comparable loop.
+
+## Check 1 — `(sent net)` identity and the `:log` vector invariant
+
+- One-arg delegates to `(sent net 0)` (test/dao/jing/dht/mesh.cljc:226); the mapped fn body at mesh.cljc:228-234 is the old body verbatim (same keys `:from :to :size :bytes :message`, same order), and `mapv` returns a vector on all hosts — return type is a vector before and after.
+- On cljd, `(subvec v 0)` hits the `(and (zero? start) (== end n)) v` fast path and returns `v` itself; JVM/CLJS return a view. In every case `mapv` builds a fresh vector of the same elements in the same order — observably identical.
+- `:log` invariant holds repo-wide: seeded `[]` (mesh.cljc:48); the only writers anywhere are `swap! net update :log conj` at mesh.cljc:78 (MeshSocket `append!`) and mesh.cljc:114 (seam's `send!`) — `conj` onto a persistent vector stays a vector on JVM, CLJS and cljd. Repo-wide grep finds no test reseeding or dissoc'ing `:log` on a mesh atom: dht_test's net swaps touch only `:refuse-datagram?` (dht_test.cljc:1101) and `:drop-datagram?` (:1153) plus mesh-internal `:traffic`/`:held`/`:drop?`/`:refuse?`/`:hold?`; the `:log` hits elsewhere (yin/vm/macro_test.cljc:319…, dao/stream/observer_test.cljc:501, dao/stream/udp_test.cljc:34) are unrelated atoms. `subvec` can never see a list, lazy seq, or nil.
+- `start == size` → empty vector on all three hosts (sources below). `start > size` → throws (JVM `IndexOutOfBoundsException`, CLJS `js/Error`, cljd `ArgumentError`) — acceptable, because the only two-arg call site in the repo is dht_test.cljc:1201 and its sole `start` source is `(mesh/log-size net)` (grep-verified; the other call is the literal `0`).
+
+## Check 2 — loop equivalence
+
+- dht_test.cljc:1198-1201: `inject!` writes only the traffic ring (dht_test.cljc:169-179, no `:log` write), `before` is `(mesh/log-size net)`, then `(dht/step s 1)` runs, then `(mesh/sent net before)` reads `(:log @net)` post-step — the exact snapshot the old `(drop before (mesh/sent net))` read. The log is append-only and the test single-threaded, so entries `0..before-1` are precisely the pre-step entries and the two forms select the same elements in the same order.
+- `replies` is consumed only by `(count replies)` (:1204, :1209) and `(every? … replies)` (:1205-1206). On a vector both are value-identical to their lazy-seq behavior (count becomes O(1)); no seq-specific operation (`first`/`rest`/nil-punning-as-seq) exists in the loop. Final assertions at :1210-1212 are untouched — the diff changes only the binding line.
+
+## Check 3 — all other callers
+
+Every remaining call site uses the one-arg arity, unchanged: dht_test.cljc `:211`, `:234`, `:249`, `:261`, `:286`, `:319`, `:322`, `:362`, `:473`, `:1043`, `:1048`, `:1052`, `:1060`; `mesh/sent-from` callers dht_test.cljc:1012 and test/yin/repl/dht_test.cljc:545 (sent-from internally calls `(sent net)`, mesh.cljc:266). No `mesh/sent` reference exists under `src/`. Per check 1, one-arg output is bit-identical to the old function.
+
+## Check 4 — portability, verified from the exact pinned toolchains
+
+- JVM (clojure-1.12.4): `RT.subvec` bytecode — throws `IndexOutOfBoundsException` when `end<start`/`start<0`/`end>count`; `start==end` returns `PersistentVector.EMPTY`.
+- Node (CLJS 1.12.42 via shadow-cljs 3.3.5, deps.edn:40): `cljs/core.cljs:6120-6142` — `(subvec v start)` defaults `end` to `(count v)`; `build-subvec` throws `js/Error "Index out of bounds"` on the same checks **and** requires `(vector? v)` (the invariant from check 1 is load-bearing here and holds); `start==end` yields an empty Subvec that `mapv` consumes normally.
+- Dart (cljd pin `23576fbe…`, deps.edn:56-61): `clj/src/cljd/core.cljd:4181-4202` — identical bound checks (`ArgumentError`), `(zero? start) (== end n)` fast path, `start==end` → `[]`; `ISubvecable` is implemented by `PersistentVector` (core.cljd:3946), which is what `:log` always is; `count`'s int passes `.toInt` cleanly.
+- Precedent: 2-arg `subvec` on persistent vectors already runs green on all three lanes (e.g. src/cljc/yin/vm.cljc:1459, src/cljc/yin/vm/ledger.cljc:188, src/cljc/yin/vm/linker.cljc:383).
+
+## Check 5 — nothing else changed
+
+`git diff --stat`: exactly the two files, +13/−11; the only dht_test hunk is the `replies` binding at :1201. No assertion, wire format, codec, `dht/decode-message`, or `jing/base64->bytes` change. `git status --short` shows only these two modified files (the two untracked `collab/` files are the review prompt/findings notes, not code).
+
+## Verdict
+
+**Ready to commit.** The change is behavior-preserving for every existing caller, removes the quadratic decode from `unproven-chunks-never-amplify-or-allocate`, and the `:log`-is-a-vector precondition it relies on is enforced by every writer in the repo.

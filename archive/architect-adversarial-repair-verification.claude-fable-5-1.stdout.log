@@ -1,0 +1,67 @@
+Completed-GMT: 2026-09-03 09:22:00 GMT
+Completed-Local: 2026-09-03 16:22:00 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: 82ACFFF4-F684-479B-B869-3DA23A491A07
+
+All nine files were read in full from the working tree. Nothing was edited, staged, or committed. Line numbers refer to the current working-tree files.
+
+## 1. Verdict
+
+**GRANTED-WITH-NITS.** Seventeen of the nineteen findings are resolved with consistent text across all four affected documents. Two are partial, and neither changes runtime behaviour. The repair introduced no contradiction on the eleven axes the task named. The fresh pass found four small gaps in the new serving text and three nits, none of which blocks staging.
+
+## 2. Disposition of the 19 findings
+
+| # | Finding | Status | Evidence |
+|---|---|---|---|
+| 1 | Identity conflated with descriptor | RESOLVED | `dao.stream.md:41-50, 203-208, 258-262, 501-503`; `dao.stream.ws.md:39-45, 435-438`; `dao.stream.implementation-plan.md:73-79, 276-280, 507-509`. Identity is its own concept, `descriptor` returns both projections, cursors compare identity only, and Phase 5 fact 5 proves two endpoints yield equal identity. |
+| 2 | Mint-before-attach race | RESOLVED | `dao.stream.md:488-491` states the rule generally. `dao.stream.ws.md:229-231, 261-264`; `dao.stream.implementation-plan.md:306-307, 344-346`; `yin.repl.implementation-plan.md:536-540, 572-573, 587-589` reorder every mint ahead of attach, bind, and acknowledgement. |
+| 3 | Endpoint driver unnamed | RESOLVED | `dao.stream.ws.md:270-278, 308-310`; `dao.stream.implementation-plan.md:329-333, 460-461`; `yin.repl.implementation-plan.md:617-619`. `endpoint-step` takes state and `now`, never self-schedules, and expiry is a constructor policy in the same clock domain. |
+| 4 | "Establishing" ambiguous | RESOLVED | `dao.stream.ws.md:528-531`; `dao.stream.implementation-plan.md:308-309`. Established means the accept frame was received client-side, or sent by `endpoint-step` server-side, and `append!` answers `full` until then. |
+| 5 | Local close deposits unspecified | RESOLVED | `dao.stream.ws.md:148-157, 547-554, 606`. Exactly one terminal event per endpoint, resolution first, disclaim order stated, close-completion callback is the sole depositor. `yin.repl.implementation-plan.md:494-496` tests the sequences. |
+| 6 | Master doc contradicts boundary rules | RESOLVED | `datom.world.md:76-83` carries the observably-gone teardown; `91-100` places wire validation below the transform; `107-111` permits transport and composition envelopes. `dao.stream.ws.md:71-74` matches. |
+| 7 | Lifecycle vocabulary owned twice | RESOLVED | `yin.repl.implementation-plan.md:165-170, 220-227, 480-483`; `yin.vm.implementation-plan.md:474-482`. Six neutral values under `dao.stream.apply`; only the ws decoder names `:ws/…`. |
+| 8 | Dynamic handles lack surface | RESOLVED | `dao.stream.md:216-223` defines the `{:dao.stream/handle :dao.stream/surface}` wrapper; `dao.stream.ws.md:132-133, 241-242, 254-255` use it in offers and acknowledgements. |
+| 9 | Attachment freeze in one atom | RESOLVED | `dao.stream.implementation-plan.md:187-191`. |
+| 10 | Server gap hangs client | RESOLVED | Per-attachment request media at `dao.stream.ws.md:177-183, 376-379` and `yin.repl.implementation-plan.md:559-568`. A gap closes the attachment, so the client observes `/detached` and reports loss. No deadline is needed under one outstanding request. |
+| 11 | Close-code support unverified | PARTIAL | `dao.stream.implementation-plan.md:370-373` adds a wire-close conformance gate on every host library. No fallback is named if a library cannot send codes 4000, 4002, or 4004. Acceptable as a gate; see fresh finding F5. |
+| 12 | Dart single-subscription | RESOLVED | `dao.stream.ws.md:163-168`. |
+| 13 | Advertised address | RESOLVED | `dao.stream.ws.md:439-442`; `dao.stream.implementation-plan.md:319-320`; `yin.repl.implementation-plan.md:556-558`. |
+| 14 | Phase 3 host-specific | RESOLVED | `dao.stream.implementation-plan.md:257-262, 513-516`; `yin.repl.implementation-plan.md:658-660`. |
+| 15 | Admission value domain | RESOLVED | `dao.stream.ws.md:256-258, 381-386`; `dao.stream.implementation-plan.md:66-69`. |
+| 16 | Failing `close!` channel | RESOLVED | `dao.stream.ws.md:549-554`. |
+| 17 | Path semantics | RESOLVED | `dao.stream.ws.md:457-463` gives a canonical form and exact lookup; `yin.repl.implementation-plan.md:396-399, 536-537` scope the `/repl` substitution to the REPL wrapper before canonicalisation. |
+| 18 | Stale cross-references | PARTIAL | The three cited errors are gone. One new pointer is wrong: `yin.vm.implementation-plan.md:330` cites the stream plan's *Concurrency oracle* section for the evict-oldest and never-`full` claim, which lives in Phase 2 at `dao.stream.implementation-plan.md:174-175` and `226`. |
+| 19 | D3 unobservable gap | RESOLVED | `yin.repl.implementation-plan.md:391-394` withdraws the gap policy and replaces it with a direct composition test. |
+
+## 3. Fresh findings
+
+| Sev | file:line | Invariant / evidence | Correction |
+|---|---|---|---|
+| Medium, gap | `dao.stream.ws.md:148-157, 265-268, 297-300` | Exactly-once terminal events are promised, but the medium is not named per acceptance state. A connection that dies after the composition read the offer and created a per-attachment medium, but before `endpoint-step` processed the acknowledgement, has two candidate media. The stale-acknowledgement rule at line 300 orphans the composition's medium without telling it. Pre-accept decode failures at line 592-599 face the same question. | State that every event before acceptance is enabled, including the terminal event, lands in the boundary control medium, and every event after lands in the per-attachment medium. State that the composition must read both to retire a session. |
+| Low, gap | `dao.stream.ws.md:264` | The transport "validates the writer and admission declaration" inside `endpoint-step`, at runtime. The contract at `dao.stream.md:113-117` reserves exceptions for assembly defects, and no outcome is named for an invalid acknowledgement. | Define an invalid acknowledgement as stale: the slot is released, the pending connection is closed pre-acceptance, and the control medium receives the terminal event. |
+| Low, gap | `dao.stream.implementation-plan.md:332` vs `dao.stream.ws.md:233-234, 481-484` | The plan says `endpoint-step` sends disclaim control. The spec resolves the path at upgrade time and disclaims immediately. If disclaim waits for a step, a bounded holding set for not-found connections is needed and unspecified. | Either state that disclaim and slot-exhaustion closes happen in the upgrade callback and drop "disclaim" from the step's duties, or bound the holding set. |
+| Low, gap | `dao.stream.ws.md:148-151` | Server side, when the owner closes the served stream, each attachment ends by a locally initiated 4000 close. Line 151 reserves `:ws/ended` for "a served-stream close" but line 148-150 calls every locally initiated end `:ws/closed`. Which one the server's per-attachment medium receives is ambiguous. | State that both endpoints deposit `:ws/ended` for a 4000 close, regardless of who initiated it. |
+| Low, gate | `dao.stream.implementation-plan.md:370-373` | Follow-on to finding 11. The gate proves close codes work or fails Phase 4a, with no named remedy. | Name the in-band `{:ws/frame :ws/end}` frame as the fallback to adopt if any host library fails the gate, so the failure has a design answer rather than a blocked phase. |
+| Nit | `dao.stream.md:204-206, 258-259` | Identity appears twice in a `descriptor` result: as the sibling `:dao.stream/identity` key and inside the descriptor envelope. Equality of the two is implied, not stated. | State they are equal and have the Phase 1 harness assert it. |
+| Nit | `dao.stream.ws.md:439-442` | Advertised host and port have "no implicit derivation from a wildcard bind", but whether they default to a concrete bind address such as the default `127.0.0.1` is unstated. | Say whether advertised values are required or default to a non-wildcard bind. |
+| Nit | `datom.world.md:53-63` | "A host boundary is never a function call" and "an adapter that exposes a function for portable code to call is not an interpreter" still read as if a ws handle's `append!`, which performs host IO, were forbidden. Line 53-54 sanctions DaoStream implicitly. | Add one sentence naming DaoStream handle operations as the one sanctioned function-shaped host boundary, above which the effect-value rule applies. |
+
+None of these is an architectural defect. The first is the only one that would cost debugging time if left to the implementer.
+
+## 4. Properties that pass
+
+- **Identity versus reachability.** One transport-independent identity, minted at `create!`, carried unchanged through ring buffer handles, ws client handles, and accepted-connection handles. Descriptors differ by endpoint, identity does not, and `cursor-mismatch` compares identity only.
+- **Cursor-before-cause ordering.** Stated once in the contract and applied at every mint site in all three plans, including server offer, acknowledgement, per-attachment, and lifecycle media.
+- **Explicit endpoint stepping.** One composition-owned driver, explicit `now`, expiry as data, no self-scheduling, and the REPL server calls it once per tick before sessions.
+- **Exactly-once lifecycle.** Resolution first, one terminal event per endpoint, close-completion callback as sole depositor, and the RPC core consumes post-terminal values as diagnostics so no request completes twice.
+- **Neutral RPC vocabulary.** Six values owned by `dao.stream.apply`, translated only in the ws decoder, with sequence tests specified socket-free.
+- **Per-attachment server media with acknowledged capability handoff.** The acknowledgement carries the writer, its surface, and its admission declaration, and delivery is enabled only after validation. One client's eviction pressure cannot gap another.
+- **Admission declarations** carry retention and value domain, and handoff media are constrained to host-value domain because they carry live handles.
+- **Advertised address, canonical path, and close-code gate** are present and consistent between the spec and both plans.
+- **Portability.** Phase 3 is correctly marked host-specific, the cljd codec is v2-owned, the Dart single-subscription socket is handled, and the undetectable-`full` asymmetry is an explicit deferred item at `dao.stream.ws.md:627-630`.
+- **Accepted risks are separated from required behaviour** in `dao.stream.implementation-plan.md:619-635` and `yin.repl.implementation-plan.md:684-691`, and the exploratory note's overclaim at `yin.vm.streams-all-the-way-down.md:19-22` is corrected.
+- **Contract core** remains closed over the seven-operation outcome algebra, non-waiting on every host, registry-free, and eviction never waits on readers.
+
+## 5. Staging readiness
+
+This working-tree repair is ready to stage over the restored index. The two partial items and the fresh findings are text-level and can ride the descriptor gate, except the first fresh finding, which should be settled before Phase 4a is scoped because it determines what the serving composition reads.

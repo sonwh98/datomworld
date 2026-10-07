@@ -1,0 +1,38 @@
+Completed-GMT: 2026-10-06 11:18:19 GMT
+Completed-Local: 2026-10-06 18:18:19 +07
+Coding-Agent: claude
+Session-ID: 3a4d543e-01d3-49d0-892d-61355cef093b
+
+Both BOM findings are fixed and green on the JVM, Node and Dart, and the full `bb test:clj` passes. I only changed `src/cljc/yin/repl/dht.cljc` and `test/yin/repl/dht_head_test.cljc`. The fs helpers are untouched, so the fs test namespace didn't change.
+
+## 1. Quadratic copying: done
+**What changed:** `without-boms` now scans the leading run of U+FEFF by index, one one-character `subs` per position, and then cuts the string once with `(subs text i)`. If there is no leading mark, the text comes back unchanged. `read-heads` binds the stripped text once as `body`.
+
+**Test:** in `heads-edn-is-bounded-and-strict-utf-8`, the case "a file of marks is scanned once, in bounded time" uses explicit bytes:
+- A file of only marks, 349,525 of them (1,048,575 bytes, just under the bound), must be refused, and the record parser refuses the empty text that is left.
+- 349,000 marks followed by the record must read as the record.
+- Each case must finish in under 3000 ms.
+
+**Fails without the change:** with the round-1 code restored, the JVM took 9322 ms and 8058 ms, and both timing assertions failed.
+
+## 2. A BOM after the leading run: done
+**What changed:** after the leading marks are removed, any U+FEFF left anywhere in the text is refused before the EDN reader sees it, on every host. The refusal reads `heads file <path>: it is not valid: a byte order mark (U+FEFF) follows its start`. The `read-heads` docstring now lists this case. The other refusals and their order are unchanged.
+
+**Test:** "a byte order mark past the leading run is refused…" uses explicit bytes for four placements, each expecting that refusal:
+- between tokens;
+- just before a closer;
+- inside a string;
+- a leading mark plus the record plus a trailing mark.
+
+The earlier leading-BOM cases (1, 2 and 3 marks) still read as the record.
+
+**Fails without the change:** with the round-1 code restored, all four placements failed on the JVM. This replaces my round-1 "BOM inside a keyword" case, which accepted any refusal and wasn't host-independent.
+
+## Commands and outcomes
+- `clj -M:kondo --lint src/cljc/yin/repl/dht.cljc test/yin/repl/dht_head_test.cljc`: 0 errors, 0 warnings.
+- `clojure -M:test -n yin.repl.dht-head-test -n dao.space.store.fs-test -n yin.vm.store-write-audit-test -n yin.repl.dht-process-test`: 29 tests, 477 assertions, 0 failures, 0 errors.
+- **Node:** `clj -M:cljs -m shadow.cljs.devtools.cli compile test --config-merge '{:ns-regexp "yin\\.repl\\.dht-head-test"}'`, using the `--config-merge`/`:ns-regexp` mechanism `build-n-test.md` documents for `test:slow:cljs`. The output shows "Testing yin.repl.dht-head-test": 18 tests, 190 assertions, 0 failures, 0 errors.
+- **Dart:** `bb src/dev/cljd_agg.clj --only yin.repl.dht-head-test`: all 18 tests passed, with no new warnings in `dht_head_test.cljc`.
+- `bb test:clj`: 3394 tests, 233191 assertions, 0 failures, 0 errors.
+
+The logs are in the worktree's `target/` as `h3f-r2-*.log`.

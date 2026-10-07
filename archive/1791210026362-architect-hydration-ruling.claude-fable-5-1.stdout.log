@@ -1,0 +1,67 @@
+Completed-GMT: 2026-10-05 14:22:29 GMT
+Completed-Local: 2026-10-05 21:22:29 +07
+Coding-Agent: claude
+Session-ID: 06a2b171-f2e5-47cd-8b2a-49779ebcbeb5
+
+**Ruling: outside the shared claim. 5.2 is not reopened, the derived sequence stands, and H0 resumes.** Hydration is a HEAD write that commits no transaction, so the engineer was right to stop on the literal wording. But the stop rule guards one property: the HEAD writes of one directory carry strictly increasing sequences. Hydration cannot break it, because it is only ever the first HEAD write of a directory, and it installs an index at that index's own greatest `t`, exactly as restart recovery does. The design's wording is what is defective. No file was edited and nothing was run; this is from reading the design and the code.
+
+## Findings
+
+Severity | file:line | invariant / evidence | recommended correction
+
+1. **Medium (design wording)** | `docs/design/yin.vm.linker.dht.head.md:943-945` | The stop rule says "a HEAD move that commits no transaction", but the property it protects is strict increase per directory (5.2, lines 224-227). The design already knew of this HEAD write: D1 cites `src/cljc/yin/repl/dht.cljc:202-212` by line and says "Hydration itself is left alone" (lines 91-97), and 5.8 keeps it deliberately (lines 512-518). | Replace the stop rule with the text in "H0 text" below.
+
+2. **None (code is sound)** | `src/cljc/yin/repl/dht.cljc:46-53, 68-70, 79-82, 202-212` | Three cases, all safe within one directory:
+   - **Different manifest:** `open` throws before the node is joined, so HEAD is not written.
+   - **Same manifest:** the `cond->` at lines 79-82 never sets `::hydrating`, so `hydrated` never runs and HEAD is not written. The engineer's analysis says hydration "runs" here; it does not.
+   - **No HEAD:** hydration is the directory's first HEAD write. `index/rehydrate` (`src/cljc/yin/repl/index.cljc:189-219`) seeds the log with every datom at its original `t`, and `derive-next-t` (`src/cljc/dao/space/transactor.cljc:117-131`) gives the next transaction greatest `t` plus 1. Evaluation is not admitted until it completes (`dht.cljc:283-289`, `src/cljc/yin/repl/main.cljc:827`).
+   
+   | No code change.
+
+3. **Low (design wording)** | `docs/design/yin.vm.linker.dht.head.md:231-235` | The engineer's cross-directory analysis is correct. The claim is per directory, and a key used over two directories is the case 5.2 already names. Readers stay safe: they answer `:stale` or `:yin.head/equivocation` and never install a wrong head. Hydrating from the last published manifest re-signs the same envelope at the same sequence, which a reader judges `:duplicate`, and the next round is a candidate. That is why it is the remedy. Hydrating from an older manifest, or a foreign one under a key that has published elsewhere, is not the remedy. | Add the 5.2 text below.
+
+4. **Low (note for the slice that composes `deposit!`, not H0)** | `src/cljc/yin/repl/dht.cljc:208` against `:84-86` | Hydration writes HEAD through the base store's `:head-fn`, not the wrapper that calls `announce!`. A deposit composed "after `announce!`" (5.4, lines 263-266) will therefore not fire for hydration. | Treat a completed hydration as 5.4's startup deposit (line 260): deposit the hydrated HEAD's trace once, when hydration completes. One sentence in 5.4, in the slice that composes the publisher.
+
+5. **Confirmed, with a table row** | `src/cljc/yin/vm/linker/head.cljc:37-54`; design lines 295-297, 555-556, 936 | The bound of 2^53 - 1 inclusive is correct, and it is tighter than 5.10's "within 2^53" for a reason. 2^53 itself is exact on JS, but 2^53 + 1 decodes to 2^53 there, so a JS reader could not tell the two signed sequences apart. Only values up to 2^53 - 1 are unambiguous on every host. `:malformed` is the right outcome, since it is a shape check made before the principal and the proof. | Keep the code. Amend the 5.5 row, 5.10 and the H0 criterion as below.
+
+## Exact text
+
+**5.2**, replacing the bullet at lines 224-230 up to "H0 pins it.":
+
+> - **Proven for the REPL path, enforced for every caller.** The HEAD writes of one directory carry strictly increasing sequences, across restart and `(reset)`. It holds for `yin.repl.index` because every publication commits a transaction first (`index.cljc:189-233, 378-435`), and H0 pins it.
+> - **Hydration is the one HEAD write that commits no transaction, and it is inside the claim.** It is refused when the directory's HEAD names another manifest, and it writes nothing when HEAD already names the same one (`yin/repl/dht.cljc:46-53, 79-82`). So it is only ever a directory's first HEAD write. Its sequence is the hydrated index's own greatest `t`, as a restart's recovery has, and the next publication is one above it.
+> - **The claim is per directory, not per key.** A key that signs from two directories can sign two manifests at one sequence; readers refuse them (`:stale`, `:yin.head/equivocation`) and install neither wrongly.
+
+Append to the "key kept and the directory lost" bullet (line 235):
+
+> Only the last published manifest is the remedy: its trace is the one already signed, a reader judges it `:duplicate`, and the next round is a candidate. Hydrating an older manifest, or another publisher's under a key that has published, is the lost-directory case again.
+
+**H0 text**, replacing the last criterion (lines 940-945):
+
+> - `seq-of` over a rehydrated index equals `seq-of` before the restart; a further round raises it; the HEAD writes of one directory carry strictly increasing sequences across rounds, name transactions, `(reset)` and the unwritten-row recovery of `yin.vm.linker.dht.md` 5.1.
+> - **Hydration** (5.2), in `test/yin/repl/dht_test.cljc`: into a directory with no HEAD it writes HEAD once, at the hydrated index's own sequence, and the reader's next round is one above it; given the manifest HEAD already names it writes nothing; given another it is refused and HEAD is unchanged.
+> - **The stop rule.** If any path is found that writes a directory's HEAD to a manifest whose sequence is not above that directory's previous HEAD write, the slice stops and 5.2 is reopened. A HEAD write that commits no transaction but is a directory's first is not that case.
+
+Also add `test/yin/repl/dht_test.cljc` to H0's file list. H1 owns that file later, and H0 lands first, so there is no conflict.
+
+**5.5 table, first row** (lines 295-297):
+
+> Not the closed shape of 5.2, or a sequence that is not an integer from 0 to 2^53 - 1
+
+**5.10** (lines 555-556): change "the sequence stays within 2^53" to "the sequence is at most 2^53 - 1, the greatest integer exact on every host, and a greater one is malformed (5.5)".
+
+**H0 sequence-zero criterion** (line 936): change "A negative or non-integer sequence" to "A negative or non-integer sequence, or one above 2^53 - 1,".
+
+## The hydration test
+
+Yes, H0 should add it. It needs the mesh harness, so it goes in `test/yin/repl/dht_test.cljc`, extending the setup of `a-reader-given-a-manifest-hydrates-then-queries-the-remote-index` (lines 584-614). Record HEAD writes as `head_test.cljc`'s `recording` does (lines 293-298), and assert:
+
+1. **No HEAD:**
+   - Exactly one HEAD write, the manifest.
+   - `seq-of` of the reader's recovered datoms equals `seq-of` of the publisher's index.
+   - One reader round then writes a second HEAD whose sequence is exactly one greater.
+   - A trace of the hydrated manifest at that sequence is judged `:duplicate` against floor = that sequence, and the next round's trace `:candidate`.
+2. **Same manifest:** reopening the hydrated directory with the same `:manifest` admits evaluation at once, starts no load and records zero HEAD writes.
+3. **Different manifest:** `open` throws naming the HEAD it holds, HEAD on disk is unchanged, zero HEAD writes are recorded, and the directory opens again afterwards (the lock was released).
+
+The existing `seq-of-across-head-moves` and `seq-of-across-the-unwritten-row-recovery` already cover the rest of the criterion and need no change.

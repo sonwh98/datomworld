@@ -1,0 +1,35 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+```text
+Completed-GMT: 2026-09-13 13:46:37 GMT
+Completed-Local: 2026-09-13 20:46:37 +07
+Coding-Agent: glm
+Session-ID: dcda6fce-9c4e-4e07-8311-57fd6a7513d9
+Role: VM Runtime Review | Model: glm-5.3
+```
+
+# Amendment Confirmation — `:yin/source-call` / `:yin/source-node` split in `docs/design/yin.vm.macro.md`
+
+Verified against `git diff HEAD docs/design/yin.vm.macro.md`, an exhaustive scan of both attribute names in the amended file, and the mandating text at `docs/design/dao.space.index.as-observer.md` §3.2 (lines 383–396) plus its Phase 2 prerequisite (lines 739–751).
+
+## The six confirmation points
+
+**(1) `:yin/source-call` only in value/external-coordinate or retired-attrs role — confirmed.** Every occurrence in the amended file: the event-table row (line 676, "VALUE, undeclared … qualified by `:yin/source-batch`; only on an initial (non-nested) expansion"); the §4.1 prose (line 695, "a value, not a ref"); the naming-rationale paragraph (line 703, "narrowed value role"); the event-schema sentence (line 712, "deliberately undeclared, so its value is left alone"); the §4.2 bullet (lines 727–731, "a value, never a ref … the join … is the composition's"); and the Phase 0 schema-drop list (line 926 — the codec-level retirement of event attributes, which needs no `:yin/source-node` entry since that attribute never existed in `yin.vm/schema`). The nested/ref usage that previously lived on this name is gone everywhere, including the Appendix C row 10 rewrite.
+
+**(2) `:yin/source-node` only in declared-ref/log-local role — confirmed.** Lines 677 ("DECLARED REF, log-local … only on a nested expansion"), 698, 702 ("Only `:yin/source-node` is a declared ref"), 711 (schema ref list), 731 ("resolved within the log batch it appears in and never across media"), and 1171. No occurrence gives it any other role.
+
+**(3) `event-schema` lists `source-node`, not `source-call`, as a ref — confirmed.** The amended sentence names the ref set `{:yin/source-node, :yin/macro, :yin/expansion-root}` and states `:yin/source-call` is deliberately undeclared. This matches the mandate's "declares only the latter a ref" exactly, and mirrors the index note's closing rule ("an undeclared attribute holding a negative number is a value, not a ref, and is left alone").
+
+**(4) No prose conflates the roles — confirmed.** The old conflating sentence ("A nested expansion's `:yin/source-call` names a node in the log copy…") is removed, not merely annotated. The replacement states the discriminator precisely — initial → value coordinate, nested → log-local ref, "a successful expansion carries exactly one of the two; an admission failure carries neither" — and the admission-failure event shape in §4.1 (`:yin/type`, `:yin/source-batch`, `:yin/error`, `:yin/timestamp` only) is consistent with "neither". The §4.2 bullet now separates the two roles attribute-by-attribute and assigns the join to the composition, which is exactly where §3.2 of the index note puts it. The generic chain wording in §4.1 ("source → event → root → event → root") correctly avoids naming either attribute.
+
+**(5) Naming rationale — sound.** Keeping `:yin/source-call` in the value role preserves the attribute's meaning where it was already unambiguous (initial expansions, the overwhelmingly common case) and avoids invalidating any log data carrying it; `:yin/source-node` is named for what it actually points at, using the document's own term ("node of the log copy"), and the stated reason "call" would mislead is correct — a nested expansion names the enclosing expansion's *output node*, not a call site in any source batch. One precision note, below the level of a finding: strictly, pre-split *nested* events (if any existed) wrote log-local eids under `source-call`, so the compatibility claim covers initial events; since `yin.vm.macro` is unimplemented and no logs exist, this is theoretical and the rationale is honest as written.
+
+**(6) §3.2 mandate fully satisfied — confirmed.** All four requirements land: the split (value attribute qualified by `:yin/source-batch`, retained; declared-ref attribute for the log-local node, new); `event-schema` declaring only the ref; the ref resolved batch-locally and never across media; the value left alone by index and transactor. The macro doc also adds the back-reference to `dao.space.index.as-observer.md` §3.2 in the §4.2 bullet, closing the loop the index note opened.
+
+## Findings
+
+- **No P1. No P2.**
+- **[P3 — suggestion/alignment]** Cross-document sync, in the *other* file: `dao.space.index.as-observer.md` line 749 (its Phase 2 test list) still names the chain as "source-call → event → expansion-root". Under the amended scheme the walk alternates attributes (`source-call` at initial expansions, `source-node` between nested ones), so that line should read "source-call/source-node" or use the generic "source → event → root" form when that document is next touched. It gates nothing in this amendment and is outside the amended file; recording it here so it isn't lost.
+
+## Verdict
+
+**APPROVE.** The amendment implements the required split exactly as mandated, every occurrence of both attributes is role-consistent, the discriminator (initial/nested/admission-failure) is stated once and honored everywhere, and the naming trade-off is justified. The one P3 is a one-word sync in the mandating document, not in this one.

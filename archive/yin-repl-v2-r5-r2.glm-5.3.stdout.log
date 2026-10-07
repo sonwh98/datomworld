@@ -1,0 +1,37 @@
+Completed-GMT: 2026-09-04 20:25:38 GMT
+Completed-Local: 2026-09-05 03:25:38 +07
+
+Both mandated cross-host pairs are implemented, verified, and green.
+
+## What was built
+
+**`test/yin/repl/slice_peer.clj` → `slice_peer.cljc`** — the peer is now one portable program in two roles, host-conditional with `:cljd` branches first throughout:
+- *Client role* (no args): the same pipe protocol as round 1, now on JVM/Node/Dart (per-host stdin/stdout/ticker idioms mirror `dao.stream.slice-peer`).
+- *Server role* (`--serve <host> <port>`): a real headless endpoint — `serve!` + one ticker, `Serving …` as the parent's readiness signal, `{:cmd :stop}` as the stop trigger, stepping to `:stopped` before exit.
+
+**Pair 1 — cljd client vs JVM server** (`a-dart-client-attaches-to-this-jvm-server`, clj block of `v2_test.cljc`): reuses the fixture endpoint, spawns the Dart exe, and proves connect, the `(+ 40 2)` → `42` round trip, the **outstanding-request-lost report** across the wire, the Dart attachment handle answering `:dao.stream/closed`, and the JVM boundary depositing the departure.
+
+**Pair 2 — Node client vs cljd server** (`a-node-client-attaches-to-a-dart-server`, new cljs block): spawns the Dart `--serve` peer; the Node test process itself is the client (`repl/boot` + one interval step owner, exactly the real Node host composition). Asserts connect, the `42` round trip, then `:stop` → the client observes **`:ended`, not a detach** — the ended-stream close-code semantics cross the wire. A bonus JVM-client↔Dart-server pairing was verified ad hoc during development.
+
+**`bb.edn`**: new `build:yin-repl-peer` (cljd compile + `dart compile exe`); `test:cljd` restructured to `:depends [build:slice-peer build:yin-repl-peer]`; aggregate `test` builds the peer first so the full pipeline always exercises the cross pairs. **`shadow-cljs.edn`: no change needed** (the Node side is an in-process client; the Dart exe covers both child roles) — the authorization went unused.
+
+## A real bug found and fixed along the way
+
+Stability-looping the namespace exposed a ~1-in-6 flake: the peer's `:events` handler drained its publication atom with deref-then-reset, racing the ticker — events (e.g. `Connected to …`) could be **cleared without ever being sent**, with no error anywhere. Diagnosis took a probe/trace instrumentation pass (lifecycle cursor at position 1, status `:established`, event never delivered); the fix is an atomic `compare-and-set!` take. The instrumented `:probe`/`:trace` remain in the peer as documented read-only diagnostics. Two assertion bugs of my own were also fixed: substring matching on answers (`"42"` matches a port like `…:42999/repl`) now uses exact equality on both clj and cljs sides.
+
+## Verification (exact outcomes)
+
+| Check | Result |
+|---|---|
+| Full `bb test` (build peer → clj → cljs → cljd) | **clj 1377 tests / 166,994 assertions, 0 failures** · **cljs 1294 / 34,606, 0 failures, 0 warnings** · **cljd 1242, "All tests passed!"** |
+| Namespace stability loop (post-fix) | 10/10 runs `0 failures, 0 errors` |
+| Pair 1 with rebuilt Dart exe | 3/3 runs green |
+| Pair 2 with rebuilt Dart exe | green in `bb test:cljs`, no skip line |
+| `clj -M:kondo` on all touched files | 0 errors, 0 warnings |
+| Orphaned test processes | none |
+
+## Unresolved / notes
+
+- A bare `bb test:clj` / `bb test:cljs` without the Dart exe **skips the cross tests with a printed notice** rather than failing — that keeps the fast lanes dart-free; `bb test` always builds the peer first and runs them.
+- The cljd lane owns the peer build; nothing here breaks single-owner CLJD-lane discipline (bb runs the graph sequentially).
+- Nothing staged or committed; `collab/`, `docs/handoff.md`, `public/chp/blog/*.blog` untouched. Working tree now carries: `bb.edn`, `core.cljc`, `v2_core_test.cljc`, `v2_test.cljc` modified; `slice_peer.cljc` and `yin.repl.md` new (plus round 1's changes).

@@ -1,0 +1,22 @@
+The failures after the rebase are fixed with a one-line change, and all five lanes now pass. But I couldn't amend the commit: every git write was refused with "This command requires approval". The fix is an unstaged change in the working tree on top of `b86984d0`, and nothing else is modified.
+
+**Cause.** My three `dao.space.dht` host functions (`load-index`, `load-status`, `q`) returned a plain `{:effect ::call …}` map. After D4, only effects minted by `module/make-effect` are performed, so those maps printed as data. That accounts for all of the landing failures (JVM 7, Node 5, Dart 1), in the REPL host-function test and the host-function steps of the process test.
+
+**Fix.** In `src/cljc/yin/repl/query.cljc`, `dht-export` now returns `(module/make-effect ::call {:op (get dht-ops sym), :args (vec args)})`. That mirrors D4's own change to the `q` export. The call handler still reads `:op` from the effect, and the exports' profiles already declare `::call`, so D4's effect-kind check passes. No D4 code changed, and nothing in D4 blocked S5.
+
+**Lanes** (all foreground)
+
+| Lane | Result |
+|---|---|
+| kondo, the commit's 17 Clojure source and test files | 0 errors, 0 warnings |
+| `bb test:clj` | 2583 tests, 186740 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2497 tests, 52931 assertions, 0 failures, 0 errors |
+| `bb build:yin-repl-peer` | built |
+| `bb test:cljd` (after deleting `test/cljd-out`) | "All tests passed!" at +2452 |
+
+In `bb test:clj`, the only skip notice is the old `ws-project-peer` one.
+
+**To land it**, someone with git permission runs:
+`git add src/cljc/yin/repl/query.cljc && git commit --amend --no-edit`
+
+The "Rebase onto D4" section is appended to `/Users/sto/workspace/datomworld/collab/1790795000000-repl-engineer-dht-s5-repl-integration.claude-opus-5-5.report-r2.md`.

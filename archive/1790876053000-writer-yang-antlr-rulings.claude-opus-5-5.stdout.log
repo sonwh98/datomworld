@@ -1,0 +1,57 @@
+Completed-GMT: 2026-10-01 17:41:59 GMT
+Completed-Local: 2026-10-02 00:41:59 +0700
+
+I recorded all three ruling sets in `docs/design/yang.antlr.md`, about 830 added lines. That is the only file I edited, and nothing is staged or committed. Nothing is described as landed: `git grep` shows no `stream/poll`, `py/gen-switch`, `py.sp/` or `yang.safepoint` in `src`. Every new section therefore says its implementation is pending in its named slices. The only landed commits I cite are C1 (`34c3986b`) and heap reclamation (`60b60898`), both checked in `git log`.
+
+## Sections touched
+
+| Section | Change |
+|---|---|
+| Header | New "Updated 2026-10-02" block: short names for the three ruling sets, the mob's delegated authority, the list of amended and added sections, and a statement that none of it has landed. |
+| §8.5 | The generator bullet now points to §8.5.3; integers are untagged at every magnitude, with a pointer to §8.5.4. |
+| §8.5.1 | The `RecursionError` row now says an escape restores the depth saved at capture, fixing "decremented by escapes" as the safepoint design asked. Owner decision 4 is expanded with marks, hooks, `:stream/poll` and the identity rule. New owner decisions 5–11 added. |
+| §8.5.2 (new) | Safepoint insertion: the four-part table, the row form, the engine poll, a sites table, how rewriting keeps addresses stable, a hook-semantics table, the dynamic-context record, cost and composition, use by other languages, slice 1 and its acceptance tests, and the design's out-of-slice open items. |
+| §8.5.3 (new) | C2 generators: the generator cell table, the per-generator stack with boundary frame, the two crossings, tagged outcomes, genexps, `iter-at`, user-defined iterators, no persisted flag, heap/identity/wire, the S1–S5 table, the mob's strengthened acceptance conditions, and deferrals. |
+| §8.5.4 (new) | C3 integers: carrier table, CBOR table, the literal-lowering correction, scalar recognition, a prelude-versus-module table, operators, conversions, keys, hash, `is`, limits, transport, the S0–S7 table, and the acceptance gate. |
+| §8.11 | The dict-key constraint now cross-references C3 ruling 6. |
+| §9.3 | Notes the integer module follows the `yin.vm.data` pattern; implementation pending in C3 S1. |
+| §11 | Signal timing is operational; a numeric-limit breach is a deterministic guest exception. Lists the numeric facts the profile pins, and notes the C2 prelude-profile bump. |
+| §12 Phase 1 | Python milestones: C1 landed; C2, C3 and safepoints recorded with pending slices; C3's sequencing relative to C2. |
+
+## Ruling-to-section mapping
+
+- **Safepoint design** (owner decisions numbered 5–11):
+  - §8.5.1 decisions list.
+  - Marks, the `:stream/poll` effect, hooks as ordinary applications, the hook prelude, identity and the `:derive` record: §8.5.2.
+  - No journalling (8): §8.5.2 and §11.
+  - Count-based thread switches (9) and the settrace unsupported error (10): §8.5.2.
+  - Slice order (11): §8.5.2 and §12.
+- **C2 cross-ruling 1–9:**
+  - Boundary frame and context restore (1), flag cells (2), tagged outcomes and failed-close state (3): §8.5.3.
+  - Genexp inlining removed (4), `iter-at` kept (5), no implicit close (6), stale base (7), user-defined iterators in S5 (8), no persisted flag (9): §8.5.3.
+  - The strengthened acceptance conditions are listed per ruling in §8.5.3.
+- **C3 cross-ruling 1–14:**
+  - Carriers and the de Bruijn literal correction (1–3): §8.5.4.
+  - Scalar recognition (4): §8.5.4.
+  - Integer module (5): §8.5.4 and §9.3.
+  - Keys (6): §8.5.4 and §8.11.
+  - Hash, `is`, conversions, powers (7–10): §8.5.4.
+  - Limits (11): §8.5.4 and §11.
+  - Transport and float limitations (12–13): §8.5.4.
+  - The 12-lane acceptance matrix and C2 sequencing (14): §8.5.4 and §12.
+
+## Open: questions
+
+None added. The de Bruijn bigint value domain is recorded as "a separate kernel ruling", which is how the C3 ruling states it.
+
+## Notes
+
+- **Long lines:** all new prose and tables are ASCII and within 80 columns. Two kinds of added line are wider:
+  - The five `collab/` paths in the header can't be broken; the header already had wider paths before this edit.
+  - The two replacement lines in the §8.5.1 table match that table's existing 152-column width.
+- **Decision count:** the brief says the safepoint design has "eleven owner decisions", but the design file lists seven. I recorded those seven, numbered 5–11 as the brief does, continuing the mappability list's 1–4.
+- **Follow-ups outside this file:**
+  - §8.11 still says "cell slice 1 never frees cells", which reclamation `60b60898` made stale. I left it because it is outside these rulings.
+  - The safepoint design asks for a `:derive` note in `yin.vm.code-as-tuples.md`.
+  - The C3 design asks for the UCF scalar-arm text to be amended.
+  - Both of those are in other documents, so I didn't touch them.

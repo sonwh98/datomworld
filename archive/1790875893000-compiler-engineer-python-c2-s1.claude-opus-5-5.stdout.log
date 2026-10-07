@@ -1,0 +1,45 @@
+Completed-GMT: 2026-10-01 17:43:38 GMT
+Completed-Local: 2026-10-02 00:43:38 +0700
+
+# Python C2 S1 (generators core): code written, but no test lane, lint or style check was run
+
+The S1 prelude, lowering and tests are written in `/Users/sto/workspace/datomworld-py-c2gen1`. Nothing is staged or committed. **None of it has been executed.** This fresh worktree's `mise.toml` is untrusted, and every command that would fix that or run the toolchain was denied without a prompt in this headless session. That covered `mise trust`, `mise exec`, `MISE_TRUSTED_CONFIG_PATHS=…`, `/opt/homebrew/bin/bb`, `bb …` and `clojure -M:kondo …`. As a result I did not run `bb gen:python-antlr`, `bb build:yin-repl-node`, `bb test:clj`, `bb test:cljs`, `bb test:cljd`, clj-kondo or cljstyle. I have no test counts.
+
+The only check I ran was a Python script that checks bracket balance (strings and comments handled) on the five touched files. All five balance. The script was deleted afterwards.
+
+To verify, run in the worktree: `mise trust`, `bb gen:python-antlr`, `bb build:yin-repl-node`, `bb test:clj`, `bb test:cljs`, `bb test:cljd`, then `clj -M:kondo --lint` on the files below.
+
+## Changed files
+- **`src/cljc/yang/python/antlr/prelude.cljc`**
+  - Adds a generator section, placed after `py/with-bound`:
+    - `py/make-generator`, `py/gen-switch`, `py/gen-start`, `py/gen-exit`, `py/gen-fail`, `py/yield-raw`, `py/yield`.
+    - Helpers: `py/gen-content`, `py/outcome`, `py/gen-result`, `py/gen-step`, `py/gen-send`, `py/next`, `py/stop-iteration-class`.
+  - Each generator has its own handler stack, with a `:generator` boundary frame at the bottom (rulings 1–2).
+  - Every state change rebuilds the generator cell from name and state. A suspended generator holds only `:resume` and `:ctx`; a closed one holds nothing.
+  - `py/iter-at` gains a `:generator` arm. `py/iterable` already returns a generator unchanged; only its comment changed.
+  - Adds the builtin class `StopIteration` (under `Exception`, with an `__init__` that sets `args` and `value`) and the builtin `next(it[, default])`.
+  - A generator `return` with no value raises `StopIteration()` with empty `args`, as CPython does.
+- **`src/cljc/yang/python/antlr/lower.cljc`**
+  - Adds the `yield_stmt` and `yield_expr` arms. `yield_arg` moves to the consumed rules.
+  - A `:gen` binder is set in `function-value` (for both `def` and `lambda`) when the body yields. Nested defs and classes are excluded.
+  - `:gen` is reset in class bodies and comprehensions. A comprehension also sets `:comp` to its kind.
+  - The three `yield` guards are removed. Module-level or class-level `yield` is a syntax error: `'yield' outside function`. A `yield` inside a comprehension's own scope is a syntax error: `'yield' inside list comprehension` (or set/dict).
+  - `yield from` is refused as unsupported, since it belongs to S3.
+- **`test/yang/python/antlr/e2e_c2_test.clj`** (new, JVM only)
+  - The five end-to-end rows of the S1 table, each run on all four VMs.
+  - The continuation-length check, on all four VMs: after 10 and after 1000 items, the suspended generator's `:resume` should have the same node count, and the cell should hold exactly `{:py/type :name :state :resume :ctx}`.
+- **`test/yang/python/antlr/prelude_parity_test.cljc`**: the prelude-notation `gen-switch` row, expecting `[:yield 1] [:yield 2] [:return :py/None]` on every VM. This runs on the JVM, Node and Dart lanes.
+- **`test/yang/python/antlr/lower_test.clj`**
+  - The old "`def g(): yield 1` is unsupported" row now says `yield from` is unsupported. This is a behaviour change S1 requires, not a weaker test.
+  - Five new syntax-error rows.
+  - A stage test: module-level `yield` and `[(yield x) for x in y]` each produce exactly one `:yang.python.antlr/syntax` diagnostic and no program.
+
+## Concerns and incomplete work
+1. **Nothing is verified.** This includes my assumption that resuming a continuation into frames no longer on the stack works on the stack and register VMs. The design says no VM change is needed, but only the lanes can confirm it.
+2. **Scope additions:**
+   - `it.send(v)` is added as a `:generator` arm in `py/getattr`, because the S1 send row needs it.
+   - The `ValueError` for a generator that is already running and PEP 479 handling are also in. The design lists `gen-fail` under S1, but both are tested only in S2.
+   - `throw`, `close`, `__next__`, `iter`, `GeneratorExit` and printing a generator (`{:py/generator name}`) are not implemented; they belong to S2–S5.
+3. **Continuation length is measured by node count**, because the four VMs store continuations differently. Closures, continuations and cell refs count as one node each. The node-count check only covers the top-level `:resume`. Ruling 7 asks for the whole reachable continuation and heap graph to stay bounded (across changing callers, nested delegation and forced collections); that is not tested yet.
+4. **The heap check assumes no collection runs** after the last loop step frees the generator. That holds for this program, but it would break if collection timing changed.
+5. **Cosmetic:** the system clock read 17:43 GMT, which is earlier than the brief's own 17:45 GMT creation time. The timestamps above are what `date` printed.

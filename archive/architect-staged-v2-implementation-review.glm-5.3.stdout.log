@@ -1,0 +1,71 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-03 21:08:15 GMT
+Completed-Local: 2026-09-04 04:08:15 ICT
+Coding-Agent: glm
+Session-ID: none (new review)
+
+# Staged DaoStream v2 implementation review — findings
+
+Scope: the staged diff only (18 files, +3,134/−117). Docs read first per prompt; every staged source and test file inspected; targeted cljd compiles and one focused JVM repro executed to substantiate specific findings (full suites not rerun).
+
+## Defects
+
+**HIGH | src/cljc/dao/stream/forward.cljc:138-141 (with ringbuffer.cljc:88-95) | `forward-step` totality broken — `:gap-policy :resume` can loop forever**
+Evidence (JVM repro, executed this review): capacity-1 owner, attachment closed at tail=1, two further owner appends (first=2 > frozen tail=1), cursor at the frozen tail. `next` returns `:gap` whose recovery position is 1 — the same evicted position — on every call (r1=r2=r3 all `:gap` pos 1). `forward-step` with `{:batch-budget 4 :gap-policy :resume}` never returns (5s deref timeout): the gap-resume `recur` neither decrements the budget nor advances the cursor, so a recovery fixed point spins the driver thread/event loop indefinitely. Plan 4b requires `forward-step` to be "total over the outcome algebra."
+Correction: (a) fix the ring buffer's recovery cursor (finding 2); (b) independently, count gap-resumes against `:batch-budget` so `forward-step` terminates in a status whatever the transport does; mirror (a) in `conformance.cljc:543-546` — the abstract model currently bakes in the same `min(first, visible-tail)` defect and cannot catch it — and add the frozen-fully-evicted regression case to `ringbuffer_test.cljc`.
+
+**MEDIUM | src/cljc/dao/stream/ringbuffer.cljc:88-95 | contract gap-recovery semantics violated for a frozen attachment with fully evicted visible history**
+`(min (:first s) visible-tail)` returns the frozen tail even when it is already evicted (`first > visible-tail`), so the recovery cursor re-gaps forever; a reader can never proceed past the gap. The contract (`dao.stream.md`, Reading) fixes the gap cursor as "earliest retained position, or the tail when nothing is retained" — a position observation continues from. Same fix as 1(a): `(if (< visible-tail first) first (min first visible-tail))`; the existing `gap-recovery-on-a-frozen-attachment-never-points-past-its-tail` test only covers `first == frozen-tail`, where both formulas agree.
+
+**MEDIUM | src/cljc/dao/stream/ws.cljc:398-432 (`endpoint-step`), 321-370 (`accept-connection!`) | pre-accept peer loss, composition ack failure, and endpoint stop do not release a `:pending` handoff slot**
+Only a matching acknowledgement (of any validity) or `:expiry-ms` frees a slot; every staged fixture sets `:expiry-ms nil`. One pre-accept peer loss or one failed `make-traffic` acknowledgement therefore permanently consumes a slot. `dao.stream.ws.md` (Serving) requires teardown to "release the slot," and the plan's 4a acceptance list names peer loss and endpoint stop as slot-releasing cases. Root cause: the handle atom and the endpoint slot atom are unlinked — the boundary's `terminal!` never retires the slot.
+Correction: in `endpoint-step`, free any `:pending` slot whose `:handle-state` phase is `:closed`, and/or let the boundary's terminal transition retire the slot; add the missing 4a tests (slot exhaustion closes without overwriting the offer; admission expiry; pre-accept peer loss; endpoint stop — none exist in `ws_test.cljc`).
+
+**MEDIUM | test/dao/stream/ringbuffer_test.cljc:190-204 | plan-mandated concurrency oracle never demonstrated**
+The only `check-linearizability` history is strictly sequential (`append` [1,2], `next` [3,4]). No concurrent append/append, append/next, append/close, cursor/close, or independent-reader histories exist anywhere under `test/dao/stream` (grep: zero `future`/`Thread`). The plan's Phase 2 requires exactly these bounded exhaustive-search cases, and this diff extends the abstract model (conformance.cljc:382-564) with attachment-freeze semantics validated only sequentially.
+Correction: add `record-op!`-driven concurrent JVM histories for the plan's five case families (bounded, ≤6 ops) asserting `:linearizable? true`, plus one seeded-bad history asserting `false` to prove the oracle can fail.
+
+**LOW | ringbuffer.cljc:164; apply.cljc:182; rpc.cljc:272; ws.cljc:76,90,143,239,287; serving.cljc:37,157,195; yin/repl_adapter.cljc:45-47,61 | reader-conditional ordering violates the plan's own cljd rule (`:cljd` in tail position after `:clj`)**
+ClojureDart's host-eval pass reads with features `#{:cljd :cljd/clj-host :clj}` (compiler.cljc:4934) and selects the `:clj` branch, while the codegen pass (features `#{:cljd}`) selects `:cljd` — one form, two divergent reads. Today benign: the `:clj` branches are JVM-valid and host-eval does not evaluate `defn` bodies; verified by targeted `clj -M:cljd compile` of ringbuffer, transit, serving (+ws, forward), rpc (+apply), and v2-adapter — all pass. But the plan states "`:cljd` in tail position silently fails," and `transit.cljc` already follows the `:cljd`-first rule; one future edit placing a `def` init or macro body in such a branch diverges silently between passes.
+Correction: reorder every mixed conditional to `:cljd`-first (or `#?(:cljd nil :clj …)`), matching transit.cljc and the yin-repl plan's Namespaces-and-files rule.
+
+**LOW | src/cljc/dao/stream/rpc.cljc:88,137-140 | unbounded client-state growth: `:diagnostics` never published or cleared**
+Unlike `:completed` (which has `take-completed`'s exactly-once boundary), `:diagnostics` is conj'ed on every malformed, unsolicited, unknown, or post-terminal event and grows for the client state's lifetime — unbounded on a long-lived session over a noisy shared medium.
+Correction: add a `take-diagnostics` publication boundary (or fold diagnostics into the per-step publication) and document the bound.
+
+**LOW | src/cljc/dao/stream/ws.cljc:108-113 | `emit!` drops `:ws/value` for a legitimate nil payload**
+`(some? value)` omits the key when the payload is `nil`, and `nil` is in the portable domain, so a `:ws/payload` envelope can lose the presence of its value key; consumers using `contains?` cannot distinguish "value nil" from "no value."
+Correction: always assoc `:ws/value` for payload events; keep `:ws/reason` optional.
+
+**LOW | deps.edn:59-64 (verification scope, not a staged file) | the recorded "CLJD compilation" gate does not reach this diff**
+`:cljd` compiles `datomworld.demo.main`; nothing in `src/` requires any `dao.stream.*` namespace (only the test namespaces do), so the passing gate proves nothing about the staged files. This review's targeted cljd compiles pass (finding 5), but that evidence was not produced by the recorded gate.
+Correction: record the targeted invocation in the commit notes, or land the yin-repl plan's `:cljd-yin-repl-build` so a standing gate reaches the v2 tree; run the v2 suites under `bb test:cljd` once.
+
+**INFO | src/cljc/yin/repl_adapter.cljc:22,45 | `'telemetry` retained in `local-command-heads`; clj command sniffing uses `clojure.core/read-string` with default `*read-eval*`**
+The v2 plan removes telemetry in every form (the driver must explicitly reject it rather than no-op); and read-eval during command sniffing is a footgun — local-user input only (same authority as the REPL itself), and the cljd branch already uses `clojure.edn`.
+Correction: use a non-evaluating reader on clj; drop `'telemetry` from the head set or document the driver's rejection event.
+
+## Passed properties (confirmed)
+
+- **Result convention** — every operation returns an open map keyed `:dao.stream/outcome` with per-outcome required keys; operational failures are data, never exceptions; throws are confined to assembly-time composition defects (`ws/checked-target`, `make-endpoint`, `make-serving`), exactly where the contract permits them.
+- **No hidden global state** — no `defonce`, namespace-level atoms, multimethods, or load-time registration anywhere in the staged tree; ring-buffer state, ws handle state, and serving state are atoms retained by returned values and owned by composition; host dispatch remains ordinary host-owned data.
+- **No callbacks in the public surface, no waiting** — the ws adapter map is documented host-socket wiring that only deposits and never invokes application code; wire framing/decoding/protocol validation stay below the transform; grep confirms no promise/future/host async value in any v2 namespace; `attach!` answers only what is locally decidable.
+- **Layering and dependency direction** — `forward` requires only `dao.stream`; `ws` requires only v2+transit (not ringbuffer — plan 4a's dependency check passes); `serving` is the composition layer above ws+forward; `apply` is the sole envelope owner and `rpc` aliases rather than reimplements `serve-once!`.
+- **Cursor discipline** — cursors minted only by `cursor`/successor/gap-recovery; no `seek`; identity-keyed `cursor-mismatch`; rpc, apply, forward, and serving all retain and re-feed exact returned successors (tested).
+- **ws wire contract** — first-frame `:ws/accept`/`:ws/disclaim`, no value delivery before accept, close codes 4000/4002/4004 with correct reasons, exactly-once terminal lifecycle under duplicate close callbacks, attachment identity on every deposited event, two independent attachments with distinct ids over one Transit-round-tripped descriptor (all tested socket-free, which the plan sanctions for this layer).
+- **Deposit admission** — declared at assembly and enforced (evict-oldest + capacity + value domain; control medium forced `:portable-values`; handoff slots forced capacity-1 `:host-values`); every non-`ok` deposit tears the boundary down.
+- **RPC conservatism and allocator discipline** — loss outcomes lose every outstanding request; `:unsent` stays retryable; `rebind` only after `/detached`; ids monotonic, safe-ranged, collision-checked, single-owner; completions publish exactly once (tested at both rpc and adapter layers).
+- **Codec** — portable domain enforced on encode and decode; descriptor identity gate; the cljd `cacheable?`/`isCacheable` alignment is a genuine cross-host `^`-cache correctness repair; numeric domain tests cover per-host boundaries.
+- **Ring-buffer conformance** — manifest partitions the contract outcome sets with a stated reason for every exclusion; the declaration-driven harness validates induction coverage, result shapes, and descriptor-identity consistency; attachment-freeze idempotence and the mis-keyed-directory guard are tested.
+- **Portability** — targeted cljd compiles pass for every staged namespace (executed during this review); `case` expressions kept scalar for cljd; host-specific predicates quarantined per host.
+
+## Deferred work distinguished from defects (not held against this diff)
+
+No real host socket adapters (http-kit / Node `ws` / `dart:io`), no wire-close conformance on host libraries, no two-process Phase 5, no cljd ws transport, and no `yin.repl` core/driver namespaces — all intentional Phase 5 / yin-plan scope, correctly absent from this increment.
+
+## Verdict
+
+**SIGN-OFF: WITHHELD**
+
+The architecture is sound — invariants, boundaries, layering, and the wire/handoff design all hold up under adversarial reading, and the socket-free test shape matches the plan's intent for this layer. Withholding rests on the confirmed unbounded loop (findings 1–2, a correctness defect in shipped interpreter code), the unlinked slot lifecycle (finding 3), and the absent concurrency-oracle demonstration the plan requires as Phase 2 evidence (finding 4). All four are locally correctable without redesign; after fixes plus a re-run of the focused suites and the new tests, a delta re-review should be quick.
+[?25h

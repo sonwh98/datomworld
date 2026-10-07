@@ -1,0 +1,13 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+M5 is complete. Summary of the resumed run:
+
+**Answer to the orchestrator's question (kept, justified in the report):** the one `yin.vm.linker.cljc` edit is an additive `:defer-discharge` opt on `link-manifest`. Section 7.2 puts step 5b at the *receiving task*; a serving composition can't run it honestly (a guessed receiver, and module obligations can never discharge linker-side), and the alternatives — duplicating the manifest flow in yin.repl, or rubber-stamping a receiver — were worse. Default false = zero behavior change for existing callers.
+
+**Wired:**
+- `yin/repl/link.cljc` (new, 296 lines) — the interpreter box of section 6.1: six format records, link pair per session, content side per source (`:content-store` in-process dao.jing pair, `:content-client` rpc state, or none), bounded by-name serve rounds with `:pending` on budget exhaustion.
+- `yin/repl.cljc` — link pair into every VM's private `:resources` (children inherit via `spawn-module`); require-at-the-prompt drives serve↔run to a conclusion; a stuck link becomes the shell's `:pending-run` (prompt returns, any line re-checks, `(abandon)` raises the require's error, `(reset)`/`(vm …)` drop it).
+- A real bug the tests caught: the shell's failure rollback reset the VM's link-id counter, so the next require could mint a reused `[:t0 0]` and settle on a stale response — the parked counter now carries across every rollback path.
+
+**Verification:** JVM full suite 2198 tests / 182742 assertions / 0 failures; kondo 0 errors 0 warnings; cljstyle clean; CLJS test build compiled 0 warnings; cljd compile of the touched namespaces "All clear". Node/Dart *execution* lanes left to the orchestrator per the brief (node_modules not installed here; the symlink step needed approval I didn't have).
+
+**Report:** `collab/1790437900000-vm-engineer-linker-m5-repl-wiring.glm-5.3-flash.report.md` — changes with file:line, decisions (by-name only, name-env at the shell, retry-from-scratch pending, remote-content seam composed but handoff recorded open), the failure-policy options with a recommendation (own pending state now; adopt `dao.lease` in the driver when it grows a tick clock), and what's left. Nothing committed.

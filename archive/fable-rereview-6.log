@@ -1,0 +1,24 @@
+**APPROVE**
+
+All four edits from the prompt are present and consistent with the rest of the document. Cited source lines were re-verified against the working tree.
+
+**Edits verified**
+
+- The `:var-bounds` row is gone from the §7.5 table, and the explanatory sentence sits below it at `docs/design/yin.vm.code-as-tuples.md:1044`. The AST-level `:variable-bounds` rule it defers to exists in §7.4 at line 1001 and matches the De Bruijn convention stated at line 304.
+- The under/over-arity binding rule appears in §5.1 (line 656), §7.7.2 (line 1191), and blocker 14 (line 1913) with identical wording.
+- §9.1 cites `code.cljc:12-16` for the mnemonic set. That range is the `mnemonics` def, and it does not yet contain `:global`, so the "adds `:global`" claim is accurate.
+- §7.4 `:arity` reads "the tag's body arity plus one," consistent with the §2.3 column definition and the arity counts used in §6.3's query examples.
+
+**Cross-checks that hold**
+
+- Every §7.7 extraction query has the correct slot count for its tag or mnemonic under the §2.3 table and the segment-qualified form.
+- The §7.7.1 footprint table covers every tag in §2.3 and every mnemonic in the current `mnemonics` set plus `:global`.
+- `terminators` at `code.cljc:19-21` includes `:jump`, so the malformed example `[[:jump 9]]` in §7.2 violates exactly one rule, as claimed.
+- The UCF citation at line 1302 does point at the unpublished-contract item.
+
+**Two non-blocking observations**, for a future pass only:
+
+- The status header still summarizes only the eight owner rulings and does not mention the De Bruijn and `:global` decision, which is now a load-bearing design choice. A one-line addition there would help a cold reader.
+- The §7.5 sentence "an out-of-range `:var` at run time evaluates to `nil`" is precise for hand-built vectors that bypass §7.4. For lowered code the run-time case is an under-arity call, where the slot exists and holds `nil`. §7.7.2 already covers both, so no change is required.
+
+No edits were made. Nothing further is needed for this review round.

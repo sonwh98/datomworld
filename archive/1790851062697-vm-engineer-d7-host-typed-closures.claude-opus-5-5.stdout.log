@@ -1,0 +1,61 @@
+Completed-GMT: 2026-10-01 11:19:42 GMT
+Completed-Local: 2026-10-01 18:19:42 +07
+Coding-Agent: claude
+Session-ID: a991361e-3716-4327-84f0-1a35a3a5a57b
+
+# D6/D7 slice A: host-typed closures and continuations on all four VMs
+
+Slice A is built on all four VMs. Every check passes except cljstyle, which the permission layer blocked. Nothing is staged or committed, and the worktree is on branch `vm-host-typed-closures`. The full report is at `collab/1790851062697-vm-engineer-d7-host-typed-closures.claude-opus-5-5.report.md`.
+
+**Deviation you must know about: the namespace is `yin.vm.values`, not `yin.vm.value`.** On CLJS, `yin.vm.value` clashes with the `yin.vm/value` protocol method. `bb build:yin-repl-node` raised `:ns-var-clash`. After the rename the build has 0 warnings.
+
+## Results
+
+| Check | Outcome |
+|---|---|
+| clj-kondo, each file as a separate argument | 0 errors. The 5 warnings are all present on `HEAD` too. |
+| cljstyle | **Blocked**: every invocation needed approval and was not run. I fixed by hand the one indentation slip I knew of. |
+| `bb gen:python-antlr` / `bb build:yin-repl-node` | Both ok; the Node build has 0 warnings. |
+| Focused JVM (13 VM suites + new namespace) | 244 tests, 0 failures. The new namespace alone: 14 tests, 188 assertions, 0 failures. |
+| Full `clj -M:test` | **2688 tests, 187682 assertions, 0 failures, 0 errors**, including the `yang.python.antlr` namespaces. |
+| `bb test:cljs` | **2535 tests, 53440 assertions, 0 failures**; both new and changed test namespaces ran. |
+| `bb test:cljd` | Not run, as the brief says. |
+
+## What changed
+
+- **New `yin.vm.values`:**
+  - `Closure` and `Continuation` deftypes with no `ILookup` and no `IFn`.
+  - Equality and hash compare kind, owner and payload, written per host with the `:cljd` branch first.
+  - `owner-tag`, the trusted constructors, the type tests and `kind-of`.
+- **Owner tag:** `empty-state` derives `:owner` once from the capability secret. The walker gets a record field for it. The positional VMs' `create-vm` was dropping it until the tests caught that.
+- **Kernels:** all four wrap their existing payload when constructing, apply through the one engine classifier `operator-kind`, and have `lower-closure` mint with the receiver's owner.
+- **Refusals:** `:not-applicable` carries a coarse `:kind`, never the value. Also `:foreign-value`, `:foreign-format` and `:continuation-arity`.
+- **Encoder:** checks the host types before the map arm. A foreign value refuses as non-portable, and a `{:type :closure}` map is now a plain literal.
+- **Non-symbol binders** are refused by a shared `vm/check-params!`:
+  - at the transition on the walker and semantic VMs;
+  - in the semantic lowering;
+  - in the de Bruijn resolver, which serves both positional VMs.
+- **Two-mode heap trace:** `gc-roots` and `gc-children` now answer `{:kernel … :values …}`, so a guest map shaped like a frame is never pruned.
+- **`data` module:** `data/number?` and `data/callable?` added. In the Python prelude only `py/numeric?` changed.
+- **Docs:** `ast.md`, `state.md`, and two lines of `co-routines.md`.
+
+## Mutation proof
+
+Each acceptance test failed when its part was reverted. I applied ten mutations one at a time and restored every file, confirmed by byte comparison against backups. Results ranged from 1 failure plus 1 error to 20 failures; the per-mutation table is in the report.
+
+Two places can't be caught by a test, by construction:
+- **The semantic VM's two-mode trace:** that VM never prunes, so there is nothing to revert.
+- **The semantic VM's run-time binder check:** its code loader already refuses non-symbol binders, so no loader reaches the check. It stays as defence in depth.
+
+## Unresolved concerns
+
+1. **CLJD is unverified:** the equality and hash blocks, and whether `get` on these types answers nil there.
+2. **The `gc-roots`/`gc-children` protocol contract changed shape.** Any kernel outside the repo would break.
+3. **New `vm/machine-data?`:** the register VM's payload and resume gates now count a closure as its payload. Without it, every parked register payload holding a closure was refused as corrupt.
+4. **Edits outside the brief's file list,** needed to keep the existing suite green:
+   - the continuation-handoff demo's EDN encoding gained closure and continuation tags, and decoding mints them with the receiver's owner;
+   - several existing tests now unwrap the payload.
+5. **The owner check only separates tasks with different secrets.** Two VMs built with the same secret share an owner.
+6. **`py/numeric?` is narrower:** nil and stray keywords used to count as numeric and no longer do. The e2e suites pass.
+
+Slices B and C were not started; they are out of scope for this slice.

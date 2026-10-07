@@ -1,0 +1,60 @@
+Completed-GMT: 2026-10-01 18:34:04 GMT
+Completed-Local: 2026-10-02 01:34:04 +0700
+
+# Python C3 slice S1: exact-integer module and carrier recognition — report
+
+S1 is done. The `integer` module, its per-host shim and the scalar-recognition fixes are written. All three test lanes and both style checks pass. The diff is left uncommitted in `/Users/sto/workspace/datomworld-py-c3int1`. Your message said the module namespace hadn't been written yet; it had been, earlier in the session. The only thing still running from that turn was the JVM lane, and I have now rerun it to completion.
+
+## Changed files
+
+**New:**
+- **`src/cljc/yin/vm/integer/host.cljc`** — the per-host shim (rulings 2 and 5). It has no dependencies and does not touch Jing's private helpers.
+  - Recognition: `exact-integer?` and `big-carrier?`.
+  - `promote` converts any carrier to the host big integer. `demote` returns the one canonical carrier: a native integer within signed 64 bits on the JVM and Dart, or within ±(2^53−1) on JS; otherwise `clojure.lang.BigInt` or the host `BigInt`.
+  - The exact big-integer operations: add, subtract, multiply, truncating divide and remainder, compare, bitwise and/or/xor, shifts, bit length, radix text.
+- **`src/cljc/yin/vm/integer.cljc`** — the `:pure` module (rulings 1, 2, 5 and 11), structured like `yin.vm.data`. The kernels are written once over the shim.
+  - **Exports:** `integer?`, `normalize`, `add`, `sub`, `neg`, `mul`, `compare`, `quot-rem` (truncating), `floor-div-mod` (Python sign rules), `pow` (exact, non-negative exponent), `bit-and`/`bit-or`/`bit-xor`/`bit-not` (infinite two's complement), `shift-left`/`shift-right` (the count is checked before it is narrowed; a huge right shift returns 0 or −1), `bit-length`, `parse` and `format` (radix 2–36).
+  - **Promotion and demotion:** every kernel converts its operands to big integers first and returns its result in the canonical carrier.
+  - **Limits:** `::max-bits` and `::max-digits` must be supplied by the composition through `register-integer-module`. There is no default; missing limits throw.
+  - **Refusals:** refusals are thrown `ex-info` data, never host exception text and never the operands. Breaching the bit limit gives `:bit-limit` and the digit limit gives `:digit-limit`. The docstring records that the Python profile maps these to `MemoryError` and `ValueError`, never `OverflowError`.
+  - **Early refusal:** `mul`, `shift-left`, `pow` and `format` refuse before building an oversized result.
+- **`test/yin/vm/integer_test.cljc`** — 18 tests, 243 assertions on the JVM.
+  - Boundary values at 2^53, 2^63 and 2^64 and their negatives, with the carrier asserted in both directions (promotion and demotion).
+  - −2^63 negated and divided by −1, `divmod` sign cases, bit operations on negatives, huge shift and exponent counts, and big powers.
+  - Exact parse and format, limit refusals, and the module running on all four VMs.
+  - Recognition tests: `kind-of`, `data/number?`, `engine/lift-slice` (the big integer is lifted as itself, with no wrapper and no cell), `engine/collect` (heap trace) and `engine/pin-refs`.
+  - Expected values are built by each host's own constructors, not by the module under test. The constants were checked against CPython.
+
+**Modified:**
+- **`src/cljc/yin/vm/engine.cljc`** — `scalar?` now also accepts big-integer carriers. One predicate covers the encoder, the heap trace and `pin-refs`.
+- **`src/cljc/yin/vm/values.cljc`** — `kind-of` answers `:number` for a big integer.
+- **`src/cljc/yin/vm/data.cljc`** — `data/number?` is true for a big integer.
+- **`docs/design/yin.vm.universal-continuation-format.md`** — §7.5.1 now states that the scalar "number" arm includes every exact-integer carrier Jing supports. No marker is added and the cell-lift refusal is unchanged.
+
+There are no changes to the prelude, lowering, Jing or its fixtures, AST tags, payload kinds, or stream transport.
+
+## Checks
+
+| Check | Result |
+|---|---|
+| `mise exec -- bb test:clj` | 2857 tests, 226101 assertions, 0 failures, 0 errors. One existing skip: `a-dart-dialer-reads-a-jvm-server` (`build/ws-project-peer` absent). |
+| `mise exec -- bb test:cljs` | 2674 tests, 91506 assertions, 0 failures, 0 errors, 0 warnings. One existing skip: `a-node-client-attaches-to-a-dart-server` (Dart peer absent). |
+| `mise exec -- bb test:cljd` | 2629 passed, "All tests passed!"; all 18 `yin.vm.integer-test` tests ran. |
+| `clj -M:kondo` on the 6 touched code files | 0 errors, 0 warnings |
+| `cljstyle check` on the same files | clean |
+
+Mechanics:
+- I ran `bb gen:python-antlr` (as `clj -M:antlr-gen`) and `npm ci` before the lanes.
+- The JVM and Dart lanes ran past the 10-minute foreground cap, so the harness moved each one to the background. I waited in the foreground for each to finish. Both exited 0.
+- Earlier in the session, mise was untrusted, so `bb`, `dart` and Java 21 were unavailable and that first JVM run was killed. Every result above comes from the reruns after you trusted the worktree.
+
+## Unresolved concerns
+
+1. **The module's version and limits are not covered by any profile address.** `vm/primitive-profile` hashes only the name, class, arities, effects and host state. So `module-version` (set to 1) and the composition's limits are plain data that a runtime profile can read but that admission never checks. Making them address-bearing would mean changing `vm/primitive-profile` or the module manifest; I left that to an Architect ruling.
+2. **Mapping refusals to Python exceptions is prelude work for S2 or later.** The module returns neutral reasons (`:bit-limit`, `:digit-limit`, `:zero-division`, `:negative-count`, `:negative-exponent`, `:syntax`). Ruling 11's `MemoryError` and `ValueError` outcomes only exist once the prelude translates them; S1 makes no prelude changes.
+3. **On JS, a `-0` or an unsafe integral `Number` (such as 2^53 held as a `Number`) is refused as not an exact integer.** This matches Jing's classification. C1 prelude values in [−2^53, 2^53] can still be unsafe JS Numbers, so the S2 rewiring must make sure no such value reaches the module.
+4. **ClojureScript hashes a `BigInt` unreliably.** Its default hash goes through `goog/getUid`, which does not work on a primitive. That is why the scalar fix had to come first. But a bignum used as a CLJS map key or set member is still unsafe, which is consistent with ruling 6's decimal-string dict keys planned for S2.
+5. **`linker/portable-scalar?` still uses only `number?`.** It decides what a link request may carry, which is outside the ruling-4 list, so I left it unchanged.
+6. **Mutation evidence and the full ruling-14 gate are later-slice work.** This includes the "skip demotion" mutation. I did not run any mutations.
+
+There is no incomplete S1 work.

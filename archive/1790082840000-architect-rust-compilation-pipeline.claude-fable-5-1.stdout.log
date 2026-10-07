@@ -1,0 +1,24 @@
+Completed-GMT: 2026-09-22 12:46:05 GMT
+Completed-Local: 2026-09-22 19:46:05 +07 (Indochina Time)
+
+**Recommendation: a phased combination, decided per target family.** Direction B (thin host interpreter of the existing stack image) first for Rust and Python. Direction A (direct-style source emitter, pure subset only) first for Gambit and Chez, where proper tail calls and host closures make it nearly free. Direction A for Clojure and for Rust is gated behind a benchmark, the same way R4 is gated by R3. The two directions are not peers: B extends where an image can run, A changes how fast it runs where it already can, and on Rust the B interpreter crate is roughly the whole runtime the A emitter needs, so B is a strict engineering prerequisite there.
+
+The tail-call axis decides only whether an emitter needs a driver loop. It does not remove the stricter constraint that continuations must be explicit data, which bites every family equally. Direct-style emission is therefore sound only for images with no park, resume, current-continuation or stream opcode, enforced by a static scan that refuses rather than emits. Scheme's guarantee saves the loop, not the machinery.
+
+**Verified versus not verified.** Direct page fetches were denied in this session, so verification is from search-result summaries of the primary sources:
+
+- Verified: R7RS section 3.5 requires proper tail recursion. Gambit conforms to R7RS, and its own C back end uses a trampoline with an explicit stack array. Chez guarantees proper tail calls with a segmented stack. The `clojure.core/trampoline` docstring, including its caveat that a fn returned as a value must be wrapped. Guido's 2009 rejection of tail-call elimination.
+- Verified about Ribbit, from the Yvon and Feeley VMIL 2021 paper and the O'Leary and Feeley 2023 papers: the RVM is a stack machine with a classic dispatch loop, all data is 3-field rib cells, 200 to 400 lines per host, 25 hosts including JS, x86 assembly, C, Python, POSIX shell and Prolog. Feeley co-authored Ribbit and wrote Gambit, so the same person chose an interpreter for reach and codegen plus trampoline for speed.
+- Not verified: the repository's current host list and line counts, the RVM instruction count, how the compiler embeds programs in host source, and which R7RS edition Chez 10 declares.
+
+**Document:** `docs/design/yin.vm.debruijn.targets.md`, 837 lines, ASCII, 80 columns, design-only Status line. One document rather than five because the decision is per family along one axis and the shared parts dominate. It covers: source representation (B consumes image bytes as-is; A consumes an identity-bearing image, H now or R later, never resolved tuples, justified against D9, D12 and invariant I), state as Rust types with `Vec<ReturnFrame>` as the continuation, three effect levels (pure, offload with the Clojure engine as sole scheduler crossing the host boundary with the B4 register payload as data, standalone deferred), identity (host binaries and compiled artifacts are local caches keyed by H plus target plus emitter version, never sharing participants), a host conformance kit exported from the JVM lane as the single oracle, phases T0 through T7 with file boxes and completion criteria, ten DECIDED items and a DEFERRED list.
+
+**One thing you must know.** An existing document, `docs/design/yin.vm-portability.md`, already proposes a Ribbit-style skeleton, but over AST datoms via a CESK relation with bit-identical logs and "no bytecode" as a non-requirement. Its prototype namespace is no longer in the tree and its sections 3 and 4 are marked unimplemented. The new document does not amend it and states the tension explicitly.
+
+**Owner decisions needed:**
+- Authorize T0 (the conformance kit) or not, and whether Rust or Python is the first foreign host. I recommend Rust.
+- Whether the portability document is superseded for the executable-payload question or coexists. I recommend marking its sections 1 to 3 historical.
+- Benchmark thresholds for the gated emitters, when proposed.
+- Whether a Scheme Direction B host is ever wanted. Nothing schedules one.
+
+No file other than the new document was created or edited.

@@ -1,0 +1,52 @@
+Completed-GMT: 2026-09-30 10:07:57 GMT
+Completed-Local: 2026-09-30 17:07:57 +07
+Coding-Agent: claude
+Session-ID: adc2ad2b-7804-4513-bdbe-b35cd38d01bf
+
+# Durable index store, slice 2: fix round 1 (gpt-6-sol sign-off findings)
+
+All four findings and the documentation item are fixed, and every lane is green. Nothing is staged or committed. The full report is at `collab/1790751145000-storage-engineer-repl-durable-index-slice2.claude-opus-5-5.report-r2.md`.
+
+I wrote the tests first and ran them against the unfixed code, adding only test seams with no behaviour change. Before the fixes, the JVM store tests gave 7 failures and the Node lane gave 12 failures and 1 error. All pass after the fixes.
+
+## Findings
+
+1. **HIGH: Node could give two processes the same dead owner's lock.**
+   - **Fix:** taking over a dead owner's lock now requires first creating a `lock.takeover` marker file exclusively. Only the marker's holder re-reads the lock file, and it removes the file only if it still names a dead owner. So a contender that looked earlier can no longer remove a lock a faster contender has since taken.
+   - A marker naming a live process means a takeover is in progress and is refused as "locked". A marker naming a dead process means a takeover crashed midway; startup is refused, naming the marker file for an operator to remove. Removing it automatically would bring the race back.
+   - **Test:** `a-concurrent-takeover-of-a-dead-owners-lock-leaves-one-owner` replays the exact interleaving gpt-6-sol described. Before the fix, the late contender took the lock and deleted the rival's lock file.
+
+2. **HIGH: directory-sync failures were swallowed.**
+   - **Fix:** on Node and the JVM (on POSIX systems), a failed directory sync now fails the HEAD replacement, so the round reports a publication failure. Dart and Windows can't sync a directory at all; that is treated as unsupported, not as a failure.
+   - **Tests:** the tests cause a real failure by removing read permission from the directory: the rename still works, but the directory can't be opened for sync.
+     - `a-failed-directory-sync-fails-the-head-replacement` checks the HEAD replacement alone.
+     - `a-round-whose-head-cannot-be-made-durable-is-not-published` runs a whole round: it is not published on the JVM and Node, and is published on Dart.
+   - After a failed sync, the renamed HEAD may already be visible. It still names a manifest the store could read back, so a later open recovers either the old or the new snapshot, never a torn one. The design doc now says this.
+
+3. **MEDIUM: startup validation only walked the EAVT index.**
+   - **Fix:** startup now walks all four index trees the manifest names, and each must hold exactly the manifest's datom count. No `dao.space` file changed.
+   - **Test:** `an-unreadable-node-in-any-index-refuses-startup` removes the root node of each non-EAVT tree in turn. It first confirms EAVT still reads, then asserts startup is refused as corrupt.
+
+4. **MEDIUM: if closing the content log threw, the lock was never released.**
+   - **Fix:** the lock is now released in a `finally`.
+   - Same kind of bug, fixed alongside: a refused open now also closes the content log it had opened. Before, that file handle leaked.
+   - **Test:** `a-failing-content-close-still-releases-the-lock`.
+
+**Documentation:** the in-process lock registry is now documented as an explicit host-ownership exception to the no-hidden-global-state invariant. It appears in the `yin.repl.store.fs` namespace docstring, a comment on the registry itself, and the design doc. The design doc also covers the takeover marker, sync-failure propagation, and validating all four indexes.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| kondo on the 7 changed Clojure files | 0 errors, 0 warnings |
+| Focused JVM (store, main, repl, index, query) | 112 tests, 826 assertions, 0 failures, 0 errors |
+| Full `clj -M:test` | 2411 tests, 184,678 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2317 tests, 51,111 assertions, 0 failures, 0 errors |
+| `bb build:yin-repl-peer` | built |
+| `bb test:cljd` | All tests passed (+2278). I also ran the store tests alone with named output: all 23 passed, including the 5 new ones. |
+
+`cljstyle check` is still blocked by the approval gate. The mechanical formatting checks (whitespace, tabs, blank lines, final newline) are clean.
+
+**Still open:**
+- Slice 3 must land before this branch ships. Until then, a restarted or reset durable session's first publication moves HEAD off the recovered snapshot.
+- On Node, a reused process id would still be mistaken for a live owner. That is inherent to a pid-file lock; the JVM and Dart use real operating-system locks.

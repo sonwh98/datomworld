@@ -1,0 +1,58 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+I have completed the review. All required files were read in full, and I traced the seven check items against the code. Here is my verdict report.
+
+---
+
+Completed-GMT: 2026-09-22 10:29:43 GMT
+Completed-Local: 2026-09-22 17:29:43 +07 (Indochina Time)
+Coding-Agent: deepseek
+Session-ID: pending (new session, caller-generated)
+
+## Verdict: READY WITH CHANGES
+
+No P1 findings. The occurrence-keyed fix is correct. One spec-required test is missing (P2) and three P3s.
+
+## Findings
+
+### P2 — The inverse-law test omits the shared-entity fixtures the fix exists to cover
+
+File: `test/yin/vm/debruijn_resolve_test.cljc:306-311` (`unresolve-inverts-resolve-over-the-corpus`).
+
+The corpus map (`:76-108`) does **not** include `shared-variable-under-two-contexts` (`:137-157`) or `shared-lambda-under-two-contexts`. The design's own completion criterion (`docs/design/yin.vm.debruijn.stack.md:581-582`) requires `unresolve(resolve x, side-table) = x` "over the corpus **and those fixtures**" — the shared-occurrence fixtures are exactly the case this fix exists to handle, and its inverse round-trip is untested.
+
+I traced the round-trip by hand: for the shared-variable fixture the emitted row order (`:yin/type` for the root application, then operator, then each lambda with its body, then operator/operand refs, then `:yin/root`) matches `ast->datoms-with-root`'s order exactly, and the `:seen`-set dedup mirrors `ast->datoms-with-root`'s own `seen-eids` dedup (`src/cljc/yin/vm.cljc:551-561`). So the implementation is correct — this is a coverage gap, not a bug — but it is an explicitly named completion criterion that the suite does not assert.
+
+Failure scenario: a future edit to the `:seen`/merge step or to `resolve-name` could break `unresolve` on shared entities and the suite would stay green.
+
+### P3 — `validate-resolved`'s scope walk has no cycle guard
+
+File: `src/cljc/yin/vm/debruijn_resolve.cljc:333-360` (`walk-scope`).
+
+`walk-scope` recurses unconditionally through `:yin/body` and child slots with no `active`/`seen` set. A hand-built cyclic resolved set (e.g. `:application` whose `:yin/operator` points to another `:application` that points back) recurses infinitely and terminates in a stack overflow rather than a clean `{:rule ...}` defect. `resolve` itself never produces cycles (it detects them in `visit!`), but `validate-resolved` is documented as the independent check that every lowerer calls on *possibly hand-built* input, and the design advertises it for exactly that. Cycle detection is not in the section 3.1 validator list, so this is arguably out of the stated contract, but "tree shape" reasonably includes acyclicity.
+
+Failure scenario: `(validate-resolved [[1 :yin/type :application] [1 :yin/root true] [1 :yin/operator 2] [1 :yin/operands []] [2 :yin/type :application] [2 :yin/operator 1] [2 :yin/operands []]] {1 1 2 2})` → unbounded recursion / `StackOverflowError` instead of a defect map.
+
+### P3 — `validate-resolved` does not require child vectors to be present
+
+File: `src/cljc/yin/vm/debruijn_resolve.cljc:363-379` (`collect-refs`) and `:353-358` (`walk-scope`).
+
+For a `:children`-kind slot the code returns `(get-attr e attr)` directly; when the attribute is absent that is `nil`, which both `some` (in `walk-scope`) and `mapcat` (in `collect-refs`) silently skip. So a hand-built `:application` with no `:yin/operands` passes validation, and `lower-stack` would then emit `:call 0` over nil. This is asymmetric with `:child`-kind slots: a missing `:yin/operator` or `:yin/body` yields a `nil` ref that the dangling check does catch (`{:rule :dangling-ref, :ref nil}`). Only reachable via hand-built sets — `resolve` always emits every slot — so minor.
+
+Failure scenario: `[[1 :yin/type :application] [1 :yin/root true] [1 :yin/operator 2] [2 :yin/type :vm/park]]` → no defect, though `:yin/operands` is absent.
+
+### P3 — No fixture exercises the `:yin/macro?` pass-through
+
+Files: `test/yin/vm/debruijn_resolve_test.cljc` (no macro lambda in the corpus), `src/cljc/yin/vm/debruijn_resolve.cljc:144-148` (resolve) and `:481-483` (unresolve).
+
+The pass-through is **correct and necessary**. `ast->datoms-with-root` emits `:yin/macro? true` only when truthy (`src/cljc/yin/vm.cljc:571-572`), and "every other datom carried unchanged" (section 3.1) obliges the resolver to preserve it; the from-scratch reconstruction would otherwise silently drop it. Both directions thread it consistently (`(when macro? …)` with the raw `true`), and `lower-stack` correctly ignores it (the `:closure` instruction carries only arity/body, matching `lower`, which never emits `macro?` into the code image). But nothing in the corpus exercises `:macro? true`, so the round-trip `unresolve(resolve x) = x` for a macro lambda is asserted nowhere. Low risk (the code is trivially symmetric), but a one-line fixture would pin it.
+
+## Items confirmed sound (no finding)
+
+1. **Occurrence memo** — the memo key is truly `[source-eid lexical-context]` at the single mint/lookup site (`debruijn_resolve.cljc:244-251`); `stack` is the complete innermost-first parameter-vector stack, extended only at `:lambda` bodies (`:151`). `:lambda` occurrences are covered (shared lambda under two contexts mints two records, each with its own body). `yin.vm.debruijn-linearize` reads source ids only through the `:source` provenance map (`pc-side-table`, `linearize.cljc:196`), never assuming `rid = source-eid`.
+2. **Cycle detection** — the `active`-set check runs before the memo lookup and before any recursion (`:241-243`), so a cycle is caught before infinite recursion; the diagnostic names `:entity` and `:path`.
+3. **`unresolve` merge-by-source** — sound. The `:seen`-set dedup is safe because the recovered name is a theorem of `resolve-name` (a bound occurrence's owner parameter at the resolved position is the exact source name; a free occurrence's name is the source name), and non-resolution facts are read from the shared source entity, so two records of one entity necessarily translate to equal rows.
+5. **Host-value-rejection parity** — every data operand `lower`'s `emit!` rejects is now checked by `resolve`: `:yin/name`, `:yin/params`, `:yin/op`, `:yin/buffer`, `:yin/prefix`, `:yin/key`, `:yin/value` (literal and store-put), `:yin/parked-id`. `argc`/`tail?` are derived/coerced on both paths, not raw. No data operand is uncovered.
+6. **`:yin/macro?` pass-through** — necessary and correctly threaded both directions (see P3 #4 above for the missing test only).
+
+Facts only.

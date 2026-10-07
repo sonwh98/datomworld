@@ -1,0 +1,29 @@
+# Re-gate review: M4 slice S4 after fix1
+
+Reviewed the uncommitted m4-s4 diff and the untracked manifest test file against my first-gate findings, treating the fix report as untrusted. Read-only; no suites rerun. Copy saved at `/Users/sto/.claude/plans/read-collab-1790433500002-architect-link-hazy-boole.md`.
+
+## Verdict: APPROVE
+
+Every P1 and P2 item is fixed and covered by a test. The P3 docstring item is done. No fail-closed regression.
+
+## Prior findings, item by item
+
+- **P1-1 fixed, tested.** `manifest-defect` now returns a shape defect for any non-map at `src/cljc/yin/vm/linker.cljc:840`. The test at `test/yin/vm/linker_manifest_test.cljc:229` feeds a vector and a string at valid addresses and expects the descriptor defect.
+- **P1-2 fixed, tested.** The default arm at line 1020 refuses `:unresolved-free` with the name and the unknown kind. The assertion at test line 548 exercises it.
+- **P2-1 rename complete.** Profiles are now "stack-lowering" and "register-lowering" at lines 918 and 928. A case-insensitive grep over src, test, and docs for the old identifiers and for "B2 stack lowering" / "R1 register lowering" finds nothing. Docstrings and the spec wording at `docs/design/yin.vm.linker.md:1642` agree, and the spec still fixes no string value.
+- **P2-2 tests added.** Criterion 24 stamp test at test line 292 refuses a "b1" entry with the requester's contract as expected. Record wrong-op and extra-key cases at line 241 match the validator's two arms. The relowering branch test at line 255 throws from both lowerers and asserts the profile and the missing marker exactly as the code emits them.
+- **P2-3 fixed.** The manifest step's evidence at line 640 now reads requester-as-expected, matching step 0, and the stamp test pins the orientation.
+- **P3 items.** The index-merge docstring now says link-local. The name-check contract is documented in the link-manifest docstring. Module export membership stays a carry-over for S3, as agreed.
+
+## Fail-closed and host checks
+
+The discharge restructure keeps the shadow check first for every obligation, routes only kind-bearing obligations to the declared path, and never discharges by presence alone. The verifying policy still refuses on unimplemented profile, refused tree, unrelowerable tree, and identity inequality. No contract stamp is assigned to external input. The one new reader conditional in the test file puts `:cljd` first, so the cljd host pass registers no phantom deftest. The conditional require of the linearize namespace at test line 15 will be emitted as an import on cljd, but the linker already requires that namespace unconditionally, so it exists on every host and the import is only unused.
+
+## P3, optional
+
+- **Nil equality in declared-discharge.** Lines 1011 and 1017 compare obligation profile or manifest address to the receiver's entry, and two nils are equal. Only hand-crafted obligations reach this, since manifest-join always yields validated values and wire obligations carry no kind. Hardening is one `some?` guard per arm.
+- **Require splice form.** House convention for host-only requires is the `#?@(:cljd [] :clj [...])` splice. Harmless here, align when convenient.
+
+The relayed evidence of a clean JVM run and clean lint is consistent with the fix report's per-namespace counts. Node and Dart lanes are deferred to merge per the brief.
+
+**Verdict: APPROVE.** Must-fix list: none.

@@ -1,0 +1,71 @@
+Completed-GMT: 2026-09-26 10:42:30 GMT
+Completed-Local: 2026-09-26 17:42:30 +07
+
+# yin.vm.linker M4 slice S3: require lowering and the install child
+
+S3 is done except the private `:resources` table and the sealed references built on it, which need files outside this slice's allowed set. `(require 'foo)` now links, installs as a child task, and resumes with the module's exports, on all four backends. JVM and Node are both green. The Dart lane was not run, as instructed. Nothing is committed or staged. The full report is at `/Users/sto/workspace/datomworld/collab/1790416871816-vm-engineer-linker-m4-s3-require-install.claude-opus-5-5.report.md`.
+
+## Lane counts
+
+| Lane | Baseline (9428c3d2, before any edit) | Final |
+|---|---|---|
+| JVM | 2,138 tests / 181,890 assertions, 0 failures | 2,160 / 182,332, 0 failures |
+| Node | 2,051 / 48,703, 0 failures | 2,073 / 49,080, 0 failures (new test namespace ran) |
+| Dart | not run | not run |
+
+My baseline assertion counts are a few lower than the prompt's (181,890 against 181,898; 48,703 against 48,706). Kondo reports 0 errors; its 5 warnings are all present at HEAD. Cljstyle is clean. Every added or edited line is ASCII and at most 80 columns.
+
+## What is done
+
+- **`require-handler`:**
+  - A module already in the registry answers at once.
+  - A module that is installing makes the requirer join its waiters.
+  - A miss mints the response cursor first, then builds the `:link-request` entry, then appends the request. Link ids are `[origin counter]`, and a `full` request stream is retried with the same envelope.
+- **Id correlation in `check-wait-set`:**
+  - Each entry polls its own cursor and restores only on its own id.
+  - Other responses are skipped with a `:duplicate`, `:late` or `:unknown` diagnostic.
+  - `abandon-link` raises the reason to the program.
+- **The install child:** it goes through loading, running, parked, validated, linked and refused, and the parent steps it in its own round.
+- **Linking:** `link-module` (in `module.cljc`) and lift/lower with the `:yin.k/binding` and `:yin.k/store-of` markers work on all four kernels. `:require-cycle` is detected over the install ancestry.
+- **Module stores:** `:module-stores`, routing reads and writes to the active module store, saving it in call frames, and clearing it at halt, on all four kernels.
+- **Follow-up (a):** `empty-state` now refuses a registry that binds `yin/def`.
+- **Follow-up (b):** the walker's row decode is memoized safely, as plain data on the VM (`:row-nodes`), so `row-node` is now a lookup.
+- **An S1 bug I found and fixed:** on the register kernel, any entry parked after an `attach-image` was refused as corrupt, because the payload check ran the single-image validator over the whole concatenated code space. The payload now carries the offset table and each image is checked on its own.
+
+## Tests added
+
+The new `test/yin/vm/linker_require_test.cljc` has 19 tests; 17 of them run on every backend through a stub responder. They cover:
+
+- two outstanding requires, a response arriving before the first poll, a transitive require while a third task runs, distinct ids across the root and children, and `:require-cycle`;
+- the module-store block;
+- `:shadowed-free` and `:unresolved-free`;
+- forged resource keys reading nothing, and a fabricated reference export refused as `:yin.k/non-portable`;
+- REPL input after a tail call going to the task's own store;
+- a read applied before its definition keeping its obligation;
+- retry on `full`, duplicate, late and abandoned links, `:export-missing`, loader defects, and `:binding-mismatch`.
+
+I also edited `attach_image_test`, `rule_r_test` and the store-write audit allowlist.
+
+## What is left
+
+- **The private `:resources` table (r8).** Only the link pair lives there. Moving stream handles, cursors and the FFI pair needs edits to `yin.vm.ffi`, `yin.vm.completion` and `dao.await`. None of these is in this slice's file list. Module closures already cannot read engine keys, but top-level task code still can.
+- **Sealed references (r10, r11) and resource lowering (r9).** For now the lift refuses every stream or cursor reference, which is fail-closed.
+- **A `:foreign-image` test.** The code path exists but is untested.
+- **The UCF round-trip of the new wait states.** This is S5 work.
+
+## Deviations
+
+- **No multi-task scheduler exists, so each VM is one task.** `:installs` lives in VM state, and the install children's origins are hierarchical (`:t0.0`).
+- **A task's registry entry holds both forms.** It keeps the portable slice beside its own lowered `:bindings`, plus the origin images so later receivers can attach them without refetching.
+- **Wait entries name the link pair by resource id**, not by stream descriptor.
+- **Where the store context lives:** the named kernels (semantic, walker) carry it in the environment; the positional kernels (stack, register) carry it in a `:store-of` register.
+- **Closure markers also carry `:yin.k/format`.**
+- **Profile equality is checked in the engine**, because the linker's `discharge` checks only that a name is present.
+- **Obligations on modules the manifest requires are left to the child to satisfy.**
+- **`:undeclared-free` is S4's.** The tests expect `:unresolved-free` instead.
+- **A defensive `:module-name-mismatch` guard.**
+- **No `yin.repl` "no active context" assertion.** Halts clear the context on every kernel instead.
+
+Separately, the claude.ai Gmail, Google Calendar and Google Drive connectors need authorizing in your claude.ai connector settings; they were not used here.
+
+Status: BLOCKED - S3 is done except the private :resources table for streams, cursors and the FFI pair (r8) and the sealed references and resource lowering built on it (r9-r11); those need edits to yin.vm.ffi, yin.vm.completion and dao.await, outside this slice's allowed files

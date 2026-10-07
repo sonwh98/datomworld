@@ -1,0 +1,15 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-24 13:24:32 GMT
+Completed-Local: 2026-09-24 20:24:32 +07
+Coding-Agent: glm
+Session-ID: a2749e73-2e44-4716-8a1f-6ad0cc1d82d9
+
+`docs/design/yin.vm.linker.md` is now revision r8: 2,482 lines, pure ASCII, no line over 80 columns, uncommitted. Note: the round-7 findings file was not present in `collab/` (only the reviewer's prompt), so r8 worked from the two items in the task, as r5 did in the same situation; the 13.1 record says so. Each finding, and what r8 did:
+
+**1. PARTIAL — Module-store isolation & private engine resources — agreed; r7's fallback withdrawn.**
+A new **Private engine resources (r8)** block in 7.3 makes the split physical: stream handles, cursor cells, and the FFI pair live in a private `:resources` table in VM state that only the engine's own machinery (wait-set resolution, handle creation and polling, resume) reads and writes — no user store instruction and no `resolve-var` step consults it. This closes the forging vector at its root: `engine/gensym` mints keys from the counter (`:stream-0`, `:cursor-1`), so r7's "fall back to ambient for engine-filed cells" let a linked module emit `[:store-get :stream-0]` and read a host handle it was never handed. Store instructions now have **no ambient fallback at all** — a key the active module store lacks is simply absent — and the ids may stay predictable because they name nothing reachable. Recorded as a UCF 4.1/7.6.2 amendment in criterion 12. The active-context lifecycle is also closed: a tail call that empties the continuation clears the active `:store-of` with the last frame, and the VM admits new top-level input only with no active context (`yin.repl`'s append asserts it), so REPL input after a module closure applied never routes through a stale module store. The Lift bullet's stale handle example was updated to match, criterion 23 gained the forged-key and stale-context cases, M4 gained both tests, and the file box's engine line names the private table.
+
+**2. PARTIAL — Walker lambda node-to-row annotation — agreed.**
+The walker rule now crosses the row id in two named stages, since two machines build the two values: the row decoder annotates each decoded `:lambda` node with its source row id at load (or files a side index `lambda-node -> row id`; the rebuild memoizes one node per row id, so the mapping is unambiguous), and the runtime `:lambda` transition (`ast-walker`'s `case :lambda`, which instantiates `{:type :closure ...}` today) copies the annotation into the closure at evaluation. The lift's verification (body slot + params, `:unrooted-body` on disagreement) and the `[node params]` fallback for fabricated closures are unchanged. Criterion 23 states the two-stage timing.
+
+Section 13.1 carries the r8 record (round 7, grow-only-returns CLOSED noted as no action); r7–r2 shifted to 13.2–13.7. Next step: hand r8 to `gpt-6-sol` for the round-8 consensus review.

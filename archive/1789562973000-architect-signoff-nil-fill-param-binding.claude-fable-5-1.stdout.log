@@ -1,0 +1,43 @@
+Completed-GMT: 2026-09-16 05:51:24 GMT
+Completed-Local: 2026-09-16 12:51:24 +07 (Asia/Ho_Chi_Minh)
+
+# Architect review: nil-fill parameter binding (§7.7.2)
+
+Scope reviewed: the six-file working-tree diff, §7.7.2 of `docs/design/yin.vm.code-as-tuples.md`, the implementer findings, and the adversarial review log. No files were edited. I re-verified the dead-code claim myself and read the helper against the documented rule.
+
+## 1. Does `bind-params` match §7.7.2 exactly?
+
+Yes. The helper zips params against args padded with an infinite tail of nil, then builds a map. That yields exactly the documented contract:
+
+- Every declared parameter name becomes a key, so a missing argument shadows the closure's captured environment and everything below it in the resolution chain.
+- Extra arguments beyond the params list are dropped, since the finite params sequence bounds the zip.
+- Exact-arity calls produce the same map `zipmap` did, so no existing fixture changes meaning.
+
+Nothing more is added: no arity error, no variadic handling, no change to how a bound name is later resolved. That is the correct separation §7.7.2 draws between binding at application and resolving a name to a value.
+
+## 2. The two fixed-but-untested sites in dead code
+
+Leaving them as-is is the right call. Adding a "this is unverified dead code" comment would be scope creep for this unit, and it would be the wrong kind of comment anyway: it attaches a maintenance obligation to code whose proper fate is deletion or activation with its own branch tests. The substitution is mechanical and preserves merge order and control flow, and the same helper is exercised on the live path and in unit tests. The adversarial reviewer's condition stands: if the hot loop is ever activated, it needs branch tests first. That belongs in the activation unit, not here.
+
+## 3. Standard evaluation
+
+**Invariants and boundaries.** Binding semantics now live in one place in `engine.cljc`, which both evaluators share. That is the correct owner. `:variable` and `:var` resolution are byte-for-byte unchanged, and no `:global` arm is present. The "peer observers, one stream" invariant is untouched.
+
+**Explicit state and control flow.** The change is a pure function substitution. No new state, no new control path.
+
+**Host portability.** The helper uses only core sequence functions with no reader conditionals, so it carries no new CLJD risk. The CLJD gate remains the same outstanding item as the two prior units tonight and is not made worse by this diff.
+
+**Migration risk.** Low. The implementer and reviewer both searched for fixtures that depended on under-arity fallthrough and found none, and the reviewer's revert probe showed the new tests are load-bearing.
+
+**Contract closure.** With the `:variable`/`:global` half landed in the three earlier commits and this half in the diff, §7.7.2 is fully implemented for the v2 evaluators the section names.
+
+## Nonblocking findings
+
+1. **The v1 evaluator still uses `zipmap` and is still live.** The three sites in `src/cljc/yin/vm/ast_walker.cljc` are unchanged, and that namespace is required by the REPL and by `dao.await`. §7.7.2 cites only v2 line numbers, so this diff is correct as written. But two live evaluators now disagree on under-arity binding. Decide in a follow-up whether to port the helper to v1 or to record v1 as frozen.
+2. **The test-only reference evaluator in `linearize_test.cljc` still uses `zipmap`.** Its fixtures are exact-arity, so nothing is wrong today, but it is not a valid oracle for under-arity programs until updated.
+3. **Allocation on the live path.** The JFR analysis attributes a sizeable share of semantic-bench allocation to `zipmap` map entries. The new helper adds lazy sequence overhead on top of that. This is acceptable under "do not optimize prematurely" and should be folded into the §6.4 optimization pass rather than addressed here.
+4. **Doc drift.** The walker walkthrough in `src/cljc/yin/vm/docs/ast.md` still shows the `zipmap` form, and §7.7.2's prose still describes the fix in the future tense. Worth a small docs commit.
+
+## Verdict
+
+**APPROVE-WITH-FINDINGS (nonblocking).** The diff is correct against §7.7.2, minimal, and safe to commit. The four items above are follow-ups, none of which should hold this unit.

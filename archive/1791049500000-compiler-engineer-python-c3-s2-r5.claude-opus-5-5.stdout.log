@@ -1,0 +1,84 @@
+Completed-GMT: 2026-10-03 17:45:50 GMT
+Completed-Local: 2026-10-04 00:45:50 +07
+Coding-Agent: claude
+Session-ID: 65b24574-4b26-45d4-993a-cfccf0b2604a
+
+# C3-S2 round 5: items A–E done on master a932bb55
+
+All five items are done, apart from optional test C5, and every focused test passes. I ran no git write commands. The git index still shows `float_address_test.cljc` as unmerged (`UU`) and three other files as `MM`, so whoever commits must `git add` them.
+
+## Item A: conflict markers
+Removed from `float_address_test.cljc`, keeping the upstream side. My round-4 edits in that file were outside the conflict hunks and survived.
+
+## Item B: docs (`yang.antlr.md`)
+1. The §8.5.5 implementation paragraph now names two data exports, `float64` and `float-value`. `numeric-key` appears only in the historical dict-key paragraph.
+2. The §8.5.4 NaN bullet gains three things:
+   - the equivalence-class sentence, word for word;
+   - the three cases in Python terms, described as the float-identity departure in the same family as ruling 8's `is`, with tuples inheriting it through `:py/tuple-key`;
+   - the `exact-key` clause, rewritten to say it is a storage-layer helper, not the guest key contract.
+3. The sentence near line 2130 now reads as you specified.
+4. A new "Known limits" bullet in §8.5.4:
+   - integer keys longer than `::max-digits` are refused;
+   - float keys need integer-module limits of at least 1075 bits and 324 digits;
+   - under smaller limits a key is refused, never approximated.
+
+   It also states plainly that the prelude does not yet turn integer-module refusals into guest exceptions, so today such a refusal fails the run.
+
+## Item C: portable tests (`prelude_parity_test.cljc`, all four VMs)
+- **C1:** a new key-arms test that goes through `py/key`, not `py/hash`.
+  - Identity objects stay distinct keys: two classes, a generator and the `len` function.
+  - Lists, dicts, sets and tuples containing them raise TypeError.
+  - Set deduplication keeps the first original key: `[1, 1.0, True, 2]` gives keys `[1, 2]`, and `[True, 1, 1.0]` gives `[True]`.
+- **C2:** a new NaN test using three independently produced NaNs: `inf - inf`, `0 * inf`, and a decoded canonical Jing NaN.
+  - Each NaN finds the entry stored under another, and reinsertion leaves one entry.
+  - A set holding NaNs has length 1, and membership works through all three.
+  - Tuple keys containing different NaNs match.
+  - A test comment says a "same object" case can't be tested, because floats here have no object identity.
+- **C3:** four boundary cases, both key and hash, checked against CPython: maximum finite, negative smallest subnormal, smallest normal, and largest subnormal.
+- **C4:** fable's integer `-0` was a real bug, now fixed in the prelude.
+  - On JS, `(* -1 0)` gives `-0`, which the integer module rejects, so keying or hashing it would fail.
+  - A new `py/int-canon`, `(if (= n 0) 0 n)`, now runs in `py/key`'s integer branch and in `py/hash`.
+  - I didn't use `(+ n 0)` because `+` throws when the other value is a JS or Dart BigInt.
+  - I ran no Node tests this round, so the JS behaviour is checked by reasoning only.
+- **C5 (optional): not done.** A small-limit test today could only pin a host-level refusal, not the guest exception the rulings call for; that mapping isn't implemented yet.
+- **C6:** two lookups now pin the edge of the range fast path's guard:
+  - index 2^26 takes the fast path and returns 67108864;
+  - index 2^26 + 1 falls through to `range-elem`.
+
+  I changed the stub's sentinel from a keyword to the number −12345. `range-at` compares the stub's result with `stop`, and comparing a keyword throws on the JVM but not on JS.
+
+**Bug found in my earlier test.** In prelude notation a vector literal is data and its contents are never evaluated. So my round-3 tuple case `(py/tuple [1 two-53+1])` was comparing two quoted forms and proved nothing. It now builds its vectors with `py/conj`, as do all the new tests, and it passes.
+
+## Item D: `py/hash` comment
+The comment now covers the fourth case. A tuple is a valid key through `py/key`, but `hash()` of a tuple, a string or ±inf is not yet supported (NotImplementedError).
+
+## Item E: re-minted goldens (done last)
+
+| Golden | Old | New |
+|---|---|---|
+| Prelude root | 3d287776… | d99d4805… |
+| A | 38e17ba2… | d9185a98… |
+| A′ | 270bc081… | b3a62d04… |
+| Record address | 88d5972b… | 48586d14… |
+| Prelude subtree (`prelude-id`) | 9eb6ff93… | 306f688f… |
+
+- **Unchanged:** the hook-prelude golden (76e1cfe8…) and the `dict-keys-test` canonical bytes.
+- **Diff against HEAD:** `git diff HEAD` on the file shows those five lines plus my round-4 changes to it: the integer-module require and registration, and the `dict-keys-test` re-pin. HEAD is master, which never had those, so the diff can't show only the golden lines.
+
+## Focused runs (JVM only)
+
+| Run | Result |
+|---|---|
+| `prelude-parity-test` | 16 tests, 64 assertions, 0 failures |
+| `float-address-test` (after re-mint) | 12 tests, 105 assertions, 0 failures |
+| `data-test` and `lower-test` | 48 tests, 469 assertions, 0 failures |
+| The 4 numeric-key e2e programs | 4 tests, 48 assertions, 0 failures |
+| `e2e-c2-test` with `-e :slow` | 15 tests, 75 assertions, 0 failures |
+| kondo and cljstyle on the 3 source/test files changed this round | 0 errors, 0 warnings; clean |
+
+## Recorded only (out of scope)
+- `py/is` on floats behaves differently per host for NaN and signed zero (fable).
+- The cost of repeatedly decomposing subnormal floats hasn't been measured (astra).
+- The digit limit on integer keys is listed as a known limit; no decision has been made (fable).
+
+The Round 5 section is appended to `collab/1791045188000-compiler-engineer-python-c3-s2-r4.claude-opus-5-5.findings.md`.

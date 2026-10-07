@@ -1,0 +1,22 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+The adversarial review is complete and written to the plan file. Since `ExitPlanMode` is disabled in this session, here are the findings directly.
+
+## Verdict: **Not ready to brief an implementer** — two findings each independently red a phase.
+
+I read the plan against all three sources, `dao.stream`/`memory-log`/`v2.ringbuffer`, the v1 `dao.stream`, the contract, and the four test files. I'm not restating the four r3-review corrections already folded into r4. Four findings, ranked.
+
+### F1 — blocks — `schema/transact!`'s return shape ripples through D3; ~25 `schema_test` assertions break
+D3 changes the transactor receipt to `{:dao.stream/outcome … :dao.space/t … :dao.space/datoms …}`, and `schema/transact!` returns it **verbatim** (`schema.cljc:1112-1114`). The plan applies its own "don't silently change a v1 public result in schema" principle to `close!` (`{:woke []}`, D8) but **not** to `transact!` — the far more asserted result. This is the fourth "rule generalized from one instance" the brief predicted.
+
+Breaks (all → `nil`): `schema_test.cljc:708,709` (`:result`/`:t`), `:712,777,805,840,857,937,941,973,1003,1061,1230,1657,1789,1839,1841` (`:result`), `:1215,1265,1763` (`:t`), `:1678,1822` (`:datoms`). §4.6 #3 even specifies the **non-ok** return without noticing the **ok** return changes shape. §9's "three lanes green" fails the moment Phase 2 lands. Fix: re-wrap the receipt to `{:result :ok :t t :datoms ds}` (same move as `close!`), or migrate the assertions.
+
+### F2 — blocks — `stigmergy_test.clj` migration is unaccounted, and its `sources` helper calls the v1 published adapter Phase 3 deletes
+§10 cites `stigmergy_test` as end-to-end proof but specifies no edit set and no residue grep. §4.4's only mention is wrong: "stigmergy_test:106's agent local" — `:106` is the **transactor** open. Unlisted sites: `:103` (local ringbuffer), `:106` (→`transactor/create!`), `:118` (`ds/->seq`), and **`:176-178` `sources`** — `(ds/open! source)` on an `index/published-index` coordinate, the **eleventh** v1 published-adapter read path, which breaks when Phase 3 deletes `ds/defopen :dao.space.index/published`. Every scenario in the file calls `sources`.
+
+### F3 — should fix — residual-risk overclaims undetectability
+§8/T18's "no runtime check will catch [it]" is false twice over: (1) `stream/descriptor` exposes `:dao.stream/type`, so a type check catches a ring buffer today — and `dao.space` already does this class of check (`:dao.jing/type`); (2) the contract's *Complete history* names the **kept origin cursor** as the detection mechanism. §8 should say "detectable but deliberately not checked, because a type check couples `dao.space` to `memory-log` and rejects future correct transports" — not "undetectable."
+
+### F4 — should fix — totality throw loses its only test
+§7 deletes the gap test and §4.4's three `MalformedResultStream` sub-cases cover only *malformed* results. D6's "not a complete-retention transport" throw for a **well-formed** `gap`/`cursor-mismatch` is now pinned by nothing. The exclusion principle forbids an overflowing-ring-buffer *transport* fixture, not a stateful *double* returning a conforming `gap` — add that one sub-case.
+
+**Checked sound:** D6's loop (validate-before-interpret), W38–W41 through `PublishedSchemaRows`, the seven-vs-eight accounting, and Phase 2's compile-closure — no deadlock or interleaving bug found beyond the documented T6.

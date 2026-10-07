@@ -1,0 +1,55 @@
+Completed-GMT: 2026-09-21 08:28:42 GMT
+Completed-Local: 2026-09-21 15:28:42 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: 69f82e15-85c9-4754-a273-a5f4ad68d932
+
+Both glm P3 fixes are in and all five D6 matrix items have tests; the focused JVM and CLJS runs pass. The new tests found one real defect, outside my box and not in `debruijn.cljc`: on CLJS the file store silently turns `-0.0` into `0`. Details are at the end.
+
+I edited only `pipeline.cljc`, `pipeline_test.cljc` and `debruijn_test.cljc`; `debruijn.cljc` needed no change. Nothing is staged or committed.
+
+## A. glm P3 fixes in `pipeline.cljc` (both checked against the code first)
+
+- **glm P3-1:** `persist-projected!` now builds the envelope inside the first `try`, next to `project-datoms`, so a failure there is classified by `exception-diagnostic`. The store `try` only receives the finished value.
+  - New test `envelope-build-defects-are-internal-errors-not-write-failures` makes `projected->datoms` throw `:missing-record`. The result is `:projected {:outcome :internal-error}` rather than `:projected-write-failed`, the named side is still `:ok`, and the store is never called.
+- **glm P3-2:** I took the smaller option: `framing-defect` returns `{:rule (:rule diagnostic)}` in both branches. An internal failure in the gate is still reported as `:rejected`, but it now carries only `:rule :internal-error`, with no extra data.
+  - It was cheap to test: `a-framing-gate-defect-rejects-with-its-rule-only` makes `frame-datoms` throw a plain host error. The result is `{:outcome :rejected, :rule :internal-error}`, and neither the writer nor the store is touched.
+- Both tests use `with-redefs` and are skipped on CLJD with `#?(:cljd nil :default …)`, the same technique as the earlier internal-error test.
+
+## B. D6 matrix tests
+
+- **In `debruijn_test`:**
+  - **B1:** zero-, one- and two-parameter lambdas over the same body have distinct fingerprints (arities 0, 1, 2). `[a]` matches `[x]` and `[a b]` matches `[x y]`; a twin with a different arity does not match.
+  - **B2:** `(lam '[x y] (v 'x))` resolves to `[0 0]` and `(lam '[y x] (v 'x))` to `[0 1]`, with distinct fingerprints. Both equivalences from the brief hold.
+  - **B3:** `:stream/cursor`, `:stream/next` and `:stream/close` over one source are pairwise distinct. A `:stream/put` with target and value swapped has a different fingerprint.
+  - **B4:** `:vm/current-continuation`, `:vm/park` and a literal are pairwise distinct. Each is stable under repeated projection and reversed input, and the two markers stay distinct as subterms.
+- **B5, in `pipeline_test`:** new test `every-node-type-and-scalar-class-round-trips-through-durable-storage`.
+  - It writes two programs through the real file store, then closes and reopens it.
+  - Between them the programs cover every node type the emitter produces, including a macro lambda as an operand. They also cover nil, both booleans, a decomposed-NFC string, int, integral double, non-integral double, keyword, symbol, vector, list, set and map.
+  - After reopening, `datoms->projected` on each program equals the original projection's fingerprint and records.
+
+## Finding: `-0.0` is lost by the file store on CLJS
+
+- **What happened:** the first CLJS run failed in B5 with `:hash-mismatch`. The only difference from the final run is that the fixture then included `(lit -0.0)`, which I had added beyond the brief's list. Taking it out made CLJS pass, so the lost `-0.0` is the cause, though the mechanism below is inferred, not directly checked.
+- **Cause:** CLJS prints `-0.0` as `"0"`, so `dao.jing.file`'s EDN codec turns it into `0`. The file store's own round-trip check uses jing's print-based hash, which prints both values the same way, so it doesn't notice. The projected reader recomputes the Merkle hash and correctly refuses the record.
+- **Where it lives:** in `dao.jing.file` and jing's print-based hash, both outside this box. `debruijn.cljc` behaves correctly here, so I didn't change it.
+- **How I handled it:**
+  - I moved `-0.0` out of B5 and added `negative-zero-does-not-survive-the-file-codec-on-cljs`.
+  - That test checks on every host that the round trip is either exact or refused with `:hash-mismatch`.
+  - On JVM and CLJD it also requires the round trip to be exact. On CLJD that part is unverified: Dart should print `-0.0` correctly, but I didn't run it.
+  - The test does not require the corruption to happen on CLJS, so fixing jing won't break it.
+- **For the owner:** someone should decide whether jing's print-based hash and the file store's EDN codec need a fix for negative zero, and likely any other value that CLJS prints lossily.
+
+## Verification
+
+| Command | Result |
+|---|---|
+| `clojure -M:test -n yin.vm.debruijn-test -n yin.vm.pipeline-test` | 96 tests, 444 assertions, 0 failures, 0 errors (baseline 88 / 412) |
+| `bb test:cljs`, first run | 1572 / 39084, 1 error: the `-0.0` finding above |
+| `bb test:cljs`, final run | 1573 / 39085, 0 failures, 0 errors (baseline 1565 / 39054); both namespaces appear |
+
+As instructed, I didn't run kondo, cljstyle, the Java-17 lane, CLJD or the env block. Both lanes ran on Java 21 from PATH, as before.
+
+## Deviations from the brief
+
+1. **`-0.0` handling:** instead of including it in B5, I put it in its own host-neutral test and moved it out of B5's fixture. The brief's scalar list did not include `-0.0`, so B5 still covers every class the brief asked for.
+2. **P3-2 choice:** I chose the smaller diff, rule-only in both branches, over a separate outcome for internal gate defects. An internal gate defect therefore still appears as `:rejected`, but its rule says `:internal-error`.

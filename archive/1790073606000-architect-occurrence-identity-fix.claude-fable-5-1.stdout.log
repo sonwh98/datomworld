@@ -1,0 +1,28 @@
+Completed-GMT: 2026-09-22 10:04:29 GMT
+Completed-Local: 2026-09-22 17:04:29 +07 (Indochina Time)
+
+Both documents are edited and pass the width and ASCII checks. The only non-ASCII characters in the stack doc are the pre-existing section signs in its section 1 table.
+
+**One limit on verification.** The B2 worktree is outside this sandbox's allowed directories, and every route to it was denied: the Read tool, shell reads, and git from this repo, since the resolver file is uncommitted on that branch. I could not read the resolver's node visitor. The prompt's own verified description is that it has no eid handling and visits a shared entity once per reference. Given the bang-suffixed visitor name and the emitter pattern the rest of this codebase uses, the likely outcome is both fact sets appended to the output, so an incoherent duplicated-attribute record rather than last-write-wins. That reading is unconfirmed and the implementer should verify it.
+
+**Approach chosen: occurrence-indexed identity.** An occurrence is the pair of source entity and complete innermost-first parameter-vector stack, exactly the dormant projection's memo key, which already faces this same graph and handles it correctly. The resolver mints one record per distinct occurrence with a fresh deterministic id in first-visit order, shares it across references under equal contexts, and refuses cycles. Provenance moves to a side table. I rejected mandatory pre-expansion because it turns the graph into a tree for no benefit: both lowerers already expand occurrences positionally at distinct program counters, so the resolver gains nothing by doing it earlier, and the memo keeps the linear-size sharing the projection's doubling-chain test exists to protect. The named linearizer needs no change: it visits per reference and resolves nothing.
+
+**Stack design changes**
+
+- Section 3.1 rewritten. It now states why entity-keyed resolution is unsound, cites the existing shared-node fixture, defines occurrence, minting, sharing, and cycle refusal. The side table becomes two maps: source provenance per record and parameter vectors per resolved lambda. Binder names appear nowhere in the tuples, including ids. It defines the exported `validate-resolved` and its checks, and the inverse's merge-by-source rule.
+- Section 3.2 now has the stack lowerer call `validate-resolved` first, expand occurrences positionally, and read provenance through the side table so `:source` per pc still matches the named linearizer. It adds the lift trust rule as contract text.
+- The B2 box's resolver completion criteria gain cycle refusal and four shared-occurrence fixtures. This is section 6, outside the stated box, but the prompt asked for the completion criteria and the register doc now cites them.
+
+**Register design changes**
+
+- Section 1.1 drops the biconditional and states one-directional determinism only.
+- Section 2.1 defers to the stack design's 3.1 as normative and restates the occurrence model, side-table shape, and shared `validate-resolved`.
+- Section 2.2's address law now expands occurrences and includes the shared-occurrence fixtures.
+- Section 3's lift paragraph carries the trust rule: synthesized names by default, a supplied table only after arity validation, capture-freedom, and a byte-for-byte round trip.
+- Section 4.1 calls `validate-resolved` unconditionally, replaces the tree assumption with expression records and positional occurrence expansion. Sections 4.3 and R1 lose their remaining "tree" wording.
+
+**B2 implementation impact: a bounded change, not a re-implementation.** The resolver needs the occurrence memo, fresh deterministic ids with a provenance map, cycle refusal, the exported validator, and the inverse's merge step. The stack lowerer changes only where it reads source ids, now through the provenance map, and gains the validator call at entry. The flattening walk, lift, structural comparison, and every emitted byte are unchanged.
+
+**Should-fix findings.** All three folded in. The validator seam is the exported `validate-resolved` called by both lowerers. The biconditional is removed. The lift trust rule is now stated in both documents and matches what the B2 box's completion criteria already required, plus the arity and capture-freedom conditions the criteria did not spell out.
+
+**Needing the owner.** Nothing blocks. Two notes: the B2 implementer should be redispatched against the corrected 3.1 and 3.2, and the sign-off's other blocking finding on the engine document's wait-entry projection is outside my box this turn and untouched.

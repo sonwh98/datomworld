@@ -1,0 +1,17 @@
+I fixed both review findings in `linearize.cljc` and added regression tests. The linearize tests pass on JVM and Node (14 tests, 432 assertions each), but I couldn't run them on Dart: the command needed approval I can't get in this session.
+
+**1. [P1] Host functions hidden in metadata**
+- Lowering now checks a value's metadata the same way it checks the value, all the way down. `(with-meta {:x 1} {:host inc})` is rejected, and the error names the node and the attribute.
+- I chose to reject rather than strip, so plain metadata like `{:line 3}` still passes through.
+- New tests cover a host function in metadata on a whole literal, on a nested element, and in the metadata of metadata. Another test checks that plain metadata is kept.
+
+**2. [P2] ID validation**
+- **`false` and `nil`:** a supplied `:id-start` is now checked as given, so these throw instead of quietly getting the default. `:t` had the same `or` bug, so a non-integer `:t` now throws too.
+- **Numeric limits:** every ID in a segment must now be at or above `-9007199254740991`, the lowest integer JS stores exactly. The check doesn't do any inexact arithmetic, so it gives the same answer on all three hosts. This also covers the default `:id-start` when an input entity already sits at that limit, and oversized JVM values, which used to overflow.
+- New tests check that a range ending exactly at the limit is accepted with distinct IDs. Ranges crossing it (including `-9007199254740992`) are rejected, as is the default range below an input entity at the limit.
+
+**Test runs**
+- **Full Node build:** it currently fails to compile. The cause is `src/cljc/yin/vm/semantic.cljc`, an untracked file from the other agent's phase-1 task, which has unbalanced parens at line 702. My code doesn't use that file, so I ran a Node build limited to `linearize-test`. That build wrote over `target/node-tests.js`; the next full build restores it.
+- **Dart still needs a run:** `clojure -M:cljd test yin.vm.linearize-test`. The boundary cases matter most there.
+
+Nothing is committed.

@@ -1,0 +1,66 @@
+Created-GMT: 2026-10-03 17:45:00 GMT
+Created-Local: 2026-10-04 00:45:00 +07 (+0700)
+Coding-Agent: claude
+Session-ID: 65b24574-4b26-45d4-993a-cfccf0b2604a (resume of the C3-S2 engineer session)
+
+# Task: C3-S2 round 5 — gate findings, the architects' NaN ruling, and the post-rebase goldens
+
+Role: Yang Compiler and Universal AST Engineer
+
+Implementers:
+- Model: claude-opus-5-5 | Assigned: 2026-10-04 00:45 +07 | Status: active | Rationale: resume of the C3-S2 engineer; one consolidated round after two independent gates and an architect ruling
+
+Work in /Users/sto/workspace/datomworld-py-c3key1 (branch yang-python-c3-s2). The orchestrator REBASED your worktree onto master a932bb55 (the
+landed range fast path) and re-applied your diff. Backups: ../datomworld-py-c3key1.prerebase2.patch and a git stash c3s2-prerebase2. You cannot run
+git write commands: do NOT stash, checkout, rebase, reset, commit or stage. One conflict remains: test/yang/python/antlr/float_address_test.cljc (the
+five+one content-address goldens; both the range fix and your change re-minted them, so neither side is right: re-mint at the END, item E).
+
+## Inputs (read the reports; they are evidence, your own checking still applies)
+- sol gate: collab/1791047946000-reviewer-python-c3s2-gate.gpt-6.1-sol.stdout.log (JSONL; last agent_message) -> P2 + P3 below
+- glm gate: collab/1791047946000-reviewer-python-c3s2-gate.glm-5.3-flash.stdout.log -> P2 + 2 P3s below (it recomputed your keys and hashes against CPython: all matched)
+- architects (fable and astra, both APPROVE the one shared NaN key and amend the earlier ruling): collab/1791047919000-architect-c3s2-nan-key.claude-fable-5-1.stdout.log
+  and ...gpt-6-astra.stdout.log (JSONL; last agent_message). Copies are staged in this worktree's collab/ directory under the same names.
+
+## Work items (all required unless marked optional)
+
+A. float_address_test.cljc: remove the conflict markers keeping either side (the real values come in item E).
+
+B. DOCS (docs/design/yang.antlr.md):
+   1. 8.5.5 implementation paragraph (~2270-2274) still says three data exports including `numeric-key`: rewrite to the two surviving exports (`float64`, `float-value`); keep the
+      retired API explanation only in the historical dict-key paragraph (~2290-2296).
+   2. 8.5.4 NaN bullet: ADD (a) "For dict/set key normalization, all NaNs belong to one equivalence class, recursively inside tuple keys; this does not change numeric comparison
+      semantics. Reinsertion retains the first stored key and updates its value." (b) the three observable cases in Python terms: `d[x]` works as in CPython; `d[float('nan')]` returns the entry
+      where CPython raises KeyError; `len({nan, nan2})` is 1 where CPython gives 2; and say it is the float-identity departure, the same family as ruling 8's value-based `is`, and that a tuple
+      containing NaN inherits it through `:py/tuple-key`. (c) fix or drop "Jing's private `exact-key` has a similar shape and is not reused": its old reason (it collapses NaN) no longer distinguishes it.
+   3. The sentence near ~2130 ("NaN key identity ... not claimed by C3") -> "CPython NaN object-identity fidelity remains unsupported; deterministic NaN key behavior is now specified."
+   4. Record two known limits in 8.4/8.5.4 (do not fix them): integer dict/set keys past the integer module's digit limit (::max-digits, base 10 formatting) are refused, which CPython does not do for
+      hashing; and the minimum subnormal's key needs a 1075-bit denominator, so a composition's integer-module limits must be at least 1075 bits / 324 digits for float keys (smaller limits must give the
+      documented guest failure, never an approximate key).
+
+C. TESTS, portable (prelude_parity_test.cljc, all four VMs, runs on JVM/Node/Dart):
+   1. (sol P2) The preserved key arms must be exercised through `py/key` (set/dict insertion), not through `py/hash`: identity objects (cells) as keys stay distinct; list, dict and set keys and tuples
+      containing them raise the TypeError; numeric set deduplication keeps the FIRST original key.
+   2. (architects) NaN: insert `x -> 1` and look up through the same x; an independently produced `y = NaN` finds it and `y -> 2` leaves one entry; a set of both has length 1 and membership works through
+      either; tuple keys containing independently produced NaNs match; include a decoded canonical NaN (cbor decode of float64 NaN) in the lookup coverage. A "same object" case is not testable (no object
+      identity); say so in a test comment.
+   3. (astra) boundary fixtures: maximum finite binary64, negative minimum subnormal, the normal/subnormal transition.
+   4. (fable) an integer `-0` on JS (for example from `(* -1 0)`) reaching the int arm keys as "0".
+   5. (optional, if cheap) with a deliberately small integer-module limit, keying the minimum subnormal gives the documented guest failure on every VM (never an approximate key).
+   6. (glm, carried over from the range-fix gate) in the same file, next to `range-fast-path-on-every-host-test`, under the SAME stubbed prelude add two O(1) lookups that pin the guard edge behaviorally:
+      `(py/range-at (py/range3 0 67108865 1) 67108864)` = 67108864 (fast path, no sentinel) and `(py/range-at (py/range3 0 67108866 1) 67108865)` enters `py/range-elem` (the sentinel), so a guard widened
+      past the ruled bound fails on all four VMs. Adapt names to the existing test's structure.
+
+D. (glm P3) prelude.cljc ~1350-1356 `py/hash` comment: name the fourth arm: a tuple is a valid dict key through `py/key` but `hash()` of it, of strings and of +-inf, is not yet supported (NotImplementedError).
+
+E. LAST: re-mint the goldens. After A-D are done run `clojure -M:test -n yang.python.antlr.float-address-test`; the prelude-derived goldens (prelude root, A, A', record-address, prelude-id, and your
+   `dict-keys-test` canonical-bytes golden) fail with new actual values: write them in, same `:segment/blake3-...` form; confirm the hook-prelude golden is unchanged and `git diff HEAD -- the file` shows only
+   those lines.
+
+## Lanes and rules
+- FOCUSED runs only: float-address-test, prelude-parity-test, data-test (yin.vm.data-test), e2e-test (the numeric-key programs), e2e-c2-test (`-e :slow`), lower-test. Do NOT run the full lanes or Dart: the orchestrator runs them.
+- kondo 0 errors; `cljstyle fix` then `check` via mise on changed files (run directly, not through a piped loop).
+- Out of scope, record only in your report: `py/is` on floats has host-dependent NaN and signed-zero behavior (fable); the interpreted cost of repeated float decomposition for subnormals (astra); the
+  integer-key digit-limit decision (fable).
+
+Append a 'Round 5' section to your findings file (collab/1791045188000-compiler-engineer-python-c3-s2-r4.claude-opus-5-5.findings.md): what you changed per item, the old->new goldens, focused counts.
+Begin the final response with Completed-GMT / Completed-Local / Coding-Agent / Session-ID as before. Do not claim edits or runs that did not occur.

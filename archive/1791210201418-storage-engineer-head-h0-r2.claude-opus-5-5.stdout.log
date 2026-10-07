@@ -1,0 +1,43 @@
+Completed-GMT: 2026-10-05 14:27:26 GMT
+Completed-Local: 2026-10-05 21:27:26 +07
+Coding-Agent: claude
+Session-ID: c7244636-7620-475e-b23a-a591106058b2
+
+The hydration test is in `test/yin/repl/dht_test.cljc` and passes on the JVM. All three cases behaved as the Architect's ruling says.
+
+## What I added (only in that file)
+- **Require:** `[yin.vm.linker.head :as head]` in the ns form.
+- **Helper `recorded-dht-store`:** opens the store with `repl.dht/open` and records each HEAD write after it succeeds. It wraps two places:
+  - the handle's `:head-fn`, which a round's publish uses;
+  - `[:dht :composition :local :head-fn]`, the node's local store, which hydration uses (`yin/repl/dht.cljc:208` calls `(:head-fn (dht/local node))`).
+
+  Wrapping only the handle, as `head_test`'s `recording` does, would miss the hydration write. This helper reaches into the node's internal map (`dao/space/dht.cljc:369-372`).
+- **Test `hydration-is-a-directory-s-first-head-write-at-its-own-sequence`:** a publisher, a mesh peer, and a reader hydrating into an empty directory. No existing test was changed.
+
+## Commands and outcomes
+- `clj -M:test -n yin.repl.dht-test -n yin.vm.linker.head-test -n yin.vm.linker.sign-test`: **54 tests, 529 assertions, 0 failures, 0 errors.** The new test adds 14 assertions.
+  - The first run had 1 error, in my test setup: `store.cljc:164` refuses a `:manifest` with no peer. I fixed it by giving every reopen the (closed) publisher as a peer.
+- `clj -M:kondo --lint test/yin/repl/dht_test.cljc`: **0 errors, 0 warnings.**
+- No Node or Dart runs and no git commands.
+
+## The three cases
+1. **No HEAD.** As ruled:
+   - After hydration exactly one HEAD write is recorded, the hydrated manifest.
+   - `seq-of` of the reader's `:index-recovery :datoms` equals `seq-of` of the publisher's index.
+   - One later round writes a second HEAD whose sequence is exactly one greater.
+   - A trace of the hydrated manifest at the floor is `:duplicate`, and the next round's trace is `:candidate`.
+
+   The ordering differs from the spec: that round runs in the reader reopened for case 2, not the original session. I did this so case 2 reopens with the manifest HEAD still names. The `heads` record is shared across the reopen.
+2. **Same manifest.** As ruled:
+   - The reader is admitting at once.
+   - `space.dht/load-status` for the manifest is `nil`, so no load started.
+   - No HEAD write is recorded.
+
+   This matches the correction: `open` sets `::hydrating` only when the manifest differs from the recovered one (`yin/repl/dht.cljc:78-82`).
+3. **Different manifest.** As ruled:
+   - `open` throws with a message naming the HEAD the directory holds (`refused-head`, `yin/repl/dht.cljc:46-53, 68-70`).
+   - HEAD on disk is unchanged, and the count of recorded HEAD writes stays 2.
+   - The directory opens again afterwards and is closed, so the lock was released.
+
+## Unresolved
+- Node and Dart are untested for this case; it's written portably and is for your landing lanes.

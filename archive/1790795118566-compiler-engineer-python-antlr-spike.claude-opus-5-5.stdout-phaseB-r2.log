@@ -1,0 +1,67 @@
+Completed-GMT: 2026-10-01 06:01:37 GMT
+Completed-Local: 2026-10-01 13:01:37 +07
+Coding-Agent: claude
+Session-ID: 976059c2-629b-4b91-8b63-7c4d9604d7cf
+
+# Python ANTLR spike: Phase B round 2
+
+All five round-2 items are done, and every check I could run is green. Two things are still unverified: the CLJD fixes (I did not run that lane, per the brief) and cljstyle, which this session is not permitted to run. Nothing is staged or committed.
+
+The report with this round appended as "Phase B round 2" is `/Users/sto/workspace/datomworld-py-spike/collab/1790795118566-compiler-engineer-python-antlr-spike.claude-opus-5-5.report.md`. The full Phase A and Phase B text is above that section in the same file.
+
+## What changed
+
+**1. CLJD compile failure.** The cause was a float-literal map in `lower.cljc` whose reader conditional had no `:cljd` branch, so on CLJD it read as nothing and left the map with an odd number of forms. I checked every `.cljc` I added and found eight conditionals missing a `:cljd` branch; none had one out of order. Each now has a `:cljd` branch first, using idioms the repo already uses:
+- **`lower.cljc`:** the float literal (`double/parse`), the code-point-to-string helper (`StringBuffer` `.writeCharCode`), and the stage's exception catch (`Object`; anything without a diagnostic is still rethrown).
+- **`render.cljc`:** the integral check (`.floor`), the NaN check (`.-isNaN`), and integral float text (`.toInt`, since Dart's `str` of `2.0` is already `"2.0"`).
+- **The two portable tests:** their catches (`Object`).
+- I also replaced `abs` in `render.cljc` with a range check, so it doesn't depend on `cljd.core` providing `abs`.
+- `packet`, `stage`, `uast` and `scope` contain no reader conditionals.
+
+**2. P1, builtin fallback.** Every read of a builtin name now goes through a new prelude function, `py/global-or`: the module's binding if present, otherwise the builtin. A new e2e test, `print(len([])); len = 1; print(len)` plus a function reading `len`, prints `0 / 1 / 1` on all four VMs.
+
+**3. P2, class-body reads.** A class-body read of a name the body assigns now checks the class namespace as it is at that moment, then falls back to globals and builtins. The fallback only runs on a miss, so a missing global raises NameError only when actually reached. A new e2e test, `x = 1`, then a class body that prints `x`, sets `x = 2` and prints it again, then `print(x, C.x)`, prints `1 / 2 / 1 2` on all four VMs.
+
+**4. Owner decision "Vendor .g4 only".**
+- `Python3Lexer.g4` and `Python3Parser.g4` are now committed-ready in `antlr/python3/`, byte-for-byte as fetched, with their MIT headers intact. They are outside cljstyle and kondo scope.
+- `bb gen:python-antlr` reads the vendored grammars, still checks their SHA-256 and that they are ASCII, and never deletes a vendored file. It fetches only the two Java helpers, by pinned digest.
+- The manifest marks the helpers' licence as unresolved. It records that distributing generated artifacts is blocked until their provenance is resolved, because the generated code derives from them.
+- A clean build still needs network access for those two helpers.
+
+**5. Owner decision "Accept for now".** The prelude stays bundled into each unit, with no code change. I noted a linked per-task prelude as Phase C work.
+
+## Checks (all run in the foreground)
+
+| Check | Result |
+|---|---|
+| clj-kondo, 16 `.clj`/`.cljc` files plus `deps.edn`, `bb.edn` and the manifest, as separate arguments | 0 errors, 0 warnings |
+| cljstyle | **not run:** "This command requires approval" |
+| `bb gen:python-antlr` from clean | 2 grammars read from the repo and 2 helpers fetched, all digests verified; generated-file digests matched; compiled |
+| Focused JVM, the six `yang.python.antlr.*` namespaces | 76 tests, 309 assertions, 0 failures; the e2e set is 28 programs on all four VMs over the real `cell` and `data` modules |
+| Full `clj -M:test` | 2637 tests, 186979 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 0 warnings; 2485 tests, 52833 assertions, 0 failures; both portable namespaces ran on Node |
+| `bb test:cljd` | not run, per the brief |
+
+## Still open
+
+- The CLJD lane needs a rerun to confirm the fixes in item 1.
+- cljstyle needs a run by someone with permission to cover this round's edits.
+- The two Java helpers' provenance and licence are still unresolved.
+- Phase C: a linked per-task prelude; a number-to-string primitive if guest `str()` is wanted; heap reclamation for the per-capture flag cells and function objects.
+
+## Files changed this round
+
+New:
+- `antlr/python3/Python3Lexer.g4`
+- `antlr/python3/Python3Parser.g4`
+
+Changed:
+- `antlr/python3/manifest.edn`
+- `src/dev/yang_antlr_gen.clj`
+- `src/cljc/yang/python/antlr/lower.cljc`
+- `src/cljc/yang/python/antlr/prelude.cljc`
+- `src/cljc/yang/python/antlr/render.cljc`
+- `test/yang/python/antlr/e2e_test.clj`
+- `test/yang/python/antlr/lower_test.clj`
+- `test/yang/python/antlr/lower_portable_test.cljc`
+- `test/yang/python/antlr/prelude_parity_test.cljc`

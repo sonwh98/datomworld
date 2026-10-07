@@ -1,0 +1,75 @@
+Completed-GMT: 2026-10-05 11:12:00 GMT
+Completed-Local: 2026-10-05 18:12:00 +0700
+Coding-Agent: claude (sonnet-5-5)
+
+**Status:** D5 is done for the engine, the FFI fence and the three semantic/stack/register kernels. The AST walker cannot be gated yet, and that needs a ruling before D6.
+
+## Blocker: the AST walker drops `:yin.k/gate`
+
+- `ast_walker.cljc` `cesk-return` rebuilds `ASTWalkerVM` through the positional constructor. That drops every key that is not a record field, so `:yin.k/gate`, `:yin.k/closes` and `:yin.k/issued` vanish at the first step.
+- Gated cursor, close and FFI rows on the walker therefore ran ungated; I confirmed this by running them red.
+- Fixing it means adding record fields in `ast_walker.cljc`, outside my diff boundary, so I stopped.
+- My walker `put-request` call site is correct. It reads the gate off `state`, and a unit test covers that function directly.
+- The gated rows run on the other three kernels only (`gated-kernels` in the test file). Ungated rows run on all four.
+- This affects D6's claim that the gate is complete on all four kernels, and needs a ruling (a record-field edit, or carrying these keys some other way).
+
+## What changed
+
+**`src/cljc/yin/vm/engine.cljc`**
+- `handle-effect :stream/cursor`: under any gate mode it calls the new `handle-cursor-unminted`, which makes no handle call and is not blocked. It installs `{:stream-id id :yin.k/unminted {:origin :dao.stream/oldest :seq n}}`, with `n` taken from the id counter. Ungated is unchanged.
+- New `apply-mint [state cell-id position]`: replaces the cell with `(vm/cursor-entry stream-id position)`. It refuses a cell that is not unminted and refuses in `:exporting` and `:ended`.
+- Close queue: under `:running`, `handle-close` appends `{:stream-id id :yin.k/issue n}` to `:yin.k/closes` and returns nil, with no handle call. Ungated is unchanged.
+- New `apply-close [state stream-id issue]`: removes that one record and refuses in `:exporting` and `:ended`.
+- Issue counter: `:yin.k/issued` is machine-only, and `:yin.k/issue n` stamps every gated parked `:put` entry and every close record.
+- `check-wait-set`: under `:running` the ordinary sweep no longer polls `:put` or `:next` entries; they are kept in place, so the sweep makes zero handle calls. Ungated sweeps are unchanged.
+- The poll-branch line is reflowed to 80 columns or fewer. Line 361 is still over 80, but it predates this work.
+
+**`src/cljc/yin/vm/ffi.cljc`**
+- New `put-request [state call-in request]`. With no gate it calls `apply2/put-request!`. With any gate it answers `{:dao.stream/outcome :dao.stream/full}` and makes no handle call.
+
+**Four kernels** (`semantic.cljc`, `debruijn/stack.cljc`, `debruijn/register.cljc`, `ast_walker.cljc`)
+- The one `apply2/put-request!` at each `:ffi-call` site is now `ffi/put-request`. Nothing else at the site changed.
+
+**`test/yin/vm/engine_gate_test.cljc`**
+- Added D5 tests covering:
+  - sweep rows (gated zero calls and entries kept; ungated retry as before);
+  - cursor rows 1–9, per kernel where the ruling says so;
+  - close rows, including issue order, `apply-close`, the forged reference and ungated unchanged;
+  - FFI rows on semantic, stack and register: zero appends, and a wait-set identical to the ungated `full` branch with no issue stamp, plus the sweep leaving it alone;
+  - a unit test of `put-request` in every gate mode.
+
+## Test and check outcomes
+
+- Red evidence: the first runs failed with 29 failures and 1 error. First `ffi/put-request` was missing because my first edit to `ffi.cljc` had not applied. After that fix, all failures were the walker dropping the gate. Counting handles also counted the VM's own call-pair, which I fixed by counting only capacity-4 streams.
+- `clojure -M:test -n yin.vm.engine-gate-test`: 17 tests, 184 assertions, 0 failures, 0 errors.
+- `clojure -M:test -r "yin\.vm.*|yin\.repl.*|dao\.stream.*" -e :slow`: 1874 tests, 17899 assertions, 0 failures, 0 errors.
+- The full `clojure -M:test -e :slow` could not run in this worktree: `yang.python.antlr.gen.Python3Lexer` is missing, so `bb gen:python-antlr` has not been run here. I did not run the CLJS or CLJD lanes.
+- kondo on the touched files: 0 errors, 1 warning (`ast-walker-run-active-continuation` unused) and 1 info (unused excluded `eval` in `stack.cljc`), both pre-existing.
+
+## Other concerns
+
+- Stop condition (cursor ruling): outside `handle-next`, `handle-poll` and the sweep, one engine path reads a cursor cell's `:cursor` under a gate. `cell-for!` (`engine.cljc` ~834) encodes `:yin.k/position (:cursor cell)` for export, which would give nil for an unminted cell in `:exporting`. D8/D9 own the refusal for unminted cells and pending closes, and neither exists yet.
+- Cursor creation under `:exporting` or `:ended` installs an unminted cell, which I read literally from "under any gate mode"; I added no refusal and no test for it. The ruling says the site isn't reached in those modes. Tell me if you want an explicit refusal.
+- Under `:running`, the sweep now returns gated `:put`/`:next` entries after the other waiters, so wait-set order can change on a gated sweep. The tests compare the entries as a set.
+- No git writes, no cljstyle.
+Completed-GMT: 2026-10-05 11:42:00 GMT
+Completed-Local: 2026-10-05 18:42:00 +0700
+
+The walker now keeps the custody keys across a step, and the gated cursor, close and FFI rows run on all four kernels. The authorized mechanism turned out to be impossible, so I used a different one; details below.
+
+**Deviation from the ruling.**
+- Record fields can't be qualified keywords, so `:yin.k/gate`, `:yin.k/closes` and `:yin.k/issued` can't be `ASTWalkerVM` fields. A field named `gate` would not answer `(:yin.k/gate vm)`.
+- Instead, `cesk-return` in `ast_walker.cljc` now wraps its positional constructor in a new `carry-custody` helper. It copies those three keys from the old machine into the rebuilt record when the machine has them.
+- The record definition, `create-vm` and the rest of the walker are untouched. Ungated machines never get the keys.
+- If you want a different mechanism, say so.
+
+**Tests**
+- `gated-kernels` is gone from `test/yin/vm/engine_gate_test.cljc`.
+- The new `walker-step-preserves-the-custody-keys-test` steps a gated walker once and checks that gate, closes and issued survive the rebuild. An ungated step stays free of the gate key.
+- `engine-gate-test`: 18 tests, 211 assertions, 0 failures, 0 errors.
+- `yin.vm`, `yin.repl` and `dao.stream` namespaces on JVM: 1875 tests, 17926 assertions, 0 failures, 0 errors. The full `clojure -M:test -e :slow` still can't run here because the Python ANTLR classes haven't been generated in this worktree.
+- kondo on `ast_walker.cljc` and the test file: 0 errors, plus the same unused-var warning as before. I did not run the CLJS or CLJD lanes or cljstyle.
+
+**Report file:** `collab/1791194940441-vm-engineer-ucf-d5-engine-r2.findings.md` did not exist after round one, because I gave that report only in my reply. It now holds the whole report with the walker round appended, rather than an append to an existing file.
+
+I left cursor creation under `:exporting`/`:ended` as implemented, and recorded the sweep wait-set-order note as accepted.

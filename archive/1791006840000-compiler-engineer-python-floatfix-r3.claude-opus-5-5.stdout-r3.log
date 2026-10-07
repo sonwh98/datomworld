@@ -1,0 +1,53 @@
+Completed-GMT: 2026-10-03 07:30:11 GMT
+Completed-Local: 2026-10-03 14:30:11 +07
+Coding-Agent: claude
+Session-ID: 5face18f-26de-4829-962a-42049a75c13f
+
+Round 3 is in place and the Node and Dart lanes pass. The JVM lane passes except `yang.python.antlr.e2e-test/long-loops-test`, which did not finish within 570 s. That is the hang master's handoff (fb690ae6) records on post-rebase trees; its program is integer-only and it ran green on my pre-rebase tree in round 2. I did not diagnose it. Nothing is staged or committed, and collab/ in the main tree was not touched. The details are in `collab/1791006840000-compiler-engineer-python-floatfix-r3.claude-opus-5-5.findings.md`.
+
+**Audit.** I checked the tree against the brief item by item after the two interruptions. Everything already on disk was correct and is kept: the wrappers are removed and the registry restored (`/` → `checked-divide`), the `completion_test` change is reverted, and the throwing `valueOf`, the tests and the `:cljd`-first reordering are present. The rest is now finished.
+
+## Changed files
+
+**Carrier change** (its own commit, before the float fix):
+- `src/cljc/dao/jing/cbor.cljc`: the JS Float64 carrier gets a throwing `valueOf`, raised through Jing's `refuse` helper as `:carrier-coercion`. Printing, equality, hashing, bytes, NaN, signed zero and fixtures are unchanged.
+- `test/dao/jing/cbor_test.cljc`: new `float64-carrier-refuses-coercion-test`.
+  - On JS, all eight operators refuse with the carrier first, second and in a later variadic position (24 cases).
+  - Raw `'' + carrier` and `Number(carrier)` refuse; `String()` and `.toString()` work.
+  - The error carries no `:yin.k/status`.
+  - On the JVM and Dart the same 24 cases compute.
+  - Printing, equality, hash, key and byte pins hold on every host.
+- `docs/design/dao.jing.cbor.md`: a coercion-refusal bullet, including the remaining limitation that generic arithmetic over decoded carriers is not portable. I removed my round-1 sentence because master already says the same thing.
+
+**Everything else:**
+- `src/cljc/yin/vm.cljc`: wrappers removed; only the round-1 scalar admission remains.
+- **P1:** `:cljd` branches now come first in both de Bruijn `double-le-hex` encoders and in `host-double?`. I also reordered `host-long?` and `numeric-class`, since they are in the same classification paths.
+- **P3:** `render.cljc` now uses `(Double/isNaN x)`, and the long prelude and test lines are wrapped. The interim comment on `numeric-key` stays, with no guard added.
+- `float_address_test.cljc`:
+  - `decoded-float-under-bare-plus-test` replaces the wrapper test. On Node it throws `:carrier-coercion`; on the JVM and Dart it gives `3.0`.
+  - New NaN tests: `"nan"` repr, the one-quiet-NaN byte golden, `py/finite?`, and a program that prints `nan inf -inf`.
+  - New lifecycle tests for integral floats, ±0.0, NaN and ±inf, covering lift, pin, heap, continuation and closure.
+  - The address goldens were re-minted, because master commit c3f2da8f changed the prelude.
+- **Docs:**
+  - `yang.antlr.md`: my unnumbered paragraph is deleted and its content merged, so §8.5.5 has one text.
+  - The UCF scalar-arm paragraph now says admission is not primitive acceptance and that the coercion error is not a lift refusal.
+
+## Lanes
+Every command ran in the foreground, chunked to stay under the 10-minute cap.
+
+| Lane | Tests | Assertions | Failures |
+|---|---|---|---|
+| JVM, 13 chunks, all 186 namespaces covered | 2921 | 227196 | 0 (`long-loops-test` excluded, see above) |
+| Node | 2718 | 92053 | 0 |
+| Dart, 5 directory chunks | 2673 passed | — | 0 |
+
+- **JVM:** one existing skip remains (the ws-project Dart peer is not built). `dao.jing.cbor-test` was re-run after its last edit: 19 tests, 521 assertions, 0 failures.
+- **Node:** compiled with autorun off and 0 warnings, then run as a separate command.
+- **Dart:** one full compile, then `flutter test` per directory. A namespace-restricted `cljd test` broke the other generated files, so I didn't use that. An expanded-reporter run confirmed the new tests by name.
+- **Lint:** kondo shows 0 errors (the four `vm.cljc` warnings were already there), and cljstyle is clean on every changed file.
+
+## Deviations
+- **Continuation round trip:** a captured continuation cannot be lifted; `lift-slice` refuses it as `:non-canonicalizable` regardless of contents. So the continuation is tested for admission and payload bytes only; the closure does the full lift-and-lower round trip on all four VMs.
+- **Snapshot round trip:** there is no dedicated snapshot test. Snapshots are covered through the heap trace, the decoded-program run and the printed output; name the snapshot API if you want a direct test.
+
+I have no disagreement with the converged ruling.

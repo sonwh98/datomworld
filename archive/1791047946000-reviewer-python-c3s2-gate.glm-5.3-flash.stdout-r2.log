@@ -1,0 +1,42 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+All verification complete. Final report:
+
+Completed-GMT: 2026-10-03 17:47:01 GMT
+Completed-Local: 2026-10-04 00:47:01 +07 (+0700)
+
+# Gate re-check: Python C3-S2 after round 5 (staged diff vs a932bb55)
+
+Re-reviewed `git diff --cached` (9 files) in datomworld-py-c3key1. Verification by reading code; no suites run.
+
+## Prior findings — final dispositions
+
+**glm P2 (docs claimed three `data` exports incl. `numeric-key`) | FIXED | evidence:** yang.antlr.md:2290-2294 now reads "Two pure exports join the `data` module: `float64` … and `float-value` …"; repo-wide grep finds `numeric-key` in governing docs only at the two intentional historical mentions (yang.antlr.md:2311/2317 deliberate sentence, :3513 C3 status bullet) and nowhere in src/ or test/. | remaining action: none.
+
+**glm P3 (`py/hash` comment omitted the tuple arm) | FIXED | evidence:** prelude.cljc:1354-1358 now states a tuple "is a valid dict key through py/key, but hash() of it, of a string and of +-inf is not yet supported (NotImplementedError)" — matches the code's three raise sites. | remaining action: none.
+
+**glm P3 (plan doc's vanished fixture) | NO ACTION (agreed) | evidence:** yin.vm.code-as-tuples.implementation-plan.md:496 is historical plan text; the fixture is gone repo-wide. | remaining action: none.
+
+## The five questions, challenged
+
+**1. `py/int-canon` — right place and form; no bypass.** The integer shim rejects JS −0 by construction: host.cljc:62-66 ("a JS safe-integer `Number` other than `-0`", tested via `(neg? (/ 1 x))`), so an un-canon'd −0 would refuse `:wrong-type` at `big!`. Enumerating every `integer/` call site in prelude.cljc (grep: lines 1302, 1320-1322, 1338, 1359-1386): the only two boundaries a *guest* integer crosses are `py/key`'s int branch (:1338) and `py/hash`'s int branch — both canon'd; every other operand is kernel-produced (canonical, never −0: `integer/neg`/`floor-div-mod`/`mul` results are demoted BigInt, so zero comes back as +0) or a built literal (`integer/shift-left 1 …`). `(= n 0)` is the right form: it is true for −0 on all three hosts, never throws for a big carrier (JS BigInt is not `number?`, so cljs `=` falls out of numeric comparison; JVM/Dart numeric equality — and no big carrier is zero-valued anyway, since canonical demotion turns a zero big into +0 native), and performs no arithmetic, so the cljs/Dart `+`-on-BigInt throw that `(+ n 0)` would risk is avoided. Forward reference from `py/key` to the later `py/int-canon` is the prelude's existing late-binding pattern (as `py/key`→`py/keys-of`). Pinned by the new rows `(py/key (* -1 0))` and `(hash-text '(* -1 0))`, which produce a genuine JS −0.
+
+**2. Vector/tuple literal audit — fix correct, no other instance.** The tuple case now builds at guest runtime: `(py/tuple (py/conj [1] two-53+1))` embeds the *form* `(integer/parse …)` which the guest evaluates, so the key comparison is real (prelude_parity_test.cljc:452-455). I audited every other quoted form in the diff: the remaining vector literals (`[1]` in `py/conj`, `[1 {:py/float 1.0} true 2]` / `[true 1 …]` in `py/set-from`, expected-value vectors) are passed as data whose elements are already values — no element evaluation is needed anywhere — and `with-float64` postwalks deeply, so float literals nested inside vectors/maps (including `z {:py/float decoded}`) get wrapped. No remaining instance of the round-3 mistake.
+
+**3. Range stub sentinel −12345 — safe, and the test is stronger than before.** `py/range-at` (prelude.cljc:1632-1648) ends with `< x stop` / `> x stop`; a number sentinel keeps that comparison exact on JVM (long), Node (double) and Dart (int), where the keyword sentinel threw on the JVM. The two new rows pin the guard in *both* directions: index 2^26 with len 2^26+1 must take the O(1) branch (else the stub yields −12345 ≠ 67108864 and the test fails), and index 2^26+1 with len 2^26+2 must enter `range-elem` (else it yields 67108865 ≠ −12345). −12345 cannot collide (all range values are ≥ 0), is a safe literal on every host, and the iteration row still fails if a single element enters the stub. The second row also proves late binding: it returns −12345 only if `range-at` actually dispatched through the stubbed prelude name.
+
+**4. Goldens — exactly the announced changes, nothing else.** The staged float_address_test.cljc diff vs master contains only: the `integer` require, the five re-minted address goldens (prelude root, A, A′, record-address, prelude-id), the integer-module registration, and the intended `dict-keys-test` re-pin (testing text, expected key vectors, canonical bytes). The hook-prelude golden `76e1cfe8…` is untouched. The other five files' staged diffs are byte-for-byte what I reviewed last round, now staged.
+
+**5. C5 skip — agree.** The docs now say precisely this (yang.antlr.md 8.5.4 known-limits: "The prelude does not map `integer` refusals to guest exceptions yet, so today such a refusal fails the run instead"), matching the code (integer.cljc throws host `ex-info`; the prelude has no catch). A small-limit refusal test written now would pin host-failure semantics that the planned guest-exception mapping (ruling 11: `MemoryError`/`ValueError`) is slated to replace.
+
+## New checks this round (architects' additions)
+
+- **NaN ruling implementation:** the amended doc text (equivalence class, recursion into `:py/tuple-key`, the three observable Python-terms cases, the ruling-13 sentence) is accurate to the code, and `nan-keys-on-every-host-test` exercises all of it — including a NaN *decoded from Jing canonical bytes* (`cbor/decode (jing/canonical-bytes (cbor/float64 ##NaN))`), reinsertion updating the value, set dedup, and tuple-key collapse — 11 expectations, all independently derivable from the key code.
+- **sol's key-arms test:** `preserved-key-arms-on-every-host-test` goes through `py/key` by dict/set insertion only — four distinct identity objects (two classes, a generator, a builtin function) in one dict (count 4, reinsertion keeps slot and updates value), set dedup keeping the *first original* key both ways (`[1 2]` and `[true]`), and five TypeError rows covering list/dict/set keys and tuples nesting them one and two levels deep. All prelude fns used exist (`py/make-class` :439, `py/make-generator` :258, `py/getitem` :1541, `py/contains` :1206, `py/set-from` :1422, `py.b/object` :1871).
+- **Boundary fixtures recomputed:** the `max-finite` string equals (2^53−1)·2^971 (309 digits) and equals `int(1.7976931348623157e308)`; `two-1022` = 2^1022 with min-normal literal == 2^−1022; the largest-subnormal literal is exactly (2^52−1)·2^−1074 with key numerator 4503599627370495; and all four boundary hashes match CPython (2234066890152476671, −16777216, 32768, 2305843009196949503).
+
+## New defects
+
+No actionable findings this round.
+
+**Ready to commit: YES.** Both reviewers' findings are fixed and verified, the architects' NaN ruling and additions are implemented consistently and tested, the rebase onto a932bb55 introduced only the intended range-guard pins and sentinel change, and the staged diff contains nothing beyond the ruling's scope.

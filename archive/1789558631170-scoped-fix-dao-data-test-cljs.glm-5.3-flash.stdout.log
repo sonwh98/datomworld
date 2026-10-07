@@ -1,0 +1,31 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+All four verifications done. Report:
+
+## Diff (only change, `test/dao/data_test.cljc:51`)
+
+```diff
+@@ -48,7 +48,9 @@
+     true :boolean
+     false :boolean
+     42 :number
+-    1/3 :number
++    ;; No ratio type on CLJS; the row splices away there (see the gated
++    ;; ratio case in number-portability below).
++    #?@(:cljs [] :default [1/3 :number])
+     "s" :string
+```
+
+The `#?@` splice inside the `are` table reads fine — reader conditionals resolve at read time, before `are` expands, and `#?@` with an empty splice is already precedented in this repo (`src/cljc/yin/repl/host.cljc:15`). I used `:default` (not a `:clj`/`:cljd` pair) because `:clj` does **not** match under ClojureDart in this repo — proven by the existing `#?(:cljd Object :clj Throwable ...)` catch pattern, which would crash cljd compilation if it did. `:default` as a reader branch is also precedented (`test/dao/space/index_test.cljc:1544`). Note the file's line-137 ratio test is gated `#?(:clj ...)` only — it does not actually run on cljd; the are-table row is the only ratio-tag coverage cljd has, which is why `:default` (present on cljd) was required rather than matching that gate.
+
+## Verification
+
+| Command | Result |
+|---|---|
+| `clj -M:kondo --lint test/dao/data_test.cljc` | `errors: 0, warnings: 0` |
+| `clj -M:test -n dao.data-test` | `Ran 12 tests containing 74 assertions. 0 failures, 0 errors.` |
+| `bb test:cljs` | Compiles clean — ratio error gone. `Ran 1386 tests containing 35611 assertions. 2 failures, 0 errors.` — both failures are `yin.repl-core-test/a-failed-input-is-consumed-exactly-once` (the known-unrelated test, failing on both `:semantic` and `:ast-walker` variants). `dao.data-test` itself passes. |
+| `bb test:cljd` | `+1341 -1` — exactly one failure, the same known-unrelated `a-failed-input-is-consumed-exactly-once`. Matches the prompt's expected count precisely. |
+
+One discrepancy to flag honestly: the prompt's "202 assertions currently" doesn't reproduce for `clj -M:test -n dao.data-test` — this file gives 74 on the JVM both before and after. I couldn't baseline HEAD directly (the multi-command overwrite was permission-blocked), but the count is provably unchanged: under clj, `#?@(:cljs [] :default [1/3 :number])` splices the identical `1/3 :number` pair HEAD has, so the compiled form is byte-identical. The 202 figure may have come from a full-suite run.
+
+Nothing staged, nothing committed, no other file touched.

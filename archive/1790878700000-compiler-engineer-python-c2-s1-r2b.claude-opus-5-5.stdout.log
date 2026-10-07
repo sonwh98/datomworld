@@ -1,0 +1,69 @@
+Completed-GMT: 2026-10-01 20:34:03 GMT
+Completed-Local: 2026-10-02 03:34:03 +0700
+
+# C2-S1 fix round 1: gate P2 fixed, every lane green
+
+The gate's P2 is fixed: a `yield` in a nested definition's header now makes the enclosing function a generator. JVM, Node and Dart all pass, and kondo and cljstyle are clean. Nothing is staged or committed.
+
+## The fix (`src/cljc/yang/python/antlr/lower.cljc`)
+- **`definition-body`** returns the part of a `def`, `class` or `lambda` that runs in its own scope (the `block`, or a lambda's last expression).
+- **`yields?`** looks for a `yield` that belongs to the current scope:
+  - When it meets a nested definition, it scans the definition's header (parameter defaults and annotations, class bases) but not its body.
+  - Yields inside nested bodies still don't count, as before.
+- **`generator-body?`** is now `(yields? ctx (definition-body ctx scope-node))`.
+- The lowering itself needed no change: defaults and class bases were already lowered in the enclosing context, so their `yield` uses the enclosing function's generator binder.
+
+## Regression tests
+- **`lower_test.clj`, new `generator-classification-test`.** It checks which functions are lowered as generators:
+
+  | Case | Lowered as generator |
+  |---|---|
+  | Function default holds the enclosing function's only yield | `g` |
+  | Lambda default holds the only yield | `g` |
+  | Class base holds the only yield | `g` |
+  | Yield in a default and in the nested body | `g` and `h` |
+  | Enclosing body also yields, plus a yield in a default | `g` |
+  | Yield only in a nested function body | `h` |
+  | Yield only in a lambda body | `<lambda>` |
+
+  The negative control, a yield only in a nested class body, still gives `'yield' outside function`.
+- **`e2e_c2_test.clj`, new `yield-in-nested-default-test`.** `def h(x=(yield 1))` inside `g`: `next` gives `1`, and `send('d')` becomes the default, printing `1 d` on all four VMs.
+
+## Results
+
+| Check | Result |
+|---|---|
+| JVM (`bb test:clj` dependencies, then the suite in chunks) | 2848 tests, 225,875 assertions, 0 failures, 0 errors |
+| Node (`bb test:cljs`) | 2657 tests, 91,269 assertions, 0 failures, 0 errors (exit 0); includes `lower-portable-test` and `prelude-parity-test` |
+| Dart (`bb test:cljd`) | `+2612: All tests passed!` (exit 0); `generator-switch-on-every-host-test` ran, 0 failures |
+| clj-kondo, 5 touched files | 0 errors, 0 warnings |
+| cljstyle check, 5 touched files | clean (exit 0) |
+
+JVM chunk breakdown:
+
+| Chunk | Tests | Assertions |
+|---|---|---|
+| `dao.*` | 1348 | 211,463 |
+| `datomworld.*` | 64 | 406 |
+| `yang.*` except `e2e-test` | 146 | 907 |
+| `yang.python.antlr.e2e-test` | 28 | 140 |
+| `yin.vm*` | 982 | 10,658 |
+| `yin.repl.dht-process-test` | 2 | 91 |
+| `yin.repl` a–c | 44 | 464 |
+| `yin.repl` dht to main | 97 | 773 |
+| remaining `yin.repl` and `yin.repl-test` | 137 | 973 |
+
+## Deviations from your instructions
+- **I ran the JVM lane as chunks, not as one `bb test:clj` command.** The full lane takes over 35 minutes, and the harness caps a foreground command at 10 minutes, then moves it to the background. So I ran the lane's two dependency builds (`bb gen:python-antlr`, `bb build:yin-repl-node`) and then `clojure -M:test` over nine namespace regexes, each in the foreground. Together they cover every JVM test namespace.
+- **The Dart lane ran in the background.** I started it in the foreground; it passed the 10-minute cap and the harness moved it to the background. It is one compile plus `dart test`, so it can't be split. I left it running and waited in this turn with a foreground loop until it exited.
+- **One chunk was stopped and re-run.** My first `yin.(?!vm)` chunk also hit the cap and was moved to the background. I stopped it before it finished and re-ran that range as the four smaller chunks listed above.
+
+## Changed files
+- `src/cljc/yang/python/antlr/lower.cljc` — the fix in this round, on top of the S1 lowering.
+- `test/yang/python/antlr/lower_test.clj` — the classification test in this round, on top of the S1 tests.
+- `test/yang/python/antlr/e2e_c2_test.clj` (new, untracked) — the e2e row in this round, on top of the S1 rows.
+- `src/cljc/yang/python/antlr/prelude.cljc` and `test/yang/python/antlr/prelude_parity_test.cljc` — S1 changes only; not touched in this round.
+
+## Concerns
+- **`e2e-test` is slow.** It takes 8:44 on its own (28 tests). I didn't time it on master, so I can't say whether the bigger prelude slowed it down. It's worth comparing against master.
+- **The S1 caveats from the previous report still stand.** The continuation-length check only compares the top-level `:resume` node count; ruling 7's check on the whole reachable heap is not done. And `send` was added early because the S1 send row needs it.

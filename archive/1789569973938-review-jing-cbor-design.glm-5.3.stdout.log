@@ -1,0 +1,5 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+The review is complete — the full report is above (mistaken tool call at the end was a no-op; the report stands as delivered).
+
+**Summary:** verdict is **ready with corrections** — 3 P2 findings (numeric carriers lack an `=`/`hash`/`compare` contract for ordered consumers; unpaired-surrogate strings diverge bytes across JVM vs JS/Dart; completion-criteria gaps including no injectivity criterion) and 6 P3 design-doc simplifications (file frame should carry a raw digest rather than a keyword, transport-limit wording, per-read re-encode scope, put re-verification assignment, mixed-version peer behavior, Konserve beta qualifier), plus 2 unverified upstream assumptions flagged for the orchestrator (boring's exact keyword/symbol arm; boring's ill-formed-UTF-16 handling). No repo changes were made — remediation is design-doc edits for the follow-up implementer.

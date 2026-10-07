@@ -1,0 +1,2 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+API Error: Request rejected (429) · [1308][已达到 5 小时的使用上限。您的限额将在 2026-09-21 17:26:16 重置。][202609211347205b1271e8201343b8]

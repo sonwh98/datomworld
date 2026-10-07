@@ -1,0 +1,11 @@
+The revised ledger makes cancellation and retry count against one fixed blob set, so the two earlier arithmetic conflicts are resolved. I’m checking one remaining bound claim: how many publications can remain live while their first reports are still waiting.
+## Verdict: SIGN-OFF WITHHELD
+
+R3 closes both r2 HIGH findings. Cancellation settles every entry in the fixed ledger and ignores late facts for the cancelled publication. Repair updates that same ledger, so previously sent blobs still count. On every specified event path, `:sent + count(:failed) = :blobs`. Removing immediate retries and making backlog-full retryable fit the owner’s **automatic retry while open** decision. Restart recovery is explicitly deferred, and the idle rule still allows later ticks to drive repair.
+
+| Severity | File:line | Issue | Fix |
+|---|---|---|---|
+| High | [yin.vm.linker.dht.md](/Users/sto/workspace/datomworld-linker-dht/docs/design/yin.vm.linker.dht.md:493) | Repair slots reserve **outstanding requests**, but repair addresses get no queue admission when fresh writes keep the shared backlog full. Fresh puts are admitted in `step`; a due repair then finds no space, repeatedly. The stated queue fairness and automatic retry are therefore not guaranteed under sustained fresh writes. L1 tests a full *repair queue*, not repair trying to enter a full *fresh queue*. | Reserve backlog capacity or give due repairs an explicit admission turn before fresh puts. Add a sustained fresh-write test in which an older failed blob eventually receives a repair request. |
+| Medium | [yin.vm.linker.dht.md](/Users/sto/workspace/datomworld-linker-dht/docs/design/yin.vm.linker.dht.md:589) | `:max-repairing` bounds publications **after their first report**. Publications still awaiting first reports are live too; many can share one queued or outstanding address, so the queue bound does not bound their ledgers. The L1 assertion that live publications never exceed `:max-repairing` is stronger than the contract. | Bound or account for publications awaiting first report, or narrow the claimed bound to repairing publications and test retained ledger growth separately. |
+
+**Owner questions:** None. These are contract and acceptance-test corrections within the owner’s automatic-retry decision.

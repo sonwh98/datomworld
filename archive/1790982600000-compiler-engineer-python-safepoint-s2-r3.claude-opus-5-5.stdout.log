@@ -1,0 +1,61 @@
+Completed-GMT: 2026-10-02 23:27:53 GMT
+Completed-Local: 2026-10-03 06:27:53 +0700
+
+# Safepoint slice 2, fix round 1: the generator-depth ruling
+
+The ruled semantics are in: a generator's depth now measures the current continuation and is rebased on every crossing in. The recursion-limit setter also refuses a limit that is too low. All lanes passed: JVM, Node and Dart, plus kondo and cljstyle. Nothing is staged or committed.
+
+## The test numbers
+The brief's 79/99 matches CPython's counting of the generator's own frame (+1 on top of whoever resumes it). It needs the deep resume to happen 20 frames down. My old program resumed 21 frames down (`down(20, g)`), which would give 78/99 under the same rule. So I changed the program to `down(19, g)` rather than changing the rule.
+
+I couldn't open either ruling file (they're in the main tree, outside what this session may read). The binding summaries in the brief were enough to implement from.
+
+## Changes
+- **`prelude.cljc`**
+  - The context record is now `{:handlers :depth :base :frame}`, and absolute depth is `:base` plus `:depth`.
+  - Escapes (`py/try`, `py/try-finally`, `py/call-ec`) restore the record they saved but keep the current `:base` (new `py/restore!`). Only crossings change `:base`.
+  - Starting or resuming a generator sets `:base` to the resumer's absolute depth plus 1. Every crossing back restores the caller's record whole.
+- **`safepoint.cljc`**
+  - The limit check uses absolute depth.
+  - `py.sp/set-recursion-limit!` now raises `RecursionError` for a limit at or below the current absolute depth, and keeps the old limit.
+  - The limit still lives in its own cell, outside the restored record, so a valid change survives escapes.
+- **`safepoint_programs.cljc`**: the generator program was regenerated from the real parser. The deep resume is now 20 frames down, and a second generator, `gen2`, raises and catches an exception after being rebased.
+- **`safepoint_test.cljc`**
+  - The generator expectations are now `79 99 100 79 100 79 99 100`. The second number is the explicit rebase from a shallower frame.
+  - The `gen2` case shows an escape restoring relative to the current base: 99, where restoring the old base would give 79.
+  - Three new setter cases:
+    - a change made inside a `try` still holds after the exception is caught (50);
+    - at depth 5, limits 5 and 3 raise `RecursionError` and the limit stays 1000;
+    - at depth 5, a limit of 6 is accepted.
+  - Every other slice-2 test is kept unchanged.
+- **`yang.antlr.md` §8.5.2**: the depth paragraph is rewritten to the ruled rule: depth measures the current continuation, crossings rebase, escapes restore relative to the current activation, and the limit sits outside the restored record.
+
+## Lanes
+`gen:python-antlr` and `build:yin-repl-node` ran first.
+
+The JVM lane (`clojure -M:test`, which is what `bb test:clj` runs) exceeds the 10-minute cap, so I ran it in groups covering every JVM test namespace. Two runs went past the cap anyway and were moved to the background by the harness: the e2e group containing `long-loops-test`, and `bb test:cljd`. I read their output files after they finished.
+
+| Lane / group | Tests | Assertions | Result |
+|---|---|---|---|
+| JVM `yang.safepoint-test` and `yang.python.antlr.safepoint-test` | 25 | 386 | 0 failures, 0 errors |
+| JVM `dao.*` and `datomworld.*` | 1412 | 211973 | 0 failures, 0 errors |
+| JVM `yin.vm.*` | 975 | 10509 | 0 failures, 0 errors |
+| JVM other `yang.*` (includes e2e-c2) | 146 | 1039 | 0 failures, 0 errors |
+| JVM `yang.python.antlr.e2e-test`, in 4 groups by test (12 + 11 + 5 + 6) | 34 | 408 | 0 failures, 0 errors |
+| JVM `yin.repl.*` up to `main`, plus `yin.repl-test` and `yin.vm-test` | 224 | 2034 | 0 failures, 0 errors |
+| JVM `yin.repl.query`, `require`, `serve-connect-wire`, `serve`, `store` | 89 | 720 | 0 failures, 0 errors |
+| **JVM total** | **2905** | **227069** | **0 failures, 0 errors** |
+| Node `bb test:cljs` (both safepoint namespaces ran) | 2707 | 91935 | 0 failures, 0 errors |
+| Dart `bb test:cljd` (all four slice-2 tests appear by name) | 2662 | — | All tests passed |
+| kondo, 7 touched files | — | — | 0 errors, 0 warnings |
+| cljstyle check, same files | — | — | clean |
+
+Last round's unconfirmed `yin.repl` group is now confirmed (224 + 89 tests above).
+
+## Unresolved concerns
+- **The +1 for the generator's own frame** lives in the base prelude (`py/crossing-base`). In naive runs, depth is tracked but never checked, so it does no harm there. The +1 is my reading of "counts on top of the resumer" plus the 79/99 figures.
+- **Cross-thread resumption** (astra's addition) isn't exercised, because threads are slice 4. The crossing code already uses whichever frame is resuming, so a resume from another thread would rebase the same way.
+- **`sys.setrecursionlimit` still isn't reachable from Python**, because the lowering refuses `import`; it is only available to the composition as `py.sp/set-recursion-limit!`.
+
+## Incomplete work
+None. The only departure from the brief's mechanics is that the JVM lane ran in namespace groups rather than as a single `bb test:clj`, because of the cap.

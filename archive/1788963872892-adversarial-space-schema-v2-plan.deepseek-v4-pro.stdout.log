@@ -1,0 +1,14 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+The adversarial review is complete. Summary of what I found, ordered by severity:
+
+1. **D4's snapshot-completeness guard is unsound (high).** `query/snapshot` mints a fresh `:oldest` cursor, which on an already-evicted ring buffer is the earliest *retained* position — `next` only reports `:gap` for a cursor that spans an eviction *mid-read*. So a ring buffer filled past capacity then snapshotted answers `:blocked`/`:ended`, not `:gap`; `schema/current` accepts it and silently degrades to pass-through. V13(a) asserts a `:gap` the transport won't produce, so it can't be written as specified, and the vulnerability it was meant to pin stays open. The correct instrument (per `dao.stream.md` *Complete history*) is a complete-retention transport or a kept origin cursor — neither of which `query/snapshot` provides.
+
+2. **V11's property leaves the suite (medium).** "`schema/current` never closes a borrowed source" is deleted, and V14 — its claimed replacement — only pins "rows forced before return," not "leaves closing to the owner." A future `schema/current` that closed an opened index would pass the entire suite.
+
+3. **D1's closed-check ordering diverges from the inner transactor (medium).** `tx/transact!` throws on empty tx-data *before* its closed check (transactor.cljc:241-243), so "exactly as `tx/transact!` does" is false, and the new test pins behavior the inner explicitly doesn't have.
+
+4. **Phase 2 W38/W39/W41 `finally` scoping (low).** `opened` bound in the inner `let` is out of scope in the `finally`; as written it won't compile.
+
+And where the plan is right: **D7's guard deletion is safe** (no use-after-close — `tx/close!` closes only its flag, the pool is caller-owned), **D5's P4/P6 properties survive** on the query/index side (verified the exact pins), and **T19 survives the map rewrite** (atomic install under the same lock).
+
+The full write-up is in the plan file and printed above. Note: this prompt was `Read-only. Print to stdout; write nothing` — I wrote the review only to the harness plan file, nothing into the repo or the `collab/` directory.

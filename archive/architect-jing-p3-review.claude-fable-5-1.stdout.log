@@ -1,0 +1,33 @@
+Completed-GMT: 2026-09-08 06:55:39 GMT
+Completed-Local: 2026-09-08 13:55:39 +07 (Asia/Bangkok)
+Coding-Agent: claude
+Session-ID: 6b4777c6-8c88-4417-85d5-27b89aaf5714
+
+The P3 prose edits are architecturally sound. Every property the plan dictated is present and matches the code. No architectural defects. Five low-severity precision gaps, all prose, none blocking.
+
+## Findings
+
+| severity | file:line | invariant / evidence | recommended correction |
+|---|---|---|---|
+| low | docs/design/dao.jing.md:96 | E3 says a member without a cursor, or whose stream lacks the *reader* surface, throws. The prose says only "validates that members are streams". Code at `jing.cljc:355-362` checks both `:cursor` presence and `stream/reader?`. | "`observer-state` rejects a member that lacks a cursor or a v2 reader before any operation." |
+| low | docs/design/dao.jing.md:341-345 | The rewrite dropped the prior [D] sentence that a checkpoint pairs each cursor with the source identity needed to resume the correct transport, and that this identity never enters content identity. E2 cursors are opaque and per-stream, so a cursor alone is not a resumable checkpoint. The plan's P3 text did not ask for this removal. | Restore one sentence: the checkpoint records, per member, the stream coordinate plus the transport-minted cursor; the coordinate is operational and never enters an address. |
+| low | docs/design/dao.jing.md:266-268 | "carrying the raw answer under `:result`, exactly as it came" is looser than the code. `:result` is the step's `:read`, which for an out-of-set answer is the folded map from `observe.cljc:53-55` with the raw answer under `:dao.stream/answer`. The signal keyword is `:dao.stream/transport-error`, which the paragraph avoids naming. | Name the keyword and the nesting: reported under `/transport-error`, with the classified read under `:result` and the raw answer retained inside it. This keeps the deferred `:unrecognized` status honest as future work. |
+| low | docs/design/dao.jing.md:245-272 | E9's recovery route ("nothing is auto-resynchronized; the caller adopts the recovery cursor") is stated only implicitly at line 97. The gap row says "unchanged" but never says how a member leaves the gap state. | Add one sentence after the table: recovery is the caller's decision, made by `adopt-cursor` with the reported `:cursor`. |
+| low | docs/design/dao.jing.md:5-8 | The Status paragraph enumerates the open items and omits the new "content write path as an effect stream". | Add it to the list. |
+
+Classification: all five are implementation gaps in the prose, not architectural defects. The second is the only one that lost previously stated design content. Nothing here is intentionally deferred work misreported as done.
+
+## Properties confirmed
+
+- **[T→D] A3, A4** landed in *Canonical encoding* at lines 175-178, wording matches the plan verbatim.
+- **[T→D] B5, B6** landed in *Materialization rule* at lines 163-170. Code agrees: `mem.cljc:27-30` and `file.cljc:275` validate before write, `jing.cljc:307` takes caller-supplied not-found.
+- **[T→D] D3** landed in *Resource lifecycle* at lines 280-282. Both backends close idempotently and throw after close.
+- **[T→D] F6** landed in the file backend entry at lines 315-316.
+- **Decision 1** entry shape at line 95 and the signal table at lines 258-264 are identical to the plan's table. Every key in the table (`:address`, `:member`, `:cursor`, `:result`) matches `observe-step!` at `jing.cljc:433-461`. Cursor discipline "successor, from the step" matches line 435.
+- **Shared step and E5 as a seam property** at lines 247-254. Matches the `observe.cljc` docstring and the advance-only-on-effect-ok branch at lines 92-95.
+- **Decision 2** at lines 309-316: "private framed append-only file". `file.cljc` requires no stream namespace and registers nothing.
+- **Decision 3** at lines 317-318: remote "currently on v1". `remote.cljc:2,11-12` still requires `dao.stream.rpc`, and `coordinate.cljc:39` still dispatches `:dao.jing/remote` on the JVM, so the untouched *Reads* section at lines 230-239 remains true.
+- **Open items**: durable checkpoints store the transport-minted cursor with serializability TBD, and the effect-stream write path is recorded per Decision 2, both at lines 341-354.
+- **Untouched sections**: the diff confirms *Definition*, *Publication*, *Storage ignorance*, *Physical intake versus semantic composition*, *Reads*, and *Lineage* were not modified, as P3 required.
+
+No files were edited.

@@ -1,0 +1,36 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-19 19:06:50 GMT
+Completed-Local: 2026-09-20 02:06:50 +07
+
+## Per-finding disposition (all ACCEPT, all fixed)
+
+**P1 — bound not terminal.** Exactly as prescribed: `observe-renewal` advances only when `(not (at-bound? holder reading))` and otherwise latches `:bound-reached? true`; `due-to-renew?` is false whenever `at-bound?` is true (latched or computed at the supplied reading); `at-bound?` consults the latch first, so a stale/smaller reading cannot reopen. The stall scenario is pinned: renew at 30 on a grant-at-1/duration-10 lease moves nothing, and readings of 8 afterwards stay bound.
+
+**P2 — undersized grant.** Chose **hold-and-flag** (the disposition's parenthetical): `observe-grant` checks `interval+interval` strictly below the *granted* duration and records `:undersized?`. The holder still holds the grantor's word — `stop` works — but every discipline function treats it as at-bound; documented in the `observe-grant` docstring. Equality included (8 vs 8 undersized, 8 vs 9 sized).
+
+**P2 — keep-first binds no lease.** `initial-holder` takes optional `:subject` / `:proposal` expectations; `observe-grant` requires match when present. A grant answering no proposal matches no proposal expectation. Two-grants-same-holder test added (wrong subject refused; wrong/no proposal refused; matching one held).
+
+**P2 — reading validation.** New private `reading-ok?` (shape + unit membership + per-unit quot bound) gates every `reading` argument in `observe-grant`, `observe-renewal`, `due-to-renew?`, `at-bound?`. Chose **observe nothing / answer nothing** over throwing, mirroring the judge's first-tick rule — documented in `reading-ok?` and the callers' docstrings.
+
+**P2 — assembly parity.** `initial-holder` runs the tolerance's checks (unit membership, per-unit quot bound) after `check-units!`; `renewal-interval` validates all supplied durations against the table *before* any arithmetic, so the over-bound case is an assembly `ex-info` with `:renewal-interval` in the ex-data — asserted via a `thrown-data-key` helper that distinguishes it from a raw `ArithmeticException` (nil ex-data).
+
+**P2 — stop idempotence.** Second `stop` returns `:release nil`, holder unchanged; failed-append retry with the *same* fact documented in the docstring.
+
+**P3 — tick period.** `renewal-interval` gained a 4-arg arity: optional tick period, requiring `2 × (interval + period)` strictly below the duration; period is itself a validated duration. **§2.5 text I need (orchestrator's edit):** add to S1 or a sibling row — "The holder's renewal interval plus one period of its tick stream is strictly below half the granted duration: a renewal lands at the first reading at or past the interval, up to one period late, so the before-half guarantee is bought against interval + period."
+
+**P3 — renewal reading.** Docstring now reads "the reading drained BEFORE the append," with the reason (a post-append reading would move the basis later than any evidence the judge can have).
+
+**P3 — `holding?`.** Added: grant observed, not released, not bound-latched, not undersized — the state-carrying "may I act?"; per-reading questions remain `due-to-renew?`/`at-bound?`. No cap-basis code change (routed to §6 with the tolerance question).
+
+## Tests
+
+8 new deftests (`r2-bound-is-terminal`, `r2-undersized-grant-is-held-at-the-bound`, `r2-expectations-bind-the-state-to-a-lease`, `r2-invalid-readings-observe-nothing`, `r2-assembly-parity`, `r2-stop-is-idempotent`, `r2-tick-period-sizes-the-interval`, `r2-holding-predicate`). Two existing tests amended: `due-to-renew-schedule-test` (its old "overdue stays due at 11" assertion encoded the P1 defect — now pins false at the bound), and `at-bound-test`'s duration-earlier case, whose data (interval 2, duration 3) violated S1 and is now undersized by design — rewritten with interval 1 and an in-window renewal. Failing-first was honored: the tests were written before the fixes, and the pre-fix run died red (`No such var: lease/holding?` at compile). Also fixed en route, caught by the lanes: two of my own paren errors and a forward reference (`observe-renewal` → `at-bound?`, reordered).
+
+## Lane outcomes
+
+1. `clojure -M:test` — green: **1514 tests, 168431 assertions, 0 failures, 0 errors** (was 1506/168383: +8 tests, +48 assertions).
+2. CLJS — green: exit 0, **1431 tests, 38300 assertions, 0 failures**, `Testing dao.lease-test` present in the Node output, 0 warnings. Same disclosed workaround as round 1 (homebrew `clj` pins Java 17; identical shadow command run on mise's Java 21 with the cached `:cljs` classpath; log `target/cljs-p3-r2.log`). C5 clock/timer grep over the whole file: zero.
+
+## Unresolved
+
+Nothing in code. For the orchestrator: the §2.5 amendment text above, the cap-basis question (already in §6), and the plan's §5 host-matrix row still saying the holder is owed. Nothing staged, nothing committed.

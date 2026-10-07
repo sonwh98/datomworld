@@ -1,0 +1,40 @@
+# Report r3: slice 4, fix round 2 (restoring qualified tokens and `%` inside metadata)
+
+Both new findings are fixed, and every lane is green on the final tree:
+
+| Lane | Result |
+|---|---|
+| kondo | 0 errors; the 4 warnings are the ones `vm.cljc` already had |
+| JVM | 2430 tests, 0 failures |
+| Node | 2335 tests, 0 failures |
+| Dart | `+2297: All tests passed!`, exit 0 |
+
+Nothing is committed. The full report is `collab/1790765200000-query-engineer-ast-slice4-occurrence-rules.claude-opus-5-5.report-r3.md`.
+
+## Fixes (`yin/repl.cljc`, Dart only)
+- **Finding 1, qualified tokens.** A qualified token such as `%/foo` is now restored whole, namespace and name. A bare `%` still takes the namespace the reader gave its placeholder (from syntax quote or `#:ns{}`), which is how the JVM qualifies it.
+- **Finding 2, metadata.** Placeholders are now restored inside metadata as well as values. Branches with no placeholder still come back unchanged (`identical?`), and rebuilt collections keep their type, order and original metadata.
+- **`read-forms` is now public.** This is a visibility change only. The REPL's printed answers don't show metadata, and a test can't reach a private var in another namespace on Dart, so the tests needed direct access.
+
+## Every position where a symbol can appear, each with a test
+Values, qualified values, metadata (`^%`, `^{:tag %}`, `%` as a metadata key, nested, and on vectors/maps/sets), map keys, set elements and namespaced maps all read the same on JVM, Node and Dart. Tagged literals and reader conditionals (`#?`, `#?@`) are refused on all three hosts. Syntax quote, `'`, `#'` and `@` are covered by comparing each `%` line with the same line using a plain symbol on the same host.
+
+Two limits you should know about:
+- **Syntax quote never runs on Dart or Node.** On Dart the reader refuses it for every input, with or without `%`, because no symbol resolver is set up; Node's EDN reader doesn't support it at all. So the syntax-quote rule is only checked on the JVM, by a scratch script (`target/slice4/r3_reader_check.clj`) and by the test. On Dart, the same restore rule is exercised through `#:a{% 1}` reading as `a/%`.
+- **`'x` carries bad metadata on Dart.** The reader itself attaches `{:line … :tag <Type>}` to `'x`, `#'x` and `@x`, with or without `%`. It's the same ClojureDart problem seen earlier.
+
+## Red on Dart before the fix
+The run with the r2 restore failed every metadata case and every qualified-token case (2295 passed, 2 failed):
+- `[%/foo %x/y]` read as `[foo y]`.
+- `^% x` left `{:tag yin_repl_percent_0}` in the metadata.
+- `{%/foo …}` read the key as `foo`.
+- `#:a{%/foo 1}` read the key as `a/foo`.
+- `'%/foo` read as `(quote foo)`.
+
+Plain values, map keys, set elements, `#:a{% 1}` and `#:a{:b %}` already passed. Dart's test runner prints only the first failure per test, so each test now collects every failing case into a single assertion.
+
+**Recommendation, unchanged.** Fix ClojureDart's reader upstream, then delete this workaround. Four issues to raise:
+1. `%` is misread outside `#()`, and bare `%`/`%&` fail inside it.
+2. Duplicate keys and set elements are never refused.
+3. Syntax quote has no default resolver.
+4. `list` attaches the `{:line … :tag <Type>}` metadata.

@@ -1,0 +1,2892 @@
+OpenAI Codex v0.159.3
+--------
+[1mworkdir:[0m /Users/sto/workspace/datomworld-v0fix
+[1mmodel:[0m gpt-6.1-sol
+[1mprovider:[0m openai
+[1mapproval:[0m on-request
+[1msandbox:[0m read-only
+[1mreasoning effort:[0m low
+[1mreasoning summaries:[0m none
+[1msession id:[0m 01a105c9-0d45-7611-9ed7-a2faf27fee1d
+--------
+[36muser[0m
+Created-GMT: 2026-10-04 07:14:00 GMT
+Coding-Agent: codex (gpt-6.1-sol)
+
+# Task: independent gate review, UCF version-0 handoff defects fix (read-only)
+Role: Reviewer. Code authored by claude opus; you are a different family.
+READ-ONLY review of the UNCOMMITTED state in /Users/sto/workspace/datomworld-v0fix (git diff; changes in src/cljc/yin/vm/ucf/handoff.cljc, test/yin/vm/ucf/handoff_test.cljc, docs/design/yin.vm.ucf-revisions.md section 6). Do not edit; do not run suites (orchestrator's bb test lanes on this exact tree are green on JVM, Node and Dart; kondo clean).
+Two fixes: (1) resume-task of a :parked body restores :wait-set entries instead of []; (2) validate-body refuses an install wait without its install entry as :yin.k/undecodable kind :incomplete-install, before restoration, including child bodies.
+Check: correctness against UCF 7.4.3 and the install/child rules in docs/design/yin.vm.universal-continuation-format.md; the parked case really cannot lose or duplicate waits; the new refusal cannot reject a valid export (look at every export path that produces :install pending frames, incl. nested children and :yin.k/installs naming); error vocabulary consistent with neighbours; do the new tests fail on the old code (mutation) and pass only for the right reason; the doc sentence is accurate. Also the engineer's note that an install entry no wait refers to is still accepted: should it be refused (clause of 7.x)? Say yes/no with the text.
+Output: verdict (APPROVE / APPROVE-WITH-NITS / REJECT) first, then numbered findings with file:line, severity, fix. Begin the final response exactly with:
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+
+[35m[3mcodex[0m[0m
+I’ll read the architecture rules and uncommitted diff, then trace the export and restoration paths against the UCF clauses. I won’t edit files or run suites.
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc 'cat docs/design/datom.world.md'[0m in /Users/sto/workspace/datomworld-v0fix
+[32m succeeded in 0ms:[0m
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is a stream boundary, never a function call. The one
+sanctioned function-shaped contact is a `dao.stream` handle operation, whose
+exhaustive outcome map is stream protocol, not an application callback.
+
+**Effects out.** Portable code appends an effect value describing what must
+happen. A host interpreter consumes that stream, performs the operation, and
+appends the outcome. Portable code reads the outcome. Correlation is by
+identity in the data; neither side holds a reference to the other. A host with
+no implementation for an effect emits a qualified unsupported result. That is a
+correct outcome, not a gap to be filled.
+
+**Events in.** When the host initiates (a socket receives, a connection drops,
+a timer fires) the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**Adapters.** An adapter is a map of those transform functions. That is all an
+adapter is. It is a value, not a namespace, and it is general: sockets, files,
+timers and windows all deliver events by calling something, and an adapter is
+what they call. Each entry takes the host's arguments and returns one value;
+the append is the adapter's, not the entry's, so an entry cannot return a value
+to the host and cannot invoke application code. The adapter is handed only the
+deposit operation and its own host resource. If its deposit channel fails, it
+may close that resource to make the boundary observably gone; this is teardown,
+not an upward callback.
+
+Host types are classified into plain data in the transform: it is the last
+place holding a host error object, and no host type crosses onto the stream. A
+transport may use a qualified envelope to preserve correlation, lifecycle, and
+additive evolution; that envelope remains plain data and creates no separate
+event mechanism. A composition may likewise define its own qualified vocabulary
+for facts it owns.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read. This keeps
+the layering one-way: a boundary depends on nothing above it, because whoever
+constructs the adapter supplies the stream.
+
+A transform deposits every event admitted by the boundary protocol and judges
+none of them semantically. Wire framing, decoding, and protocol validation
+happen below the transform: malformed wire input is transport machinery, not an
+event. Once the transport has produced a valid host event, data is syntax
+(axiom 2): an event that is noise to one interpreter is signal to another that
+does not exist yet, and filtering at the depositing layer destroys perspectives
+not yet taken. Retention is the medium's operational policy; meaning is
+interpretation. Neither is the depositor's decision.
+
+Two things are not adapters. One that exposes a function for portable code to
+call isolates the host library but keeps the coupling, and the effect never
+appears as an emission. One that takes a function to invoke has relocated the
+callback, not removed it, even when every value it passes is plain data; if
+that callback has a meaningful return value, it is a synchronous call in both
+directions wearing the shape of an event.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc 'git diff -- src/cljc/yin/vm/ucf/handoff.cljc test/yin/vm/ucf/handoff_test.cljc docs/design/yin.vm.ucf-revisions.md'[0m in /Users/sto/workspace/datomworld-v0fix
+[32m succeeded in 4854ms:[0m
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-aiw8FDcD' (errno=Operation not permitted)
+2026-10-04 14:20:37.460 xcodebuild[43835:42094784]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-04 14:20:37.967 xcodebuild[43835:42094778] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-DLJBo7In' (errno=Operation not permitted)
+2026-10-04 14:20:38.896 xcodebuild[43872:42095103]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-04 14:20:39.458 xcodebuild[43872:42095102] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+diff --git a/docs/design/yin.vm.ucf-revisions.md b/docs/design/yin.vm.ucf-revisions.md
+index 0bf38238..61626397 100644
+--- a/docs/design/yin.vm.ucf-revisions.md
++++ b/docs/design/yin.vm.ucf-revisions.md
+@@ -367,6 +367,8 @@ untouched, so no image validity changes.
+     line 996). Each is a post-A fix owed a version-0 test,
+     optionally delivered in D (linker-dht 14.3). Neither reopens
+     stage 1's kept-cursor evidence nor reassigns the M4 gate.
++    Status: both fixed in version 0, each with its own red-then-green
++    test in `yin.vm.ucf.handoff-test`; the wire is unchanged.
+ 
+   Stage 1 (M-next A, the kept-cursor handoff of linker-dht 14.1,
+   carried by `yin.vm.ucf.handoff`) recorded here what the amendment
+diff --git a/src/cljc/yin/vm/ucf/handoff.cljc b/src/cljc/yin/vm/ucf/handoff.cljc
+index c4cf9cfb..0feef39e 100644
+--- a/src/cljc/yin/vm/ucf/handoff.cljc
++++ b/src/cljc/yin/vm/ucf/handoff.cljc
+@@ -1003,6 +1003,17 @@
+       ;; before anything of the parent is restored.  Decoded bytes
+       ;; are trees, so the recursion terminates.
+       (validate-body (:yin.k/child inst)))
++    ;; every install waiter travels beside its whole child: the lift's
++    ;; check, re-proved on the bytes, so a foreign body naming an
++    ;; install it does not carry never restores
++    (doseq [[i frame] (map-indexed vector (or (:yin.k/frames body) []))]
++      (let [pending (:yin.k/pending frame)]
++        (when (and (= :install (:yin.k/reason pending))
++                   (not (contains? (:yin.k/installs body)
++                                   (:yin.k/name pending))))
++          (undecodable! {:yin.k/name (:yin.k/name pending)
++                         :yin.k/kind :incomplete-install
++                         :yin.k/path [:yin.k/frames i :yin.k/pending]}))))
+     (let [referenced (referenced-cells body)
+           missing (remove #(contains? cells %) referenced)
+           extra (remove #(contains? referenced %) (keys cells))]
+@@ -1383,11 +1394,13 @@
+                        :value (decode (:yin.k/result body))
+                        :wait-set [])
+ 
++                ;; the parked activation waits on nothing; every other
++                ;; carried frame is still an ordered wait (UCF 7.4.3)
+                 :parked
+                 (assoc machine
+                        :halted? true :blocked? false
+                        :value (get parked (:yin.k/parked-id body))
+-                       :wait-set [])
++                       :wait-set entries)
+ 
+                 (assoc machine
+                        :halted? false :blocked? true
+diff --git a/test/yin/vm/ucf/handoff_test.cljc b/test/yin/vm/ucf/handoff_test.cljc
+index 2c68ccf4..c558fdb4 100644
+--- a/test/yin/vm/ucf/handoff_test.cljc
++++ b/test/yin/vm/ucf/handoff_test.cljc
+@@ -1301,3 +1301,82 @@
+                (resume #(assoc-in % [:yin.k/frames 0
+                                      :yin.k/registers :yin.k/stack]
+                                   {}))))))))
++
++
++;; =============================================================================
++;; Version-0 handoff defects (yin.vm.ucf-revisions.md section 6)
++;; =============================================================================
++
++(defn- parked-with-a-wait
++  "A real machine blocked on a read, A consumed, that then reaches an
++   explicit park: the parked activation waits on nothing, but the
++   reader's ordered wait is still carried.  Answers [parked src]."
++  []
++  (let [[blocked src] (parked-reader 1 false)]
++    [(vm/run (load-ast blocked {:type :vm/park})) src]))
++
++
++(deftest a-park-beside-ordered-waits-keeps-the-waits
++  (let [t (toy)
++        peer (served-peer t)
++        serve! (server peer (:channel t))
++        [parked src] (parked-with-a-wait)
++        pid (:id (:value parked))
++        export (handoff/export-task parked serve!)
++        resumed (handoff/resume-task (new-machine) (:bytes export)
++                                     (attacher t))
++        recv (:vm resumed)
++        resume-prog {:type :vm/resume, :parked-id pid,
++                     :val (lit "back")}]
++    (is (= 1 (count (:wait-set parked))) (pr-str (:wait-set parked)))
++    (is (= :ok (:status export)) (pr-str export))
++    (is (= :parked (:yin.k/kind (:body export))))
++    (is (= :next (:yin.k/reason (parked-frame export)))
++        "the carried reader's wait is serialized beside the park")
++    (is (= :ok (:status resumed)) (pr-str resumed))
++    (testing "the lower restores the ordered waits, not only the park"
++      (is (= (:value recv) (get (:parked recv) pid)))
++      (is (= [:next] (mapv :reason (:wait-set recv)))
++          (pr-str (:wait-set recv))))
++    (testing "the restored waiter reads on, in parity with the source"
++      (stream/append! src "B")
++      (let [reference (drive-local (vm/run (load-ast parked resume-prog)))
++            done (drive (vm/run (load-ast recv resume-prog)) peer)]
++        (is (= (select-keys reference [:halted? :blocked? :value])
++               (select-keys done [:halted? :blocked? :value]))
++            (pr-str {:reference (select-keys reference
++                                             [:halted? :blocked? :value])
++                     :done (select-keys done
++                                        [:halted? :blocked? :value])}))
++        (is (= (count (:wait-set reference))
++               (count (:wait-set done))))))))
++
++
++(deftest an-install-pending-without-its-entry-refuses-before-restoration
++  (let [t (toy)
++        serve! (server (served-peer t) (:channel t))
++        [parked _child] (parked-installer)
++        export (handoff/export-task parked serve!)
++        stripped (tamper export #(dissoc % :yin.k/installs))
++        renamed (tamper export
++                        #(update % :yin.k/installs
++                                 (fn [insts]
++                                   {'host.other (get insts 'host.mod)})))
++        attached (atom 0)
++        counting (let [a (attacher t)]
++                   (fn [d] (swap! attached inc) (a d)))
++        resume (fn [bytes]
++                 (handoff/resume-task (new-machine) bytes counting))]
++    (is (= :ok (:status export)) (pr-str export))
++    (is (= :install (:yin.k/reason (parked-frame export))))
++    (testing "a body whose install waiter has no install entry at all"
++      (let [refused (resume stripped)]
++        (is (= :yin.k/undecodable (:yin.k/status refused))
++            (pr-str refused))
++        (is (= 'host.mod (:yin.k/name refused)))))
++    (testing "an entry under some other name is no entry for the waiter"
++      (let [refused (resume renamed)]
++        (is (= :yin.k/undecodable (:yin.k/status refused))
++            (pr-str refused))))
++    (is (zero? @attached)
++        "refused by the grammar before any stream was attached")))
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "rg -n '7\\.|install|parked|wait-set|validate-body|incomplete-install' docs/design/yin.vm.universal-continuation-format.md src/cljc/yin/vm/ucf/handoff.cljc"[0m in /Users/sto/workspace/datomworld-v0fix
+[32m succeeded in 0ms:[0m
+src/cljc/yin/vm/ucf/handoff.cljc:19:   grammar, references and code hashes before anything is installed;
+src/cljc/yin/vm/ucf/handoff.cljc:23:   slice, the module stores, the counter and the parked records, then
+src/cljc/yin/vm/ucf/handoff.cljc:25:   restoration passes.  A failed lower installs nothing partially
+src/cljc/yin/vm/ucf/handoff.cljc:36:   parked record travels in the scheduler slice under its own id and
+src/cljc/yin/vm/ucf/handoff.cljc:37:   no pending is minted for it.  An install waiter travels beside its
+src/cljc/yin/vm/ucf/handoff.cljc:39:   or the export refuses; an install name alone reconstructs nothing."
+src/cljc/yin/vm/ucf/handoff.cljc:56:  "The S7.5.1 tag of one handoff body."
+src/cljc/yin/vm/ucf/handoff.cljc:68:;; Refusal vocabulary (S7.9): every failure is a data outcome
+src/cljc/yin/vm/ucf/handoff.cljc:101:  "The S7.9 data outcome exception `e` carries, or nil."
+src/cljc/yin/vm/ucf/handoff.cljc:168:   resource `stream-id` (UCF 7.5.3), minted once per `key` across the
+src/cljc/yin/vm/ucf/handoff.cljc:200:;; The value encoder: UCF 7.5.1 over one task's whole reachable graph
+src/cljc/yin/vm/ucf/handoff.cljc:204:  "A host function as UCF 7.5.2's primitive marker: its one name in
+src/cljc/yin/vm/ucf/handoff.cljc:229:   object, a reified continuation and a heap cell refuse (S7.5.4)."
+src/cljc/yin/vm/ucf/handoff.cljc:266:                :parked-continuation
+src/cljc/yin/vm/ucf/handoff.cljc:323:  "One register map -- a wait entry's or a parked record's frame slice
+src/cljc/yin/vm/ucf/handoff.cljc:382:                     :link-request :link-response :install}})
+src/cljc/yin/vm/ucf/handoff.cljc:396:    :install :install
+src/cljc/yin/vm/ucf/handoff.cljc:435:  "The S7.4.3 pending of one observed entry, in `yin.vm.ucf.remote`'s
+src/cljc/yin/vm/ucf/handoff.cljc:496:    :install
+src/cljc/yin/vm/ucf/handoff.cljc:497:    (do (when-not (contains? (:installs vm) (:name entry))
+src/cljc/yin/vm/ucf/handoff.cljc:498:          (non-portable! :incomplete-install {:yin.k/name (:name entry)}))
+src/cljc/yin/vm/ucf/handoff.cljc:499:        {:yin.k/reason :install
+src/cljc/yin/vm/ucf/handoff.cljc:527:;; The install children: a whole child travels, or nothing does
+src/cljc/yin/vm/ucf/handoff.cljc:530:(declare export-task validate-body resume-task)
+src/cljc/yin/vm/ucf/handoff.cljc:533:(defn- export-installs
+src/cljc/yin/vm/ucf/handoff.cljc:534:  "Each live install child of `vm` as its own handoff body beside the
+src/cljc/yin/vm/ucf/handoff.cljc:536:   (14.1.1's :install row).  A child that cannot export itself refuses
+src/cljc/yin/vm/ucf/handoff.cljc:543:                 (non-portable! :install-response {:yin.k/name m}))
+src/cljc/yin/vm/ucf/handoff.cljc:551:        (:installs vm)))
+src/cljc/yin/vm/ucf/handoff.cljc:597:   `:blocked`, `:parked` or `:halted`, or the S7.9 data outcome of the
+src/cljc/yin/vm/ucf/handoff.cljc:620:             ;; obligation a live install child will bind when it
+src/cljc/yin/vm/ucf/handoff.cljc:623:             installing (into #{}
+src/cljc/yin/vm/ucf/handoff.cljc:631:                                      (:installs vm)))
+src/cljc/yin/vm/ucf/handoff.cljc:633:                             #(set/difference (set %) installing))
+src/cljc/yin/vm/ucf/handoff.cljc:645:                           (= :parked-continuation (:type value))
+src/cljc/yin/vm/ucf/handoff.cljc:646:                           (contains? (:parked vm) (:id value)))
+src/cljc/yin/vm/ucf/handoff.cljc:647:               active-rec (when active (get (:parked vm) (:id value)))
+src/cljc/yin/vm/ucf/handoff.cljc:649:                      active :parked
+src/cljc/yin/vm/ucf/handoff.cljc:651:                      (seq (:wait-set vm)) :blocked
+src/cljc/yin/vm/ucf/handoff.cljc:654:               _ (when (and (= :halted kind) (seq (:wait-set vm)))
+src/cljc/yin/vm/ucf/handoff.cljc:667:                            (:wait-set vm))
+src/cljc/yin/vm/ucf/handoff.cljc:668:               parked (into {}
+src/cljc/yin/vm/ucf/handoff.cljc:674:                            (:yin.k/parked (:yin.k/scheduler walked)))
+src/cljc/yin/vm/ucf/handoff.cljc:679:               installs (export-installs vm serve!)
+src/cljc/yin/vm/ucf/handoff.cljc:705:                             :yin.k/parked parked
+src/cljc/yin/vm/ucf/handoff.cljc:711:                      (seq installs)
+src/cljc/yin/vm/ucf/handoff.cljc:712:                      (assoc :yin.k/installs installs)
+src/cljc/yin/vm/ucf/handoff.cljc:715:                      (= :parked kind)
+src/cljc/yin/vm/ucf/handoff.cljc:716:                      (assoc :yin.k/parked-id (:id value))
+src/cljc/yin/vm/ucf/handoff.cljc:720:               _ (validate-body (cbor/decode bytes))]
+src/cljc/yin/vm/ucf/handoff.cljc:729:;; Grammar (S7.5.4): total, before anything is attached or restored
+src/cljc/yin/vm/ucf/handoff.cljc:816:      :install
+src/cljc/yin/vm/ucf/handoff.cljc:896:   store and the module stores, the parked records, and the halt
+src/cljc/yin/vm/ucf/handoff.cljc:908:             (:yin.k/parked body)]
+src/cljc/yin/vm/ucf/handoff.cljc:931:(defn validate-body
+src/cljc/yin/vm/ucf/handoff.cljc:932:  "The body grammar both ends run (S7.5.4): the tag, the version, the
+src/cljc/yin/vm/ucf/handoff.cljc:948:    (when-not (contains? #{:blocked :parked :halted} kind)
+src/cljc/yin/vm/ucf/handoff.cljc:976:    (when (= :parked kind)
+src/cljc/yin/vm/ucf/handoff.cljc:977:      (when-not (contains? (:yin.k/parked body)
+src/cljc/yin/vm/ucf/handoff.cljc:978:                           (:yin.k/parked-id body))
+src/cljc/yin/vm/ucf/handoff.cljc:979:        (undecodable! {:yin.k/parked-id (:yin.k/parked-id body)
+src/cljc/yin/vm/ucf/handoff.cljc:980:                       :yin.k/path [:yin.k/parked-id]})))
+src/cljc/yin/vm/ucf/handoff.cljc:981:    (doseq [[pid r] (:yin.k/parked body)]
+src/cljc/yin/vm/ucf/handoff.cljc:982:      (let [path [:yin.k/parked pid]]
+src/cljc/yin/vm/ucf/handoff.cljc:984:        ;; a parked record IS an explicit park: its resume pc must sit
+src/cljc/yin/vm/ucf/handoff.cljc:993:            (undecodable! {:yin.k/parked-id pid
+src/cljc/yin/vm/ucf/handoff.cljc:996:    (doseq [[m inst] (:yin.k/installs body)]
+src/cljc/yin/vm/ucf/handoff.cljc:1001:                       :yin.k/path [:yin.k/installs m]}))
+src/cljc/yin/vm/ucf/handoff.cljc:1005:      (validate-body (:yin.k/child inst)))
+src/cljc/yin/vm/ucf/handoff.cljc:1006:    ;; every install waiter travels beside its whole child: the lift's
+src/cljc/yin/vm/ucf/handoff.cljc:1008:    ;; install it does not carry never restores
+src/cljc/yin/vm/ucf/handoff.cljc:1011:        (when (and (= :install (:yin.k/reason pending))
+src/cljc/yin/vm/ucf/handoff.cljc:1012:                   (not (contains? (:yin.k/installs body)
+src/cljc/yin/vm/ucf/handoff.cljc:1015:                         :yin.k/kind :incomplete-install
+src/cljc/yin/vm/ucf/handoff.cljc:1058:   a register, a parked record, a closure or the halt result carries.
+src/cljc/yin/vm/ucf/handoff.cljc:1132:  "A fresh child VM of the receiver's composition for one install
+src/cljc/yin/vm/ucf/handoff.cljc:1134:   7.3): nothing of the receiver's state but its composition values,
+src/cljc/yin/vm/ucf/handoff.cljc:1155:(defn- resume-installs
+src/cljc/yin/vm/ucf/handoff.cljc:1156:  "Each install child resumed into a fresh child of the receiver's
+src/cljc/yin/vm/ucf/handoff.cljc:1182:        (:yin.k/installs body)))
+src/cljc/yin/vm/ucf/handoff.cljc:1212:  "One pending lowered back into the engine's own wait-set entry
+src/cljc/yin/vm/ucf/handoff.cljc:1269:      :install
+src/cljc/yin/vm/ucf/handoff.cljc:1270:      (merge ctx {:reason :install :name (:yin.k/name pending)})
+src/cljc/yin/vm/ucf/handoff.cljc:1297:             _ (validate-body body)
+src/cljc/yin/vm/ucf/handoff.cljc:1338:             ;; the isolated slice installs through `store-put`, so a
+src/cljc/yin/vm/ucf/handoff.cljc:1354:             parked (into {}
+src/cljc/yin/vm/ucf/handoff.cljc:1358:                                        :type :parked-continuation
+src/cljc/yin/vm/ucf/handoff.cljc:1360:                          (:yin.k/parked body))
+src/cljc/yin/vm/ucf/handoff.cljc:1361:             installs (resume-installs recv' body attach! opts)
+src/cljc/yin/vm/ucf/handoff.cljc:1374:                                :parked (merge (:parked recv') parked)
+src/cljc/yin/vm/ucf/handoff.cljc:1375:                                :installs (merge (:installs recv') installs)
+src/cljc/yin/vm/ucf/handoff.cljc:1395:                       :wait-set [])
+src/cljc/yin/vm/ucf/handoff.cljc:1397:                ;; the parked activation waits on nothing; every other
+src/cljc/yin/vm/ucf/handoff.cljc:1398:                ;; carried frame is still an ordered wait (UCF 7.4.3)
+src/cljc/yin/vm/ucf/handoff.cljc:1399:                :parked
+src/cljc/yin/vm/ucf/handoff.cljc:1402:                       :value (get parked (:yin.k/parked-id body))
+src/cljc/yin/vm/ucf/handoff.cljc:1403:                       :wait-set entries)
+src/cljc/yin/vm/ucf/handoff.cljc:1408:                       :wait-set entries))})))))
+docs/design/yin.vm.universal-continuation-format.md:1:## §7. The Universal Continuation Format (Proposed)
+docs/design/yin.vm.universal-continuation-format.md:9:> ruling on S7.3's canonical form (r3), and Rule R's "v3" contract (r4);
+docs/design/yin.vm.universal-continuation-format.md:10:> S7.11 lists the acceptance blockers that keep this warning standing until
+docs/design/yin.vm.universal-continuation-format.md:19:3. **Dependency Closure & Context:** A parked fragment is not a complete configuration. The format must carry its complete scheduler context — required primitives *with profiles*, loaded modules, referenced parked records, the fresh-name counter, and the reachable store slice — discovered by a conservative fixed point that includes explicit store operands, and must restore into an **isolated execution store** so the receiver's own state cannot change resolution.
+docs/design/yin.vm.universal-continuation-format.md:29:amended 2026-09-14 (r3) by owner ruling — §7.3's canonical form is the
+docs/design/yin.vm.universal-continuation-format.md:30:positional instruction tuple vector, not EAV (§7.3.2).
+docs/design/yin.vm.universal-continuation-format.md:34:reserved name before env and a `:define` transition is added (S7.3.3);
+docs/design/yin.vm.universal-continuation-format.md:35:`yin/def` leaves the primitive registry (S7.5.2) and the free-name set
+docs/design/yin.vm.universal-continuation-format.md:36:(S7.6.1); S7.11 records the remaining definition-frame obligations.
+docs/design/yin.vm.universal-continuation-format.md:41:(7.2.1, 7.4.3, 7.7.8, 7.9, 7.11.1). The amendment is published design:
+docs/design/yin.vm.universal-continuation-format.md:48:exhaustion has a stated precedence, install children validate in their
+docs/design/yin.vm.universal-continuation-format.md:53:snapshot variants preserve the operation baseline, the install phase
+docs/design/yin.vm.universal-continuation-format.md:62:§7.3–§7.7, one section each, in dependency order: code identity first, because
+docs/design/yin.vm.universal-continuation-format.md:65:Every sentence in §7.2–§7.9 is a rule of the proposed protocol. §7.11 records
+docs/design/yin.vm.universal-continuation-format.md:70:## §7.1 Stance: a continuation is a value, not a session
+docs/design/yin.vm.universal-continuation-format.md:73:wait entry or a `:parked-continuation` record is `{segment pc env stack k}`
+docs/design/yin.vm.universal-continuation-format.md:86:| **Emitter** | lifts a parked configuration into a UCF value and appends it to a medium | nothing, once appended |
+docs/design/yin.vm.universal-continuation-format.md:95:arbitrated above the stream, by leases over datoms (§7.7), exactly where
+docs/design/yin.vm.universal-continuation-format.md:97:not occurrence**: the same parked computation can be encoded more than once
+docs/design/yin.vm.universal-continuation-format.md:98:(sharing thresholds differ, §7.5.3), so the encodings address differently,
+docs/design/yin.vm.universal-continuation-format.md:101:(§7.3.4, §7.7). Conflating them was a defect of the first draft; this draft
+docs/design/yin.vm.universal-continuation-format.md:109:## §7.2 Vocabulary and envelope
+docs/design/yin.vm.universal-continuation-format.md:116:Every value it contains is encoded in the disjoint tagged grammar of §7.5 —
+docs/design/yin.vm.universal-continuation-format.md:121: :yin.k/contract    {:yin.code/contract "v3" :yin.k/version 0}   ; S7.3.3
+docs/design/yin.vm.universal-continuation-format.md:122: :yin.k/id          :segment/sha256-…          ; §7.3.4  content address of this map minus :yin.k/id
+docs/design/yin.vm.universal-continuation-format.md:123: :yin.k/occurrence  :yin.k/o-…                  ; §7.7    the checkpoint occurrence — the lease subject
+docs/design/yin.vm.universal-continuation-format.md:127: :yin.k/arbitration {:dao.stream/identity … :dao.stream/descriptor …}     ; §7.7.3  the authority medium, named in the value
+docs/design/yin.vm.universal-continuation-format.md:128: :yin.k/frame       {…}                        ; §7.4  the canonical CESK at a safepoint
+docs/design/yin.vm.universal-continuation-format.md:129: :yin.k/values      {…}                        ; §7.5.3  shared subvalues, by content address
+docs/design/yin.vm.universal-continuation-format.md:130: :yin.k/cells       {…}                        ; §7.5.3  cursor cells: logical identity + position
+docs/design/yin.vm.universal-continuation-format.md:131: :yin.k/scheduler   {…}                        ; §7.6.3  fresh-name state and referenced parked records
+docs/design/yin.vm.universal-continuation-format.md:132: :yin.k/requires    {…}                        ; §7.6  dependency closure, with discovery status
+docs/design/yin.vm.universal-continuation-format.md:133: :yin.k/store       {…}                        ; §7.6.2  the store slice restored as an isolated store
+docs/design/yin.vm.universal-continuation-format.md:134: :yin.k/carried     [ … ]                      ; §7.3.4  canonical instruction vectors shipped inline
+docs/design/yin.vm.universal-continuation-format.md:135: :yin.k/policy      :yin.k/exclusive}          ; §7.7  or :yin.k/fork
+docs/design/yin.vm.universal-continuation-format.md:143:(`:yin.k/policy`, `:yin.k/occurrence`, with the custody facts of §7.7 on
+docs/design/yin.vm.universal-continuation-format.md:152: :yin.k/value     <encoded>}      ; the final accumulator, in the §7.5 grammar
+docs/design/yin.vm.universal-continuation-format.md:156:`dao.jing` segment address of the map with `:yin.k/id` removed (§7.3.4).
+docs/design/yin.vm.universal-continuation-format.md:164:key. The full algebra is in 7.9.
+docs/design/yin.vm.universal-continuation-format.md:166:### 7.2.1 The handoff body: the task wire grammar, versions 0 and 1
+docs/design/yin.vm.universal-continuation-format.md:170:**handoff body**: one task, the whole blocked machine of 7.6.3, as one
+docs/design/yin.vm.universal-continuation-format.md:175:7.6.3 is flattened into top-level keys. Code travels as an address-keyed
+docs/design/yin.vm.universal-continuation-format.md:177:(7.3.4). A halt is a body of kind `:halted`, the `:yin.k/result` sibling.
+docs/design/yin.vm.universal-continuation-format.md:182: :yin.k/kind          :blocked  ; :blocked | :parked | :halted
+docs/design/yin.vm.universal-continuation-format.md:184: :yin.k/id-counter    n         ; 7.6.3 fresh-name state
+docs/design/yin.vm.universal-continuation-format.md:185: :yin.k/parked        {pid registers}      ; 7.6.3 parked records
+docs/design/yin.vm.universal-continuation-format.md:186: :yin.k/store         {encoded encoded}    ; 7.6.2 isolated slice
+docs/design/yin.vm.universal-continuation-format.md:189:                             :yin.k/position p}}   ; 7.5.3
+docs/design/yin.vm.universal-continuation-format.md:192: :yin.k/code          {address vector}     ; 7.3.4, each verified
+docs/design/yin.vm.universal-continuation-format.md:196: :yin.k/parked-id     pid       ; :parked only: the active record
+docs/design/yin.vm.universal-continuation-format.md:198: ;; when the task holds live install children (7.4.3)
+docs/design/yin.vm.universal-continuation-format.md:199: :yin.k/installs      {module install}}
+docs/design/yin.vm.universal-continuation-format.md:205:`pending` is one variant of 7.4.3. Every value is in the 7.5 grammar.
+docs/design/yin.vm.universal-continuation-format.md:210:  `:yin.k/result` and forbids frames. `:parked` requires
+docs/design/yin.vm.universal-continuation-format.md:211:  `:yin.k/parked-id` naming a key of `:yin.k/parked`. A `:yin.k/result`
+docs/design/yin.vm.universal-continuation-format.md:214:  `:parked` alike; a resumer never drops a carried frame (7.4.3).
+docs/design/yin.vm.universal-continuation-format.md:216:  pending's reason; a parked record's resume pc is an `:explicit-park`
+docs/design/yin.vm.universal-continuation-format.md:224:Lift adds these kinds to the `:yin.k/non-portable` set of 7.5.4:
+docs/design/yin.vm.universal-continuation-format.md:225:`:incomplete-install`, `:install-response`, `:incomplete-write`,
+docs/design/yin.vm.universal-continuation-format.md:228:`:op-seq-exhausted` (7.4.3).
+docs/design/yin.vm.universal-continuation-format.md:232:same name inside `:yin.k/contract` belongs to the code stamp of 7.3.3.
+docs/design/yin.vm.universal-continuation-format.md:246:is restored. An install child's body carries the version of the body
+docs/design/yin.vm.universal-continuation-format.md:267:kind `:blocked` or `:parked` adds a custody header:
+docs/design/yin.vm.universal-continuation-format.md:272: :yin.k/occurrence  O           ; the lease subject, 7.3.4 and 7.7.2
+docs/design/yin.vm.universal-continuation-format.md:274:                     :dao.stream/descriptor d}     ; 7.7.3
+docs/design/yin.vm.universal-continuation-format.md:278: :yin.k/next-op-seq n}          ; 7.7.8
+docs/design/yin.vm.universal-continuation-format.md:283:install child is validated as a child, with the root's occurrence,
+docs/design/yin.vm.universal-continuation-format.md:287:- On a root of kind `:blocked` or `:parked`, `:yin.k/policy`,
+docs/design/yin.vm.universal-continuation-format.md:300:- `:yin.k/next-op-seq` is an exact integer of 7.7.8. It is 0 on a
+docs/design/yin.vm.universal-continuation-format.md:305:- An install child of any kind, halted included, carries none of the
+docs/design/yin.vm.universal-continuation-format.md:310:  counter (7.4.3).
+docs/design/yin.vm.universal-continuation-format.md:314:grant binding of 7.7.8.
+docs/design/yin.vm.universal-continuation-format.md:316:## §7.3 Code identity — content-addressed semantic profiles (blocker 5)
+docs/design/yin.vm.universal-continuation-format.md:318:### 7.3.1 The problem restated as data
+docs/design/yin.vm.universal-continuation-format.md:324:### 7.3.2 The canonical instruction vector and its address
+docs/design/yin.vm.universal-continuation-format.md:355:contract stamp (§7.3.3) and is versioned with it.
+docs/design/yin.vm.universal-continuation-format.md:380:  refuses it (`yin.vm.ucf-revisions.md` section 7.5). Before a UCF
+docs/design/yin.vm.universal-continuation-format.md:431:### 7.3.3 The contract stamp
+docs/design/yin.vm.universal-continuation-format.md:440:- the tuple grammar of §7.3.2 — the mnemonic set, each mnemonic's tuple
+docs/design/yin.vm.universal-continuation-format.md:450:  consulted, so no binding can redirect a definition (S7.5.2);
+docs/design/yin.vm.universal-continuation-format.md:453:  `check-wait-set`'s round order, `semantic-restore`.
+docs/design/yin.vm.universal-continuation-format.md:461:returns `:yin.k/profile-mismatch` (§7.9) *before* lowering. Adding an opcode,
+docs/design/yin.vm.universal-continuation-format.md:475:transition; see the revision log in S7.11. The de Bruijn images carry
+docs/design/yin.vm.universal-continuation-format.md:491:### 7.3.4 References to code inside a continuation
+docs/design/yin.vm.universal-continuation-format.md:497:§7.3.2 normalizes away.
+docs/design/yin.vm.universal-continuation-format.md:516:obligation: both must yield the same image, and a test in the harness (§7.11)
+docs/design/yin.vm.universal-continuation-format.md:517:asserts it for every corpus segment. `yin.vm.code-as-tuples.md` §7.2
+docs/design/yin.vm.universal-continuation-format.md:535:structural validation, the same rule the value decoder applies, §7.5.1). A
+docs/design/yin.vm.universal-continuation-format.md:536:miss is `:yin.k/unsatisfied` naming the address (§7.6.5); nothing from a
+docs/design/yin.vm.universal-continuation-format.md:557:encodings legitimately differ (§7.5.3), so `:yin.k/id` is *not* what custody,
+docs/design/yin.vm.universal-continuation-format.md:561:snapshot variant and every retry of the same park (§7.7.2). A re-emission
+docs/design/yin.vm.universal-continuation-format.md:565:## §7.4 Safepoints — where a canonical configuration exists (blocker 1)
+docs/design/yin.vm.universal-continuation-format.md:567:### 7.4.1 Only safepoints lift, and the table is the machine's
+docs/design/yin.vm.universal-continuation-format.md:595:continuation is a *value class* of the encoding (§7.5.1), never a lift
+docs/design/yin.vm.universal-continuation-format.md:602:encodings (§7.5):
+docs/design/yin.vm.universal-continuation-format.md:611:                                          ; | :install
+docs/design/yin.vm.universal-continuation-format.md:612: :yin.k/val      nil                       ; accumulator; nil except where §7.4.3 pre-fills it
+docs/design/yin.vm.universal-continuation-format.md:618: :yin.k/pending  {…}}                      ; the wait it was in, §7.4.3 — one variant per reason
+docs/design/yin.vm.universal-continuation-format.md:623:install child were implemented in M4 (S3 ships r8-r11, the install child
+docs/design/yin.vm.universal-continuation-format.md:625:safepoint and resource semantics; only the UCF lift and lower of parked
+docs/design/yin.vm.universal-continuation-format.md:626:link and install entries stays future. The require flow adds three
+docs/design/yin.vm.universal-continuation-format.md:628:effect that misses the module registry (`yin.vm.linker.md` 7.2, 7.3); a
+docs/design/yin.vm.universal-continuation-format.md:647:| :install       | a matching ok response, its            | pc+1      | St minus the popped    | the required module's symbol on                  |
+docs/design/yin.vm.universal-continuation-format.md:649:|                | the install child runs its             |           |                        | effect's error on refused                        |
+docs/design/yin.vm.universal-continuation-format.md:653:The pending variants of the three reasons are in section 7.4.3.
+docs/design/yin.vm.universal-continuation-format.md:656:(§7.6.3). Lifting additionally requires the machine's ready-queue to be
+docs/design/yin.vm.universal-continuation-format.md:658:configuration is not the parked one, and lift answers `:yin.k/not-quiescent`.
+docs/design/yin.vm.universal-continuation-format.md:660:### 7.4.2 Safepoint maps for foreign engines: static facts only
+docs/design/yin.vm.universal-continuation-format.md:717:### 7.4.3 The pending wait travels as data — complete, and resumable elsewhere
+docs/design/yin.vm.universal-continuation-format.md:719:A parked machine was waiting for something. That something is a resource of
+docs/design/yin.vm.universal-continuation-format.md:723:the set here is exhaustive over §7.4.1's reasons, and each variant carries
+docs/design/yin.vm.universal-continuation-format.md:730: :yin.k/cell     :yin.k/c-17}          ; the cursor CELL id, §7.5.3 — not a bare position
+docs/design/yin.vm.universal-continuation-format.md:744: :yin.k/cell       :yin.k/c-23         ; the response cursor cell, §7.5.3, at its KEPT position}
+docs/design/yin.vm.universal-continuation-format.md:762:  with it (§7.6.3), so the round-order semantics of `check-wait-set` —
+docs/design/yin.vm.universal-continuation-format.md:793:  id remapped per §7.5.3), while calls the resumed program makes *after*
+docs/design/yin.vm.universal-continuation-format.md:812:safepoint of the same name (`yin.vm.linker.md` 7.2, 7.3). A wait entry's
+docs/design/yin.vm.universal-continuation-format.md:815:7.5.3:
+docs/design/yin.vm.universal-continuation-format.md:836:;; module install (a matching ok discharged; the child runs)
+docs/design/yin.vm.universal-continuation-format.md:837:{:yin.k/reason    :install
+docs/design/yin.vm.universal-continuation-format.md:856:discipline section 7.5.3 already gives shared cursors -- and skips
+docs/design/yin.vm.universal-continuation-format.md:862:retires the id. A matching `ok` makes the entry `:install`, and no task
+docs/design/yin.vm.universal-continuation-format.md:863:is restored until the install reaches `linked` or `refused`: `linked`
+docs/design/yin.vm.universal-continuation-format.md:870:hold for both body versions of 7.2.1; operation ids are version 1.)
+docs/design/yin.vm.universal-continuation-format.md:873:it has no frame and no pending. The parked record travels in
+docs/design/yin.vm.universal-continuation-format.md:874:`:yin.k/parked` under its own id as a `registers` map, a body of kind
+docs/design/yin.vm.universal-continuation-format.md:875:`:parked` names the active record by `:yin.k/parked-id`, and the
+docs/design/yin.vm.universal-continuation-format.md:876:resumer re-creates the record. That explicitly parked activation
+docs/design/yin.vm.universal-continuation-format.md:879:wait (7.2.1). `:park` is therefore not a wire reason. Neither is
+docs/design/yin.vm.universal-continuation-format.md:883:`:install`), by the ruling in `yin.vm.ucf-revisions.md` section 8. A
+docs/design/yin.vm.universal-continuation-format.md:886:those two entries of the reason comment in 7.4.1.
+docs/design/yin.vm.universal-continuation-format.md:888:*The published `:install` variant is not complete alone.* The variant
+docs/design/yin.vm.universal-continuation-format.md:889:above names a module and nothing else. The install it waits on is a
+docs/design/yin.vm.universal-continuation-format.md:890:child task on the emitter's scheduler (`yin.vm.linker.md` 7.3): a
+docs/design/yin.vm.universal-continuation-format.md:894:request the link again, which is a second effect the parked task
+docs/design/yin.vm.universal-continuation-format.md:895:never made. That is the **name-only install sketch**, and it must
+docs/design/yin.vm.universal-continuation-format.md:897:together with the body's install entry for the same name:
+docs/design/yin.vm.universal-continuation-format.md:901:{:yin.k/reason :install
+docs/design/yin.vm.universal-continuation-format.md:904:;; the body's entry for that name (7.2.1)
+docs/design/yin.vm.universal-continuation-format.md:905::yin.k/installs
+docs/design/yin.vm.universal-continuation-format.md:906:{'foo {:yin.k/phase    :running   ; the child's phase (linker 7.3)
+docs/design/yin.vm.universal-continuation-format.md:915:  else lift refuses `:yin.k/non-portable`, kind `:install-response`.
+docs/design/yin.vm.universal-continuation-format.md:923:- A live install entry carries phase `:running` or `:parked`. Its
+docs/design/yin.vm.universal-continuation-format.md:925:  quiescence requirements, with kind `:blocked`, `:parked`, or
+docs/design/yin.vm.universal-continuation-format.md:932:  install phases are not exportable live-child entries, and any
+docs/design/yin.vm.universal-continuation-format.md:943:- The child is a whole body of 7.2.1 in the version of its holder,
+docs/design/yin.vm.universal-continuation-format.md:944:  with its own frames, parked records, stores, cells, code, and
+docs/design/yin.vm.universal-continuation-format.md:945:  nested installs. It is validated by the same grammar in the child
+docs/design/yin.vm.universal-continuation-format.md:946:  role, recursively and with its root's context (7.2.1), before
+docs/design/yin.vm.universal-continuation-format.md:949:  while its task is exporting (7.7.4). A child that cannot be
+docs/design/yin.vm.universal-continuation-format.md:953:- An `:install` pending whose name has no entry refuses the lift as
+docs/design/yin.vm.universal-continuation-format.md:954:  `:yin.k/non-portable`, kind `:incomplete-install`, before
+docs/design/yin.vm.universal-continuation-format.md:959:  the frames whose `:install` pending names it, in frame order.
+docs/design/yin.vm.universal-continuation-format.md:971::yin.k/op-id {:yin.k/occurrence P :yin.k/seq n}   ; 7.7.8
+docs/design/yin.vm.universal-continuation-format.md:991:  the admission outcome correlated to that id (7.9).
+docs/design/yin.vm.universal-continuation-format.md:994:  arbitration medium (7.7.8), by both ends. If the resumer finds
+docs/design/yin.vm.universal-continuation-format.md:1018:- `:install`: `:yin.k/name`, and the install entry above.
+docs/design/yin.vm.universal-continuation-format.md:1020:## §7.5 Recursive portable encoding (blocker 2)
+docs/design/yin.vm.universal-continuation-format.md:1022:### 7.5.1 A disjoint tagged grammar
+docs/design/yin.vm.universal-continuation-format.md:1026:stack, environment values, every frame in K, parked records, and the store
+docs/design/yin.vm.universal-continuation-format.md:1027:slice of §7.6.2. The outcome is either the portable form or a refusal naming
+docs/design/yin.vm.universal-continuation-format.md:1044:| reified continuation | `:yin.k/frame` | a nested frame (§7.4.1), recursively | `{:type :reified-continuation …}` |
+docs/design/yin.vm.universal-continuation-format.md:1045:| parked continuation | `:yin.k/frame` | a nested frame plus `:yin.k/parked-id` | `{:type :parked-continuation …}` |
+docs/design/yin.vm.universal-continuation-format.md:1046:| primitive | `:yin.k/primitive` | `:yin.k/name sym` | the named function, after profile check (§7.5.2) |
+docs/design/yin.vm.universal-continuation-format.md:1048:| cursor reference | `:yin.k/cursor-ref` | `:yin.k/cell cell-id` | a store cursor entry for that cell, §7.5.3 |
+docs/design/yin.vm.universal-continuation-format.md:1049:| shared subvalue | `:yin.k/ref` | `:yin.k/id addr` | the table entry at `addr`, §7.5.3 |
+docs/design/yin.vm.universal-continuation-format.md:1074:not a lift refusal (section 7.9). Only a profile with an explicit seam
+docs/design/yin.vm.universal-continuation-format.md:1099:of the module store its body resolves against (`yin.vm.linker.md` 7.3):
+docs/design/yin.vm.universal-continuation-format.md:1119:lower-side refusal (`yin.vm.linker.md` 7.3), not a `:yin.k/non-portable`
+docs/design/yin.vm.universal-continuation-format.md:1120:kind, so it is not in the closed set of section 7.5.4. In a `:named` marker lifted
+docs/design/yin.vm.universal-continuation-format.md:1124:relative to it. `yin.vm.linker.md` 7.3 states each kernel's lift and
+docs/design/yin.vm.universal-continuation-format.md:1128:section 7.6.2.
+docs/design/yin.vm.universal-continuation-format.md:1134:out of the store (`yin.vm.linker.md` 7.3). Lowering installs an attached
+docs/design/yin.vm.universal-continuation-format.md:1156:portable encoding -- and the lower, having installed the attachment or
+docs/design/yin.vm.universal-continuation-format.md:1162:### 7.5.2 Primitives: a name is a binding, not a meaning
+docs/design/yin.vm.universal-continuation-format.md:1181:;; in :yin.k/requires — computed, not hand-written (§7.6.1)
+docs/design/yin.vm.universal-continuation-format.md:1214:  publication is an acceptance blocker (S7.11).
+docs/design/yin.vm.universal-continuation-format.md:1217:  `:define` transition (S7.3.3), which writes its literal key through
+docs/design/yin.vm.universal-continuation-format.md:1225:### 7.5.3 Sharing, cells, and cycles
+docs/design/yin.vm.universal-continuation-format.md:1246:  rejected at decode (§7.5.1); this single representation retires the first
+docs/design/yin.vm.universal-continuation-format.md:1251:two continuations parked from the same closure share its encoding. This is
+docs/design/yin.vm.universal-continuation-format.md:1253:a single frame. It is also why §7.3.4 separates `:yin.k/id` (which varies
+docs/design/yin.vm.universal-continuation-format.md:1259:advance together — `check-wait-set` advances a shared cursor ref before
+docs/design/yin.vm.universal-continuation-format.md:1262:(`yin.vm.engine`, `check-wait-set`). A position-only encoding erases
+docs/design/yin.vm.universal-continuation-format.md:1281:§7.4.3 is a cell like any other.
+docs/design/yin.vm.universal-continuation-format.md:1286:split of `yin.vm.linker.md` 7.3: each cell becomes a cursor entry in the
+docs/design/yin.vm.universal-continuation-format.md:1307:### 7.5.4 Failure is total and names its place
+docs/design/yin.vm.universal-continuation-format.md:1321:| :cyclic | :in-memory-handle | :non-canonicalizable | :foreign-parked-ref
+docs/design/yin.vm.universal-continuation-format.md:1323:(`:non-canonicalizable` and `:foreign-parked-ref` from §7.3.2 and §7.6.3;
+docs/design/yin.vm.universal-continuation-format.md:1324:the last three from linker M4, `yin.vm.linker.md` 7.3). There is no partial UCF value and no
+docs/design/yin.vm.universal-continuation-format.md:1330:machine itself is unaffected and remains parked locally.
+docs/design/yin.vm.universal-continuation-format.md:1332:## §7.6 Dependency closure and context (blocker 3)
+docs/design/yin.vm.universal-continuation-format.md:1334:### 7.6.1 Declared, not hand-written — and discovered conservatively
+docs/design/yin.vm.universal-continuation-format.md:1343:{:yin.k/segments        #{:segment/sha256-3f1a… :segment/sha256-9c02…}  ; every address in frame, k, closures, values, parked
+docs/design/yin.vm.universal-continuation-format.md:1344: :yin.k/primitives      {sym → profile, §7.5.2}                        ; every {:yin.k/primitive …} encoded, plus every free :var
+docs/design/yin.vm.universal-continuation-format.md:1350: :yin.k/discovery       :complete}                                     ; :complete | :incomplete | :blocked — computed, §7.6.5
+docs/design/yin.vm.universal-continuation-format.md:1353:The fixed point starts from the frame, its K frames, the parked records of
+docs/design/yin.vm.universal-continuation-format.md:1354:§7.6.3, the store slice, and the pending wait. Its unit of analysis is a work
+docs/design/yin.vm.universal-continuation-format.md:1371:  was fetched (§7.3.4) — including **`:store-get` and `:store-put`
+docs/design/yin.vm.universal-continuation-format.md:1376:  (a parked id, §7.6.3). Discovering a new work item continues the fixed point
+docs/design/yin.vm.universal-continuation-format.md:1381:  a required primitive or module export and checked by profile (§7.5.2). An
+docs/design/yin.vm.universal-continuation-format.md:1387:  retained requirement is `:yin.k/unsatisfied` (§7.6.5).
+docs/design/yin.vm.universal-continuation-format.md:1388:  Definitions are syntax (Rule R, S7.5.2): the definition operator
+docs/design/yin.vm.universal-continuation-format.md:1406:`:complete` from `:incomplete` from `:blocked` (§7.6.5); a fixed point that
+docs/design/yin.vm.universal-continuation-format.md:1409:### 7.6.2 The store slice, restored as an isolated store
+docs/design/yin.vm.universal-continuation-format.md:1414:point of §7.6.1 can name — every free `:var` obligation for which the
+docs/design/yin.vm.universal-continuation-format.md:1416:every stream/cursor cell — with values encoded by §7.5:
+docs/design/yin.vm.universal-continuation-format.md:1424:keys directly holds handles, and the lift refuses it (§7.5.4). A resumer has
+docs/design/yin.vm.universal-continuation-format.md:1425:its own pair; outstanding calls route per §7.4.3.
+docs/design/yin.vm.universal-continuation-format.md:1429:amended by the linker's resource split (`yin.vm.linker.md` 7.3): stream
+docs/design/yin.vm.universal-continuation-format.md:1432:machinery -- wait-set resolution, handle creation and polling, resume --
+docs/design/yin.vm.universal-continuation-format.md:1437:but beside the program store; the decode targets of sections 7.5.1 and
+docs/design/yin.vm.universal-continuation-format.md:1438:7.5.3 move with them.
+docs/design/yin.vm.universal-continuation-format.md:1447:the carried slice, the remapped cells of §7.5.3, and the resumer's FFI pair
+docs/design/yin.vm.universal-continuation-format.md:1453:keys (cursor cells per §7.5.3, stream handles per §7.4.3), and non-resource
+docs/design/yin.vm.universal-continuation-format.md:1460:`yin.vm.linker.md` and implemented in M4. A module install's exports cross
+docs/design/yin.vm.universal-continuation-format.md:1462:them (`yin.vm.linker.md` 7.3). One snapshot encodes per module, under its
+docs/design/yin.vm.universal-continuation-format.md:1463:manifest address: the installing child's halted store, and every
+docs/design/yin.vm.universal-continuation-format.md:1469:and whatever that grammar refuses refuses the lift and the install. On
+docs/design/yin.vm.universal-continuation-format.md:1478:`yin.vm.linker.md` 7.3 states.
+docs/design/yin.vm.universal-continuation-format.md:1480:### 7.6.3 The migration unit is one task
+docs/design/yin.vm.universal-continuation-format.md:1485:its operand against the `:parked` map — a fresh receiver could reuse an
+docs/design/yin.vm.universal-continuation-format.md:1486:existing generated identifier, or fail to resolve a parked continuation a
+docs/design/yin.vm.universal-continuation-format.md:1492:  wait-set (as pending variants, §7.4.3), the referenced `:parked` records,
+docs/design/yin.vm.universal-continuation-format.md:1494:  (`:yin.k/not-quiescent` otherwise, §7.4.1) — a task with queued runnable
+docs/design/yin.vm.universal-continuation-format.md:1495:  work has a next configuration that is not the parked one.
+docs/design/yin.vm.universal-continuation-format.md:1501:- **Referenced parked records travel.** The fixed point
+docs/design/yin.vm.universal-continuation-format.md:1502:  of §7.6.1 collects every `:resume` operand in reachable code and every
+docs/design/yin.vm.universal-continuation-format.md:1503:  `[:parked id]` value from reachable environments. Each must resolve
+docs/design/yin.vm.universal-continuation-format.md:1504:  within this task to a parked record carried under
+docs/design/yin.vm.universal-continuation-format.md:1505:  `:yin.k/scheduler :yin.k/parked {pid → frame}`. A missing id referenced
+docs/design/yin.vm.universal-continuation-format.md:1508:  refuses the lift (`:yin.k/non-portable`, kind `:foreign-parked-ref`),
+docs/design/yin.vm.universal-continuation-format.md:1512:### 7.6.4 Modules
+docs/design/yin.vm.universal-continuation-format.md:1521:pins the effect handlers, the exported primitive profiles (§7.5.2), and —
+docs/design/yin.vm.universal-continuation-format.md:1522:per §7.6.1 — the store footprint the fixed point needs to claim
+docs/design/yin.vm.universal-continuation-format.md:1525:### 7.6.5 The satisfaction check
+docs/design/yin.vm.universal-continuation-format.md:1532: :yin.k/discovery :incomplete                    ; or :blocked, §7.6.1 — the computed status of the closure itself
+docs/design/yin.vm.universal-continuation-format.md:1546:`dao.jing` fetch (§7.3.4); a missing primitive, module, or cursor profile
+docs/design/yin.vm.universal-continuation-format.md:1553:## §7.7 Ownership arbitration — custody as a lease over datoms (blocker 4)
+docs/design/yin.vm.universal-continuation-format.md:1555:### 7.7.1 The race, named
+docs/design/yin.vm.universal-continuation-format.md:1558:local `:parked` record. Three readers see the value. The emitter's own wait
+docs/design/yin.vm.universal-continuation-format.md:1570:### 7.7.2 Custody facts, and their dispatch keys
+docs/design/yin.vm.universal-continuation-format.md:1595:transition, not the report (§7.7.6). Authority is exactly `dao.lease.md`'s:
+docs/design/yin.vm.universal-continuation-format.md:1602:(§7.3.4).
+docs/design/yin.vm.universal-continuation-format.md:1604:### 7.7.3 The authority: what the grantor possesses
+docs/design/yin.vm.universal-continuation-format.md:1619:**admission epoch** (§7.7.5). The **grantor is the boundary that transacts
+docs/design/yin.vm.universal-continuation-format.md:1631:  the value* (`:yin.k/arbitration`, §7.2), so every carrier, every snapshot
+docs/design/yin.vm.universal-continuation-format.md:1645:recorded, which is what §7.7.5's fencing consults. A composition that
+docs/design/yin.vm.universal-continuation-format.md:1650:### 7.7.4 The exporting state: fencing the source before publication
+docs/design/yin.vm.universal-continuation-format.md:1667:1. **Quiesce**: the ready-queue must be empty (§7.6.3).
+docs/design/yin.vm.universal-continuation-format.md:1669:   wait-set into the export record. The machine's wait-set is now empty,
+docs/design/yin.vm.universal-continuation-format.md:1672:   the source of the `:yin.k/pending` variants of §7.4.3.
+docs/design/yin.vm.universal-continuation-format.md:1674:   (the machine is parked or blocked); direct `:resume` resolves against
+docs/design/yin.vm.universal-continuation-format.md:1675:   `:parked`, and the parked records referenced by reachable code travel
+docs/design/yin.vm.universal-continuation-format.md:1678:   and declines), because the parked id now names a checkpoint that may be
+docs/design/yin.vm.universal-continuation-format.md:1684:The exporting machine is pure data with an empty wait-set and a retained
+docs/design/yin.vm.universal-continuation-format.md:1693:and **reuses the occurrence** (§7.3.4), so no retry mints a second runnable
+docs/design/yin.vm.universal-continuation-format.md:1695:machine (wait entries return to the wait-set, parked records to `:parked`)
+docs/design/yin.vm.universal-continuation-format.md:1700:### 7.7.5 Fencing effects: epochs, operation ids, and what exactly-once costs
+docs/design/yin.vm.universal-continuation-format.md:1716:(7.7.3); only the possessing boundary writes it. Exactly-once admission
+docs/design/yin.vm.universal-continuation-format.md:1750:Section 7.7.8 publishes the envelope's grammar, which adds the epoch to
+docs/design/yin.vm.universal-continuation-format.md:1765:queryable history (7.7.6); a holder report is evidence, while the grantor
+docs/design/yin.vm.universal-continuation-format.md:1784:### 7.7.6 Successors and chains
+docs/design/yin.vm.universal-continuation-format.md:1797:recomputation (`streams-all-the-way-down.md` §6.4) — and §7.7.5's op-ids
+docs/design/yin.vm.universal-continuation-format.md:1802:(7.7.8). Re-offering an earlier link, and compensating for effects
+docs/design/yin.vm.universal-continuation-format.md:1805:### 7.7.7 Restart
+docs/design/yin.vm.universal-continuation-format.md:1815:### 7.7.8 Fenced custody, version 1: sequence, envelope, epoch binding
+docs/design/yin.vm.universal-continuation-format.md:1818:section publishes the grammar that 7.7.5 argues for. The reasons stay
+docs/design/yin.vm.universal-continuation-format.md:1819:in 7.7.5; the runtime, ledger, and step contract stay in
+docs/design/yin.vm.universal-continuation-format.md:1822:version-1 bodies only (7.2.1).
+docs/design/yin.vm.universal-continuation-format.md:1847:3. *Carry.* At a park the id travels in the pending (7.4.3) and the
+docs/design/yin.vm.universal-continuation-format.md:1848:   counter in the header (7.2.1). The successor's counter is the
+docs/design/yin.vm.universal-continuation-format.md:1853:   the receiving task is new (contrast `:yin.k/id-counter`, 7.6.3).
+docs/design/yin.vm.universal-continuation-format.md:1953:fact (7.7.2), authored by itself:
+docs/design/yin.vm.universal-continuation-format.md:1988:  (7.7.3). It is 0 when the occurrence is first admitted. Every
+docs/design/yin.vm.universal-continuation-format.md:1998:  (7.7.7). A grantor that cannot recover the epoch grants nothing
+docs/design/yin.vm.universal-continuation-format.md:1999:  for that occurrence: 7.7.7's reclaim-and-regrant presumes the
+docs/design/yin.vm.universal-continuation-format.md:2002:  this protocol (7.7.5).
+docs/design/yin.vm.universal-continuation-format.md:2021:(7.7.5). The checks run in this order and the first to fail decides
+docs/design/yin.vm.universal-continuation-format.md:2022:the outcome (7.9):
+docs/design/yin.vm.universal-continuation-format.md:2039:   granted to the holder, including its install children, and its
+docs/design/yin.vm.universal-continuation-format.md:2100:**Completion and the successor chain.** Completion (7.7.5) establishes
+docs/design/yin.vm.universal-continuation-format.md:2117:## §7.8 Lifecycle: lift on park, lower on resume
+docs/design/yin.vm.universal-continuation-format.md:2121:1. The machine is parked or blocked with a local record `r`, and its
+docs/design/yin.vm.universal-continuation-format.md:2123:2. **Enter exporting** (§7.7.4): detach the wait set into the export
+docs/design/yin.vm.universal-continuation-format.md:2126:3. `lift(export-record)`: confirm the record is at a safepoint (§7.4.1),
+docs/design/yin.vm.universal-continuation-format.md:2128:   compute its address (§7.3.2), else the refusal; encode (§7.5), else the
+docs/design/yin.vm.universal-continuation-format.md:2130:   (§7.6), recording the discovery status; stamp the contract (§7.3.3); on
+docs/design/yin.vm.universal-continuation-format.md:2133:   `dao.jing` intake pool (the payloads *are* the vectors, §7.3.4), then
+docs/design/yin.vm.universal-continuation-format.md:2136:   reuses the occurrence (§7.7.4).
+docs/design/yin.vm.universal-continuation-format.md:2146:3. Decode against the §7.5.1 grammar with full structural validation, else
+docs/design/yin.vm.universal-continuation-format.md:2149:4. Evaluate `:yin.k/requires` (§7.6.5); fetch what may be fetched (segments
+docs/design/yin.vm.universal-continuation-format.md:2154:   authority, §7.7.3), propose, then observe the grant, else
+docs/design/yin.vm.universal-continuation-format.md:2160:   verifying each (§7.3.4).
+docs/design/yin.vm.universal-continuation-format.md:2161:7. **Restore into an isolated store** (§7.6.2): the slice, the remapped
+docs/design/yin.vm.universal-continuation-format.md:2163:   frame, pending waits, and cells (§7.4.3); an attachment `not-found` is
+docs/design/yin.vm.universal-continuation-format.md:2170:   in the local wait set; seed `:id-counter` per §7.6.3; run — through a
+docs/design/yin.vm.universal-continuation-format.md:2171:   fenced writer under `:exclusive` (§7.7.5).
+docs/design/yin.vm.universal-continuation-format.md:2173:   (§7.7.6), record `:yin.k/resumed`, release.
+docs/design/yin.vm.universal-continuation-format.md:2179:## §7.9 Outcome algebra
+docs/design/yin.vm.universal-continuation-format.md:2191:| `:yin.k/non-portable` | lift | `:yin.k/path`, `:yin.k/kind`, `:yin.k/hint` — kinds at §7.5.4, cycles included as `:kind :cyclic` |
+docs/design/yin.vm.universal-continuation-format.md:2208:(§7.8 step 7).
+docs/design/yin.vm.universal-continuation-format.md:2216:  every other check but the bytes and the tag (7.2.1).
+docs/design/yin.vm.universal-continuation-format.md:2217:- A malformed custody header, operation id, or install entry is
+docs/design/yin.vm.universal-continuation-format.md:2218:  `:yin.k/undecodable` with its path (7.2.1, 7.4.3).
+docs/design/yin.vm.universal-continuation-format.md:2219:- Lift refuses `:yin.k/non-portable` with kind `:incomplete-install`,
+docs/design/yin.vm.universal-continuation-format.md:2220:  `:unprotected-pending`, or `:op-seq-exhausted` (7.4.3, 7.7.8).
+docs/design/yin.vm.universal-continuation-format.md:2222:  `:yin.k/unsatisfied` naming the stream (7.4.3).
+docs/design/yin.vm.universal-continuation-format.md:2228:consumer's admission (7.7.8) is data that the consumer appends to the
+docs/design/yin.vm.universal-continuation-format.md:2257:- `:yin.k/effect-result` is the recorded result of 7.7.8, the same
+docs/design/yin.vm.universal-continuation-format.md:2265:  `:yin.k/observed-intent`, each an intent vector of 7.7.8.
+docs/design/yin.vm.universal-continuation-format.md:2268:  (7.2.1). It also answers for an exhausted or quarantined
+docs/design/yin.vm.universal-continuation-format.md:2271:  diagnostic is in 7.7.8.
+docs/design/yin.vm.universal-continuation-format.md:2273:  effect's resume value comes from their recorded result as 7.4.1
+docs/design/yin.vm.universal-continuation-format.md:2279:  occurrence is quarantined (7.7.8).
+docs/design/yin.vm.universal-continuation-format.md:2281:  a duplicate link response is (7.4.3). Outcomes are compared as
+docs/design/yin.vm.universal-continuation-format.md:2284:## §7.10 Invariant compliance
+docs/design/yin.vm.universal-continuation-format.md:2288:| No hidden global state | Every dependency is declared in `:yin.k/requires` — *as computed by the declared fixed point, with its completeness stated* (`:yin.k/discovery`); the store travels as an explicit slice restored into an isolated store; fresh-name state and parked records travel explicitly; custody is facts on a named, possessed medium. |
+docs/design/yin.vm.universal-continuation-format.md:2292:| No layer collapsing | Canonicalize, encode, discover, arbitrate, load, restore, execute are separate functions with data between them. The engine's hot loop is untouched: lifting is a pure function over the blocked machine's value, and the exporting state is that value with an emptied wait-set and a retained record — driver discipline, not engine machinery. |
+docs/design/yin.vm.universal-continuation-format.md:2304:## §7.11 Acceptance blockers for the implementation phase
+docs/design/yin.vm.universal-continuation-format.md:2320:  windows of §7.7.5.
+docs/design/yin.vm.universal-continuation-format.md:2321:- **Pending-state completeness.** Every pending variant of §7.4.3 must
+docs/design/yin.vm.universal-continuation-format.md:2324:  through the aliasing scenarios of `check-wait-set`. This depends on
+docs/design/yin.vm.universal-continuation-format.md:2340:  (§7.3.3): the tuple grammar — mnemonic set, per-mnemonic arity and operand
+docs/design/yin.vm.universal-continuation-format.md:2347:  map published with profiles (S7.5.2), including the `:effectful`
+docs/design/yin.vm.universal-continuation-format.md:2354:  parked definition are M4 obligations and do not pass today.
+docs/design/yin.vm.universal-continuation-format.md:2355:- **Discovery completeness.** The fixed point of §7.6.1 implemented and
+docs/design/yin.vm.universal-continuation-format.md:2364:  on the reference machine to each safepoint of the complete §7.4.1 table —
+docs/design/yin.vm.universal-continuation-format.md:2368:  static `stack-effect`/`lexically-required` checks, and the §7.3.4
+docs/design/yin.vm.universal-continuation-format.md:2372:  poll-a-blocked-writer-appends hazard of §7.7.4.
+docs/design/yin.vm.universal-continuation-format.md:2374:### 7.11.1 Blocker-closure acceptance matrix
+docs/design/yin.vm.universal-continuation-format.md:2385:**Code identity (7.3; blocker 5).**
+docs/design/yin.vm.universal-continuation-format.md:2422:**Safepoint reconstruction (7.4; blocker 1).**
+docs/design/yin.vm.universal-continuation-format.md:2426:- Setup: Run the corpus to every 7.4.1 row: explicit park, blocked
+docs/design/yin.vm.universal-continuation-format.md:2429:  `:link-response`, and `:install` pending variants (linker section 11
+docs/design/yin.vm.universal-continuation-format.md:2436:- Action and expected outcome: On each host, lift a parked task and lower
+docs/design/yin.vm.universal-continuation-format.md:2442:  reference trace. The observed parked record, wait entry, and effect
+docs/design/yin.vm.universal-continuation-format.md:2476:**Recursive portable encoding (7.5; blocker 2).**
+docs/design/yin.vm.universal-continuation-format.md:2482:  map keys containing values, closures, reified and parked continuations,
+docs/design/yin.vm.universal-continuation-format.md:2506:**Ownership arbitration (7.7; blocker 4).**
+docs/design/yin.vm.universal-continuation-format.md:2538:**Dependency closure (7.6; blocker 3).**
+docs/design/yin.vm.universal-continuation-format.md:2546:  closure, and a parked-id reference. Give the receiver a conflicting
+docs/design/yin.vm.universal-continuation-format.md:2548:  footprint, primitive profile, stream attachment, and parked record.
+docs/design/yin.vm.universal-continuation-format.md:2557:  parked ref refuses lift as `:yin.k/non-portable` with
+docs/design/yin.vm.universal-continuation-format.md:2558:  `:yin.k/kind :foreign-parked-ref`. No partial lower occurs.
+docs/design/yin.vm.universal-continuation-format.md:2560:  footprints, transitive child-install slices, and isolated lowering
+docs/design/yin.vm.universal-continuation-format.md:2563:  parked records and fresh-name state, and all missing-dependency modes
+docs/design/yin.vm.universal-continuation-format.md:2567:**Fenced custody, version 1 (7.2.1, 7.4.3, 7.7.8, 7.9; amendment r5).**
+docs/design/yin.vm.universal-continuation-format.md:2594:1. Version gate (7.2.1). Fixtures: version 2, absent, a float `1.0`,
+docs/design/yin.vm.universal-continuation-format.md:2603:2. Custody header (7.2.1). Fixtures omit each required key, give a
+docs/design/yin.vm.universal-continuation-format.md:2610:3. Sequence state (7.7.8). Assign-before-append, one increment,
+docs/design/yin.vm.universal-continuation-format.md:2615:4. Carried ids (7.4.3, 7.7.8). An id crosses park, bytes, and lower
+docs/design/yin.vm.universal-continuation-format.md:2627:5. Explicit park and install completeness (7.4.3), both versions.
+docs/design/yin.vm.universal-continuation-format.md:2628:   A `:park` or `:call-effect` reason and an `:install` pending
+docs/design/yin.vm.universal-continuation-format.md:2629:   without its entry refuse at decode; a `:parked` body's frames
+docs/design/yin.vm.universal-continuation-format.md:2631:   outside `:running` and `:parked` refuse; each of the two phases
+docs/design/yin.vm.universal-continuation-format.md:2632:   crosses with each child kind `:blocked`, `:parked` and `:halted`,
+docs/design/yin.vm.universal-continuation-format.md:2633:   a `:running` phase over a blocked child and an explicitly parked
+docs/design/yin.vm.universal-continuation-format.md:2641:6. Envelope (7.7.8). Fixtures drop each key, change the dispatch
+docs/design/yin.vm.universal-continuation-format.md:2651:7. Epoch binding (7.7.8). First grant binds 0; each reclaim raises
+docs/design/yin.vm.universal-continuation-format.md:2660:8. Admission order and outcomes (7.7.8, 7.9). One fixture per check
+docs/design/yin.vm.universal-continuation-format.md:2677:   outcome map of 7.9 for each and that stale wins over an existing
+docs/design/yin.vm.universal-continuation-format.md:2679:9. Bounds (7.7.8). A counter at 2^52-1 assigns nothing and refuses
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "sed -n '750,1055p' src/cljc/yin/vm/ucf/handoff.cljc; sed -n '1120,1440p' src/cljc/yin/vm/ucf/handoff.cljc"[0m in /Users/sto/workspace/datomworld-v0fix
+[32m succeeded in 0ms:[0m
+                            (concat (keys n) (vals n))
+                            (seq n)))
+                  x)))
+
+
+(defn- cell-ids-of
+  "Every cell id the value's cursor-ref markers name."
+  [x]
+  (into #{}
+        (map :yin.k/cell)
+        (tagged-of :yin.k/cursor-ref x)))
+
+
+(defn- check-cell
+  [cells cid path]
+  (when-not (map? (get cells cid))
+    (undecodable! {:yin.k/cell cid :yin.k/path path})))
+
+
+(defn- require-keys
+  [pending keys path]
+  (doseq [k keys]
+    (when-not (contains? pending k)
+      (undecodable! {:yin.k/path (conj path k)}))))
+
+
+(defn- validate-pending
+  [cells pending path]
+  (let [reason (:yin.k/reason pending)]
+    (case reason
+      (:next :ffi)
+      (do (require-keys pending [:yin.k/cell] path)
+          (check-cell cells (:yin.k/cell pending)
+                      (conj path :yin.k/cell)))
+
+      :put
+      (do (require-keys pending [:yin.k/value] path)
+          (when-not (marker? (:yin.k/stream pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/stream)})))
+
+      :ffi-request
+      (do (require-keys pending [:yin.k/call-id :yin.k/request-envelope
+                                 :yin.k/request :yin.k/response
+                                 :yin.k/response-cell]
+                        path)
+          (check-cell cells (:yin.k/response-cell pending)
+                      (conj path :yin.k/response-cell))
+          (when-not (marker? (:yin.k/request pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/request)}))
+          (when-not (marker? (:yin.k/response pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/response)})))
+
+      (:link-request :link-response)
+      (do (require-keys pending [:yin.k/link-id :yin.k/name
+                                 :yin.k/request :yin.k/response
+                                 :yin.k/cell]
+                        path)
+          (check-cell cells (:yin.k/cell pending)
+                      (conj path :yin.k/cell))
+          (when-not (marker? (:yin.k/request pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/request)}))
+          (when-not (marker? (:yin.k/response pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/response)}))
+          (when (= :link-request reason)
+            (require-keys pending [:yin.k/envelope] path)))
+
+      :install
+      (require-keys pending [:yin.k/name] path)
+
+      (undecodable! {:yin.k/reason reason :yin.k/path path}))))
+
+
+(defn- validate-registers
+  "Registers are meaningless without their code: the segment is
+   REQUIRED, must name code the body carries, and the pc bound is
+   checked unconditionally against it -- a segmentless register set
+   never validates, whatever its pc."
+  [code r path]
+  (doseq [k [:yin.k/segment :yin.k/pc :yin.k/env :yin.k/stack :yin.k/k]]
+    (when-not (contains? r k)
+      (undecodable! {:yin.k/path (conj path k)})))
+  (when-not (and (nat-int? (:yin.k/pc r))
+                 (map? (:yin.k/env r))
+                 (vector? (:yin.k/stack r))
+                 (vector? (:yin.k/k r)))
+    (undecodable! {:yin.k/path path :yin.k/kind :registers}))
+  (let [a (:yin.k/segment r)]
+    (when-not (contains? code a)
+      (undecodable! {:yin.k/segment a :yin.k/path path}))
+    (when-not (< (:yin.k/pc r) (count (get code a)))
+      (undecodable! {:yin.k/pc (:yin.k/pc r)
+                     :yin.k/segment a
+                     :yin.k/path path}))))
+
+
+(defn- check-frame-pc
+  "The resume pc must sit at a static safepoint whose kinds admit the
+   pending's wire reason: the same eligibility the lift proved on the
+   live entry, re-proved on the bytes before anything is restored, so
+   a tampered frame cannot lower at an arbitrary pc.  Runs after
+   `validate-registers`, so the segment names carried code and the pc
+   is inside it."
+  [code pending registers path]
+  (let [reason (:yin.k/reason pending)
+        a (:yin.k/segment registers)
+        pc (:yin.k/pc registers)
+        at (ucf/safepoint-at (get code a) pc)]
+    (if (contains? at :yin.k/status)
+      (undecodable! {:yin.k/pc pc :yin.k/path path})
+      (when-not (some #(contains? (get wire-of-kind %) reason)
+                      (:yin.safepoint/kinds at))
+        (undecodable! {:yin.k/kind :reason-mismatch
+                       :yin.k/pc pc
+                       :yin.k/reason reason
+                       :yin.k/path path})))))
+
+
+(defn- validate-frames
+  [body code cells]
+  (let [frames (:yin.k/frames body)]
+    (when (some? frames)
+      (when-not (vector? frames)
+        (undecodable! {:yin.k/path [:yin.k/frames]}))
+      (mapv (fn [i frame]
+              (let [path [:yin.k/frames i]]
+                (when-not (and (map? frame)
+                               (map? (:yin.k/registers frame)))
+                  (undecodable! {:yin.k/path path}))
+                (validate-registers code (:yin.k/registers frame)
+                                    (conj path :yin.k/registers))
+                (when-not (map? (:yin.k/pending frame))
+                  (undecodable! {:yin.k/path
+                                 (conj path :yin.k/pending)}))
+                (validate-pending cells (:yin.k/pending frame)
+                                  (conj path :yin.k/pending))
+                (check-frame-pc code (:yin.k/pending frame)
+                                (:yin.k/registers frame)
+                                (conj path :yin.k/registers))))
+            (range)
+            frames))))
+
+
+(defn- reachable-values
+  "Every encoded root of `body` whose markers name cells and streams:
+   the cell table itself, each frame's registers AND pending (the
+   retained values and envelopes are values inside the pending), the
+   store and the module stores, the parked records, and the halt
+   result.  Install children are whole bodies of their own, resumed
+   separately, so they are not roots here."
+  [body]
+  (let [frames (or (:yin.k/frames body) [])]
+    (concat [(:yin.k/cells body)]
+            (mapcat (fn [frame]
+                      [(:yin.k/registers frame)
+                       (:yin.k/pending frame)])
+                    frames)
+            [(:yin.k/store body)
+             (:yin.k/module-stores body)
+             (:yin.k/parked body)]
+            (when (contains? body :yin.k/result)
+              [(:yin.k/result body)]))))
+
+
+(defn- referenced-cells
+  "Every cell id the body names: through the pendings' own cell
+   fields, and through the cursor-ref markers of every encoded root
+   it carries -- a cell the encoder minted inside wait-frame
+   registers, a store key, or a retained envelope is as referenced as
+   one a pending names.  Exactly these, and the body's cells, must
+   agree."
+  [body]
+  (let [direct (mapcat (fn [p]
+                         (remove nil? [(:yin.k/cell p)
+                                       (:yin.k/response-cell p)]))
+                       (map :yin.k/pending
+                            (or (:yin.k/frames body) [])))]
+    (into (set direct)
+          (mapcat #(cell-ids-of %))
+          (reachable-values body))))
+
+
+(defn validate-body
+  "The body grammar both ends run (S7.5.4): the tag, the version, the
+   kind's own shape, every cell reference resolved to exactly the
+   cells the body carries -- none missing, none extra -- every pending
+   a known variant with the keys that variant requires, every frame's
+   segment among the code the body names, and each code vector still
+   hashing to its own address and admissible as a vector.  A malformed
+   body is refused whole, before any attachment or restoration."
+  [body]
+  (when-not (and (map? body) (true? (get body handoff-tag)))
+    (undecodable! {:yin.k/kind :body}))
+  (when-not (= handoff-version (:yin.k/version body))
+    (refuse! :yin.k/profile-mismatch
+             {:yin.k/version (:yin.k/version body)}))
+  (let [kind (:yin.k/kind body)
+        cells (or (:yin.k/cells body) {})
+        code (or (:yin.k/code body) {})]
+    (when-not (contains? #{:blocked :parked :halted} kind)
+      (undecodable! {:yin.k/kind kind :yin.k/path [:yin.k/kind]}))
+    (when-not (and (map? cells) (map? code))
+      (undecodable! {:yin.k/path [:yin.k/cells]}))
+    (doseq [[cid cell] cells]
+      (when-not (and (map? cell) (marker? (:yin.k/stream cell))
+                     (contains? cell :yin.k/position))
+        (undecodable! {:yin.k/cell cid :yin.k/path [:yin.k/cells cid]})))
+    (doseq [[a v] code]
+      (when-not (= a (ucf/code-address v))
+        (refuse! :yin.k/hash-mismatch {:yin.k/segment a}))
+      (when-some [defect (code/well-formed-vector? v)]
+        (undecodable! {:yin.k/segment a :yin.k/pc (:pc defect)
+                       :yin.k/defect defect})))
+    (validate-frames body code cells)
+    (when (contains? body :yin.k/frames)
+      (when (= :halted kind)
+        (undecodable! {:yin.k/path [:yin.k/frames]})))
+    (when (and (= :blocked kind)
+               (not (seq (or (:yin.k/frames body) []))))
+      (undecodable! {:yin.k/path [:yin.k/frames]
+                     :yin.k/kind :blocked-without-frames}))
+    (when (contains? body :yin.k/result)
+      (when-not (= :halted kind)
+        (undecodable! {:yin.k/path [:yin.k/result]})))
+    (when (= :halted kind)
+      (when-not (contains? body :yin.k/result)
+        (undecodable! {:yin.k/path [:yin.k/result]})))
+    (when (= :parked kind)
+      (when-not (contains? (:yin.k/parked body)
+                           (:yin.k/parked-id body))
+        (undecodable! {:yin.k/parked-id (:yin.k/parked-id body)
+                       :yin.k/path [:yin.k/parked-id]})))
+    (doseq [[pid r] (:yin.k/parked body)]
+      (let [path [:yin.k/parked pid]]
+        (validate-registers code r path)
+        ;; a parked record IS an explicit park: its resume pc must sit
+        ;; at the one safepoint kind whose meaning is the park itself,
+        ;; so a record steered onto an ordinary instruction pc never
+        ;; restores as a continuation
+        (let [at (ucf/safepoint-at (get code (:yin.k/segment r))
+                                   (:yin.k/pc r))]
+          (when (or (contains? at :yin.k/status)
+                    (not (contains? (set (:yin.safepoint/kinds at))
+                                    :explicit-park)))
+            (undecodable! {:yin.k/parked-id pid
+                           :yin.k/pc (:yin.k/pc r)
+                           :yin.k/path path})))))
+    (doseq [[m inst] (:yin.k/installs body)]
+      (when-not (and (contains? inst :yin.k/response)
+                     (map? (:yin.k/child inst))
+                     (true? (get (:yin.k/child inst) handoff-tag)))
+        (undecodable! {:yin.k/name m
+                       :yin.k/path [:yin.k/installs m]}))
+      ;; a child is a whole body: validated with the same grammar
+      ;; before anything of the parent is restored.  Decoded bytes
+      ;; are trees, so the recursion terminates.
+      (validate-body (:yin.k/child inst)))
+    ;; every install waiter travels beside its whole child: the lift's
+    ;; check, re-proved on the bytes, so a foreign body naming an
+    ;; install it does not carry never restores
+    (doseq [[i frame] (map-indexed vector (or (:yin.k/frames body) []))]
+      (let [pending (:yin.k/pending frame)]
+        (when (and (= :install (:yin.k/reason pending))
+                   (not (contains? (:yin.k/installs body)
+                                   (:yin.k/name pending))))
+          (undecodable! {:yin.k/name (:yin.k/name pending)
+                         :yin.k/kind :incomplete-install
+                         :yin.k/path [:yin.k/frames i :yin.k/pending]}))))
+    (let [referenced (referenced-cells body)
+          missing (remove #(contains? cells %) referenced)
+          extra (remove #(contains? referenced %) (keys cells))]
+      (when-some [cid (first missing)]
+        (undecodable! {:yin.k/cell cid :yin.k/path [:yin.k/cells]}))
+      (when-some [cid (first (sort-by str extra))]
+        (undecodable! {:yin.k/cell cid :yin.k/kind :extra-cell
+                       :yin.k/path [:yin.k/cells cid]})))
+    (when (and (seq cells)
+               (not (contains?
+                      (get-in (or (:yin.k/requires body) {})
+                              [:yin.k/cursor-profiles])
+                      :dao.stream.remote/v1)))
+      (unsatisfied! nil))
+    body))
+
+
+;; =============================================================================
+;; Lower (14.1.2): a fresh task over the receiver's own coordinates
+;; =============================================================================
+
+(def ^:private fixed-resource-keys
+  "The VM's fixed private resource keys, never allocated by the lower
+   (`yin.vm.ucf.remote`'s discipline)."
+  #{vm/call-in-stream-key vm/call-out-stream-key
+    vm/call-out-cursor-key module/link-request-resource
+    module/link-response-resource})
+
+
+(defn- fresh-key
+  [used]
+  (loop [n (inc (count @used))]
+    (let [k (keyword "yin.k" (str "k-" n))]
+      (if (contains? @used k)
+        (recur (inc n))
+        (do (swap! used conj k) k)))))
+
+
+(defn- body-markers
+                (if-some [k (get cells (:yin.k/cell x))]
+                  (engine/issue-ref recv :cursor-ref k)
+                  (undecodable! {:yin.k/cell (:yin.k/cell x)}))
+                (undecodable! {:yin.k/tag (:yin.k/tag x)}))
+              (vector? x) (mapv decode x)
+              (set? x) (into #{} (map decode) x)
+              (seq? x) (apply list (map decode x))
+              :else (undecodable! {:yin.k/kind :host-object})))]
+    decode))
+
+
+(defn- spawn-child-template
+  "A fresh child VM of the receiver's composition for one install
+   response -- the engine's own spawn discipline (yin.vm.linker.md
+   7.3): nothing of the receiver's state but its composition values,
+   a fresh origin tag, and the secret the composition's source mints
+   for it."
+  [recv response module-name]
+  (let [n (or (:origins recv) 0)
+        origin (keyword (str (name (or (:origin recv) :t0)) "." n))
+        registry (reduce (fn [r [m e]]
+                           (module/assoc-module r m (dissoc e :bindings)))
+                         (:modules recv)
+                         (module/module-entries (:modules recv)))
+        source (:secret-source recv)
+        child (module/spawn-module
+                recv
+                (:value (:image response))
+                {:modules registry
+                 :origin origin
+                 :ancestry (conj (vec (:ancestry recv)) module-name)
+                 :capability-secret (when (fn? source) (source origin))})]
+    (assoc child :origins (inc n))))
+
+
+(defn- resume-installs
+  "Each install child resumed into a fresh child of the receiver's
+   composition, its phase and response carried: the receiver's own
+   scheduler steps it exactly as the source's did.  A child that
+   refuses -- its bytes undecodable, a stream it names unattachable
+   -- aborts the parent's restoration: the refusal is thrown here,
+   before any machine value is assembled, so the parent never answers
+   :ok over a child that did not lower."
+  [recv body attach! opts]
+  (into {}
+        (map (fn [[m inst]]
+               (let [response (:yin.k/response inst)
+                     child-body (:yin.k/child inst)
+                     resumed (resume-task
+                               (if-some [spawn (:child-of opts)]
+                                 (spawn recv response m)
+                                 (spawn-child-template recv response m))
+                               (cbor/encode child-body)
+                               attach!
+                               opts)]
+                 (when (not= :ok (:status resumed))
+                   (refuse! (:yin.k/status resumed)
+                            (dissoc resumed :yin.k/status)))
+                 [m {:phase (or (:yin.k/phase inst) :running)
+                     :parent (:yin.k/parent inst)
+                     :response response
+                     :vm (:vm resumed)}])))
+        (:yin.k/installs body)))
+
+
+(defn- link-pair-resources
+  "The engine's fixed link keys mapped onto the reflections a lowered
+   link wait uses, so a migrated link wait parks where the engine's
+   own sweep polls it."
+  [streams resources pendings]
+  (reduce (fn [acc pending]
+            (if (contains? #{:link-request :link-response}
+                           (:yin.k/reason pending))
+              (let [req (get resources
+                             (streams (get-in pending
+                                              [:yin.k/request
+                                               :dao.stream/identity])))
+                    resp (get resources
+                              (streams (get-in pending
+                                               [:yin.k/response
+                                                :dao.stream/identity])))]
+                (if (and req resp)
+                  (assoc acc
+                         module/link-request-resource req
+                         module/link-response-resource resp)
+                  acc))
+              acc))
+          {}
+          pendings))
+
+
+(defn- lower-frame!
+  "One pending lowered back into the engine's own wait-set entry
+   shape, the receiver's register context riding verbatim under the
+   fields the variant rebuilds (`yin.vm.ucf.remote`'s shapes, through
+   this lower's own fresh keys)."
+  [decode streams cells cell-keys pending ctx]
+  (let [stream-of (fn [marker]
+                    (streams (:dao.stream/identity marker)))
+        cell-stream (fn [cid]
+                      (stream-of (get-in cells [cid :yin.k/stream])))
+        cell-key (fn [cid] (get cell-keys cid))]
+    (case (:yin.k/reason pending)
+      :next
+      (merge ctx
+             {:reason :next
+              :stream-id (cell-stream (:yin.k/cell pending))
+              :cursor-ref {:type :cursor-ref
+                           :id (cell-key (:yin.k/cell pending))}})
+
+      :ffi
+      (merge ctx
+             (cond-> {:reason :next
+                      :call-id (:yin.k/call-id pending)
+                      :stream-id (cell-stream (:yin.k/cell pending))
+                      :cursor-ref {:type :cursor-ref
+                                   :id (cell-key (:yin.k/cell pending))}}
+               (contains? pending :yin.k/op)
+               (assoc :op (:yin.k/op pending))))
+
+      :put
+      (merge ctx
+             {:reason :put
+              :stream-id (stream-of (:yin.k/stream pending))
+              :datom (decode (:yin.k/value pending))})
+
+      :ffi-request
+      (merge ctx
+             {:reason :put
+              :request-sent true
+              :call-id (:yin.k/call-id pending)
+              :op (:yin.k/request-op pending)
+              :stream-id (stream-of (:yin.k/request pending))
+              :datom (decode (:yin.k/request-envelope pending))
+              :response-cursor (cell-key (:yin.k/response-cell pending))
+              :response-stream (stream-of (:yin.k/response pending))})
+
+      (:link-request :link-response)
+      (let [cid (:yin.k/cell pending)]
+        (merge ctx
+               (cond-> {:reason (:yin.k/reason pending)
+                        :link-id (:yin.k/link-id pending)
+                        :name (:yin.k/name pending)
+                        :request module/link-request-resource
+                        :response module/link-response-resource
+                        :cursor (:yin.k/position (get cells cid))}
+                 (= :link-request (:yin.k/reason pending))
+                 (assoc :envelope (decode (:yin.k/envelope pending))))))
+
+      :install
+      (merge ctx {:reason :install :name (:yin.k/name pending)})
+
+      (undecodable! {:yin.k/reason (:yin.k/reason pending)}))))
+
+
+(defn resume-task
+  "The lower of 14.1.2: `bytes`, a handoff body this namespace minted,
+   resumed into a fresh task over `recv` -- a machine of the receiver's
+   own composition.  Answers `{:status :ok :kind k :vm resumed}` or the
+   first data refusal: `:yin.k/undecodable` bytes or grammar,
+   `:yin.k/profile-mismatch` stamp or version, `:yin.k/hash-mismatch`
+   code, `:yin.k/unsatisfied` a stream that cannot be attached or a
+   primitive the receiver cannot answer.  Nothing partially runnable
+   is ever exposed: the machine value is assembled only after every
+   restoration step passes.  `attach!` is the receiver's own
+   `:dao.stream/attach` dispatch, exactly `yin.vm.ucf.remote`'s; the
+   resumed task is a fork until stage 2."
+  ([recv bytes attach!]
+   (resume-task recv bytes attach! nil))
+  ([recv bytes attach! opts]
+   (call!
+     (fn []
+       (let [body (try (cbor/decode bytes)
+                       (catch #?(:cljd Object :clj Throwable
+                                 :cljs :default)
+                              _
+                         (undecodable! {:yin.k/kind :bytes})))
+             _ (validate-body body)
+             _ (when-not (= ucf/contract-stamp
+                            (:yin.k/contract body))
+                 (refuse! :yin.k/profile-mismatch
+                          {:yin.k/contract (:yin.k/contract body)}))
+             kind (:yin.k/kind body)
+             cells (:yin.k/cells body)
+             pendings (mapv :yin.k/pending
+                            (or (:yin.k/frames body) []))
+             recv' (reduce (fn [r [_a v]] (module/attach-module r v))
+                           recv
+                           (:yin.k/code body))
+             handles (attach-all! attach! (body-markers body))
+             used (atom (into fixed-resource-keys
+                              (keys (:resources recv))))
+             streams (into {}
+                           (map (fn [identity]
+                                  [identity (fresh-key used)]))
+                           (sort-by str (keys handles)))
+             resources (into {}
+                             (map (fn [[identity k]]
+                                    [k (get handles identity)]))
+                             streams)
+             cell-keys (into {}
+                             (map (fn [cid] [cid (fresh-key used)]))
+                             (sort-by str (keys cells)))
+             cell-resources (into {}
+                                  (map (fn [[cid k]]
+                                         [k
+                                          {:stream-id
+                                           (streams
+                                             (get-in cells
+                                                     [cid :yin.k/stream
+                                                      :dao.stream/identity]))
+                                           :cursor
+                                           (get-in cells
+                                                   [cid
+                                                    :yin.k/position])}]))
+                                  cell-keys)
+             decode (value-decoder recv' streams cell-keys)
+             aliases (:code-aliases recv')
+             ;; the isolated slice installs through `store-put`, so a
+             ;; reserved key inside a tampered body refuses here exactly
+             ;; as a program write would (Rule R), before the checked
+             ;; store lands on the receiver in one write
+             store (reduce (fn [s [k v]]
+                             (engine/store-put s (decode k) (decode v)))
+                           (or (:store recv') {})
+                           (:yin.k/store body))
+             module-stores (into {}
+                                 (map (fn [[m s]]
+                                        [m (into {}
+                                                 (map (fn [[k v]]
+                                                        [(decode k)
+                                                         (decode v)]))
+                                                 s)]))
+                                 (:yin.k/module-stores body))
+             parked (into {}
+                          (map (fn [[pid r]]
+                                 [pid (assoc
+                                        (decode-registers decode aliases r)
+                                        :type :parked-continuation
+                                        :id pid)]))
+                          (:yin.k/parked body))
+             installs (resume-installs recv' body attach! opts)
+             registers (mapv (fn [frame]
+                               (decode-registers decode aliases
+                                                 (:yin.k/registers frame)))
+                             (or (:yin.k/frames body) []))
+             entries (mapv (fn [pending ctx]
+                             (lower-frame! decode streams cells cell-keys
+                                           pending ctx))
+                           pendings registers)
+             machine (-> recv'
+                         (assoc :store store
+                                :module-stores (merge (:module-stores recv')
+                                                      module-stores)
+                                :parked (merge (:parked recv') parked)
+                                :installs (merge (:installs recv') installs)
+                                :resources (merge (:resources recv')
+                                                  resources
+                                                  cell-resources
+                                                  (link-pair-resources
+                                                    streams resources
+                                                    pendings))
+                                :id-counter (max (or (:id-counter recv') 0)
+                                                 (or (:yin.k/id-counter body)
+                                                     0))
+                                :ready-queue []
+                                :control nil
+                                :k nil))]
+         {:status :ok
+          :kind kind
+          :vm (case kind
+                :halted
+                (assoc machine
+                       :halted? true :blocked? false
+                       :value (decode (:yin.k/result body))
+                       :wait-set [])
+
+                ;; the parked activation waits on nothing; every other
+                ;; carried frame is still an ordered wait (UCF 7.4.3)
+                :parked
+                (assoc machine
+                       :halted? true :blocked? false
+                       :value (get parked (:yin.k/parked-id body))
+                       :wait-set entries)
+
+                (assoc machine
+                       :halted? false :blocked? true
+                       :value :yin/blocked
+                       :wait-set entries))})))))
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "sed -n '200,228p' docs/design/yin.vm.universal-continuation-format.md; sed -n '590,800p' docs/design/yin.vm.universal-continuation-format.md; sed -n '490,725p' src/cljc/yin/vm/ucf/handoff.cljc; sed -n '760,895p' src/cljc/yin/vm/ucf/handoff.cljc"[0m in /Users/sto/workspace/datomworld-v0fix
+[32m succeeded in 0ms:[0m
+```
+
+`registers` is `{:yin.k/segment address :yin.k/pc n :yin.k/env {name
+encoded} :yin.k/stack [encoded] :yin.k/k [frame]}`, every key required,
+the segment a key of `:yin.k/code` and the pc inside that vector.
+`pending` is one variant of 7.4.3. Every value is in the 7.5 grammar.
+
+Shape rules, each a `:yin.k/undecodable` refusal naming its path:
+
+- `:blocked` requires nonempty frames. `:halted` requires
+  `:yin.k/result` and forbids frames. `:parked` requires
+  `:yin.k/parked-id` naming a key of `:yin.k/parked`. A `:yin.k/result`
+  on any other kind is refused.
+- Frames restore in their carried order, for `:blocked` and for
+  `:parked` alike; a resumer never drops a carried frame (7.4.3).
+- A frame's resume pc is a static safepoint whose kinds admit the
+  pending's reason; a parked record's resume pc is an `:explicit-park`
+  safepoint (`yin.vm.ucf-revisions.md` section 8).
+- The cells the body carries are exactly the cells its roots name:
+  none missing, none extra. A body with cells claims
+  `:dao.stream.remote/v1`, else `:yin.k/unsatisfied`.
+- Each code vector hashes to its key (`:yin.k/hash-mismatch`) and is
+  well formed under the stamp.
+
+Lift adds these kinds to the `:yin.k/non-portable` set of 7.5.4:
+`:incomplete-install`, `:install-response`, `:incomplete-write`,
+`:reason-mismatch`, `:inconsistent-halt`, `:unaddressed-segment`,
+`:address-mismatch`, and, under version 1, `:unprotected-pending` and
+`:op-seq-exhausted` (7.4.3).
+| halt | `:halt`, `:return` with empty K | — | — | not resumable; a `:yin.k/type :yin.k/result` travels instead |
+
+Two corrections to the first draft's table stand beside the addition.
+`:current-continuation` is **not** a safepoint: it does not park — it
+reifies `val ← {seg, pc+1, E, St, K}` and continues, so a reified
+continuation is a *value class* of the encoding (§7.5.1), never a lift
+point. And `pc+1` as the resume pc is verified sound for every row above:
+§2.6 requires the final pc to be a terminator, so every listed instruction
+has a successor in its own segment.
+
+The `:yin.k/frame` is exactly the wait-entry shape of `yin.vm.semantic.md`
+§3.5, with segments replaced by addresses and values by their portable
+encodings (§7.5):
+
+```clojure
+:yin.k/frame
+{:yin.k/segment  :segment/sha256-3f1a…
+ :yin.k/pc       5                         ; the resume pc, already pc+1
+ :yin.k/reason   :next                     ; :park | :next | :put | :ffi
+                                          ; | :ffi-request | :call-effect
+                                          ; | :link-request | :link-response
+                                          ; | :install
+ :yin.k/val      nil                       ; accumulator; nil except where §7.4.3 pre-fills it
+ :yin.k/stack    [ … ]                     ; St per the table above, encoded
+ :yin.k/env      { sym → encoded value }   ; E
+ :yin.k/k        [ {:yin.k/frame-type :return                    ; or :eval-call / :request-sent,
+                    :yin.k/segment :segment/sha256-…             ; which also carry :yin.k/call-id
+                    :yin.k/pc 5 :yin.k/env {…} :yin.k/stack-base 0} … ]   ; K, innermost last
+ :yin.k/pending  {…}}                      ; the wait it was in, §7.4.3 — one variant per reason
+```
+
+**Linker safepoints (M4).** Every block marked (linker M4) is specified by
+`yin.vm.linker.md`; the private resources table, sealed references and
+install child were implemented in M4 (S3 ships r8-r11, the install child
+and link-module; S4 ships manifests). The running VM implements the
+safepoint and resource semantics; only the UCF lift and lower of parked
+link and install entries stays future. The require flow adds three
+safepoints to the set above, one per wait state of a `:module/require`
+effect that misses the module registry (`yin.vm.linker.md` 7.2, 7.3); a
+hit answers without parking. The frame is the effectful-call row's in all
+three -- `require` is named there -- and the wait entry moves between the
+three reasons without the machine advancing, so the canonical resume pc
+and the stack are that row's in every state:
+
++----------------+----------------------------------------+-----------+------------------------+--------------------------------------------------+
+| Safepoint kind | Raised by                              | Resume pc | Stack in frame (St)    | Accumulator on resume                            |
++================+========================================+===========+========================+==================================================+
+| :link-request  | the :module/require effect on a        | pc+1      | St minus the popped    | no resume from this state: on ok                 |
+|                | registry miss, before the link         |           | operator and args      | the entry becomes :link-response                 |
+|                | request envelope is appended ok;       |           |                        |                                                  |
+|                | a full retry keeps this state          |           |                        |                                                  |
+|                | (the :ffi-request discipline)          |           |                        |                                                  |
++----------------+----------------------------------------+-----------+------------------------+--------------------------------------------------+
+| :link-response | the request append's ok; the kept      | pc+1      | St minus the popped    | a matching refusal, or a failed                  |
+|                | cursor polls the link response         |           | operator and args      | discharge, raises as the effect's                |
+|                | stream for the correlated id           |           |                        | error                                            |
++----------------+----------------------------------------+-----------+------------------------+--------------------------------------------------+
+| :install       | a matching ok response, its            | pc+1      | St minus the popped    | the required module's symbol on                  |
+|                | obligations discharged, while          |           | operator and args      | linked; the refusal as the                       |
+|                | the install child runs its             |           |                        | effect's error on refused                        |
+|                | phases                                 |           |                        |                                                  |
++----------------+----------------------------------------+-----------+------------------------+--------------------------------------------------+
+
+The pending variants of the three reasons are in section 7.4.3.
+
+**Quiescence.** The migration unit is one task: the whole blocked machine
+(§7.6.3). Lifting additionally requires the machine's ready-queue to be
+empty — a machine with runnable work queued is mid-scheduling, its next
+configuration is not the parked one, and lift answers `:yin.k/not-quiescent`.
+
+### 7.4.2 Safepoint maps for foreign engines: static facts only
+
+The reference machine needs no metadata because its registers *are* the
+canonical configuration. A foreign engine — a register allocator over the
+image, a WebAssembly lowering, a JIT — keeps its state in physical locations
+of its own choosing, and the first draft promised it reconstruction data
+that is not a function of the code: absolute stack depth and environment
+key sets at a pc depend on the *activation* — a closure enters with the
+caller's residual operand stack and an environment formed from its captured
+environment plus arguments (`apply-call`), and §2.6 enforces no equal stack
+heights at joins, so the same pc is legitimately reached at many depths.
+None of that is derivable, and none of it needs to be: **the frame carries
+it.** E, St, and every K frame's `:stack-base` and env travel in the value;
+a foreign engine lowers the canonical frame directly.
+
+What *is* a function of the canonical vector alone, and what such an engine
+must publish — **per segment and per engine profile**, derived from the
+canonical stream at its own load time — is the static half:
+
+```clojure
+[[sp :yin.safepoint/segment      :segment/sha256-3f1a…]  ; the code, by address
+ [sp :yin.safepoint/engine       :wasm32/v1]             ; the engine profile that produced this layout
+ [sp :yin.safepoint/pc           5]                      ; canonical resume pc
+ [sp :yin.safepoint/stack-effect -1]                     ; Δ|St| across the parking instruction (static)
+ [sp :yin.safepoint/lexically-required [x conn]]         ; names this pc can read from E (static)
+ [sp :yin.safepoint/layout       {…}]]                   ; engine-owned: physical slot → canonical slot
+```
+
+Rules:
+
+- `stack-effect` and `lexically-required` are **derived from the canonical
+  vector alone**, by the same static walk the linearizer performs (§5.3).
+  They are identical for every engine and checkable against the reference
+  machine by a conformance test that runs the segment to each safepoint and
+  compares the observed deltas and E-reads. Absolute depth, activation
+  bases, captured environments, and physical layouts are **not** claimed,
+  not derived, and not in this table; they are the frame's business.
+- `:yin.safepoint/layout` is opaque to the protocol. It is a memo the engine
+  keeps so that its `lift` is a table lookup. It never travels in a UCF
+  value; a resumer that is a different engine has its own.
+- `lift(engine-state, layout) → canonical frame` and
+  `lower(canonical frame, layout) → engine-state` are total on safepoints and
+  undefined elsewhere. The conformance obligation is `lift ∘ lower = id` on
+  canonical frames, tested against the reference machine's own frames —
+  which is possible precisely because the dynamic half rides in the frame.
+- A request to lift at a pc that is not a safepoint of the segment returns
+  `:yin.k/not-at-safepoint` naming the pc. An engine that wants finer
+  interruption granularity must lower the program to a segment that
+  *contains* a `:park` where it wants one: that is a different instruction
+  record, a different address, and a different profile. An engine may not
+  invent safepoints a record does not have, and two engines that disagree
+  about the safepoint set of one address are not both conforming.
+
+Safepoints are datoms, so a query can ask "where can this program be
+migrated?" without running it, and a debugger's breakpoint set is a subset of
+the safepoint set by construction.
+
+### 7.4.3 The pending wait travels as data — complete, and resumable elsewhere
+
+A parked machine was waiting for something. That something is a resource of
+the emitter's host, and the resumer cannot poll it. `:yin.k/pending` records
+the wait in resource-independent terms so the resumer can re-establish an
+*equivalent* wait, or decide it cannot. The first draft carried sketches;
+the set here is exhaustive over §7.4.1's reasons, and each variant carries
+everything a *foreign* resumer needs — including the state the first draft
+left implicit on the emitter's heap:
+
+```clojure
+;; blocked read (:stream-next)
+{:yin.k/reason   :next
+ :yin.k/cell     :yin.k/c-17}          ; the cursor CELL id, §7.5.3 — not a bare position
+
+;; blocked write (:stream-put, or an effectful call's :stream/put)
+{:yin.k/reason   :put
+ :yin.k/stream   {:dao.stream/identity … :dao.stream/descriptor …}   ; the target
+ :yin.k/value    <encoded>}            ; the retained value — a retry appends THIS, and
+                                       ; without it the wait is not re-establishable
+
+;; FFI call, sent (:ffi-call → ok)
+{:yin.k/reason     :ffi
+ :yin.k/call-id    :call-7             ; the :dao.stream.apply/id correlation
+ :yin.k/op         :op/add
+ :yin.k/request    {:dao.stream/identity … :dao.stream/descriptor …}   ; where the request went
+ :yin.k/response   {:dao.stream/identity … :dao.stream/descriptor …}   ; where the answer lands
+ :yin.k/cell       :yin.k/c-23         ; the response cursor cell, §7.5.3, at its KEPT position}
+
+;; FFI call, retained (:ffi-call → full): the request is still in hand
+{:yin.k/reason     :ffi-request
+ :yin.k/call-id    :call-7
+ :yin.k/request-op :op/add
+ :yin.k/request-args [<encoded> …]     ; enough to rebuild the envelope verbatim
+ :yin.k/request    {identity/descriptor as above}
+ :yin.k/response   {identity/descriptor as above}
+ :yin.k/cell       :yin.k/c-23}        ; response cell at its kept position
+```
+
+Three rules make these resumable somewhere other than where they were minted:
+
+- **The response position is a kept cursor, never an anchor.** Reattaching
+  at `:oldest` replays responses that belong to other calls; attaching at
+  `:newest` skips past this call's own. The response cell therefore travels
+  at its *kept* position, and the whole task's waiters on that cell travel
+  with it (§7.6.3), so the round-order semantics of `check-wait-set` —
+  waiters sharing a cell consume successive values — are preserved on the
+  resumer exactly. A first poll that observes `gap` is the honest outcome
+  the contract already promises a kept cursor (`dao.stream.md`, *Retention
+  and Gaps*). At migration the composition serves every carried stream
+  cell through `dao.stream.remote.md`: the exporter enters the cell's
+  handle in its table and the cell's stream descriptor becomes a remote
+  descriptor. This is an access path to the original logical stream, not
+  a copied stream with new positions. `dao.stream` itself assumes no
+  network. The mirror serves the source's declared reader and writer
+  surface, preserving its outcome maps and cursor namespace rather than
+  assigning new positions. The cell carries its kept cursor. The receiver
+  attaches a reflection through that descriptor and resumes at the kept
+  cursor. `:yin.k/cursor-profiles` in `:yin.k/requires` names
+  `:dao.stream.remote/v1`, the one profile: a cursor is plain data in the
+  channel's portable domain and the source honors it after
+  serialization, including cursor identity, position, and `gap` outcomes.
+  If the source cannot be entered in a table, preserve the cursor, or
+  keep a channel reachable, lift refuses as `:yin.k/unsatisfied` before
+  minting the value. A reflection marked gone on the receiver is also
+  `:yin.k/unsatisfied`, naming the stream identity. The exporter keeps
+  the entry served under a lease the resumer holds
+  (`dao.stream.remote.md`, section 6). Re-homing a stream is out of
+  scope: serving from the exporter pins the exporter.
+- **Outstanding calls route to the emitter's pair; the resumer's pair is its
+  own.** The reference machine restores a `:request-sent` entry into a
+  response wait through its fixed local store keys (`vm/call-out-stream-key`
+  and friends). A resumer must *not* do that: the outstanding call's
+  response will arrive on the **emitter's** response stream, because that is
+  where the request was sent. The resumer re-establishes the wait against
+  the carried response descriptor and the cell's fresh local key (the cell
+  id remapped per §7.5.3), while calls the resumed program makes *after*
+  lowering use the resumer's own pair under its own keys. Pending-call
+  routing and future-call routing are separate stores of state; conflating
+  them strands the migrated call exactly as the review described.
+- **On resume, the resumer attaches and re-mints.** Attach to every
+  descriptor in the frame, pending, and cells; an attachment resolving to
+  `not-found` is `:yin.k/unsatisfied` naming the stream identity, never a
+  silent `nil`; a `:put` wait retries its retained value and resumes with it
+               :yin.k/cell (cell-at! vm serve! found
+                                     [(:response entry) kept]
+                                     (:response entry) kept)}
+        (= :link-request reason)
+        (assoc :yin.k/envelope (encode (:envelope entry)))))
+
+    :install
+    (do (when-not (contains? (:installs vm) (:name entry))
+          (non-portable! :incomplete-install {:yin.k/name (:name entry)}))
+        {:yin.k/reason :install
+         :yin.k/name (:name entry)})
+
+    (undecodable! {:yin.k/reason (:reason entry)
+                   :yin.k/path [:yin.k/wait (:pc entry)]})))
+
+
+(defn- lift-frame!
+  "One wait entry lifted: its registers and its pending, the dynamic
+   reason checked against the static kinds at its pc -- the kinds gate
+   eligibility only, and a variant they do not admit is evidence the
+   frame is not exportable here, never a wire reason to invent."
+  [vm serve! found encode entry]
+  (let [kinds (safepoint-kinds-at vm (:segment entry) (:pc entry))
+        wire (observed-wire entry)]
+    (when (nil? wire)
+      (undecodable! {:yin.k/reason (:reason entry)
+                     :yin.k/path [:yin.k/wait (:pc entry)]}))
+    (when-not (some #(contains? (get wire-of-kind %) wire) kinds)
+      (non-portable! :reason-mismatch
+                     {:yin.k/pc (:pc entry)
+                      :yin.k/reason wire
+                      :yin.safepoint/kinds (vec kinds)}))
+    {:yin.k/registers (encode-registers found encode vm entry)
+     :yin.k/pending (lift-pending! vm serve! found encode entry)}))
+
+
+;; =============================================================================
+;; The install children: a whole child travels, or nothing does
+;; =============================================================================
+
+(declare export-task validate-body resume-task)
+
+
+(defn- export-installs
+  "Each live install child of `vm` as its own handoff body beside the
+   response that spawned it, preserving the child's phase and waits
+   (14.1.1's :install row).  A child that cannot export itself refuses
+   the parent's export -- a refusal is thrown, never embedded -- and a
+   response outside the canonical bytes domain refuses it too."
+  [vm serve!]
+  (into {}
+        (map (fn [[m {:keys [vm phase parent response]}]]
+               (when-not (cbor/portable-value? response)
+                 (non-portable! :install-response {:yin.k/name m}))
+               (let [r (export-task vm serve!)]
+                 (when (not= :ok (:status r))
+                   (refuse! (:yin.k/status r) (dissoc r :status)))
+                 [m {:yin.k/phase phase
+                     :yin.k/parent parent
+                     :yin.k/response response
+                     :yin.k/child (:body r)}])))
+        (:installs vm)))
+
+
+;; =============================================================================
+;; Export (14.1.2 lift): the whole blocked task as canonical bytes
+;; =============================================================================
+
+(defn- module-decls
+  "The module declarations the completion walk asks for: each linked
+   module of the registry under its manifest address."
+  [vm]
+  (into {}
+        (map (fn [[m entry]]
+               [m {:yin.k/manifest (:address entry)}]))
+        (module/module-entries (:modules vm))))
+
+
+(defn- export-refusals
+  "The completion walk's refusals as one data outcome."
+  [refusals]
+  (when-some [r (first refusals)]
+    (refuse! (if (= :yin.k/not-quiescent (:kind r))
+               :yin.k/not-quiescent
+               :yin.k/non-portable)
+             (assoc (dissoc r :kind) :yin.k/kind (:kind r)))))
+
+
+(defn- snapshot-module-stores
+  "The encoded store snapshot of every module the encoding reached,
+   exactly as it stands in the task at export, mutations included."
+  [vm encode found]
+  (when-some [m (first (remove #(contains? (:module-stores vm) %)
+                               (sort-by str (:stores @found))))]
+    (non-portable! :missing-module-store {engine/store-of-key m}))
+  (into {}
+        (map (fn [m]
+               [m (into {}
+                        (map (fn [[k v]] [(encode k) (encode v)]))
+                        (get (:module-stores vm) m))]))
+        (sort-by str (:stores @found))))
+
+
+(defn export-task
+  "The lift of 14.1.2: `vm`, a blocked or halted task at a safepoint,
+   as canonical bytes under their content address.  Answers
+   `{:status :ok :kind k :body b :bytes encoded :address a}` with `k`
+   `:blocked`, `:parked` or `:halted`, or the S7.9 data outcome of the
+   first refusal -- `:yin.k/not-quiescent` for queued work,
+   `:yin.k/not-at-safepoint` for an undeclared pc, `:yin.k/non-portable`
+   for a value or reference that cannot cross, `:yin.k/unsatisfied`
+   for a stream that cannot be served, a cursor that cannot survive
+   the canonical codec, or -- when `opts` names cursor profiles that
+   do not cover the cells -- a claim the body cannot make.
+   `serve!` is the exporter's remote-table entry, exactly
+   `yin.vm.ucf.remote`'s."
+  ([vm serve!]
+   (export-task vm serve! nil))
+  ([vm serve! opts]
+   (call!
+     (fn []
+       (when (seq (:ready-queue vm))
+         (refuse! :yin.k/not-quiescent
+                  {:yin.k/ready (count (:ready-queue vm))}))
+       (let [walked (completion/complete
+                      {:vm vm
+                       :cursor-profile (constantly :dao.stream.remote/v1)
+                       :modules (module-decls vm)})
+             _ (export-refusals (:yin.k/refusals walked))
+             ;; the pending-child gap the walk cannot close itself: an
+             ;; obligation a live install child will bind when it
+             ;; completes is discharged by the child this body carries
+             ;; beside the waiter, not by a store the emitter holds
+             installing (into #{}
+                              (mapcat (fn [[m inst]]
+                                        (map (fn [x]
+                                               (symbol (str (name m) "/"
+                                                            (name x))))
+                                             (get-in inst
+                                                     [:response :manifest
+                                                      :yin.module/exports])))
+                                      (:installs vm)))
+             missing (update (:yin.k/missing walked) :obligations
+                             #(set/difference (set %) installing))
+             discovery (cond
+                         (seq (:segments missing)) :blocked
+                         (some seq (vals (dissoc missing :segments)))
+                         :incomplete
+                         :else :complete)]
+         (when-not (= :complete discovery)
+           (refuse! :yin.k/unsatisfied
+                    {:yin.k/discovery discovery
+                     :yin.k/missing missing}))
+         (let [value (:value vm)
+               active (and (map? value)
+                           (= :parked-continuation (:type value))
+                           (contains? (:parked vm) (:id value)))
+               active-rec (when active (get (:parked vm) (:id value)))
+               kind (cond
+                      active :parked
+                      (engine/halted-with-empty-queue? vm) :halted
+                      (seq (:wait-set vm)) :blocked
+                      :else (not-at-safepoint!
+                              (get-in vm [:control :pc])))
+               _ (when (and (= :halted kind) (seq (:wait-set vm)))
+                   (non-portable! :inconsistent-halt {}))
+               _ (when (and active
+                            (not (some #(= :explicit-park %)
+                                       (safepoint-kinds-at
+                                         vm (:segment active-rec)
+                                         (:pc active-rec)))))
+                   (non-portable! :reason-mismatch
+                                  {:yin.k/pc (:pc active-rec)}))
+               found (atom {:cells {} :cell-of {} :markers {}
+                            :stores #{} :segments #{}})
+               encode (value-encoder vm serve! found)
+               frames (mapv (partial lift-frame! vm serve! found encode)
+                            (:wait-set vm))
+               parked (into {}
+                            (map (fn [[pid rec]]
+                                   (safepoint-kinds-at vm (:segment rec)
+                                                       (:pc rec))
+                                   [pid (encode-registers found encode
+                                                          vm rec)]))
+                            (:yin.k/parked (:yin.k/scheduler walked)))
+               store (into {}
+                           (map (fn [[k v]] [(encode k) (encode v)]))
+                           (:yin.k/store walked))
+               module-stores (snapshot-module-stores vm encode found)
+               installs (export-installs vm serve!)
+               cells (:cells @found)
+               profiles (or (:cursor-profiles opts)
+                            (if (seq cells)
+                              ucf.remote/cursor-profiles
+                              #{}))
+               _ (when (and (seq cells)
+                            (not (contains? profiles
+                                            :dao.stream.remote/v1)))
+                   (unsatisfied!))
+               segments (:segments @found)
+               fetch (completion/vm-fetch vm nil)
+               code (into {}
+                          (map (fn [a]
+                                 (if-some [v (fetch a)]
+                                   [a v]
+                                   (refuse! :yin.k/unsatisfied
+                                            {:yin.k/segment a}))))
+                          (sort-by str segments))
+               body (cond-> {handoff-tag true
+                             :yin.k/version handoff-version
+                             :yin.k/kind kind
+                             :yin.k/contract ucf/contract-stamp
+                             :yin.k/id-counter (or (:id-counter vm) 0)
+                             :yin.k/store store
+                             :yin.k/module-stores module-stores
+                             :yin.k/parked parked
+                             :yin.k/cells cells
+                             :yin.k/requires
+                             {:yin.k/cursor-profiles profiles
+                              :yin.k/segments (set segments)}
+                             :yin.k/code code}
+                      (seq installs)
+                      (assoc :yin.k/installs installs)
+                      (seq frames)
+                      (assoc :yin.k/frames frames)
+                      (= :parked kind)
+                      (assoc :yin.k/parked-id (:id value))
+                      (= :halted kind)
+                      (assoc :yin.k/result (encode (:value vm))))
+               bytes (cbor/encode body)
+               _ (validate-body (cbor/decode bytes))]
+           {:status :ok
+            :kind kind
+            :body body
+            :bytes bytes
+            :address (jing/content-hash body)}))))))
+        (tagged-of :yin.k/cursor-ref x)))
+
+
+(defn- check-cell
+  [cells cid path]
+  (when-not (map? (get cells cid))
+    (undecodable! {:yin.k/cell cid :yin.k/path path})))
+
+
+(defn- require-keys
+  [pending keys path]
+  (doseq [k keys]
+    (when-not (contains? pending k)
+      (undecodable! {:yin.k/path (conj path k)}))))
+
+
+(defn- validate-pending
+  [cells pending path]
+  (let [reason (:yin.k/reason pending)]
+    (case reason
+      (:next :ffi)
+      (do (require-keys pending [:yin.k/cell] path)
+          (check-cell cells (:yin.k/cell pending)
+                      (conj path :yin.k/cell)))
+
+      :put
+      (do (require-keys pending [:yin.k/value] path)
+          (when-not (marker? (:yin.k/stream pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/stream)})))
+
+      :ffi-request
+      (do (require-keys pending [:yin.k/call-id :yin.k/request-envelope
+                                 :yin.k/request :yin.k/response
+                                 :yin.k/response-cell]
+                        path)
+          (check-cell cells (:yin.k/response-cell pending)
+                      (conj path :yin.k/response-cell))
+          (when-not (marker? (:yin.k/request pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/request)}))
+          (when-not (marker? (:yin.k/response pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/response)})))
+
+      (:link-request :link-response)
+      (do (require-keys pending [:yin.k/link-id :yin.k/name
+                                 :yin.k/request :yin.k/response
+                                 :yin.k/cell]
+                        path)
+          (check-cell cells (:yin.k/cell pending)
+                      (conj path :yin.k/cell))
+          (when-not (marker? (:yin.k/request pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/request)}))
+          (when-not (marker? (:yin.k/response pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/response)}))
+          (when (= :link-request reason)
+            (require-keys pending [:yin.k/envelope] path)))
+
+      :install
+      (require-keys pending [:yin.k/name] path)
+
+      (undecodable! {:yin.k/reason reason :yin.k/path path}))))
+
+
+(defn- validate-registers
+  "Registers are meaningless without their code: the segment is
+   REQUIRED, must name code the body carries, and the pc bound is
+   checked unconditionally against it -- a segmentless register set
+   never validates, whatever its pc."
+  [code r path]
+  (doseq [k [:yin.k/segment :yin.k/pc :yin.k/env :yin.k/stack :yin.k/k]]
+    (when-not (contains? r k)
+      (undecodable! {:yin.k/path (conj path k)})))
+  (when-not (and (nat-int? (:yin.k/pc r))
+                 (map? (:yin.k/env r))
+                 (vector? (:yin.k/stack r))
+                 (vector? (:yin.k/k r)))
+    (undecodable! {:yin.k/path path :yin.k/kind :registers}))
+  (let [a (:yin.k/segment r)]
+    (when-not (contains? code a)
+      (undecodable! {:yin.k/segment a :yin.k/path path}))
+    (when-not (< (:yin.k/pc r) (count (get code a)))
+      (undecodable! {:yin.k/pc (:yin.k/pc r)
+                     :yin.k/segment a
+                     :yin.k/path path}))))
+
+
+(defn- check-frame-pc
+  "The resume pc must sit at a static safepoint whose kinds admit the
+   pending's wire reason: the same eligibility the lift proved on the
+   live entry, re-proved on the bytes before anything is restored, so
+   a tampered frame cannot lower at an arbitrary pc.  Runs after
+   `validate-registers`, so the segment names carried code and the pc
+   is inside it."
+  [code pending registers path]
+  (let [reason (:yin.k/reason pending)
+        a (:yin.k/segment registers)
+        pc (:yin.k/pc registers)
+        at (ucf/safepoint-at (get code a) pc)]
+    (if (contains? at :yin.k/status)
+      (undecodable! {:yin.k/pc pc :yin.k/path path})
+      (when-not (some #(contains? (get wire-of-kind %) reason)
+                      (:yin.safepoint/kinds at))
+        (undecodable! {:yin.k/kind :reason-mismatch
+                       :yin.k/pc pc
+                       :yin.k/reason reason
+                       :yin.k/path path})))))
+
+
+(defn- validate-frames
+  [body code cells]
+  (let [frames (:yin.k/frames body)]
+    (when (some? frames)
+      (when-not (vector? frames)
+        (undecodable! {:yin.k/path [:yin.k/frames]}))
+      (mapv (fn [i frame]
+              (let [path [:yin.k/frames i]]
+                (when-not (and (map? frame)
+                               (map? (:yin.k/registers frame)))
+                  (undecodable! {:yin.k/path path}))
+                (validate-registers code (:yin.k/registers frame)
+                                    (conj path :yin.k/registers))
+                (when-not (map? (:yin.k/pending frame))
+                  (undecodable! {:yin.k/path
+                                 (conj path :yin.k/pending)}))
+                (validate-pending cells (:yin.k/pending frame)
+                                  (conj path :yin.k/pending))
+                (check-frame-pc code (:yin.k/pending frame)
+                                (:yin.k/registers frame)
+                                (conj path :yin.k/registers))))
+            (range)
+            frames))))
+
+
+(defn- reachable-values
+  "Every encoded root of `body` whose markers name cells and streams:
+   the cell table itself, each frame's registers AND pending (the
+   retained values and envelopes are values inside the pending), the
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "rg -n 'parked-installer|parked-reader|drive-local|defn- drive|tamper|install|wait-set|vm/resume' test/yin/vm/ucf/handoff_test.cljc src/cljc/yin/vm/engine.cljc src/cljc/yin/vm/module.cljc docs/design/yin.vm.universal-continuation-format.md"[0m in /Users/sto/workspace/datomworld-v0fix
+[32m succeeded in 0ms:[0m
+docs/design/yin.vm.universal-continuation-format.md:48:exhaustion has a stated precedence, install children validate in their
+docs/design/yin.vm.universal-continuation-format.md:53:snapshot variants preserve the operation baseline, the install phase
+docs/design/yin.vm.universal-continuation-format.md:198: ;; when the task holds live install children (7.4.3)
+docs/design/yin.vm.universal-continuation-format.md:199: :yin.k/installs      {module install}}
+docs/design/yin.vm.universal-continuation-format.md:225:`:incomplete-install`, `:install-response`, `:incomplete-write`,
+docs/design/yin.vm.universal-continuation-format.md:246:is restored. An install child's body carries the version of the body
+docs/design/yin.vm.universal-continuation-format.md:283:install child is validated as a child, with the root's occurrence,
+docs/design/yin.vm.universal-continuation-format.md:305:- An install child of any kind, halted included, carries none of the
+docs/design/yin.vm.universal-continuation-format.md:453:  `check-wait-set`'s round order, `semantic-restore`.
+docs/design/yin.vm.universal-continuation-format.md:611:                                          ; | :install
+docs/design/yin.vm.universal-continuation-format.md:623:install child were implemented in M4 (S3 ships r8-r11, the install child
+docs/design/yin.vm.universal-continuation-format.md:626:link and install entries stays future. The require flow adds three
+docs/design/yin.vm.universal-continuation-format.md:647:| :install       | a matching ok response, its            | pc+1      | St minus the popped    | the required module's symbol on                  |
+docs/design/yin.vm.universal-continuation-format.md:649:|                | the install child runs its             |           |                        | effect's error on refused                        |
+docs/design/yin.vm.universal-continuation-format.md:762:  with it (§7.6.3), so the round-order semantics of `check-wait-set` —
+docs/design/yin.vm.universal-continuation-format.md:836:;; module install (a matching ok discharged; the child runs)
+docs/design/yin.vm.universal-continuation-format.md:837:{:yin.k/reason    :install
+docs/design/yin.vm.universal-continuation-format.md:862:retires the id. A matching `ok` makes the entry `:install`, and no task
+docs/design/yin.vm.universal-continuation-format.md:863:is restored until the install reaches `linked` or `refused`: `linked`
+docs/design/yin.vm.universal-continuation-format.md:883:`:install`), by the ruling in `yin.vm.ucf-revisions.md` section 8. A
+docs/design/yin.vm.universal-continuation-format.md:888:*The published `:install` variant is not complete alone.* The variant
+docs/design/yin.vm.universal-continuation-format.md:889:above names a module and nothing else. The install it waits on is a
+docs/design/yin.vm.universal-continuation-format.md:895:never made. That is the **name-only install sketch**, and it must
+docs/design/yin.vm.universal-continuation-format.md:897:together with the body's install entry for the same name:
+docs/design/yin.vm.universal-continuation-format.md:901:{:yin.k/reason :install
+docs/design/yin.vm.universal-continuation-format.md:905::yin.k/installs
+docs/design/yin.vm.universal-continuation-format.md:915:  else lift refuses `:yin.k/non-portable`, kind `:install-response`.
+docs/design/yin.vm.universal-continuation-format.md:923:- A live install entry carries phase `:running` or `:parked`. Its
+docs/design/yin.vm.universal-continuation-format.md:932:  install phases are not exportable live-child entries, and any
+docs/design/yin.vm.universal-continuation-format.md:945:  nested installs. It is validated by the same grammar in the child
+docs/design/yin.vm.universal-continuation-format.md:953:- An `:install` pending whose name has no entry refuses the lift as
+docs/design/yin.vm.universal-continuation-format.md:954:  `:yin.k/non-portable`, kind `:incomplete-install`, before
+docs/design/yin.vm.universal-continuation-format.md:959:  the frames whose `:install` pending names it, in frame order.
+docs/design/yin.vm.universal-continuation-format.md:1018:- `:install`: `:yin.k/name`, and the install entry above.
+docs/design/yin.vm.universal-continuation-format.md:1134:out of the store (`yin.vm.linker.md` 7.3). Lowering installs an attached
+docs/design/yin.vm.universal-continuation-format.md:1156:portable encoding -- and the lower, having installed the attachment or
+docs/design/yin.vm.universal-continuation-format.md:1259:advance together — `check-wait-set` advances a shared cursor ref before
+docs/design/yin.vm.universal-continuation-format.md:1262:(`yin.vm.engine`, `check-wait-set`). A position-only encoding erases
+docs/design/yin.vm.universal-continuation-format.md:1432:machinery -- wait-set resolution, handle creation and polling, resume --
+docs/design/yin.vm.universal-continuation-format.md:1460:`yin.vm.linker.md` and implemented in M4. A module install's exports cross
+docs/design/yin.vm.universal-continuation-format.md:1463:manifest address: the installing child's halted store, and every
+docs/design/yin.vm.universal-continuation-format.md:1469:and whatever that grammar refuses refuses the lift and the install. On
+docs/design/yin.vm.universal-continuation-format.md:1492:  wait-set (as pending variants, §7.4.3), the referenced `:parked` records,
+docs/design/yin.vm.universal-continuation-format.md:1669:   wait-set into the export record. The machine's wait-set is now empty,
+docs/design/yin.vm.universal-continuation-format.md:1684:The exporting machine is pure data with an empty wait-set and a retained
+docs/design/yin.vm.universal-continuation-format.md:1695:machine (wait entries return to the wait-set, parked records to `:parked`)
+docs/design/yin.vm.universal-continuation-format.md:2039:   granted to the holder, including its install children, and its
+docs/design/yin.vm.universal-continuation-format.md:2217:- A malformed custody header, operation id, or install entry is
+docs/design/yin.vm.universal-continuation-format.md:2219:- Lift refuses `:yin.k/non-portable` with kind `:incomplete-install`,
+docs/design/yin.vm.universal-continuation-format.md:2292:| No layer collapsing | Canonicalize, encode, discover, arbitrate, load, restore, execute are separate functions with data between them. The engine's hot loop is untouched: lifting is a pure function over the blocked machine's value, and the exporting state is that value with an emptied wait-set and a retained record — driver discipline, not engine machinery. |
+docs/design/yin.vm.universal-continuation-format.md:2324:  through the aliasing scenarios of `check-wait-set`. This depends on
+docs/design/yin.vm.universal-continuation-format.md:2429:  `:link-response`, and `:install` pending variants (linker section 11
+docs/design/yin.vm.universal-continuation-format.md:2560:  footprints, transitive child-install slices, and isolated lowering
+docs/design/yin.vm.universal-continuation-format.md:2627:5. Explicit park and install completeness (7.4.3), both versions.
+docs/design/yin.vm.universal-continuation-format.md:2628:   A `:park` or `:call-effect` reason and an `:install` pending
+test/yin/vm/ucf/handoff_test.cljc:21:   call, a retained and a polling link wait, an install waiter beside
+test/yin/vm/ucf/handoff_test.cljc:264:  (let [entry (first (:wait-set parked))]
+test/yin/vm/ucf/handoff_test.cljc:268:(defn- parked-reader
+test/yin/vm/ucf/handoff_test.cljc:384:(defn- parked-installer
+test/yin/vm/ucf/handoff_test.cljc:385:  "A real machine parked at :install with a live child: the response is
+test/yin/vm/ucf/handoff_test.cljc:389:  ([] (parked-installer false))
+test/yin/vm/ucf/handoff_test.cljc:398:         entry (first (:wait-set m0))
+test/yin/vm/ucf/handoff_test.cljc:403:         child (get-in parked [:installs 'host.mod :vm])
+test/yin/vm/ucf/handoff_test.cljc:405:                           (:stream-id (first (:wait-set child))))]
+test/yin/vm/ucf/handoff_test.cljc:423:(defn- drive-local
+test/yin/vm/ucf/handoff_test.cljc:426:  ([m] (drive-local m 64))
+test/yin/vm/ucf/handoff_test.cljc:434:(defn- drive
+test/yin/vm/ucf/handoff_test.cljc:488:        [parked src] (parked-reader 1 true)
+test/yin/vm/ucf/handoff_test.cljc:489:        entry (first (:wait-set parked))
+test/yin/vm/ucf/handoff_test.cljc:499:        base (first (:wait-set parked))
+test/yin/vm/ucf/handoff_test.cljc:505:                      :wait-set [base waiter-2
+test/yin/vm/ucf/handoff_test.cljc:548:      (let [[e1 e2 e3 e4] (:wait-set recv)
+test/yin/vm/ucf/handoff_test.cljc:560:                              (:wait-set recv))))
+test/yin/vm/ucf/handoff_test.cljc:565:      (let [swept (loop [w (engine/check-wait-set recv) n 12]
+test/yin/vm/ucf/handoff_test.cljc:566:                    (if (or (zero? n) (empty? (:wait-set w)))
+test/yin/vm/ucf/handoff_test.cljc:569:                          (recur (engine/check-wait-set w)
+test/yin/vm/ucf/handoff_test.cljc:574:        (is (empty? (:wait-set swept))
+test/yin/vm/ucf/handoff_test.cljc:587:          [parked src] (parked-reader depth false)
+test/yin/vm/ucf/handoff_test.cljc:590:                        (vm/value (drive-local parked)))
+test/yin/vm/ucf/handoff_test.cljc:615:                      (vm/value (drive-local parked)))
+test/yin/vm/ucf/handoff_test.cljc:633:        entry (first (:wait-set parked))
+test/yin/vm/ucf/handoff_test.cljc:638:                      (vm/value (drive-local parked)))
+test/yin/vm/ucf/handoff_test.cljc:666:        entry (first (:wait-set parked))
+test/yin/vm/ucf/handoff_test.cljc:669:              (drive-local parked))
+test/yin/vm/ucf/handoff_test.cljc:694:        entry (first (:wait-set parked))
+test/yin/vm/ucf/handoff_test.cljc:699:        lowered (first (:wait-set recv))
+test/yin/vm/ucf/handoff_test.cljc:701:        entry2 (first (:wait-set parked2))
+test/yin/vm/ucf/handoff_test.cljc:725:(deftest an-install-waiter-crosses-beside-its-whole-child
+test/yin/vm/ucf/handoff_test.cljc:729:        [parked child-stream] (parked-installer)
+test/yin/vm/ucf/handoff_test.cljc:732:        ;; install's own slice lowering resolves the child's cells
+test/yin/vm/ucf/handoff_test.cljc:740:    (is (= :install (:yin.k/reason (parked-frame export))))
+test/yin/vm/ucf/handoff_test.cljc:742:      (let [child (get-in export [:body :yin.k/installs 'host.mod])]
+test/yin/vm/ucf/handoff_test.cljc:747:      (is (contains? (:installs recv) 'host.mod))
+test/yin/vm/ucf/handoff_test.cljc:750:        (is (not (vm/blocked? done)) (pr-str (:wait-set done)))
+test/yin/vm/ucf/handoff_test.cljc:752:            "the install completed, the waiter woke with the module,
+test/yin/vm/ucf/handoff_test.cljc:754:        (is (empty? (:installs done)))))))
+test/yin/vm/ucf/handoff_test.cljc:767:        resume-prog {:type :vm/resume, :parked-id pid,
+test/yin/vm/ucf/handoff_test.cljc:799:    (is (empty? (:wait-set recv)))
+test/yin/vm/ucf/handoff_test.cljc:812:        entry (first (:wait-set parked))
+test/yin/vm/ucf/handoff_test.cljc:850:        [parked src] (parked-reader 1 false)
+test/yin/vm/ucf/handoff_test.cljc:852:                             (get-in (first (:wait-set parked))
+test/yin/vm/ucf/handoff_test.cljc:868:                         (get-in (first (:wait-set recv))
+test/yin/vm/ucf/handoff_test.cljc:877:        [parked _src] (parked-reader 1 false)
+test/yin/vm/ucf/handoff_test.cljc:898:        [parked _src] (parked-reader 1 false)
+test/yin/vm/ucf/handoff_test.cljc:914:        [parked _src] (parked-reader 1 false)
+test/yin/vm/ucf/handoff_test.cljc:916:                 (update m :wait-set
+test/yin/vm/ucf/handoff_test.cljc:929:               (update parked :wait-set
+test/yin/vm/ucf/handoff_test.cljc:945:        [parked _src] (parked-reader 1 false)
+test/yin/vm/ucf/handoff_test.cljc:951:               (update parked :wait-set
+test/yin/vm/ucf/handoff_test.cljc:959:(defn- tamper
+test/yin/vm/ucf/handoff_test.cljc:968:        [parked _src] (parked-reader 1 true)
+test/yin/vm/ucf/handoff_test.cljc:972:                           (get-in (first (:wait-set parked))
+test/yin/vm/ucf/handoff_test.cljc:982:               (resume (tamper export
+test/yin/vm/ucf/handoff_test.cljc:988:               (resume (tamper
+test/yin/vm/ucf/handoff_test.cljc:1000:               (resume (tamper
+test/yin/vm/ucf/handoff_test.cljc:1008:               (resume (tamper export
+test/yin/vm/ucf/handoff_test.cljc:1014:               (resume (tamper
+test/yin/vm/ucf/handoff_test.cljc:1025:               (resume (tamper export
+test/yin/vm/ucf/handoff_test.cljc:1033:(deftest an-install-name-alone-refuses-export
+test/yin/vm/ucf/handoff_test.cljc:1036:        [parked _child] (parked-installer true)
+test/yin/vm/ucf/handoff_test.cljc:1038:                     (update :installs dissoc 'host.mod)
+test/yin/vm/ucf/handoff_test.cljc:1039:                     (update :wait-set
+test/yin/vm/ucf/handoff_test.cljc:1041:                               (mapv #(assoc % :reason :install
+test/yin/vm/ucf/handoff_test.cljc:1045:    (is (= :incomplete-install (:yin.k/kind refused))
+test/yin/vm/ucf/handoff_test.cljc:1048:        "an install name alone reconstructs nothing, so nothing is
+test/yin/vm/ucf/handoff_test.cljc:1061:        [parked _src] (parked-reader 1 false)
+test/yin/vm/ucf/handoff_test.cljc:1062:        entry (first (:wait-set parked))
+test/yin/vm/ucf/handoff_test.cljc:1071:                     (update-in [:wait-set 0 :env]
+test/yin/vm/ucf/handoff_test.cljc:1121:        [parked _src] (parked-reader 1 false)
+test/yin/vm/ucf/handoff_test.cljc:1132:                   (update-in [:wait-set 0 :env] assoc 'carried carried)
+test/yin/vm/ucf/handoff_test.cljc:1145:            ref (get-in recv [:wait-set 0 :env 'carried])]
+test/yin/vm/ucf/handoff_test.cljc:1175:                                      (tamper export f) attach!))]
+test/yin/vm/ucf/handoff_test.cljc:1194:    (testing "the untampered record still lowers and resumes"
+test/yin/vm/ucf/handoff_test.cljc:1200:(deftest a-refused-install-child-aborts-the-parents-resume
+test/yin/vm/ucf/handoff_test.cljc:1204:        [parked _child] (parked-installer)
+test/yin/vm/ucf/handoff_test.cljc:1206:        grammar-broken (tamper export
+test/yin/vm/ucf/handoff_test.cljc:1208:                                          [:yin.k/installs 'host.mod
+test/yin/vm/ucf/handoff_test.cljc:1211:        route-gone (tamper export
+test/yin/vm/ucf/handoff_test.cljc:1213:                                      [:yin.k/installs 'host.mod
+test/yin/vm/ucf/handoff_test.cljc:1236:        [parked _src] (parked-reader 1 false)
+test/yin/vm/ucf/handoff_test.cljc:1241:                                      (tamper export f) attach!))
+test/yin/vm/ucf/handoff_test.cljc:1315:  (let [[blocked src] (parked-reader 1 false)]
+test/yin/vm/ucf/handoff_test.cljc:1329:        resume-prog {:type :vm/resume, :parked-id pid,
+test/yin/vm/ucf/handoff_test.cljc:1331:    (is (= 1 (count (:wait-set parked))) (pr-str (:wait-set parked)))
+test/yin/vm/ucf/handoff_test.cljc:1339:      (is (= [:next] (mapv :reason (:wait-set recv)))
+test/yin/vm/ucf/handoff_test.cljc:1340:          (pr-str (:wait-set recv))))
+test/yin/vm/ucf/handoff_test.cljc:1343:      (let [reference (drive-local (vm/run (load-ast parked resume-prog)))
+test/yin/vm/ucf/handoff_test.cljc:1351:        (is (= (count (:wait-set reference))
+test/yin/vm/ucf/handoff_test.cljc:1352:               (count (:wait-set done))))))))
+test/yin/vm/ucf/handoff_test.cljc:1355:(deftest an-install-pending-without-its-entry-refuses-before-restoration
+test/yin/vm/ucf/handoff_test.cljc:1358:        [parked _child] (parked-installer)
+test/yin/vm/ucf/handoff_test.cljc:1360:        stripped (tamper export #(dissoc % :yin.k/installs))
+test/yin/vm/ucf/handoff_test.cljc:1361:        renamed (tamper export
+test/yin/vm/ucf/handoff_test.cljc:1362:                        #(update % :yin.k/installs
+test/yin/vm/ucf/handoff_test.cljc:1371:    (is (= :install (:yin.k/reason (parked-frame export))))
+test/yin/vm/ucf/handoff_test.cljc:1372:    (testing "a body whose install waiter has no install entry at all"
+src/cljc/yin/vm/module.cljc:70:  "Return registry with `entry` installed as module `module-name`."
+src/cljc/yin/vm/module.cljc:122:  "Return registry with handler-fn installed for effect keyword kw.
+src/cljc/yin/vm/module.cljc:192:  "Return registry with host module `module-name` installed from `fns`
+src/cljc/yin/vm/module.cljc:380:  "What a kernel supplies the install child and the `linked` transition
+src/cljc/yin/vm/module.cljc:432:     adds the store, the module stores, `:parked`, `:wait-set` and
+src/cljc/yin/vm/module.cljc:459:(defn- installing?
+src/cljc/yin/vm/module.cljc:461:  (contains? (:installs state) module-name))
+src/cljc/yin/vm/module.cljc:468:              (update :wait-set (fnil conj []) entry)
+src/cljc/yin/vm/module.cljc:506:   earlier and lowered into this task -- answers now. A module installing
+src/cljc/yin/vm/module.cljc:508:   requiring continuation joins that install's waiters as an `:install`
+src/cljc/yin/vm/module.cljc:519:   A module already on this task's install ancestry is `:require-cycle`
+src/cljc/yin/vm/module.cljc:539:      (installing? state module-name)
+src/cljc/yin/vm/module.cljc:540:      (block-on state (assoc (registers) :reason :install :name module-name))
+src/cljc/yin/vm/engine.cljc:279:         (empty? (or (:wait-set vm) []))
+src/cljc/yin/vm/engine.cljc:421:  "Transform woken wait-set entries into ready-queue entries.
+src/cljc/yin/vm/engine.cljc:769:   secret to the resource `lower-resources` installed for it -- `streams`
+src/cljc/yin/vm/engine.cljc:831:  "Resource lowering (r9): install, in the receiver's private
+src/cljc/yin/vm/engine.cljc:955:;; Link waits and the install child (yin.vm.linker.md sections 7.2 to 7.4)
+src/cljc/yin/vm/engine.cljc:959:  "The wait reasons `require` adds: the two link states and the install."
+src/cljc/yin/vm/engine.cljc:960:  #{:link-request :link-response :install})
+src/cljc/yin/vm/engine.cljc:999:                   (some #(= id (:link-id %)) (:wait-set state)) nil
+src/cljc/yin/vm/engine.cljc:1027:   manifest requires is the install's to satisfy: the child requires it,
+src/cljc/yin/vm/engine.cljc:1058:  "The refusal an install raises for a thrown error: the error's own
+src/cljc/yin/vm/engine.cljc:1060:   status when a lift refused, and `:install-error` otherwise."
+src/cljc/yin/vm/engine.cljc:1068:                        :install-error),
+src/cljc/yin/vm/engine.cljc:1089:   verified image, under a fresh origin tag, its install ancestry the
+src/cljc/yin/vm/engine.cljc:1122:(defn- wake-installed
+src/cljc/yin/vm/engine.cljc:1123:  "Move every `:install` wait entry naming `module-name` to the ready
+src/cljc/yin/vm/engine.cljc:1127:                  (and (= :install (:reason e)) (= module-name (:name e))))
+src/cljc/yin/vm/engine.cljc:1128:        waiters (filter waiter? (:wait-set state))]
+src/cljc/yin/vm/engine.cljc:1130:        (update :wait-set (fn [ws] (filterv (complement waiter?) ws)))
+src/cljc/yin/vm/engine.cljc:1137:(defn- refuse-install
+src/cljc/yin/vm/engine.cljc:1140:   the install entry is removed so a later require may try again."
+src/cljc/yin/vm/engine.cljc:1143:      (update :installs dissoc module-name)
+src/cljc/yin/vm/engine.cljc:1144:      (wake-installed module-name nil refusal)))
+src/cljc/yin/vm/engine.cljc:1149:   an origin: the install's own, and those held by identity under the
+src/cljc/yin/vm/engine.cljc:1158:(defn- link-install
+src/cljc/yin/vm/engine.cljc:1173:      (refuse-install state module-name
+src/cljc/yin/vm/engine.cljc:1182:          (refuse-install state module-name refusal)
+src/cljc/yin/vm/engine.cljc:1190:              (refuse-install state module-name
+src/cljc/yin/vm/engine.cljc:1216:                    (update :installs dissoc module-name)
+src/cljc/yin/vm/engine.cljc:1217:                    (wake-installed module-name module-name nil))))))))))
+src/cljc/yin/vm/engine.cljc:1220:(defn- advance-install
+src/cljc/yin/vm/engine.cljc:1221:  "Step the install child of `module-name` in this round, beside every
+src/cljc/yin/vm/engine.cljc:1224:   error refuses the install. An error while publishing -- attaching an
+src/cljc/yin/vm/engine.cljc:1230:  (let [inst (get-in state [:installs module-name])
+src/cljc/yin/vm/engine.cljc:1236:      refusal (refuse-install state module-name refusal)
+src/cljc/yin/vm/engine.cljc:1238:      (assoc-in state [:installs module-name]
+src/cljc/yin/vm/engine.cljc:1241:      (try (link-install state module-name (assoc inst :vm child))
+src/cljc/yin/vm/engine.cljc:1243:             (refuse-install state module-name
+src/cljc/yin/vm/engine.cljc:1246:      :else (assoc-in state [:installs module-name]
+src/cljc/yin/vm/engine.cljc:1250:(defn- advance-installs
+src/cljc/yin/vm/engine.cljc:1252:  (reduce advance-install state (sort-by str (keys (:installs state)))))
+src/cljc/yin/vm/engine.cljc:1255:(defn- start-install
+src/cljc/yin/vm/engine.cljc:1261:      [(assoc-in state [:installs module-name]
+src/cljc/yin/vm/engine.cljc:1272:   state and, discharged, starts the install child, the entry becoming
+src/cljc/yin/vm/engine.cljc:1273:   an `:install` waiter. A module linked or installing meanwhile answers
+src/cljc/yin/vm/engine.cljc:1275:   required is `:module-name-mismatch`, never installed. Returns `[state
+src/cljc/yin/vm/engine.cljc:1282:                   (assoc :reason :install))]
+src/cljc/yin/vm/engine.cljc:1290:      (contains? (:installs state) module-name) [state waiter nil]
+src/cljc/yin/vm/engine.cljc:1293:      ;; another module is never installed under this one
+src/cljc/yin/vm/engine.cljc:1307:        (let [[state refusal] (start-install state module-name response
+src/cljc/yin/vm/engine.cljc:1347:   envelope and, appended, polls on as a `:link-response`; an `:install`
+src/cljc/yin/vm/engine.cljc:1348:   waits for its install. Returns `[state waiting woken]`."
+src/cljc/yin/vm/engine.cljc:1357:    :install [state entry nil]))
+src/cljc/yin/vm/engine.cljc:1361:  "Poll every link wait entry once, in wait-set order, and then step the
+src/cljc/yin/vm/engine.cljc:1362:   install children. Returns the state with the still-waiting link
+src/cljc/yin/vm/engine.cljc:1374:        (assoc :wait-set (into (vec others) waiting))
+src/cljc/yin/vm/engine.cljc:1376:        advance-installs)))
+src/cljc/yin/vm/engine.cljc:1389:    (if-let [entry (first (filter held? (:wait-set state)))]
+src/cljc/yin/vm/engine.cljc:1391:          (update :wait-set (fn [ws] (filterv (complement held?) ws)))
+src/cljc/yin/vm/engine.cljc:1401:(defn abandon-installs
+src/cljc/yin/vm/engine.cljc:1402:  "A composition gives up on every install in flight (the abandoned case
+src/cljc/yin/vm/engine.cljc:1405:   `:install` waiter is restored with the reason as the require's error,
+src/cljc/yin/vm/engine.cljc:1406:   so the install entry is removed and a later require may try again. A
+src/cljc/yin/vm/engine.cljc:1407:   state with no installs is unchanged. The dropped children's own link
+src/cljc/yin/vm/engine.cljc:1412:            (refuse-install state module-name
+src/cljc/yin/vm/engine.cljc:1415:          (keys (:installs state))))
+src/cljc/yin/vm/engine.cljc:1434:  "How many values the router reads from one response cell per wait-set
+src/cljc/yin/vm/engine.cljc:1562:  "Route every parked FFI response reader, per response cell in wait-set
+src/cljc/yin/vm/engine.cljc:1587:          (assoc :wait-set (into (vec others) waiting))
+src/cljc/yin/vm/engine.cljc:1592:(defn check-wait-set
+src/cljc/yin/vm/engine.cljc:1593:  "Check wait-set entries against their transports.
+src/cljc/yin/vm/engine.cljc:1602:   Entries are polled one at a time in wait-set order, and a woken reader's
+src/cljc/yin/vm/engine.cljc:1619:   own kept cursor to the response carrying its id, and an `:install`
+src/cljc/yin/vm/engine.cljc:1620:   waits on its install child. The install children are then stepped in
+src/cljc/yin/vm/engine.cljc:1628:  (let [wait-set (:wait-set state)]
+src/cljc/yin/vm/engine.cljc:1629:    (if (and (empty? wait-set) (empty? (:installs state)))
+src/cljc/yin/vm/engine.cljc:1632:                              (filterv link-entry? wait-set)
+src/cljc/yin/vm/engine.cljc:1633:                              (remove link-entry? wait-set))
+src/cljc/yin/vm/engine.cljc:1634:            wait-set (:wait-set state)
+src/cljc/yin/vm/engine.cljc:1636:                                      (filterv ffi-response-entry? wait-set)
+src/cljc/yin/vm/engine.cljc:1637:                                      (remove ffi-response-entry? wait-set))
+src/cljc/yin/vm/engine.cljc:1638:            wait-set (:wait-set state)
+src/cljc/yin/vm/engine.cljc:1640:            streams (filterv (complement engine-polled?) wait-set)
+src/cljc/yin/vm/engine.cljc:1647:                     :wait-set (into (:waiting (:waitset result))
+src/cljc/yin/vm/engine.cljc:1649:                                     wait-set))]
+src/cljc/yin/vm/engine.cljc:1665:            (:blocked? v) (let [v' (check-wait-set v)]
+src/cljc/yin/vm/engine.cljc:1716:    ;; a refused or lost link, or a refused install: the effect's error
+src/cljc/yin/vm/engine.cljc:1778:  (let [v' (check-wait-set state)]
+src/cljc/yin/vm/engine.cljc:1835:                        (update :wait-set (fnil conj []) entry)
+src/cljc/yin/vm/engine.cljc:1985:   `:wait-set` and `:ready-queue` as a kernel position, the store and
+src/cljc/yin/vm/engine.cljc:1995:                 (into (:wait-set vm))
+src/cljc/yin/vm/engine.cljc:2082:   stream handle nor a restore closure is attached — `check-wait-set`
+src/cljc/yin/vm/engine.cljc:2202:        wait-versions (collect-frame-versions (:wait-set vm))]
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "sed -n '835,965p' docs/design/yin.vm.universal-continuation-format.md; sed -n '2618,2642p' docs/design/yin.vm.universal-continuation-format.md; sed -n '640,724p' src/cljc/yin/vm/ucf/handoff.cljc; sed -n '268,295p' test/yin/vm/ucf/handoff_test.cljc; sed -n '384,457p' test/yin/vm/ucf/handoff_test.cljc; sed -n '959,966p' test/yin/vm/ucf/handoff_test.cljc; sed -n '345,375p' docs/design/yin.vm.ucf-revisions.md"[0m in /Users/sto/workspace/datomworld-v0fix
+[32m succeeded in 0ms:[0m
+
+;; module install (a matching ok discharged; the child runs)
+{:yin.k/reason    :install
+ :yin.k/name      'foo}
+```
+
+Four rules fix the exchange. The link id is the pair `[origin
+counter]`, scoped to the link pair, not to a VM: several tasks share
+one response stream, `origin` is a task origin tag the scheduler mints
+from its own counter and never reuses, and `counter` is the task's
+engine gensym, so no two requests on one pair share an id. The response
+cursor is minted `:dao.stream/newest` before the request is appended --
+the `dao.stream.md` *Cursors* rule for observing events caused by an
+operation -- so a response that lands before the cursor exists is not
+skipped. `:link-request` carries everything needed to rebuild the
+envelope, `:link-response` carries the response descriptor and the kept
+cell; a `full` append keeps the request state, retains the envelope
+verbatim, and retries on the next poll, the `:ffi-request` discipline.
+And the poll restores only on exact correlation: the entry advances
+past every response whose `:yin.link/id` is not its own, keeping its
+cursor at the first unconsumed position -- the per-cell round-order
+discipline section 7.5.3 already gives shared cursors -- and skips
+duplicate, late, and unknown responses, each skip a telemetry
+diagnostic that consumes nothing but the cursor position. A matching
+refusal, or a failed discharge, resumes the program with the refusal
+raised as the effect's error, the way an `:ffi` `error` raises; a
+composition that abandons a link raises the reason the same way and
+retires the id. A matching `ok` makes the entry `:install`, and no task
+is restored until the install reaches `linked` or `refused`: `linked`
+restores every waiter with the required module's symbol as its value,
+`refused` with the refusal as the effect's error. On `gap` the honest
+outcome is a `gap`, and the composition's policy decides.
+
+**Amendment r5: the shapes left open, and the keys on the wire.**
+(2026-10-04; `yin.vm.linker.dht.md` 14.3 item 2. The first two rules
+hold for both body versions of 7.2.1; operation ids are version 1.)
+
+*Explicit park is the no-wait shape.* `:park` raises no wait entry, so
+it has no frame and no pending. The parked record travels in
+`:yin.k/parked` under its own id as a `registers` map, a body of kind
+`:parked` names the active record by `:yin.k/parked-id`, and the
+resumer re-creates the record. That explicitly parked activation
+waits on nothing; the task may still hold other waits, and every
+frame the body carries beside the record is restored as an ordered
+wait (7.2.1). `:park` is therefore not a wire reason. Neither is
+`:call-effect`: an effectful
+call carries the variant of the effect it was observed to produce
+(`:next`, `:put`, `:ffi`, `:ffi-request`, a link variant, or
+`:install`), by the ruling in `yin.vm.ucf-revisions.md` section 8. A
+pending whose reason is `:park` or `:call-effect`, or any reason
+outside the variants here, is `:yin.k/undecodable`. This supersedes
+those two entries of the reason comment in 7.4.1.
+
+*The published `:install` variant is not complete alone.* The variant
+above names a module and nothing else. The install it waits on is a
+child task on the emitter's scheduler (`yin.vm.linker.md` 7.3): a
+verified image, a phase, a store, and waits of its own. None of that
+is in the name. A resumer handed only the name can do one of two
+things, and both are wrong: wait forever on a child nobody runs, or
+request the link again, which is a second effect the parked task
+never made. That is the **name-only install sketch**, and it must
+never be exported as task state. The complete shape is the pending
+together with the body's install entry for the same name:
+
+```clojure
+;; the waiter's pending: unchanged, never sufficient alone
+{:yin.k/reason :install
+ :yin.k/name   'foo}
+
+;; the body's entry for that name (7.2.1)
+:yin.k/installs
+{'foo {:yin.k/phase    :running   ; the child's phase (linker 7.3)
+       :yin.k/parent   [:t0 7]    ; the link id that spawned it
+       :yin.k/response {...}      ; the verified link response
+       :yin.k/child    {...}}}    ; the child's whole handoff body
+```
+
+- The response is what a foreign resumer spawns its own fresh child
+  from, and what the child's exports are validated against at halt.
+  It is carried verbatim and must be in the canonical bytes domain,
+  else lift refuses `:yin.k/non-portable`, kind `:install-response`.
+- A response is verified by the resumer, not trusted because it
+  decodes. Its manifest names the module the entry is keyed by, its
+  link id equals `:yin.k/parent`, and its image and manifest pass the
+  checks the linker applied at delivery (`yin.vm.linker.md` sections
+  5 and 9): the image is well formed, hashes to the address it is
+  delivered under, and is the image the manifest names. A failure is
+  `:yin.k/undecodable` naming the entry's response.
+- A live install entry carries phase `:running` or `:parked`. Its
+  child independently satisfies the handoff grammar and the
+  quiescence requirements, with kind `:blocked`, `:parked`, or
+  `:halted`. The phase records scheduler progress; it does not
+  substitute for validation of the child's actual machine state,
+  and no phase requires or forbids a kind: a `:running` phase with
+  a blocked child is valid. A runnable, non-quiescent child refuses
+  export. Lower preserves both fields, and the scheduler continues
+  from the restored child without rerunning initialization. Other
+  install phases are not exportable live-child entries, and any
+  other phase value is `:yin.k/undecodable`. No stricter relation
+  between phase and kind is introduced until a scheduler
+  normalization invariant is specified and proved; M-next D tests
+  every combination of the two phases and three kinds, explicit
+  park included.
+- The resumer restores the child's carried state into the fresh
+  child before the scheduler may step it. The fresh child is a
+  template for the receiver's coordinates only: it does not run the
+  module's initialization again, and nothing replays the link
+  request.
+- The child is a whole body of 7.2.1 in the version of its holder,
+  with its own frames, parked records, stores, cells, code, and
+  nested installs. It is validated by the same grammar in the child
+  role, recursively and with its root's context (7.2.1), before
+  anything of the parent is restored.
+- Every live child travels, waited on or not, and no child steps
+  while its task is exporting (7.7.4). A child that cannot be
+  exported refuses the parent's export with the child's own outcome;
+  a child that cannot be lowered refuses the parent's lower. No
+  parent is published or restored over a child that did not cross.
+- An `:install` pending whose name has no entry refuses the lift as
+  `:yin.k/non-portable`, kind `:incomplete-install`, before
+  publication; a body carrying such a pending is
+  `:yin.k/undecodable`. An obligation a carried child will bind on
+  completion is discharged by that child, not reported missing.
+- The waiter list is not carried. The waiters of a child are exactly
+  the frames whose `:install` pending names it, in frame order.
+- `:yin.k/phase` and `:yin.k/parent` are required under version 1.
+  A version-0 entry without a phase reads as `:running`.
+- The entry-for-every-pending rule and the frames-restore rule hold
+  for version 0 as well. The landed version-0 reader breaches both;
+  the fixes are recorded as defects in `yin.vm.linker.dht.md` 14.3.
+
+   above the counter, a duplicate id, an id in a body without an
+   origin, an id naming the body's own occurrence. Assert
+   `:yin.k/undecodable`. Protection mismatch in each direction is
+   `:yin.k/unsatisfied` naming the stream; a first exclusive export
+   over an attempted write is `:unprotected-pending`. Stage: D for
+   these structural checks. Stage: C for authoritative membership
+   and ancestry: an ancestor id the granted checkpoint never
+   carried is refused, a carried one is admitted, a child's carried
+   id counts, and an orphan successor gives no ancestry.
+5. Explicit park and install completeness (7.4.3), both versions.
+   A `:park` or `:call-effect` reason and an `:install` pending
+   without its entry refuse at decode; a `:parked` body's frames
+   restore in order; a response that fails verification and a phase
+   outside `:running` and `:parked` refuse; each of the two phases
+   crosses with each child kind `:blocked`, `:parked` and `:halted`,
+   a `:running` phase over a blocked child and an explicitly parked
+   child included, and lower preserves both fields; a runnable
+   child refuses export; a restored child continues from its saved
+   state without rerunning initialization or replaying the link
+   request. Version 1 adds: phase and parent required, and a
+   child's carried ids checked in the root's context. The two
+   version-0 defects of `yin.vm.linker.dht.md` 14.3 are fixed with
+   version-0 tests. Stage: D.
+6. Envelope (7.7.8). Fixtures drop each key, change the dispatch
+   value, give a wrong author, an unbound lease, and a foreign id,
+           (refuse! :yin.k/unsatisfied
+                    {:yin.k/discovery discovery
+                     :yin.k/missing missing}))
+         (let [value (:value vm)
+               active (and (map? value)
+                           (= :parked-continuation (:type value))
+                           (contains? (:parked vm) (:id value)))
+               active-rec (when active (get (:parked vm) (:id value)))
+               kind (cond
+                      active :parked
+                      (engine/halted-with-empty-queue? vm) :halted
+                      (seq (:wait-set vm)) :blocked
+                      :else (not-at-safepoint!
+                              (get-in vm [:control :pc])))
+               _ (when (and (= :halted kind) (seq (:wait-set vm)))
+                   (non-portable! :inconsistent-halt {}))
+               _ (when (and active
+                            (not (some #(= :explicit-park %)
+                                       (safepoint-kinds-at
+                                         vm (:segment active-rec)
+                                         (:pc active-rec)))))
+                   (non-portable! :reason-mismatch
+                                  {:yin.k/pc (:pc active-rec)}))
+               found (atom {:cells {} :cell-of {} :markers {}
+                            :stores #{} :segments #{}})
+               encode (value-encoder vm serve! found)
+               frames (mapv (partial lift-frame! vm serve! found encode)
+                            (:wait-set vm))
+               parked (into {}
+                            (map (fn [[pid rec]]
+                                   (safepoint-kinds-at vm (:segment rec)
+                                                       (:pc rec))
+                                   [pid (encode-registers found encode
+                                                          vm rec)]))
+                            (:yin.k/parked (:yin.k/scheduler walked)))
+               store (into {}
+                           (map (fn [[k v]] [(encode k) (encode v)]))
+                           (:yin.k/store walked))
+               module-stores (snapshot-module-stores vm encode found)
+               installs (export-installs vm serve!)
+               cells (:cells @found)
+               profiles (or (:cursor-profiles opts)
+                            (if (seq cells)
+                              ucf.remote/cursor-profiles
+                              #{}))
+               _ (when (and (seq cells)
+                            (not (contains? profiles
+                                            :dao.stream.remote/v1)))
+                   (unsatisfied!))
+               segments (:segments @found)
+               fetch (completion/vm-fetch vm nil)
+               code (into {}
+                          (map (fn [a]
+                                 (if-some [v (fetch a)]
+                                   [a v]
+                                   (refuse! :yin.k/unsatisfied
+                                            {:yin.k/segment a}))))
+                          (sort-by str segments))
+               body (cond-> {handoff-tag true
+                             :yin.k/version handoff-version
+                             :yin.k/kind kind
+                             :yin.k/contract ucf/contract-stamp
+                             :yin.k/id-counter (or (:id-counter vm) 0)
+                             :yin.k/store store
+                             :yin.k/module-stores module-stores
+                             :yin.k/parked parked
+                             :yin.k/cells cells
+                             :yin.k/requires
+                             {:yin.k/cursor-profiles profiles
+                              :yin.k/segments (set segments)}
+                             :yin.k/code code}
+                      (seq installs)
+                      (assoc :yin.k/installs installs)
+                      (seq frames)
+                      (assoc :yin.k/frames frames)
+                      (= :parked kind)
+                      (assoc :yin.k/parked-id (:id value))
+                      (= :halted kind)
+                      (assoc :yin.k/result (encode (:value vm))))
+               bytes (cbor/encode body)
+               _ (validate-body (cbor/decode bytes))]
+           {:status :ok
+            :kind kind
+            :body body
+            :bytes bytes
+(defn- parked-reader
+  "A real machine parked on a blocked read with A consumed: park on the
+   empty stream, append A, run on -- the read answers, the program
+   parks again on the second read, its cursor past A."
+  [depth held]
+  (let [m0 (parked-machine (reader-at-depth depth held))
+        src (stream-of m0)]
+    (stream/append! src "A")
+    [(vm/run m0) src]))
+
+
+(defn- parked-writer
+  "A real machine parked on a blocked write: the warm one-slot stream
+   keeps the value retained."
+  []
+  (let [w (one-slot-stream "w")]
+    (stream/append! w :warmed)
+    (let [m0 (load-ast (new-machine)
+                       {:type :stream/put, :target (v 'w),
+                        :val (lit "v")})
+          [ref m0'] (engine/attach-resource m0 w)]
+      [(vm/run (assoc m0' :store {'w ref})) w])))
+
+
+(defn- calling-machine
+  ([call-in call-out]
+   (calling-machine call-in call-out nil))
+  ([call-in call-out bridge]
+(defn- parked-installer
+  "A real machine parked at :install with a live child: the response is
+   appended after the first park, and the spawned child blocks on its
+   own read.  With `plain`, the program reads nothing of the module
+   after the require.  Answers [parked child-stream]."
+  ([] (parked-installer false))
+  ([plain]
+   (let [request (ring 64)
+         response (ring 64)
+         m0 (vm/run (load-ast (linking-machine request response)
+                              (then (require-program 'host.mod)
+                                    (if plain
+                                      (lit 7)
+                                      (app (v 'host.mod/f))))))
+         entry (first (:wait-set m0))
+         _ (stream/append! response
+                           (assoc (module-response)
+                                  :yin.link/id (:link-id entry)))
+         parked (vm/run m0)
+         child (get-in parked [:installs 'host.mod :vm])
+         child-stream (get (:resources child)
+                           (:stream-id (first (:wait-set child))))]
+     [parked child-stream])))
+
+
+(defn- parked-explicit
+  "A real machine at an explicit park, its record's environment holding
+   a cursor on a blocked stream, so reachable cells keep positions."
+  []
+  (vm/run (load-ast (new-machine)
+                    (let1 's {:type :stream/make, :buffer 4}
+                          (app (lam ['c] {:type :vm/park})
+                               (cursor-of (v 's)))))))
+
+
+;; =============================================================================
+;; The transfer and the drivers
+;; =============================================================================
+
+(defn- drive-local
+  "Run a blocked machine against its own local streams until it stops
+   blocking or rounds run out: the reference run."
+  ([m] (drive-local m 64))
+  ([m rounds]
+   (loop [m (vm/run m), n rounds]
+     (if (or (not (vm/blocked? m)) (zero? n))
+       m
+       (recur (vm/run m) (dec n))))))
+
+
+(defn- drive
+  "Run a resumed machine through its reflections, stepping the source's
+   mirror between rounds, until it stops blocking."
+  ([m peer] (drive m peer 64))
+  ([m peer rounds]
+   (loop [m (vm/run m), n rounds]
+     (if (or (not (vm/blocked? m)) (zero? n))
+       m
+       (do (serve-mirror! peer)
+           (recur (vm/run m) (dec n)))))))
+
+
+(defn- keywords-of
+  [x]
+  (into #{}
+        (filter keyword?)
+        (tree-seq coll? (fn [n]
+                          (if (map? n)
+                            (concat (keys n) (vals n))
+                            (seq n))) x)))
+
+
+(defn- encoded-cell-ids
+  "Every cell id the encoded value's cursor-ref markers name."
+(defn- tamper
+  "Decode the export's bytes, apply `f` to the body, re-encode."
+  [export f]
+  (cbor/encode (f (cbor/decode (:bytes export)))))
+
+
+(deftest malformed-bodies-refuse-undecodable-whole
+  (let [t (toy)
+    applied them in 7.4.3, 7.7.8 and 7.11.1: checkpoint
+    unavailability suspends an inherited id after the tenure check
+    and mutates nothing; snapshot variants preserve the operation
+    baseline; a live install entry's phase (`:running` or `:parked`)
+    no longer constrains the child's kind; the diagnostic defect set
+    is defined in full and its stream is composition-supplied;
+    unknown transport acceptance is neither commitment nor its
+    absence, and the retry replays a result already held.
+  - Carrier: uncommitted at the time of writing; the seat records
+    the commit when it lands.
+  - Not changed: code stamps "v3", "b2", "r2", the vector grammar,
+    module manifest schema 1, and cursor bytes. The amendment raises
+    the handoff body's own top-level `:yin.k/version`; the key of
+    that name inside the stamp stays 0. No image validity changes.
+  - Still pending: all implementation. `handoff-version` is 0.
+    M-next C, D, and E and every piece of version-1 evidence in UCF
+    7.11.1 and linker-dht 14.2.4 remain owed.
+  - Recorded separately, as version-0 defects of the landed stage-1
+    reader and not as version-1 gaps: (a) lower assigns an empty
+    wait set for a `:parked` body that also carries frames
+    (`handoff.cljc`, about line 1386); (b) `validate-body` does not
+    require an install entry for every `:install` pending (about
+    line 996). Each is a post-A fix owed a version-0 test,
+    optionally delivered in D (linker-dht 14.3). Neither reopens
+    stage 1's kept-cursor evidence nor reassigns the M4 gate.
+    Status: both fixed in version 0, each with its own red-then-green
+    test in `yin.vm.ucf.handoff-test`; the wire is unchanged.
+
+  Stage 1 (M-next A, the kept-cursor handoff of linker-dht 14.1,
+  carried by `yin.vm.ucf.handoff`) recorded here what the amendment
+  had to carry beside its own custody fields; r5 to r7 publish each
+
+[35m[3mcodex[0m[0m
+The fixes match the UCF rules: parked bodies restore every carried frame in order, and an install pending requires an entry under the same name. The export path preserves those names recursively. UCF 7.4.3 also explicitly says every live child travels “waited on or not,” so an entry with no waiter should remain accepted.
+
+The new assertions would catch both old behaviors by static inspection. I’m checking the remaining test coverage and error details before giving the verdict.
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "sed -n '785,825p' src/cljc/yin/vm/ucf/handoff.cljc; sed -n '1200,1234p' test/yin/vm/ucf/handoff_test.cljc; sed -n '2198,2227p' docs/design/yin.vm.universal-continuation-format.md; rg -n 'vm/resume|defn.*resume|:resume|park-continuation' src/cljc/yin/vm/engine.cljc src/cljc/yin/vm.cljc; nl -ba test/yin/vm/ucf/handoff_test.cljc | sed -n '1368,1390p'; date -u '+%Y-%m-%d %H:%M:%S GMT'; date '+%Y-%m-%d %H:%M:%S %Z'"[0m in /Users/sto/workspace/datomworld-v0fix
+[32m succeeded in 0ms:[0m
+      :put
+      (do (require-keys pending [:yin.k/value] path)
+          (when-not (marker? (:yin.k/stream pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/stream)})))
+
+      :ffi-request
+      (do (require-keys pending [:yin.k/call-id :yin.k/request-envelope
+                                 :yin.k/request :yin.k/response
+                                 :yin.k/response-cell]
+                        path)
+          (check-cell cells (:yin.k/response-cell pending)
+                      (conj path :yin.k/response-cell))
+          (when-not (marker? (:yin.k/request pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/request)}))
+          (when-not (marker? (:yin.k/response pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/response)})))
+
+      (:link-request :link-response)
+      (do (require-keys pending [:yin.k/link-id :yin.k/name
+                                 :yin.k/request :yin.k/response
+                                 :yin.k/cell]
+                        path)
+          (check-cell cells (:yin.k/cell pending)
+                      (conj path :yin.k/cell))
+          (when-not (marker? (:yin.k/request pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/request)}))
+          (when-not (marker? (:yin.k/response pending))
+            (undecodable! {:yin.k/path (conj path :yin.k/response)}))
+          (when (= :link-request reason)
+            (require-keys pending [:yin.k/envelope] path)))
+
+      :install
+      (require-keys pending [:yin.k/name] path)
+
+      (undecodable! {:yin.k/reason reason :yin.k/path path}))))
+
+
+(defn- validate-registers
+  "Registers are meaningless without their code: the segment is
+   REQUIRED, must name code the body carries, and the pc bound is
+   checked unconditionally against it -- a segmentless register set
+(deftest a-refused-install-child-aborts-the-parents-resume
+  (let [t (toy)
+        serve! (server (served-peer t) (:channel t))
+        attach! (attacher t)
+        [parked _child] (parked-installer)
+        export (handoff/export-task parked serve!)
+        grammar-broken (tamper export
+                               #(assoc-in %
+                                          [:yin.k/installs 'host.mod
+                                           :yin.k/child :yin.k/code]
+                                          {}))
+        route-gone (tamper export
+                           #(assoc-in %
+                                      [:yin.k/installs 'host.mod
+                                       :yin.k/child :yin.k/cells
+                                       :yin.k/c-0 :yin.k/stream
+                                       :dao.stream/descriptor
+                                       :dao.stream/channel]
+                                      {:dao.stream.type/x 1}))
+        broken (handoff/resume-task (new-machine) grammar-broken
+                                    attach!)
+        gone (handoff/resume-task (new-machine) route-gone attach!)]
+    (testing "a child the grammar refuses aborts before attachment"
+      (is (= :yin.k/undecodable (:yin.k/status broken))
+          (pr-str broken)))
+    (testing "a child whose stream cannot attach propagates"
+      (is (= :yin.k/unsatisfied (:yin.k/status gone))
+          (pr-str gone))
+      (is (not= :ok (:status gone))
+          "the parent never answers :ok over a child that did not
+           lower"))))
+
+
+(deftest malformed-frames-and-registers-refuse-undecodable-whole
+  (let [t (toy)
+
+Terminal DaoStream outcomes met during lift or lower (`transport-error`,
+`closed`, `invalid-descriptor`, …) are surfaced unchanged inside the UCF
+outcome under their own key `:dao.stream/outcome`, exactly as the transport
+produced them; UCF does not rename them, nest them under private keys, or
+translate between them. FFI requests and responses inside a value use the
+reference machine's versioned envelope, `dao.stream.apply` —
+`:dao.stream.apply/id`, `/op`, `/args`, `/ok`, `/error` — never the
+deleted v1 `dao.stream.apply` vocabulary. Every lower failure names its
+cleanup obligation: before custody, none; after custody, release
+(§7.8 step 7).
+
+**Amendment r5: version-1 refusals use the statuses above.** The
+amendment adds no `:yin.k/status` value; the set stays closed.
+
+- An unsupported, absent, or non-integer body version is
+  `:yin.k/profile-mismatch`, carrying `:yin.k/version` as found and
+  `:yin.k/supported`; it is raised before restoration and before
+  every other check but the bytes and the tag (7.2.1).
+- A malformed custody header, operation id, or install entry is
+  `:yin.k/undecodable` with its path (7.2.1, 7.4.3).
+- Lift refuses `:yin.k/non-portable` with kind `:incomplete-install`,
+  `:unprotected-pending`, or `:op-seq-exhausted` (7.4.3, 7.7.8).
+- A stream whose protection the resumer cannot match is
+  `:yin.k/unsatisfied` naming the stream (7.4.3).
+- A grant observed without a valid epoch binding is
+  `:yin.k/not-holder`, carrying the lease state observed; the
+  resumer releases the lease, as after any failure past custody.
+
+**Amendment r5: admission outcomes.** The outcome of an enrolled
+src/cljc/yin/vm/engine.cljc:1686:(defn- terminal-resume-outcome
+src/cljc/yin/vm/engine.cljc:1708:(defn- throw-terminal-resume!
+src/cljc/yin/vm/engine.cljc:1733:(defn resume-from-run-queue
+src/cljc/yin/vm/engine.cljc:1783:  "The local park id the next `park-continuation` mints: `:parked-N` from
+src/cljc/yin/vm/engine.cljc:1789:(defn park-continuation
+src/cljc/yin/vm/engine.cljc:1796:  ([state cont-fields] (park-continuation state cont-fields (park-id state)))
+src/cljc/yin/vm/engine.cljc:1808:(defn resume-continuation
+src/cljc/yin/vm/engine.cljc:1814:          (telemetry/emit-snapshot :resume {:parked-id parked-id})))
+src/cljc/yin/vm.cljc:221:    :vm/resume [(:val node)]
+src/cljc/yin/vm.cljc:622:   :resume 18,
+src/cljc/yin/vm.cljc:659:                    :resume 18,
+src/cljc/yin/vm.cljc:859:                  :vm/resume (do (emit! e :yin/type :vm/resume)
+src/cljc/yin/vm.cljc:947:       :vm/resume (let [val-eid (get-attr root-id :yin/val-node)]
+src/cljc/yin/vm.cljc:1067:   :vm/resume [[:parked-id :kw] [:val :node]],
+src/cljc/yin/vm.cljc:1755:           :vm/resume #{},
+src/cljc/yin/vm.cljc:1769:                :resume #{},
+src/cljc/yin/vm.cljc:1813:                 :where [$ast _ :vm/resume ?pid _]],
+src/cljc/yin/vm.cljc:1838:                 :where [$code _ _ :resume ?pid]],
+  1368	        resume (fn [bytes]
+  1369	                 (handoff/resume-task (new-machine) bytes counting))]
+  1370	    (is (= :ok (:status export)) (pr-str export))
+  1371	    (is (= :install (:yin.k/reason (parked-frame export))))
+  1372	    (testing "a body whose install waiter has no install entry at all"
+  1373	      (let [refused (resume stripped)]
+  1374	        (is (= :yin.k/undecodable (:yin.k/status refused))
+  1375	            (pr-str refused))
+  1376	        (is (= 'host.mod (:yin.k/name refused)))))
+  1377	    (testing "an entry under some other name is no entry for the waiter"
+  1378	      (let [refused (resume renamed)]
+  1379	        (is (= :yin.k/undecodable (:yin.k/status refused))
+  1380	            (pr-str refused))))
+  1381	    (is (zero? @attached)
+  1382	        "refused by the grammar before any stream was attached")))
+2026-10-04 07:21:22 GMT
+2026-10-04 14:21:22 +07
+
+[35m[3mcodex[0m[0m
+Completed-GMT: 2026-10-04 07:21:22 GMT
+Completed-Local: 2026-10-04 14:21:22 Asia/Ho_Chi_Minh
+
+APPROVE-WITH-NITS
+
+1. **LOW — test/yin/vm/ucf/handoff_test.cljc:1373.** The refusal tests assert status and attachment count, but do not pin `:yin.k/kind :incomplete-install` or the pending’s path; the renamed case also omits the name assertion. **Fix:** assert these fields for both cases and add a nested-child missing-install case. The implementation’s recursive validation is correct; this is coverage hardening.
+
+2. **PASS — src/cljc/yin/vm/ucf/handoff.cljc:1403.** `entries` restores exactly one wait per carried frame, in vector order. The active park remains a separate record and introduces no wait. Thus this change neither loses nor duplicates carried waits, matching UCF 7.2.1 and 7.4.3. **Fix:** none.
+
+3. **PASS — src/cljc/yin/vm/ucf/handoff.cljc:1010.** The membership check uses the pending’s name against its own body’s installs. Every export path uses the same names: `lift-pending!` checks the source installs map, `export-installs` preserves its keys, and nested children recurse through `export-task`. Validation recurses before restoration or attachment. The status, kind and path follow neighbouring refusal conventions. **Fix:** none.
+
+4. **PASS — docs/design/yin.vm.universal-continuation-format.md:939.** **No**, an install entry with no waiter should not be refused. UCF 7.4.3 explicitly says: “Every live child travels, waited on or not.” The completeness requirement runs from pending to entry, not conversely. **Fix:** none.
+
+5. **PASS — test/yin/vm/ucf/handoff_test.cljc:1339, :1374; docs/design/yin.vm.ucf-revisions.md:370.** Static mutation review confirms the old parked branch fails the restored-wait assertion; removing the new validation admits the stripped body and attempts attachment. These detect the intended defects. The doc accurately describes the fixes and unchanged wire. The historical “red-then-green” claim relies on the engineer’s execution evidence.
+
+Read-only review completed; no edits, suites or executable mutations performed.
+[2mtokens used[0m
+59,393
+Completed-GMT: 2026-10-04 07:21:22 GMT
+Completed-Local: 2026-10-04 14:21:22 Asia/Ho_Chi_Minh
+
+APPROVE-WITH-NITS
+
+1. **LOW — test/yin/vm/ucf/handoff_test.cljc:1373.** The refusal tests assert status and attachment count, but do not pin `:yin.k/kind :incomplete-install` or the pending’s path; the renamed case also omits the name assertion. **Fix:** assert these fields for both cases and add a nested-child missing-install case. The implementation’s recursive validation is correct; this is coverage hardening.
+
+2. **PASS — src/cljc/yin/vm/ucf/handoff.cljc:1403.** `entries` restores exactly one wait per carried frame, in vector order. The active park remains a separate record and introduces no wait. Thus this change neither loses nor duplicates carried waits, matching UCF 7.2.1 and 7.4.3. **Fix:** none.
+
+3. **PASS — src/cljc/yin/vm/ucf/handoff.cljc:1010.** The membership check uses the pending’s name against its own body’s installs. Every export path uses the same names: `lift-pending!` checks the source installs map, `export-installs` preserves its keys, and nested children recurse through `export-task`. Validation recurses before restoration or attachment. The status, kind and path follow neighbouring refusal conventions. **Fix:** none.
+
+4. **PASS — docs/design/yin.vm.universal-continuation-format.md:939.** **No**, an install entry with no waiter should not be refused. UCF 7.4.3 explicitly says: “Every live child travels, waited on or not.” The completeness requirement runs from pending to entry, not conversely. **Fix:** none.
+
+5. **PASS — test/yin/vm/ucf/handoff_test.cljc:1339, :1374; docs/design/yin.vm.ucf-revisions.md:370.** Static mutation review confirms the old parked branch fails the restored-wait assertion; removing the new validation admits the stripped body and attempts attachment. These detect the intended defects. The doc accurately describes the fixes and unchanged wire. The historical “red-then-green” claim relies on the engineer’s execution evidence.
+
+Read-only review completed; no edits, suites or executable mutations performed.

@@ -1,0 +1,45 @@
+Completed-GMT: 2026-09-30 13:16:52 GMT
+Completed-Local: 2026-09-30 20:16:53 +07
+Coding-Agent: claude
+Session-ID: adc2ad2b-7804-4513-bdbe-b35cd38d01bf
+
+# Durable index store, slice 3: fix round 1
+
+All three sign-off findings are addressed and every lane passed. Nothing is staged or committed. The full report is at `collab/1790768800000-storage-engineer-repl-durable-index-slice3.claude-opus-5-5.report-r2.md`.
+
+Only finding 3 was a real defect. The rehydration code already handled findings 1 and 2 correctly; the tests just didn't prove it, and now they do.
+
+**New fixture.** It publishes three transactions through a real transactor into a durable directory and moves HEAD to them, then a shell starts on that directory. The transactions land at `t` 0, 1 and 2:
+- two assertions;
+- an assertion whose metadata id, 40, is the greatest id in the fixture and appears only in `m`;
+- a retraction of the first fact.
+
+**1. Several `t` values and a retraction.** `a-restart-restores-every-transaction-group-history-row-and-retraction` asserts the exact restored transaction groups, the full history view (retraction included), and a current view of exactly `#{[17 "b"] [18 "c"]}`. It checks the history and current views before and after a new publication.
+- Each of three mutations fails it with 3 failures and 4 errors: regrouping all datoms into one transaction, rewriting an older `t`, or dropping retractions.
+- The errors are `q` answering an `Error: …` refusal instead of a relation.
+- My first draft had a test bug, not a code defect: it read the restored groups after later rounds had appended to the live log. It now captures them before any evaluation.
+
+**2. The metadata-id rule.** The same test asserts every id allocated after the restart is above 40. If allocation ignores `m`, the test fails, because ids would resume at 19.
+
+**3. The `(vm …)` message.** It now depends on the store mode:
+- durable: `Switched to <VM> (VM store cleared; durable code index kept)`;
+- memory: unchanged, `… (store cleared)`, so the existing assertions still hold.
+
+`vm-selection-says-what-it-keeps` failed before the fix and passes after. Forcing the memory message in durable mode fails it.
+
+**Verification (one lane at a time, in the foreground):**
+
+| Check | Result |
+|---|---|
+| kondo | 0 errors, 0 warnings |
+| Focused JVM | 116 tests, 861 assertions, 0 failures |
+| Full `clj -M:test` | 2415 tests, 184,717 assertions, 0 failures |
+| `bb test:cljs` | 2324 tests, 51,153 assertions, 0 failures; "Testing yin.repl.store-test" appears |
+| `bb build:yin-repl-peer` | built |
+| `bb test:cljd` | All tests passed (+2282); both new tests ran by name |
+
+The Dart lane took 11 minutes, past the tool's 10-minute foreground limit, so the harness moved it to the background. I waited on its log in the foreground until the verdict appeared; it exited 0.
+
+cljstyle was not run; it has been blocked by the approval gate since earlier slices. Formatting was checked mechanically.
+
+Files changed this round: `src/cljc/yin/repl.cljc` (the message) and `test/yin/repl/store_test.cljc` (the fixture and two tests).

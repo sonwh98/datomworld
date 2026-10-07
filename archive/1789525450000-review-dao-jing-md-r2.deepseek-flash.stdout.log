@@ -1,0 +1,47 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+r2 review complete. Deliverable:
+
+---
+
+```
+Created-GMT: 2026-09-15 22:12:00 GMT
+Created-Local: 2026-09-16 05:12:00 +07 (Asia/Ho_Chi_Minh)
+Coding-Agent: deepseek
+Session-ID: 451ddbb7-8ad4-475b-8bf5-21c263a59e70
+# Task: Re-review of dao.jing.md — apply the two Architect-prescribed wording fixes
+Role: Routine Review
+Implementers:
+- Model: deepseek-flash | Assigned: 2026-09-16 05:04:10 +07 | Status: complete | Rationale: same reviewer, resumed session, confirming the fix to your own r1 finding
+```
+
+**Note:** same session as r1, still under `--permission-mode plan`, so this report is the session's final response (full text also in the session plan file) rather than a written findings file. Read-only throughout; no code executed.
+
+## Verdict: **YES — safe to commit as-is.**
+
+Both prescribed fixes are present (`grep -n "non-pathological"` → `:203`; `grep -n "Three residuals"` → `:413`), they read correctly in context, and the byte-array example was made host-neutral as well. One LOW inaccuracy sits in a clause the orchestrator added alongside fix 2 (N1); the four r1 non-blocking items are unchanged (N2–N5). None blocks.
+
+Code is untouched since r1 — `HEAD` is still `0cafb2d` and `git diff HEAD -- src/cljc/dao/jing.cljc` is empty — so r1's Check 1 (7/7) and Check 2 verifications still stand against the document as it now reads.
+
+## Fix 1 — present, correct, and the *right* hedge
+
+`docs/design/dao.jing.md:202-204`: "…never collide with another, for any non-pathological scalar (see the pathological-symbol residual under *Open items and current limitations*)." Applied verbatim as the Architect prescribed (`collab/1789524950000-architect-signoff-dao-jing-fix-r2.claude-fable-5-1.stdout.log:31-32`). It isn't merely compliant — the qualifier is exactly the right scope, because a pathological scalar can print like a *collection*: `(symbol "#{1 2}")` collides with `#{1 2}` (`collab/1789522420000-review-dao-jing-fix.deepseek-v4-pro.findings.md:52-55`). Both cross-references resolve: the heading at `:407`, the named residual inside its Canonical-encoding bullet at `:415-416`.
+
+## Fix 2 — present; one clause is inaccurate
+
+`:413-419` now reads "Three residuals of the transitional encoder are deferred to that landing: … and ambient print-var bindings (`*print-readably*` and similar) still reach scalar bytes, since `canonical-print` delegates scalars to `pr-str`". Both halves are accurate (`jing.cljc:74`; `*print-readably*` false is a genuine scalar collision per the Architect's r2 probe table). The Architect's sub-item is done too — `:422-424` now says "which on the JVM prints … `#object["[B" 0x... "..."]`); other hosts print their own identity-bearing form."
+
+**N1 (LOW, new) — `:419`, "only the collection-level sort comparators are bound-independent", is false as written.** Every collection byte is built by `canonical-print` from `str`/`str/join` and recursion (`jing.cljc:57-73`), metadata prefix included (`:53-56`); the host printer is reached only at the scalar leaf (`:74`). So collection structure *and* order are bound-independent too, and the comparators are bound-independent *because* they call `canonical-print` (`jing.cljc:125-127,133-136`) — one consequence, not the only instance. It errs toward over-stating the residual (a reader could conclude a binding can still move a map's bytes), which is why it doesn't block. Suggested: "— collection structure and order are rendered by `canonical-print` itself, so only scalar leaves reach the host printer."
+
+**The "Three" count is coherent** with the byte-array item directly below it (`:420-429`), not an omission: the three are false-equality (collision) residuals, while byte arrays are the mirror-image non-convergence gap (equal content minting different addresses). The split is principled.
+
+## Still open from r1 (all non-blocking, all unchanged)
+
+- **N2** (r1 F4, LOW/MEDIUM) `:440-442` — "the failure mode is loud rather than silently corrupting" holds for `dao.jing.file` but not for the transport path the item also governs: `dht/node.cljc:110-118` refuses the store on the decoded value and `dht.cljc:180-207` swallows that refusal as best-effort replication, so the writer sees `:inserted` while replication silently doesn't happen.
+- **N3** (r1 F5, LOW) `:431-432` — "no … wire codec in the system carries metadata today" ignores the dormant opt-in `~#with-meta` path in `dao.stream.transit` (`src/clj/dao/stream/transit.clj:117-120`; zero callers, so no metadata crosses a wire today — capability, not usage).
+- **N4** (r1 Check-3.2, LOW) `:183-184` — byte arrays still advertised as understood, no cross-reference to `:420-429`.
+- **N5** (r1 Check-3.3, LOW) `:3-8` — status summary omits the two new open items.
+- **N6** (cosmetic) `:205` is a 47-char ragged line left by the re-wrap (paragraph wraps at 69–77 elsewhere); no markdown linter exists in the repo, so no action required.
+
+## Commit scope
+
+`git add -- docs/design/dao.jing.md` only — the tree also carries another unit's WIP (`src/cljc/yin/vm.cljc`, `test/yin/vm_test.cljc`).

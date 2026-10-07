@@ -1,0 +1,11 @@
+The plan is written to `collab/1788977648939-architect-jing-remote-v2-plan.claude-fable-5-1.findings.md`. No other repository file was changed.
+
+**What the plan rules.** The waiting goes into a JVM host poll loop inside `connect-content!`, stepping a new portable, non-waiting `call-step` over `dao.stream.rpc`. That is ordinary host policy, not a contract violation: the contract constrains operations, and every `poll!` and `request!` returns. It also turns out v1 already did this. Its `call!` was a `Thread/sleep` poll loop, so v2 changes the state under the loop, not where the waiting lives. The plan keeps it honest with three conditions: the loop exists only in the JVM composition, cadence and deadline are named options, and the costs are stated (one call in flight per handle, JVM only).
+
+**How small it is.** `content-client`, `default-handlers`, `dao.jing.coordinate`, the thirteen contract tests and the index test are untouched. `default-handlers` already returns the shape v2's `apply/dispatch-request` consumes, so the server is `dao.stream.serving` with an inbound step and a ticker thread. The six network tests move only by fixture. The stigmergy test changes one line.
+
+**Corrections to the brief worth reading first.** cljd is not "nothing to do": the `#?(:clj …)` requires in `remote.cljc` become Dart imports today, so the JVM glue require must use the `#?@(:cljd [] :clj …)` splice, and new JVM deftests must keep the unconditional-`deftest` spelling. `yin.repl` is a twin rather than an in-place migration. `demo.html` does not reach `dao.jing.remote`. The DHT node's v1 reach is a codec swap of two lines and is ruled a separate plan.
+
+**What is left owing.** The non-blocking stepped client goes to the async hydration work already listed in `dao.jing.md`, and the plan names where each fact it alone carries must move before it is deleted.
+
+I also refined the existing ClojureDart reader-conditional memory with the measured require-versus-body split, since the next implementer would otherwise rediscover it.

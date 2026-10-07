@@ -1,0 +1,68 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The body entry is what matters for recall — leaving the frontmatter as-is. Task complete; here is the report.
+
+---
+
+# Report: `dao.data` implemented and wired into the v2 telemetry stub
+
+## Files touched (exactly the four named; nothing staged, nothing committed)
+
+| File | Change |
+|---|---|
+| `src/cljc/dao/data.cljc` | **new** — `tag` + `summarize` |
+| `test/dao/data_test.cljc` | **new** — 12 deftests, 202 assertions across the three namespaces' run |
+| `src/cljc/yin/vm/telemetry.cljc` | edited — `type-tag` deleted, `stream` require dropped, docstring corrected |
+| `src/cljc/yin/vm/ffi.cljc` | edited — requires `dao.data`, calls `data/tag` directly |
+
+## The edits (verbatim)
+
+`ffi.cljc` (two hunks):
+```diff
+-  (:require [dao.stream :as stream]
++  (:require [dao.data :as data]
++            [dao.stream :as stream]
+...
+-                   :arg-shape (mapv telemetry/type-tag
++                   :arg-shape (mapv data/tag
+                                     (or (apply2/request-args request) []))})
+```
+
+`telemetry.cljc`: removed the 19-line `type-tag` defn and the `(:require [dao.stream :as stream])` (used by nothing else); docstring now says classification lives in `dao.data/tag` ("`dao.data/tag` orders the descriptor check before `map?`/`sequential?`, the ordering this stub once deferred"), and the deferred list is corrected to: reading `append!` outcomes, summarising a cursor-ref without descent, and the cursor recognition problem. No re-export alias — per the doc's own `emit`-wrapper reasoning.
+
+## Design-doc rule → implementation line (src/cljc/dao/data.cljc)
+
+- `tag` cond order — `data.cljc:23-36`, verbatim from the doc's table, `stream/descriptor?` at :30 before `vector?`/`set?`/`map?`/`sequential?`
+- `:chars` string/keyword/symbol truncation measured on `(str x)` — `char-node` (:43-53); cut keyword/symbol becomes a plain string, under-bound keeps the literal value
+- number portability via the **live** `transit/portable-value?` — `number-node` (:56-62); non-portable → `(str x)` + `:truncated?` true, `tag` still says `:number`
+- stream node = descriptor outcome's **`:dao.stream/identity` projection** (not the envelope), summarized with the *same* bounds — `stream-node` (:65-75); non-ok outcome → `:opaque` fallback
+- container rules — `container-node` (:78-107): children at `(dec depth)` via `assoc bounds :depth (dec depth)`; `:count` decided by `counted?` **before** any probing, never inferred; non-`counted?` probe = `(take (inc items) x)` — items+1 elements, no more; depth 0 → `:truncated?` true, `:items`/`:entries` absent, **zero** probe for non-counted; `:items`/`:entries` always `mapv` vectors; map keys summarized like values (`[k-summary v-summary]` pairs, bound counts entries)
+- no reader conditionals, no host-specific code anywhere in the namespace
+
+Test coverage maps 1:1 to the prompt's bullet list — every `tag` branch plus a map-like record that still tags `:stream` (`tag-orders-stream-before-map`); each bound independently incl. depth-0-no-probe; `:count` absent for non-counted in both the truncated *and* exhausted-during-probe cases, and a `doall`-realized LazySeq still counts as non-counted; ratio `1/3` stringified (gated `#?(:clj …)` — CLJS has no ratio literal; test-file conditionals match the `jing_test.cljc` convention, the no-reader-conditionals rule is about `dao.data` itself); `##Inf`/`9007199254740992` as host-neutral non-portables; long/short string-keyword-symbol cuts; vector-always `:items` incl. non-collapsing `[1 1 1]`; ringbuffer-handle `:dao.data/identity` compared against `(summarize (:dao.stream/identity (stream/descriptor h)) b)`, plus a fake `:chars`-bounded identity and a non-conforming `reify` descriptor falling back to `:opaque`. Probe discipline uses a deliberately non-chunked `lazy-seq`/`cons` source with a counter atom (a chunked source would blur the items+1 count, as the doc itself notes).
+
+## Verification (exact commands + output)
+
+```
+clj -M:kondo --lint src/cljc/dao/data.cljc src/cljc/yin/vm/telemetry.cljc \
+                   src/cljc/yin/vm/ffi.cljc test/dao/data_test.cljc
+→ linting took 451ms, errors: 0, warnings: 0
+
+clj -M:test -n dao.data-test -n yin.vm.ffi-test -n yin.vm.semantic-ffi-test
+→ Ran 38 tests containing 202 assertions. 0 failures, 0 errors.
+
+clj -M:cljd compile dao.data            → Bravissimo! 👏
+clj -M:cljd compile yin.vm.telemetry → I like when a plan comes together! 👨‍🦳
+clj -M:cljd compile yin.vm.ffi       → Easy peasy! 😎
+```
+
+All three namespaces compile scoped under ClojureDart (full-suite CLJD remains blocked by the known pre-existing bench-file issue, untouched here). No `yin.vm.telemetry`-specific test exists anywhere under `test/` (searched), and neither ffi test asserts the old `:opaque`-for-handles behavior — nothing needed updating, as the prompt anticipated might be necessary.
+
+## Step-5 exclusions
+
+`dao.pretty`, `dao.await*`, the handoff demo, `yin/repl/*`, `yin/vm/telemetry.cljc` (v1), `yin/repl.cljc`, `telemetry_viewer.cljs` — all untouched by me. Note: `yin/repl/{driver,serve,connect}.cljc` show as modified in the working tree — that predates this session (a parallel task's uncommitted changes, which already require `dao.data` — the "unbounded operator-text printing" consumer sites from the Evidence section).
+
+## One deviation, stated exactly
+
+`dao.data.md`'s `:stream` rule says the `:opaque` fallback "defends against a malformed **or throwing** third-party implementation of the protocol." I implemented the malformed case (non-`:dao.stream/ok` outcome → `:opaque` node, tested). Defending against a *throwing* implementation requires a catch that is portable across CLJ/CLJS/CLJD — the project's house idiom is `(catch #?(:cljd Object :clj Throwable :cljs :default) _)` (e.g. `dao/stream/ws.cljc:89`) — which uses reader conditionals, directly forbidden by the doc's own "No reader conditionals / nothing host-specific" constraint (restated in the task). There is no conditional-free catch that is correct on all three hosts (`:default` fails CLJ; `Throwable` is unresolved in CLJS). So a throwing descriptor propagates today. Fix is one `try` + the house idiom in `stream-node` if the doc owner relaxes that constraint — the doc should pick one: either the throw defense or the no-reader-conditionals rule, they can't both hold.
+
+Everything else is exactly per the frozen spec — the doc held up as a complete implementation contract.

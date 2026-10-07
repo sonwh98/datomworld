@@ -1,0 +1,94 @@
+I reviewed the staged diff against the design docs and ran the focused test suites and a live reproduction.
+
+## Verdict: REQUEST CHANGES
+
+One confirmed P1 core-semantics defect and one confirmed P2 host-specific codec defect.
+
+---
+
+### P1 — Confirmed: a closed attachment can livelock in `gap` and never reach `end`
+
+**File:** `src/cljc/dao/stream/ringbuffer.cljc:87-104`
+
+In `next`, the eviction branch is checked before the attachment-tail branch:
+
+```clojure
+(cond
+  (< pos (:first s))   ; gap, lines 88-95
+  (< pos visible-tail) ; ok, lines 96-102
+  (or (:closed? s) (some? frozen)) (result :dao.stream/end) ; line 103
+  :else (result :dao.stream/blocked))
+```
+
+When an attachment closes at frozen tail `F`, and later appends evict the logical window past `F` (`(:first s) > F`), any cursor at/after `F` but below `:first` returns `gap` with recovery position `(min (:first s) F) = F`. Feeding that cursor back hits the same gap branch again — forever. The contract requires the opposite: close freezes the attachment's observable tail, and `end` is reached at the position the stream had reached when the attachment closed; "eviction is a retention concern, not a lifecycle one" (`docs/design/dao.stream.md:580-603`, esp. 590-592).
+
+I reproduced it live: capacity 1, append `:before`, close attachment, append `:after1`, append `:after2` (`first=2`, `frozen=1`). `next` returned `gap` at position 1 three times in a row and never `end`.
+
+**Fix** — check the handle's visible-tail boundary before eviction:
+
+```clojure
+(cond
+  (>= pos visible-tail)
+  (if (or (:closed? s) (some? frozen))
+    (result :dao.stream/end)
+    (result :dao.stream/blocked))
+
+  (< pos (:first s))
+  (assoc (result :dao.stream/gap)
+         :dao.stream/cursor
+         {:dao.stream.ringbuffer/identity (:identity s)
+          :dao.stream.ringbuffer/position (min (:first s) visible-tail)})
+
+  :else
+  {:dao.stream/outcome :dao.stream/ok
+   :dao.stream/value (get (:values s) pos)
+   :dao.stream/cursor {:dao.stream.ringbuffer/identity (:identity s)
+                       :dao.stream.ringbuffer/position (inc pos)}})
+```
+
+Also fix the oracle model, which currently encodes the same wrong ordering in `test/dao/stream/conformance.cljc:540-561`, and add a regression test to `test/dao/stream/ringbuffer_test.cljc` with capacity 1, close, then two post-close appends, asserting `gap` followed by `end` (not a second `gap`).
+
+---
+
+### P2 — Confirmed: cljd codec accepts the `~c` (TransitChar) out-of-domain tag as a portable map
+
+**File:** `src/cljc/dao/stream/transit.cljc:60-67`
+
+The cljd rejection branch lists `tagged-value?`, `uuid?`, `uri?`, `bigint?`, `bigdec?`, `quoted?`, and `link?`, but omits the `TransitChar` record produced by the `"c"` read handler (`src/cljd/dao/stream/transit/cljd.cljd:47-48` and `:290`). In ClojureDart, records implement `IMap` (confirmed in `lib/cljd-out/dao/stream/transit/cljd.dart`: `TransitChar … implements … IMap$iface`), so a decoded `~c…` value falls through to the recursive `map?` case and is accepted as `{:value "…"}`. It would even re-encode as `~c`, so the boundary both admits and emits a custom tag on cljd, while clj and cljs reject it. This violates the no-custom-tags wire rule (`docs/design/dao.stream.ws.md:597-605`).
+
+**Fix:** add a predicate in `src/cljd/dao/stream/transit/cljd.cljd`:
+
+```clojure
+(defn char? [x] (instance? TransitChar x))
+```
+
+and add `(transit/char? x)` to the rejection `or` in `transit.cljc`. Add a cross-host decode-rejection case for the `~c` tag.
+
+---
+
+### P3 — Test/contract gap: `:dao.stream/attachment` is not enforced for the ring buffer
+
+**Files:** `src/cljc/dao/stream.cljc:111-118` (`outcome-required-keys` for `[:attach! :dao.stream/ok]` requires only `:dao.stream/handle`) and `test/dao/stream/conformance.cljc` (the manifest has no way to declare that a transport distinguishes attachments).
+
+The ring buffer does return `:dao.stream/attachment`, but neither the conformance harness nor the ringbuffer tests assert its presence or uniqueness across two simultaneous attachments, which the contract requires for distinguishing transports (`docs/design/dao.stream.md:269-281`). Consider a manifest flag such as `:attachments-distinguishable? true` plus an assertion of key presence and distinctness.
+
+---
+
+### P3 — Documentation nit
+
+**File:** `src/cljd/dao/stream/transit/cljd.cljd:10` — the ns doc still says "`:json` is the only supported format in v1." This is the v2-owned codec; update the wording so it doesn't refer to v1.
+
+---
+
+### P3 — Design note (not a defect): finite `Float` is now rejected on clj
+
+**Files:** `src/cljc/dao/stream/transit.cljc:23-31`, `test/dao/stream/transit_test.cljc:38-56`. The new `finite-number?` allows only `Byte/Short/Integer/Long/finite Double` on clj, so `(float 1.25)` is rejected even though transit-clj encodes it as a plain JSON number `1.25`. This is defensible under the "finite doubles" wording (`docs/design/dao.stream.ws.md:597-599`), but it is a deliberate strictness change and should be a conscious decision.
+
+---
+
+## Test report
+
+- `clojure -M:test -n dao.stream-test -n dao.stream.ringbuffer-test -n dao.stream.transit-test` → **20 tests, 153 assertions, 0 failures, 0 errors**.
+- `clj-kondo` over the staged clj/cljc files → **0 errors, 0 warnings**.
+- `git diff --cached --check` → clean.
+- Live repro confirmed the P1 gap-loop (capacity 1, close attachment, two post-close appends).

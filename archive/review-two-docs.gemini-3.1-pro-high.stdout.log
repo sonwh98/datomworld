@@ -1,0 +1,36 @@
+### Findings
+
+1. **Severity:** High | **File:** `docs/design/dao.stream.md:477-478` | **Claim:** The Concurrency section claims "a successfully appended value occupies exactly one definite position in that sequence" (the logical stream). This contradicts the Writing section, which correctly states that `append!` acceptance is handle-relative and for remote transports targets an intermediate sequence (like an outbound path) where the final position is not yet known. | **Correction:** Replace `a successfully appended value occupies exactly one definite position in that sequence` with `a value present in the stream occupies exactly one definite position in that sequence`.
+
+2. **Severity:** High | **File:** `docs/design/dao.stream.md:273` | **Claim:** The `attach!` outcome table defines `:dao.stream/ok` as "Attached to the existing logical stream." This mandates a completed state, which contradicts the IO Model's non-negotiable "no operation waits" invariant that requires returning immediately while a connection is still establishing. | **Correction:** Replace `Attached to the existing logical stream.` with `A handle on an attachment to the existing logical stream.`
+
+3. **Severity:** Medium | **File:** `docs/design/dao.stream.md:101-102` | **Claim:** The Result Convention dictates that "All qualified keywords in results live under `:dao.stream/…`." This rule forces transports to pollute the contract's namespace if they add transport-specific keys to open result maps (as the ws spec is forced to do). This contradicts the Envelopes section's proper treatment of transport-owned keys. | **Correction:** Replace `All qualified keywords in results live under :dao.stream/….` with `All contract-defined keywords in results live under :dao.stream/…; transport-owned keys use their own namespace.`
+
+4. **Severity:** Medium | **File:** `docs/design/dao.stream.ws.md:63` (and lines 73, 92) | **Claim:** The ws spec mints the key `:dao.stream/attachment` for a transport-owned identifier, overreaching into the contract's reserved namespace. | **Correction:** Replace `:dao.stream/attachment` with `:ws/attachment` globally in this file.
+
+5. **Severity:** Medium | **File:** `docs/design/dao.stream.ws.md:44` | **Claim:** The ws spec fails to explicitly declare which sequence its writer surface is on, violating the requirement set by the contract's Writing section. | **Correction:** Replace `Sending is appending; nothing is converted.` with `Sending is appending to the ordered outbound path; nothing is converted.`
+
+***
+
+### Answers to the Three Open Questions
+
+**Q1.** The contract's row is wrong. By describing the state as a completed "Attached", it contradicts its own "no operation waits" invariant, which legally permits deferred resolution for remote transports. The ws spec is conformant to the invariant by returning immediately and displacing the final answer. A new `pending` outcome is unnecessary because the displaced-answer mechanism is already the correct approach; the error is purely in the row's wording. 
+**Exact replacement text:** `A handle on an attachment to the existing logical stream.`
+
+**Q2.** They are inconsistent. The Writing section accurately scopes `append!` success to the sequence the specific handle is on (an outbound path for WS), but the Concurrency section improperly assumes that every `ok` append immediately occupies a position in the logical stream. Furthermore, the ws spec violates the Writing section by failing to explicitly name its sequence. 
+**Replacement text for dao.stream.md:** Replace `a successfully appended value occupies exactly one definite position in that sequence` with `a value present in the stream occupies exactly one definite position in that sequence`. 
+**Replacement text for dao.stream.ws.md:** Replace `Sending is appending; nothing is converted.` with `Sending is appending to the ordered outbound path; nothing is converted.`
+
+**Q3.** The transport mandating an envelope for deposited events **falls outside what the contract governs**. The contract dictates that "Stream elements are data" and assigns them "no intrinsic meaning." The stream is entirely blind to the envelope; its shape is exclusively an agreement between the adapter and the downstream interpreters. 
+However, the envelope **overreaches** by using the key `:dao.stream/attachment`. The `:dao.stream` namespace belongs to the contract. The ws spec was likely boxed into this overreach by the contract's overly broad rule that "All qualified keywords in results live under `:dao.stream/…`" (since the id is also returned in the `attach!` result). The key must be `:ws/attachment`, and the contract's result rule must be amended to allow transport-owned namespaces.
+
+***
+
+### What an implementer cannot determine from these two documents
+
+An implementer with only these two documents cannot build a functioning transport, write a conformance suite, or compose the host boundary because the following are missing or explicitly deferred:
+
+1. **The exact keys of the portable descriptor:** An implementer cannot write the `attach!` connection logic because the required keys (e.g., host, port, path, TLS parameters) are marked "TBD".
+2. **Serialization formats:** The contract requires descriptors to survive serialization structurally unchanged, but specifies no format. An implementer cannot transmit or parse a descriptor across the wire.
+3. **The host dispatch API:** The contract states the host dispatches on `:dao.stream/type`, but does not define how a transport provides its `create`/`attach` map to the host's resolution mechanism. 
+4. **Adapter demultiplexing:** An implementer of an interpreter reading the host-composed WS stream knows they must filter by `:ws/attachment`, but they cannot determine how the adapter physically receives and wraps the wire traffic, or what the resumption protocol is for reconnecting clients (marked "Deferred").

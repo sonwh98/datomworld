@@ -1,0 +1,37 @@
+Slice 2 is done and every lane is green, with one exception: `cljstyle check` is still blocked by a permission prompt, so I checked its rules by hand instead. Nothing is staged or committed. The full report is at `/Users/sto/workspace/datomworld/collab/1790751145000-storage-engineer-repl-durable-index-slice2.claude-opus-5-5.report.md`.
+
+**Kept from glm's partial work:** most of it, including:
+- the HEAD record and how it is read;
+- the full walk of the snapshot at open, which refuses startup if anything is corrupt;
+- the lock taken before anything else in the directory is touched;
+- HEAD written only after the manifest is read back;
+- the recovery handed over for slice 3;
+- closing the store on exit on all three hosts;
+- most of the tests.
+
+**Fixed:**
+- **Dart could open the same directory twice in one process.** The JVM and Dart OS locks never refuse their own process. The lock now also keeps a list of the directories this process holds and refuses a second owner before opening anything. Closing a store twice can no longer release a later owner's lock.
+- **Node could steal a live owner's lock.** A process owned by another user was being treated as dead. It now counts as alive.
+- **The JVM now syncs the directory after replacing HEAD.** Before, only Node did.
+- **`:clj` came first in the reader conditionals** in `store/fs.cljc` and both test files, which is the ClojureDart trap. All now put `:cljd` first. The index tests also close their stores now.
+
+**Added:**
+- A test proving HEAD is replaced by rename, never written in place: it succeeds even when HEAD is read-only.
+- A crash test: a replacement interrupted before the rename leaves HEAD whole, and a reopen recovers the previous snapshot.
+- Real second-process lock tests for Node and Dart, alongside the existing JVM one.
+- Doc updates.
+
+**Evidence:**
+- Each key guarantee was broken on purpose, and a test failed each time (all reverted).
+- One Dart run with a deliberate failure confirmed that ClojureDart test failures really fail the run, and that the Dart child process really holds the lock.
+- Lane results:
+  - kondo: 0 errors, 0 warnings.
+  - Focused JVM: 108 tests, 0 failures.
+  - Full JVM: 2407 tests, 0 failures.
+  - Node: 2312 tests, 0 failures.
+  - Peer build: built.
+  - Dart: all passed, and I confirmed the new tests ran by name.
+
+**Decision for you:** until slice 3 restores the old facts on startup, a restarted or reset durable session publishes only its own facts, and HEAD moves off the previous snapshot. The old data stays in `content.jing` but nothing points to it any more. This is written in the doc and the store docstring. Don't ship slice 2 on its own as "durable".
+
+The Claude.ai Gmail, Google Calendar and Google Drive connectors need authorizing in your claude.ai connector settings before they can be used. Nothing in this task needed them.

@@ -1,0 +1,75 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+I have completed a full read of the design doc's *Numeric identity* section (both owner rulings), the two implementer reports, the complete `git diff` of all three source files, and all three test files. Below is the complete review.
+
+---
+
+Completed-GMT: 2026-09-22 05:59:55 GMT
+Completed-Local: 2026-09-22 12:59:55 +07 (Indochina Time)
+Coding-Agent: deepseek
+Session-ID: pending
+
+# Verdict: READY
+
+No P1 or P2 findings. The three-part tie-break, the kind-strict `content=`/`content-key`/`content-hash`, the range-scan fix, and the dedup fix are all correct and — where the implementers claim a mutation proved a real bug — the proofs are genuine, not artifacts. Three P3 observations are listed at the end; none changes correctness.
+
+---
+
+## What I checked and found clean (each with a concrete value pair)
+
+### 1. `content-key`/`content=`/`content-hash` correctness — clean
+
+- **Kind-strictness.** `numeric-kind` (`cbor.cljc:824`) and `numeric?` (`cbor.cljc:485`) use the identical four predicates in the identical order (`host-integer?`/`float64?`/`decimal?`/`ratio?`), and those predicates are mutually exclusive on every host. So `(content= 1 (float64 1))`, `(content= (ratio 1 1) 1)`, and `(content= (decimal 0 1) 1)` are all false (`cbor_content_equality_test.cljc:36-41`).
+- **Float zero sign.** `numeric-content-key` (`cbor.cljc:838-843`) emits `[::float64 neg e (str f)]` from `float-fields`, and `float-fields` (`cbor.cljc:624`) returns the raw sign bit via `Double/doubleToRawLongBits`/`>= hi 0x80000000`, so `0.0` → `[::float64 false 0 "0"]` and `-0.0` → `[::float64 true 0 "0"]` are distinct. `(content= pos-zero neg-zero)` is false; the cross-check test at `cbor_content_equality_test.cljc:118-124` pins `content=` ⟺ identical canonical bytes over a 32-value sample including both zeros.
+- **NaN handling is the correct call.** Every NaN (signaling `0x7ff0000000000001`, quiet `0x7ff8000000000000`, either sign) has `e = 0x7ff` and non-zero fraction, so `(and (= e 0x7ff) (pos? (bsign f)))` collapses them all to `[::float64 :nan]` (`cbor.cljc:841-842`). This matches content addressing *by definition*: `encode` canonicalizes all NaNs to `0x7ff8000000000000` (design §Numeric identity, "canonicalize NaNs to quiet NaN bits"), so a signaling NaN or non-canonical payload has *no* distinct content address to preserve. Treating all NaNs as one identity is therefore correct, not a gap — a signaling NaN decoded and then re-encoded loses its signaling-ness anyway. The `f = 0` case is not a NaN (it's ±∞), so the infinity/NaN split at `cbor.cljc:842` is sound, and `+∞`/`-∞` stay distinct through `neg`.
+- **Decimal scale.** `[::decimal (str (decimal-exponent x)) (str (big (decimal-mantissa x)))]` distinguishes `1.0M` (`exponent -1, mantissa 10` → `[::decimal "-1" "10"]`) from `1.00M` (`-2, 100` → `[::decimal "-2" "100"]`), and `0M` from `0.0M` (`cbor_content_equality_test.cljc:50`).
+- **Rational reduction.** `numeric-content-key` routes through `exact` (`cbor.cljc:653`), which reduces via `reduced-fraction`. A hand-built unreduced carrier `(->Rational 2 4)` keys as `1/2`, verified at `cbor_content_equality_test.cljc:71-72`.
+- **Integer width.** `(content= 1 (big "1"))` holds (`[::integer "1"]` both), and `(content= (big "18446744073709551616") (big "18446744073709551616"))` holds; `numeric-kind` explicitly routes JVM `Long`/`Integer`/`Short`/`Byte`/`BigInt`/`BigInteger` all to `:integer`.
+- **Hash consistency.** `content-hash` = `(hash (content-key x))`, so it agrees with `content=` by construction; the cross-check asserts it for every `content=`-true pair (`cbor_content_equality_test.cljc:124`).
+
+### 2. `compare-vals`/`type-rank`/`compare-numbers` — clean
+
+- **Carrier bucketing.** `type-rank` (`index.cljc:56-67`) uses `cbor/numeric?` (not `number?`), which catches the JVM `Rational` carrier, and Node/Dart `Float64`/`Decimal`/`Rational`. `carriers-stay-in-the-number-bucket` (`index_numeric_test.cljc:74-80`) proves every carrier sorts above `nil`/`true` and below `"a"`/`:k`/`'sym`.
+- **Fast/slow split is safe on every host.** `compare-numbers` (`index.cljc:72-88`) dispatches to host `compare` only for two `Long`s, two non-NaN `Double`s (JVM), two non-NaN `number?`s (CLJS), or two `int`s (Dart). I could not construct a counterexample where the fast path disagrees with `num-compare`:
+  - JVM two `Long`s: host `compare` and `num-compare` both use exact long arithmetic — identical.
+  - JVM two non-NaN `Double`s: Clojure's `Numbers.compare(double,double)` uses `x < y`, `x > y`, then `x == y`, which is exact for finite doubles and treats `-0.0 == 0.0` as equal → `(compare 0.0 -0.0)` is **0**, matching `num-compare` (both reduce to `[:finite 0 1]`). So `(compare-vals 0.0 -0.0)` is genuinely `0` — a tie, not a change — consistent with "only `=` changed, not ordering" (`index_numeric_test.cljc:70` pins this). The `Double/isNaN` guards correctly route NaN to the slow path, so NaN sorts last rather than fast-pathing to `compare`'s `isNaN` branch.
+  - CLJS two non-NaN `number?`s: JS `<`/`>` on doubles is exact; `0.0`/`-0.0` tie. NaN is excluded by `js/isNaN`.
+  - Dart is correctly conservative (ints only), because Dart's double `compareTo` orders `-0.0` below `0.0` — the slow path is what makes `-0.0`/`0.0` tie there.
+
+### 3. `query.cljc` builtins — clean
+
+- **`content-eq` variadic** (`query.cljc:790-795`): `(and (content= a b) (every? #(content= a %) more))` is the standard equivalence-closure form and is correct because `content=` is an equivalence (defined as host `=` on `content-key`s). `content-not-eq` = `(not (apply content-eq args))`, matching `not=`.
+- **`numeric-chain`** (`query.cljc:807-821`): `<=` via `(complement pos?)` and `>=` via `(complement neg?)` on `num-compare`'s `-1/0/1` are correct for all three outcomes (`pos?` is true only for `1`, `neg?` only for `-1`). The early-return `(run! #(require-numeric! op %) bs)` still validates the tail so a non-numeric later operand is refused loudly even after the chain has already decided false — a deliberate, correct choice.
+- **`preferred-tie`** (`query.cljc:824-834`) implements the exact three-part rule: content-identical → `a`; else exact beats `float64` (the `(and fb (not fa))` / `(and fa (not fb))` arms); else `encoded-compare` (shorter, then canonical bytes). Two `float64`s with `num-compare 0` are always `content=` (same bits), so the `:else` arm is only ever reached for two exact-but-distinct operands. The test `min-max-tie-break-is-order-and-host-independent` (`query_numeric_test.cljc:231-243`) checks every `tie-cases` row in both argument orders with `same-content?`, including `1` vs `(ratio 1 1)` (shorter encoding of `1` wins) and `pos-zero`/`neg-zero`.
+- **Binary fold = aggregate.** `portable-min`/`portable-max` are the single binary rule; the builtin is `(variadic portable-min)` (`query.cljc:843-852`) and the aggregate is `(reduce portable-min xs)` (`aggregate-fns`), so they always agree. `min-max-aggregates-agree-with-the-builtin` (`query_numeric_test.cljc:246-255`) checks both row orders.
+- **`host-arithmetic`** (`query.cljc:855-868`): rejects exactly `(and (cbor/numeric? x) (not (number? x)))`. The `Rational` deftype extends `Object`, not `java.lang.Number` (`cbor.cljc:367-395`), so `(number? (ratio 1 1))` is false → refused loudly; `clojure.lang.Ratio` (`(ratio 1 2)`) *is* a `Number` → host arithmetic still computes. On CLJS/CLJD the `Float64`/`Decimal`/`Rational` carriers and `BigInt` are not `number?` → refused. This is exactly the design's "reject carrier operands loudly, keep host numbers working."
+
+### 4. `select-by-index` range-scan fix — clean, and the proof is real
+
+- `same-slot?` (`query.cljc:453-463`) ties by `(zero? (index/compare-vals …))`, so a scan continues through numerically-equal different-kind rows (`1`/`1.0`/`1.0M`/`1.00M`/`(ratio 1 1)`), and the trailing `content=` filter (`query.cljc:500-504`) applies kind-strictness after the scan.
+- The mutation proof is sound, not an artifact: in `constant-patterns-match-kind-strictly-through-the-index` (`query_numeric_test.cljc:117-131`) the AVET/VAET indexes order `2(float64 1)`, `3(int 1)`, `4(float64 1)`, `5(big 1)`, `6(ratio 1 1)`, `7(2)` by value (all ties interleave by `e`). Reverting `same-slot?` to host `=` makes `take-while` stop at row `2` (`(= 1 (float64 1))` is false on the JVM), yielding `#{}` instead of `#{3 5}`. That is a genuine value-ordering miss, not a test artifact. I spot-checked this by tracing the exact rows; it cannot pass under the revert.
+- **`range-scannable?`** (`query.cljc:465-476`) lists exactly the scalar buckets of `type-rank` (`nil`, `boolean`, numeric, `string`, `keyword`, `symbol`) — nothing unsafe is included, and nothing that must range-scan is excluded. `char`/`uuid`/collections fall to `type-rank` 6 (the `:else`), so they are correctly *not* range-scanned and instead go through the full-EAVT `:else` branch (`query.cljc:495`) followed by the `content=` filter. That full scan is always correct — only slower — so the non-scalar bound value cannot change correctness (this is precisely the collection-value fix the implementer proved on Node).
+
+### 5. Dedup fix and its accepted limit — clean
+
+- **`binding-key`** (`query.cljc:935-945`) keeps `::dbs`/`%` as themselves and content-keys every variable's value. This is safe: within a single `eval-or`/`eval-or-join`/`eval-rule`, every branch shares the same context, so `::dbs` and `%` are identical across the bindings being deduplicated — skipping them can neither wrongly merge nor wrongly split two rows. `content-distinct` (`query.cljc:949-965`) is a faithful lazy `distinct` over `binding-key`, and `binding-key` always returns a hashable value (map/vector/keyword/string/number), so the `#{...}` seen-set is sound.
+- **Cycle guard** (`query.cljc:1334-1337`): keying `::active-rules` by `[rule-name (binding-key arg-vals)]` is sound. It removes the false-cycle the old host-`=` key caused (a call on `1.00M` was taken as a repeat of `1.0M`), and it cannot under-detect a real cycle, because a true cycle recurs with the same rule name and content-identical arguments, which `binding-key` maps to the same key. `recursive-rules-tell-calls-apart-by-content` (`query_numeric_test.cljc:381-391`) is a genuine proof (the `:end` is reached only after the `1.0M → 1.00M` step is told apart from a repeat).
+- **The accepted limit is real and genuinely unpreventable upstream.** `relation-result` returns `(into #{} (content-distinct …))`. Even with `content-distinct` emitting `[1.0M]` and `[1.00M]` as separate tuples, `(into #{} [[1.0M] [1.00M]])` merges them because Clojure's `PersistentHashSet` inserts by `clojure.core/=` + `hasheq`, and `(= [1.0M] [1.00M])` is `true` (vector `=` recurses to `BigDecimal` `=`), with equal hashes. Same for `[0.0]`/`[-0.0]`. `content-distinct` upstream therefore *cannot* prevent it; only a content-key-comparator sorted set would, which is the type change the brief rules out. `the-returned-relation-is-still-a-host-set` (`query_numeric_test.cljc:394-406`) pins the per-host line exactly (JVM merges both pairs; Node keeps both; Dart merges `0.0`/`-0.0`).
+
+### 6. Scope discipline — clean
+
+The `git diff` touches exactly `src/cljc/dao/jing/cbor.cljc` (additive only), `src/cljc/dao/space/index.cljc`, `src/cljc/dao/space/query.cljc`, plus the three new test files. The cbor diff is purely additive — `equiv`, `num=`, `num-hash`, `num-compare`, `equiv-hash` are untouched, and the frozen J0–J3 files and `dao.data.btree`'s comparator are not in the diff at all. The remaining host-`distinct` sites (`not-required-vars` `query.cljc:1101`, `branch-free-vars` `query.cljc:1134`, the "Unknown rule" `(distinct (map ffirst rules))` `query.cljc:1333`, and `proj-vars` `query.cljc:1547-1550`) all operate exclusively on `query-var?`-filtered symbols or rule-name symbols (`ffirst` of rules), never datom values — confirmed by reading each site.
+
+### 7. Tests — spot-checked independently, real
+
+I independently traced the range-scan proof (#4 above) rather than trusting the report, and it is a genuine failing scenario under revert. The `type-rank`/`number?` gap is pinned by `carriers-stay-in-the-number-bucket` and the cross-kind `compare-vals` ladder (`index_numeric_test.cljc:47-80`); the zero-sign/decimal-scale merge is pinned by `facts-keep-kind-strict-identity-in-the-current-view` (`query_numeric_test.cljc:152-165`); all three would fail if their fixes were reverted.
+
+---
+
+## P3 findings (minor; no correctness impact)
+
+1. **Redundant content= filtering** — `select-by-index` now applies the `content=` filter internally (`query.cljc:500-504`) *and* `datoms` re-applies it (`query.cljc:529-532`). Idempotent and harmless, but the inner filter is duplicated. If `select-by-index` is meant to guarantee kind-strictness for all callers (it is, per its new docstring), the `datoms` filter is dead and could be dropped — or vice versa.
+
+2. **`'%` key in `binding-key` is likely dead** — `binding-key` guards `(= k '%)` (`query.cljc:940`) so the rules set isn't content-keyed, but rules are held in the `ctx`, not in per-row binding maps, so `%` probably never appears as a binding-map key. Harmless defensive code, but worth confirming it isn't masking a site that *does* put datom values under a non-`::dbs` key.
+
+3. **`host-arithmetic` treats the two rational representations asymmetrically** — `(+ (ratio 1 1) 1)` throws "does not accept a numeric carrier" while `(+ (ratio 1 2) 1)` returns `3/2`. This is *by design* (denominator-1 rational needs a carrier on the JVM to preserve kind, and carriers are loudly refused), so it is correct — but it is a user-visible asymmetry worth a one-line note in the design doc's arithmetic-limitation paragraph, since a query that mixes rational arithmetics will fail only when a denominator-1 rational appears.

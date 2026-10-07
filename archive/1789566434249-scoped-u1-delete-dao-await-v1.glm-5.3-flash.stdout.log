@@ -1,0 +1,50 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+All verification done. Final report:
+
+## U1 — `dao.await` v1 deletion: complete
+
+### Pre-deletion re-verification
+Re-ran the orchestrator's exact sweep — same result, zero real consumers:
+
+```
+$ grep -rn "dao\.await" --include='*.cljc' --include='*.cljs' --include='*.cljd' --include='*.clj' src test bin \
+  | grep -v "dao\.await\.v2" | grep -v "^src/cljc/dao/await.cljc" | grep -v "^test/dao/await_test.cljc"
+src/cljc/dao/await.cljc:5:   See docs/design/dao.await.md for the full design. This is v1's surface,
+src/cljc/dao/await.cljc:8:   - The module registry is a value. v1 registered 'await and 'dao.await
+```
+
+Only v2 docstring prose. Also swept `deps.edn` / `shadow-cljs.edn` / `bb.edn`: no v1 references; shadow's `:node-test` target auto-discovers tests.
+
+### Deletions
+- `src/cljc/dao/await.cljc` — deleted (−215 lines)
+- `test/dao/await_test.cljc` — deleted (−192 lines)
+
+Nothing else changed **by me**. One caveat: `git status` also shows `M src/cljs/datomworld/demo.cljs` (a `yin-repl` → `yin-repl` demo require switch, mtime 21:00:45 — mid-run). I did not make that edit; none of my commands write to source. It's concurrent work in this tree (target of `d8b27a5`'s retirement arc). I left it untouched; both post-21:00 test runs compiled it green, so it's coherent with the tree I verified.
+
+### Verification — all three hosts
+
+| Host | Command | Result |
+|---|---|---|
+| JVM | `clj -M:test` | ✅ **Ran 1473 tests, 166093 assertions. 0 failures, 0 errors.** |
+| ClojureScript | `bb test:cljs` | ✅ **Ran 1373 tests, 35583 assertions. 0 failures, 0 errors.** Build completed (331 files, 0 warnings). |
+| ClojureDart | `bb test:cljd` (≡ `clojure -M:cljd test` + 2 peer builds) | ✅ **`01:32 +1329: All tests passed!`** |
+
+### The cljd stale-artifact detour (worth knowing)
+
+The first cljd run **passed but was lying**: it loaded `cljd-out/dao/await-test_test.dart` — a stale compiled v1 artifact predating the deletion — because `dart test` globs everything in `cljd-out/` and the cljd compile doesn't prune removed files. I `rm -rf test/cljd-out` and re-ran clean. File-set diff of the two runs:
+
+- **Gone:** `dao/await-test_test.dart` (stale v1) and `yin/scratch-div-test_test.dart` (a second stale artifact — scratch test whose source was already deleted from the repo)
+- **Gained:** `dao/space/positional-query-test_test.dart` (real source test the old `cljd-out` predated)
+
+Fresh-run evidence, exactly per the plan's criteria:
+
+```
+$ grep -ao "dao\.await[a-z0-9.-]*" <fresh cljd log> | sort | uniq -c
+   1 dao.await
+  36 dao.await-test        ← v2 test namespace exercised; zero dao.await-test hits
+```
+
+### Post-deletion grep sweep
+Same sweep minus the deleted-file exclusions: only the two v2 docstring-prose hits above. No file references the deleted namespaces. Kondo: nothing left to lint (both touched files are deletions; the sweep is the dangling-reference check, per the plan).
+
+**Not staged, not committed.** Working tree carries my two deletions plus the unrelated concurrent `demo.cljs` edit.

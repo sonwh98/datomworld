@@ -1,0 +1,36 @@
+All four items are done as uncommitted edits, and the focused JVM tests pass. kondo is clean; cljstyle is still blocked (it needs approval I don't have). I made no git writes and ran nothing on Node, Dart or the full lanes.
+
+1. **Lowering pins (finding 2)** in `int_literal_test.cljc`:
+   - `-5` lowers to `py/neg` over the literal 5.
+   - `-18446744073709551616` lowers to `py/neg` over `(py/int-lit "10000000000000000")`.
+   - `00` now joins `0` and `0_0` in lowering to the literal 0, all from hand-built packets.
+
+   These pin existing behavior, so they passed at once. To show they can fail, I briefly mapped unary `-` to `py/pos`: both sign pins failed, then I reverted it.
+
+2. **Doc (ruling a):** one sentence in `yang.antlr.md` 8.5.4, right after the literal bullet. It says `lower/open-stage` takes an explicit composition digit budget that fills only a packet declaring none, and a packet's own declaration wins. With neither, a decimal literal above 2^53−1 is a diagnostic. Hex, octal and binary are exempt.
+
+3. **Compositions rerouted through `prelude/register-integer-module` (finding 3).** All are at or above 53 bits:
+
+   | Site | Limits (bits / digits) |
+   |---|---|
+   | `prelude_parity_test.cljc:39` | 100000 / 4300, and 60 / 5 for the small runners |
+   | `safepoint_test.cljc:172` (added the prelude require) | 100000 / 4300 |
+   | `float_address_test.cljc:275` | 100000 / 4300 |
+
+   Outside this round's scope, these still register directly, all at 60 bits or more: `e2e_test.clj:586`, `e2e_c2_test.clj:1133` and `int_contract_test.cljc:152`. The last is arguably a module-contract use and can stay direct; `yin/vm/integer_test.cljc` stays direct as instructed.
+
+4. **"Interim-state hazards" section** added to the findings file. It lists `prelude.cljc` line numbers by group: arithmetic core, division and power, bits, sequences and slices, ranges, and the paths that are already safe.
+   - **Why these sites matter:** `data/number?` (`data.cljc:414`) admits big carriers, so a BigInt passes `py/numeric?` and `py/int?`. It then hits host operators and fails as a host error, not a guest `TypeError`.
+   - **Host behavior:**
+     - **Node:** mixed BigInt/Number `+ - * /` throws, but mixed `<`, `<=`, `>`, `>=` work exactly. So `py/compare` and `py/eq` survive there.
+     - **Dart:** any mixed arithmetic or comparison throws.
+     - **JVM:** nothing throws; only the old 2^53 overflow bound is wrong.
+   - **Less obvious sites:**
+     - `py/arith`'s float path, where a BigInt meets a double.
+     - `py/truediv`, which converts the numerator but passes the divisor through raw.
+     - `py/range-at`'s fast path.
+     - `py/index`, which `getitem` and `setitem` reach at four call sites.
+
+**Tests run:**
+- Fast tests over `int_literal_test`, `prelude_parity_test`, `safepoint_test` and `float_address_test`: 52 tests, 0 failures.
+- Slow tests of the three rerouted namespaces: 22 tests, 0 failures.

@@ -1,0 +1,21 @@
+Fixed. `key-file-validation` now passes on JVM, Node and Dart, including the `] [42` and `}} {:x {` trailing-form cases.
+
+**Cause:** the ClojureDart EDN reader throws whenever whitespace comes right before a closing bracket or brace. I checked this with a temporary test on Dart:
+- `"[1\n]"`, `"{:k 1\n}"` and `"{:k {:a 1} }"` all throw "Unexpected closing … bracket/brace".
+- `"[1]"`, `"{:k 1}"` and `"{:k {:a 1}}"` read fine.
+
+So the `"\n"` before the closing delimiter in both wraps threw on every input, and the catch turned that into `:malformed-key`. That's why the valid key failed on Dart while every case that should be refused looked correct anyway.
+
+**Fix (`src/cljc/yin/vm/linker/sign.cljc`, `key-from-text`):** I kept the double wrap. The text is now trimmed with `str/trimr` and both wraps close directly after it: `(str "[" s "]")` and `(str "{:k " s "}")`. The trailing-form guarantee is unchanged, because both wraps still have to yield exactly one key. Trimming also means a key file ending in a newline, which is how real files on disk look, now reads on Dart. Before, it would have failed there too.
+
+One behaviour change: the old `"\n"` stopped a trailing `;comment` from swallowing the closing bracket. Without it, a key file ending in a comment is refused as `:malformed-key`, the same way on all hosts. `key-text` never writes comments, so this only affects hand-edited files.
+
+**Test (`test/yin/vm/linker/sign_test.cljc`):** I added one assertion, that `key-text` plus `"\n"` round-trips. The temporary diagnostic test is removed.
+
+**Verification (all run in the foreground):**
+- kondo on both files: 0 errors, 0 warnings.
+- `clj -M:test -n yin.vm.linker.sign-test`: 4 tests, 39 assertions, 0 failures.
+- `bb test:cljs`: 2510 tests, 0 failures, 0 errors.
+- `bb test:cljd` after deleting `test/cljd-out`: All tests passed.
+
+The reader bug still affects hand-written key text with odd spacing, such as `{:version 1 }`: Dart refuses it while JVM and Node accept it. A plain `edn/read-string` would hit the same problem on Dart, and `key-text` output never has that spacing.

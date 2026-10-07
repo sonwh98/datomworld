@@ -1,0 +1,44 @@
+# Fix round 1: gpt-6-sol HIGH finding fixed
+
+Plain Clojure now gets the exact §9 rows for a failed load through a new public function, `yin.vm.linker.dht/load-refusal`. The REPL calls the same function, so there is one conversion. All lanes pass on the final code. I did not touch the MEDIUM finding (dangling retraction), as instructed. Nothing is staged or committed. The "Fix round 1" section is appended to `/Users/sto/workspace/datomworld/collab/1790837000000-engineer-linker-L5.claude-opus-5-5.report.md`.
+
+## The fix
+
+- **New function.** `(load-refusal status)` takes the status that `module-status` returns. For a failed load it returns:
+  - `:absent` with `:cause` for a miss.
+  - `:descriptor-defect` with `:code`, plus `:detail` and `:text` when present, for an invalid closure.
+  - `:yin.link.dht/unaskable` with `:outcome` when the client could not ask.
+  - nil when the load has not failed.
+- **One conversion.** I deleted the private copy in `yin.repl.link`; `dht-attempt` now calls the public function. The REPL's rows are unchanged, and its L3 tests pass as before.
+- **Design doc.** §10 gains a `load-refusal` row, and the list of functions `yin.repl.link` calls now includes it.
+- **L5 plain leg.** The process test now asserts the three exact §9 rows over real UDP:
+  - `:absent` with cause `/exhausted`
+  - `:descriptor-defect` with `:manifest-defect`
+  - `unaskable` with `:request-undeliverable`
+- **Unit test on all three hosts.** `a-failed-load-is-its-section-9-row` checks each row, nil for a load that hasn't failed, and a real solo-node failure. It was red before the function existed (`No such var`).
+
+## Mutations
+
+Each was applied temporarily, seen failing, and reverted:
+
+| Mutation | What failed |
+|---|---|
+| `:miss` row drops `:cause` | 2 unit assertions |
+| defect row drops `:text` | 1 unit assertion |
+| defect row has the wrong `:code` | 2 unit assertions |
+| unaskable row drops `:outcome` | 1 unit assertion |
+| a row returned for any status | 3 unit assertions |
+| the three field mutations together | all 3 new rows in the process test's plain leg; also 5 REPL tests in `yin.repl.dht-test`, which shows the REPL goes through the same function |
+
+## Lanes (final code, foreground, each run to its verdict)
+
+| Lane | Verdict |
+|---|---|
+| kondo (5 changed `.clj`/`.cljc` files) | 0 errors, 0 warnings |
+| `bb test:cljs` | 2603 tests, 0 failures |
+| `bb build:yin-repl-peer`, then `bb test:cljd` after `rm -rf test/cljd-out` | built; +2558, all tests passed (one more than before: the new unit test) |
+| `bb build:yin-repl-node`, then JVM tests in three chunks | 2690 tests, 0 failures, across the same 168 namespaces the full lane runs |
+| process test alone | 57 assertions, 0 failures |
+
+- **Why the JVM lane ran in chunks:** `bb test:clj` runs longer than the 10-minute foreground limit, and shell wait loops need approval here.
+- **A failure I saw and cleared:** my first, backgrounded `bb test:clj` run had one failure in `dao.jing.dht`'s real-socket timing test (`three-real-loopback-sockets-exchange-chunked-store`). It ran while I was also running the process test, and no code under it changed. It passed in the clean chunked run with nothing else running.

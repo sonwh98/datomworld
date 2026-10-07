@@ -1,0 +1,34 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-21 04:51:49 GMT
+Completed-Local: 2026-09-21 11:51:49 +07 (Indochina Time)
+
+D4 is implemented in the two in-box files on top of the committed D3 (df3a15e5). All three hosts green. Nothing staged, committed, merged, or pushed; no other file touched, and dao.stream and every existing consumer are unmodified — this namespace remains a pure protocol consumer.
+
+## forward-step per §6
+
+`forward-step` / `forward-initial-state` follow `dao.stream.forward`'s copier shape exactly: a state-threading single step, one read or one pending write per `:batch-budget` unit, no atom/callback/timer/registry/clock (§1), terminal state as idempotent data, per-call `:forwarded` like the precedent. It frames at the `:yin/root` marker — projecting there via the pure `project-datoms` and queueing `projected->datoms`' tuples as **pending output kept in state**; a `full` destination returns `:retry` with every pending write explicit, retried only when the host steps again. Non-`:yin` stream values advance the cursor without extending the frame (matching `frame-datoms`). Statuses: `:continue`/`:retry` non-terminal; terminals `:source-ended`, **`:partial-frame`** (end-of-stream with unclosed `:yin/*` datoms, frame under `:diagnostic`), **`:invalid-input`** (malformed datoms and projection diagnostics, ex-data under `:diagnostic`, converted from throws — the `try` computes a successor and `recur` stays outside it), the source transport defects (`:source-gap` terminal-default policy, `:source-cursor-mismatch`, `:source-invalid-cursor`, `:source-transport-error`), and destination defects (`:destination-closed`, `:destination-invalid-value`, `:destination-transport-error`); a non-outcome answer from a defective handle folds to `:transport-error` via the case defaults.
+
+## The D4 reader obligation
+
+`slot-shape-ok?` gates every projected slot against its descriptor type **before** `datoms->projected` recomputes any hash: `:yin.debruijn/bound 5` and a numeric child ref now diagnose `:unsupported-value` deterministically on every host — previously both reached host arithmetic inside the encoding. Docstring states the ordering.
+
+## §7-D4 / §8 coverage (new tests; real ring-buffer transports + `reify`'d scripted/refusing fakes per the macro/engine-test precedent)
+
+Root framing + one graph forwarded byte-exact; **adjacent graphs reusing −16 tempids** (two root markers, both projections concatenated); **partial frame at end** (real closed transport, diagnostic rule+datoms, zero writes, terminal idempotence) plus trailing other-namespace decorations closing cleanly; **blocked** (open buffer: `:retry`/`:dao.stream/blocked` after the closed graph was forwarded); **pending output** (scripted `:full`: all writes held explicit, then the retry cadence completes them); **destination closed** terminal; **source transport/gap/cursor defects** terminal; **invalid input** (malformed datom and a dangling-ref projection defect, both through the stream); the reader-ordering fixtures. Two test-infrastructure notes baked into helpers: `sealed!` because `stream/close!` returns an outcome map (threading would lose the handle), and two drivers — `drive` (stops at `:retry`, cadence belongs to the caller) and `pump` (steps through retries).
+
+## Verification (exact commands and counts)
+
+| Check | Command | Result |
+|---|---|---|
+| Focused JVM | `clojure -M:test -n yin.vm.debruijn-test` | **61 tests, 240 assertions, 0 failures, 0 errors** |
+| kondo | `clojure -M:kondo --lint` both files | **errors: 0, warnings: 0** |
+| cljstyle | `cljstyle fix` + `check` both files | **clean** (reindent only; focused rerun stayed 61/240/0/0) |
+| CLJS lane | shadow `compile test` (Node) | **1538 tests, 38888 assertions, 0 failures, 0 errors** |
+| CLJD lane (insurance, beyond the ask) | `rm -rf test/cljd-out` + `clojure -M:cljd test` | **`01:55 +1501: All tests passed!`** — all 61 debruijn tests incl. every D4 row, zero failures |
+
+**Completion (§7-D4) — met**: blocked, transport-error, invalid input, pending output, root framing, adjacent graphs reusing tempids, and terminal diagnostics covered; partial frame at end verified on all three hosts.
+
+## Unresolved concerns / incomplete work
+
+- §8's `invalid-answer` row belongs to waitset-sweep compositions (a composition owning several independent waiters per §6); this single-reader/single-writer adapter never produces one, and no waitset was introduced — correct per §6, noted for the record.
+- Changed files: only `src/cljc/yin/vm/debruijn.cljc` and `test/yin/vm/debruijn_test.cljc`. No incomplete work in D4's scope.

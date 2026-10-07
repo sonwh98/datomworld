@@ -1,0 +1,16 @@
+Completed-GMT: 2026-09-14 18:00:03 GMT
+Completed-Local: 2026-09-15 01:00:03 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1599 lines (was 1601). Only this file changed; it remains untracked and `git diff --stat` is empty.
+
+**The single finding.** Mechanism chosen: the composition-minted token for all constructions, with no log-allocated ids at all. §8.4.1 now states why the log cannot supply identity, citing `prepare-tx` as a pure function of supplied history, `transact!` allocating only `t` and appending already-resolved datoms, and the transactor contract's T6 single-writer hazard. The incarnation is `{:yin.expander/token <token>}`, a fresh random UUID minted by the host library at construction, as the ring-buffer transport already mints its stream identity. The uniqueness warranty is the composition's, discharged by the token's randomness, and it covers independent constructions and restarts without any state that must survive a restart, which is the stated reason a random token rather than a durable counter is the rule. The construction record is removed, along with the claim that the existing transactor guarantees uniqueness. The retry rule is kept consistent: minting the token is the first act of an all-or-nothing construction, a retried construction mints a new token, and the staged-flush reuse rule is unchanged. §10.3 now describes the token mechanism and names the `ctx` field and the minting step as additions to the macro contract that this document cannot make there.
+
+No owner ruling was required.
+
+**Sections touched:** status line, §8.4.1 (incarnation and allocation-retry bullets), §10 item 3.
+
+**Verified against source myself:** `prepare-tx` at `transact.cljc:189-207` deriving ids from supplied history; `transact!` at `transactor.cljc:231-254` allocating only `t` under its write lock; T6 in `dao.space.transactor.md:75`; the memory log's newest cursor at `memory_log.cljc:105-110`; the ring buffer's `random-uuid` identity at `ringbuffer.cljc:27`; all-or-nothing construction at `v2.cljc:21-23`.
+
+**Taken from the review, not re-run:** the executed result that two preparations against one empty history both assign `{-1 16}` and that sequential commits through one transactor produced two records with entity id 16. I verified the code paths that produce that result but did not execute them.

@@ -1,0 +1,125 @@
+Completed-GMT: 2026-10-01 13:05:59 GMT
+Completed-Local: 2026-10-01 20:05:59 +07
+Coding-Agent: claude
+Session-ID: c9c76024-1216-4bf5-a6b5-5d725ecc491e
+
+# DRAFT: needs owner approval. LICENSE-EXCEPTION is a draft, not final licence text. This is not legal advice.
+
+Report file: `collab/1790857898202-subagent-license-gpl2-exception.claude-opus-5-5.report.md`. Below is Round 1 followed by Round 2. Where they differ, Round 2 wins.
+
+## Round 1 (summary of the unchanged parts)
+- **`LICENSE`** is the GNU GPL version 2 text, fetched from https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt.
+  - 17984 bytes, SHA-256 `edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6`.
+  - This is the current gnu.org revision, which gives the FSF's address as `<https://fsf.org/>`. The Linux kernel's COPYING file uses an older revision with the "51 Franklin Street" address. The licence terms are the same.
+- **Models for the exception:**
+  - The classic GPLv2 wording "As a special exception, the copyright holders give permission to link ...".
+  - The GNU Classpath exception: its definition of "independent module", its rule that each module must meet its own licence, and its "you may extend this exception" closing.
+  - Classpath lets the combination be distributed "under terms of your choice". I left that out so datom.world's own code cannot leave GPL-2.0-only.
+- **Copyright years** are 2021-2026. The first commit is dated 2021-11-21, and every author identity is the owner's.
+- **SPDX:** `GPL-2.0-only WITH LicenseRef-...` is not valid in SPDX 2.x. After `WITH`, the grammar (spec 2.3, Annex D) only accepts exceptions from the official SPDX list. SPDX 3.0's `AdditionRef-` would be valid, but npm checks this field against the 2.x grammar. npm explicitly accepts `SEE LICENSE IN <filename>`.
+
+## Round 2: the reviewer's change requests (gpt-6.1-sol) and the owner's scope decisions
+
+### Files changed (nothing staged or committed)
+- **`LICENSE`:** unchanged; SHA-256 `edaef632...233f6`.
+- **`LICENSE-EXCEPTION`:** rewritten; full text below.
+- **`package.json`:** `"license": "SEE LICENSE IN LICENSE-EXCEPTION"`.
+- **`package-lock.json`:** only the root package's `"license"` changed, to the same value. That is a one-line diff; no dependency entries, versions or hashes changed.
+- **`project.clj`:** deleted with plain `rm`, not staged. `git status` shows ` D project.clj`.
+- **`src/cljc/yin/vm/docs/documentation_index.md`:**
+  - Removed the `project.clj` bullet at line 103.
+  - Removed the `project.clj` line from the file-tree diagram and changed the `deps.edn` entry to the last-item glyph `└──`.
+- **`src/cljc/yin/vm/docs/summary.md`:** removed the "Works with `lein` (project.clj)" line at line 36.
+- **`src/cljc/yin/vm/docs/yin_vm_tests.md`:**
+  - Lines 21 and 32: replaced `lein run -m clojure.main <file>` with `clj <file>`, the form the file's own recommended section already uses.
+  - Deleted the whole "Using Leiningen (Alternative)" subsection. Deleting only lines 112-113 would have left an empty heading and an empty code block.
+
+### Fixes
+1. **P1, the whole-work requirement:**
+   - A new paragraph, modelled on Classpath, explains that linking may create a combined work that the GPL would otherwise require to be licensed as a whole under the GPL.
+   - The grant then allows distributing the combination "without licensing the combination as a whole under the GPL".
+   - Clause (a) limits the GPL-2.0-only requirement to "datom.world and any modified version of datom.world (but not the independent modules)".
+   - There is no "terms of your choice" wording, so the combination cannot be used to relicense datom.world code.
+2. **P2, source code:**
+   - Clause (a) now allows datom.world's source to be provided "by any of the options in section 3 of the GPL", which keeps the written-offer options.
+   - A new sentence says that source obligations for an independent module arise "solely under that module's own licence, not under the GPL".
+3. **P2, licence pointer:** both JSON files now say `SEE LICENSE IN LICENSE-EXCEPTION`. That file names GPL-2.0-only and points to `LICENSE`, and a single filename matches npm's documented convention.
+4. **P1, `project.clj`:** deleted, as the owner chose. This removes the conflicting `EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0` metadata.
+
+### LICENSE-EXCEPTION (full final text, 35 lines)
+```
+datom.world Linking Exception
+
+Copyright (C) 2021-2026 Sonny To
+
+datom.world is licensed under the GNU General Public License, version 2
+only (GPL-2.0-only), as set out in the file LICENSE, with the additional
+permission below. It is not licensed under any later version of the GPL.
+
+Linking datom.world statically or dynamically with other modules may
+make a combined work based on datom.world, which the GPL would otherwise
+require to be licensed as a whole under the GPL.
+
+As a special exception, the copyright holder gives you permission to
+link or otherwise combine datom.world with independent modules licensed
+under the Eclipse Public License 1.0 (EPL-1.0), the Eclipse Public
+License 2.0 (EPL-2.0), or the Apache License 2.0 (Apache-2.0), and to
+copy and distribute the resulting combination without licensing the
+combination as a whole under the GPL, provided that:
+
+  (a) datom.world and any modified version of datom.world (but not the
+      independent modules) are distributed under GPL-2.0-only, and you
+      comply with the GPL for that code, including providing its
+      source code by any of the options in section 3 of the GPL; and
+
+  (b) for each independent module, you meet the terms and conditions
+      of that module's own licence.
+
+An "independent module" is a module that is not derived from or based
+on datom.world. Any obligation to provide or offer the source code of
+an independent module arises solely under that module's own licence,
+not under the GPL.
+
+If you modify datom.world, you may extend this exception to your
+version, but you are not obligated to do so. If you do not wish to do
+so, delete this exception statement from your version.
+```
+
+### Checks (all run in the foreground)
+1. **`LICENSE` unchanged since Round 1: PASS.** SHA-256 is `edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6`, 17984 bytes. A fresh byte-for-byte comparison against gnu.org is still pending; the orchestrator plans to redo it before committing.
+2. **`LICENSE-EXCEPTION` is ASCII-only: PASS.** It has 35 lines.
+3. **Both JSON files parse: PASS with Python's `json.load`.** The `node -e` check was refused by the permission gate, so it did not run.
+4. **`project.clj` deleted: PASS.**
+5. **No reference to `project.clj` or to running lein on this project remains outside collab/archive: PASS.**
+   - Command: `git grep -i -E 'project\.clj|lein'`.
+   - Remaining hits are in files I was not authorized to edit, and none point at a missing file:
+     - `.lein-*` ignore patterns in `.gitignore` and `.zcodeignore` (lines 9-12).
+     - `docs/jolt-vs-jank.md` lines 137, 206 and 208, describing the jank project's Leiningen roadmap.
+     - A blog post that mentions the third-party `lein-ns-dep-graph` tool.
+     - Substring false positives such as `CFBundleInfoDictionaryVersion`.
+
+**Not fixed:** the doc commands `clj test_add.clj`, `clj test_simple_continuation.clj` and `./run_tests.sh` point at files that do not exist in the repo. The doc's existing clj section already pointed at them before this round. Removing those lines would need a separate authorized pass.
+
+### Caveats, corrected per the reviewer
+- **Historical metadata:**
+  - The repo previously said GPL-3.0 (`LICENSE`), ISC (both JSON files) and EPL-2.0 OR GPL-2.0-or-later with the Classpath exception (`project.clj`).
+  - That conflict makes it unclear what earlier recipients were granted. It does not prove an ISC grant for every file published before.
+  - Relicensing applies only to future distributions and cannot revoke earlier grants.
+- **Third-party material:** being the only committer does not prove ownership of everything in the tree. Copied, vendored, adapted, generated or AI-assisted code of unclear origin keeps its own copyright and licence. It has to be identified and checked against GPL-2.0-only.
+- **Contribution policy:** adopt an explicit inbound policy, such as a CLA, a DCO (Developer Certificate of Origin) or "contributions are GPL-2.0-only with the datom.world Linking Exception". Without a CLA, a contribution does not automatically arrive without the exception, because terms may be implied from the project's stated licence. An explicit policy removes that doubt.
+- **Dependency audit:** before release, audit:
+  - all transitive dependencies (Maven, npm, Dart/Flutter);
+  - local and SNAPSHOT dependencies, such as `stigmergy/wocket` if it is still used;
+  - generated and vendored code.
+
+  How the licence types fare:
+  - EPL-1.0, EPL-2.0 and Apache-2.0 are the only licences the exception covers.
+  - MIT and BSD dependencies generally need no exception.
+  - Whether LGPL works depends on its version and on meeting its terms.
+  - GPL-3.0-only components are incompatible with GPL-2.0-only.
+- **Datomic:** the vendor says the binaries are Apache-2.0 (https://www.datomic.com/on-prem-eula.html). Check the notices of the pinned version.
+- **GPL-2.0 section 6 ("no further restrictions"):** the exception only adds permissions. My Round 1 assurance that section 6 is not breached is now qualified: Round 2 fixes 1 and 2 address the reviewer's concerns, but counsel should confirm.
+- **Unchanged from Round 1:**
+  - This is not literally the kernel's licence. The kernel uses GPL-2.0-only plus a narrow note about user-space programs, not a library linking exception.
+  - Whether Clojure/JVM dynamic linking creates a "work based on" datom.world is legally unsettled.
+  - EPL-2.0 code is GPL-compatible only if it names GPL as a "Secondary License", which is why the exception covers EPL-2.0 directly.

@@ -1,0 +1,36 @@
+Completed-GMT: 2026-10-06 09:22:34 GMT
+Completed-Local: 2026-10-06 16:22:34 +07
+Coding-Agent: claude
+Session-ID: 8b4bda87-5e50-47a0-b0c9-391dba6d3ca7
+
+The JVM lane failure is fixed and the full `bb test:clj` now passes, with no other failures. The BOM policy, the race comment and the `assoc` comment are in. The new BOM test passes on the JVM and on Dart; it has not run on Node.
+
+## Per item
+
+1. **`store-write-audit-test` failure.** The publisher map in `dht.cljc` used the key `:store` for the node's local store, which the audit counts as a store mutation. I renamed it to `:dht-store` and updated its only reader, `deposit-head!`. No other file read that key. I did not touch the allowlist or the audit test.
+   - Pinned by `yin.vm.store-write-audit-test`, which now passes.
+   - I did not re-run it against the old key; the failing report came from the orchestrator's `bb test` run.
+
+2. **BOM policy.** A leading U+FEFF is now stripped after decoding, on every host, before the EDN parse. Decoding stays strict for everything else.
+   - **Test:** new cases in `heads-edn-is-bounded-and-strict-utf-8`, written as explicit bytes:
+     - `EF BB BF` followed by a record reads as that record;
+     - an overlong `C0 AF` and an encoded surrogate `ED A0 80` are both still refused as "not valid UTF-8".
+   - **Hosts:** passes on the JVM and Dart; not run on Node.
+   - **Unverified:** whether Dart's decoder drops the BOM by itself. The strip covers either case, so it doesn't matter for correctness. I also didn't re-run the BOM case on the JVM without the strip to show it failing; that rests on the reviewer's report.
+
+3. **The regular-file/FIFO swap race.** Per the Architect's ruling, I did not change the open strategy, and the reviewer's suggested fix (open non-blocking, then check what was opened, as Node does) was deliberately not applied. A comment at the check-then-open in `read-bounded` now records the accepted limit:
+   - what the race is;
+   - why it's accepted: it needs write access to the node's own locked directory, and the worst outcome is a blocked startup, never a wrong head;
+   - that Node isn't exposed.
+
+4. **The `{}` comment.** It now names the mechanism: on ClojureDart, an `assoc` of two or more keyword pairs is inlined to `-conj`, and `-conj` on `nil` conses a list, while the JVM and Node make a map.
+
+**Files touched:** `src/cljc/yin/repl/dht.cljc` and `test/yin/repl/dht_head_test.cljc`. Nothing else, nothing under `docs/design`, no git.
+
+## Commands and outcomes
+- `clj -M:test -n yin.repl.dht-head-test -n yin.vm.store-write-audit-test`: **21 tests, 302 assertions, 0 failures, 0 errors.**
+- `bb test:clj` (the whole JVM lane; it skips `^:slow`): **3,377 tests, 232,942 assertions, 0 failures, 0 errors.**
+- `clj -M:test -n yin.repl.dht-process-test`: **3 tests, 131 assertions, 0 failures, 0 errors.**
+- `bb src/dev/cljd_agg.clj --only yin.repl.dht-head-test` (focused Dart run): **16 tests, all passed.**
+- `bb build:yin-repl-peer`: compilation succeeded, `build/yin-repl-peer` generated.
+- `clj -M:kondo --lint` on the two touched files: 0 errors, 0 warnings.

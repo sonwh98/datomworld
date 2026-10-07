@@ -1,0 +1,63 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Verified the revision against the document and the cited sources. Here is the complete re-review.
+
+---
+
+Completed-GMT: 2026-09-26 00:10:06 GMT
+Completed-Local: 2026-09-26 07:10:06 +0700
+
+# Re-review of `docs/design/dao.stream.serve.md` (revision, 1,187 lines)
+
+I verified the author's account line by line against the document. The account is accurate: every substantive finding was either accepted and fixed, or rebutted correctly. Two small new seams remain. Disposition of each earlier finding first.
+
+## 1. Disposition of earlier findings
+
+**P1 — append dedup → RESOLVED.** 3.4 (287–300) replaces "window size one" with a per-session append high-water mark; request ids are strictly increasing per session (3.1, 117–120, "shared by all operations, as `dao.stream.rpc` already does"). The rule is total: above the mark → perform and become the mark; equal → answer from the recorded outcome; below → apply-error `:dao.stream.serve/stale`, never performed. This is exactly the fix I asked for and is correct: because ids are monotonic across *all* ops, a stale retransmit of any earlier append lands below the mark and is refused, regardless of interleaving `next` ids between appends.
+
+**P1 — `:serve/open` idempotency → RESOLVED.** 3.2 (169–189) specifies all four cases: duplicate open (same identity) returns the same `:serve/opened`/attachment and "the append high-water mark … is untouched, held demands are untouched" (176–177); different identity → `:serve/close :conflict`; open for a closed id → `:detached` and creates nothing; closed ids remembered for the retry horizon.
+
+**P2 — batched terminal outcome → RESOLVED.** 3.3 (205–209) makes the `next` vector "non-empty … the terminating non-`ok` (`blocked`, `end`, `gap`, …) is its last element," and the note (230–237) explains why dropping it would make the batch tail indistinguishable from "not fetched yet." Correct.
+
+**P2 — session identity over peer-id uniqueness → RESOLVED (as far as is possible).** 3.1 (106–115) now states the dependence explicitly and routes a collision to `:serve/close :conflict` rather than silent session theft. Given peer ids are a deferred, unauthenticated item, this is the honest resolution.
+
+**P3 — wire `:dao.stream/cursor` op → NOT RESOLVED, because I was WRONG.** The author's rebuttal (3.3, 238–245) is correct. I overlooked that the contract's Cursors section (dao.stream.md 480–483) permits transport-owned anchors ("a byte offset, a timestamp"), which the piggyback — carrying only `:oldest`/`:newest` — cannot answer. A transport-owned anchor must be issued as a wire `cursor` request; until answered the proxy returns `transport-error` with `:dao.stream/retry? true`, then relays the outcome (`invalid-anchor` included). The op is not dead; my P3 is withdrawn.
+
+**P3 — `descriptor` wire op → RESOLVED.** 3.3 (246–254) "Two descriptors, one identity" states the source's native descriptor is returned verbatim, the proxy's own `descriptor` returns the serve descriptor, both carry one identity, and "the proxy never issues the wire op." Correct and matches the contract's "different descriptors may reach the same logical stream."
+
+**P3 — §17 "no reliability layer" overclaim → RESOLVED.** 1177–1179 now reads "no *read* reliability layer … writes need only the one-outstanding rule and the append mark."
+
+**P3 — two untested behaviors → RESOLVED.** Criteria 12 (ended vs detached, 1060–1065), 13 (frame budget/oversize, 1066–1071) and 14 (session-control idempotence, 1072–1077) are added, and the portability criterion (15, 1078–1080) now folds "12 to 14" into its host list. Correct.
+
+**Two completeness items → RESOLVED.** 7.1 (677–679) states "M itself must be directly reachable by a channel descriptor for the inbox fallback to exist at all." 8 (863–866) names `dao.jing.remote.async` and `content-client` as surviving jing-level pieces; I confirmed both against source (async.cljc is the callback-driving backend; `content-client` is remote.cljc 109).
+
+## 2. Do the two P1 rules compose? Is state bounded and stated?
+
+Yes, with one implicit step (finding below).
+
+- **Duplicate open does not reset the mark** — stated explicitly (3.2, 176–177).
+- **Stale append after open/close/reopen of `[peer n]`** — the reopen half is impossible by construction, because "an opener never reuses `n`" (3.1, 107; 3.2, 185). A reopened session is a *different* `[peer n']` with a fresh, mark-less record; a stale append targeting the old `[peer n]` names a session that no longer exists.
+- **Bounded, and the bound is stated.** The mark is "one id and one outcome per session, whatever the retry horizon" (296–297) — O(1), independent of retry horizon, which is precisely what the old window-size-one design *lacked* in correctness terms. The `:closed` set is "bounded by the sessions closed within the [retry] horizon" (184–186), a real bound given bounded session-open rate.
+
+The one thing left implicit is what a `:serve/request` naming a session that is *not in `:sessions`* (closed, or never opened) does — see finding A.
+
+## 3. The `:conflict` close reason and the proxy's "ended vs detached" prose
+
+This is the one internal inconsistency the revision introduced. See finding B.
+
+## New findings
+
+**P3 | 3.4 (301–304), 3.2 (187–189) | evidence: session-control frames are declared idempotent for close/disclaim ("a duplicate names a session that no longer exists and is dropped as a diagnostic"), but the append rule of 3.4 and criterion 14 only cover the *live-session* stale case; nothing states that a `:serve/request` (append) naming a session not in `:sessions` is dropped and never performed | fix: add one sentence — "a `:serve/request` naming a session not in `:sessions` (never opened, or in `:closed`) is dropped as a diagnostic and never performed or answered" — and extend criterion 14 to assert "a delayed append retransmit that arrives after the session is closed is dropped, not performed."**
+
+This is the one remaining seam in the write-correctness story. The high-water mark protects the live session; the closed-session case is protected only by the session record being gone, which is implied (the state map, 472–478, cleanly separates `:sessions` from `:closed`) but not stated, and — critically — not tested. The failure mode it guards is real: a session detached while its source is still open, followed by a late append retransmit, must not re-append. The natural implementation drops it; the document should say so, because every other append edge is now explicit.
+
+**P3 | 3.2 (145) vs 4 (429–433) | evidence: the frame set now carries three close reasons (`:ended | :detached | :conflict`), but section 4 still describes a binary — "carries `:serve/reason :ended` when the source's owner closed it and `:detached` otherwise, so the proxy deposits `:serve/ended` or `:serve/detached`" | fix: add that a `:serve/close :conflict` is deposited as `:serve/detached` (or a dedicated `:serve/conflict` event) on the proxy's event medium; it is a defensive close the proxy never initiates, but the prose should not read as exhaustively binary.**
+
+The `:conflict` reason was added to 3.2 (to route peer-id collisions) but not threaded through section 4's "two subtleties," so "and `:detached` otherwise" is now false. This is the one place the revision's own addition left a stale sentence.
+
+## 4. Verdict
+
+Every substantive finding is resolved, and the one I got wrong (the cursor wire op) was correctly rebutted on the contract's own transport-owned-anchor clause. The two P1 rules compose correctly, the state is bounded and the bound is stated. The two remaining items are one-sentence clarifications in prose and test coverage — neither changes the architecture, neither misleads an implementer in a way that survives reading the state model, and neither is a soundness flaw in the design itself. They are follow-up polish, not blockers.
+
+Verdict: READY
+Sign-off: GRANTED

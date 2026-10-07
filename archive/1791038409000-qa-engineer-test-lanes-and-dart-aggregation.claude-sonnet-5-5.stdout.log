@@ -1,0 +1,55 @@
+Completed-GMT: 2026-10-03 15:43:00 GMT
+Completed-Local: 2026-10-03 22:43:00 +07
+Coding-Agent: claude
+Session-ID: a5deb099-bc8e-412a-a2f4-cc844085f3b3
+
+(The two timestamps are estimates. I took no clock reading at the end of the run.)
+
+The new lanes work, but two verification numbers don't match the brief. The first is a Node count off by one. The second is 9 distinct SKIP notices on Dart, not 11. Nothing is committed or staged, and `collab/` is untouched.
+
+## Changed files
+- `bb.edn` has the full task set: `test`, `test:all`, `test:slow`, and per-lane `:clj`, `:cljs`, `:cljd` variants of each. `bb tasks` lists them, and the docs match.
+- `src/dev/cljd_agg.clj` is new.
+- `docs/agents/build-n-test.md` is updated.
+- `.gitignore` needed no change, because `build/` is already ignored.
+
+## Tasks
+- **Fast (`bb test`, `test:clj`, `test:cljs`, `test:cljd`):** unchanged JVM and Node behaviour. The Dart lane now goes through the runner.
+- **All (`bb test:all` and per-lane):**
+  - JVM runs `clojure -M:test` with no filter.
+  - Node and Dart run with `DATOM_SLOW_TESTS=1`.
+- **Slow (`bb test:slow` and per-lane):**
+  - JVM runs `-i :slow`.
+  - Node runs `--config-merge '{:ns-regexp ...}'`.
+  - Dart runs `--slow-only`.
+  - `--slow-regex` prints the six slow-namespace regexp that the Node task feeds to shadow. Both lists are derived by grepping `slow/guard` under `test/`.
+- **Dart runner:**
+  - It compiles all test namespaces through the cljd CLI, then writes up to min(8, cores) shards under `build/cljd-agg/`, balanced greedily by file size.
+  - It runs `flutter test --concurrency N` on the shards, exits non-zero on failure, and always deletes the shards.
+
+## Results
+| Check | Command | Result |
+|---|---|---|
+| Dart default | `bb test:cljd` | **+2685 passed**, 293 s wall, vs 488 s before |
+| Dart slow | `bb test:slow:cljd` | 6 files in 6 shards, 139 tests passed, 0 SKIP lines, 296 s |
+| Node slow | `bb test:slow:cljs` | 235 tests, 39425 assertions, 0 failures, 0 SKIP, 297 s |
+| Node all | `bb test:all:cljs` | 2717 tests, **92052** assertions, 0 failures, 0 SKIP, 428 s |
+| Node default | `bb test:cljs` | 2717 tests, **91631** assertions, 11 SKIP, 226 s |
+| JVM default | `bb test:clj` | 2899 tests, 226556 assertions, 0 failures, 331 s |
+| JVM slow selection | `clojure -M:test -n dao.space.dht-test -i :slow` | selects 1 tagged test, 222 assertions |
+| Lint | `clj -M:kondo` on `cljd_agg.clj` and `bb.edn` | 0 errors, 0 warnings |
+
+- **Dart total time:** the 293 s wall includes about 120 s of peer build and cljd compile, which the 488 s figure also contained.
+- **Node slow lane:** shadow's `:ns-regexp` worked, but 13 namespaces ran, not 6. The extra 7 are namespaces the six pull in (for example `yin.vm-test`). The brief allows this and the docs say so.
+- **Fast-lane SKIP counts:** Node printed all 11 SKIP notices. The Dart log showed only 9 distinct SKIP names. I did not investigate whether 2 of the 11 guards don't run on Dart.
+- **Node counts:** both are one lower than your expected 92053 and 91632, and they differ from each other by the same 421. I didn't check why.
+- **Dart test count:** +2685, against the 2,673 in the brief. The tree may have gained tests since you measured.
+- **Full JVM `bb test:all:clj`:** not run (20+ min). The `-i :slow` check above covers only the tag selection.
+- **Failure attribution:** I added a temporary failing test and ran `bb test:cljd`. The run exited 1 and showed `build/cljd-agg/shard_5_test.dart: null dao.agg-fail-test/deliberate-failure-test [E]  Expected: (= 1 2)`, so the failing test is named. I then deleted the temp source and its generated `test/cljd-out/dao/agg-fail-test_test.dart`, so nothing stale is left.
+- **Isolation:** all 2685 tests passed aggregated, so I found no behaviour that differs aggregated vs alone. I did not run any test alone to compare directly.
+
+## Deviations
+- **Dart compile:** I couldn't read the cljd tool's `build.clj` because it is outside the allowed directory, so I didn't call `cljd.build/compile-cli` directly. The runner shells out to `clojure -M:clojuredart:cljd compile <test namespaces>` instead, which is the least invasive route and worked.
+- **`cljstyle`:** the command was refused in this session, so it is unchecked.
+- **Dart compile cost:** every Dart lane recompiles all test namespaces, even `--slow-only`, which costs about 1 minute each time.
+- **Existing test files:** I edited none. I did create and then delete one temporary test file for the failure check.

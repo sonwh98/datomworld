@@ -1,0 +1,78 @@
+```
+Completed-GMT: 2026-09-02 06:40:03 GMT
+Completed-Local: 2026-09-02 13:40:03 Asia/Ho_Chi_Minh
+```
+
+Review of the rewritten `docs/design/dao.lease.md`, read against the four governing documents in scope. Findings ranked most severe first. No edits made.
+
+## Findings
+
+**1. HIGH | Lapse is a conclusion / Out of scope (lines 262-274, 485-492) | Fix relocated, not landed.**
+The claim: judge, reclaim, then append `:lapsed`, and separately "a `:lapsed` fact rides as ordinary payload: reclamation reaches a remote holder as data."
+The problem: in the canonical use, the reclaim act *is* closing the socket. The WebSocket handle has no reader surface and its writer is on the outbound path, so the append that follows the close returns `:dao.stream/closed` every time, not in a corner. The document even says the opposite thing itself at line 490-492, where reclaim surfaces only as an ordinary `:ws/closed`. The "same irreducible corner the WebSocket boundary documents" is the every-time path here, not a corner.
+Correction: `:lapsed` is appended to the grantor's own log, which the holder may never read. Delete "reclamation reaches a remote holder as data." State that in the served-connection case the holder learns of reclaim only as `:ws/closed`, and that the grantor's record and the holder's signal are different facts on different streams.
+
+**2. HIGH | The judge is an interpreter over two streams (251-260) | The tick stream does not wake anything.**
+The claim: "A judge with a silent holder has nothing else to wake it," implying the tick stream does.
+The problem: `dao.stream.md` is explicit that DaoStream invokes nothing, there is no readiness extension, and "cadence belongs to the runtime driving the interpreters." An adapter appending a tick wakes nobody. Something must still call `next` on the judge's two cursors, and that driver is what supplies cadence. The tick stream supplies *time as data*, which is a real and correct purpose, but the text credits it with the wrong job. The bound of duration + tolerance + cadence therefore has a fourth term, the driver's polling lag over the tick stream, which the document does not name.
+A second unresolved point in the same section: line 237 says the judge "notes on its own clock when it observes each fact," while line 258 says "the clock is read at a tick, never armed by the judge." If the judge calls a host clock on each observation, that is a host function call from lease code, which `datom.world.md` forbids. If observation time is the latest tick seen before the fact, say so; that is the consistent reading and it makes the cadence term exact.
+Correction: replace "nothing else to wake it" with "nothing else gives it a clock reading." Define observation time as the most recent tick observed before the fact. Add the driver's cadence to the bound, or state that tick cadence and driver cadence are the same declared quantity.
+
+**3. HIGH | Precedent (34-38) | The retracted "free judgment points" claim survives in the summary sentence.**
+The claim: "the revert ... performed by the owner at points it already passes through." That is the exact premise retracted at 60-67 and again at 254-256, where the judge "does not reach its points as a side effect of running."
+Correction: "performed by the owner at judgment points the composition schedules." The sentence is billed as "the whole shape," so it cannot carry the withdrawn premise.
+
+**4. HIGH | Judging lapse (323-325) | The restart rule is not an alternative to durable terms.**
+The claim: "A composition must therefore make the terms durable ... or accept the restart rule below."
+The problem: the restart rule is "observe for one full duration." Without terms, the judge does not know the duration. Only the third bullet, re-grant, works without terms. The or-clause offers a choice that does not exist.
+Correction: "make the terms durable, or re-grant on restart." The one-duration rule applies only when terms survived.
+
+**5. MEDIUM | Judging lapse (309-311) | The listed private state cannot do what the document asks of it.**
+Three gaps. Enforcing `:dao.lease/max` needs the tenure start, but the only time kept is "the most recent relevant fact," which every renewal overwrites. Retrying a failed `:lapsed` append needs a pending-reclaim set the section never mentions. In the served-connection case the grant never appears on the judged medium at all, because the grantor appends it to the outbound path and the inbound deposit medium carries only client events, so "seeding from the grant" must mean seeding from the judge's own append, which the text does not say.
+Correction: list tenure-start and pending-reclaim as judge state. State that the grantor's facts and the holder's facts may live on different streams, and that the grantor seeds from its own act of granting.
+
+**6. MEDIUM | Precedent (40-67) | "Two structural, three derived" is asserted, not shown.**
+Only two divergences are derived from the first, and the derivation holds for both. The third, obligatory judging, is presented without derivation and does not follow from the subject-applier split. It follows from a divergence the document names in passing but does not count: a patch needs action to *apply* and reverts by doing nothing, while a lease needs action to *revert* and persists by doing nothing. The deviation is the default state. That is structural, and it is the actual root of "a grantor that never judges leaks."
+Correction: three structural (subject is not the applier; adversarial parties; revert requires action), two derived. Move the "safe points are free" observation under the third.
+
+**7. MEDIUM | What a lease may never do (397-398) vs Judging lapse (318-325) | "Derived" is now false.**
+The claim: "The judge's private *derived* view is as far as accounting goes."
+The problem: the same document now says that view "is not rebuildable from the stream" and must be persisted. Persisted, non-derivable state is not a derived view. It is not hidden global state either, since it is private, but the word doing the work is wrong.
+Correction: "The judge's private view, persisted as a stream the judge owns, is as far as accounting goes." Naming the persisted form as a stream also resolves the tension with Axiom 1.
+
+**8. LOW | Attribution is a composition duty (226-227) | "Host assembly defect" borrowed with a different meaning.**
+In `dao.stream.ws.md` that phrase means refused at composition time by a constructor. Here the document concedes nothing can refuse it. Using the ws term for an undetectable defect makes it look enforced.
+Correction: "a defect detectable only by review," matching the Declaration section's own wording.
+
+**9. LOW | Judging lapse (330-338) | The arbitrary-eviction worry is not reachable.**
+After a gap, DaoStream hands the judge a cursor at the earliest retained position and the judge reads forward. Everything it reads it observes now. It cannot see evicted values in any order, so "a newer renewal may be gone while an older one remains, inflating the interval" cannot occur through the contract's gap model. The evict-oldest recommendation is fine; the justification is not.
+Correction: keep "a gap is not silence" and drop the eviction-order argument.
+
+**10. LOW | A lease is facts (134-140) | Boundary rules that do not bite.**
+Zero is admitted as a duration, which lapses at the first tick and is surely a defect. The strict `>` boundary is stated as if intervals were continuous, but under tick-derived observation they are quantized to the cadence, so equality is a measurement artifact. Also unstated: what a judge does with two `:accepted` facts for one subject with no `:lapsed` between them, outside the restart case.
+Correction: require a positive duration. Keep `>` but note it is defined on tick-quantized intervals. State the same-subject rule once.
+
+## Retractions
+
+The authorship and the ungoverned-grantor retractions are complete. The rebuildability retraction left the residue in findings 4, 5 and 7.
+
+## What an implementer would still have to invent
+
+- The source of observation time, and the interleaving of the tick and fact cursors.
+- Who drives the judge, and at what cadence relative to ticks.
+- Where the grantor's own facts live when the holder is remote.
+- Tenure-start and pending-reclaim state.
+- What a gap on the tick stream means.
+- The same-subject double-grant rule.
+- A tolerance default, or a rule that it is declared beside the cadence.
+
+## Overstated in the cautious direction
+
+- **`:max` per judge lifetime.** The limit vanishes if tenure start is persisted with the terms, which the document already requires in one branch. State it as conditional.
+- **"Not rebuildable from the stream."** A judge that appends its own observation facts, each carrying the tick it read, makes its state rebuildable. That is a design choice not taken, not an impossibility.
+- **"Nothing can refuse" an ungoverned grantor.** A grant constructor that requires the tick stream and judge as arguments refuses at composition. The document assumes grants are raw appends.
+- **Rate skew as a false-lapse risk.** With half-duration renewal, a false lapse needs the judge's clock to run roughly twice as fast. Real clocks skew in parts per million. It belongs in the sizing relation as a footnote, not as a named failure mode.
+
+## What the rewrite made worse
+
+Findings 1, 2 and 4. Each reviewer-driven fix relocated its defect and now reads as handled: the reclaim ordering makes the remote `:lapsed` unreachable in the canonical case; the tick stream is credited with a wake-up it cannot perform; and the restart rule is offered as an escape from a requirement it depends on. Finding 3 is the old claim left standing in the sentence the rewrite calls the whole shape.

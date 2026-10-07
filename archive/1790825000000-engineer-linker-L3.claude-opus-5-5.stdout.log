@@ -1,0 +1,76 @@
+# Engineer report — linker over dao.jing.dht, slice L3
+
+Report file: `collab/1790812000000-engineer-linker-L3.claude-opus-5-5.report.md`
+
+Slice L3 is implemented in the `linker-l3` worktree and nothing is staged or committed. All five checks pass: kondo, the JVM, Node and Dart test lanes, and the peer build. One gap: Dart's output doesn't name each test, and the sandbox blocked running `dart test` with a fuller reporter. The new tests are counted as having run on Dart because the totals match (details under Checks).
+
+## What changed (only the files L3 lists)
+
+- **`yin/repl/link.cljc`**: a new DHT link source (`{:kind :dht}`). It can't be combined with `:content-store` or `:content-client`.
+  - Names resolve through `yin.vm.linker.dht/names`, as direct addresses in this slice.
+  - Depending on the module's load record:
+    - no record: start the load and wait;
+    - `:loading`: wait;
+    - `:failed`: refuse in the section 9 shape, then forget the record;
+    - `:loaded`: check dependency bindings, then link with `link-manifest` over `yin.vm.linker/local-runtime` on the node's store.
+  - A pending link records which manifest it waits on.
+  - The two content sources and their 64-round attempt budget are unchanged.
+- **`yin/repl.cljc`**:
+  - The link source is composed before the store opens, so a refused combination never leaves the directory locked.
+  - The DHT node is passed through `drive-links`.
+  - A failed link now keeps the node and the link pair when the shell rolls back.
+  - New public `recheck-on-load-events`.
+  - `(help)` now says a require may fetch from peers.
+- **`yin/repl/main.cljc`**: `step-all` re-checks a pending require once per tick, and only when that tick's node events include a `:loaded` or `:load-failed` for a manifest it waits on.
+- **`yin/repl/dht.cljc`**: `step` now also returns the tick's events as a third element (two-element destructuring still works). The banner says a require may fetch code from peers.
+- **`yin/repl/query.cljc`**: the `dao.space.dht` host module gains `load-module` and `module-status`, each a single call into the plain functions.
+- **Tests**: 13 new tests in `dht_test.cljc` (over the mesh seam) and 1 in `require_test.cljc`.
+
+## Acceptance → evidence
+
+1. **Uses `local-runtime`; content budget unchanged.** `dht-link` calls it directly. A require test checks the budget is still 64, and every existing require test passes.
+2. **Parks, then completes on a later tick with no typed line.** Driven only by `main/step-all`: `:checks` stays 0 until the load ends, then `'mod` is the result, and `(mod/f)` returns 42.
+3. **Unrelated events don't re-check.** A publication, an index load and another module's load all arrive while the require waits. `:checks` stays 0 and the parked VM is the same object.
+4. **Repeated or late events change nothing.** The state comes back identical, both after the link is answered and while a different require is pending.
+5. **Policy counting.** A policy that abandons at 2 sees counts `[0 1 0 1 2]`, so only this run's re-checks count. `:keep` never ends a run; only the load's own failure does.
+6. **`(abandon)` during a load.** The load finishes later without settling anything. A new require of the same name links at once with no new load, the old request's late answer is skipped, and `(mod/f)` returns 42.
+7. **The three failure shapes, compared to exact maps on all three hosts:**
+   - `:absent` with `:cause /solo`, after which the record is forgotten and a new require starts a new load;
+   - `:descriptor-defect` with `:code :manifest-defect`;
+   - `:yin.link.dht/unaskable` with `:outcome :request-undeliverable`.
+8. **Dependency binding not `:ok`.** The refusal carries the 7.4 entry (`:binding :absent`). The link pair holds only the `app` request and no install child starts. With `base` named, the require links through two loads and `app/g` returns 43.
+9. **Solo node fails with `/solo`.** Covered by item 7. The test steps until the run ends rather than checking it fails on exactly the next step.
+10. **All four VMs.** Each links the closed corpus over the mesh and returns 42, and a failed load gives the same refusal on each. The REPL composes no register fallback: the register VM asks for its own format and no response carries `:fallback`.
+11. **Host functions.** `load-module` and `module-status` at the prompt return the same values as the plain functions.
+12. **Banner and `(help)`.** Both say a require may fetch code from peers.
+
+## Tests first, then mutations
+
+- **Red:** with a do-nothing stub for the re-check, 50 tests ran and every new test failed except the policy test. That one only shows its DHT-specific claim under mutation M1.
+- **Green:** 50 tests, 0 failures.
+- **Mutations** (each applied, caught, then reverted):
+
+| # | Mutation | Caught by |
+|---|---|---|
+| M1 | Re-check on any load event | unrelated-event and late-event tests |
+| M2 | No event re-check | most new tests (the red run) |
+| M3 | Don't forget a failed load | solo-failure test |
+| M4 | Skip the dependency-binding check | dependency test |
+| M6 | Don't keep the node on rollback | solo-failure test |
+
+## Checks (all run to the end)
+
+- **kondo** on the 7 changed files: 0 errors, 0 warnings.
+- **`bb test:clj`:** 2659 tests, 0 failures.
+- **`bb test:cljs`:** 2573 tests, 0 failures; both changed test namespaces ran.
+- **`bb build:yin-repl-peer`:** built.
+- **`bb test:cljd`** (after deleting `test/cljd-out`): "+2528: All tests passed!".
+  - The compiled tree has exactly 2528 tests, including all 14 new ones. That count is my evidence they ran.
+  - The sandbox blocked running `dart test` directly with the expanded reporter, so there's no Dart log naming each test.
+
+## Notes for the Architect
+
+1. **Behaviour change in M5 rollback:** after a refused link, the shell now keeps the advanced link pair, so the refused request isn't read and answered again. Without this, a failed DHT require would restart a load of the failed address. All existing tests pass.
+2. **Head-of-line waiting (existing behaviour, unchanged):** a require abandoned while its closure is still loading stays first in the request queue. A later require on the same session waits behind it until that load finishes or fails.
+3. **No diagnostics on an unknown name yet:** in L3 the refusal for an unresolved name is just `{:reason :absent :name n}`. Diagnostics come with principals in L4.
+4. **What "raised data" means here:** the cross-host check compares the refusal map the interpreter writes back to the require. The engine raises that same map (plus `:link-module`) as the error data; the shell itself only shows the error as text.

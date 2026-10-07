@@ -1,0 +1,19 @@
+All four gate amendments are applied as uncommitted changes on top of b823b122 and 260f19fd, and the focused JVM tests pass: all `yin.vm.ucf.*` and `dao.stream.journal*` namespaces, 172 tests, 1246 assertions. Kondo is clean. cljstyle was blocked by the permission gate again, so please run `fix` and `check` on the 5 touched files. As you instructed, I didn't run the Node or Dart lanes. No git writes.
+
+- **Ruling (a), the refusal pair:**
+  - `:dao.lease/rejected` is back to `[:dao.lease/status :dao.lease/proposal]`.
+  - A new custody fact, `{:yin.k/custody :yin.k/refused :yin.k/proposer P :dao.lease/proposal pid}`, is built by `custody/refused`.
+  - The writer strips `:yin.k/proposer` from the hook's refusal and commits the lease fact and the refused fact as one transaction. The hook and `deliver-authored` are unchanged.
+  - The fold tracks open rejections within a record, the same way it pairs lapses with epoch changes. Errors:
+    - `:rejection-without-refusal`: a rejection with no refused fact in its record.
+    - `:unpaired-refusal`: a refused fact that is alone, comes in a later record, comes before its rejection, is doubled, or names another proposal id.
+    - `:duplicate-rejection`: a doubled rejection.
+    - `:malformed-fact`: a nil proposer or nil proposal, or a rejection that still carries the proposer.
+  - `:answered`, and so `rebuild-judge`, now reads proposers from `:yin.k/refused`.
+- **Nit 3:** `reopen!` now answers under `:yin.k/reclaimed-leases`.
+- **Nit 4:** the fold records a grant as answering a proposal only when `:dao.lease/proposal` is non-nil, matching `mark-answered-maybe`. There is a new test for a grant with a nil proposal.
+- **Nit 5:** the `rebuild-judge` docstring now says it discards the queue without reporting it, and why. No behaviour change.
+
+Before the code changes, the new and updated tests gave 12 failures and 9 errors; after, none. I also broke the writer twice on purpose (once dropping the refused fact, once leaving the proposer in the lease fact) and the tests caught both; the code is restored. Two test lines my key rename pushed past 80 columns are re-wrapped.
+
+The findings file has a new "Gate amendments" section with the red/green table and these results.

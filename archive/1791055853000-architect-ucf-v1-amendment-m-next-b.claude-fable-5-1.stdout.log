@@ -1,0 +1,49 @@
+Completed-GMT: 2026-10-03 19:43:54 GMT
+Completed-Local: 2026-10-04 02:43:54 +07
+Coding-Agent: claude
+Session-ID: a22aafbc-6499-4a8f-be89-f6ebe80ae496
+
+**Verdict:** the UCF version-1 amendment is published as r5 and is ready for the second architect's adversarial review, but not for implementation until Q1 below is confirmed.
+
+Docs only: no source, tests or git writes, and nothing was run. Every added line is ASCII and at most 80 columns. The UCF document already had 111 over-wide lines and 323 non-ASCII lines before this change; I left them alone.
+
+## Edited sections
+
+`docs/design/yin.vm.universal-continuation-format.md` (+596, additions only, nothing renumbered):
+- **Header:** one r5 status paragraph.
+- **7.2.1 (new):** the handoff body as wire grammar, the version gate, version 0 as fork only, and the version-1 custody header including `:yin.k/next-op-seq`.
+- **7.4.3 (appended):** both shapes were absent from the published text, so both are amended here.
+  - Explicit park is the no-wait shape.
+  - The complete install shape is the pending plus a `:yin.k/installs` entry carrying the whole child body; the text says what "name-only" meant and why it is never exported.
+  - `:yin.k/op-id` rides on retained writes, with carry and retry rules.
+  - Required keys per pending variant, as landed.
+- **7.7.5:** one pointer sentence.
+- **7.7.8 (new):** the 2^52-1 integer bound and overflow behaviour, sequence state, the `:yin.k/fenced-v1` envelope, the grant epoch binding (`:yin.k/custody :yin.k/bound`), and the admission check order.
+- **7.9 (appended):** version-1 refusals reuse the existing statuses; `:yin.k/admission` is a second closed dispatch key with exactly the five values.
+- **7.11.1 (new block):** ten clauses, each with fixtures, expected outcome and the owing stage (C, D or E). The existing M4 kept-cursor row is unchanged and its evidence is not moved.
+
+`docs/design/yin.vm.linker.dht.md` (+34, -27):
+- **14.2.2:** the "proposed amendment" block now points to the UCF sections; the runtime and ledger contract is kept.
+- **14.2.3:** one clause pointing to UCF 7.9.
+- **14.3:** item 2 is marked published; a status line records A landed, B published, C to E remaining, and no UCF closure claimed.
+
+## Unresolved questions
+
+1. **Q1 (blocking):** a carried op id always names a predecessor occurrence, which 14.2.3 closes before the successor is granted. Read literally, the proposal's "open O" check refuses every retried retained write as stale. I wrote: tenure is checked on the envelope's lease binding, and the id must belong to that occurrence or an ancestor in the same chain. This is my rule, not one the owner has seen; I recommend accepting it. The alternative is to key ids by a chain-root id.
+2. **Q2 (owner):** what the authority does after `:intent-conflict`. I wrote no rule; I recommend no automatic regrant.
+3. **Q3 (owner):** where consumer enrollment is declared. I recommend a fact on the arbitration medium, not a body field.
+4. **Q4:** whether to keep two keys named `:yin.k/version` (body top-level, and inside the code stamp). I recommend keeping them, since that is the landed wire.
+5. **Q5 (owner):** whether a version-1 body may be a fork. I wrote exclusive only.
+6. **Q6:** a defective envelope produces no admission outcome, only a diagnostic. This bends "every refusal is a data outcome"; I recommend accepting it.
+7. **Q7:** how same-transaction admission of the binding is shown to a remote reader. This is for M-next C.
+8. **Q8:** whether a terminal failure is a recorded result. I wrote yes.
+9. **Q9:** the occurrence id form is left open.
+
+## Also worth knowing
+
+- **Possible landed bug, from reading only:** `export-task` emits frames for a `:parked` body, and `resume-task` then sets the wait set to empty. The amendment requires those frames to be restored and assigns the test to stage D.
+- **Decode gap:** `validate-body` does not check that an `:install` pending has its entry; only the lift does. Also assigned to stage D.
+- **Stale record:** `yin.vm.ucf-revisions.md` section 6 still lists this amendment as "named but not landed". The brief limited me to two documents, so I did not touch it.
+
+The findings file has the full reconciliation list (16 items) and the recommendations in detail:
+`/Users/sto/workspace/datomworld-ucf-b/collab/1791055853000-architect-ucf-v1-amendment-m-next-b.claude-fable-5-1.findings.md`

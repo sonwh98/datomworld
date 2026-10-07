@@ -1,0 +1,29 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-13 13:40:17 GMT
+Completed-Local: 2026-09-13 20:40:17 +07
+
+**Task**: stream-observer-prereqs-r2 — fix the gpt-6-astra review findings (P1 partial flush progress, P2 missing partial-delivery test, P3 exception-wrapping documentation/test) in the same two files.
+
+## Changed files
+
+**`src/cljc/dao/stream/observer.cljc`**
+- **P1**: new private `consumer-left-by-run [e handed]` — if the caught exception's `ex-data` contains a `:consumer` key, that reported partial state is the consumer the failing `run` left; otherwise fall back to the state the coordination handed it. Wired into **both** `run` catches: the `:advance` branch (falls back to `loaded`) and the not-ready branch (falls back to `consumer`). Cursor positions unchanged (after the batch in `:advance`, current in not-ready). The load catch deliberately does not honor `:consumer` — a load throw happens before the effect commits, so honoring a reported consumer there would advance consumer state for a batch that will be re-read.
+- **P3**: `carry-session` docstring now states the rethrow is a new `ExceptionInfo` whose cause is the original, that message/data are preserved, and that a caller matching the original's concrete type must go through `(ex-cause caught)`.
+- `run-on-stream` docstring updated to state the reported-`:consumer` contract ("the partial state it reported under `:consumer` in its own exception's data when it made progress before throwing, else the state `load` returned").
+
+**`test/dao/stream/observer_test.cljc`**
+- **P2**: new `a-run-failure-reports-partial-flush-progress-test` — a dual-medium flush consumer (the expander's shape): load stages one payload per medium; B's run delivers `out`, then refuses the `log` append twice, each throw embedding `{:dao.stream/outcome :dao.stream/full, :consumer <post-out state>}`. Asserts: the carried consumer is the reported partial state (`:out-staged nil`, `:log-staged [:log [:b]]`), not the pre-run loaded value; a refusal during the **not-ready retry** (first retry enters not-ready) honors the report with the cursor unchanged; the resumed retry delivers only the remaining log — `out` ends `[[:a] [:b]]` with exactly one B, no duplicate (the reviewer's JVM probe scenario).
+- **P3**: new `the-carried-throw-preserves-the-original-as-cause-test` with a new `thrown` helper (returns the exception, not just ex-data): asserts `(identical? original (ex-cause caught))`, message preservation, data preservation beside `:session`, and the no-report fallback (carried consumer = loaded value).
+- Also fixed a latent defect from the first session this r2 work exposed: `a-run-failure-carries-the-session-after-the-loaded-batch-test` was missing its final `deftest` closer (the file previously read only because later forms compensated, leaving the terminal-read test structurally nested); the file is now verified balanced with all tests top-level.
+
+## Verification (exact outcomes)
+
+- `clj -M:test -n dao.stream.observer-test -n yin.repl-core-test` → **Ran 40 tests, 151 assertions: 0 failures, 0 errors.** (38/139 before r2; the two new deftests account for the delta.)
+- `clj -M:kondo --lint src/cljc/dao/stream/observer.cljc test/dao/stream/observer_test.cljc` → **errors: 0, warnings: 0.**
+- `git diff` inspected for both files.
+
+## Remaining concerns
+
+- The `:consumer`-in-ex-data contract is the generic one this review prescribed (a plain `:consumer` key). A `run` whose throw carries `:consumer` for unrelated diagnostic reasons would be adopted as partial state — consumers embedding diagnostics under that key should use a different key. `contains?` semantics mean an explicitly reported `:consumer nil` is honored.
+- `ex-cause` had no prior use in this repo; it works on clj (verified) and exists in cljs, but neither cljs nor cljd builds were executed — verification was JVM clj + kondo only, as specified.
+- Nothing committed; changes remain in the working tree alongside the first session's.

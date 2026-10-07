@@ -1,0 +1,67 @@
+Completed-GMT: 2026-09-28 16:03:10 GMT
+Completed-Local: 2026-09-28 23:03:10 +07
+Coding-Agent: claude
+Session-ID: 715a2230-3f6e-48b5-9260-4e2225debf68
+
+# Slice 3c: remote FFI answered end to end
+
+Slice 3c is done: a real VM on one peer, with no local bridge, gets its FFI calls answered by the peer that serves its call pair. Parts A, B and C and acceptance items 1–11 are covered. The focused JVM tests and the CLJS lane pass; `cljstyle check` did not run because it needed approval I didn't have. Nothing is staged or committed, I edited only allowed files, and no authorization is needed.
+
+## Changed files
+- **`src/cljc/yin/vm/ffi/remote_serve.cljc`**:
+  - New required option `::lease-grants`. The binding publishes the grantor's stream as the `lease-grants` table entry, reader-only and unleased. `open!` refuses it if it isn't a readable handle or its cursors don't survive the channel codec.
+  - New `lease-grants` and `served?` functions; `close!` also unpublishes the grants entry.
+- **New `src/cljc/yin/vm/ffi/remote_serve/responder.cljc`**:
+  - `open!` exports call-in as a writer and call-out as a reader through the binding's own `serve!`, so the 3a `::admit?` gate decides who can reach the handlers.
+  - The handler map is required, and a refused `open!` retires anything it served.
+  - `step` runs one `apply/serve-once!`. The request map is read whole; nothing is rebuilt from op/args and `rpc/request!` is never used.
+  - A gap on call-in stops the responder with `::request-lost` and closes call-out, so waiting VMs raise instead of parking forever.
+  - If the pair is retired or reclaimed, it stops with `::retired` and runs no handler.
+- **New `src/cljc/yin/vm/ffi/remote_serve/holder.cljc`**:
+  - The production remote lease holder. It reads its grant through a reflection of `lease-grants`, then assembles `dao.lease/make-holder`.
+  - A renewal only counts once the source confirms it on the event writer. An `append-unknown` counts as unknown, so the holder may stop early but never late.
+  - `release!` appends the release and `step` retries it until accepted.
+- **`test/yin/vm/ffi/remote_serve_test.cljc`**: the test-only holder that copied the grant into an inbox is replaced by the production holder. The fixtures and table-emptiness assertions are updated for the new grants entry, and there are new `lease-grants` refusal cases.
+- **New `test/yin/vm/ffi/remote_serve/responder_test.cljc`**: 12 end-to-end tests, all with real VMs.
+
+I put the responder and holder in their own namespaces because they read the same streams as the binding but interpret different things. The binding's mirror serves stream operations; the responder interprets apply values.
+
+## Test results
+- **Lint:** `clj -M:kondo --lint` on all five changed files: 0 errors, 0 warnings.
+- **cljstyle:** blocked by the approval gate, so it did not run.
+- **Focused JVM** (the seven namespaces in the brief plus the new test namespace): **106 tests, 948 assertions, 0 failures, 0 errors.**
+- **`bb test:cljs`:** **2236 tests, 50422 assertions, 0 failures, 0 errors**; both new namespaces are confirmed in the Node output.
+- **Not run:** `bb test:cljd` (per instructions) and the full `bb test:clj`.
+
+## Acceptance coverage
+| # | What the tests show |
+|---|---|
+| 1 | The request crosses unchanged and the reply carries the same id. The VM halts with the value; `nil` is a value; handler errors and unknown ops raise. The VM itself never adds extra request keys, so a separate test sends one from another producer and item 8 carries one through a real VM. |
+| 2 | Appending the request is refused as full: the VM keeps the exact request, then gets one append and one handler run when capacity returns. |
+| 3 | Appending the response is refused as full: the response and its cursor are kept, the handler doesn't run twice, then one response is appended. |
+| 4 | The remote answer is refused as full: the VM still resumes from its own response, and closing the reflection reports the append as `append-unknown`. |
+| 5 | A call-in gap is reported as loss and the parked VM raises. A gap on a pair channel ends the link and the VM raises. |
+| 6 | After the channel detaches and reattaches, the next call completes under the same served identities. |
+| 7 | After a lease is reclaimed, the responder stops as `::retired`, a fresh call answers not-found, and the old identity can't be reused. |
+| 8 | A retained call is lifted at the serving peer, lowered at the other, retried over reflections, and the VM resumes; the extra key survives verbatim. |
+| 9 | Covered by the existing 3a test, still passing. |
+| 10 | Covered by the new refusal test plus the existing 3a refusal tests. |
+| 11 | The production holder picks up its grant through `lease-grants`, renews, and its release reclaims the lease. |
+
+To prove the key tests would catch real breakage, I applied five temporary code changes, confirmed each one broke its tests, reverted them, and grepped to confirm none remained:
+
+| Temporary change | Tests that failed |
+|---|---|
+| Gap no longer reported as loss | 4 |
+| Retired check removed | 2 |
+| Kept response cleared each step (handler runs twice) | 2 |
+| `lease-grants` entry not published | 14 failures, 2 errors |
+| Refusal cleanup removed | 3 |
+
+## Unresolved concerns (flagged, not fixed)
+1. **VM call ids can repeat across VMs.** Each VM counts its own ids and `call-result` checks only the id. A new VM that attaches an already-used call-out and reads from the oldest entry can accept another VM's response as its own; a first draft of test 6 actually did this. For now, keep one caller per call pair. A real fix touches `yin.vm` or `yin.vm.semantic`, so it's for the Architect.
+2. **The call-out cursor must be fetched before building the VM.** `create-vm` mints its call-out cursor immediately, but a reflection's first cursor answer is "retry". The composition has to fetch the cursor first, as the test helper does.
+3. **After a call-in gap, the VM's error is generic.** It raises "FFI response envelope is malformed", which is loud but not specific.
+4. **Still owner decisions:** whether to add a per-request handler gate; who may renew a lease, since anyone who learns the renewal descriptor can renew; and production capacities and timings. The `lease-proposals` stream is not served; this slice only needed grants that aren't asked for.
+
+The report is at `collab/1790610416000-vm-engineer-ffi-responder-e2e.claude-opus-5-5.report.md`, and the CLJS output is saved beside it as `collab/1790610416000-vm-engineer-ffi-responder-e2e.cljs.log`.

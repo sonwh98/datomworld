@@ -1,0 +1,61 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done. Report:
+
+## What I observed on each host (directly, not assumed)
+
+A scratch deftest ran in the full suites, classifying host `/` and the VM primitive `(get vm/primitives '/)` applied to `[1 0]`:
+
+| Host | host `(/ 1 0)` | VM primitive `(/ 1 0)` | `(/ 1.0 0)` | `(/ 20 5)` |
+|---|---|---|---|---|
+| JVM | **threw** `"Divide by zero"` | **threw** `"Divide by zero"` | `##Inf` | `4`, `integer?`→true |
+| CLJS | `##Inf` | `##Inf` | `##Inf` | `4` (JS number), `integer?`→true |
+| CLJD | `##Inf` | `##Inf` | `##Inf` | `4.0`, `integer?`→false |
+
+The CLJS failure detail showed the actual value: `actual: (not (str/includes? "before\n##Inf" "Error: "))` — `(/ 1 0)` silently evaluated to `##Inf`.
+
+## Root cause
+
+Exactly the hypothesized one, and it is the *sole* cause (not two issues): `'\/ /` in `src/cljc/yin/vm.cljc:105` was a direct host reference. JS and Dart divide IEEE-754 and yield Infinity instead of throwing, so on CLJS/CLJD the VM never raised, `eval-datoms`' catch / `consume-failed-round` / `format-error` never ran, and the REPL printed the value instead of `Error: `. The error-catching path itself is proven sound by the JVM, where the identical path turns the primitive's throw into `"Error: Divide by zero"` — no timing/ordering bug exists there. Both evaluators failed identically because both share `vm/primitives`.
+
+## Fix layer decision
+
+Primitive, not test: the divergence register (`yin.vm.divergence-register.md:319-322`) documents divide-by-zero error text as verified, intended behavior — the test is right, the primitive was host-leaky. Since JS/Dart cannot distinguish `0` from `0.0` (CLJS: `(integer? 0.0)`→true; and CLJD's `/` returns `4.0` doubles), *exact* JVM emulation ("throw only for integral division") is impossible cross-host, so the only self-consistent contract is: **a zero divisor always throws `"Divide by zero"`** — a plain Clojure-level check, no reader conditionals. One deliberate tightening this implies: JVM `(/ 1.0 0)` through the VM now throws instead of yielding `##Inf` (documented in the docstring; no test relied on the old behavior).
+
+Checked `+`/`-`/`*`: no analogous throw-vs-value divergence exists — no host throws on add/subtract/multiply (overflow differs in *value* semantics across hosts, which is the numeric model, not an error-contract gap, and is out of scope).
+
+## Diff (unstaged, as instructed)
+
+`src/cljc/yin/vm.cljc` — `'/ /,` → `'/ checked-divide,` with:
+
+```clojure
+(defn- checked-divide
+  "clojure.core `/` except a zero divisor throws on every host. ..."
+  ([x] (checked-divide 1 x))
+  ([x y]
+   (when (and (number? y) (zero? y))
+     (throw (ex-info "Divide by zero" {:divisor y})))
+   (/ x y))
+  ([x y & more] (reduce checked-divide (checked-divide x y) more)))
+```
+
+(plus the comment-block entry above `primitives`).
+
+**Regression test** — `test/yin/vm_test.cljc`, one layer from the primitive, reusing the file's `error-message` helper:
+
+```clojure
+(deftest division-by-zero-is-host-uniform
+  (let [divide (get vm/primitives '/)]
+    (is (= "Divide by zero" (error-message #(divide 1 0)))
+        "a zero divisor raises with the JVM's text instead of yielding ##Inf")
+    (is (= "Divide by zero" (error-message #(divide 24 2 0)))
+        "the variadic path checks every division it reduces over")))
+```
+
+## Verification
+
+- `clj -M:kondo --lint src/cljc/yin/vm.cljc test/yin/vm_test.cljc` → `errors: 0, warnings: 0`
+- `clj -M:test` → `Ran 1487 tests containing 166123 assertions. 0 failures, 0 errors.`
+- `bb test:cljs` → `Ran 1387 tests containing 35613 assertions. 0 failures, 0 errors.`
+- `bb test:cljd` → `+1344: All tests passed!` (baseline diagnostic run pre-fix: `+1342 -1`, the one failure being this deftest)
+
+The previously failing test passes on both non-JVM hosts, on both `:semantic` and `:ast-walker` variants, and nothing else regressed (assertion counts moved by exactly +1 on JVM/CLJS = the new test). Scratch files deleted; only the two files above are modified; nothing staged or committed.

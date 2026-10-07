@@ -1,0 +1,24 @@
+I added `ast->semantic-bytecode` and `semantic-bytecode->ast` to `src/cljc/yin/vm.cljc`. On the JVM, `clojure -M:test -n yin.vm-test` ran 15 tests (127 assertions) with 0 failures. On Node, all of `yin.vm-test` passed, but the full build had 2 failures, both in an unrelated test (details below). Nothing is committed, and the report is in `collab/1789521800000-vmruntime-ast-semantic-bytecode.claude-opus-5.findings.md`.
+
+**How it works**
+- The §2.3 tag table is written once as data (`semantic-bytecode-grammar`, `v2.cljc:563-718`), and both functions read it. That way the two directions can't disagree about slot positions or field names.
+- **Map → rows:** children are converted first, so each row holds its children's ids. Each id is `dao.jing/segment-key` of the row body. Rows are stored in a map keyed by id, so identical subtrees end up as one row.
+  - Anything not in the table is dropped: `:eid`, `:macro?`, `:yang/*`, `:tail?` on non-applications, and reader metadata on names.
+  - Missing values get the §2.4 defaults (gensym prefix `"id"`, buffer 1024, `:tail? false`, empty operands).
+  - If a different row ever lands on an existing id, it throws. That only detects the §4.2 encoder problem; it doesn't fix it.
+- **Rows → map:** it throws `ex-info` with a `:rule` when a row's id isn't its content hash, a child or root id has no row, or the tag, arity, a nil default slot, or the operands vector is wrong. A row shared by several parents is rebuilt once.
+- **One decision to know about:** the rebuilt map always has every slot key, so an `:application` carries an explicit `:tail? false`. `yang/compile` leaves that key out, so its output only round-trips exactly after this normalization, as §2.1 and §7.2 describe. The walker never reads `:tail?`.
+
+**Tests** (`test/yin/vm_test.cljc:149-310`)
+- The corpus has 27 small programs, and one test checks that together they use all 18 tags. They include lambdas with 0, 1 and 3 params, applications with 0 to 3 operands and both tail values, and symbol, keyword and number store keys.
+- Both round-trip identities hold for every program.
+- In the sharing test, three separately built `{:type :literal :value 1}` nodes get one id and one row.
+- There are also tests for the §2.1 row shape, the stripping and defaults, and each validation error.
+
+**The 2 Node failures:** both are in `yin.repl-core-test/a-failed-input-is-consumed-exactly-once`. That test expects `(/ 1 0)` to throw, but on JavaScript it returns `##Inf`. My code isn't involved. I couldn't confirm the failure was already there on a clean tree, because stashing would disturb the other engineer's uncommitted `dao/jing.cljc` changes.
+
+**Not done:**
+- Only some of the §7.4 checks are in: the `:acyclic`, `:root-reachable` and `:variable-bounds` rules and most slot-type checks are missing.
+- As §4.2 says, the address-based sharing still depends on the encoder fix.
+
+I didn't run `bb test:cljd`, because another process owns the Dart build. I edited only `v2.cljc` and `v2_test.cljc`, plus the findings file.

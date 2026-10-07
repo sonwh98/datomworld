@@ -1,0 +1,22 @@
+The r2 finding is fixed: the anchor's bind wait in the process test is now bounded and fails with a clear message instead of hanging. I changed only `test/yin/repl/dht_process_test.clj`, and nothing is staged or committed.
+
+**What changed**
+- **Bounded wait:** a new `await-bound` polls the anchor socket's events for up to 10 seconds and returns the `:bound` event. On a `:bind-failed` event, or if nothing arrives in time, it closes the socket and returns a failure message naming the cause.
+- **Split:** the rest of the anchor setup moved into `start-bound-anchor!`, which runs only after a successful bind.
+- **Assertion:** the test asserts that the anchor bound, with that message, and starts no process otherwise.
+
+**Failure path, shown**
+- I temporarily bound the anchor to a loopback port another socket already held, with a script (`target/s5/force_bind_fail.py`) that restored the file afterwards. The restore was checked byte-for-byte.
+- The run failed immediately, with no hang: `the anchor socket did not bind: bind-failed: java.net.BindException: Address already in use` (1 assertion, 1 failure).
+
+**Checks** (run on the restored file, in the foreground)
+
+| Check | Result |
+|---|---|
+| kondo on the test | 0 errors, 0 warnings |
+| Focused `yin.repl.dht-process-test` | 34 assertions (33 before, plus the new bind check), 0 failures |
+| `bb test:clj` | Node build completed, then 2539 tests, 186172 assertions, 0 failures, 0 errors |
+
+In `bb test:clj`, the only skip notice is the old `ws-project-peer` one. I didn't re-run the CLJS or Dart lanes, since this round only touched a JVM-only test.
+
+The "Fix round 2" section is appended to `/Users/sto/workspace/datomworld/collab/1790795000000-repl-engineer-dht-s5-repl-integration.claude-opus-5-5.report-r2.md`.

@@ -1,0 +1,146 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-01 16:48:07 GMT
+Completed-Local: 2026-09-01 23:48:07 Asia/Ho_Chi_Minh
+
+# 1. Is the renewal-chain analysis correct?
+
+**Confirmed, with three sharpenings — one of which corrects the weakest-link rule as stated.**
+
+**Visibility vs. meaning — confirmed.** An agent manager's renewals are its own attributed appends on a medium, replayable and auditable, where Jini's `LeaseRenewalManager` renewed by remote method call visible only as its effect. But meaning does not follow visibility. In the vocabulary as drafted, a renewal's entire content is *I still want this* — first-person, and first-person **because of attribution**: the medium attributes the append to its author (a single-writer stream's identity, a ws attachment's envelope), and that attribution is what makes the renewal evidence *of the holder*. An agent's append is attributed to the agent. So the manager's renewal is a well-formed fact that is **evidence about the wrong party** — it proves the manager, and claims the holder. Visibility improves the audit trail of the claim; it does not make the claim true. Correct as stated.
+
+**Unconditional vs. evidentiary is the decisive question — confirmed, and the precedent already says so.** In the jit pattern, the JIT reads the trace and appends patches *as a function of what it read*; a JIT that patched by timer while ignoring the trace would be advisory noise. The manager is the same shape: it must renew as a function of facts attributable to the party it stands for. A renewer whose condition is a timer, its own continued existence, or its client's failure to cancel — which is precisely Jini's condition — severs content from cause, and a renewal whose cause is not the beneficiary's life is not evidence of it. Manufactured pheromone is not a trail. The defect was never the thread; it was the condition. Cleaner materials change nothing.
+
+**"The manager needs its own liveness signal — which is a lease" — confirmed as sufficient, corrected as necessary.** A lease is the *portable, explicit* form of the signal, but the vocabulary already admits the general one: my jit-pattern revision recorded that a grantor's judge "may legitimately treat any attributed traffic from an attachment as evidence of life, with the explicit `:dao.lease/renewal` fact as the portable, transport-independent form." The same holds one link down — a manager may judge appends, trace datoms (per `jit-design.md`, a running program *emits* `:yin.trace/*` facts), or sub-lease renewals. This matters because it dissolves the cadence argument's hardest case: a holder doing long synchronous work that traces is *already emitting*; an interpreter inside its composition can renew on that evidence, first-party, with no delegation at all. The refinement to write down: **each link needs attributable evidence, of which a lease is the dressed form.** And the chain does terminate at the party doing the work — not because someone decreed it, but because first-person evidence is a fixed point: you cannot delegate it further, only add another link that must then judge.
+
+**"The chain's weakest link defines the guarantee" — a real rule, but the slogan as stated is imprecise in one direction, and it is checkable once restated.**
+
+The imprecision: an unconditional link does not make *everything* prove nothing — it **truncates**. Two laws, both checkable:
+
+- **Soundness truncates.** The guarantee reaches from the grantor exactly as far as the contiguous run of links — starting at the holder of record — that renew on attributable evidence of the party beneath them. The first unconditional link ends it. Above that link, the grantor is still protected: against the unconditional link's *own* death. Below it, no party's death reaches the grantor's reclaim condition at all — which is the harm, and it is Jini's harm exactly: a live renewer masking a dead beneficiary, with the grantor's resource paying.
+- **Latency adds.** Each link contributes its duration plus its judge's cadence. A chain of k links reclaims within the sum. Evidentiary-but-loose links (long durations, sparse evidence) compose into slow-but-sound guarantees; only unconditional links break soundness. Chains compose the bound as honestly as the guarantee.
+
+The implementer's check, stated so it can be performed: **walk from each lease toward the work; at every hop, name the evidence the renewer's renewal is a function of. A hop that names none is where the guarantee ends.** Equivalently, in the vocabulary's own terms: every party below the holder of record must hold its own lease from its renewer. This is structural — it inspects what the renewer reads, not how honest it is — which is the most any pre-deployment check can do. Whether the named evidence is *good* evidence is judgment, and judgment lives with the possessor.
+
+**Benefits and native framing — confirmed with accounting done in §2.** The manager-is-an-interpreter, no-component claim is flatly right: under `dao.stream.md`'s Composition rule, anything that reads facts and appends facts is an interpreter outside every contract, and a manager is also nothing new *in roles* — it is a **grantor** for its sub-leases (it authors `:accepted`) and a **holder** for its upstream lease (it appends renewals). `dao.lease.md` needs no new concept for "manager." The only genuinely new question is third-party renewal of one lease, which is §3.
+
+# 2. Is delegated renewal worth having at all?
+
+**Not in this slice. Denied, with admission conditions stated — not dismissed.** The accounting, benefit by benefit:
+
+- **Batching.** Jini's `LeaseMap` amortized a remote call — an RTT per renewal. Here, N renewals to one grantor are N appends on a medium the grantor's judge already reads in one pass; there is no per-renewal round trip to amortize, and cross-grantor batching is impossible by construction (each renewal must land on the medium its grantor reads). Where a single append is genuinely dear — one frame per renewal on a wire — coalescing is a carriage concern the transport owns, not lease vocabulary. Batching is real but small, and it is already free.
+- **Cadence decoupling.** A holder that cannot renew tightly has three first-party answers: ask for the duration its real cadence supports (which is what `:proposed` duration *is* — a coarse holder asking a tight duration is a misnegotiation, not a missing mechanism); emit trace and let an interpreter inside its own composition renew on it (first-party — if the whole process is wedged, nothing emits, nothing renews, which is *correct*); or migrate the continuation and let the work hold a new lease where it lands (the honest long-lived holder proposes anew — already in the draft). What a chain adds on cadence it subtracts on the bound: the grantor cannot reclaim on the worker's death faster than the innermost sub-lease permits, so the chain is *strictly worse* than granting the loose duration directly. What it actually buys is policy intermediation — one accountable counterparty, admission and sub-allocation one link down — and that is had **without delegation** by the manager being holder of record: it holds the grantor's lease, sub-leases its own attention beneath, and the grantor sees one holder and is told nothing about the rest. That shape is already legal today; it is ordinary composition.
+
+Against these stand the costs: liveness fakeable at every link; reclamation latency that grows with depth; a concentration failure (one dead manager fells every sub-holder); tree teardown on reclaim; and an authority question (§3) that must be answered before any of it means anything. No lease this vocabulary currently serves — an attachment, a pause — has a holder who is not the party doing the work. **Verdict: deny now, revisit on demand, and write the denial so the demand-judgment is auditable rather than a hole** (text in §5).
+
+# 3. Does delegated renewal require Shibi — or what suffices?
+
+**It does not require Shibi. The weakest sufficient mechanism is: the holder designates acceptable renewers in a fact the grantor's judge can read and attribute; the judge counts a renewal iff its attributed author is the holder or a designated renewer.** Three candidates, priced:
+
+- **No authority at all** (grantor accepts any renewal naming the lease). This is not a weaker mechanism; it is the absence of one, and what it costs is the guarantee itself. The reclaim condition stops tracking the holder and starts tracking the silence of *everyone who can append* — an unbounded set — and any party who learns the lease id can inject false liveness into a dead holder's tenure. The lease degrades from *the holder is alive* to *someone cares*. It is tolerable only in a medium whose writes are already privileged — which is to say, in a medium where attribution-by-possession is silently doing candidate 2's work. It is candidate 2 hiding in the transport, and should be named as such, not adopted as a design.
+- **Holder designation in a grantor-visible fact** — the answer. What it presupposes is attribution of appends, which this architecture has by construction: single-writer streams, ws attachment envelopes. What it adds is one holder-authored key (call it, when needed, `:dao.lease/renewers`) naming witnesses whose renewals count. Revocation is a new fact narrowing the set, or release. Crucially, it is enforced **entirely by the grantor's judge** — which maps exactly onto `dao.space.security.md`'s own principle that *the substrate, not the signature, enforces the predicate*: in a lease, the judge **is** the substrate. The judge already owns evidence-admissibility (the draft already lets a composition choose what counts as life); third-party renewal is one more admissibility question answered by the same judge reading one more fact. No new mechanism anywhere.
+- **A full capability token.** Stronger than needed, and the over-strength is instructive. A Macaroon-style token's distinctive powers — attenuable caveat chains, offline verification, cryptographic unforgeability — answer threats this setting does not have: the "power" granted is not exercised by the renewer but *conferred by the judge choosing to count the renewal*; a token cannot make a claim true, only authenticated, and an authenticated lie is still false liveness. Meanwhile the token's signature moves — a TTL caveat — duplicate the duration, which the judge already enforces, and its attenuation ("renew for A only") is the designation fact in heavier material. Capabilities, per the security document, govern *interpreters pushed to data*; a renewal is a claim deposited on a medium, judged by the party that would verify it. The right first consumer of Shibi-as-capability, if that is what Shibi becomes, is governed computation — not witness designation.
+
+**Named weakest sufficient mechanism: holder-authored designation of renewers, visible to and enforced by the grantor's judge, on a medium whose appends are attributable.**
+
+# 4. Does this force the capability-or-currency decision?
+
+**No — and leases must stay out of it. They can, because of §3.**
+
+The discovery document's precondition is that the decision be forced *before ShiBi is load-bearing in any design*. A consumer that leans on ShiBi settles the shared name **by construction** — accretion wearing the clothes of a decision — which is precisely what the precondition exists to prevent. So the question is whether leases must lean, and they must not: the authority a lease could ever need (designating a witness) is weaker than anything Shibi would provide (§3), so leases have no claim to be Shibi's first real consumer, and the deferral of delegated renewal (§2) removes even the pull.
+
+The temptation to let them settle it anyway should be named and refused. Yes, a lease caveat is time-bounded and attenuable, which *reads* as capability — but that reading proves only that capability physics **suffices for leases**, not that ShiBi *is* a capability: nothing in a lease spends, transfers, or accumulates, so the currency-shaped requirements (double-spend, consensus) are never exercised and never excluded. A lease could not falsify currency-ShiBi if it wanted to; it is simply silent about it. If leases were built on Shibi regardless, they would add one document's weight to the capability side of a two-docs-versus-one split (`dao.stream.md` already says "Shibi capability tokens"; `agent-web.md` says currency) — a lean, not a decision, decided by whoever built first. Note also that `dao.stream.md`'s reservation is the correct posture already: a reserved, unreachable key with an unreachable `:dao.stream/denied` outcome is not a consumer and is not load-bearing. Leases should hold exactly that line: `:dao.stream/shibi` stays reserved; the draft's "eventually gated by Shibi" for admission stays a reservation, never a dependency; and the new text below says in so many words that nothing in `dao.lease.md` depends on that reservation resolving.
+
+# 5. What `dao.lease.md` should say now
+
+Three changes to the jit-pattern draft: one new section (placed after *Renewal forever*, before *Out of scope*), and two clause replacements that the new section supersedes. The text depends on no undesigned mechanism — its only "mechanisms" are attribution (which media already provide), a judge reading a fact (which the draft already has), and Shibi nowhere. When Shibi lands, whichever physics it lands with, this section is untouched: if it lands as capability, the admission paragraph still holds (designation is still the weaker, still-sufficient form; a token may later package it); if it lands as currency, the paragraph still holds (leases never needed it). That is the no-rewrite test.
+
+**New section:**
+
+> ## Delegated renewal and chains
+>
+> A renewal is first-person evidence. Its entire content is that its author
+> still wants the lease, and attribution is what makes it the holder's: an
+> append is attributed by the medium — a single-writer stream's identity, an
+> attachment's envelope — as every fact in this architecture is. This
+> vocabulary counts a renewal only from the holder of record. A renewal
+> authored by anyone else is a claim about a third party — *A is still here* —
+> and a grantor asked to believe it is being asked for delegation, which this
+> section prices rather than presumes.
+>
+> A lease manager is therefore neither component nor vocabulary: it is an
+> interpreter, the shape of `forward!` and the JIT, that reads lease facts and
+> appends renewals — a grantor for its sub-leases, a holder for its own.
+> Everything it may legitimately do is already expressible:
+>
+> - **Be the holder of record.** A manager may hold the grantor's lease itself
+>   and grant its own sub-leases beneath, each an ordinary lease whose grantor
+>   is the manager, judged by the manager, in this same vocabulary. The
+>   grantor sees one holder and is told nothing about the rest; sub-allocation,
+>   admission, and judgment live one link down. That is composition, and it
+>   already delivers what delegated renewal is usually asked for: one
+>   accountable counterparty renewing for many workers.
+> - **Judge attributable emissions as life.** Evidence need not be a renewal.
+>   Any fact the renewer can attribute to the party it stands for — appends,
+>   trace datoms, a sub-lease renewal among them — is evidence it may judge on,
+>   on the same terms a grantor may. What it may never do is renew on a
+>   condition that is not such evidence: on a timer, on its own existence, on
+>   its client's failure to cancel. That is Jini's `LeaseRenewalManager`
+>   rebuilt, and better-composed machinery does not change what it
+>   manufactures — false liveness for a party that may be dead, paid for by the
+>   grantor's resource.
+>
+> Chains compose two laws, both checkable. **Soundness truncates.** A chain
+> carries liveness only through its evidentiary links: the guarantee reaches
+> from the grantor exactly as far as the contiguous run of links, starting at
+> the holder of record, that renew on attributable evidence of the party
+> beneath them; the first unconditional link ends it. Above that link the
+> grantor is still protected — against that link's own death; below it, no
+> party's death reaches the grantor's reclaim condition at all. The check:
+> walk from each lease toward the work, and at every hop name the evidence the
+> renewer's renewal is a function of. A hop that names none is where the
+> guarantee ends. **Latency adds.** Each link contributes its duration plus its
+> judge's cadence, so a chain of k links reclaims within the sum — the bound
+> composes as honestly as the guarantee.
+>
+> Delegated renewal proper — a party other than the holder of record appending
+> renewals that count for the holder's lease — is **denied in this document,
+> not designed**. Nothing this vocabulary serves has a holder who is not the
+> party doing the work, and each benefit claimed for it is available without
+> it: batching is the grantor's judge reading one medium, and where a single
+> append is dear, a carriage concern the transport owns; cadence mismatch is
+> what duration negotiation is for — a holder that cannot renew tightly asks
+> for the duration its real cadence supports — or an interpreter inside the
+> holder's own composition renewing on the holder's attributable emissions.
+> Should a real need appear, its admission conditions are two, stated now so
+> this denial is a judgment about demand and not a hole in the model: the
+> renewer must be designated by the holder in a fact the grantor's judge can
+> read and attribute, and every link between the lease and the work must pass
+> the check above. Designation is deliberately weaker than any capability
+> token: a renewal unlocks nothing by itself — the grantor's judge still
+> decides what it counts — so naming the witness suffices, and the medium's
+> attribution plus one holder-authored fact already provide that. Nothing here
+> depends on Shibi, and nothing here may be used to decide what Shibi is: the
+> capability-or-currency question stays where the discovery document leaves it,
+> undecided, and leases must not become the consumer that settles it by
+> construction.
+
+**Clause replacement 1** — in *What a lease may never do*, the final sentence ("And it is never renewed by machinery…") becomes:
+
+> And it is never renewed unconditionally: the holder renews from its own
+> control flow, or — where a composition renews for it — from evidence
+> attributable to the holder's life (see Delegated renewal and chains); a
+> renewer whose condition is a timer, its own existence, or its client's
+> failure to cancel — Jini's `LeaseRenewalManager` in any material, thread or
+> agent — manufactures exactly the false liveness the lease exists to end.
+
+**Clause replacement 2** — in *Out of scope*, "Transfer or delegation of a lease between holders waits for a real need. Authorization is Shibi's, reserved. A renewal service is forbidden above, not deferred." becomes:
+
+> Transfer of a lease between holders waits for a real need. Delegated renewal
+> is denied above with its admission conditions stated — a judgment about
+> demand, revisitable without touching the vocabulary. Authorization is
+> Shibi's, reserved; and no clause of this document depends on that reservation
+> resolving, because the one authority a lease could need — designating a
+> witness — is weaker than what Shibi would provide.
+
+No edits made; the above is the proposal.
+[?25h

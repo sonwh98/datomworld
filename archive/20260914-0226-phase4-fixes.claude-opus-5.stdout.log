@@ -1,0 +1,23 @@
+I fixed four of the five defects, and the new REPL tests pass on the JVM (21 tests, 0 failures). The benchmark defect (#4) is still open: both harnesses build, but running `node` and `dart` needs approval, which this session couldn't give.
+
+**1. Errors no longer replay (P1).** After a failed evaluation, the shell now reads past the batch that failed and keeps the VM it had before that input. It also prints any output from the failed input once. So after `(do (println "before") (/ 1 0))`, the next `(+ 1 2)` returns `3`, and `*1` keeps working. This also covers a datom batch that fails to load and one that loads but doesn't finish. The fix is in `consume-failed-round` and a `try` around the round in `eval-datoms` (`src/cljc/yin/repl/core.cljc`).
+
+**2. `let` scope no longer leaks (P1).** When a program finishes, the VM's environment goes back to what it was before that input, the same way `vm/eval` does it. `(def x 1)`, then `(let [x 7] x)`, then `x` now gives `1`.
+
+**3. Reset clears history (P2).** `(reset)` and `(vm …)` now share one helper, `rebuild-session`, which also clears `*1`, `*2` and `*3`. `(*1 4)` after a reset returns an error message instead of crashing.
+
+**4. Benchmarks (P2), still open.** I rewrote §8.2 of `docs/design/yin.vm.semantic.md` to say plainly that both harnesses compile but were never run, and that it has no Node or Dart numbers yet. It gives the commands to run:
+```sh
+node target/vm-bench.js 500 5000
+dart run bin/register_bench_cljd_v2.dart
+```
+If you run them, or allow `node` and `dart` here, I can add the results to §8.2.
+
+**5. Duplicate §7 (P2).** I removed the unconditional Universal Continuation Format section and kept the "Proposed / Deferred" one.
+
+**Tests added** to `test/yin/repl_core_test.cljc`:
+- `a-failed-input-is-consumed-exactly-once`, run under both VMs, plus a case where the batch fails to load.
+- `lexical-scope-does-not-escape-a-top-level-evaluation`, run under both VMs.
+- `reset-and-vm-selection-clear-the-value-history`.
+
+I didn't run the ClojureScript tests, since they also need `node`. I also didn't check that the new tests fail without the fixes. They reproduce the reviewer's exact scenarios, but they've only been run with the fixes in place. Nothing is committed.

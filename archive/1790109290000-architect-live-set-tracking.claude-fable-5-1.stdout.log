@@ -1,0 +1,26 @@
+Completed-GMT: 2026-09-22 18:58:39 GMT
+Completed-Local: 2026-09-23 01:58:39 +07 (Indochina Time)
+
+Edited `docs/design/yin.vm.debruijn.register.md` only. Width, ASCII, and table alignment checks pass.
+
+**One limit on verification.** The R1 sources in the register worktree were unreadable from this sandbox by every route: the Read tool was denied, the files are uncommitted so git cannot show them, and no collab log quotes them. The design is built from the brief's stated facts about R1 and is written to be numbering-agnostic where I could not verify. The follow-up implementer should confirm one assumption: that R1's per-body descriptor exposes a total register count the bounds rule can read.
+
+**Choice: in-band, hashed, and recomputed by the validator.** A live set is a claim about future reads that a kernel acts on by discarding everything else. A wrong one changes observable results, so it is a correctness operand like an argument register or a jump target, not a diagnostic like a binder name. A side table would sit outside R and outside wire verification, so a receiver could never trust it and would have to recompute it at load, collapsing analysis into execution. Two lowerings differing only in liveness are different programs by R, and that is right: one of them is wrong. "Derive, don't persist" is not violated because the image is the executable artifact whose job is to make execution-time facts explicit; argc, arity, and resolved pcs are equally derivable from the tree and equally belong there. The validator re-derives the live set on every receiving host, the same discipline as B1's scope check.
+
+**Encoding.** The sixth operand of `:call`, named `live`, is a `:data` operand: a vector of longs in strictly ascending order, encoded through the existing scalar encoder as a vector of longs with no new framing. Ascending and duplicate-free is the canonicalization rule. Indices are the same physical register indices the other operands already use, so no second index space exists. Frames are not registers and are outside the set. A tail call's `live` is always the empty vector.
+
+**Determinism rule.** One exported pure function, `body-liveness`, computes standard backward liveness per body from a use/def table over every mnemonic and a successor rule, iterating in descending pc order to a fixpoint. The fixpoint is unique, so iteration order cannot reach the output. Sets are sorted sets of integers throughout and serialize ascending. The allocator is untouched: its free list is a forward approximation and is not the source of `live`, so the format has exactly one definition of liveness.
+
+**Contract version.** Version 1 becomes 2. The opcode table's `:call` slots gain the live operand, which changes the descriptor hash and every R. The follow-up phase bumps the constant in R1's own code file, re-pins every golden vector and R value with version 1 retired and no compatibility path, and re-pins R0's frozen contract test as a versioned change. This design does not touch that test.
+
+**Validator rules added.** Four, in the existing defect shape: shape (ascending nonnegative integers), bounds (below the body's register count), tail (empty on tail calls), and exactness (equals the recomputed answer, reported with expected and actual).
+
+**Document changes.**
+- Section 3 table: new "Live sets" row, and the "Validation" row extended.
+- Section 4.4: `:call` shape gains `live`; the prose names it; R2 is required to extend the use/def table for effect instructions in its own phase.
+- New section 4.5: the full spec above, including the use/def table, successor rule, dataflow equations, encoding, validator rules, version bump, scope boundary, and the follow-up phase's exact work list with the minimum hand-derived fixtures.
+- Section 8: new DECIDED 9. No DEFERRED item named liveness, so nothing was removed there.
+
+**Scope boundary.** This is R1's file box. Nothing requires a kernel; the operand has no consumer until R4 pushes a real return frame, and no R4 work is implied now.
+
+Nothing needs the owner's decision.

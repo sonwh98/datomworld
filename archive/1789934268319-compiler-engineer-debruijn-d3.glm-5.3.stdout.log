@@ -1,0 +1,40 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-20 20:11:06 GMT
+Completed-Local: 2026-09-21 03:11:06 +07 (Indochina Time)
+
+D3 is implemented in the two in-box files on top of the committed D2 (102ba192); all three hosts now assert identical pinned bytes. Nothing staged, committed, merged, or pushed; no other file touched.
+
+## Byte rules settled, in place (shape unchanged)
+
+- **int64** — 8-byte two's-complement **little-endian** (`int64-le-hex`): bit ops on JVM/Dart ints (with an integral-double→`long` coercion, fixing a JVM `1.0` crash), and an exact floor/mod-by-2³² decomposition on CLJS, where the classifier only admits safe integers. `1 ≡ 1.0` encode identically; the JS unsafe-integral diagnostic is unchanged (now also asserted at encode level, CLJS-gated).
+- **doubles** — IEEE-754 bits LE (`double-le-hex`): `Double/doubleToLongBits` on JVM, a Float64Array store on JS, a big-endian `ByteData` store read in reverse on Dart — with **one canonical quiet NaN** `000000000000f87f` on every host regardless of payload. `+0.0` classifies `:int64` (colliding with `0`); `-0.0` stays `:double` and distinct.
+- **Length prefixes count UTF-8 bytes** — `utf8-byte-length` walks code units (surrogate pair → one 4-byte sequence; unpaired surrogate → the 3-byte replacement char), pure arithmetic so every host agrees without encoding. The preimage stays a text stream hashed by `jing/sha256`, whose framing extents are now byte-true.
+- **NFC uniformity** — strings, keyword/symbol namespace and name all pass the one seam (ident parts already did; now `canonical-value` applies the same spellings inside records).
+
+## The carried obligations
+
+- **Canonical scalars inside records** — `canonical-value` (public): `long` for integral numbers, NFC for strings/ident parts, recursive through maps/sets/vectors/lists (list-ness preserved). `merkle-node`'s pre-record canonicalizes every scalar slot, so one content address holds one record content: the dispatched verification — JVM `{:value 1}` vs `{:value 1.0}` — now yields **equal fingerprints and equal `:records` maps**, asserted.
+- **Dimension hash re-pinned** — `dimension-hash = (jing/sha256 (encode-value descriptor))`: the descriptor data encoded through the now-settled encoder, replacing the transitional dao.jing digest; descriptor content unchanged; the def moved beside the encoder (with a pointer comment at its old site); docstrings updated to state the settled derivation. New digest: `11954e461ed58cfef109c6e426cb2eabbdc89ae7850c95ef9e4a5e59f578a2d3`.
+
+## §8 cross-host rows
+
+New tests: **pinned settled bytes** for every scalar class (1/1.0, −1, 2⁵³−1, int64 max/min on the 64-bit-int hosts, NaN, −0.0, 1.5, ∞, ASCII/2-byte/3-byte/4-byte-UTF-8 strings, keyword with and without namespace, symbol, nil, booleans) and composed vector/list parts; **NFC-limit** (decomposed ≡ composed string encodings — the declared inherited collision); **map/set iteration-order invariance**; **the essay's stable fingerprint** `095c83f742a83ded2cbf2318abcceb9d5663757f346f25ca48a9dfda0099a290` pinned across the renamed binder, the 1/1.0 literal, and reversed/rotated (shuffled) datom input; **records-carry-canonical-scalars** (1/1.0 records equal, long spelling stored; NFC spelling stored). One portability note baked into the tests: int64 max/min literals round on the JS reader — §5's JS-number reality — so the shared boundary row is 2⁵³−1 and the extremes are gated to JVM/Dart.
+
+**Cross-host assertion mechanism**: every pinned literal is asserted by the JVM, Node, and Dart lanes against the same bytes — one string, three hosts; any one-bit divergence fails that host's lane. This satisfies §7-D3's completion criterion (verified below on all three hosts) and is exactly the "stable fingerprint" row's demand. A *live* pair transport (a Dart peer spawned by the JVM/Node lanes, per the R5 precedent) requires a new peer namespace and a `bb.edn` build target — files outside this dispatch's box — so per the "ask before touching" rule I did not create them; **that is the open ask for the orchestrator**, noted also in the test file's section comment.
+
+## Verification (exact commands and counts)
+
+| Check | Command | Result |
+|---|---|---|
+| Focused JVM | `clojure -M:test -n yin.vm.debruijn-test` | **51 tests, 189 assertions, 0 failures, 0 errors** |
+| kondo | `clojure -M:kondo --lint` both files | **errors: 0, warnings: 0** |
+| cljstyle | `cljstyle fix` + `check` both files | **clean** (reindent only; focused rerun stayed 51/189/0/0) |
+| CLJS lane | shadow `compile test` (Node) | **1528 tests, 38838 assertions, 0 failures, 0 errors** |
+| CLJD lane | `rm -rf test/cljd-out` + `clojure -M:cljd test` | **`01:48 +1491: All tests passed!`** — incl. `the-settled-scalar-bytes-are-pinned` (+297), `the-essays-fingerprint-is-stable` (+271), `records-carry-canonical-scalars` (+264), `nfc-and-collection-order-limits-hold` (+284) |
+
+**Completion (§7-D3) — met**: CLJ, CLJS, and CLJD produce identical bytes on every canonical fixture, and all fixtures hash identically across hosts.
+
+## Unresolved concerns / incomplete work
+
+- The live Dart-peer fixture transport (ask above) is the one deferred item; the pinned-literal proof stands in for it and remains the regression guard either way.
+- Changed files: only `src/cljc/yin/vm/debruijn.cljc` and `test/yin/vm/debruijn_test.cljc`. No other incomplete work in D3's scope.

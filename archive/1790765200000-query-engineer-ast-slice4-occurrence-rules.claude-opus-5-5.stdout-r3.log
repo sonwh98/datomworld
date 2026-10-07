@@ -1,0 +1,45 @@
+# Slice 4 report: occurrence rules as data, the `subvec` builtin, and the Dart `%` reader fix
+
+Slice 4 is done, including the scope extension, and every lane is green on the final tree:
+
+| Lane | Result |
+|---|---|
+| kondo | 0 errors; the 4 warnings in `vm.cljc` are the same 4 the committed file has |
+| JVM `clj -M:test` | 2423 tests, 185079 assertions, 0 failures, 0 errors |
+| Node `bb test:cljs` | 2328 tests, 51525 assertions, 0 failures; "Testing <ns>" seen for all 7 touched namespaces |
+| Dart `bb test:cljd` | `+2290: All tests passed!`, exit 0 |
+
+The full report is in `collab/1790765200000-query-engineer-ast-slice4-occurrence-rules.claude-opus-5-5.report.md`. Nothing is committed; it needs Architect sign-off that doesn't come from a Claude model alone.
+
+## What changed
+- **`subvec` builtin** (`dao.space.query`): both arities. It refuses a non-vector or bad bounds with the same text on every host. Its result is a vector, `content=`, and has the same canonical CBOR bytes as a plain vector on all three hosts.
+- **`yin.vm/occurrence-rules`**: now the ruling's §1 rule, one non-recursive rule over `$ast`/`$occ` using builtins only.
+  - `occurrence-fns` is deleted.
+  - `free-names`, the linker and completion now use `$ast` and pass no `:fns`.
+  - The docs (code-as-tuples §4.5 and §6.3, dependency-completion §5.1.1) and the `yin.repl.query` docstring are updated to match.
+- **Tests**: 3 `subvec` tests, 4 REPL end-to-end tests on all four VMs (including the rule set typed in the user's own `(def …)` line), the §3 guard, and a reader test. Only `query_test.cljc` used the deleted names, and it's updated.
+- **Scratch files**: moved to `target/slice4/`.
+
+## The Dart reader fix (`yin/repl.cljc`, Dart branch only)
+1. **Red on Dart first.** The new reader test failed: `(quote [:in $ast $occ % ?root])` read `%` as a symbol with an empty name. That red run had 2284 passed and 6 failed, all six from this defect.
+2. **Fix.** Before reading, `%` tokens are swapped for placeholder symbols; after reading, they are put back as the plain symbol. It skips strings, comments, character literals and `#()`. Run on the JVM, the same scanner gave the same forms as Clojure's own reader on every probe.
+3. **A second Dart trap.** Restoring with `clojure.walk` made the query lines fail with `dao.jing.cbor refused: unsupported-value (Type)`.
+   - Cause, found with a temporary debug test (now removed): on Dart, a list rebuilt with `(apply list …)` picks up metadata containing a Dart `Type` object, which CBOR refuses.
+   - The restore now copies each form's original metadata, even when that is `nil`.
+4. **Is there a smaller fix?** Not in this repo.
+   - On Dart, `clojure.edn/read-string` just calls ClojureDart's `cljd.reader/read-string`. It has no options, and there is no separate EDN-conformant reader.
+   - `clojure.walk` can't do the restore because of the metadata trap.
+   - The real one-line fix is upstream in ClojureDart: keep the `%` when no `#()` is open, as Clojure does. I recommend filing it and then deleting both helpers.
+
+## Mutations
+Eight mutations, each caught:
+- M1–M7 (JVM): the builtin's bounds check, its vector result, root scoping, the `<` guard, membership on the tree side and on the segment side, and the guard on `{:fns …}` options.
+- M8 (Dart): dropping the metadata reset gives 6 failures, including the reader test's nested-list line.
+
+A first version of M7 survived because the change it made didn't alter behaviour, so I replaced it with one that did.
+
+## Notes
+- **Dart runs that were cut off:** two runs stopped without a verdict (one at `+1861 -6`, one during package setup), and I don't count either.
+- **Dart evidence:** the Dart reporter prints only some test names. The round-join test, `completion-test` and `linker-test` aren't named in the final log; they are compiled and included in the 2290 total.
+- **Not mine, left alone:** `docs/orchestrator-log.md` is modified in the working tree, and `collab/slice8-*.log` files are present.
+- **Not edited:** a stale mention of the deleted rule names remains in `docs/design/yin.vm.code-as-tuples.implementation-plan.md:557`, which was outside my scope.

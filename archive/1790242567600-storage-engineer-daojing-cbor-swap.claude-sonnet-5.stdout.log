@@ -1,0 +1,46 @@
+Still waiting on Dart: the peer builds are done and the test phase has just begun (one progress line so far). Everything else is complete and verified:
+
+- JVM suite: 1988 tests, 0 failures, 0 errors.
+- Node suite: 1904 tests, 0 failures, 1 error (the de Bruijn projection rejects the `float64` carrier that CBOR decoding yields on JavaScript; a VM-consumer decision, not a storage one).
+- clj-kondo and cljstyle clean on every file I touched.
+
+I'll write the final report as soon as the Dart result lands.
+Completed-GMT: 2026-09-24 10:12:43 GMT
+Completed-Local: 2026-09-24 17:12:43 +07 (Asia/Bangkok)
+
+**Outcome.** The CBOR codec swap is implemented on `dao-jing-cbor-swap`. JVM and Node suites are green except one Node error that belongs to a VM consumer. The Dart suite was interrupted by session teardown partway through, with one failure that is the design's documented carried-forward Dart obligation. Nothing is committed.
+
+**Changed files (named in the brief)**
+
+- `src/cljc/dao/jing.cljc`: canonical bytes are now `cbor/encode`; the print encoder and its helpers are gone. Added `segment-bytes` (encode plus digest check against the address) and `segment-value` (digest check plus decode) as the byte-level twins of `segment-matches?`, which stays total.
+- `src/cljc/dao/jing/cbor.cljc`: exported `byte-payload?` and `bytes=` for the backends. No behavior change.
+- `src/cljc/dao/jing/mem.cljc`: stores canonical bytes per address, compares duplicates bytewise, hash-verifies and decodes on read. `entries` decodes for tests.
+- `src/cljc/dao/jing/file.cljc`: frame is one canonical CBOR `[digest payload-bytes]` array inside the length prefix, built and parsed with the shared codec. Open validates every complete frame and refuses a nonempty file with no valid first frame before any truncation. Payload bytes are stored and served as written. Frames over the prefix's positive range are refused. The EDN round-trip refusal is gone.
+- Fixtures: `digest-table.edn` canonical rows and header regenerated; `psset_fixtures.cljc` regenerated with the requested command and pretty-printed (addresses are now blake3); pinned hashes updated in `jing_test.cljc`, `transit_test.cljc`, and `hash_registry_contract_test.cljc`.
+
+**Changed files outside the named list** (each forced by the clean break, none weakens an assertion)
+
+- `mem_test.cljc`: the seeded collision now seats bytes, since the state holds bytes.
+- `btree_durability_test.cljc`: one assertion compares `mem/entries` instead of raw state, because byte arrays compare by identity.
+- `malformed_rows.cljc` and `macro_test.cljc`: rows carrying a host function sit under a stand-in address, since a function no longer has one. The expander token is a string, not a `#uuid`. Two metadata-distinct-body cases use reader positions, the one metadata the address still strips.
+- `vm_test.cljc`: symbol metadata is now address-significant, so the two collision tests assert distinct rows. Metadata on a metadata map asserts the codec refusal.
+- `content_test.cljc`: the file backend now carries metadata, so that test asserts a full round trip across reopen.
+
+**Checks**
+
+| Check | Result |
+|---|---|
+| `clj -M:kondo` on touched files | 0 errors, 0 warnings (one pre-existing warning in `macro_test.cljc`) |
+| `cljstyle check` on touched files | clean (`macro_test.cljc` fails identically at HEAD) |
+| `bb test:clj` | 1988 tests, 0 failures, 0 errors |
+| `bb test:cljs` | 1904 tests, 0 failures, 1 error |
+| `bb test:cljd` | interrupted at 94 passed, 1 failed |
+
+**Unresolved**
+
+- Node error in `pipeline_test.cljc` at line 506: on JavaScript, decoding returns the `float64` carrier, and `yin.vm.debruijn` rejects it as a slot value. That is a VM consumer decision, so I did not change VM code.
+- Dart failure in `semantic-bytecode-strips-reader-positions-inside-payloads`: ClojureDart stamps a Dart `Type` under `:tag` on vector literals and the codec refuses it. The design names this as the producer obligation that carries forward. The rest of the Dart run never completed; rerun `bb test:cljd`.
+- Frame algorithm recovery: the design forbids carrying the algorithm in the file frame, so replay identifies it by hashing the payload under each registry entry. Worth an architect glance.
+- Not done, outside the named files: `dao.jing.md` and `dao.jing.hash-registry.md` still describe the print encoder and the removed round-trip validator, and the `dao.data.btree.md` §5.2 default flip.
+- Width and ASCII: the fixture and digest table exceed 80 columns only on 64-hex address lines, as at HEAD. The generator's header has a pre-existing em-dash.
+- Deleted the previous delegate's untracked `jing.cljc.bak` and `.bak2` scratch copies.

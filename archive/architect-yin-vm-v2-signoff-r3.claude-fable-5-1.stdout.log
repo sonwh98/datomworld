@@ -1,0 +1,17 @@
+Completed-GMT: 2026-09-02 18:09:40 GMT
+Completed-Local: 2026-09-03 02:09:40 Asia/Shanghai
+
+All five items landed, and I found nothing that relocates a problem. Verified against the source:
+
+- **Item 1.** Phase V2 (line 278) reads `take!` **removed**. Consistent with the census entry at 140-147 and the REPL plan's line 71.
+- **Item 2.** The register (317-320) opens with "the four user-visible changes" and names the FFI pair's bounded outstanding-call count against v1's unbounded pair. The V3 phase (283-287) states the bound rule it refers to. The only remaining "three" in either plan is the REPL plan's three spec blockers, which is correct.
+- **Item 3.** The cursor rule (149-160) now covers all three mint sites. `stream_driver.cljc:25` and `ffi.cljc:31-32,96` are exact. The bridge attach claim holds: `empty-state` opens the FFI pair (`vm.cljc:539-540`) before `bridge-from-opts` runs (`ast_walker.cljc:778,781`), and `ffi/attach` (48-53) takes a built VM, so the store holds `call-in` at every attach. `apply.cljc:170,184` are the two cursorless arities, so "lose their defaults, no mint site" is the right resolution.
+- **Item 4.** `ringbuffer.cljc:72` is inside `evict-oldest-state`; `161` is `drain-one-state`'s head advance. The drain claim now cites 161 only, and 109-119 for `next-outcome` is exact.
+- **Item 5.** Telemetry (165-176): `cursor-map?` at 131-133 and the position emit at 168-172 are exact. Ordering all three surface protocols before `map?` and summarising a cursor-ref's payload without descent closes the field-walk leak.
+
+Two nits, neither blocking:
+
+- `ast_walker.cljc:784` is the `map->ASTWalkerVM` merge line. The `:in-stream` field is 785 and the fabricated cursor is 786. Citing 786 would parallel `stream_driver.cljc:25`.
+- Line 158-159 says the mint's `closed`/`transport-error` outcomes are handled "at that site," naming only `:stream/cursor`. The construction-time mints (`create-vm`, `attach`) have no continuation to park, so a non-ok mint there is a construction failure. The general totality rule at 126-129 already obliges the implementer to classify it, and on the ring buffer both outcomes are excluded by nature, so this is a one-clause clarification rather than a hole.
+
+SIGN-OFF: GRANTED

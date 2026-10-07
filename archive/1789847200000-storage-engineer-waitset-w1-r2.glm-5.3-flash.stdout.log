@@ -1,0 +1,33 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-19 19:35:54 GMT
+Completed-Local: 2026-09-20 02:35:54 +07
+
+## Per-finding dispositions (all ACCEPT, as instructed)
+
+**P2 invalid answers** — Implemented, failing tests first (red run confirmed the reviewer's exact symptoms: `:status nil` wakes and a host dispatch `IllegalArgumentException` voiding the sweep).
+- New private `answer-defect` wraps each poll answer in the contract's own validation (`stream/validate-outcome`, which `stream/valid-outcome?` wraps) per operation. A shape-invalid answer — non-map, missing/unqualified `:dao.stream/outcome`, declared outcome missing required keys — folds into `:dao.stream.waitset/invalid-answer`: entry wakes, leaves `:waiting`, no `:advance`, store unchanged.
+- One deliberate carve-out, to keep the plan's own W1 test law ("a keyword outside the declared set is terminal under its own keyword") and the reviewer's "What holds" verdict intact: a well-formed but *unauthorized* outcome is distinguished (`:unauthorized`) and falls through to the existing `case` default — its own keyword — rather than colliding with the fold. Everything else `valid-outcome?` rejects becomes `:invalid-answer`.
+- Host dispatch errors: each poller wraps its stream operation in the tree's portable catch-all `(catch #?(:cljd Object :clj Throwable :cljs :default) _)` — the same idiom as `observer.cljc:251`, `rpc.cljc:309`, `apply.cljc:208`. A throw folds into `:invalid-answer` too; the choice is stated in both poller docstrings ("the entry cannot be trusted to poll again").
+- Resolver throw mid-sweep: not caught; `check`'s docstring now states resolvers must not throw and that a throw voids the sweep, including the re-append consequence — faithful to the engine.
+- Register: three rows added to the plan's Divergence register (invalid answer, poll throw, resolver throw), each tagged "W1 review, P2". This doc edit is the one change outside the two code files — it is what "add the register row" required; flagging it per the standing rule.
+
+**P2 advance counters** — `check-one` now returns `{:check … :advances n}` with the counter deref'd after the sweep. The `:next` classification loop asserts 1 advance for `ok` and `gap` and 0 for every other reader outcome; the `:put` loop asserts 0 for all five; the rogue-keyword test asserts 0 for both operations; the missing `(is (zero? @advances))` was added to the resolve-without-stream case (P3 test:377-388, thereby covered).
+
+**P3 park total** — `(update waitset :waiting (fnil conj []) entry)`, docstring updated, and `park-is-total-over-missing-and-nil-waiting` asserts `{}` and `{:waiting nil}` both park onto a fresh vector with order preserved.
+
+**P3 missing `:value`** — `poll-put` docstring note added: a resolution with no `:value` appends nil; the transport answers `invalid-value`; the engine reads `:datom` the same loose way.
+
+## Tests and counts
+
+New: `invalid-answers-fold-into-a-qualified-terminal-diagnostic` (map with no outcome key, non-map answer, nil writer answer, protocol-failing handle — each asserting wake/status/entry-intact/leaves-waiting/store-unchanged/zero-advances, and one-poll-attempted where countable) and `park-is-total-over-missing-and-nil-waiting`. Suite: **11 → 13 tests, 116 → 155 assertions**.
+
+## Lane outcomes
+
+1. `clojure -M:test -n dao.stream.waitset-test` — green: 13 tests, 155 assertions, 0 failures, 0 errors.
+2. `clojure -M:test` — green: 1463 tests, 168103 assertions, 0 failures, 0 errors.
+3. `mise exec -- clj -M:cljs -m shadow.cljs.devtools.cli compile slice-peer test` (the Java-21 workaround, same lane as before) — green: 1380 tests, 37972 assertions, 0 failures, `Testing dao.stream.waitset-test` confirmed in the Node output.
+
+## Unresolved
+
+- Nothing behavioural. Two notes: (a) the reader-conditional in the catch is the one mechanical host-splice in the namespace — it is the established idiom of `dao.stream`'s own siblings, not a behavioural branch; the CLJD lane (yours) is the check that matters for it. (b) The machine clock read 19:35 GMT at completion; the r2 prompt's Created-GMT header (20:37) is ahead of it — I report the machine's time.
+- Process confession worth recording: three of my test-file edits this round carried off-by-one closers; the red run masked two of them (they sat in forms the reader still balanced overall until later edits shifted). I caught them by per-line balance scanning, and every deftest now starts and ends at residual zero — but the count discipline slipped more than once this session.

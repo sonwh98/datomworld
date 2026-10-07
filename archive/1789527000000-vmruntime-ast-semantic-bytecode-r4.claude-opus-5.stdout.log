@@ -1,0 +1,14 @@
+All three r4 fixes are in, and the JVM passes (`clojure -M:test -n yin.vm-test`: 23 tests, 170 assertions, 0 failures). The Dart tests still haven't run, because the untracked bench file blocks that build again. I wrote the reproduction tests first, and against the r3 code they gave 7 failures.
+
+1. **Metadata inside metadata:** the reviewer's program `(if true ^{:note ^{:meaning 1} x} [] ^{:note ^{:meaning 2} x} [])`, run through `yang/compile`, used to silently share one row. Now it throws an address collision. `same-meta?` also compares inside metadata values and a metadata map's own metadata. Identical nested metadata still shares a row and keeps `{:meaning 1}` on both branches after the round trip.
+2. **Reader positions inside metadata:** `strip-reader-positions` now also cleans what a metadata map holds, and that map's own metadata. It covers the reviewer's case: `"^{:note (helper x)} []"` read with `LineNumberingPushbackReader` gets `{:line 1 :column 9}` on `(helper x)`. That no longer survives into the row or the rebuilt map. That test is JVM-only; the other stripping tests run on every host.
+3. **Operand vectors with metadata:** loading a row now fails with `:slot-kind` if an operands vector carries metadata, for both `:application` and `:dao.stream.apply/call`, just as `:syms` params got in r3.
+4. **Custom-comparator sets:** still deferred. I removed the r3 docstring text that wrongly lumped nested metadata in with this case, so only the set disclosure remains.
+
+**Node:** `yin.vm-test` passes. The only failures are the same 2 as before, where the REPL test expects `(/ 1 0)` to throw but JavaScript returns `##Inf`.
+
+**ClojureDart:** `pgrep` showed nothing using the Dart build, so I ran `bb test:cljd`. It failed while compiling, before any test ran. The untracked `test/bench/yin_vm_bench.cljc` got past last round's empty-require crash but now fails with `Unknown symbol: measure-ms` at line 113. That file is outside my boundary. Until its owner fixes it or excludes it from the Dart build, this code is untested on Dart.
+
+Still separate work: dropping unreachable rows, `:variable-scope`, and plain-data checks on data slots.
+
+I only edited `v2.cljc` and `v2_test.cljc`, and nothing is staged or committed. The report is in `collab/1789527000000-vmruntime-ast-semantic-bytecode-r4.claude-opus-5.findings.md`.

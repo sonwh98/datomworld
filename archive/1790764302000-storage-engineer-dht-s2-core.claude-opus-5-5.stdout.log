@@ -1,0 +1,40 @@
+Completed-GMT: 2026-09-30 11:08:10 GMT
+Completed-Local: 2026-09-30 18:08:10 +07
+Coding-Agent: claude
+Session-ID: eb3d451a-74ba-462d-8788-df45ee5c25f8
+
+S2 is built in `/Users/sto/workspace/datomworld-dht-s2`, except one deletion. It is waiting on the Architect because the contract contradicts itself there. The JVM, Node and Dart test suites all pass; cljstyle did not run. Nothing is staged or committed.
+
+**Architect decision needed (section 10 of the contract):** S2 is supposed to delete `IDhtNet`, `lookup` and `create-content-dht`. But `dao.jing.dht.node`, which S3 deletes, still implements and calls them, and so does `node_test`. Deleting them in S2 would break the JVM suite until S3 lands. I did not pick a fix myself. The old code stays at the bottom of `dao.jing.dht` under a "LEGACY (pending an Architect ruling)" banner, and `dao.jing.md` says it's pending. Three possible fixes:
+- (a) Delete `node` and `node_test` in S2.
+- (b) Keep the old code until S3 and correct the contract's table.
+- (c) Move the old protocol into `node` now.
+
+Any of them is about a ten-minute follow-up.
+
+**What was built:**
+- **`dao.jing.dht` (portable):**
+  - The `state`/`step` core.
+  - Pending writes and gets, all six "not acknowledged" reasons, and lookup as explicit state.
+  - The full section-8 cookie protocol with the S2 stand-in `cookie-for`.
+  - Solo mode, `publish?` handling, and `store-handle`.
+- **`dao.jing.content.step`:** a `:jing/unacknowledged` answer now completes as `{:id … :error {:code :dao.jing.content/unacknowledged :reason …}}`.
+- **JVM facade** (`src/clj/dao/jing/dht/facade.clj`): one driver thread is the only thing that steps the state.
+- **Test helper** `test/dao/jing/dht/mesh.cljc`: in-memory peers wired through ring buffers carrying raw datagram values.
+- **Tests rewritten:** `dht_test.cljc` and the fake network in `linker_test.cljc`. I also had to rewrite `linker_step_test.cljc`, which the brief didn't list, because it used the old fake network.
+- **Docs:** `dao.jing.md` backend list and status updated.
+
+**Checks (all run in the foreground):**
+- **Tests first:** on the unchanged code, `dht-test` failed to compile (`No such var dht/decode-message`), `content.step-test` had 1 failure, and the facade namespace was missing.
+- **Mutation proofs:** I temporarily broke nine key rules, one at a time, and every one was caught by a failing test. That includes the cookie gate, the size rule for the need-cookie reply, freshness, the store cookie, fetch verification, and the new `:jing/unacknowledged` completion. All were reverted, and a grep confirms none is left.
+- **kondo:** 0 errors, 0 warnings on all 9 changed files.
+- **cljstyle:** blocked by the permission prompt, so it has not been run.
+- **Full JVM (`clojure -M:test`):** 2409 tests, 0 failures.
+- **`bb test:cljs`:** 2311 tests, 0 failures.
+- **`bb test:cljd`:** 2273 tests, all passed, including all 21 DHT tests.
+
+The report lists ten choices the contract leaves open, for the Architect to confirm. None changes the wire format or any contract rule. The main one: a need-cookie reply stores the cookie but doesn't make the peer proven or fresh, so first contact takes two round trips.
+
+Full report: `/Users/sto/workspace/datomworld/collab/1790764302000-storage-engineer-dht-s2-core.claude-opus-5-5.report.md`
+
+The Gmail, Google Calendar and Google Drive connectors need authorizing in claude.ai's connector settings before they can be used. This task didn't need them.

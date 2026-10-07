@@ -1,0 +1,55 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-26 06:34:29 GMT
+Completed-Local: 2026-09-26 13:34:29 +07
+
+# yin.vm.linker M4 slice S2: host-module registration, registry value shape
+
+All work in /Users/sto/workspace/datomworld-m4-s2 (branch m4-s2, master b3d0b5a1), uncommitted per task rules. TDD: the new module tests were written first and failed on `No such var: module/register-host-module` before any implementation existed.
+
+## What landed
+
+- `register-host-module r name fns profiles` in src/cljc/yin/vm/module.cljc, with UCF 7.5.2 profile-class enforcement (yin.vm.linker.md section 8.3, L1842-1855; UCF section 7.5.2): every binding must carry a profile in the shape of `yin.vm/primitive-profiles` (the five `:yin.k/*` keys), and registration throws, as a host assembly defect, unless the class is `:pure`, or `:effectful` with a declared non-empty `:yin.k/effects` set, and `:yin.k/host-state` is `:none`. Refusal ex-data: `{:rule r :module name :name sym}` with rules `:missing-profile`, `:malformed-profile`, `:host-state`, `:host-class` (default for any unknown class), `:undeclared-effects`; the first defective binding in sorted name order is named, deterministically on every host.
+- `register-stream-module` rebuilt over `register-host-module`, one-arg signature kept, registering the unchanged `stream-module` bindings under the new `stream-profiles`: each binding `:effectful` with exactly its one effect kind (`:stream/make` `[0 1]`, `:stream/put` `[2]`, `:stream/cursor` `[1]`, `:stream/next` `[1]`, `:stream/close` `[1]`), built by `yin.vm/primitive-profile`, so records are shape-identical to `primitive-profiles` entries.
+- Registry value shape changed to `{name {:manifest m :address a :derivation d :slice {sym export} :stores {}}}` — a clean break, NO shim: `register-module` is removed (repo-wide grep: zero remaining references). A host module is entered as an already-linked manifest: `:yin.module/name`, `:yin.module/tree` absent, `:yin.module/derivations {}`, exports under `:yin.module/primitives` by profile address; `:address`/`:derivation` nil (no content fetched or derived; S3/S4's `link-module` fills real ones), `:stores {}`, and the exports themselves are the `:slice` ("no code fetched, because the host is the boundary").
+- `resolve-module` keeps its `[registry sym]` signature: the walk descends dotted namespace segments through plain maps to a module entry (a node carrying `:manifest`), returns that entry for a module name, and reads `:slice` for binding segments — what `resolve-var`'s module step answers. A path landing on any node returns it, so hand-built old-shape receivers (linker_test's discharge fixture) still resolve.
+
+## JVM counts
+
+- Before (baseline, no edits): **2,118 tests / 181,736 assertions, 0 failures, 0 errors**. (The task's stated 181,744 differs by 8 assertions; the actual baseline on this worktree is 181,736.)
+- After: **2,120 tests / 181,764 assertions, 0 failures, 0 errors** (+2 tests, +28 assertions).
+- Anomaly, reported faithfully: one intermediate full run reported "1 failures, 0 errors"; its detail scrolled out of the captured tail, and two subsequent full runs (one grep-audited for FAIL/ERROR lines, one with the complete log kept) were 0 failures / 0 errors. Not reproducible; the suite carries known timing-sensitive tests (project memory: poll-until flakiness on slow hosts).
+
+## Files changed (5)
+
+- src/cljc/yin/vm/module.cljc — register-host-module + enforcement, stream-profiles, register-stream-module over it, resolve-module walk, register-module removed, ns docstring updated.
+- src/cljc/dao/await.cljc — `registry` registers 'await and 'dao.await via register-host-module with new `await-profiles` (`:effectful` constructors for `:stream/cursor`, `:stream/next`, `:stream/put`).
+- test/yin/vm/module_test.cljc — rewritten (below).
+- test/yin/vm/engine_test.cljc — resolve-var test's registration call.
+- test/yin/vm/debruijn/stack_effects_test.cljc — require-through-registry test's registration call.
+
+kondo: 0 errors, 0 warnings; cljstyle: clean, on all five (after one cljstyle fix adding the blank line before `await-profiles`). All added/edited lines ASCII, <= 80 columns.
+
+## Tests added (module_test.cljc)
+
+- `register-host-module-enforces-profile-classes-test`: accepts well-profiled `:pure` and `:effectful` bindings (and they resolve); refuses `:host-class`, declared host state, no profile, and `:effectful` with an empty effect set, asserting each `:rule`; the refusal's ex-data names the module and first defective binding.
+- `host-module-entry-shape-test`: the registry value shape (exactly `:manifest :address :derivation :slice :stores`) and the already-linked host manifest (name, `:yin.module/tree` absent, `{}` derivations, primitives by profile address).
+- `stream-module-test` extended with the TRAP check: `stream-profiles` key-set parity with `stream-module`, shape parity with `primitive-profiles` entries, effect-kind union is exactly the five stream effects; `register-stream-module` therefore does not refuse.
+- Existing tests kept their assertions except where the registry shape itself was asserted: `dotted-path-resolution-test` no longer expects the bindings map from a module-name lookup (now the entry); the others changed only their registration call form (engine_test and stack_effects_test still assert 42).
+
+## Callers rewritten / verified
+
+- Rewritten: src/cljc/dao/await.cljc (was lines 88-89), test/yin/vm/engine_test.cljc (was line 190), test/yin/vm/debruijn/stack_effects_test.cljc (was line 401 — a caller the task's list did not name; removing `register-module` requires it).
+- Verified as needing NO edit, so left untouched: src/cljc/yin/repl.cljc:436, src/cljs/datomworld/demo/compilation_pipeline.cljs:87, src/cljs/datomworld/demo/continuation_stream.cljs:83. All three read `(module/register-stream-module (module/default-registry))`, whose one-arg signature is unchanged by design; there is nothing to rewrite. repl.cljc is otherwise untouched (the parallel S1 worker owns its append functions).
+- Consumers still resolving with no edits, all green in the JVM lane: engine `resolve-var` (engine.cljc:73), `require-handler`, completion `module-of` (completion.cljc:443), linker discharge `resolvable?` (linker.cljc:782), dao.await, repl, yang/clojure_test, completion_test, linker_test, stack/register effects tests.
+
+## Deviations
+
+None blocking; three judgment calls recorded in the report file: (1) host entry `:address`/`:derivation` nil and exports-as-`:slice` (the spec pins the five keys and "no code fetched"; host fns cannot be UCF-encoded while `resolve-var` must keep answering them); (2) `:malformed-profile`/`:undeclared-effects` rules complete "profile shape and class at registration" — the three required refusals map 1:1 to `:host-class`, `:host-state`, `:missing-profile`; (3) engine/stack_effects tests bind the non-fn value 42 under a `:pure` profile to keep assertions byte-identical; nothing requires `fn?`.
+
+## Unrun checks
+
+Node (`bb test:cljs`) and Dart (`bb test:cljd`) lanes: the orchestrator runs them, per the task. Cross-host traps addressed: no `letfn`, no `#'private` cross-namespace access (the five profile keys restated locally; `vm/primitive-profile-keys` is private), no ungated `#?(:clj ...)` added, `stream-profiles` built by the pure `vm/primitive-profile` (no load-time side effect; CLJD def-init laziness), keyword literals only.
+
+Full report written to /Users/sto/workspace/datomworld/collab/1790403451134-vm-engineer-linker-m4-s2-host-module.glm-5.3.report.md.
+
+Status: COMPLETE

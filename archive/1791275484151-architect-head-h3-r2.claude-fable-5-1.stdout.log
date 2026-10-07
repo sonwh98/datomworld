@@ -1,0 +1,44 @@
+Completed-GMT: 2026-10-06 08:33:18 GMT
+Completed-Local: 2026-10-06 15:33:18 +07
+Coding-Agent: claude
+Session-ID: d8d95e30-f2d2-443b-9aa9-36e7001a904e
+
+NOT SIGNED OFF
+
+The architecture holds on every point you asked about; the one blocker is that the tree does not compile on Dart.
+
+## Blocker
+
+P1 | `collab/h3-bb-test.log:51-57` | every slice lands green on the JVM, Node and Dart (design section 11) | `bb test` exits 1 with a ClojureDart compilation error in task `build:yin-repl-peer`, while compiling `yin.repl.main`. Find the faulty form, fix it, and rerun the three lanes.
+
+- The log (15:32) is newer than `dht.cljc` (15:13) and `main.cljc` (15:11), so it is the current tree that fails.
+- The log does not name the faulty form, and I ran no build myself (read-only). The only lead is a new warning at `src/cljc/yin/repl/dht.cljc:195` (`.-length` on a dynamic in `byte-length`), which makes the new `:cljd` branches of `read-bounded`, `byte-length` and `decode-utf8` (`dht.cljc:156-211`) the first place to look. That is a guess, not a diagnosis.
+- No further Architect round is needed if the fix stays inside those `:cljd` host branches or `parse-int`. In that case the sign-off holds once `bb test` is green on all three hosts. A fix that changes the shape of `open`/`compose`, the order of read and bind, or the strictness of the reader comes back to me.
+
+## Rulings on the five changes
+
+1. **`open` reads `heads.edn` before the bind; `compose` closes the node on failure: sound.**
+   - The order is: read and parse the file, `dht/join`, restore the follower through `head/follow`, and no dial until the first step. That is still "restored before any connection" (5.7), and confirm → persist → install in `persist` is untouched.
+   - The cleanup is socket plumbing below dao.stream; it adds no concept.
+   - `dht/close!` also closes the local store and the outer catch closes `base` again. The refusal tests reopen the directory afterwards, so I accept the double close.
+
+2. **Bounded strict-UTF-8 read and the sentinel vector: acceptable.**
+   - The sentinel is a portable way to require exactly one form. It persists nothing and adds no structure; the signature check in `head/follow` remains the real guard and this is hygiene in front of it.
+   - One thing to move later: `read-bounded` and `decode-utf8` are host file interop inside `yin.repl.dht`, while 5.10 says the host seams are "all existing" and names `dao.space.store.fs`. They belong beside `read-file-text` in that namespace. Moving them is a follow-up, or part of the Dart fix if that code is being touched anyway. If they stay, 5.10 needs a sentence saying so.
+
+3. **`parse-int` at 15 digits and `--port` through it: no problem.** Values are exact on every host and a refusal is data. The `--port` change is a clean break under the owner's rule.
+
+4. **Gap recovery, dial-failure lines, moved-once: no "derive, don't persist" breach.**
+   - Gap recovery adopts the stream's own recovery cursor.
+   - Moved-once is derived from the node before and after the step; nothing is stored.
+   - The link's `:failed` key is in-process print de-duplication, the same kind of state as `:token?`. It is cleared on attach and never written to disk.
+
+5. **Process test with the reader started first: faithful, and stronger than before.** It now exercises the startup deposit of a recovered HEAD (5.4), failed dials and redial, the parked require completing with no typed line, and the same token after a restart. The republish, `(reset)` and restart-with-A-stopped legs are kept.
+
+## Notes
+
+- The engineer's open item about 5.7 saying `<node dir>` is stale: the design diff in this tree already says the DHT store directory.
+- The unreadable-file refusal (`src/cljc/yin/repl/dht.cljc:326`) still says "move it aside" without stating that this drops every principal's floor. The per-record message does state the cost; make the two match.
+- The process test rebinds A's port immediately after stopping it. If the Node or JVM lane ever flakes there, look at that first.
+- Round-one notes 2, 3, 4 and the duplicate registry derivation remain open and non-blocking.
+- I read the reviewer findings, the engineer's round-two report, all of the current `dht.cljc`, the `parse-int` and `--port` hunks, `dao.space.dht/close!`, the revised process test and the lane log. I did not reread `dht_head_test.cljc`, `main_test.cljc` or the `yin.repl.md` changes this round.

@@ -1,0 +1,17 @@
+I'm blocked on reading the prompt file. It lives in the main checkout, and this session's permissions only cover the worktree. The Read tool, `cat`, and `cp` into the worktree were all denied.
+
+Nothing was changed. The worktree is still clean on branch `yin-repl-vm-stream`, and its `collab/` directory does not contain the file.
+
+To unblock, do one of the following:
+
+- Grant read access to the main checkout path when the permission prompt appears, and re-run the request.
+- Copy the file into this worktree yourself:
+
+```
+cp /Users/sto/workspace/datomworld/collab/1790232406683-vm-engineer-repl-vm-stream.prompt.md \
+   /Users/sto/workspace/worktree-yin-repl-stream/collab/
+```
+
+- Or paste the prompt contents directly into the next message.
+
+Once I can see the brief, I'll carry it out in this worktree.

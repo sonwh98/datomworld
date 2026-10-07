@@ -1,0 +1,38 @@
+The slow Python tests are now tagged, and all three fast lanes are at or under about 2 minutes. Every after-run passed with 0 failures on every lane. I made no git writes and changed no test assertions or inputs. The full report is in `collab/1791196200000-compiler-engineer-python-test-pareto.findings.md`.
+
+**Before → after** (Python namespaces, fast form, two runs each):
+
+| Lane | Before | After |
+|---|---|---|
+| JVM | 550 s / 494 s | 117 s, and 124 s wall with the real `clojure -M:test -e :slow` runner (152 tests, 0 failures) |
+| Node | 441 s / 430 s | 27 s / 27 s |
+| Dart | 1030 s / 965 s | 103 s / 96 s |
+
+**80% (Pareto) sets:** JVM 67 of 215 tests, Node 20 of 83, Dart 26 of 83. Both runs, per-namespace totals and cumulative shares are in the report.
+
+**What I tagged:**
+- **63 tests got `^:slow`:** 42 in the JVM-only `e2e-test`/`e2e-c1-test` files, and 21 `.cljc` tests that also got the guard.
+- **15 `.cljc` tests got the guard only:** they are slow only on Dart, so the JVM fast lane still runs them. They also drop out of the Node fast lane, where they take about 3 s.
+- **8 smoke tests stay in the fast lanes** even though they exceed the threshold, so that generators, dict keys/hash and exceptions/safepoint keep at least two tests each. Integers/floats and lowering already have plenty of sub-second tests on every lane.
+
+**Decisions for you:**
+1. **I went past the "about 5 s" rule on the JVM.** Most e2e tests take about 3 s each, so tagging only tests over 5 s left the JVM at about 243 s. I also tagged every JVM test averaging 3.0 s or more, which is roughly its 80% set. Revert that tier if you'd rather keep the threshold than hit the 2-minute target.
+2. **The 5 kept Dart smoke tests cost about 55 s of Dart's ~96 s.** No cross-host generator, dict or exception test runs under about 11 s on Dart. Dropping them would bring Dart to about 40 s, but Node and Dart would lose their only fast Python-execution signal.
+3. **Guarded bodies are named functions, not inline `(fn [] ...)`.** Wrapping in place re-indented whole bodies and added 48 new lines over 80 columns. Instead, each body moved unchanged into a private `defn-`, and the test calls `(slow/guard "x-test" x)`. The guard runs the same code either way.
+4. **The slowness has no test-helper cause, so I tagged instead of fixing.** Each test lowers its program together with the whole prelude and runs it on all four VMs. On the JVM, `every-vm=` on just `print(1)` takes 2.6–3.0 s; the parity tests cost about 1.4 s each on the JVM, 3 s on Node and 11 s on Dart. Fixing that would need a product change (a precompiled prelude). Three Dart-only outliers look worth a product speed investigation:
+   - `set-recursion-limit-test`: 130 s on Dart vs 17 s on the JVM.
+   - `int-defects-stay-host-failures-on-every-host-test`: 42 s vs 5.6 s.
+   - `admission-in-every-mode-test`: 39 s vs 5.6 s.
+
+**Slow side checked:**
+- All 63 newly `^:slow` tests pass under `-i :slow` (192 s and 237 s, two runs). I selected them with `-v`, because `-i :slow -n yang.python.antlr.e2e-test` would also run the existing `long-loops-test` (about 14 min), which exceeds the 600 s limit. Command to run that namespace's full slow set yourself: `clojure -M:test -i :slow -n yang.python.antlr.e2e-test`.
+- On Node, `DATOM_SLOW_TESTS=1` with the `:ns-regexp` form on `float-address-test` ran all guarded bodies: 119 assertions with the guard enabled, against 75 in the fast form.
+
+**Not done or not measured:**
+- **cljstyle was blocked** (the call needed approval I didn't have here). Please run `cljstyle check` on the five changed test files. kondo reports 0 errors and 0 warnings.
+- Dart was measured one namespace at a time, not through the `cljd_agg` shards.
+- I didn't re-measure the whole fast lane, so the measured-times comment in `docs/agents/build-n-test.md` is unchanged. I added only the line naming the Python slow set and the `clojure -M:test -i :slow -n <ns>` landing command.
+- `yang.python-test` and `yang.safepoint-test` are outside the stated scope and were not profiled.
+- Machine load varied by up to about 25% between runs; both runs are reported.
+
+The profiling scripts and raw timing data are in `target/prof/` and are not committed.

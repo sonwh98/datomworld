@@ -1,0 +1,19 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+Planning is complete. A note on process: the plan-mode workflow refers to an `ExitPlanMode` tool that isn't available in this session's toolset, so I'm ending my turn here with the plan summary instead — the full plan (including the complete report draft) is in the plan file.
+
+## Summary
+
+**Task:** read-only scoping of yin.vm.linker milestones M3/M4/M5 per the architect prompt — produce a factual decomposition report for the collab directory and return it as the final response.
+
+**Research done** (all read-only): full read of `docs/design/yin.vm.linker.md` §1–§13; three parallel Explore agents covering (1) the §8.2 assertion-policy vocabulary across src/test, (2) the M4 touch surface (module.cljc, engine.cljc, four kernels, repl.cljc, tests), (3) git forensics of the uncommitted M2 vs HEAD; plus my own verification of `canonical-bytes`, `primitive-profiles`, `derive-record`/`verify-derivation`, and the module/kernel/repl def inventories.
+
+**Key findings in the drafted report:**
+- **§8.2 assertion policy: zero code exists** (no envelopes, proofs, principals, or authority tests anywhere); it's a pure function over plain data needing only committed `segment-key`/`canonical-bytes` — buildable fully in parallel with M3, with a composition-supplied verify fn (no dao.jing crypto needed or planned).
+- **M4 decomposes into 6 slices** (S1 kernel attach ×4 files, S2 host-module registration, S3 require+install child in engine/module, S4 linker manifests, S5 UCF doc amendments, plus the A1–A3 authority slices); **S1/S2/S5 and A have zero dependency on M2 or M3** and can start from today's committed HEAD.
+- **The UU file is not a merge** — it's a stash-apply remnant, hand-resolved, one `git add` from clearing; M2's commit is otherwise ready.
+- Spec gap flagged: §9's M2 paragraph omits the 5a dominance join, though the working tree implements it (38 of 58 linker tests).
+- Only one §12 open decision blocks anything: failure policy, which blocks M5 alone.
+
+**Upon approval I will:** write the report to `collab/1790355000000-architect-linker-m3-m5-scoping.glm-5.3.report.md` and return it as my final response with the required `Completed-GMT`/`Completed-Local` header — no other files touched.

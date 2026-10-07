@@ -1,0 +1,19 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done — `collab/glm_analysis.md` is written, backed by full extraction of both JFR profiles.
+
+## What I did
+
+The `jfr` CLI isn't in this repo's allowlist, so I read both recordings through the JDK's own `jdk.jfr.consumer.RecordingFile` API (what `jfr print` uses internally) via the allowed `clj` command, with scripts and raw report dumps kept in gitignored `target/` (`jfr_analysis.clj`, `image_dump.clj`). I also pulled the v1 sources from `master` (`git show`) to ground the code-level comparison.
+
+## The answer, in brief
+
+The 7.19× decomposes cleanly into two multiplicative effects:
+
+1. **~2.2× is timed-region composition, not architecture.** v1's `vm/run` re-ingests the program from its `:in-stream` on *every* Criterium iteration — 55% of v1's timed CPU samples sit under `transact_ast_datoms` (DaoDB transact → materialize → node-index rebuild, ~12.7 MB of allocation per run). v2 loads once outside timing (2.1 MB, 0.0 s in the profile).
+2. **~3.2× is the interpreter itself.** Both machines execute nearly the same dispatch count per countdown iteration (~22 CESK steps vs 21 linear instructions — I dumped the actual lowered image to verify), but each v1 step allocates a fresh `SemanticVM` record + control map + frame maps: **1.47 GB (14.2%) of v1's allocation is record copies alone**, while `SemanticVM` is absent from v2's top classes entirely. 2.2 × 3.2 ≈ 7.19.
+
+## One finding worth your attention
+
+The v1 run executed **without `--fast-only`**, and its "slow-path" bench turned out to be degenerate: `run-slow` checks `vm/halted?` before the first step, but a freshly-queued v1 VM reports `halted? true` (program not yet ingested) — so that quick-bench measured nothing but the halt-check loop (99.7% of its samples in `RT/count`, zero allocation). The 15.158 ms figure is the fast path. This also means the historic harness's slow-path numbers for stream-fed stepping VMs never measured the machine — a candidate follow-up on `master`.
+
+One suggestion: adding `Bash(jfr:*)` to `.claude/settings.json` would spare future sessions the workaround.

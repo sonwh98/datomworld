@@ -1,0 +1,49 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+U5 complete. All lanes green, nothing staged, v1 untouched.
+
+## 1. The diff
+
+Above is the exact diff for `test/README.md`, the three `yang` tests, `module_test.cljc`, and `v2_test.cljc`. `test/yin/vm/parity_test.cljc` was rewritten per D4 (key hunks: corpus rows are now `[name ast expected]`; the four deftests compare v2 against the pinned column; v1/`dao.stream` requires and `run-v1` deleted; docstring states the column and capture date 2026-09-16).
+
+One deviation worth naming: `clojure_test.clj`'s helpers merge `:modules (module/register-stream-module (module/default-registry))` into the base VM opts. Without it the three `test-stream-end-to-end` cases failed — v1 registered the `stream` module globally at load time, and v2's composition must register it explicitly (same wiring as `yin.repl.core:273`). Assertions in those tests are unchanged.
+
+## 2. Captured parity values and how
+
+Capture ran against v1 still in the tree, via a temporary scratch namespace (now deleted) that called the parity test's own `run-v1` on each corpus row — `clj -M:test -n scratch.capture-test`, i.e. the exact `run-v1` code path, JVM. Run twice; values identical (the two nondeterministic-looking rows are per-fresh-VM counters, deterministic: `:p-0`, `:stream-0`).
+
+| case | v1 captured |
+|---|---|
+| literal int/string/nil/vector/map/set | `42`, `"hello world"`, `nil`, `[1 2 3]`, `{:x 10, :y 20}`, `#{1 2}` |
+| add/sub/mul/div | `30`, `5`, `50`, `4` |
+| =/= t/</> | `true`, `false`, `true`, `true` |
+| nested application, if t/f, lambda app | `6`, `100`, `200`, `11` |
+| closure value | `{:type :closure, :params ['x], :body {:type :variable, :name 'x}}` |
+| arity-0 lambda, higher order | `7`, `15` |
+| first, conj onto rest | `9`, `[2 3 4]` |
+| store put then get | `11` |
+| gensym / stream make | `:p-0` / `{:type :stream-ref, :id :stream-0}` |
+
+The three named deftests: `ffi => 42`, `blocked => :yin/blocked`, `stream round-trip => [99 99]` (captured in the same scratch run; matching literals were already asserted live in the old file).
+
+## 3. Verification
+
+- `clj -M:kondo --lint` on all 7 touched files — **0 errors**; the 2 warnings in `module_test.cljc` (unused side-effect requires) pre-exist at HEAD and are documented in its docstring.
+- `clj -M:test` → **`Ran 1474 tests containing 166101 assertions. 0 failures, 0 errors.`**
+- `bb test:cljs` → **`Ran 1381 tests containing 35626 assertions. 0 failures, 0 errors.`** — with `Testing yin.vm.parity-test`, `yin.vm-test`, `yin.module-test` confirmed in the Node output (pinned values hold on JS too).
+- `bb test:cljd` — **not run, per this unit's constraints** (U1 owns the CLJD lane tonight). U5's "all three lanes" clause is satisfied to what this unit can verify tonight; the cljd lane runs these same cljc files and is U6's gate.
+- v1 files untouched; `dao.await` files untouched; nothing staged or committed.
+
+## 4. Assertion counts, before → after
+
+| file | `(is` count before → after | runtime assertions |
+|---|---|---|
+| `yang/clojure_test.clj` | 86 → 86 | 21 tests / 91 assertions, unchanged |
+| `yang/python_test.clj` | 73 → 73 | 13 / 73, unchanged |
+| `yang/php_test.clj` | 53 → 53 | 9 / 53, unchanged |
+| `yin/module_test.cljc` | 10 → 10 | unchanged |
+| `v2/parity_test.cljc` | 7 → 7 | 4 tests / 32 assertions (26 corpus + 2 + 2 + 2), unchanged |
+| `vm/v2_test.cljc` | 106 → **114** | +1 deftest, +8 assertions |
+
+The only change is the deliberate port: `codec-round-trips-the-v1-corpus-node-types` in `v2_test.cljc` carries the 8 `ast_conversion_test` cases its existing deftests don't cover — 3 yang-compiled defn roundtrips, `:dao.stream.apply/call`, `:vm/store-get`, `:vm/store-put`, `:stream/make`, `:stream/put` (through the datom codec; literal/variable/application/lambda/if/`tail?` and the root-id heuristic were already covered by `heuristic-fallback-is-unchanged`, `compile-output-is-unchanged-modulo-the-root-fact`, `root-fact-wins-over-the-heuristic`, `macro-lambda-keeps-macro-flag-without-phase`). I verified all 16 v1 cases pass on the v2 codec before deciding what to port.
+
+Full suite: 1473/166093 → **1474/166101** — exactly +1 test, +8 assertions, nothing else moved.

@@ -1,0 +1,38 @@
+Review is done and the plan file is written; I'm now writing up the final report.
+
+Completed-GMT: 2026-09-04 20:28:10 GMT
+Completed-Local: 2026-09-05 03:28:10 +07
+
+**Verdict.** The v1 severance is real and provable from the require graph. The host split is clean in the REPL layer. The "explicit state, one owner" claim holds for the REPL and endpoint values but stops one layer down, where the serving composition is an atom.
+
+**1. Severance from v1 is achieved, transitively.**
+
+I walked the require closure of every namespace under `yin.repl*`, `yin.vm*`, and `dao.stream*`, plus the non-v2 libraries they pull in (`yang.clojure`, `yang.python`, `yang.php`, `dao.pretty`, `dao.datom`, `dao.runtime`). No node reaches `yin.vm`, `yin.vm.ast-walker`, `dao.stream`, `dao.stream.rpc.*`, or `yin.repl`. The only v1 references in the tree are the untouched consumers the plan says to leave alone, such as `src/cljd/yin/repl/flutter.cljd`.
+
+The working-tree diff of `src/cljc/yin/repl/core.cljc` is the severance itself. It replaces the two v1 requires with `yin.vm`, `yin.vm.ast-walker`, and `yin.vm.module`, and `make-vm` now hands the ast-walker a v2 `:make-stream`, the v2 stream module, and a 4096-element ingress ring buffer at `core.cljc:249-265`. That is what turned datom-literal evaluation from the prior "unmet prerequisite" message into `eval-datoms` at `core.cljc:378`, which appends to `(:in-stream vm)`, runs, and treats an `:ingress-gaps` increase as fatal until `(reset)`. The docstring for `ingress-loss?` matches the plan's R2 text exactly.
+
+**2. Host boundaries: the portable files leak nothing.**
+
+Portable namespaces (`core`, `driver`, `connect`, `serve`, `v2-adapter`, `host.common`) contain no `js/`, `java.`, `dart:`, `Thread`, `Promise`, `setInterval`, or `Timer`. The only reader conditionals are catch clauses and the form reader, all written `:cljd`-first, which is the trap the plan warns about. Host cadence lives solely in `src/cljc/yin/repl.cljc`: a reader thread plus poller thread on JVM, one `setInterval` on Node, one `Timer.periodic` on Dart, each calling `step-all` serially. Line handlers only call `driver/submit-line!`, which is a ring-buffer append, so the plan's "no line handler evaluates, requests, polls, or prints" is literally true.
+
+The socket seam is `yin.repl.host`: the `.cljc` selects the JVM adapter, and `.cljs`/`.cljd` shadows replace it wholesale, each requiring only its `dao.stream.ws.{node,dart}` counterpart. This is the design the handoff document describes and it is what the code does.
+
+**3. Explicit state and one owner: true at the top, not underneath.**
+
+The claim holds where it was made. `driver/repl-step` at `driver.cljc:528` threads one map, never loops on `blocked`, budgets every drain, and returns the next state. `connect` and `core` create no atom. Tests such as `booting-yields-one-shell-one-input-medium-and-one-cursor` drive the composition with no host loop at all.
+
+It does not hold for the server endpoint. `serve/serve!` documents its return as "the whole of the endpoint's observable state; `step` is the only thing that changes it" (`serve.cljc:189-191`). But the endpoint holds `:serving`, a `dao.stream.serving` composition whose state is an atom at `serving.cljc:137`, and `serve/step` at `serve.cljc:691` calls `serving/step!` for effect and then reads `serving/state` in `sync-sessions`. A second atom, `resources`, is created in `serve.cljc:264`. So the server has two mutable owners under one nominally immutable value. This is inherited from the sibling stream plan, not introduced here, and the socket threads must deposit somewhere, but the docstring overclaims. Suggested wording: the endpoint value owns the REPL state and session cursors; the serving composition owns its own transport state.
+
+**4. Reader divergence on the JVM, carried over from v1.**
+
+`core/read-forms` at `core.cljc:292-296` uses `clojure.core/read-string` on clj and EDN readers on cljs and cljd, identical to `yin/repl.cljc:334`. The three hosts therefore read different syntax, and on the served JVM shell a remote `#=(...)` form is read under the default `*read-eval*`. Since `--host 127.0.0.1` is the stated boundary this is a documented limit rather than a defect, but it is a host assumption inside portable code.
+
+**5. The shared shell accepts commands it cannot honour.**
+
+`serve/evaluate` runs any request through `core/eval-input`, so a client's `(reset)` or `(vm :ast-walker)` clears every client's store, as D4 accepts. A remote `(quit)` sets `:running?` false on the server's REPL value, which `serve.cljc` never reads, so the client sees "Bye" and nothing changes. Harmless, but undocumented.
+
+**6. R5 evidence is real, not in-process.**
+
+`test/yin/repl_test.cljc` implements the four facts against a child JVM peer that shares only a socket and a pipe, with the stall-then-drop pattern making "reported lost, not timed out" deterministic. Both cross-host pairs exist, spawning the compiled Dart peer and skipping loudly when it is absent. I did not run tests in this read-only pass. The prior recorded run in `collab/yin-repl-r5-r2.glm-5.3.stdout.log` reports zero failures on all three hosts.
+
+**One gap in the plan's own record.** `docs/handoff.md` still says R5 is "not started" and `yin.vm` has "no implementation". Both are now false on this branch.

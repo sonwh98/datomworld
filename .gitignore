@@ -52,5 +52,4 @@ env.sh
 .agents/
 .antigravitycli/
 .commandcode/
-archive/
 docs/agents/routing-status.md

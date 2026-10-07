@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The task is complete. Summary of what was done:
+
+## D7 — version-aware reader and version-1 grammar: complete
+
+**Report**: `collab/1791208000000-compiler-engineer-ucf-d7-v1-reader.findings.md` (with Completed-GMT/Local/Coding-Agent header).
+
+**Diff scope — exactly as required**: `src/cljc/yin/vm/ucf/handoff.cljc` (+177/−32) and the new `test/yin/vm/ucf/handoff_v1_test.cljc`. `handoff_test.cljc` untouched — the stage-1 harness was duplicated into the new file instead of moving a shared helper.
+
+**Implementation** (`resume-task` pipeline, in the contract's order):
+1. `decode-two` — jing canonical decode first, then the stream codec; first accepter fixes the codec; neither → `:yin.k/undecodable`. Probed on real bytes first: v0 stream bytes always carry tag-39 (jing refuses), jing bytes tag-27 (stream codec refuses) — deterministic dispatch both ways.
+2. Tag check, then the codec's version contract (`:stream #{0} :jing #{1}`) on jing's integer kind — `:yin.k/profile-mismatch` before the address check; `{:exclusive true}` refuses a v0 body the same way.
+3. v1 only: `checkpoint/inspect address bytes` — `:yin.k/hash-mismatch` then the custody grammar, over `opts`' `:address` (defaults to the computed one).
+4. `validate-body` now speaks both versions (`handoff-version` = `#{0 1}`; a private `emitted-version` = 0 keeps the v0 wire frozen) and gains the clause-5 grammar: install phase ∈ `#{:running :parked}` on both versions, phase+parent required at v1. Install children re-encode codec-aware and skip the custody step (their ids were already checked in the root's context).
+
+**Evidence** (JVM): test-first — red **8 tests/160 assertions/54 failures**, then green **0 failures**; stage-1 + checkpoint suites **46/485 green**; whole UCF tree **281/2749 green**; wide fast lane `^(yin|dao)\..*-test$` **2967 tests/228176 assertions/0 failures**.
+
+**Reported honestly in findings**: kondo could not run (every invocation route sandbox-blocked); Node/Dart lanes not run (landing is the orchestrator's three-lane step); the full `clojure -M:test` needs the ANTLR classes this worktree lacks (hence the scoped lane). No git writes were made.

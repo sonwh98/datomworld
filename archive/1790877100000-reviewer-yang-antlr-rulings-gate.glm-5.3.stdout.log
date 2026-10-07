@@ -1,0 +1,51 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+Completed-GMT: 2026-10-01 17:56:24 GMT
+Completed-Local: 2026-10-02 00:56:24 +0700
+
+# Gate review — safepoint/C2/C3 rulings in docs/design/yang.antlr.md
+
+Read-only review of the uncommitted diff (`git diff -- docs/design/yang.antlr.md`, +830/-6) against the five findings files in `collab/`. No file was edited. Verdict at the end.
+
+## 1. Traceability — pass
+
+Every semantic statement traces to a finding or converged ruling; I found nothing invented.
+
+- **§8.5.2 (safepoint)** maps 1:1 to the safepoint findings: the four-part table, sites table, consumer table, all addressing rules (including the `:yin.ledger/function` tree-to-tree distinction — the findings' own low-severity correction), the stage.cljc relocation, slice 1, all ten acceptance bullets, and the open items.
+- **§8.5.3 (C2)** records all nine converged rulings, each cited by number, and incorporates the cross-ruling's corrections — notably the conformance claim is honestly downgraded to "an explicit finalization restriction of the support profile, not conformance," and failed-`close` suspension is kept.
+- **§8.5.4 (C3)** records all fourteen converged rulings, each cited by number, in their converged (stronger) forms: mandatory demotion, and the big-literal lowering to parse-over-decimal-string. I spot-checked the repeated code claims against src/: `debruijn.cljc:92` really declares `:bigint` out-of-domain; `data.cljc:411-415` is `data-number?` exported as the data module's `number?` (matching both the ruling's and the D6/D7 log's `data/number?` wording).
+- **Amendments** all trace: the "owner decision 2 holds" reference correctly resolves to the pre-existing §8.5.1 decision 2 (whitespace-sensitivity of code addresses); `cell/swap!` really is rejected in §8.11; §12's C1 wording matches commit `34c3986b`'s subject exactly.
+- **Provenance** verified beyond the findings: `docs/orchestrator-log.md`'s 2026-10-01 17:37 entry records "accept all recommendations" with items 5–11 matching the doc's decisions 5–11 one-for-one; the mob-delegation sentence traces to the owner's verbatim instruction quoted in the writer prompt. Cited commits `34c3986b`, `60b60898` are ancestors of HEAD.
+
+## 2. Landing honesty — pass
+
+`git grep` over src/ confirms none of `stream/poll`, `gen-switch`, `py.sp`, `yang.safepoint`, `py/gen-start`, `py/yield-raw`, `StopIteration`, `GeneratorExit` exists. Every symbol the doc cites as *existing* does exist (`py/fpow`, `py/iter-at`, `py/key`, `py/getattr`, `py/snapshot-obj`, `py/call-ec`, `py/zero?`, `encoder/source-envelope`, `stage.cljc`). Pending is labelled at every level: header ("None of them has landed"), each section opening, §9.3, and §12.
+
+## 3. Consistency — pass
+
+- **Float-tagging**: §8.5's ruling intact; C3 extends it ("Integers stay untagged at every magnitude") and preserves "C1 float tags and signed-zero behavior."
+- **Cell/GC**: safepoints are not collection points; no-implicit-`close` is framed as a restriction; bignums are immutable leaves with cell-based pinning unchanged.
+- **D6/D7** (per the 17:37 log: structural equality on Closure/Continuation, refs sealed, `data/number?`): §8.5.3's "compares only `:state` keywords, never generator contents, since continuation equality and hash are structural" is consistent with landed D7 slice A (`6b8502fd`, an ancestor); "mob D7 does not affect them" matches the doc's established D7 usage.
+- **§8.11, §12, cross-sections**: the C3 key amendment is additive; the mappability table's generator row (bucket 3 for close-on-collection) and the §8.5 cell-ruling sketch agree with §8.5.3; C2/C3 touchpoints are recorded on both sides (exact increment for `iter-at`, counters stay VM primitives, dynamic state joins `:ctx`, generator switches findable by query, `hash()` of identity objects unsupported); §1.1 really says a composition must not feed both routes to one evaluator.
+
+## 4. Format — pass
+
+- **ASCII**: zero non-ASCII bytes in the file.
+- **Over-80**: the only new over-80 lines are the seven declared exceptions. Judgment: keep all seven — the five collab paths match the header block's pre-existing convention (three earlier paths are 84–92 columns; breaking them costs greppability), and the two RecursionError lines must match their table's fixed 152-column geometry; reflowing that pre-existing table is out of scope. No undeclared over-80 lines exist.
+- **Tables**: all 18 bordered tables are internally uniform; the nine new ones are exactly 80 columns with conforming interiors.
+- **Numbering/cross-references**: §8.5.2–8.5.4 sit correctly between §8.5.1 and §8.6; the header's "amend sections 8.5, 8.5.1, 8.11, 9.3, 11, and 12" matches the actual hunks exactly; every cited section resolves, and §13.1 has exactly 12 laws so "laws 3 to 5, 7 to 9, 11, and 12" is well-formed.
+
+## 5. Completeness — pass
+
+Safepoint decisions 5–11, C2 rulings 1–9, C3 rulings 1–14: all present and correctly numbered (rulings 3 and 12 are cited but line-wrapped mid-citation — verified present). Decision 4's expansion is the marks/hooks/poll/identity record the safepoint findings requested. The stale line is corrected: the row now reads "An escape restores the depth saved at capture rather than decrementing by one (section 8.5.2)."
+
+## Findings
+
+- **P3 (note)**: §12's new intro "Python's milestones within this phase are named C1, C2, and C3" is followed by four bullets, the fourth (safepoint insertion) not being a "C" milestone. Cosmetic; content correct and pending-labelled.
+- **P3 (note)**: "safepoint" now names two mechanisms — the pre-existing UCF static parking map (`yin.safepoint/*` in `src/cljc/yin/vm/ucf.cljc`) and the new `yang.safepoint` stage/`py.sp` hooks. Namespaces differ and the doc never conflates them, but a one-line disambiguation in §8.5.2 would help future readers. Both names come from the accepted findings.
+- **P3 (note)**: the seven sanctioned over-80 lines are acceptable as-is (convention and table geometry); no change requested.
+
+## Verdict: READY (sign-off granted)
+
+No P1 or P2 findings. The three P3 notes are informational and do not block landing this diff.

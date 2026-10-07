@@ -1,0 +1,32 @@
+Completed-GMT: 2026-09-19 17:47:44 GMT
+Completed-Local: 2026-09-20 00:47:44 +07
+
+# r4 final gate: R1–R4
+
+**Not ready to commit yet.** The source file is fine: all four code fixes are correct and I found no new defect in `lease.cljc`. The R1 gate has made several assembly tests vacuous, and the R3 bound has no test. The fix below is test-only. Once it is in, the change is ready to commit and I need no further review round. I edited nothing and did not rerun suites.
+
+| Finding | Disposition | Evidence | Remaining action |
+|---|---|---|---|
+| R1 missing resolver swallowed | **Fixed** | `initial-judge` throws unless `(fn? resolver)` (`lease.cljc:656-658`). `r4-judge-without-a-resolver-throws-test` (test:1839-1847) covers no resolver, a non-function resolver, and a valid one. | See T1. |
+| R2 stale `:abort-error` | **Fixed** | The key starts nil (696). `judge-step` resets both keys (1450). | None. |
+| R3 tolerance per-unit bound | **Fixed, untested** | Shape, unit membership and the `quot` bound are all checked at assembly (664-676). The bound check divides, so it cannot overflow. | See T1. |
+| R4 docstring and catch order | **Fixed** | The `drain-ticks` docstring now states that tick values cannot throw, which holds because readings are bounded (884-891). All six catches are `:cljd`-first (900, 1108, 1161, 1376, 1491). | None. |
+| R5 design note | **Recorded in the plan (orchestrator's report; I did not re-read §6)** | — | None. |
+
+## T1 (P2, test regression caused by the R1 gate; fix before commit)
+
+**The problem.** The negative assembly cases pass no `:resolver`. The resolver check (656) runs before `check-units!` (659) and before the tolerance checks (664-676). Each of these `thrown?` assertions now throws for the missing resolver. They would stay green if the unit and tolerance validation were deleted. The brief treats a test that passes while its invariant is false as a defect.
+
+**Affected cases:**
+- `initial-judge-rejects-misconfiguration-test`: the four units cases at test:340-350.
+- `r3-over-bound-unit-table-refused-test`: both negative cases at test:1703-1707.
+- `r3-tolerance-validated-test`: all four bad tolerances at test:1797-1800.
+
+The drain-budget cases at 336-338 are genuine, because that check runs before the resolver check. The orchestrator added `:resolver` to the five positive configs but to none of the negative ones.
+
+**Missing coverage.** The R3 per-unit tolerance bound has no test. The bad-tolerance list holds `{:hr 3}`, `{:ms 1 :s 2}`, `5` and `{:ms -1}`, none of which is over the bound.
+
+**Remaining action:**
+- Add `:resolver (fn [_ _] nil)` to every negative config listed above.
+- Better, assert on the `ex-data` key (`:units`, `:tolerance`, `:larger`), so a throw from the wrong check cannot pass.
+- Add an over-bound tolerance case with a resolver present, for example `{:s 4503599627370496}` against `{:ms 1 :s 1000}`.

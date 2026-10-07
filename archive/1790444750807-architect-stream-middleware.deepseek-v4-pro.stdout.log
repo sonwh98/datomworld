@@ -1,0 +1,93 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+I have the lease-round findings and the handle protocol. Here is the deliverable.
+
+---
+
+Completed-GMT: 2026-09-26 18:15:00 GMT
+Completed-Local: 2026-09-27 01:15:00 +0700
+Coding-Agent: deepseek
+Session-ID: 7aec5601-a998-45b8-a314-235fd90bcf23
+
+## M1 — WHAT "RING-LIKE" MEANS HERE
+
+**RULING: middleware is a handle-to-handle wrapper, expressed as declared data + two pure functions, not a closure chain.** Ring's `(fn [handler] (fn [req] …))` maps onto dao.stream as: the "handler" is a handle (the five-protocol surface, `src/cljc/dao/stream.cljc:144-187`), the "request" is an operation `[op args]`, the "response" is the outcome map. A middleware wraps a handle and transforms the **payload value only** — the `:dao.stream/value` on `next`, the argument on `append!` — while delegating everything else unchanged.
+
+Smallest shape:
+
+```clojure
+;; one generic wrapper (code); middlewares are data:
+{:dao.stream.mw/transform enc-value-fn   ; value -> value (outbound: append! arg)
+ :dao.stream.mw/inverse   dec-value-fn}  ; value -> value (inbound: next :value)
+
+;; wrap-handle implements the same protocols over the inner handle:
+;;   append! v  -> (append! inner (transform v))
+;;   next c     -> (let [r (next inner c)]
+;;                  (if (= :ok (:outcome r)) (assoc r :value (inverse (:value r))) r))
+;;   cursor / descriptor / close! -> delegated verbatim (cursors, anchors, outcomes untouched)
+```
+
+Worked example — value encryption: `append! "hello"` → `(append! inner <ciphertext>)`; `next c` returns `{:outcome :ok :value <ciphertext> :cursor c2}`, and the wrapper decrypts `:value` to `"hello"` while `c2` passes through — the cursor still names the same position.
+
+**Invariants.** Compatible, *provided* the middleware is declared data held by the wrapper (composition-owned, single-owner), not a namespace-global closure: no hidden global state (the key is a wrapper field, the same host-composed closure the contract already permits for transport constructors, `dao.stream.md:371-375`); no raw callbacks (transform/inverse are invoked synchronously in the op path, like `dispatch-request` invoking a handler, never asynchronously); no implicit control flow (each op calls transform/inverse explicitly). If ring's closure-chain form were adopted verbatim and closures were allowed to capture ambient state, it would violate "no hidden global state" — the data-plus-pure-functions form is the compliant reformation.
+
+## M2 — WHERE IT ATTACHES
+
+**RULING: both sites, for different purposes. Per-stream = wrap the table entry's handle (mirror side) and the matching inverse on the reflection (far side); per-channel = wrap the channel's writer/reader.**
+
+| middleware | site | what it transforms |
+|---|---|---|
+| value encryption, compression, redaction | **per-stream** — wrap the served handle in the table entry; the reflection runs the inverse | the payload value |
+| capability / authorization check | **per-stream** — wrap the served handle; the wrapper refuses before delegating | nothing; it gates the op |
+| message encryption / whole-frame auth | **per-channel** — wrap the channel writer (encrypt) and reader (decrypt) | the entire frame (op, identity, cursor, value) |
+
+Message-level must live at the channel, not the mirror, because the mirror needs op/identity/cursor *in the clear* to dispatch; value-level lives at the handle because it transforms only the value.
+
+**What middleware must NOT do.** It must not break "a served stream is the original": cursors, anchors, `gap`, and outcome maps cross unchanged, so the wrapper never rewrites a cursor, an anchor, or an outcome structure. Which transforms preserve that, and which need a declared rule:
+
+- **Value codecs (cipher, compression) preserve it** — they change the value's encoding, not its position; two handles on one stream may present different value-encodings, which is Axiom 2 (one truth, many perspectives).
+- **A transform that changes value size** (cipher, compression) is fine — the value is opaque; only its length leaks (see M3a).
+- **A filter that drops elements is NOT middleware** — it desynchronizes cursors (position N in the filtered view ≠ position N in the source) and breaks cursor portability. A filter is an interpreter (`dao.stream.md` Composition: reads with its own cursor, appends to another stream), not a wrapper. This is a hard boundary.
+- **A transform that touches the cursor, anchor, or `:dao.stream/outcome` is forbidden.**
+
+## M3 — THE THREE NAMED USES
+
+**(a) Encryption.**
+- **Value-level (per-stream).** Identity, op names, cursors, anchors, and value *sizes* stay plaintext. It closes "relay sees the content" but **not** "relay sees everything": a relay still sees who reads what stream, at what positions, in what sizes and cadence (traffic analysis). Ciphertext length ≈ plaintext length unless padded.
+- **Message-level (per-channel).** Only framing/length is plaintext; this nearly closes the relay caveat, but it is a channel concern (done before mirror-dispatch, after reflection-encode) and needs a key at both channel ends.
+- **Key handling** is composition data (a shared secret, a key in the descriptor, or a key-agreement convention); the middleware just consumes a key. **Key distribution is out of scope and unsolved** — flag it.
+
+**(b) Authentication/authorization by capability tokens.** The token is **not** a key in the dao.stream op and **not** a new protocol field; it is checked by a mirror-side wrapper, and the capability itself is **a lease grant** — `dao.lease.md`'s grant already carries `:dao.lease/lease` (a minted id), `:dao.lease/holder`, `:dao.lease/subject`, `:dao.lease/duration` (`dao.lease.md:24-25`). A live grant *is* a capability; the lease id *is* the token; the judge enforces liveness. The wrapper gates each op on "a live grant exists for this subject whose holder matches the presenting medium."
+
+"**No privileged node**" is preserved because a peer that refuses a request is not a server: it exercises the same right every peer has — a peer serves what it chooses and gates by its own policy ("a peer decides what it serves," `docs/design/dao.stream.serve.md:492-494`), and a refusal is a `not-found`/`transport-error` answer, not a protocol role. The *issuer* is just the peer that holds the resource.
+
+**Attribution (the earlier lease-round gap) is closed by per-author media, not by a protocol peer id.** The stateless mirror stamps nothing, so a shared proposal stream cannot say who renewed; `dao.lease.md:274-276` answers with "per-attachment media are the isolation." Each grant names one `#{:writer}` renewal medium whose identity is `:dao.lease/holder`; whatever lands there is attributed to the holder by the medium. A capability check resolves "who presents" the same way — by the medium the request arrived on — exactly as the lease round already concluded.
+
+**(c) Custom transformation — compression.** `transform` = compress, `inverse` = decompress, value-level, at the same per-stream site. This shows the shape generalizes: **any invertible value transform is a middleware; only the transform/inverse pair varies.**
+
+## M4 — PLACEMENT AND DOCUMENTS
+
+**RULING: a new `dao.stream.middleware.md` (a composition pattern, sibling to forward/observe), not in `dao.stream.md` and not solely in `dao.stream.serve.md`.** Middleware is not network-specific — value encryption/compression/redaction applies to a file stream as much as a socket — so it is a *general* dao.stream pattern above the contract. `dao.stream.serve.md` cites it for the two network attachment points (per-stream wrap on the table entry; per-channel wrap on the channel).
+
+Nothing in the contract is in the way: handles are opaque and middleware wraps rather than reaches inside (`src/cljc/dao/stream.cljc:144-187`); the wrapper declares the inner handle's surface (or a narrowed one, e.g. a capability check that drops `:writer`); "no assumed graphs" is untouched. Middleware is a lighter thing than the contract's "interpreter" (which reads via its own cursor and appends to another stream) — it is a value codec at a handle boundary, the same mechanical-transform spirit as the boundary adapter (`datom.world.md:83-104`), and it judges no value semantically.
+
+**Minimal contract text: zero.** `dao.stream.md` already has everything (opaque handles, open outcome maps, declared surfaces, "a transport may offer operations of its own" `:403-409`). The identity/position invariance under value transforms needs no amendment: the contract's identity is "the same through every handle," and it says nothing requiring values to be byte-identical across handles. The only new text is the middleware doc itself.
+
+## M5 — DELTA AND VERDICT
+
+Delta against the converged serve design (≤400 words):
+
+- **New attachment points.** (1) Per-stream: the table entry's handle may be wrapped (`:dao.stream.mw` spec) before it is served; the reflection runs the inverse. (2) Per-channel: the channel writer/reader may be wrapped for message-level transforms. Both are optional; an unwrapped peer behaves exactly as before.
+- **One generic `wrap-handle`** + per-middleware data (transform/inverse pair). No new wire frame, no new op, no descriptor change; the request/answer shapes are untouched.
+- **Capability = lease grant.** The mirror-side wrapper consults the grantor's judge; attribution by per-author renewal medium. This reuses the lease mechanism from the prior round rather than inventing a token vocabulary.
+- **No change** to descriptors, channels, fragmentation, the mirror's statelessness, or the `not-found`/`:oversize` serve vocabulary.
+
+**Ship with or specify only?** **Specify the attachment points and one exemplar (value encryption); do not ship auth/encryption as working defaults.** The mechanism is ready; the security is not — it is blocked on key distribution and a trusted issuer, which are out of scope and unsolved. `dao.stream.middleware.md` specifies the shape and marks encryption/auth as "attachment points, not shipped secure defaults."
+
+**Owner-visible.**
+1. **Metadata leaks under value-level encryption** — identity, op names, cursor positions, and value sizes remain visible to a relay; only message-level (channel) encryption hides structure, and it cannot be done by the mirror.
+2. **Key distribution is out of scope** — middleware consumes a key as data; how peers agree on one is unsolved and not answered here.
+3. **A capability is a bearer token until authentication exists** — a lease grant gates access but does not authenticate; anyone holding the token may present it, and it can be copied. Closing this needs keyed MACs/signatures (also key distribution).
+4. **Filters are not middleware** — a value transform that drops elements desynchronizes cursors and breaks "the original stream"; such transforms are interpreters, not wrappers.
+
+**VERDICT: READY TO SPECIFY** for the middleware *mechanism* (attachment points, generic wrapper, value-transform rule, and the filter-is-an-interpreter boundary). Encryption and capability-auth are specified as *shapes* with their out-of-scope prerequisites (key distribution, trusted issuer) recorded as the explicit blocker to calling them secure — not to specifying them.

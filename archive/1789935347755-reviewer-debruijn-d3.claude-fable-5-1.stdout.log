@@ -1,0 +1,89 @@
+Completed-GMT: 2026-09-20 20:17:07 GMT
+Completed-Local: 2026-09-21 03:17:07 +07 (Indochina Time)
+
+# Adversarial code review: de Bruijn projection, D3
+
+I found no P1. There are three P2s and five P3s. The byte rules in the code match §5, and only `debruijn.cljc` and `debruijn_test.cljc` changed. I derived the pinned scalar fixtures by hand, and each one matches its rule. This was a static review: I edited nothing and ran no suites.
+
+## What conforms
+
+**§5 byte rules in the code**
+- **int64 on the JVM and Dart.** `int64-le-hex` writes 8 bytes, two's complement, little-endian. It uses `unsigned-bit-shift-right` on the host integer.
+- **int64 on ClojureScript.** The value is split into `lo` and `hi` halves with floored `mod` and `Math.floor`. JavaScript's `>>>` applies ToUint32, so negative values are correct.
+  - -1 gives `ff` eight times.
+  - 2^53-1 gives `ffffffffffff1f00`.
+- **Integral doubles.** An integral double in the range from -2^63 inclusive to 2^63 exclusive becomes int64 through `long`.
+- **Unsafe integers on JavaScript.** An integer of unsafe magnitude classifies `nil` there and encodes as a diagnostic. The test asserts this for 2^53.
+- **NaN and signed zero.** NaN is the constant `000000000000f87f` on every host, and `-0.0` keeps its sign bit.
+- **Lengths.** `utf8-byte-length` counts UTF-8 bytes, and the fixtures `é`, `€` and `😀` give 2, 3 and 4.
+- **NFC.** Strings and both ident parts pass through `normalize-nfc`. `jing/sha256` hashes the UTF-8 bytes on all three hosts.
+
+**Pinned literals (item 4): the scalar fixtures are genuine expectations.**
+- Each scalar row can be derived by hand from the stated rule.
+  - 1.5 is `3ff8000000000000` reversed.
+  - `:op/echo` is tag `06` with length `0x1a` over two framed strings.
+  - `[1 2]` is tag `0a` with length `0x34`.
+- The essay fingerprint is a SHA-256 digest, so it can only be a regression pin.
+- All three host lanes assert the same literals, so a divergence on any one host fails that host's lane. That meets §7-D3's criterion.
+
+**JS gating: honest.**
+- A JS number cannot hold the int64 extremes.
+- The shared boundary row is 2^53-1.
+- The extremes are gated out with `#?(:cljs false …)`, which is the JS-number rule from §5.
+
+**Deferral of the live Dart peer: sound.**
+- No §8 row requires a live transport.
+- The identical-hex rows cover the requirement for all three host encoders.
+
+**Record canonicalization**
+- `merkle-node` applies `canonical-value` to every scalar slot, and it builds the preimage from the canonical record.
+- The reader's re-hash therefore agrees with the minted hash.
+- `(= (:records int-version) (:records double-version))` is a real assertion on the JVM, because `1` and `1.0` are not `=` there.
+
+**Descriptor**
+- The diff touches only the docstring and the position of `dimension-hash`.
+- Slots, roles and the value table are untouched.
+
+## Findings
+
+**P2 | `debruijn.cljc:766-786`, `jing.cljc:277-286` | Strings with an unpaired surrogate hash differently on each host.**
+- `utf8-byte-length` assumes such a code unit becomes the 3-byte replacement character. The three hosts do not agree on that.
+  - The JVM's `getBytes "UTF-8"` writes `?`, which is one byte.
+  - `goog.crypt.stringToUtf8ByteArray` writes the surrogate's own three bytes.
+  - Dart's `utf8.encode` writes the U+FFFD replacement character.
+- A legal string literal therefore breaks byte identity across hosts. On the JVM the length prefix also disagrees with the hashed bytes.
+- Fix: make an unpaired surrogate an `:unsupported-value` in `canonical-class`, for strings and for ident parts. Add the fixture on all three lanes.
+
+**P2 | `debruijn.cljc:933` | Canonicalizing map keys can merge entries, and iteration order decides which entry survives.**
+- `{1 :a, 1.0 :b}` on the JVM collapses to a single key under `(into (empty v) …)`. So do two string keys that normalize to one NFC form.
+- The hash is taken over the canonical record, so it then depends on the map's iteration order.
+- The inputs are rare, but this breaks determinism.
+- Fix: if a map's entry count shrinks after canonicalization, raise `:unsupported-value` for a key collision under the canonical limits.
+- Sets are unaffected, because every spelling collapses to one canonical element.
+
+**P2 (test) | `debruijn_test.cljc`, `records-carry-canonical-scalars`, second `let` | The NFC half of the test proves nothing.**
+- It reads the record from the composed input, which is already NFC.
+- It never compares the two projections' `:records`.
+- Fix: assert `(= (:records decomposed) (:records composed))`, and read the stored value from `decomposed`.
+
+**P3 | test `the-dimension-is-published…` | The digest assertion restates the definition, and the `11954e46…` literal is pinned nowhere.**
+- `(= (jing/sha256 (d/encode-value d/descriptor)) d/dimension-hash)` cannot fail.
+- The essay fingerprint does pin the digest transitively, because the digest prefixes every preimage.
+- The literal should still be pinned directly, so that a change to the descriptor shows up as a descriptor failure.
+
+**P3 | `debruijn.cljc:829-833` | The ClojureScript double encoding reads a `Float64Array` through a `Uint8Array`.**
+- That read uses the platform's byte order.
+- A `DataView` with `littleEndian` set to true is explicit, and it matches the Dart branch's approach.
+
+**P3 | `debruijn.cljc:975-980` | The `merkle-node` docstring still says "the first spelling is the record written".**
+- Canonical scalars have made that statement false.
+
+**P3 | §5 of the design document | The hashed stream is text: a tag, an 8-hex length, then the content.**
+- Numeric and byte content is hex, and string content is raw UTF-8, so an int64 frames as length 16 and not 8.
+- The stream is canonical and deterministic. An independent implementation would need it written down.
+
+**P3 | `debruijn.cljc:933-934` | `(empty v)` throws on a record literal.**
+- `canonical-class` classes a record as `:map`.
+- Guard the case, or make it a diagnostic.
+
+READY for architect sign-off. No P1 blocks it. The first two P2s should be applied before D4, because both affect the hashed bytes; the surrogate fix closes a cross-host divergence.

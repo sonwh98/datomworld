@@ -1,0 +1,24 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+P1 is complete. The report is at `collab/storage-space-query-v2.glm-5.3.findings.md`; nothing is staged or committed.
+
+## What was built
+
+- **`query.cljc` rewritten on values** — requires only `dao.datom`, `dao.jing`, `dao.jing.coordinate`, `dao.space.index`, `dao.stream`, `dao.stream.observe` (no v1). Form-level comparison vs `78b5262`: **80 evaluator forms byte-identical**, 11 deleted (exactly the plan's delete list), 11 added (relation/view/result values, `rows`, `fact-relation`, `open-published!`/`close-published!`, `snapshot` on `observe/step`, `value?`). `q` opens and closes nothing; `snapshot` is the one v2 interpreter, with `:ended/:blocked/:gap/:defect` as data.
+- **Deleted** `dao.stream.relation` (+ its stale Dart), its deftest in `stream_test`, and the `lazy-published-current-closes-owned-store-once` test.
+- **Call sites**: stigmergy's six published-index sites now `open-published!`…`close-published!` in try/finally (line 177 untouched); schema 255-256 → `query/rows`, 294 → `query/fact-relation`.
+- **`query_test.cljc` rewritten** around the I/V/R/O/S/E/L groups.
+
+## Verification (all full, final code)
+
+| lane | result |
+|---|---|
+| `bb test:clj` | 1423 tests, 165253 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 1334 tests, 34839 assertions, 0 failures, 1 **pre-existing** error (`wasm-eval-emits-telemetry-test`, present in baseline); `Testing dao.space.query-test` confirmed in Node output |
+| `bb test:cljd` | All tests passed — 1287 |
+| `:demo` build | 0 warnings |
+| kondo on query.cljc | 0 errors, 0 warnings |
+
+## Two things you should look at
+
+1. **The plan's C2 "two sites only" was mechanically unsatisfiable.** `schema/current`'s map branch must *eagerly* interpret (query values → `interpret-view` directly; v1 descriptors → the existing defopen route), because q now refuses unresolved schema-view maps and the schema collapse is unreachable from a v1-free query (a query↔schema require is circular — no src namespace pair has a cycle today). `interpret-view` also drains its v1 realizations itself via `ds/strict-vec`. Consequences: query values carry a vestigial `:dao.stream/type` key, and `current`/`history` still accept opaque v1 realizations (drained via `index/snapshot-datoms`) — both bridges can go when schema's own v2 plan lands. ~17 schema_test tests depend on this; all pass.
+2. **R5's ringbuffer-gap scenario is unconstructible** — a fresh snapshot mints at `:dao.stream/oldest`, which can never trail a quiescent buffer's first retained position. The gap-with-values-and-`:recovery` shape is pinned with a scripted reader instead; the ringbuffer covers blocked/ended/never-closes/feeds-q.

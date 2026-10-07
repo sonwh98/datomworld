@@ -1,0 +1,11 @@
+All five gate fixes are in the `datomworld-m4-s4` worktree, uncommitted as instructed. The report is at `collab/1790432200001-vm-engineer-linker-m4-s4-fix1.claude-sonnet-5.report.md`. On the JVM, `yin.vm.linker-manifest-test` (18 tests) and `yin.vm.linker-test` (58) pass. Kondo and `cljstyle check` are clean on both files.
+
+- **P1-1:** a non-map manifest now returns `{:rule :manifest-shape}`, so it is refused instead of passing as verified. A new test covers a vector and a string at a valid address.
+- **P1-2:** `declared-discharge` has a default arm that refuses `:unresolved-free` with the name and the unknown kind. I added one assertion for it.
+- **P2-1:** the profile strings are now `"stack-lowering"` and `"register-lowering"`. Nothing else in `src`, `test` or `docs` used the old strings. The spec wording near `linker.md` line 1642 and the profile docstring are amended to match.
+- **P2-2:** three new tests cover the `"b1"` contract stamp (`:contract-mismatch`), a record with the wrong op, and a record with an extra key.
+- **P2-3:** `:contract-mismatch` evidence at the manifest step is now `{:expected <requested contract>, :actual <manifest entry>}`. The `with-manifest-index` docstring now says the merge is link-local.
+
+**Relowering test:** the `:missing :relowering` test forces the lowering to throw with `with-redefs-fn` on `linearize/adapt` and `rc/adapt`. Every tree that passes semantic validation lowers cleanly, so no real input reaches that branch. The test is JVM-only (`#?(:cljd nil :clj ...)`), and its `linearize` require is `:clj`-only so kondo stays clean.
+
+I did not run the full lanes. Partway through I ran `clojure -M:test -e ...`, which ignores `-e` and ran the whole JVM suite (2155 tests, 0 failures). That was before the relowering test existed, so it doesn't cover the final tree.

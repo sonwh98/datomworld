@@ -1,0 +1,46 @@
+Completed-GMT: 2026-10-03 19:10:18 GMT
+Completed-Local: 2026-10-04 02:10:18 +07
+Coding-Agent: claude
+Session-ID: 6eacd026-dad7-42cf-bec7-687f3e392d9b
+
+The test took about 62 s on Dart because of how the test reads the replies, not because of the chunk path or the codec. A one-line test-only fix brings it down to about 1 s on Dart.
+
+**Dart times for this one test:**
+- **Before:** the test body ran about 62 s (it finished at 01:07, including about 5 s of loading; wall time 1:08.8).
+- **After:** it passes at 00:01 (wall time 4.8 s including loading).
+
+**Breakdown:** I copied the loop into a temporary test namespace and timed each step. Totals over the 1200 iterations:
+
+| phase | Dart ms | JVM ms |
+|---|---|---|
+| `mesh/sent` + `drop before` | 59,366 | 3,127 |
+| `dht/step` | 881 | 184 |
+| `zeros` | 325 | 70 |
+| `inject!` | 115 | 22 |
+| `wire/encode` | 102 | 16 |
+| replies check | 34 | 4 |
+| `mesh/byte-count` | 1 | 0 |
+
+**Cause:** `test/dao/jing/dht_test.cljc:1201` called `(drop before (mesh/sent net))`.
+- `mesh/sent` (`test/dao/jing/dht/mesh.cljc:223`) decodes every datagram in the whole log each time it is called, not just the new ones.
+- 1046 of the 1200 steps add a reply, so the loop decodes about 547,000 datagrams to read about 1046 new ones. The cost grows with the square of the step count.
+- One decode costs about 108 µs on Dart and about 5.7 µs on the JVM. That ~19x gap multiplied by the squared count is why this test stood out.
+- `zeros`, `wire/encode`, `byte-count` and base64 are all small.
+- The similar 1200-step test is not slow because it only counts the log (`mesh/log-size`) and never decodes it.
+
+**Change** (`dht_test.cljc`, +4/−1, with a short comment): the loop now decodes only the datagrams added in the current step:
+`replies (mesh/sent (atom {:log (subvec (:log @net) before)}))`
+- No wire format, codec, canonical byte or protocol behaviour changed.
+- The assertions are unchanged, and every reply is still decoded and its size checked.
+
+**Verification:**
+- The JVM run of `dao.jing.dht-test` passed: 43 tests, 254 assertions, 0 failures, 0 errors.
+- kondo reports 0 errors and 0 warnings; `cljstyle fix` then `check` is clean.
+- I deleted the temporary namespace and its generated Dart file. `git status` shows only `dht_test.cljc` modified.
+- I made no git write commands.
+
+**Decision for you:** a cleaner shared fix would be a `(mesh/sent net from)` form in `mesh.cljc`. It's not in this task's allowed files, so I didn't make the change and need your go-ahead. The five other `drop before` uses in the test file are outside the 1200-step loops, so they don't need it.
+
+Findings are in `collab/1791054296000-storage-engineer-dart-dht-slow-test.claude-opus-5-5.findings.md`.
+
+The Gmail, Google Calendar and Google Drive connectors need authorization in your claude.ai connector settings before they can be used. This task didn't need them.

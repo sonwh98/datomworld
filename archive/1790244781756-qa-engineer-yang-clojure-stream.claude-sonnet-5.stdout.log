@@ -1,0 +1,27 @@
+cljstyle passes on the corrected file. Waiting for the first Dart run to finish so I can rerun the lane against the fix without two Dart builds overwriting each other.
+Completed-GMT: 2026-09-24 10:24:09 GMT
+Completed-Local: 2026-09-24 17:24:09 +07
+
+**Changed files**
+- `test/yang/clojure/stream_eval_test.cljc` (new, 13 deftests, 309 assertions on the JVM). Nothing else was edited. The scratch probe under `target/` was removed. The prompt file in `collab/` is untouched.
+
+**What the suite covers**, each case run on all four VMs the shell composes (ast-walker, semantic, stack, register):
+- Pure expressions and let bindings: a 22-entry pinned corpus of literals, primitives, conditionals, and/or, lambdas, nested and sequential let, do.
+- Stream ingestion, transformation, emission: make/put/cursor/next in one round; a recursive pump copying a closed source stream into an output stream with a transform, then draining it; a second cursor replaying the source's whole history; cursor-as-reader-progress; evict-oldest on a full ring; closed streams refusing writes and ending reads with nil; a read on an empty stream parking the VM, reported as an error, with the round consumed and the stream surviving.
+- The shell's own media: prints and per-round result tokens read directly off a caller-owned output ring; one row batch per program on the program medium and one packet per program on the row medium, commands appending nothing, zero ingress gaps.
+- Multi-turn sessions: streams, closures, and the value history spanning rounds; reset and VM switch forgetting streams; multi-line input accumulation.
+- Cross-VM parity: one stream script answered identically by all four VMs, and repl-state agreeing up to VM name and medium identity.
+
+**Check outcomes**
+- `clojure -M:test -n yang.clojure.stream-eval-test`: 13 tests, 309 assertions, 0 failures, 0 errors.
+- `bb test:clj`: 2001 tests, 180440 assertions, 0 failures, 0 errors. One unrelated cross-host test self-skipped because the Dart peer had not been built yet when that lane started.
+- `clj -M:kondo --lint` on the new file: 0 errors, 0 warnings.
+- `cljstyle check` on the new file (run via `mise exec` with the tool named explicitly, since the worktree's mise config is untrusted): clean.
+- Pure ASCII and every line at or under 80 columns, verified by grep.
+- `bb test:cljd`: the full lane ran. Exactly one failure, in the new namespace, caused by Dart printing map keys in a different order than my prefix check assumed. I fixed the predicate to be order-independent and re-verified JVM, kondo, and cljstyle, but I could not rerun the Dart lane after the fix: the session was torn down while it waited for the first run to finish. The Dart verdict for the fixed file is therefore unverified.
+- `bb test:cljs`: did not run any tests. The Node build fails at module resolution because this worktree has no `node_modules` (missing `@noble/hashes/blake3.js`). Both remedies, `npm ci` or linking the main checkout's `node_modules`, required an approval this non-interactive session could not obtain.
+
+**Unresolved and next**
+- Rerun `bb test:cljd` to confirm the one-line predicate fix; all other 12 cases already passed on Dart in the first run.
+- Provide `node_modules` in this worktree (`npm ci`), then run `bb test:cljs` and confirm "Testing yang.clojure.stream-eval-test" appears in the Node output.
+- No source dependency needed expansion. The parked-read behaviour the tests pin (the shell reports a blocked program as an error) is the current contract, not a judgment that it is the desired one.

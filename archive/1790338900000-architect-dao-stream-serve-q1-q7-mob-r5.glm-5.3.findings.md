@@ -1,0 +1,33 @@
+Completed-GMT: 2026-09-25 12:27:27 GMT
+Completed-Local: 2026-09-25 19:27:27 +07
+
+# dao.stream.serve — round 5, Q5(i) sequenced close (GLM-5.3)
+
+I read codex's round-4 reply verbatim and re-verified every line it cites before answering: the anchor definitions (`dao.stream.md:477-481`), the Reading table (`:542-550`), the no-waiting rule (`:153-158`), `end`'s handle-relativity (`:603-609`), the design's anchor piggyback and window-miss behavior (findings.md:125-127, 137), the completion criteria (findings.md:286-296), and the throwing consumer path (`engine.cljc:245-254`). All accurate.
+
+## A. Do codex's two amendments resolve my objection? — YES; Q5 is settled. I accept with three specific edits.
+
+First, what happened in the exchange: codex r4 concedes both points my round-3 position turned on — no new outcomes, no synchronous source consultation ("These changes use existing outcomes and return immediately, so they respect no waiting and require no unaccepted OD"; "GLM's arguments establish that a fresh remote answer cannot be demanded synchronously and that current VM consumers throw on a new outcome"). What it holds instead is that my *mechanism* was too weak: a subordinate §4 declaration plus one marginal sentence cannot change what the contract's own definition sites say — the two affected definitions must be amended where they live. On the text, codex is right, and by my own citation: the serve doc is subordinate ("Where the two disagree, the contract wins", findings.md:6), and the contract's own amendment protocol moves accepted text *into the section it amends* (`dao.stream.md:799-801`), not beside it. Amending the definitions is my declaration position, executed properly. I checked both drafted blocks against the contract and the design:
+
+- **The blocked amendment** makes `blocked` handle-relative ("no observation is available *through this handle* at this cursor now"). That fits the contract's existing relativity structure — it already classifies `closed`/`end` as handle-relative and `gap` as retention-relative (`dao.stream.md:603-605`) — and changes nothing for direct transports, for which "no observation available through this handle" and "nothing at this position yet" coincide. The deferred-fetch clause matches the design exactly (findings.md:137, 142).
+- **The anchors amendment** ("source-minted anchor from its last completed source observation"; "`:newest` may precede the source's current tail but must never follow it") states the provable invariant: an anchor observed at time t₀ is ≤ the source's tail at t₀, hence ≤ the tail at any later mint, so the no-follow clause holds even under UDP response reordering — and it preserves the cursor-namespace rule, since piggybacked anchors *are* source-minted (findings.md:64, 73, 103). The `:oldest` clause matches the design's §3.6 gap-with-recovery-cursor behavior (findings.md:127) and criterion 2 (findings.md:288).
+
+Three edits, none changing substance:
+
+1. **"A later successful source observation supplies the source's outcome" — change "successful" to "completed."** As drafted, "successful" could be read as *ok-only*, which would wrongly exclude exactly the outcomes the design relays verbatim: the source's own `gap`, `end`, and `blocked` (findings.md:142: "every source outcome, relayed verbatim"). "Completed" (matching "last completed source observation" in the Cursors block, which already has it right) says what is meant: the fetch finished; whatever the source answered is what the reader gets.
+2. **Keep `blocked`'s retry disposition.** The current row says "Nothing at this position yet; **retry later**" (`dao.stream.md:545`); the replacement drops it. Consumers are owed the EAGAIN contract (the IO Model's own gloss, `dao.stream.md:146-148`). Restore "; the reader may retry later" to the first sentence.
+3. **One declared-nature term across both amendments.** Block 1 says "deferred remote reads," block 2 "deferred remote anchors" — two names for one nature on one handle. Surfaces declarations are per-handle (`dao.stream.md:446-453`); unify to a single term (e.g. "deferred remote observation") used in both blocks, so a handle declares one nature governing both `next` and `cursor`.
+
+I also accept codex's framing that this is a serve-design conformance gate independent of the OD bundle — decoupling is cleaner than my "rides with the OD acceptances," and the amendments indeed presuppose no OD.
+
+## B. Is codex correct that `end` cannot be "only ever relayed"? — YES; my round-3 phrasing was wrong.
+
+The contract makes `end` explicitly handle-relative: "`:dao.stream/closed` and `:dao.stream/end` are handle-relative… a reader surface, where the handle has one, answers `end` from `next` once observation through this handle is exhausted" (`dao.stream.md:603-609`). The design itself relies on this — after session loss, "`next` answers what the window holds and then `end`… `end` from the source is relayed. `end` from session loss is local. Both… are correct" (findings.md:149, 153). My round-3 sentence "with `gap`/`end` only ever relayed" was therefore wrong for `end`, and I correct it: **`gap` is only ever relayed, never synthesized** (findings.md:154; retention-relative, so a proxy-local `gap` would be fabrication); **`end` is either relayed (source ended) or local and contract-sanctioned (attachment exhausted)**. Codex's reading of `dao.stream.md:603` is accurate.
+
+## C. Remaining disagreement
+
+None. The one open item of round 3 is closed on codex's amended mechanism with the three edits above; the OD dispositions (Q5(ii)) were already agreed.
+
+All seven questions now carry a position both models endorse: Q1 as-designed + UCF §7.4.3 amendment (with `append-unknown` named); Q2 defer held reads; Q3 opaque composition-assigned ids in trusted v1 + defined duplicate-registration, public path deferred to channel-auth work; Q4 composition-supplied relay admission with bounded state, open default only for trusted deployments, postage as future policy; Q5 OD-2 + OD-3(a)+(2) as drafted, OD-1 with the corrected write fallback accepted for the implementation phase, and the proxy's cached-read semantics legalized by the two definition amendments + §4 declaration; Q6 lease-governed with composition retirement as the pre-grant/v1 stopgap and renewals counted only on observed source `ok`; Q7 `dao.stream.serve` plus the copy-serving rename and ws prose fix.
+
+CONSENSUS: Q1, Q2, Q3, Q4, Q5, Q6, Q7; OPEN: none

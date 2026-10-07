@@ -1,0 +1,42 @@
+# Report r2: slice 4, fix round 1 (the Dart reader workaround)
+
+All four sign-off findings are addressed, and every lane is green on the final tree:
+
+| Lane | Result |
+|---|---|
+| kondo | 0 errors; the 4 warnings are the ones `vm.cljc` already had |
+| JVM | 2427 tests, 0 failures |
+| Node | 2332 tests, 0 failures |
+| Dart | `+2294: All tests passed!`, exit 0 |
+
+One point needs your decision: on Dart the reader never refuses duplicate keys, for any symbol, so it can't match JVM and Node refusals without a reader-wide change (details below). The full report is `collab/1790765200000-query-engineer-ast-slice4-occurrence-rules.claude-opus-5-5.report-r2.md`. Nothing is committed.
+
+## Fixes (`yin/repl.cljc`, Dart reader path only; JVM and Node untouched)
+- **Finding 1, `%` right after a reader macro.** The scanner now walks form starts the way the reader does. It handles every `#` dispatch (including `#_`), the prefix macros `' @ ^ `` ` `` ~`, and it skips strings, regexes, comments, character literals and `#()` bodies.
+- **Finding 2, duplicate handling.** Each distinct `%` token now gets a single placeholder, so the host reader's own duplicate handling applies. A reader error that names a placeholder is rethrown naming the `%` token, e.g. `Duplicate key: %`.
+- **Finding 3, rebuilding every map.** The restore now rebuilds only branches that contain a placeholder, keeping each collection's type, order and original metadata. Everything else comes back unchanged (`identical?`). The workaround only runs when the input contains `%`.
+- **Placeholder names.** They no longer contain dots. That fixed a bug I found along the way: syntax-quoted `` `% `` now restores to `ns/%`, as on the JVM.
+- **Finding 4.** The implementation-plan text about `p-up`/`occ-anc` is marked historical and points to the ruling.
+
+## Tests failed on Dart before the fix
+- **Red run against the round-1 reader:** 2290 passed, 3 failed.
+- **Red run of the final tests, with the round-1 reader swapped back in:** 2292 passed, 2 failed.
+  - `(quote [#_% %])` gave `Error: Unexpected closing square bracket.` (finding 1).
+  - `(quote {% 1 % 2})` gave `{'% 1}`, while the same line with a plain symbol gives `{'zz9 2}` (finding 2).
+- **Finding 3 has no Dart test that fails before the fix.** On Dart, map literals always read as hash maps, so the old rebuild produced no visible difference there. The fix holds by construction. A JVM check script (`target/slice4/r2_reader_check.clj`) confirms unrelated maps come back unchanged. A new test pins that, on each host, a line with `%` answers exactly what the same line with a plain symbol answers.
+
+## New tests (`test/yin/repl_test.cljc`)
+- **Cross-host parity:** the same lines read to the same forms on JVM, Node and Dart.
+- **`%` vs plain symbol:** on each host, a line with `%` answers exactly what it answers with a plain symbol in its place.
+- **Regex and `#()` cases:** checked against JVM behaviour. Node's EDN reader rejects both forms, which is an existing difference between Node and the JVM.
+- **Duplicate refusals:** on JVM and Node.
+
+## Dart reader behaviour, independent of `%`
+1. It never refuses duplicate keys: `#{a a}` collapses and `{a 1 a 2}` keeps the last value.
+2. Map literals are hash maps, so small maps print in a different order than on the JVM. The round-1 rebuild only matched the JVM order by accident.
+3. Inside `#()`, only `%1`, `%2`, … work; a bare `%` or `%&` fails. This is the same upstream bug as the bare-`%` one outside `#()`.
+
+## Decision needed
+The brief asked for refusal tests that match JVM and Node. I kept each host reader's own duplicate behaviour instead, which is what the finding's fix text asks for, so on Dart `%` collapses exactly like any other symbol.
+- **Making Dart refuse duplicates:** that would change the Dart reader for every input, not just `%`, so it's an Architect or owner call.
+- **My recommendation:** get all three reader bugs fixed upstream in ClojureDart, then delete this workaround.

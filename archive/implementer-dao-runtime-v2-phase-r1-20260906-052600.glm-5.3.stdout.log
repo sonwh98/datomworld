@@ -1,0 +1,69 @@
+All work is complete. Summary of the implementation:
+
+**`src/cljc/dao/runtime.cljc`**
+- **Namespace docstring** now states the full architectural contract (*What `dao.runtime` is*): state is a value; a task is a map with `:resume`; classification is total (only `blocked`/`full` wait); the polling wait set is the mechanism; a parked writer retries by appending and no polled state is discarded; the loop is a step, with host-owned entries returned to the composition.
+- **`run-once`** is now ready-queue-only: pops and resumes the head if it has `:resume`, else returns `nil`. It never calls `check-wait-set`.
+- **`run-loop`** drains the ready queue, then polls exactly once per round; continues iff the poll moved something (wait-set shrank), else returns; whenever the ready queue's head is host-owned, it returns the state holding it — poll state included, never discarded.
+
+**`test/dao/runtime_test.cljc`**
+- Classification tests are declaration-driven: expectation tables checked for exact key-set equality against `stream/outcomes-next`/`outcomes-append`, so a future contract outcome fails instead of falling silently into the default branch; exactly `blocked`/`full` wait; an undeclared outcome is terminal.
+- Regression test for the discarded poll: a reified fake writer answering `full` once then `ok`, counting writes, with a `:put` task parked via the real `handle-write` path and a host-owned entry at the head. Verified it fails against the old implementation (9 failures, including a triple-append duplicate) and passes with the fix.
+- A drain/quiescence test proving ordered ready execution and that an unresolvable parked reader does not spin the loop.
+
+**`test/yin/vm/runtime_adapter_test.cljc`** — new test: a reader woken with `:status :dao.stream/gap` resumes non-terminally with the gap value and has its stored cursor replaced by the transport's recovery cursor.
+
+`bb test:clj`: 1397 tests / 167080 assertions, 0 failures. `bb test:cljs`: 1314 tests / 34692 assertions, 0 failures, with `Testing dao.runtime-test` confirmed in the Node output. `bb test:cljd` not run per instructions. `yin.vm` engine, walker, FFI and parity suites ran in both lanes, unchanged and green.
+
+Completed-GMT: 2026-09-06 05:45:17 GMT
+Completed-Local: 2026-09-06 12:45:17 Asia/Ho_Chi_Minh
+Coding-Agent: claude-fable-5-1
+Task: Phase R1 of dao.runtime (docs/design/dao.runtime.implementation-plan.md)
+
+Files changed:
+- src/cljc/dao/runtime.cljc
+  - run-once is ready-queue-only (never polls); returns nil on a host-owned
+    head. check-wait-set remains the only function that polls.
+  - run-loop drains the ready queue, then polls once per round; continues
+    iff the poll moved something from the wait set, else returns; returns
+    the state whenever the ready queue's head is host-owned, keeping the
+    polled state (a writer the poll resolved sits behind the host-owned
+    head) instead of discarding it.
+  - Namespace docstring now carries the architectural contract (the
+    "What dao.runtime is" rules) in compressed form.
+- test/dao/runtime_test.cljc
+  - read/write classification tests now iterate dao.stream/outcomes-next
+    and outcomes-append through expectation tables whose key sets must equal
+    the declared sets (a future contract outcome fails the test); exactly
+    blocked/full wait; an undeclared outcome is terminal, not a wait.
+  - run-loop-returns-a-polled-state-behind-a-host-owned-head-test: fake
+    writer (reify IDaoStreamWriter) answering full once then ok, counting
+    writes; :put task parked via handle-write; host-owned entry at head;
+    asserts exactly one append, the writer resolved in the ready queue
+    behind the host entry, the returned state containing both, no duplicate
+    write on re-drive, and that run-once alone never polls. Confirmed the
+    test fails (9 failures) against the pre-R1 implementation.
+  - run-loop-drains-and-polls-until-quiescent-test: ordered drain, and an
+    unresolvable parked reader ends the loop rather than spinning it.
+- test/yin/vm/runtime_adapter_test.cljc
+  - gap-wake-replaces-the-stored-cursor-with-the-recovery-cursor-test: a
+    reader woken with :status :dao.stream/gap resumes with the gap value and
+    has its stored cursor replaced by the recovery cursor.
+
+Verification:
+- bb test:clj — 1397 tests, 167080 assertions, 0 failures, 0 errors.
+- bb test:cljs — 1314 tests, 34692 assertions, 0 failures, 0 errors;
+  "Testing dao.runtime-test" confirmed present in Node output.
+- yin.vm engine, walker, FFI, module, parity and stream-observer suites
+  ran within both lanes: unchanged and green (the engine calls its own
+  check-wait-set before rt/run-once, so the split leaves it unaffected).
+- bb test:cljd not run, per instructions.
+- clj-kondo on the three changed files: 0 errors; the single
+  unused-private-var warning in runtime_adapter_test.cljc pre-existed this
+  change and was left untouched.
+
+Notes:
+- The regression test parks the writer through the real handle-write path;
+  the fake counts only appends that wrote (a full outcome refuses and does
+  not write), so "exactly one append" holds across park, drive and re-drive.
+- One in-progress bug was caught and fixed during the work: a new test
+  passed handle-read's envelope rather than its :state to enqueue-ready.

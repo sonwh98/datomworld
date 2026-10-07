@@ -1,0 +1,31 @@
+Completed-GMT: 2026-09-14 14:38:34 GMT
+Completed-Local: 2026-09-14 21:38:34 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1132 lines (was 780). Only this file changed; it remains untracked, and `git diff --stat` is empty.
+
+**Finding-by-finding:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Symbol-only store keys | Fixed. New `key` kind in §2.2 (symbol or keyword, citing `parity_test.cljc:99` and the linearizer/loader pass-through); both store tags use it; keyword round trips added to §7.2's conformance obligation; §7.4 and §7.5 validators check the kind. |
+| 2 | `store-update` rewrite not generally equivalent | Fixed. §3.1 keeps the exclusion on host-value-in-syntax and absence from every persistent form; the "second address" argument is gone; the `yin/def`-over-`store-get` rewrite is stated as equivalent only when neither name is shadowed under `resolve-var` precedence and `f` returns plain data rather than an effect. |
+| 3 | Runtime bookkeeping inside the tuple | Fixed. New §2.6 gives a frame schema table: `:node` holds the immutable tuple; `:fn`, `:evaluated`, and position live beside it; `:operator-evaluated?` is dropped as redundant with the frame type. §9.1 now lists the cold and hot continuation arms with line ranges. |
+| 4 | Dependency queries incomplete | Fixed. §7.7 publishes extraction queries for names, store keys, FFI ops, parked ids, and effect tags over both flat rows and segment-qualified rows; composition rules read callable effects from profiles, resolve parked ids against the carried slice, and define `:complete`/`:incomplete`/`:blocked`; it states the recast does not resolve cross-activation naming. |
+| 5 | No shared structural validator | Fixed. §7.5 is a vector rule table (nonempty, mnemonic, arity, operand kinds, saturation, target bounds, terminator, argc); §7.2 requires both paths to call it before registration with matching defects, adds a malformed-input set including `[[:jump 9]]` and a multi-segment case, and explicitly supersedes UCF §7.3.4's projection-primary sentence. |
+| 6 | Ledger rows illegal as datoms | Fixed. §8.1 separates the logical `[t op address ref]` notation from transactor input; address-to-address facts become local ledger event entities with addresses in `v`, citing `local-datom?` and `pad-datom`. |
+| 7 | Reserved-id allocation | Fixed. §8.2 uses no reserved ids: the op is a keyword value on the event entity, validity stays in the reserved markers, provenance links use the metadata-entity mechanism; derive direction corrected to input=tree, output=segment; §10.3 rewritten. |
+| 8 | As-of negation wrong | Fixed. §8.6 routes through `query/current` with its as-of argument and names the latest-event-per-`[e a v]` rule; §6.4 binds the name entity via `:yin/name`. |
+| 9 | Content identity vs occurrence identity | Fixed. §2.5 defines occurrence keys `[root-address path]`; side tables and instruction provenance are keyed by them; §4.4 states the distinction; §8.4 keeps one event per attempt with input, output, macro, and call-occurrence as attributes. |
+| 10 | Macro flag removal without replacement | Fixed. New §8.5 specifies `{:yin/code tree :yin/declarations #{[path :yin.macro/definition]}}` with binding, ordering, missing-fact, scope, and redefinition rules; flagged as the blocker in §10.5 without requiring the expander. |
+| 11 | Hash chain not in objects | Fixed. §5.2 and §8.2 define content-addressed derivation records naming input, output, function, and contract stamp; verification recomputes under the record's contract and reports revision difference as `:yin.k/profile-mismatch`, not corruption. |
+| 12 | Encoder blocker scoped to durable ledgers | Fixed. §4.2 gates every identity use regardless of lifetime and adds an `:encoder-domain` validator rule over a restricted value domain; §10.1 rewritten. |
+
+No finding was overruled.
+
+**New or restructured sections:** §2.6 (continuation frames), §5.2 rewritten around derivation records, §7.2 to §7.7 renumbered with separate tree rules and vector rules, §8.2 (records and events), §8.4 (expansion events), §8.5 (macro declaration carriage), §8.6 (as-of views). §9.2 now notes the REPL's `ast->datoms` conversion and the absence of live `append-program-datoms` callers.
+
+**Verified against source myself:** `parity_test.cljc:99`; `local-datom?` at `datom.cljc:42-58` and `first-user-id` at `:27-40`; `pad-datom` at `transactor.cljc:74-90`; `current-state-seq` at `query.cljc:76-103` and `current` at `:204-212`; `parse-op` map-`m` handling at `transact.cljc:15-29`; walker frame writes at `ast_walker.cljc:213-217`, `:226-237`, `:532-541`, `:576-580` and the position computation at `:231`/`:575`; the FFI frames at `:138` and `:159-163`; `apply-function` at `:184-188`; `semantic/apply-call` effect interpretation at `semantic.cljc:206-220`; `datom.md` lines 140-180 and 200-217; `yin.vm.macro.md` admission and harvest at lines 229-254 and the event at 666-709; `dao.space.schema.datomic.md` §4's metadata-op prerequisite; `repl/v2/core.cljc:444-449`; UCF §7.3.4 verification text at lines 313-319.
+
+**Taken from the review, not re-run:** the reviewer's executed results, namely the linearizer output for the keyword-key case, the transactor accepting `[16 :yin/code :segment/example 0 1]` and rejecting the address-in-`e` row, the empty result of the old as-of query on the assert/retract/reassert sequence, and the successful `& ?tail` rest-pattern query. I verified the code paths those results follow but did not execute them.

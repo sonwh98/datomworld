@@ -1,0 +1,75 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-flash","query_source":"generate_session_title"}
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I read the plan, its authorities, the sibling plan, and all the named source files. Findings below are ranked most severe first. Citations are `file:line`.
+
+## Findings
+
+**1 | Critical | `docs/design/yin.repl.implementation-plan.md:168-176,292-297` vs `docs/design/dao.stream.ws.md:292-304,373-386`, `docs/design/dao.stream.md:242-254,278-280`, `docs/design/dao.stream.implementation-plan.md:187-196`**
+Claim: R3–R5 are sequenced and only need "both decision gates"; R4 says it "cannot be finished until that spec says where a server-side handle's identity comes from," implying the spec will soon say it.
+Correction: The authorities still leave the handshake wire format, the value codec, the ended-stream close code, the descriptor/envelope key set, and the server-side attachment identity as TBD/Deferred. So only R1 and R2 are executable from these documents. The plan must mark R3–R5 blocked on amendments to `dao.stream.md` and `dao.stream.ws.md` — or include those amendments itself, which it cannot while remaining subordinate. As written, an implementer finishes R2 and stops.
+
+**2 | Critical | plan `:169-172` vs `docs/design/dao.stream.implementation-plan.md:187-195` and `docs/design/dao.stream.md:242-254`**
+Claim: `connect` normalizes the URL to `{:dao.stream/type :dao.stream/ws, :ws/host …, :ws/port …, :ws/path …}`.
+Correction: Those are precisely the provisional descriptor keys the sibling plan's decision gate forbids using before settlement. Delete the concrete map; keep the URL sugar opaque until `dao.stream.md` settles the descriptor key set. The plan contradicts itself: line 170 invents the keys that lines 174–176 say cannot be used yet.
+
+**3 | High | plan `:150-176` vs `docs/design/dao.stream.ws.md:9-16,38-42,292-304`**
+Claim: D2a is "the minimum that works" with "no per-conversation stream," and D3 is an open naming question.
+Correction: In the ws spec a descriptor names a server-hosted stream, and attaching to a path nothing serves must be disclaimed (`:ws/not-found`). With no served stream, `/repl` names nothing and the REPL is unreachable. D2a only works if R4 still creates a served stream (for example, one endpoint-owned stream used purely as the named identity, while replies still go directly to connection handles) and maps `/repl` to it. The plan must specify that stream and its lifecycle; it cannot choose D2a and then defer D3.
+
+**4 | High | plan `:282-287` vs `docs/design/dao.stream.implementation-plan.md:237-240` and `docs/design/dao.stream.ws.md:138-143`**
+Claim: R4 will deposit each accepted connection's inbound messages onto "one medium per attachment."
+Correction: The 4a transport this plan depends on implements "one medium per boundary in this slice." Per-attachment media require a boundary-level lifecycle stream and a mechanism to create/wire a medium per accepted connection — exactly what 4a does not build. The plan must either demultiplex one shared medium by `:ws/attachment` (which its own client already can) or explicitly add the per-attachment serving composition it says it excludes.
+
+**5 | High | plan `:197-200,349-351` vs `src/cljc/dao/stream/ws.cljc:369-432` and `src/cljd/dao/stream/ws.cljd:160-177`**
+Claim: "The cljd answers come from `dart:io`" and the v2 cljd transport will match the other two hosts.
+Correction: A `dart:io` WebSocket server exists (v1 uses `HttpServer.bind`/`WebSocketTransformer`), so the basic premise is right. But Dart's `WebSocket` is a `StreamSink` with `add`; it has no send-buffer `full`/ready signal. The v2 cljd transport must therefore declare `:dao.stream/full` **excluded** with a stated reason, and specify how `closed` is detected (`readyState`) and how a send racing close behaves. `HttpServer.bind` is also asynchronous, so `serve!` returns before the port is bound; the plan must say where that acquisition result is deposited. This is transport design, not a detail.
+
+**6 | High | plan `:111-123,370-372` vs `src/cljc/yin/repl.cljc:535-546,703-731,852-873,891-925,1029-1065`**
+Claim: "The REPL does not have that problem because it already owns a polling loop."
+Correction: v1 remote eval uses `rpc-client/call!` — blocking on clj, Promise/Future on cljs/cljd — and the three main loops are line-event loops, not response-poll loops. v2 needs a new driver: `request!`, then repeated `poll!` while yielding (`Thread/sleep` on clj; `setTimeout`/Timer on cljs/cljd). On Node/Dart a synchronous `(loop ... (poll! ...))` starves the event loop and the response never arrives. This loop is the core of R3, not a caller convenience, and the plan never specifies it.
+
+**7 | Medium | plan `:105-136,221-236` vs `docs/design/dao.stream.ws.md:102-111`**
+Claim: R1 builds `request!`/`poll!` "with one shape on all three," `poll!` matches responses to outstanding ids, and on `gap` "those ids are reported lost."
+Correction: No request/response envelope is defined anywhere. On a real socket the deposit medium carries `{:ws/attachment …, :ws/event :ws/payload, :ws/value …}` envelopes, so `poll!` must classify those before matching a response. Also a `gap` returns only a recovery cursor, so the only sound rule is that **all outstanding requests may be lost**, not "those ids." Without these definitions, three hosts will not interoperate and the cross-host check is not a contract test.
+
+**8 | Medium | plan `:76-84` vs `src/cljc/yin/repl.cljc:160-173,444-474,552-626`**
+Claim: "Roughly 60% … command parsing, value formatting, VM construction and reset, the compile and eval paths, `bracket-balance` — touch no stream and are copied verbatim."
+Correction: The split line is wrong. `make-vm` creates an in-stream; `eval-datoms` appends to `(:in-stream vm0)`; `finalize-eval` drains output/telemetry streams; `eval-ast` calls `finalize-eval`; and `handle-command`'s `vm`/`reset`/`connect`/`telemetry` branches are stream operations. A verbatim copy of "compile and eval paths" would drag `dao.stream` into `yin.repl.core`. The stream-free portion is well under 60% and is not a contiguous half; the plan must list the exact functions to copy versus rewrite.
+
+**9 | Medium | plan `:67-73,299-322` vs `deps.edn:68-96` and `shadow-cljs.edn:26-28`**
+Claim: New `deps.edn` aliases "mirror the existing four," with nothing existing modified.
+Correction: The existing `:cljs-yin-repl` alias is only `shadow.cljs.devtools.cli run yin.repl/-main`; the actual `:node-script` target lives in `shadow-cljs.edn` as build `:yin-repl`. A `:cljs-yin-repl` alias cannot work from `deps.edn` alone — it needs a `:yin-repl` build in `shadow-cljs.edn` (an existing file) or a separate config path. The plan never names `shadow-cljs.edn`, and editing it contradicts "nothing existing is modified." R5's cljs alias will fail with "build not found."
+
+**10 | Medium | plan `:197-200,343-348` vs `src/cljd/dao/stream/ws.cljd:207-210` and `dao.stream.cljc:100-149`**
+Claim: The `#?(:clj …)` trap "applies throughout," and the v2 cljd transport is an implementation of `dao.stream.ws`.
+Correction: The warning is not a design. v1's precedent is a shadowing `src/cljd/dao/stream/ws.cljd` hand-synced with the `.cljc` because a single `.cljc` leaks `:clj` branches into the cljd host-eval pass. The plan must decide the v2 file layout now — a shadow `.cljd` or `#?(:cljd nil :clj …)` on every clj-only branch — or the cljd build breaks at R2/R3.
+
+**11 | Low/Medium | plan `:244-250` vs `src/cljc/yin/repl.cljc:213-226,257-299`**
+Claim: R2 has "No `closed?`: `repl-state` reports what the last operation returned rather than asking."
+Correction: v1 `repl-state` reports stream status via `stream-status`/`ds/closed?`. v2 has neither `closed?` nor a per-stream last-outcome ledger, and an idle stream has no "last operation" to report. The plan must specify the replacement state shape (cached last outcome plus an "unknown/untried" state), or `repl-state` cannot be implemented.
+
+**12 | Low | plan `:115-119`**
+Claim: "A `full` is retryable and must not mint a new id."
+Correction: If no id is minted, the caller still needs a correlation id to retry. The plan should state that `request!` returns the previously allocated (unsent) id in the next client state, and that the retry uses that same id.
+
+## What would fail first, if someone started R1 tomorrow
+
+R1 and R2 are broadly buildable, but the implementer would have to invent the RPC request/response envelope immediately. The first *mechanical* failure is at R2's cljs deliverable: `clj -M:cljs-yin-repl` has no corresponding shadow-cljs build. The first *design* hard-stop is R3: `connect` cannot build a descriptor because the keys are TBD and the handshake is unspecified. R4 then stops on server-side attachment identity and the missing per-attachment medium. The cljd path additionally stalls on the `.cljc` trap and on `dart:io` having no `full` signal.
+
+## What an implementer cannot determine from these documents
+
+- The RPC request/response envelope and correlation-id wire shape.
+- The descriptor/envelope key set, handshake wire format, value codec, and ended-stream close code.
+- How a server-side accepted-connection handle's attachment identity is minted and reaches the interpreter.
+- What `/repl` names under D2a, and where the required served-stream identity is created.
+- How the cljd transport detects `full`/`closed` and reports asynchronous `HttpServer.bind` acquisition.
+- How the cljs/cljd REPL driver yields while polling for a remote response.
+- The exact function list for the `yin.repl.core` copy versus the rewritten stream-touching half.
+- The cljs build configuration (shadow-cljs) that the new alias uses.
+- The v2 ws file layout that avoids the `#?(:clj …)` cljd trap.
+
+## Whether the scope is right
+
+The *idea* of the scope is right — the REPL is the correct first consumer, and the local R1/R2 slice is genuinely narrow. But as written the plan should not be executed: it defers its own blocking prerequisites (descriptor keys, wire contract, server attachment identity) while still sequencing R3–R5, and it chooses D2a without providing the served stream that `dao.stream.ws.md` requires a descriptor to name. At the same time it widens scope by taking ownership of the cljd ws transport and three-host parity before the core decisions exist.
+
+Recommendation: execute R1 and R2 now, but split R3–R5 behind the two decision gates. First amend `dao.stream.md` and `dao.stream.ws.md` to settle descriptor keys, handshake, codec, close code, and server-side identity. Then specify the RPC envelope, the D2a served-stream identity, the cljs/cljd driver loop, and the cljd transport's outcome declarations. Until then, the plan is an R1/R2 plan with an R3–R5 wishlist attached.

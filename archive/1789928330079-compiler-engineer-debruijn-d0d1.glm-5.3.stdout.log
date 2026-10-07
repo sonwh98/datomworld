@@ -1,0 +1,54 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"web_search_tool"}
+Completed-GMT: 2026-09-20 18:59:30 GMT
+Completed-Local: 2026-09-21 01:59:30 +07 (Indochina Time)
+
+D0+D1 of the de Bruijn projection are implemented and green on all three hosts. Nothing was staged, committed, merged, or pushed.
+
+## Changed files
+
+| File | Change |
+|---|---|
+| `src/cljc/yin/vm/debruijn.cljc` | **new** — D0+D1 namespace (728 lines) |
+| `test/yin/vm/debruijn_test.cljc` | **new** — 31 deftests (602 lines) |
+| `pubspec.yaml` | the one allowed addition: `unorm_dart: 0.3.1+1` with a pin rationale comment |
+| `pubspec.lock` | **disclosure**: `flutter pub get`'s generated resolution entry for that dependency (the lockfile is tracked, so I left it consistent; revert it if you consider generated lock state outside the box — the next `pub get` re-derives it identically). No other file changed; nothing outside the box was touched. |
+
+`unorm_dart` is pinned exactly at **0.3.1+1** because that is the Unicode 16.0 release the design settled on — 0.3.2 (current pub.dev latest) moved to Unicode 17.0, and a caret would float to it. The dependency demanded no further file changes, so no STOP was needed.
+
+## What D0 delivers (`src/cljc/yin/vm/debruijn.cljc`)
+
+- **Dimension descriptor** — d3 subgraph `descriptor` with `:dim/arity 22`, the §4 slots in declared order (`dimension-slots`, with the `[:ordered-vector :ref]` type for operands), `:dim/encoding` (sha256, descriptor slot order, the two hash-excluded marker slots, embedded canonical-value table), `:dim/projection-to` d1+d3, `:dim/lift-from` d5. `dimension-hash` = content hash of that subgraph — the published domain separator, not an ad hoc string.
+- **Canonical value table** as data (`canonical-value-table`, symbolic bounds so the descriptor prints identically on every host) plus `canonical-class`/`canonical-value?` validation implementing §5's numeric rules: int64 for exact host integers and in-range integral doubles (1 ≡ 1.0), one quiet-NaN class, distinct signed zeros, and §5's JavaScript carve-out — a CLJS unsafe integral is a diagnostic; JVM/CLJD classify in-range integral doubles as int64 (documented host divergence for D3's cross-host fixtures to arbitrate). Bigints, ratios, chars, decimals diagnose.
+- **One NFC seam** `normalize-nfc`: `java.text.Normalizer` / `String.prototype.normalize("NFC")` (uppercase — lowercase throws RangeError on Node) / `unorm_dart`'s `nfc`.
+- **Root framing & validation per §2**: `frame-datoms` (marker closes the graph, per-frame fact-index reset for -16-restarting tempids, `:partial-frame` at end of stream) and `project-datoms` (exactly-one-root, assert-only via `dao.datom/reserved`'s `:db/retract` — any other m valid and dropped with t from identity, other namespaces ignored, `:yin/tail?`/`:yin/macro-name` tolerated-and-ignored, unknown `:yin/*` on walked nodes, duplicates, dangling refs, cycles, unknown types, unexpanded-macro lambda-operator rule with the registry-macro limit documented, unsupported values).
+- **`node-grammar`** — the §2 table as the walk vocabulary with fixed child order.
+
+**D1**: `resolve-name` (depth 0 innermost, leftmost position 0, inner-to-outer, right-to-left rightmost-wins — parity-asserted against `engine/bind-params`), and the projection walk returning `{:root node}` with `:yin.debruijn/*` slots — bound occurrences as `{:bound [depth position]}`, free as `{:free name}`, binders as arities — memoized by `[source-eid complete-frame-stack]`, **no hashing** (the only digest in the file is the D0 domain separator).
+
+## Verification (exact commands and counts)
+
+| Lane | Command | Result |
+|---|---|---|
+| JVM focused | `clojure -M:test -n yin.vm.debruijn-test` | **31 tests, 109 assertions, 0 failures, 0 errors** |
+| JVM full | `clojure -M:test` | **1588 tests, 168895 assertions, 0 failures, 0 errors** |
+| CLJS full (incl. new ns) | shadow `compile test` via mise Java 21 (bb `test:cljs` command), node-test autorun | **1508 tests, 38758 assertions, 0 failures, 0 errors** |
+| CLJD full | `rm -rf test/cljd-out` + `clojure -M:cljd test` after building both Dart peers (bb `test:cljd` sequence) | **`01:46 +1471: All tests passed!`**, exit 0 — the unorm_dart seam resolves and composes on Dart |
+| clj-kondo | `clojure -M:kondo --lint` both files | 0 errors, 0 warnings |
+| cljstyle | `cljstyle check` both files | clean (after `fix` reindentation) |
+
+Environment disclosure: mise is untrusted here, so lanes ran through a `clojure -e` + ProcessBuilder helper (`target/run-lane.clj`, gitignored) with mise's flutter/node/Java-21 paths — exactly what `bb test:clj/test:cljs/test:cljd` run; `npm ci` and `flutter pub get` preceded the lanes.
+
+## Test matrix covered (§8 rows exercisable by D0+D1)
+
+Renamed binders at one and multiple levels; nearest shadowing with `[frame-depth position]`; `(fn [x x] x)` rightmost-wins with the VM `bind-params` parity check; free names preserved exactly (incl. namespaced); every §2 node type in fixed child order (full-graph fixture + grammar-table equality + diagnostic-path order for `:if`/application/`stream/put`); shuffled (reversed, rotated) datom input; shared nodes under equal and unequal lexical contexts; `:yin/tail?` present vs absent identical; t/m and other namespaces never entering identity; all listed diagnostics; adjacent rooted graphs reusing −16-based eids; the essay's `(fn [count] (+ count 1))`.
+
+## Unresolved concerns / notes for D2+
+
+1. **`pubspec.lock`** — see disclosure above; the only delta beyond the three sanctioned files.
+2. **`:vm/store-put`'s `:yin/value` is a scalar** per §2's "child order: none" (and §4's slot roles), even though `vm.cljc`'s `datoms->ast` recur-asts it — a pre-existing repository inconsistency outside my box; the design table rules here. Flagged for the owner.
+3. **dimension-hash digest** is minted through dao.jing's transitional `content-hash`; D3 re-pins the digest over the same descriptor data (documented on the var).
+4. **CLJS unsafe-integer divergence** vs JVM/CLJD integral doubles is fixed in D0 exactly as §5's two sentences read; D3's cross-host fixtures should pin it consciously.
+5. `forward-step` (D4) is intentionally absent — out of this dispatch's scope per §7.
+
+No incomplete work within D0+D1's scope; no claims above beyond what the logged runs show.

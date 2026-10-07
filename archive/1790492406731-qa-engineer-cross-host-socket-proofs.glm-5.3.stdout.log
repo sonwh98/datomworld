@@ -1,0 +1,32 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-27 08:24:13 GMT
+Completed-Local: 2026-09-27 15:24:13 +0700
+
+# Slice 3's cross-host socket proofs — all three PASS
+
+## Deliverables (NEW files only; nothing under `src/`, `docs/`, or any existing test touched; no git state changed)
+
+- `test/dao/stream/ws_project_peer.cljc` — `dao.stream.ws-project-peer`, the cross-host peer program in the `dao.stream.slice-peer` layout: a **dial role** (descriptor in argv; composes `project/dial` over the host connect seam, serves "str-2"/"backward" through its own mirror; commands `:attach`/`:probe`/`:read :begin|:next`/`:quit`) and a **`--serve` role** (endpoint + one handoff slot + `project/make-acceptor` behind the host listener; reports the bound port, `:sessions`, `:quit`). One 5 ms ticker per role; one Transit line protocol on stdin/stdout; compiles on all three lanes.
+- `test/dao/stream/ws_project_cross_node_test.cljs` — Node parent; spawns the JVM peer via `clojure -Spath -M:test` + `java -cp`, skips loudly without a Clojure CLI.
+- `test/dao/stream/ws_project_cross_jvm_test.clj` — JVM parent; skips loudly without `build/ws-project-peer` (exe built with the `build:yin-repl-peer` command shape, documented in its docstring; no bb task added — that would touch `bb.edn`).
+- Full report: `collab/1790492406731-qa-engineer-cross-host-socket-proofs.glm-5.3.report.md`.
+
+## What ran and what passed (sequential, solo)
+
+1. **clj→Node** `a-node-dialer-reads-a-jvm-server`: JVM `--serve` child behind a real http-kit listener; Node dials through the real `ws` client, attaches "str-1", reads confirmation surface `#{:reader}` → `"hello"` → source `:end`; child reports exactly one adopted session. **PASS**.
+2. **Node→clj** `a-jvm-dialer-serves-back-over-one-node-connection`: Node serves behind a real `ws` server; JVM child dials (descriptor echo equal), reads `"hello"`→`:end`, then the clj dial **reflects back**: the parent attaches a "str-2" reflection over the same accepted session and reads `"backward"`→`:end` through the child's dial-side mirror — both directions on one session. **PASS**.
+3. **cljd→clj** `a-dart-dialer-reads-a-jvm-server`: compiled Dart exe dials the in-process JVM server; attach ok, surface/identity learned from the probe, `"hello"`→`:end`, one adopted session. **PASS** — targeted in the main tree (1 test / 19 assertions / 0-0) and inside the full JVM lane.
+
+Browser dials-and-reads lane: skipped — no harness exists in any lane (noted, per instruction).
+
+## Lane verification
+
+kondo 0/0, cljstyle clean, ASCII, ≤80 cols on all three files. Full lanes (run **sequentially**) against a stable **HEAD + these files** base: JVM **2,273 tests / 183,335 assertions / 0 failures, 0 errors**; Node **2,182 / 49,915 / 0 failures, 0 errors** (proofs 1+2 included, no skips of mine); Dart **exit 0, "+2142: All tests passed!"** (the peer compiles into `lib/cljd-out`, adds no deftests). Byte-identical files verified against what the lanes ran.
+
+## Environment limits hit (detailed in the report)
+
+- **The main working tree is mid-refactor by a concurrent session and cannot host full-lane runs**: uncommitted `yin/vm/linker.cljc` calls `answered-text`, which is defined nowhere (defined at HEAD — the refactor dropped it while `dao.await` still reaches linker), `dao.jing.remote*` was deleted mid-run while tests still required it, and `dao.jing.coordinate`'s changed arity breaks 5 `dao.space.query` tests. All attributed with `git status`/diff evidence; none of it mine, and none touched (constraint).
+- Since `git worktree` is sandbox-blocked, the stable base is a read-only `git archive HEAD` extraction under `target/headtree/` plus exactly my three files and the built exe — no commit/stage/checkout/reset/stash. A classpath shim of HEAD's broken files was tried first but loses to untracked new tests that require mid-edit namespaces.
+- `bb`/`dart`/`flutter`/`cljstyle` run through the established `clojure -M -e` + ProcessBuilder route with mise's Java 21/flutter paths; scratch scripts and the disposable headtree live under `target/`.
+
+Status: COMPLETE

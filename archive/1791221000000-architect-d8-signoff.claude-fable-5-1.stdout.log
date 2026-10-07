@@ -1,0 +1,24 @@
+**CHANGES** — two small must-fixes, then it is ready to land.
+
+1. **`prepare` loses the served table when the lift refuses** (`export.cljc`, `prepare`, the final `if`). On a refusal it returns only the lift's outcome, so every `serve!` call already made is forgotten and a retried prepare serves those streams a second time. That breaks "prepare calls `serve!` once per stream".
+   - **Must-fix:** on a refusal, also return the record with `:served` updated (for example the refusal map plus `:record (assoc record :served @table)`).
+   - **Test:** a prepare that refuses after serving one stream, retried with the returned record, makes zero further calls for that stream.
+
+2. **`abort` accepts a holder's tenure from a clock reading alone** (`export.cljc`, `abort`, the `:yin.k/custody` clause). Plan 1.9 requires current valid tenure "established through the ledger reader and its own lease bound". Only `now < bound` is checked, so a holder whose lease was reclaimed inside its bound can restore its old machine and become a second runner.
+   - **Must-fix:** require ledger evidence in `tenure` as well (for example `:live true`, meaning the ledger reader shows this lease is the occurrence's active lease at its epoch). Refuse without it, as `:tenure-ended` or a new `:tenure-unconfirmed`.
+   - **Test:** inside the bound with no ledger evidence is refused.
+
+**Carried forward, not blocking D8:**
+- **Handle-keyed served table.** The record is not plain data, so it cannot be put in the content store as plan 1.10 requires before `fenced`. D9 must re-key it by resource id with the retained descriptor, and D14 must not start before that.
+- **`prepare` runs a whole lift and discards the bytes.** Acceptable for now. D9 owns the real split and the canonical-key ordering.
+- **The `{:now :bound}` tenure form** uses bare numbers, not `dao.lease` duration maps. D13 reconciles the vocabulary.
+- **`:yin.k/refused`** is new vocabulary; it needs a line in UCF 7.9 or 7.7.4.
+- **Any unminted cell refuses, reachable or not.** Accepted as built; the driver mints every such cell on its next step anyway.
+
+**Basis.** I read `export.cljc` in full, the engineer's report, and the test names; I did not read the test bodies or run anything, and Node and Dart have not been run by anyone. Against plan 1.8, 1.9 and the rulings:
+- `enter` sets the gate, requires an empty ready queue in root and children, and detaches the waits and reachable parked records.
+- All five export refusals (an `:observe` entry, a held observation on an entry or cell, an unminted cell, a pending close, a cursorless link request) are checked across the task tree with the path reported.
+- `encode` reads only the record and throws on a miss.
+- The abort rule is right on offers: only `full` and `closed` count as not appended, an absent or unknown outcome refuses, and authority replies are ignored, so a refusal after an unknown append cannot license an abort.
+
+The two changes close one double-serve path and one abort-safety gap.

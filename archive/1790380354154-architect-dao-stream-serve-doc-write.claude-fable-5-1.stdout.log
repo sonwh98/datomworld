@@ -1,0 +1,35 @@
+[33mPermission allow rule (--allowed-tools): Write(docs/design/dao.stream.serve.md) is not matched by file permission checks — only Edit(path) rules are. Use Edit(docs/design/dao.stream.serve.md) instead (Edit rules cover all file-editing tools).[39m
+Completed-GMT: 2026-09-25 23:53:02 GMT
+Completed-Local: 2026-09-26 06:53:02 +07
+
+Written: `docs/design/dao.stream.serve.md`, 1085 lines, 60 KB. Untracked, not staged. No other file was touched (git shows only this new file under `docs/` and `src/`). Plain ASCII, no line over 130 columns, ASCII box tables only, no `collab/` citations, no mention of the review process.
+
+**Sections**
+
+1. The problem (a served stream is the original, never a copy; the invariant)
+2. Vocabulary and layering (every peer runs both steps)
+3. The serve protocol: sessions with peer-qualified ids, the eight-frame set, mechanical derivation table, idempotence and loss, batching, anchors across a hop, held reads
+4. The proxy handle: declared nature, plus 4.1 the two contract amendments in codex's final wording
+5. The serving side: serve-step, serve table, narrower surfaces, serving-boundary observation
+6. Channels: contract, WebSocket (dialer versus acceptor is establishment, not authority), UDP (same-socket sends, 1200-byte budget, fragmentation required before content over UDP), channel over served streams (outer gap is channel loss)
+7. Reachability: descriptor with the identity split and bounded resolution, direct, the meeting convention (self-minted peer ids, stable request ids and dedup, reflexive addresses from the boundary observation, address exposure, bounded work), hole punching with nonce-matched pong, peer symmetry, liveness
+8. The service convention (per-peer pair behind a door) and what it makes redundant in `dao.jing.remote`
+9. Host isolation table
+10. Invariant compliance
+11. Concurrency and linearization
+12. Contract, transport-owned, deferred
+13. UCF integration (lift, lower, put resume, one cursor profile, lifetime and pinning)
+14. Completion criteria (12 tests)
+15. Decisions awaiting the owner
+16. Edits this document implies in other files (list only)
+17. Prior art and lineage
+
+**Decisions left open** (section 15, each with a recommendation): held reads optional and off by default; accepting OD-1 (corrected write fallback), OD-2, OD-3 (a)+(2) and the two new definitions; lease-governed lifetime for served entries and inbox pairs; renaming `dao.stream.serving` to a copy name; door admission as composition policy; peer id format; append through a proxy staying on the event medium; retiring the transport half of `dao.jing.remote`.
+
+**Where inputs contradicted each other and how I resolved it**
+
+- Held reads: my earlier text said the owner had agreed to include them. That was wrong. The document states the mob consensus wording (optional, additive, off by default, never a condition of meeting reachability) as the recommendation and lists it as open.
+- The inbox candidate shape: my revision carried only the announcement descriptor; the merged edit list requires both meeting descriptors and both inbox descriptors. The document carries all four and bounds nested resolution to one level.
+- The original design's relay and rendezvous frames and steps conflicted with the P2P invariant; the document has neither. The frame set is eight frames with no reachability control, and both conventions are marked as conventions.
+- Punching: the original design said "attach a UDP channel to the reflexive address", which would bind a new socket. The document adopts the same-socket rule and the nonce-bearing pong as the confirmation.
+- Dedup for `:meet/here`: my revision relied on re-reading announcements; the document requires stable request ids with M-side deduplication and one active pair per peer id, keeping the re-read as recovery guidance only.

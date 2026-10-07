@@ -1,0 +1,69 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+```
+Completed-GMT: 2026-09-01 15:55:23 GMT
+Completed-Local: 2026-09-01 22:55:23 Asia/Ho_Chi_Minh
+```
+
+# Leases as the general attachment-lifetime mechanism — adjudication
+
+## 1. Is the lease the right general mechanism?
+
+Partly. The four problems are not one problem; they are **two lease-shaped problems and two non-problems**, and one of the two non-problems is already solved by denial.
+
+- **Pause (4d)** — genuinely a lease, and already designed as one. No change to that judgment.
+- **Liveness (finding 6) and the dead client holding server resources (problem 3) are the same problem**, and a lease genuinely fits them. What a silently dead client holds is not stream state — retention is unconditional and "a client that pauses forever harms only itself" — it is **connection state**: a socket, an attachment slot, a forwarder with a driver. That state needs reclamation exactly when the peer stops being detectable, which is precisely what expiry-on-absence does. Liveness was never anything other than the *detection method* for this reclamation; the lease deletes the detection and keeps the reclamation. "Reclaims on expiry, having detected nothing" is the correct and idiomatic phrasing for this codebase.
+- **Finding 3 (cancelled before resolving)** — not a lease problem. A lease governs how long a holder *holds*; finding 3 is a waiter's *one-shot question that will never be answered*. A lease bounds the waiter's patience — but bounded patience is interpreter policy (retry cadence and abandonment are already interpreter-owned under "no operation waits") and needs no mechanism at all. The missing thing is the *fact*, not the bound. See §4.
+
+So: adopt **one new mechanism** — the connection-layer attachment lease — recognize **one existing mechanism** as already lease-shaped (pause, unchanged in mechanism, changed in home — §3), and **refuse** the generalization to finding 3.
+
+One more refusal: do not unify pause and the attachment lease into a single lease object. Their grantors differ (serving *composition* vs serving *endpoint*), what they hold differs (a sender's stepping vs a connection), and 4d's own rule is "nothing here changes the ws transport." Coupling them would put flow control inside the transport. They share a *pattern*; they must not share a *mechanism*.
+
+## 2. Does it violate the authority?
+
+**The orchestrator's line is correct, and here is the test that keeps it from being a rationalization.** A lease table is inside the denial if any of three things would have to become true:
+
+1. **The state must not exist only to track listeners.** The forbidden registry is a stream recording *who is observing it* (`dao.stream.md`: "Which interpreter observes them is not recorded"; "a stream holds no reader positions"). The serving endpoint's per-connection state exists to *serve* — and the ws spec already *requires* it for attribution: `:dao.stream/attachment` exists precisely because "this transport distinguishes its attachments," and every deposited event carries `:ws/attachment`. That table exists whether or not anyone adds an expiry. Adding `expires-at` adds a column, not a registry. This is the same license the contract already grants elsewhere: descriptors resolve against "the streams a network endpoint serves **because serving them is what it is**."
+2. **The lease must not feed back into the stream.** Retention stays unconditional; expiry reclaims the connection and kills the forwarder, and the served stream never learns the lease existed. No cursor is ever lease-protected. The deferred resumption protocol is the creep risk here — resumption gets whatever retention still holds, and `gap` is the answer — and that should be stated as a denial when the time comes.
+3. **The contract's surface must not grow.** No lease parameter on any of the seven operations (§6).
+
+The stream-layer half of the orchestrator's reading is simply the contract restated: "eviction never waits on a reader," gap-not-negotiation. A stream-layer lease would defer eviction on behalf of holders — exactly the "single stalled reader holds the stream open forever" failure the plan forbids outright.
+
+## 3. What does it actually subsume?
+
+- **Finding 6 — resolved by deletion, with one precise carve-out.** The disputed policy ("how many unanswered probes end a connection," and who owns the number) is deleted: the rule becomes *a connection reclaims itself when nothing renews it by T*. The old magic number survives only as a **derived** relation — window ≥ 2× interval — rather than an asserted threshold. What is *not* deleted is the **carrier**: an idle connection still needs something to carry renewal, and the right carrier is the protocol's own ping/pong, server-initiated, with the pong (or any inbound frame) counting as renewal. This is decisive for the host matrix: browsers cannot originate protocol pings from JS at all, but every platform in scope auto-answers a server ping. The Jini choreography — client obligated to speak on a schedule — would install a renewal timer inside client compositions, which is a scheduler obligation the contract pushes to runtimes and a hidden liveness duty nobody wants. Server-ping-as-renewal gives lease **semantics** with zero client mechanism. Parameter ownership, the three-way dispute: the ws spec owns the *rule and the relations*; the composition composing the serving endpoint declares the *values*, exactly as it already declares cadence, batch budget, and gap policy (4c).
+- **Finding 5 — changes shape, in a useful way.** Pause stops being a special case hunting for a home and becomes one of **two lease-shaped wire vocabularies with one home**: the ws spec's wire protocol. This also answers the "durable home before it is built" problem mechanically — fold pause/renew envelopes into the **existing wire-contract decision gate** in Phase 3, alongside the handshake format and the close codes, with the same rationale the gate already states: settle it before 4a or delivery pressure makes it permanent by accident.
+- **Finding 3 — untouched** (§4).
+- **The contract — untouched.** No operation, outcome, surface, or invariant changes. Eviction stays unconditional; cursors stay bare.
+- **4d collateral:** the liveness bullet is deleted; the caps ("maximum lease duration," "maximum consecutive paused time") survive, re-expressed as grantor clamping policy (§5); the "cannot be turned against the server" paragraph gets strictly stronger, because now even the forwarder is reclaimed.
+
+## 4. Does it fix finding 3?
+
+**Agree with the orchestrator: it does not.** A waiter waiting on a resolution event needs the answer to *arrive*, once; a lease only shortens how long it waits for what never comes. And the bound needs no mechanism — an interpreter reading the deposit medium can already decide to stop reading whenever it likes.
+
+But note the fix is nearly free, because the vocabulary already exists: "Lifecycle — `:ws/closed` when the connection went away." **A locally cancelled connection is one that went away.** One sentence in the ws spec — cancellation during establishment deposits `:ws/closed` for that attachment — closes the hole, and the waiter's rule becomes "a lifecycle-closed with no resolution preceding it means this attachment will never resolve." That also repairs the invariant "exactly one resolution event is deposited per attachment," which a cancelled-before-resolve attachment otherwise silently violates. No new event kind, no lease, no reply channel. (The attachment lease does donate one thing to finding 3 for free: if the lease covers establishment — it should — a half-open connect can no longer pin a slot forever. That bounds the *server's* side of finding 3 without touching the waiter's.)
+
+## 5. What does it cost?
+
+Cheap in traffic, expensive only in specification discipline. What must be specified that is not:
+
+1. **What counts as renewal.** Any inbound frame — payload, pong, or app-level pause-renew — resets the timer; only silence lets it lapse.
+2. **Clocks.** Expiry is computed **on the grantor's clock alone**, from arrival time of the last renewal. No cross-host clock agreement exists anywhere in the mechanism; the client never needs to know the expiry, only its own send cadence. State this explicitly or someone will add a timestamp to the wire.
+3. **The in-flight race.** Decided at receipt: a renewal arriving after expiry finds the connection gone. No grace window — reattachment with the same descriptor is ordinary, cheap, and already specified. With server-driven pings the race reduces to the window ≥ 2× interval relation.
+4. **Grantor refusal/shortening.** For the attachment lease there is no client request — the endpoint sets policy unilaterally, so there is nothing to refuse. For the pause lease, the server **clamps silently** to its cap and sends no grant reply; the client's renewal discipline (renew at a fraction of the requested duration) must be robust to clamping it cannot observe.
+5. **What a client observes on lapse.** Reuse what exists: the endpoint closes the connection normally, the adapter deposits `:ws/closed`, the handle answers `closed`, the descriptor stays valid, `attach!` rejoins. Lapse is indistinguishable from a network drop — which is fine, because reattachment resolves authoritative state. Optionally, an application-range close code distinguishing expiry from drop, settled at the wire gate next to the ended-stream code, purely for diagnostics.
+6. **Establishment.** The lease begins when the endpoint accepts the connection attempt, so it covers the unresolved window too.
+7. **Where the timer runs.** The serving endpoint's own event loop — check on traffic, coarse sweep otherwise. Endpoints already run accept loops and idle-timeout machinery; this is host machinery beneath the contract, not a DaoStream scheduler, and one sentence should say so before someone reads "DaoStream schedules nothing" as forbidding expiry.
+8. **The anti-creep denial.** Leases never affect retention, eviction, or resumption. Without this sentence written down, §2's third test erodes by accretion.
+
+## 6. Where would it live?
+
+**The ws spec, the plan, and (optionally) one denial in the contract. No new document.**
+
+- **Contract: unchanged in surface.** No operation gains a parameter — the lease is *policy over existing mechanisms*: renewal rides ping/pong frames or ordinary values, expiry rides existing close semantics, reattachment rides existing `attach!`. That this lands with zero public-surface change is the strongest evidence it belongs below the contract and above the wire. The one cheap addition I would make is an **Explicitly Absent** bullet — lease parameters on operations, retention deferral for holders — to fence the §2 creep while the layering is fresh.
+- **`dao.stream.ws.md`: the durable home.** Replace the Deferred *Liveness* bullet with an **Attachment Lifetime** section (renewal definition, receipt-time rule, parameter relations, establishment coverage, lapse behavior, timer placement); give the pause/renew vocabulary its durable home as wire protocol, settled at the existing Phase 3 wire-contract gate alongside the handshake, disclaimers, and close codes. Finding 5 is thereby closed by the same pen-stroke that closes finding 6.
+- **Plan: edited, not extended.** Delete 4d's liveness bullet in favor of the reference; re-express the caps as clamping policy; add interval/window to 4c's composition-declared configuration list. The plan remains transient; everything durable moves to the ws spec now, which is exactly what finding 5 was asking for.
+
+A new document would be structure for its own sake: one transport's connection policy and one interpreter wire protocol, both of which already have homes.
+
+**Bottom line:** adopt the lease as the mechanism for connection lifetime — it collapses findings 6 and problem 3 into one rule and hands finding 5 a home — recognize pause as lease-shaped but keep it above the transport, refuse the finding-3 generalization in favor of a one-sentence deposit rule, and touch nothing in the contract except a denial.
+[?25h

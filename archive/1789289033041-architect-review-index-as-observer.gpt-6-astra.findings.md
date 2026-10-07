@@ -1,0 +1,2 @@
+I’ll check the design against the stream loop, B-tree persistence semantics, and query behavior, then report findings with file and line references. I’ll use the code-review-pr skill and keep the review read-only.
+The main separation of responsibilities looks sound. I found concrete issues to trace further: the proposed index state is not an accepted query value, draining recorded content may break B-tree reads after eviction, and the retry text does not specify how it retains the unaccepted suffix. I’m checking those against the checkpoint and phase requirements.

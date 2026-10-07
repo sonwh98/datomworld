@@ -1,0 +1,52 @@
+Completed-GMT: 2026-10-03 19:08:58 GMT
+Completed-Local: 2026-10-04 02:08:58 +0700
+Coding-Agent: claude (claude-opus-5-5)
+Session-ID: a80b326f-0efb-4ae5-ae0f-df0154076bab
+
+# Round 5: approved design, rebased onto C2-S3, the one re-mint
+
+All five items are done and every focused run passes, including `float-address-test` after the single re-mint. The Round 5 section is appended to `collab/1791051870000-compiler-engineer-python-safepoint-s2-r4.claude-opus-5-5.findings.md`. I did not run the full lanes or Dart, and nothing is staged.
+
+## Items 1 and 2: comments and the ownership statement
+- **Item 1:** in `prelude.cljc`, the `RecursionError` comment now names both raisers (base-prelude admission in every mode, and hook depth counting); the docstring says "three runtime cells"; the `py.rt/out` line is realigned.
+- **Item 2:** §8.5.2 now has the merged ownership statement: the base prelude owns the context record, the limit cell and admission in every mode, and the hook prelude owns counting function frames. It says naive mode counts only nested active generator frames and is not complete CPython recursion accounting.
+
+## Item 3: `admission-in-every-mode-test`
+The program `nested-admission` runs under limit 3 in three modes: naive, no-op hooks, and real hooks. With no hook prelude loaded there is no setter, so the test lowers the limit by setting `py.rt/limit` directly before the module runs. All three runs, on all four VMs, give `refused 1 refused 2`:
+- **Refused at the start:** `next(via(2))` makes three nested active generators, so starting `t` would be a 4th frame. It is refused and the caller's `try` catches it.
+- **Nothing installed:** `t` stays created, so `next(via(1))` starts it at exactly the 3rd frame and gets 1.
+- **Refused at a resume:** the suspended `t` is refused again the same way.
+- **State kept:** resumed from the top, it continues its own state and yields 2.
+
+## Item 4: `delegation-admission-test`
+The chain is `top -> mid -> leaf`, joined by `yield from`, under limit 100. I computed the counts from the code first, and every one matched when run:
+- **One frame per active generator:** `probe` inside `leaf` finds 97 from the top (`leaf` is the 3rd frame) and 77 from 20 frames down.
+- **Refused at the limit:** resumed 100 frames down, `top` itself is refused, so the whole chain stays suspended, and the next resume from 20 frames down gives 77 again.
+- **Throw and close:** both are refused at the limit the same way. From the top, `throw` and `close` reach `leaf`, whose `finally` runs at the 3rd frame (97). The thrown `ValueError` then reaches the caller.
+
+The pinned output is `97 77 refused 77 "throw refused" 97 thrown 97 "close refused" 97 100`. Every delegated entry goes through `py/gen-switch`, so no extra check was needed and there was nothing to stop and report.
+
+One case is not tested: refusing an inner generator after `top` was already admitted. There the `RecursionError` is raised inside `top`'s body, as CPython also raises it, so `top` closes instead of staying suspended. The brief's "every generator stays suspended" case is the outer refusal, which is what the test pins.
+
+## Item 5: goldens
+`float-address-test` failed on exactly the expected six goldens, and I wrote in the actual values:
+- the base-prelude root (`:222`);
+- the hook-prelude root (`:224`);
+- the four program addresses built on them (`:242`, `:244`, `:246`, `:250`).
+
+`git diff HEAD` on that file shows only those six lines; the old and new values are in the findings file. After the re-mint it passes: 12 tests, 105 assertions, 0 failures.
+
+## Focused runs (JVM, four VMs inside each test)
+
+| Run | Tests | Assertions | Result |
+|---|---|---|---|
+| The two new tests | 2 | 16 | 0 failures |
+| `safepoint-test` and `yang.safepoint-test` (`-e :slow`) | 29 | 438 | 0 failures |
+| `tail-preservation-test` (`-i :slow`, by name) | 1 | 9 | 0 failures |
+| `e2e-test` and `e2e-c2-test` (`-e :slow`, parser check now covers 9 packets) | 57 | 522 | 0 failures |
+| `prelude-parity-test` and `lower-test` | 46 | 168 | 0 failures |
+| `float-address-test`, after the re-mint | 12 | 105 | 0 failures |
+
+kondo reports 0 errors and 0 warnings, and `cljstyle fix` then `check` is clean.
+
+All edits are in allowed files, plus `float_address_test.cljc`, which item 5 directs. The `tmp_*` scratch files from this round are deleted and nothing refers to them.

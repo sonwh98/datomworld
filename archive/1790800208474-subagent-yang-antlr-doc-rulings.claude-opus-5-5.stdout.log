@@ -1,0 +1,77 @@
+Completed-GMT: 2026-09-30 20:35:30 GMT
+Completed-Local: 2026-10-01 03:35:30 +07
+Coding-Agent: claude
+Session-ID: c0d666a1-b094-4942-abab-5698a77445be
+
+# Report: Architect rulings recorded in docs/design/yang.antlr.md
+
+I recorded the rulings in `docs/design/yang.antlr.md` (+429/-20); the format checks below all pass. That is the only file I edited, and nothing is staged or committed. I built the tables with a temporary script in `collab/.scratch-yangdoc/` and deleted it afterwards.
+
+## Sections changed
+
+- **Status paragraph (top of file):** a new "Updated 2026-10-01" paragraph.
+  - It cites all five ruling files by their full collab filename, which is their first use.
+  - It sets the short names used later: "the cell ruling", "mob D1 to D10", "the mutable-objects ruling", "the Python mappability ruling".
+  - It lists the sections changed and what landed: 8f9f90b0, 9a69e58f, 5e790683 and fe8bce4a.
+- **§8.1:**
+  - The baseline is now D3's wording: a task-owned heap of cells updated through persistent VM-state transitions.
+    - Cells are sealed `:cell-ref` values over the task `:heap`, used through `cell/new`, `cell/get` and `cell/set!`.
+    - They have box semantics: shared across continuation re-entries and never rolled back.
+    - State threading stays an allowed per-frontend choice.
+  - Loops become recursive lambdas, with continuations used only for the escapes. Abrupt completion lowers to continuations (owner decision 5).
+  - "Store cell" and "binding cell" are now defined as `cell` module refs, which resolves the F2 contradiction.
+  - Every function-local binding and parameter is a cell (D5). Binding collection is a required stage; un-boxing is an optional attached interpreter.
+  - D1: cells are copied when they cross a task boundary.
+  - The old `module/effect?` warning is replaced by D4: effects are a host type minted only by `module/make-effect`, and callee profiles bound the effects they may raise.
+- **§8.5 (Python):**
+  - Every local and parameter is a cell, assigned with `cell/set!`.
+  - A module namespace is a heap dict (owner decision 1).
+  - Defaults, `*args` and arity checking need a function-object wrapper in a cell.
+  - A generator's resume continuation lives in a cell.
+  - Floats are tagged (owner decision 3), and `print(4/2)` joins the Node parity set.
+- **New §8.5.1, Python 3 mappability:**
+  - The headline: nothing in the language reference is inexpressible.
+  - The residue list and the corrected bucket table, as an ASCII box table.
+  - The four owner decisions: module dicts, traceback lines derived at the boundary by default, float tagging, safepoints as an attached interpreter.
+  - The ruling's interactions with other decisions.
+- **New §8.11, mutable objects and collections over cells:**
+  - One cell per object; the ref is the identity; immutable values get no cell; a slot gets its own cell only when it can be aliased.
+  - A representation table and a PHP/Go/Java mapping table.
+  - Identity rules, cycles, reclamation and where each piece of semantics lives.
+  - The two prelude constraints: never iterate a host map, and normalize dict keys in the profile.
+- **§8.6 and §8.9:** one-line cross-references to §8.11.
+- **§9.3:** pure data primitives live in a `:pure` host module named by the runtime profile, not in `vm/primitives`. That module is `yin.vm.data`, module name `data`, installed with `register-data-module`.
+- **§9.4:** "store cells" points to the §8.1 definition and to §8.11. **§9.5:** one sentence on D4.
+
+## "Open:" notes left
+
+1. **§8.5:** for Python, module namespaces as heap dicts replace the cell ruling's Q5 statement that module-level variables stay `yin/def` in the store. The rulings don't say what happens for other languages, so I marked it Open.
+2. **§8.5.1:** the ruling defines bucket 1 (cost) and bucket 3 (needs VM infrastructure) but never defines buckets 2 and 4. I marked it Open and only described how the ruling uses them.
+
+## Things I chose not to change
+
+- **"Suspended state consists of portable code references and data" (§8.1):** kept. §8.5.1 now notes that a reified continuation in a cell can't be migrated yet.
+- **"store cells" in the §8.3 and §9.1 tables:** left as written; the term is now defined in the prose.
+- **D6/D7:** no text added, because the mob left their timing as an owner choice between two positions and I wasn't told which was chosen. D7 appears only where the sources make it a constraint: `=` on refs, and the prelude not testing the continuation representation.
+- **D8 and D9:** omitted as repository housekeeping.
+- **D10 and the §12 Phase 1 roadmap:** not changed.
+- **Cell findings F1, F3, F5 and F6:** omitted as implementation or other-document items. The same goes for the `:yin.k/heap` wire details, seal caching, most of the spike-deviation table, and the unused `box/*` naming alternative.
+
+## Foreground checks
+
+1. `python3 collab/.scratch-yangdoc/check.py`, a script I deleted afterwards:
+   ```text
+   1) lines over 170 columns (character count):
+       none | max width = 152
+   2) non-ASCII characters in file:
+       none
+      em dashes: 0  tabs: 0
+   3) added lines: 429
+      markdown pipe-table separator rows among added lines: none
+      table rows not closed by |: none
+   4) ASCII box table border consistency (every | row width equals its + border):
+       none
+   ```
+2. `grep -c -P '[^\x00-\x7F]' docs/design/yang.antlr.md` printed `0`. The file had no non-ASCII characters or em dashes before the edit either, so none were introduced.
+
+Full report: `collab/1790800208474-subagent-yang-antlr-doc-rulings.claude-opus-5-5.report.md`

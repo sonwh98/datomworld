@@ -1,0 +1,53 @@
+Completed-GMT: 2026-09-28 12:25:46 GMT
+Completed-Local: 2026-09-28 19:25:46 +07
+Coding-Agent: claude
+Session-ID: 7fcb4501-80b2-43a3-8511-32424dd6f0d4
+
+The REPL now indexes every program it evaluates and saves the covered indexes to dao.jing each round. The new tests and the CLJS lane pass. The focused JVM run has one failure, the known intermittent `yin.repl.main-test` "remote-value nil".
+
+## Changed files
+Worktree `/Users/sto/workspace/datomworld-repl-index`; nothing staged or committed, and nothing outside the allowed files was touched.
+- **New `src/cljc/yin/repl/index.cljc`**: the indexer and its per-round step.
+- **Modified `src/cljc/yin/repl.cljc`** (+53/−22): wires the indexer into the session and the round.
+- **New `test/yin/repl/index_test.cljc`**: 7 tests, one or more per acceptance criterion.
+
+## How it works
+- **Second observer:** `make-session` attaches a second, independent observer to program-out next to the evaluator's. It also builds a per-session memory-log, a transactor over it, a ring intake, and a dao.jing observer on that intake.
+- **Per program:**
+  - The expanded tree becomes `vm/ast->datoms` facts with local ids, plus one `:yin/address` fact per node pointing back to its row address.
+  - `m` points to a per-program metadata entity recording the session token, the root address and the round number.
+  - All of it is committed as one `transact!`, which allocates `t`.
+- **Publishing:** each round that committed calls `publish!` and then drains the intake into the dao.jing store.
+- **When it runs:** after the expander and before the evaluator, so a program is indexed whether its VM returns, parks or raises. The evaluator and indexer never call each other.
+- **Losses:** a gap on the index reader follows the evaluator's rule: it is reported and evaluation is refused until `(reset)`. A packet that fails to project or commit is recorded as a failure, never counted as indexed.
+- **Rebuild:** `(reset)` and `(vm …)` rebuild the observer, log and transactor. The dao.jing store is shell-level and survives both.
+
+## Verification
+- **kondo:** 0 errors, 0 warnings on the three files.
+- **Focused JVM** (all yin.repl namespaces, `dao.space.transactor-test`, the store-write audit, `yang.clojure.stream-eval-test`): 163 tests, 1283 assertions, 1 failure, 0 errors.
+  - The failure is `yin.repl.main-test` returning nil on its first remote eval. Across runs it moved between different tests.
+  - I couldn't run a clean baseline (extracting a HEAD copy needed approval I didn't have). A cold first eval with indexing takes 86 ms against the test's 15 s wait, so I believe it's the known flake. That is inferred, not proven.
+- **Full JVM suite** (run once, before a final fix): 2295 tests, 2 failures.
+  - One was the same main-test flake.
+  - The other was caused by me: I had added an `:index` summary to `repl-state`, which broke `stream-eval-test`'s check that all VMs report the same state. I removed that key without editing the test, and it passes in the focused run. I didn't re-run the full suite afterwards.
+- **`bb test:cljs`:** 2201 tests, 50021 assertions, 0 failures, including the new index tests.
+- **`bb test:cljd`:** not run, as instructed, so the ClojureDart compile of the new code is unverified.
+
+## Choices the design left open
+- The in-memory dao.jing store defaults per shell; `create-state` takes a new `:index-store` option to supply one.
+- The round drains the intake into the store itself. Otherwise publications would sit in a ring buffer and eventually be evicted rather than saved.
+- There is one metadata entity per program rather than per session, so each program stays exactly one transaction.
+- An index-reader gap stops that round's evaluation, which is the cost of using the same gap rule as the evaluator.
+
+## Deferred
+- The separate `$ast` row relation and dedicated AST indexer.
+- Binding `q` on the user's `(require 'dao.space.query)`.
+- Remote or content-service exposure of the index.
+
+## Concerns
+- **Cost:** `publish!` rebuilds the indexes over the whole session history every round, so per-round work grows with the session. That follows from the "every round" option you chose; an incremental publish would fix it later.
+- **Very large programs:** one publication bigger than the 4096-payload intake would be recorded as a failure, and the previous manifest would stay current.
+
+The full report is at `/Users/sto/workspace/datomworld/collab/1790597280000-vm-engineer-repl-code-index.claude-opus-5-5.report.md`.
+
+Separately: the Gmail, Google Calendar and Google Drive connectors need authorizing in your claude.ai connector settings before they can be used.

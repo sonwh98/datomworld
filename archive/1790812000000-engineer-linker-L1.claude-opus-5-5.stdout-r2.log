@@ -1,0 +1,56 @@
+I fixed all four findings and every lane passes after the final edit. Nothing is committed. This round changed only test assertions and the design doc (the one extra file you authorized); `src/` is untouched.
+
+## Fix round 1
+
+### The four findings
+
+1. **Ledger bound on every step (MEDIUM).**
+   - The per-step dead-network check (`test/dao/space/dht_test.cljc:760`) now asserts the contract's bound: `:ledger-entries ≤ (:max-open + :max-repairing) × ring-capacity`.
+   - It also asserts a tighter bound: the same live-publication limit times the largest publication the test announces.
+   - It runs on every step of the sustained dead-network run.
+   - It also runs on every step of a new shared-address run on a dead network (`:873`). That run announces one address twelve times and runs 60000 more ticks. On every step it also asserts that address has at most one queue entry or outstanding request.
+2. **No repair cycle opens (MEDIUM).** In the overflow test (`:1039`), shared-only case, `:cycles` is asserted to be 0 from the overflow's first report through every step until the publication retires. It is then asserted to be retired.
+3. **No put waits (LOW).** The dead-network test now does all 6 rounds of puts and announcements before any node or peer steps. It asserts the node has never stepped and all 60 puts returned `:inserted`.
+   - With 6 announced at once, 2 now take the `:max-open` overflow path. All the original assertions still hold.
+4. **Design doc.**
+   - §9 now names the refusal codes:
+     - `:not-repairing` from `retry!`, carrying `:manifest`;
+     - `:not-live` from `cancel!`, carrying `:manifest`;
+     - `:loading` from `forget`, carrying `:address`.
+
+     These sit under `:dao.space.dht/refused` in the `ex-info` data.
+   - §10 now gives the shapes of `backlog`, `publications` (including its entry shapes), `publication` and `ack-peers`, checked against the code.
+
+### A mutation that fails each new assertion
+
+The source was restored after each and checked byte for byte.
+
+| New assertion | Mutation | Result |
+|---|---|---|
+| Ledger bound, sustained run | each publication's ledger keeps every earlier publication's addresses | fails 3001 times |
+| Ledger bound, shared-address run | a displaced publication is reported but its ledger is kept | fails 3 times |
+| `:cycles` stays 0 | the first repair cycle is due at the first report instead of `:repair-ticks` later | fails 2 times |
+| Puts answer their local verdict | a put answers `:queued` instead of its verdict | fails |
+
+The `:cycles` mutation issues no second request, so the old one-request check could not catch it.
+
+The contract's form of the ledger bound allows (3+3) × 4096 entries. No test-sized data can exceed that, so the failures above come from the tighter bound asserted beside it.
+
+### A Dart failure this round
+
+- **Symptom:** my first Dart run after these edits failed to compile the generated test file at line 8420. That broke every Dart test file in the run (`+0 -22`), so I stopped it.
+- **Cause:** the new `no-cycle` check nests `is` inside `when`/`when-let`. ClojureDart typed the function as returning `Null`, but `is` compiles to `void`.
+- **Fix:** end the function with an explicit `nil`. This is worth avoiding in other test helpers too.
+- **After the fix:** the Dart lane passes, and I re-ran all four mutations against the final test file with the same results.
+
+### Lanes (all in the foreground, after the final edit)
+
+| Check | Result |
+|---|---|
+| kondo on the 6 changed source and test files | 0 errors, 0 warnings |
+| `bb test:clj` | 2615 tests, 223430 assertions, 0 failures, 0 errors; the DHT process test ran |
+| `bb test:cljs` | 2529 tests, 89627 assertions, 0 failures, 0 errors; both L1 test namespaces ran |
+| `bb build:yin-repl-peer` | built; 13 DYNAMIC WARNINGs, none in files this slice touched |
+| `rm -rf test/cljd-out`, then `bb test:cljd` | `+2484: All tests passed`, 0 compile errors; all 53 L1 tests are in the compiled Dart files |
+
+This section is appended to the report at `/Users/sto/workspace/datomworld/collab/1790812000000-engineer-linker-L1.claude-opus-5-5.report.md`.

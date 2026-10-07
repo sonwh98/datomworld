@@ -1,0 +1,15 @@
+I fixed all four blocking findings. JVM: `clojure -M:test -n yin.vm-test` ran 19 tests (150 assertions) with 0 failures. On Node, `yin.vm-test` is clean; the build still has the same 2 unrelated failures from last round, where the REPL test expects `(/ 1 0)` to throw but JavaScript returns `##Inf`.
+
+I added the new tests before touching the code and ran them against the old version: 13 failures, which reproduced all four findings.
+
+1. **Lambda params:** the grammar now says `[:params :syms]`, and a general `:syms` case handles projection. Reconstruction now rejects a hashed `[:lambda nil body]`, a list of params, or non-symbol params with `:slot-kind`. Before, they loaded and then re-projected to a different address.
+2. **Metadata merging through sharing:** `dao.jing` doesn't hash metadata on symbols. So `^{:meaning 1} x` and `^{:meaning 2} x` as literals get the same address, and one silently overwrote the other. The duplicate-id check now compares metadata at every depth and throws instead. I documented this in the docstring as a `dao.jing` limitation that goes away once `dao.jing` hashes that metadata. Identical metadata still shares one row and keeps its metadata.
+3. **Reader positions inside rows:** `dao.jing` never lets `:line`/`:column` affect an address, but they stayed in the row body. The projection now strips them at every depth of literal values and store keys, keeping other metadata and collection types. Since the address can't change, this is a real fix here, not a `dao.jing` gap.
+4. **Invalid tail flag:** a hashed `:application` with `:not-a-bool` in the tail slot now fails with `:slot-kind` instead of re-projecting as `true`.
+5. **Corpus count:** the reviewer was right, it's 28 programs, not 27. The correction is in the new findings file.
+
+**Still not done:** unreachable rows are still silently dropped, and the `:variable-scope` and plain-data checks aren't implemented. Those belong to the separate full validator.
+
+**Not run:** `bb test:cljd`. Checking with `ps` whether another process was using the Dart build needed approval, so I skipped it as the prompt says.
+
+I only edited `v2.cljc` and `v2_test.cljc`, and deleted the unused scratch script `target/r2-probe.clj`. Nothing is staged or committed. The report is in `collab/1789523200000-vmruntime-ast-semantic-bytecode-r2.claude-opus-5.findings.md`.

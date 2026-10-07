@@ -1,0 +1,48 @@
+Completed-GMT: 2026-10-03 05:46:27 GMT
+Completed-Local: 2026-10-03 12:46:27 +07
+
+**Joint position proposed: REMOVE the yin.vm wrappers (astra's disposition) and close the hazard in Jing by giving the JavaScript carrier a throwing `valueOf`, in this slice; record it in 8.5.5 and `dao.jing.cbor.md`, and add astra's scalar-arm sentence to UCF.**
+
+I read astra's round-1 verdict and the carrier deftype; I ran nothing, so the JS behavior below is from language semantics and the lanes must confirm it.
+
+## 1. Does the proposal satisfy my round-1 objection?
+
+Yes, and it is better than what I asked for. I withdraw the wrappers and my round-1 changes 1 and 2 with them.
+
+- **The hazard is closed for all eight ops.** JS `+` asks an object for a primitive with `valueOf` first, then `toString`; `- * /` and `< > <= >=` do the same. A `valueOf` that throws stops every one of them before `toString` is reached.
+- **It closes more than the wrappers did.** It also covers raw host code, `checked-divide`, and any arithmetic primitive added later, with no set to keep in sync.
+- **It fixes cases round 1 missed.** Today `- * /` on the carrier do not produce garbage strings; they silently return a bare Number, so `(- acc 1)` gives integer `1` on Node where the JVM gives float `1.0`. The comparisons happen to give the right answer by accident. A throwing `valueOf` makes all of these loud.
+- **The asymmetry now sits where the host asymmetry is.** JS is the only host with silent implicit coercion; a Dart carrier or the JVM Rational carrier already fails loudly under a host operator. yin.vm goes back to knowing nothing about carriers in dispatch, which is astra's point and I accept it.
+
+Use a throwing `valueOf` in the deftype's `Object` block, not `Symbol.toPrimitive`. It is the smaller change, and string conversion still works because that path tries `toString` first. A blanket-throwing `Symbol.toPrimitive` would break `str`, since ClojureScript's `str` goes through a string-hint conversion.
+
+## 2. What does it break?
+
+| Path | Effect | In this slice? |
+|---|---|---|
+| `pr-str` | None; it uses `IPrintWithWriter` on the inner number | pin it |
+| `str`, string building | Should be unaffected (string-hint conversion uses `toString`); this is the one I am least sure of across ClojureScript versions | pin `(str c)` and `(str "a" c)` |
+| `=`, `hash`, map and set keys | None; they use `IEquiv`/`IHash`, and ClojureScript `==` compiles to strict `===` | already covered |
+| `<` on the carrier | Throws, as intended; query builtins use Jing's portable compare, which reads the field directly | pin it |
+| Default `compare`/`sort` on two carriers | Changes from a silent string comparison (`"10"` sorts before `"9"`, already wrong) to a throw; `dao.space.index` uses the portable compare, so it should not be hit | lanes decide |
+| JSON and CBOR encode | None; both read the field, neither coerces | no change |
+| `js/Number` on a carrier | Throws; `data/float-value` and `cbor/float64` check for the carrier first, so they are safe | engineer greps for other callers |
+| "reject carrier operands loudly" sentence | Stays true; for float64 on JS it becomes enforced at the source. Keep the query `host-arithmetic` wrapper: it names the builtin and covers other hosts | doc edit |
+
+The error can no longer name the primitive, only the carrier. That is an acceptable loss; raise it through the existing `refuse` helper in `dao.jing.cbor` so it reads like other Jing refusals.
+
+Tests: replace `generic-yin-refuses-the-carrier-test` with a Jing-level test that runs all eight operators against the carrier on JS, plus the `str`/`pr-str`/`=` pins above. Keep one VM-level pin of the concrete case (a decoded `2.0` under bare `+` throws on Node and gives `3.0` on JVM and Dart).
+
+## 3. Which slice?
+
+In the float-fix slice. This slice is what first lets a decoded carrier reach generic primitives, by admitting it at `plain-data?`, `machine-data?` and `scalar?`. The fix is a few lines in one deftype, so the opening and the closing should land together.
+
+The JS Decimal and Rational carriers have the same hole and should get the same `valueOf`. That can be the separate Jing change, since this slice does not newly expose them.
+
+If astra holds that any carrier change is out of scope, I can sign the fallback: ship with the wrappers removed and the sentence "arithmetic over decoded carriers is not established", provided the Jing change is the next commit and the VM-level pin lands with it. The repo is dev-only with no deployed stores, so the window is harmless. It is my second choice.
+
+## 4. Remaining disagreement
+
+None on substance, if astra accepts the carrier change. I concede the UCF sentence ("admission of a numeric scalar does not imply every primitive accepts it"); it is accurate and I was wrong to say that paragraph should stay untouched.
+
+The only possible remaining point is timing: whether the throwing `valueOf` lands in this slice (my recommendation) or immediately after.

@@ -1,0 +1,14 @@
+The r2 plan is rewritten in place at `collab/1788962937302-architect-space-schema-v2-plan.claude-fable-5-1.findings.md`. No other file was changed.
+
+**How each finding was settled.**
+- **D4 (blocking).** Rewritten. Schema still rejects `:gap` and `:defect`, but the plan now says in those words that this detects an observed read failure, not prior prefix loss. Completeness is the caller's declaration, the same "declared, never interrogated" position as the transactor's T18. The unwritable ring-buffer test is replaced by scripted readers modelled on `snapshot-of-a-gap-is-data`, and a new V15 test pins the limit itself the way `single-writer-wrappers-are-not-coordinated` pins T6, so any future change that makes eviction detectable has to change a test. An origin-cursor `snapshot` variant is named as not owed, with the reason.
+- **D1 ordering (blocking).** Aligned with the transactor rather than inventing a schema rule: empty tx-data throws above the lock, everything else answers `closed` first. The new test asserts the same two calls on the wrapper and on its inner value give the same two answers. L10 now carries the "when the wrapper is open" qualifier.
+- **V11's pin.** Kept, not dropped. V14 wraps the opened store's `:close-fn` with a counter and asserts zero closes before the owner's `close-published!`. This seam is plain data, so unlike query's `with-redefs` spy it also runs on ClojureDart. The close test now asserts `closed` on the inner value directly.
+- **Arithmetic.** Recomputed from the edit lists: source 16 → 14 → 0, tests 68 → 6 → 0, 60 closes rewritten and one deleted, 22 receipt lines rewritten including both lines of T19's test, five deftests deleted, deftest count 70 → 72 → 72.
+- **Closure grep.** Targets require forms; the receipt keywords are stated as remaining by design.
+- **`finally` scoping.** W38/W39/W41 get an explicit nested `try`/`finally` with `opened` bound inside the inner scope.
+- P4's surviving pins are cited by test name, including `published-index-constructor-validates-its-arguments`.
+
+I did not dispute any finding. All six checked out against the tree, and two of them (the D4 signal and the D1 ordering) were errors in my r1 reasoning rather than in the brief.
+
+Separately, the Gmail, Google Calendar and Google Drive connectors in this session need authorization through your claude.ai connector settings before they can be used. Nothing in this task needed them.

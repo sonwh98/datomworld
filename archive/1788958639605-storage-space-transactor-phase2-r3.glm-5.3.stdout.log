@@ -1,0 +1,22 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r3 correction is complete — report at `collab/1788958639605-storage-space-transactor-phase2-r3.glm-5.3.findings.md`; nothing staged or committed.
+
+## What changed (docs only, no code)
+
+**The P1 — `dao.space.md` Fault Tolerance is now split by failure scope, named explicitly:**
+
+- **Atomicity, in both scopes** — a failure can leave a prefix, never a torn transaction or partial manifest (the word "crash" no longer appears where it implied a scope).
+- **A writer task stops; the process lives** — handles remain owned and readable, readers at the tail are told `:dao.stream/blocked`, and publication retries are idempotent **while the memory-log is still available**.
+- **The process fails** — un-published local contents *and queued-but-unmaterialized intake payloads* may be lost; **nothing tails a dead handle**; recovery has only what DaoJing has fully materialized.
+
+The checkpoint sentence no longer casts the checkpoint as "the future relief for un-published history." It now states plainly: it optimises the O(history) causality replay `create!` pays on open and **adds no durability** — un-published history would remain un-recoverable, checkpoint or not. (Kept as a pointer rather than deleted, so a future implementer doesn't mistake its purpose in the other direction.)
+
+**One follow-through:** the stigmergy doc's *"Agents fail mid-action"* bullet carried the identical "crashed agent's log" conflation and cites the section just corrected — it would have contradicted the fix. Re-scoped to the same two-scope wording. Grep confirms `crashed writer|crashed agent` returns nothing across the five design docs.
+
+## Smoke checks
+
+- `bb test:clj` — **1434 tests, 165356 assertions, 0 failures, 0 errors**
+- demo compile — **Build completed, 0 warnings**
+
+cljs/cljd not repeated (no code touched since their green r2 runs), per the brief.

@@ -1,0 +1,12 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Task complete. Uncommitted diff in `src/cljc/dao/jing.cljc` (+95/−21) and `test/dao/jing_test.cljc` (+111); findings at `collab/1789513569000-storage-jing-canonical-fix.glm-5.3.findings.md`.
+
+**Per defect:**
+1. **Metadata** — `attach-meta` on all five branches (normalized metadata, reader `:line/:column/…` stripped, empty `{}` dropped), printed by a new `canonical-print` that hand-renders Clojure's conventions (`^m ` prefix, space elements, `, ` map entries; scalars still `pr-str`). A `*print-meta*` binding alone was insufficient: ClojureDart's sorted-set printer drops a set's metadata (prints through its seq) — proven by a failing Dart run before, passing after.
+2. **Set tag** — sets normalize to `sorted-set-by` and stay sets, so the marker is the `#{}` braces themselves; the exact adversarial shapes (`(set (1 2))`, `(set)`, …) are asserted distinct.
+3. **Records** — rejected with a loud `ex-info` anywhere in the value: dao.jing.md doesn't list them as supported, and the hosts can't agree how to print one (JVM/JS tag them, Dart prints a plain map). Flagged for Architect sign-off in the findings.
+4. **`materialize!`** — `:present` read-back now verifies `(= (content-hash stored) (segment-hash address))`; `=` ignored metadata and would have passed the mismatch (tested).
+
+**Verification:** `clojure -M:test -n dao.jing-test` → 38 tests / 226 assertions, 0 failures. Full `bb test:clj` → 1447 / 165,878, 0 failures. `bb test:cljs` → jing clean (2 suite failures are pre-existing `##Inf` ones in yin.repl, no jing dependency). CLJD: scoped `clojure -M:cljd test dao.jing-test` → compile "All clear 👌", 38/38 on the Dart VM — the full cljd lane is blocked by a pre-existing empty `:cljd []` require in `test/bench/yin_vm_bench.cljc`, plus stale Sep-14 cljd-out artifacts, both unrelated and documented.
+
+Skipped: pinned canonical byte encoding (out of scope); scalar metadata stays ignored and pathological-symbol print ties remain — both deferred to Open item 1. Address note: identical to the reviewed attempt outside the fixed defect classes; list/seq/set addresses necessarily change vs HEAD (HEAD addressed lists as vectors — the collision itself).

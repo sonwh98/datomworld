@@ -1,0 +1,25 @@
+Completed-GMT: 2026-09-22 18:03:56 GMT
+Completed-Local: 2026-09-23 01:03:56 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: register-r0-2026-09-23-r0-contract
+
+**Contract version**: `register-contract-version` = 1, frozen in `test/yin/vm/debruijn_register_contract_test.cljc`, mirroring B1's `lowering-contract-version` convention (design section 3: "the first version"). Tested by `register-contract-version-is-a-frozen-positive-integer`.
+
+**Operand-mapping table** (`node-type->register-mapping`), keyed by the resolver's full node-type vocabulary (`resolver-node-type-vocabulary`, 17 types read from `yin.vm.debruijn-resolve/emit-node!`'s own `case`):
+- In scope (6, per section 4.4): `:literal` → `:const [op rd value]`; `:variable` → `:bound {:load-bound [op rd depth position]}` / `:free {:load-free [op rd name]}`; `:lambda` → `:closure [op rd arity body-pc]`; `:application` → `:call [op rd fn-reg arg-regs tail?]`; `:if` → `:branch-false [op cond-reg target]` then `:jump [op target]`, both arms writing one destination register (S4.3).
+- Deferred to R2 (12), each with `:deferred-to :R2` and a named `:diagnostic` keyword: `:dao.stream.apply/call`, `:stream/make`, `:stream/put`, `:stream/cursor`, `:stream/next`, `:stream/close`, `:vm/gensym`, `:vm/store-get`, `:vm/store-put`, `:vm/park`, `:vm/resume`, `:vm/current-continuation`.
+- Exhaustiveness is checked by `operand-mapping-covers-every-resolver-node-type-exactly` (map keys = vocabulary set), `in-scope-mappings-name-only-section-four-four-instructions` (in-scope entries only cite section 4.4 mnemonics), and `deferred-node-types-are-named-explicitly-and-assigned-to-r2`.
+
+**Two-way address law**: `resolved-var-addresses` (independently walks resolved tuples: operator then operands, `if` test then arms, main body first then queued lambda bodies in discovery order) is asserted equal to `stack-image-var-addresses` (reads `:load-bound`/`:load-free` operands off `lower-stack`'s image in pc order), for:
+- Every program in `yin.vm.parity-test/corpus` (24 programs) — `address-law-holds-over-the-b0-parity-corpus`.
+- B2's `duplicate-param`, `free-variable`, `shared-variable-under-two-contexts`, `shared-lambda-under-two-contexts` fixtures, reconstructed locally to match `debruijn_resolve_test.cljc`/`debruijn_linearize_test.cljc` — `address-law-holds-over-b2s-duplicate-and-shared-occurrence-fixtures`.
+
+**Pure data checks**: `register-descriptor-fields` transcribes design section 3's 9-field table as data; `descriptor-field-list-has-every-declared-field` checks the key set; `descriptor-contract-version-field-matches-the-frozen-constant` checks it against the frozen constant; `descriptor-lexical-and-free-addressing-match-the-operand-mapping` cross-checks the descriptor's declared `:load-bound`/`:load-free` fields against the operand-mapping table's `:variable` branches; `descriptor-declared-instructions-are-in-section-four-fours-instruction-set` checks those two fields are members of `register-instruction-mnemonics`.
+
+**No-kernel decision**: recorded as prose in the namespace docstring (not a runtime assertion), quoting design section 8 DECIDED item 1.
+
+**What I ran**: `clojure -M:test -n yin.vm.debruijn-register-contract-test` — 10 tests, 70 assertions, 0 failures, 0 errors. `npx shadow-cljs compile test` — compiled clean (317 files, 16 compiled, 0 warnings); this caught two CLJS reader errors from dots in two deftest names (`...4.4...`), which I renamed to `...four-four...`/`...four-fours...` and recompiled clean.
+
+**What I could not run**: `cljstyle check` on the new file — the Bash call was denied ("This command requires approval") and I did not retry, per instructions. Actually running the compiled CLJS test suite (`node target/node-tests.js`, via shadow-cljs's own test runner) failed with `Error: Cannot find module 'ws'` — this worktree's `node_modules` is effectively empty (pre-existing environment gap, not caused by this file); compilation success is the CLJS evidence I have. I did not attempt the ClojureDart lane; the file has no reader conditionals and no cljd-specific surface, and no other B2 test file in this lineage runs CLJD for the same reason.
+
+**Deviations**: none from the exact scope. The file is new-only (`test/yin/vm/debruijn_register_contract_test.cljc`), no existing files edited, nothing built or assumed beyond already-merged B0/B2 code.

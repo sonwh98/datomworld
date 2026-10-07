@@ -1,0 +1,139 @@
+Completed-GMT: 2026-09-22 04:46:17 GMT
+Completed-Local: 2026-09-22 11:46:17 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: not exposed by this harness to the running agent; identify this
+run by its file: collab/1790051909044-storage-engineer-debruijn-vm-b0.prompt.md
+
+New file: test/yin/vm/debruijn_vm_contract_test.cljc
+Existing edits: none (git status confirms only the new test file is untracked
+besides the collab prompt/log pair)
+
+## Normalizer
+
+`normalize` is depth-first (children transformed before the collection
+itself, the same traversal shape as `yin.vm/strip-reader-positions`, cited
+in the docstring and reused for a different rewrite). Per node, `normalize-
+node` handles three design-stated rules and defers everything else to
+`yin.vm.parity-test/normalize`:
+
+- `{:type :closure ...}` -> `{:type :closure, :arity n}` (arity from
+  `:params`, or passed through unchanged if `:arity` is already present, so
+  a second normalization pass is a no-op)
+- `{:type :cursor-ref ...}` -> `{:type :cursor-ref, :id id}`
+- `{:type :parked-continuation}` / `{:type :reified-continuation}` -> bare
+  `{:type ...}`, dropping `:id`, `:k`, `:env`
+- everything else -> `yin.vm.parity-test/normalize`, which already handles
+  `{:type :stream-ref, :id id}` (by identity) and `fn? -> :host-fn`; this is
+  the "reuse, don't reinvent" part the task asked for.
+
+`normalize-error` is `{:message (ex-message ex), :data (normalize (ex-data
+ex))}` per the design's stated error rule.
+
+Host handles and telemetry: the default VM's store carries `:yin/call-in`,
+`:yin/call-out`, `:yin/call-out-cursor` (live ring-buffer handles + a
+per-run UUID cursor identity) even for a program that never touches
+streams. These are not `:type`-tagged values `normalize-node` can catch
+generically, so `store-normalization-test` dissocs them before normalizing,
+reusing `yin.vm.completion/ffi-pair-keys` -- the same set
+`completion-test.cljc` already excludes from a store slice (`(not-any?
+completion/ffi-pair-keys (keys (:yin.k/store result)))`) -- rather than
+inventing a second name for the same three keys. This was the one point
+where the plain per-node cond was not enough; first run of the store test
+failed on non-deterministic RingHandle/UUID content before this fix.
+
+## Corpus
+
+`tag-corpus` = `yin.vm-test/semantic-bytecode-corpus` (content_test's own
+reuse target, unchanged, required directly). Combined with
+`yin.vm.parity-test/corpus` for the coverage assertion and for named-VM
+self-parity.
+
+Deviation: `yin.vm.completion-test`'s own extra fixtures (`scoping-corpus`,
+`kitchen-sink`, `maker-program`, and `conformance-corpus` itself) are all
+`^:private`, and the file box forbids editing that namespace to expose
+them. They are not required into this namespace. This does not weaken the
+coverage claim: `yin.vm-test/semantic-bytecode-corpus-covers-every-tag`
+(existing test, unedited) already proves `tag-corpus` alone spans every key
+of `semantic-bytecode-grammar` (16 tags: :literal :variable :lambda
+:application :if :dao.stream.apply/call :vm/gensym :vm/store-get
+:vm/store-put :vm/current-continuation :vm/park :vm/resume :stream/make
+:stream/put :stream/cursor :stream/next :stream/close), so this
+namespace's own `all-node-fixture-coverage-test` (re-deriving the same set
+from `tag-corpus` + `parity/corpus`, same technique as vm_test.cljc's own
+coverage test) is provably not weaker than reusing completion_test's
+private extras would have been.
+
+## Completion criteria -> deftest
+
+- Named-VM self-parity: `named-vm-self-parity-test` -- every
+  `parity/corpus` program, two independent named-VM runs each, normalized
+  results `=`; plus, for the same corpus, the datom-batch path (`v2/eval`)
+  vs the row-load path (`ast-walker/vm-load-rows` + `v2/run`), the same two
+  paths `parity-test/ast-walker-parity-test` already compares.
+- Idempotence: `normalizer-idempotence-test` -- 13 fixtures (scalars,
+  collections, closure, stream-ref, cursor-ref, parked-continuation,
+  reified-continuation, a host fn, a nested store-shaped map) each checked
+  `(normalize x) = (normalize (normalize x))`.
+- Closures: `closure-normalization-test`.
+- Continuations (UCF-shaped): `continuation-normalization-test`, both
+  `:vm/current-continuation` (reified) and `:vm/park` (parked) sub-cases.
+- Errors: `error-normalization-test`, applying a literal as a function
+  (`ast_walker.cljc`'s "Cannot apply non-function" throw site) and
+  normalizing the caught exception.
+- Streams: `stream-normalization-test`.
+- Cursors: `cursor-normalization-test`.
+- Store snapshots: `store-normalization-test`.
+- Duplicate parameters: `duplicate-parameter-normalization-test` -- a
+  lambda with params `[x x]` applied to `[1 2]`; asserts the named VM's
+  actual rightmost-wins behaviour (`engine/bind-params` zips params over
+  args into a map via `into {}`, so a repeated name keeps its last binding)
+  yields `2`, that this is self-parity-stable, and that the closure's own
+  arity (unapplied) is `2` -- arity counts declared params, not distinct
+  names.
+- All-node coverage: `all-node-fixture-coverage-test`.
+
+## What I ran
+
+- `clojure -M:test -n yin.vm.debruijn-vm-contract-test`: 10 tests, 84
+  assertions, 0 failures, 0 errors.
+- `clojure -M:test` (full suite, to confirm no regression from adding the
+  file): 1711 tests, 172550 assertions, 0 failures, 0 errors.
+- `LC_ALL=C grep -n '[^\x00-\x7F]' test/yin/vm/debruijn_vm_contract_test.cljc`:
+  no match (pure ASCII).
+
+## What I could not run
+
+- `clojure -M:kondo --lint test/yin/vm/debruijn_vm_contract_test.cljc`:
+  denied by the harness's permission system ("This command requires
+  approval"). Not retried.
+- `clojure -M:fmt cljstyle check test/yin/vm/debruijn_vm_contract_test.cljc`:
+  denied the same way. Not retried.
+- Node/CLJS and ClojureDart lanes: not attempted; the prompt's environment
+  section only names a focused JVM run, and the file box's `:test` alias
+  extra-paths do not include a shadow-cljs or cljd build step for this
+  file. If those lanes are wanted for B0 they were not requested in this
+  prompt's "Environment" section beyond the JVM command, so I did not
+  attempt to invoke shadow-cljs or the cljd build directly.
+
+## Deviations
+
+1. Could not require `yin.vm.completion-test`'s private
+   `scoping-corpus`/`kitchen-sink`/`maker-program`/`conformance-corpus`
+   (see Corpus section above): file box forbids editing that namespace to
+   make them public. Coverage is unaffected per the argument above.
+2. `store-normalization-test` dissocs `completion/ffi-pair-keys` from the
+   store before normalizing (see Normalizer section): the plain `:type`-
+   dispatch normalizer has no way to recognize a bare host handle map/
+   object that carries no `:type` key of its own, so this exclusion lives
+   in the test, not in `normalize` itself. If a later phase wants host-
+   handle exclusion built into the normalizer proper, it needs its own
+   design decision about what marks a value as a "host handle" in general
+   (this VM's only current instances are the FFI pair, which
+   `yin.vm.completion` already names).
+3. Kondo and cljstyle were denied, not run (see above); no lint/format
+   verification beyond the ASCII check and manual review against this
+   repo's existing test-file conventions (blank lines between top-level
+   forms, `#?(:cljd Object :clj Exception :cljs :default)` catch idiom
+   reused verbatim from `parity-test.cljc`/`vm-test.cljc`).
+
+No promises about later phases; this file only freezes what B0 asked for.

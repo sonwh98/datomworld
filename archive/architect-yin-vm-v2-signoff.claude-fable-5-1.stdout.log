@@ -1,0 +1,48 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+Completed-GMT: 2026-09-02 17:58:26 GMT
+Completed-Local: 2026-09-03 01:58:26 Asia/Shanghai
+
+## Findings
+
+**HIGH | docs/design/yin.vm.implementation-plan.md:169-175 | contract invariant "Eviction never waits on a reader" (`dao.stream.md:612-619`), "no destructive read" (`dao.stream.md:501-505`); evidence `src/cljc/dao/stream/ringbuffer.cljc:76-90,110-118,153-161`**
+
+The request for a reject-mode ring buffer is unsatisfiable, and granting it naively would be worse than the divergence it tries to avoid. In v1, reject-mode `:full` clears in exactly one way: `drain-one!` advances `:head` and frees a slot. `next-outcome` never moves `:head`, and `evict-oldest-state` runs only under the evict policy. So v1 backpressure is not a property of the ring buffer alone; it is the pair reject-mode plus destructive take, and the writer-waiter wake lives inside `drain-one-state`. This plan deletes destructive take on the same page. Under v2 a reject-mode ring buffer, once full, is full forever: no operation frees a slot, and the contract forbids the one mechanism that could (retention waiting for readers). A `:stream/put` parked on `full` never wakes, which is a silent hang instead of a reported `gap`. The `engine_test.cljc:365` test the plan cites proves the point: it unblocks the writer by manually advancing `:head`, a drain.
+
+Recommended correction: withdraw the request. Accept evict-oldest, record the divergence in the V6 register with this reason (v1 backpressure was drain-coupled), delete the "same results as v1" claim for programs that rely on park-on-full, and point backpressure-equivalent semantics at the already-named deferred queue interpreter or at `dao.lease.md` flow control, which the sibling plan defers on the same grounds. The plan's own fallback sentence at line 174-175 is the right decision; it should be the decision, not the fallback.
+
+**MEDIUM | docs/design/yin.vm.implementation-plan.md:112-119 | contract "every valid cursor comes from the stream" (`dao.stream.md:467-470`); evidence `engine.cljc:163-172`, `ast_walker.cljc:786`, `vm.cljc:542-545`, `ffi.cljc:31-32,96`, `apply.cljc:170,184`**
+
+The plan says every `{:position 0}` becomes an opaque cursor but never says which anchor mints it. Every fabricated cursor site is semantically "absolute position zero", which is `:dao.stream/oldest` on a fresh stream but diverges from `:dao.stream/newest` the moment a stream has history before the cursor exists. The in-stream case matters for parity: tests pre-fill streams before constructing the VM. Also, `handle-cursor` today touches no stream; under v2 `:stream/cursor` becomes a stream operation with `closed` and `transport-error` outcomes to handle. An implementer must choose here.
+
+Recommended correction: one rule in the census section. Every fabricated cursor is minted with `:dao.stream/oldest` at the moment its handle enters the VM store, and the `cursor` outcome is handled at that site.
+
+**MEDIUM | docs/design/yin.vm.implementation-plan.md:135-142 | invariant "no hidden global state"; evidence `ringbuffer.cljc:447-449`, `engine.cljc:208-227`**
+
+"The v2 `take!` reads through the taker's own cursor and advances it." v1 `take!` takes a stream ref, not a cursor. There is no taker's cursor anywhere. Either `take!` gains an implicit per-stream cursor the VM must store somewhere, or `take!` is deleted from the module and programs use `cursor`/`next!`. The first option invents state; the second is a fourth user-visible change. The plan should pick one. Recommended: delete `take!` from the v2 `stream` module and record it as a removal, since an implicit cursor per stream is exactly the reader-position-in-the-medium the contract retired. If kept, the cursor must be an explicit VM-store entry keyed by stream ref, minted per the rule above.
+
+**LOW | docs/design/yin.vm.implementation-plan.md:83-85 | invariant "no hidden global state", host boundary rule (`datom.world.md:51-63`); evidence `module.cljc:97-114`**
+
+`yin.module` registers a `:module/require` effect handler at load, and its clj branch calls `clojure.core/require` from inside effect dispatch. The plan replaces the atoms with a registry value but is silent on this handler. State that the registry value carries effect handlers, that `:module/require` resolves against the registry value only, and that the host `require` call does not survive.
+
+**LOW | docs/design/yin.vm.implementation-plan.md:147-153 | evidence `telemetry.cljc:124,168`**
+
+Classification tests only the reader protocol. A v2 writer-only or closable-only handle that is a record would satisfy `map?` and be walked field by field, state atom included. The v2 telemetry should test all three surface protocols before the `map?` branch. Belongs in the V3 telemetry tests the plan already requires.
+
+**LOW | docs/design/yin.vm.implementation-plan.md:245 | evidence `ffi.cljc:86-127`, `ast_walker.cljc:121-150`**
+
+V3 promises "the FFI pair's declared capacity" without the sizing rule. The once-only state machine bounds outstanding requests to one per parked call, and already-read responses are harmlessly evictable, so the rule is: capacity at least the maximum outstanding plus one, and a `gap` at the bridge cursor is fatal, not resumable. Say so.
+
+## Properties confirmed
+
+- **Closure is correct.** Traced every `:require` of the ten ported namespaces. After substitution the v2 tree depends only on `dao.datom`, `dao.stream`, `dao.stream.ringbuffer`, `clojure.set` and `clojure.string`. `engine.cljc:7` requires `dao.stream.ringbuffer` only for the `defopen` side effect, which `ringbuffer/create!` replaces as stated. `dao.datom` has no requires. `yin.module` correctly rejected for its two `defonce` atoms.
+- **Census counts reproduce exactly**: `:position` 36 across 9 files, `:woke` 11, `IDaoStreamWaitable` 6, `drain-one!` 5, `closed?` 1. Every cited line number checked resolves to the claimed code, including `engine.cljc:240-247`, `stream_driver.cljc:25,40-46`, `vm.cljc:134-139`, `semantic.cljc:3-4`, `repl.cljc:183`, `clojure.cljc:79,322-330`, `ast_walker_test.cljc:4`, `test_utils.cljc:20-27`.
+- **Waiters are a deletion.** `check-wait-set` is the fallback path on every `satisfies?` false branch; no logic is lost.
+- **Envelope ownership** matches the code: `rpc.client` and `rpc.server` both require `dao.stream.apply` and add only wrapping.
+- **Phase order is executable.** Each phase's requires are satisfied by earlier phases; V1 and V2 are leaves over the sibling's Phase 2.
+- **Invariants.** Registry value replaces ambient state; polling wait set removes implicit wake control flow; the FFI bridge crosses the host boundary as request and response data on a stream pair, with the host interpreter invoking handlers on its own side; the sole remaining `satisfies?` is telemetry classification, which is reflection, not dispatch. No shared mutable state is introduced. `vm.cljc`'s three atoms are let-local.
+- **Host matrix** guidance on the `:cljd` reader-conditional trap is correct and `vm.cljc:171` is the only bare `#?(:clj …)`.
+
+SIGN-OFF: WITHHELD
+
+1. Replace the reject-mode request (lines 169-175) with the recorded divergence, stating that v1 park-on-full depended on destructive take and cannot exist under v2.
+2. Add one cursor-provenance rule: every fabricated cursor is minted with `:dao.stream/oldest` when its handle enters the store, and `take!` is either deleted from the v2 `stream` module or reads an explicit VM-store cursor minted by that rule.

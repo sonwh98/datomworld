@@ -1,0 +1,12 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+The plan is rewritten in place at `collab/1788977648939-architect-jing-remote-v2-plan.claude-fable-5-1.findings.md`, header updated to r2. No other file was written.
+
+**What changed against the review record.** Decision numbering is stable. The eight findings are all accepted; none was wrong.
+
+- **Finding 1 becomes Phase 0**, a prerequisite repair of `dao.stream.ws.jvm` that is independently committable and should land even if the migration never does. It removes the `.join`, chains overlapping sends behind a pending future under a lock, reports post-acceptance send failure as `:ws/error` then a once-guarded `:ws/closed`, and is pinned with a reified `java.net.http.WebSocket` holding an incomplete future. D1 now states plainly that r1's claim was false for the shipped transport and is conditional on Phase 0. I also confirmed the Node and Dart edges never had the join, so this is the JVM's alone.
+- **Finding 2**: the timeout test is rewritten around a latch the test owns. Three calls time out while the driver is held, bookkeeping is asserted empty after each, then release and a fourth call with headroom succeeds. Late correlation is pinned separately at step level with scripted media.
+- **Finding 3**: a new portable `retire-call` drops the outstanding entry and abandons a still-unsent envelope on timeout. N6 is restated, and the docs now say a timeout retires the wait, not the remote execution.
+- **Finding 4**: the inbound step substitutes a correlated `:dao.jing.remote/non-portable-result` error for an unencodable handler result and retires the attachment on any non-ok append, with a test.
+- **Findings 5 to 8**: three establishment tests replace the false reliance on port 99999; N10 states and pins the close-versus-call scope; §9 resolves the ClojureDart fact to the project memory and adds the cursor-before-attach ordering with two homes; D8 now says the DHT node's real work is the inbound decode policy under the portable-domain gate.
+
+The framing correction is taken: `call-step` is the seed of the blocking driver's loop, not of a stepped client.

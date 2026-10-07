@@ -1,0 +1,67 @@
+Completed-GMT: 2026-09-29 18:58:24 GMT
+Completed-Local: 2026-09-30 01:58:24 +07
+Coding-Agent: claude
+Session-ID: 10c592b5-4997-47d1-8055-8010792bb808
+
+# Report: host functions now render as a named, portable marker, locally and when served
+
+A host function now prints as `{:type :host-fn, :name '+}` (or `'dao.space.query/q` after the require) instead of `#object[...]`. The full JVM and CLJS lanes pass; cljstyle was blocked by permissions and not run. The work is in the main tree at master 04378221, not staged or committed. The only source file changed is `src/cljc/yin/repl.cljc`; `yin.vm/*`, `yin/repl/query.cljc` and `dao/data.cljc` are untouched. The full report is at `collab/1790704328000-vm-engineer-host-fn-rendering.claude-opus-5-5.report.md`.
+
+## The form
+
+```
+{:type :host-fn, :name '+}
+{:type :host-fn, :name 'dao.space.query/q}
+{:type :host-fn}                      ; when no name is known
+```
+
+- **Why this form:** it has the same shape as `{:type :closure, ...}`, and the `:type` key tells the two apart.
+- **Same on every host:** it goes through the same pretty printer and symbol quoting as everything else, so CLJ, CLJS and CLJD print the same text.
+- **Why not a tag:** a form like `#host-fn[+]` would be the REPL's only tagged output, and no host's reader could read it back.
+
+## How names are found
+
+Names are looked up by identity in the VM's own tables, with no per-host reflection.
+- **Primitives:** the existing `yin.vm/name-of`. The de Bruijn stack and register VMs don't carry an alias table, so the lookup falls back to `yin.vm/primitive-canonical-names`. Without that, `==` rendered nameless on those two VMs.
+- **Module exports:** read from the VM's module registry, named as `module/export`. That is how `dao.space.query/q` gets its name after the require, with no change to `query.cljc`.
+
+## Served sessions
+
+No `dao.data` change was needed. A served endpoint sends back the text the server's REPL already rendered, so a served session shows the same string as a local one. A new test checks that.
+
+## Tests and verification
+
+**New tests:**
+- `repl_test`: on all four VMs, checks `+`, `dao.space.query/q` after require, host functions inside a collection built at runtime, `==` rendering as `=`, and that a closure still renders as `{:type :closure ...}`. A second test covers the nameless marker.
+- `serve_test`: served answers must equal the local session's text.
+- Every new test also asserts no output contains `#object[`.
+
+**Mutation proofs:** I applied each break on its own, checked that the tests caught it, then reverted it.
+
+| Break | Result |
+|---|---|
+| Remove the host-function branch | `#object[...]` came back and the tests failed |
+| Ignore module exports | 5 failures |
+| Render results without names | 18 failures |
+
+**Test runs:**
+
+| Check | Result |
+|---|---|
+| kondo | 0 errors, 0 warnings |
+| cljstyle check | Blocked by permissions, not run |
+| Focused JVM suites | 121 tests, 788 assertions, 0 failures |
+| Full `clj -M:test` | 2374 tests, 184439 assertions, 0 failures |
+| `bb test:cljs` | 2279 tests, 50915 assertions, 0 failures; both new test namespaces ran |
+| `bb test:cljd` | Not run, per the brief |
+
+After the full lanes finished I made `host-fn-namer` private and re-wrapped one line, with no behaviour change. Only kondo and the focused suites were re-run after that.
+
+## build/yin-repl-peer
+
+It needs a rebuild. The Dart peer compiles `yin.repl` through `main`, `driver` and `serve`, so it keeps the old rendering until `bb build:yin-repl-peer` runs. `bb test:cljd` already depends on that build.
+
+## Open points
+
+- `(prn +)` inside a program prints the nameless `{:type :host-fn}`. Those primitives are built before the VM exists and can't see its tables. Fixing it means passing the VM's tables into `make-repl-primitives`, which I left out to keep the change small.
+- The marker is plain data, so typing the literal map `{:type :host-fn :name '+}` prints the same text. The existing `{:type :closure ...}` form works the same way.

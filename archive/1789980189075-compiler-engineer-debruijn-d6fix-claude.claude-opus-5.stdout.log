@@ -1,0 +1,29 @@
+Completed-GMT: 2026-09-21 08:44:56 GMT
+Completed-Local: 2026-09-21 15:44:56 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: 69f82e15-85c9-4754-a273-a5f4ad68d932
+
+The durable-storage test no longer relies on the file store carrying list literals, and the JVM and CLJS runs pass. I edited only `test/yin/vm/pipeline_test.cljc`, and nothing is staged or committed. I haven't run CLJD, so whether this fixes the Dart failure is still unconfirmed.
+
+## Changes
+
+1. **`durable-programs` fixture:** removed `(lit (list 1 2.5))`. The docstring now says negative zero and lists are left out because the file store's text codec doesn't carry them on every host. It names the test that pins each case and the in-memory test that still covers lists.
+2. **`negative-zero-does-not-survive-the-file-codec-on-cljs` is renamed** to `values-the-file-codec-cannot-carry-are-refused-not-corrupted` and is now a table of three cases: `-0.0` next to `0.0`, `(list 1 2)`, and `(list 1 2.5)`. Each case gets its own temp file.
+   - **The same law on every host:** if the write succeeds, reading back must give the exact original projection or fail with `:hash-mismatch`. If the write is refused, the outcome must be `:diagnostic` with rule `:projected-write-failed`, and `(jing-file/records path)` must be empty, so nothing was half-written.
+   - **No host is required to refuse,** so a later fix to the file codec won't break the test.
+   - **Exactness is still required only where it was before:** the `-0.0` case on JVM and CLJD, and the list cases on JVM only. Lists are not required to be exact on CLJD.
+   - **Host detection:** a new private `host` value is written `:cljd`-first because of the ClojureDart reader trap.
+3. **New `list-literals-persist-in-memory`:** no in-memory pipeline test persisted a list literal before this. The new test does so through `persist-compiled!` with `mem-store`. It checks the stored envelope matches the expected one and that the list's fingerprint differs from the same values as a vector. The pure list-vs-vector tests in `debruijn_test` are unchanged.
+
+## Verification
+
+| Command | Result |
+|---|---|
+| `clojure -M:test -n yin.vm.debruijn-test -n yin.vm.pipeline-test` | 97 tests, 454 assertions, 0 failures, 0 errors (baseline 96 / 444) |
+| `bb test:cljs` | 1574 tests, 39090 assertions, 0 failures, 0 errors (baseline 1573 / 39085); both namespaces appear |
+
+As instructed, I skipped kondo, cljstyle, the env block, the Java-17 lane and CLJD. Both runs used Java 21 from PATH, as in earlier rounds.
+
+## Deviations
+
+None from the brief. On CLJD the test only needs each list case to either round-trip exactly or be refused at write with an empty store; that path is the one I haven't been able to run.

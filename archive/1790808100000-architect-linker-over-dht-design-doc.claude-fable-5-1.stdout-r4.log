@@ -1,0 +1,18 @@
+Both r3 findings are closed in `docs/design/yin.vm.linker.dht.md`, now revision r4. Only docs changed, and nothing is staged or committed.
+
+## Finding 1: repairs starved by a full shared backlog (HIGH)
+
+- **Separate capacities.** The fresh queue and the repair queue no longer share one bound. The repair queue has its own capacity that fresh writes can never occupy.
+- **Explicit admission turn.** Repair admission runs before fresh admission in every step and does not depend on it.
+- **Per-publication batch.** A repairing publication holds at most 64 addresses in the repair queue at once. Sixteen repairing publications times 64 equals the repair queue's capacity, so every publication's batch always fits.
+- **Cycle lifecycle.** A cycle opens when due, offers every retryable failed blob, and closes when each has been admitted once and settled. The next delay is computed from the close.
+- **Stated guarantee.** Every due repair receives a replicate request within a bounded number of steps and ticks, whatever the fresh queue holds.
+- **L1 acceptance.** A new test keeps the fresh queue full without pause while an older failed row is admitted, requested and acknowledged. It fails if the repair waits for the fresh queue to drain. A second test covers publications with more failures than one batch.
+
+## Finding 2: publications awaiting a first report were unbounded (MEDIUM)
+
+- **New bound.** At most 16 publications may await their first report. One more announcement does not wait and displaces nothing. Every blob of the new publication fails at once with a new retryable reason, `publications-full`, its first report is made in that step, and it continues under repair.
+- **Narrowed claim.** `:max-repairing` now explicitly bounds repairing publications only. Section 5.5.2 states the full retention bound: live publications, ledger entries, both queues and outstanding requests.
+- **L1 acceptance.** The dead-network test now asserts the two queue bounds separately and repairing publications only. A separate retained-ledger test covers the open bound, the total of ledger entries, and many open publications sharing one queued address.
+
+The limits table and the failure vocabulary carry the new settings and the new reason.

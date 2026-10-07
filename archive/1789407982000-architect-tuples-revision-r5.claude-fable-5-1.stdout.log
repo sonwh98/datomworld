@@ -1,0 +1,21 @@
+Completed-GMT: 2026-09-14 17:48:33 GMT
+Completed-Local: 2026-09-15 00:48:33 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1545 lines (was 1465). Only this file changed; it remains untracked and `git diff --stat` is empty.
+
+**Finding-by-finding:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Attempt identity scoped to no expander | Fixed. New §8.4.1 defines `:yin.ledger/attempt` as `[incarnation counter]`, carried in the addressed record (§8.2) and the event (§8.4). The incarnation is a new `:incarnation` field of the expander's `ctx`, minted by the composition at construction as the log medium's identity plus the log cursor at construction, never derived from a batch. The counter is a per-incarnation attempt counter advanced like `:alloc`, including for admission failures. A staged-flush retry reuses the identity because the record is part of the staged payload under the same `ctx`; a restart constructs a new expander, mints a new incarnation, and records replay as a distinct execution. The parent-record chain is unchanged and one record per attempt is preserved. |
+| 2 | Harvest catalogue loses shared legacy definition identity | Fixed. §8.5's catalogue is now one entry per original definition, each entry the set of `[j path]` occurrences of that definition; harvested once, one ordinal `k` per group, every occurrence replaced by a stand-in with the same `:decl k`. Admission validation checks disjoint non-empty groups, exact coverage of every definition node, one symbol and one body address per group, and whole-group declaration. Tuple-native frontends emit singleton groups. §9.1's adapter derives groups from entity identity and must extend the `datoms->ast` recursion to carry path and entity id, which it does not today. §2.5's catalogue row and §10.4 were updated to match. |
+
+Neither finding required an owner ruling. One cross-document dependency is stated in §10.3: the `:incarnation` field is an addition to `yin.vm.macro.md`'s `ctx` that this document cannot make there.
+
+**Sections touched:** status line, §2.5 (harvest catalogue row), §8.2 (`:expand` record), §8.4 (attempt line and uniqueness sentence), new §8.4.1, §8.5 (envelope, catalogue rule, new occurrence-group rule, validation, binding), §9.1 (adapter row), §10 items 3 and 4.
+
+**Verified against source myself:** the codec's `seen-eids` shared-entity emission at `v2.cljc:394-411` and the recursive `datoms->ast` at `:494-559` carrying neither path nor entity id; `yang.clojure`'s shared defmacro lambda at `clojure.cljc:418-437`; the macro contract's `ctx` fields at `yin.vm.macro.md:216-223`, the catalogue and stand-in rules at `:254-275`, the one-event-per-attempt rule at `:668-669`, the staged-flush retry and allocation rule at `:360-365`, and the expander state and `ready?`/`load` shape at `:765-773`.
+
+**Taken from the review, not re-run:** the executed codec run producing one `:yin/type` row with operand refs `[-100 -23 -100]` for a definition reused twice. I verified the code path that produces it but did not execute it.

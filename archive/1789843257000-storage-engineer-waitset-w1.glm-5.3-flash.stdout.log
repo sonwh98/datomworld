@@ -1,0 +1,37 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+Completed-GMT: 2026-09-19 19:18:50 GMT
+Completed-Local: 2026-09-20 02:18:50 +07
+
+## What I built
+
+Exactly two new files, nothing else touched (verified via git status; nothing staged or committed):
+
+**`src/cljc/dao/stream/waitset.cljc`** — the library, host-branch-free, requiring only `dao.stream`:
+- `empty-waitset` → `{:waiting []}`; `park` (total, appends in wait-set order); `check` returning `{:waitset {:waiting […]} :woken […] :store store'}`.
+- Private `poll-next`/`poll-put` preserve the engine branch-for-branch for the outcomes the VM parks: reader `ok`/`end`/`gap` exactly as `poll-wait-entry` yields them (gap keeps `:value :dao.stream/gap` and advances by the recovery cursor), writer `ok` resolves with the appended value and no cursor, `closed` terminal under its own keyword, never a reader's `end`. Only `blocked`/`full` wait; everything else is terminal via the `case` default.
+- Diagnostics: nil/no-`:stream` resolve → `:dao.stream.waitset/unresolved`; unknown `:reason` → `:dao.stream.waitset/unsupported-reason`. Reason is checked before resolve; both paths perform no stream operation, skip `:advance`, leave the store unchanged, and return the entry intact.
+- Shared-cursor write-back: `:advance` is called before the next entry resolves, only when a poll returned a cursor. Entries are never augmented — no `:stream`, no injected cursor. `check`'s docstring states the interpreter-step (never "pure"), the no-budget/no-scan-position rule, and the never-drop-`:waitset`-or-`:store` law.
+
+**`test/dao/stream/waitset_test.cljc`** — 11 tests, 116 assertions:
+1. `classification-is-pinned-per-operation` — two literal plans asserted domain-equal to `stream/outcomes-next`/`outcomes-append`; all 12 declared outcomes driven through reified handles.
+2. `undeclared-outcome-is-terminal-under-its-own-keyword` — a rogue keyword outside both sets, both operations.
+3. `woken-results-carry-what-the-poll-yielded` — ok/end/failure/writer-ok result shapes, exact maps.
+4. `shared-cursor-wakes-co-waiters-on-distinct-values-in-wait-set-order` — ring buffer, wake order `[:a :b]`, entries returned verbatim, store at second's successor.
+5. `parked-writer-retries-by-appending` — full-once handle: one append per poll, store untouched by a writer, threaded retry wakes with the host value.
+6. `gap-recovery-wakes-co-waiters-from-the-recovery-position` — capacity-2 ring; first wakes `gap` at recovery position 1, second wakes `ok` reading the earliest retained value in the same call, final store cursor = 2.
+7. `sweeps-a-non-vm-store-and-returns-host-key-entries-intact` — association-list store, host refs like `:my.host.dev/stream-7`, exotic keys returned verbatim.
+8. `diagnostics-never-wait-and-never-touch-a-stream` — nil resolve, resolve-without-stream, unknown reason; counting handle at zero; store unchanged; `:advance` never called.
+9. `checking-an-empty-waitset-touches-nothing`.
+10. `woken-is-per-call-and-entries-come-back-as-given` — repeated check returns `[]`; key-set equality proves no injected `:stream`/`:cursor`; `edn/read-string`∘`pr-str` round-trip.
+11. `probe-observes-without-committing-and-reparks-to-the-next-value` — identity `:advance`, store identical, re-park wakes on `:b` not `:a`.
+
+## Lane outcomes
+
+1. `clojure -M:test -n dao.stream.waitset-test` — green: 11 tests, 116 assertions, 0 failures, 0 errors.
+2. `clojure -M:test` — green: 1461 tests, 168064 assertions, 0 failures, 0 errors.
+3. CLJS — green: 1378 tests, 37933 assertions, 0 failures, with `Testing dao.stream.waitset-test` confirmed in the Node output. **Disclosure:** the bare command failed in this sandbox before compiling anything — the non-mise `clj` resolves Java 17, and shadow-cljs 3.3.5's closure-compiler v20250407 needs Java 21 (verified in the `.cpcache` basis that resolved dep versions are correct, so it is the JVM, not a dep conflict). I ran the identical command under mise: `mise exec -- clj -M:cljs -m shadow.cljs.devtools.cli compile slice-peer test` — same lane, mise's Java, green.
+
+## Unresolved / notes
+
+- One real defect was found and fixed in the library during verification: `check`'s wait branch originally destructured the poll result without testing it, conj'ing a `nil` wake and never retaining the entry. Now `if-some` splits wake from wait. All other fixes were test-side (a delimiter imbalance; a wrong probe expectation — the sweep does call the probe's identity `:advance` once, which the test now asserts alongside the byte-identical store).
+- The cljd lane is yours, as assigned.

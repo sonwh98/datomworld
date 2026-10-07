@@ -1,0 +1,17 @@
+The task is complete. The specification is written to `collab/1789222642509-architect-macro-system-v2-design.claude-fable-5-1.findings.md` with the required header, and no tracked repository file was modified.
+
+**What the specification decides**
+
+- **One expander, `yin.vm.macro`**, used as a batch-to-batch pass at compile time and called as a subroutine by each evaluator at runtime. Evaluators own only the splice back into their control representation.
+- **Macro bodies always run on a throwaway ast-walker** over AST, supplied by the composition as a `:macro-eval` function. This avoids a require cycle and keeps evaluator choice out of the engine.
+- **Arguments are AST maps, not entity ids.** Unchanged operand subtrees are still shared by reference because reconstructed maps carry their `:eid`. This is a deliberate departure from the deleted v1 engine, and from the cross-language doc's frontend coercion rule, with reasons in Appendix A.
+- **Expansion is outermost-first with re-expansion of output to a fixpoint**, guarded at depth 100 and 10,000 datoms, with every failure recorded as a queryable event carrying `:yin/error`.
+- **The expanded root is an explicit `:yin/root` fact.** I found that the existing root heuristic in `index-datoms` would otherwise select the unexpanded original root, since expansion is non-destructive. Appendix B flags this as the first thing to land.
+- **Runtime splice**: the walker does `cesk-return` with the expanded AST and the same env and continuation. The semantic VM lowers the output into an ephemeral segment ending in `:return` and performs a segment call, with no frame pushed in tail position. A stack VM contract is given for `OP_MACRO_EXPAND` as opcode 24.
+- **Provenance and authority**: expansion records live in a `:macro-expansions` ledger on the VM value, drained by the composition. Runtime expansion requires a supplied `:macro-authorize` function with no default, so an unconfigured VM denies rather than silently expands.
+- **Roadmap**: Phases 0 through 4 with target files, tests, and acceptance criteria, plus divergence register and REPL changes, including routing REPL AST evaluation through the same program-medium path as datoms so compile-time expansion is a loader composition.
+
+**Two things worth your attention before implementation starts**
+
+- The Python parser has no list literal, so a `defn` call from Python cannot be written today. The Phase 4 cross-language test uses a scalar-signature macro instead and marks Python `defn` as reserved.
+- The brief lists `:yin/timestamp` on the event. The spec keeps it optional and logical rather than a host clock, since a clock inside the expander would break determinism and the compile/runtime parity test.

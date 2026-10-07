@@ -1,0 +1,55 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-03 17:56:32 GMT
+Completed-Local: 2026-10-04 00:56:32 GMT+07
+
+# Independent gate: Python C2-S3 (yield from, iter, sequence iterators)
+
+Read-only review of the staged change (branch `yang-python-c2-s3`, HEAD `a932bb55`; `git diff --cached` = 6 files, +411/−42; working tree identical to index, nothing committed). No suites run; prior reports treated as untrusted. All evidence below read directly from the staged tree.
+
+## 1. PEP 380 fidelity of `py/yield-from` — conforming
+
+- **Loop structure** `prelude.cljc:421-434`: `yield from x` → `py/delegate g (py/iter x) [:send None]`; each outcome `:yield` re-suspends the outer via `py/yield-raw` and the resumed message is forwarded to the delegate (tail call per item); `:return` becomes the expression's value; anything else is `py/raise`d on the outer's stack. This is the PEP 380 expansion shape.
+- **send** `prelude.cljc:448-451`: generator delegate → `py/gen-switch` (value lands at the inner's yield site via `py/yield:320-325`, catchable by the inner's `try`); sequence delegate → `None` advances it, non-None → `AttributeError "send"`. CPython 3.9 raises `AttributeError: 'list_iterator' object has no attribute 'send'` — same type, shorter message (prelude-wide message style; e2e asserts only the type).
+- **throw** `prelude.cljc:443-448`: non-GeneratorExit into a generator delegate → inner's throw (raised at its yield site, inner's `finally`/`except` can handle); into a sequence delegate → raised in the outer as-is — matching 3.9, where the expansion re-raises the original exception when `_i.throw` is absent.
+- **close/GeneratorExit** `prelude.cljc:445-447` + `py/gen-close:384-399`: the inner is closed first (its `finally` runs before the outer's — asserted in `yield-from-close-order-test`), a clean inner completion re-raises the **original** GeneratorExit in the outer (matches the expansion's `raise _e`), an inner that yields again → `RuntimeError("generator ignored GeneratorExit")` propagating through the outer's `finally`, and other inner raises propagate instead of the GeneratorExit. A non-generator delegate skips `close` (3.9: `AttributeError → pass`), same observable.
+- **Already executing / exhausted / fresh delegates** `prelude.cljc:254-268`: self-delegation hits `:running` → `ValueError "generator already executing"` (fires across delegation because the body runs with state `:running`); resuming through an already-exhausted delegate gives `[:return :py/None]` — second exhaustion returns `None`, as in CPython; a throw into a never-started delegate closes it and raises in the caller.
+- **PEP 479** `py/gen-fail:297-304`: a StopIteration escaping the inner body becomes `RuntimeError`; delegate termination is consumed as `:return` first, preserving `.value` — exactly the design's quoted cross-ruling line.
+- **iter evaluation and non-iterables** `prelude.cljc:426,1619-1635`: `TypeError "object is not iterable"` raised at the yield-from site on first resume, inside the generator's own handler context.
+- Strings delegate through the char tuple; nested chains of depth 3 verified by trace (message descends `h→g→list`, unwinds `g`'s finallys then `h`'s, close returns None).
+
+## 2. Safepoint / depth interplay — no new unchecked entries
+
+The recursion/depth record and the `:base` rebase are **design text for a later safepoint slice** (8.5.2 slice order "signals, recursion, tracing, threads"; no `RecursionError` or depth counter exists anywhere in this tree — grepped src/ and the prelude). So there is no landed limit comparison to bypass, and the safepoint-s2 defect (`py/gen-switch` performs no limit comparison, `prelude.cljc:254-281`) is **unchanged by this diff, not worsened**: every new entry into generator code still funnels through `py/gen-switch` (`py/delegate-step:448-450`); `py/iter-outcome:1649` is not a generator entry; re-suspension uses the existing `py/yield-raw`, which 8.5.2 already names as a safepoint site together with `py/yield-from`. The landed half of the dynamic context, `py.rt/handlers`, is swapped at every crossing and restored on all three delegate exit paths (`:return`/`:raise` via `py/gen-exit:289-296`, `:yield` via `py/yield-raw:305-319`); `:caller-ctx` chains correctly through nested delegation, and the JVM-only check now also asserts neither the delegating nor the inner `:resume` grows per item through a delegation level (`e2e_c2_test.clj`, `suspended-resume-sizes` + `counter-source` with `delegate?` — 10 vs 1000 items).
+
+## 3. `iter()` and sequence iterators — conforming
+
+State is per iterator cell (`py/iter:1633`, `:i` + `:src`); `iter(it) is it` and `iter(g) is g` (identity arms `1624`); two iterators over one list are independent cells. List iteration is **index-based over the live list** (`py/iter-at:1575`) — append-during-iteration test yields the appended element, CPython-identical. Exhaustion drops `:src` (`1642-1647`) and stays exhausted. `iter(callable, sentinel)` is **refused, not silently wrong**: `py.b/iter:1908-1910` has one required param, `:no-kw` → `py/bind-args` raises `TypeError "iter() takes too many positional arguments"` (3.9's wording differs; the refusal and type match). `next(it, default)` via `:py/missing` sentinel (`gen-result:326-340`); `getattr` on iterators exposes only `__next__`/`__iter__` (`~792-799`), no `send`/`throw`/`close` leak.
+
+## 4. Cross-host portability — clean
+
+No reader conditionals added to the prelude; no new float literals (only `0`/`1` appear in the diff); `(* -1.0 x)` not applicable; keywords (`:py/None`, `:iterator`) as sentinels only; no private mutable fields or protocol-param casts; `py/iter-step`'s counter is exact `(+ i 1)` host int. The cross-host claim is carried the way S1/S2 carried theirs: the new parity form `yield-from-and-iter-on-every-host-test` drives `gen-send`/`gen-throw`/`gen-close`/`yield-from`/`iter`/`next` through all four evaluators (`runners` covers ast-walker/semantic/stack/register) on JVM, Node and Dart (`prelude_parity_test.cljc` is `.cljc`), and the address goldens file is `.cljc` ("one address on every host"). I hand-traced the parity expectation against the prelude: `[1 2 :caught 10 20 :py/None [:s :inner-fin :r :outer-fin] 1 :py/None [:inner-fin :outer-fin] 1 2 :d true]` — correct, including `:inner-fin` before `:r` and the throw being caught by the inner's handler.
+
+## 5. Tests — real, CPython-accurate, none weakened
+
+- All five S3 e2e programs hand-computed against CPython 3.9.6: send-forwarding order `1 / got s / v r / 10 / 20 / end`; throw into a handler-equipped inner (`inner caught ('x',) → handled → v ret`) vs a bare delegate (caller sees `KeyError`, both close); sequence-delegate throw caught by the outer's `except` and `AttributeError` on send; close ordering `inner fin / outer fin / None / closed` and `('generator ignored GeneratorExit',)` after the wrap's finally; `sum(range(3000))` = **4,498,500** both directly and through two delegation levels with `v None`; the full iter-protocol line set (`0 True`, `['a', 'b'] []`, `1 2 d` on a grown list, `stays exhausted`, `('dictionary changed size during iteration',)`, `stop ()`). Every one is an exact-output comparison on all four evaluators plus a no-diagnostics assert — each can fail.
+- Coverage requested by the cross-ruling is present: send/throw/close through delegation, return values, nested delegation, different resuming callers (`next`/`send` interleaved), suspension during unwinding (finallys across close).
+- `^:slow`: all seven master tags intact; the single new tag is on `yield-from-long-range-test` (6000 delegated items) — the right test. The removal of the `yield from` line from `unsupported-constructs-are-qualified-test` is required and replaced by positive coverage plus two new syntax-error cases and the ruling-9 case (`def g(): yield from h()` → `#{"g"}`; `yields?` matches rule `yield_expr`, `lower.cljc:1016-1029`, so both forms count). The refactored `suspended-resume-sizes` asserts the same invariants as before, generalized to two generators — strengthened, not weakened.
+
+## 6. Goldens — exactly as claimed
+
+`float_address_test.cljc`: precisely five `:segment/blake3-…` lines changed (≈221, 241, 243, 245, 249 — prelude root, A root, A′ root, record address, bundled-prelude id), same form, nothing else in the file; the hook-prelude golden `76e1cfe8…` is untouched (the hook prelude did not change).
+
+## 7. Scope — S3 only
+
+Source delta is exactly: the `yield from` lowering arm and docstrings (`lower.cljc:1357-1366`), `py/yield-from`/`py/delegate`/`py/delegate-step`, the `:iterator` arms in `py/next`/`py/attr`/`py/iter-at`, `py/iter`/`py/iter-step`/`py/iter-outcome`, `py.b/iter` + `"iter"` in `builtin-names`. Nothing for `x in generator`, user-defined `__iter__`/`__next__` (S5) or readable iterator printing; two-argument `iter` refused with a clear TypeError.
+
+## Findings
+
+No P0/P1/P2.
+
+**P3** | `src/cljc/yang/python/antlr/prelude.cljc:1590` | dict/set iterator invalidation is size-based: `d['b']=2; del d['b']` (size restored) keeps iterating where CPython 3.9.6 raises `RuntimeError: dictionary changed size during iteration` on **any** mutation (version tag, not size). Evidence: `py/iter-at` keys-iter arm compares `count` to `:size` only; inherited from the pre-existing C1 loop walker (`py/iterable`), which the design documents for the grow/shrink case only — S3 reuses it via `py/iter` rather than introducing it. | No change for this gate (out of S3 scope); if closed later, bump a per-dict version on `dict-set`/delete and snapshot it in `py/iterable`.
+
+Non-blocking notes: AttributeError/TypeError message texts are shorter than CPython's (prelude-wide style, types match); the five guest-source acceptance programs run all four evaluators on the JVM lane with cross-host parity carried by the prelude-level form — the same lane structure S1/S2 were gated under.
+
+**Verdict: ready to commit.**

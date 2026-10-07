@@ -1,0 +1,1 @@
+The fix is in and the focused JVM suites pass. The full JVM run, the CLJS run and the Dart peer build are still going in the background; `bb test:cljd` starts after the peer build finishes.

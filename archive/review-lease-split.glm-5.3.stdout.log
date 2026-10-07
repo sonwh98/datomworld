@@ -1,0 +1,37 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+## Findings
+
+**F1 — high | dao.lease.md:84–88, 119 | The tick fact has no vocabulary.** Every other fact in the document has a table row or an example block fixing its dispatch keys and required keys; the tick has neither — no `:dao.lease/status`/`:dao.lease/event` classification, no key named for its reading, no statement whether it shares the evidence dispatch key. Step 1 of the pass and both holder time rules consume ticks; an implementer must invent the shape, and two implementers will invent two shapes — exactly what the fact table exists to prevent. *Correction:* one row in Vocabulary or one sentence under *Time*: a tick is a fact carrying `:dao.lease/event :dao.lease/tick` and a reading under a named key (e.g. `:dao.lease/reading`) in the duration representation; extend *Validity* with "a tick whose reading is not in the duration representation, or is older than one already observed, is defective."
+
+**F2 — medium | dao.lease.md:45–46, 100–103, 126, 208–209 | Tolerance has no home.** Step 3 judges "duration plus tolerance" and Sizing relates it, but the ledger's terms are "(subject, holder, duration, cap)" — tolerance is not among them; the Grant's key set offers only `:max`; the composition duties omit it. The only statement of where it lives is rationale:254 ("two judges with different tolerances") — in the half that binds nothing. *Correction:* one sentence in *Ledger* or *Composition duties*: tolerance is judge-local configuration supplied by the composition at assembly, in the duration representation, defaulting to zero.
+
+**F3 — medium | dao.lease.md:26, 125–131 | Cause precedence is decided only in the rationale.** Step 3 is a disjunction; silence, `:released`, cap, and policy can hold simultaneously, and which `:dao.lease/cause` the `:lapsed` record carries is undetermined. The race rule ("whichever the grantor acts on first," rationale:216–218) was left behind. *Correction:* add to step 5: where more than one condition holds, record the first in step 3's order (or: the condition this pass acted on).
+
+**F4 — low-medium | dao.lease.md:119–121 | A pass before the first tick has no `now`.** "The newest previously observed" does not exist on the first pass, and step 2's stamping inherits the undefined value — yet two step-3 conditions (`:released`, policy) need no clock. *Correction:* one clause: a pass with no observed tick classifies only the conditions requiring no clock, or the runtime must not drive a pass before the first tick.
+
+**F5 — low | dao.lease.md:28–33, 49–53 | A renewal's required keys are implied by example only.** Status rows carry an "Also required" column; the renewal example is the whole specification, and *Validity* enumerates only status defects. A renewal omitting `:dao.lease/lease` is, as written, not defective — a fact about nothing that step 2 must still stamp. *Correction:* one line in *Validity*: an event fact that omits its lease id is defective.
+
+**F6 — low | dao.lease.md:55–56, 169, 207 | The half-duration boundary is non-strict on one side and strict on the other.** The holder may renew "at no more than half the duration" (i ≤ d/2); Sizing requires "the granted duration exceeds twice the holder's renewal interval" (i < d/2). At i = d/2 the holder complies and the composition violates the relation — the exact boundary the contract elsewhere polices ("an interval exactly equal to its bound has not yet passed it"). *Correction:* harmonize — "renew at less than half" or "the granted duration is at least twice the renewal interval."
+
+**F7 — low | dao.lease.md:136, 161–162 | The contract states one rule twice.** "The absence of a `:lapsed` fact is never evidence of tenure" closes both *The pass* and *Restart*. In-contract duplication is the failure mode the split existed to end. Cross-document repeats with the rationale (220–221 ↔ 303–304; 233–234 ↔ 83–86; 227–229 ↔ 374–380) are a rationale's job, but drift the same way. *Correction:* keep the rule in *The pass*, cross-reference from *Restart*.
+
+**F8 — low | dao.lease.md:176–180, 214–216 | Argument remains in the normative half.** The paragraph after the holder rules is three sentences of rationale around one rule (exclusion is the resource's, not the lease's). *Correction:* reduce to "the bound bounds attention, not access; exclusion comes from the resource"; move the window-offset explanation to the rationale.
+
+**F9 — info | dao.lease.md:96–98 vs rationale:409–425 | The fifth-invariant defense is load-bearing rationale.** The rule that the judge both concludes and reclaims is what "do not collapse interpretation and execution" could be read to forbid; the argument that it does not lives only in the non-binding half. No contract change required; record that this rationale section is load-bearing.
+
+## Conformance
+
+The central claim holds, verified against dao.stream.md: no operation added, no result-map key added. The contract consumes only existing outcomes (`:dao.stream/blocked` at 119/122, `:dao.stream/gap` at 92/142); the evict-oldest requirement is a constraint on the composition's own medium choice, within dao.stream.md's transport-owned retention (601–610), and never touches "eviction never waits on a reader" (612). Ticks-as-data honors the callback invariant (datom.world.md host-boundary rules); the ledger is judge-private, not a registry; the pass order is explicit, not implicit control flow. The dao.stream.ws.md reference (249–252) is taken on trust — outside this review's scope.
+
+## What the split got right
+
+All five round-4 fixes verifiably landed: "root set" appears nowhere in the contract (only in the rationale as withdrawn, 328–330); the pending-reclaim retry loop is closed by step 3's last clause (129) against step 5's failure path (131–133); `now` is defined for the zero-drain case (120–121); the holder measures against its own medium's ticks (85–88, 169–170, 190–191); the honour/cap contradiction is one rule (210–212), consistent with step 3's cap condition and the cap's tolerance exemption. Rules now have one home each, cross-referenced by name. The rationale marks two earlier claims withdrawn, so lineage cannot quietly resurrect. The enumerations close against each other: ledger fields against the five steps, duties against *Time* and *The holder*, limits against the rationale's arguments.
+
+## What an implementer cannot determine from dao.lease.md alone
+
+The tick fact's shape (F1); where tolerance lives (F2); which cause to record when several conditions hold (F3); what a pass does before any tick exists (F4); whether an event fact missing its lease id is defective (F5); and — borderline — when a holder counts as one "that must measure its own bound" (190–191), since the holder rules offer no way to avoid measuring.
+
+## Converging or accreting
+
+Converging. The normative half shrank 815→261 and every round-4 fix is a deletion or relocation, not an appended counter-argument; the fixes bred no new contradiction — the closest found is a boundary-point wording mismatch (F6), not a structural conflict. The remaining defects are omissions with one-sentence fixes that do not ripple. The round-1-to-4 signature — fixes creating findings — is absent. A further round confined to F1–F6 would improve it; a general rewrite would make it worse, and I would stop after that round.
+[?25h

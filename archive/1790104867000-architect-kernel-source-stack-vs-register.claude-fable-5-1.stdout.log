@@ -1,0 +1,23 @@
+Completed-GMT: 2026-09-22 16:43:12 GMT
+Completed-Local: 2026-09-22 23:43:12 +07 (Indochina Time)
+
+**Choice: the stack image, unconditionally for the first kernel on any foreign host, with a precisely stated re-open condition for register.**
+
+**Reasoning, strongest first.**
+
+1. **A kernel's format is decided by what reaches it.** This is the point the discussion missed. H is the only identity on the sharing path, B6 is the committed linker and serves H, and R5 is gated and may never exist. The register design itself says a stack-only host obtains a stack image by H. A foreign host built for reach must run what the network publishes. A register-only kernel could run nothing that arrived by H unless it also held `raise` plus a decided raise-to-register path, neither of which exists.
+2. **The reference must exist before the foreign copy.** A foreign register kernel would be the first register kernel anywhere, because R4 is gated behind R3 and the register design states the format "is not a promise that a second evaluator will exist". Spill policy, move order and register-file limits are still deferred there. Finding those in Rust with no Clojure reference inverts the project's oracle discipline.
+3. **The engine payload is the stack VM's.** T5 offload restores through the B4 payload, and the register design states register continuations are not interchangeable with stack continuations without an explicit lift. A register foreign kernel could offload only to an R4 kernel on the Clojure side, which does not exist.
+4. **Consolidation**, as the discussion said.
+
+**On the four points.**
+- Point 1 (Ribbit, fewer moving parts): agree, but it is weak. Per-instruction decode cost is small next to the value model and primitives, which are identical for both formats and are where the real per-host cost sits.
+- Point 2 (consolidation): agree. It is the strongest practical point, though not the strongest architectural one.
+- Point 3 (speed belongs to Direction A): agree, and it is now stronger than stated. The point's premise that Direction A prefers the register image is stale. After the previous correction, Direction A consumes resolved tuples, so neither the implicit stack nor the register file reaches an emitter at all. The register format's only advantage is interpreter speed, which R3 has not measured on any host.
+- Point 4 (shared runtime with a future emitter favors register): disagree, for the same reason. An emitter starting from resolved tuples shares the value model, primitives, frames and driver with a kernel, none of which depend on the image format. Sharing is equal for both formats, so this point no longer favors either.
+
+**One thing not stated anywhere before:** frames and closures are the same data in both formats, since the register design keeps B3's frame direction and capture. A stack kernel can later add R as a second format by adding a temporaries bank per activation. The question is which comes first, not which is ever possible.
+
+**Re-open condition, decidable later:** a register kernel on a given host is considered only when R4 exists and passes B0 parity on the Clojure hosts, R reaches that host (R5 exists, or a decided raise-to-register path), and that host's own benchmark of its stack kernel against a register prototype on the T0 corpus shows the R3-level material benefit.
+
+**Recorded, not left unrecorded.** The rule is stable regardless of whether R4 is ever built, and the conditions reference existing gates only. Added as section 3.7 "Which format a foreign kernel interprets" in `docs/design/yin.vm.debruijn.targets.md`, and as DECIDED item T-D13. Width and ASCII checks are clean. The document remains the only modified file and is uncommitted in the working tree.

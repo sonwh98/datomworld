@@ -1,0 +1,54 @@
+Completed-GMT: 2026-10-01 21:03:55 GMT
+Completed-Local: 2026-10-02 04:03:55 +0700
+
+# Safepoint slice 1, fix round 1: KeyboardInterrupt placement
+
+The ruling is applied and all seven regression tests are in. The JVM and Dart lanes are green, but the Node lane has 13 errors in `yang.python.antlr.safepoint-test`. Their cause predates this round and its fix is outside my scope (details below).
+
+I couldn't read the ruling file: it lives in the main tree, outside this session's allowed directory. I worked from the binding summary in the brief.
+
+## Changes
+- **`prelude.cljc`:** `KeyboardInterrupt` is now a plain `builtin-classes` entry under `BaseException`. It is read through `builtin-names` like every other builtin.
+- **`lower.cljc`:** removed the `builtin-thunks` branch and the require of the hook namespace.
+- **`yang/python/antlr/safepoint.cljc` (hook prelude):**
+  - Removed `builtin-thunks`, the `py.b/KeyboardInterrupt` factory and the `py.sp/keyboard-interrupt` cell.
+  - `py.sp/deliver` now raises `(py/call py.b/KeyboardInterrupt [])` from inside its body, so the name resolves when a signal arrives, after the base prelude has loaded.
+  - At load it allocates only `py.sp/handler` and the signal cursor.
+
+## Regression tests
+1. **Naive builtin:** `keyboard-interrupt-is-a-builtin-test` in `e2e_test.clj`. `raise KeyboardInterrupt` passes `except Exception` and is caught by `except KeyboardInterrupt` on all four VMs, naive and under no-op hooks. It prints `k True False` (`isinstance` of `BaseException` / `Exception`).
+2. **Shadowing:** `KeyboardInterrupt = 1; print(KeyboardInterrupt)` prints `1` naive, under no-op hooks, and under the real hooks with an empty signal stream.
+3. **Closure:**
+   - `every-vm=` now checks every e2e and C1 corpus program: its canonical free names must be base-prelude definitions, primitives, `yin/def`, or names the cell/data registry resolves, and none may be a `py.sp/` name.
+   - The second half of `fail-closed-test` is inverted: the naive tree reads `py.b/KeyboardInterrupt`, its own base prelude defines it, and no `py.sp` name appears.
+   - One deviation: `prelude/host-names` is stale. The base prelude also calls `data/number?` and `data/dissoc`, which it doesn't declare. Rather than edit the prelude, the check counts a name as a host name when the naive registry resolves it, the same way `resolve-var` does. Updating that declaration would be a one-line prelude fix if wanted.
+4. **Hook namespace:** `hook-prelude-defines-only-py-sp-test` checks that every key defined by `uast` and `noop-uast` is in `py.sp`.
+5. **Transparency:** the programs from tests 1 and 2 are in the `every-vm=` corpus, so they also run under `noop-uast`.
+6. **Delivered-signal tests:** kept unchanged.
+7. **Load order:** `hook-prelude-loads-alone-test` loads the hook prelude alone, with only the signal stream, and it halts without blocking on all four VMs.
+
+I also replaced a ClojureDart-unsafe `walk/postwalk` metadata stripper in `marks-reach-the-side-table-only-test` with a node-only walk. It now also asserts that marks were present before stripping and gone after.
+
+## Lanes
+| Check | Result |
+|---|---|
+| `mise exec -- bb build:yin-repl-node` | built |
+| `bb test:clj` | 2864 tests, 226509 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2679 tests, 91315 assertions, 0 failures, **13 errors** |
+| `bb test:cljd` (after `rm -rf test/cljd-out`) | 2634 tests, all passed |
+| `clj -M:kondo` on touched files | 0 errors, 0 warnings |
+| `cljstyle check` on all 18 slice files | clean |
+
+- **JVM:** two Dart-peer tests skipped themselves because their peer binaries are absent. An earlier JVM run aborted mid-`e2e-c1-test` with no summary and no error in the log; the rerun reported above is clean.
+- **Dart:** the safepoint tests passed, so Dart reproduces the golden root and record addresses.
+- **cljstyle:** `cljstyle fix` reformatted two slice-1 test files (`stream_poll_test.cljc`, `yang/safepoint_test.cljc`), whitespace only.
+
+## Node blocker
+All 13 errors are in `yang.python.antlr.safepoint-test`, and all are the same refusal: "dao.jing.cbor refused: unsupported-value (unsafe integral JavaScript number…)".
+- **Cause:** the base prelude's C1 integer-bound code uses ±2^53 literals (`prelude.cljc:560`, `561`, `572`, `748`). On JS, `dao.jing` refuses to hash integers outside the safe range.
+- **Effect:** no bundled Python program can be projected to rows on Node, whether by the encoder or by the safepoint stage.
+- **Why it shows now:** slice 1's Python safepoint tests had never run on Node before. The rest of the Node lane passes, including `yang.safepoint-test` (golden addresses agree on Node), `stream-poll-test`, and the two new round-2 tests.
+- **Fix options:** write the bound so no literal exceeds 2^53−1 (for example, compute it as `(* 2 4503599627370496)`), or make `dao.jing` encode such integers. Both touch code outside this round's scope, so I need a decision before changing either.
+
+## Working tree
+Nothing is staged now. `stage.cljc` shows as deleted in its old place and untracked at `src/cljc/yang/stage.cljc`.

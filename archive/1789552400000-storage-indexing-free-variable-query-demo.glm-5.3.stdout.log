@@ -1,0 +1,21 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done. `test/dao/space/query_test.cljc` +115 lines (two deftests + rule set), findings written to `collab/1789552400000-storage-indexing-free-variable-query-demo.claude-sonnet-5.findings.md`, nothing staged. All other modified files were dirty before this session.
+
+**The rule set that worked** (quoted, `:in $ %`, `member?` via `:fns`):
+
+```clojure
+[[(edge ?p ?c) [?p :lambda _ ?c]]
+ [(edge ?p ?c) [?p :application ?c _ _]]
+ [(edge ?p ?c) [?p :application _ ?ops _] [?c _ & _] [(member? ?ops ?c)]]
+ [(anc ?a ?d) (edge ?a ?d)]
+ [(anc ?a ?d) (edge ?p ?d) (anc ?a ?p)]
+ [(depth ?a ?d ?n) (edge ?a ?d) [(ground 1) ?n]]
+ [(depth ?a ?d ?n) (edge ?p ?d) (depth ?a ?p ?m) [(inc ?m) ?n]]
+ [(bound? ?v ?name) (anc ?l ?v) [?l :lambda ?params _] [(member? ?params ?name)]]]
+```
+
+**Results:** `clojure -M:test -n dao.space.query-test` → 50 tests, 149 assertions, 0 failures; both new tests verified individually (1 + 6 assertions). Case 1 `(fn [x] (+ x 1))` → free set exactly `#{'+}`. Case 2 `(fn [x y] (fn [x] (+ x y)))` → free set still `#{'+}`, x's binders exactly {inner, outer} with nearest at depth 2 = inner, y's only binder = outer two lambdas up.
+
+Recursive rules work in this engine as-is — no weakening needed. Four mechanics were stricter than Datomic-by-assumption (all verified against `eval-rule`/`eval-not`/`eval-fn-clause` source, detailed in the findings): rules must be quoted data; predicates can't bind their own args (hence the `[?c _ & _]` all-row join before `member?`); constant rule-head args throw at output (hence `[(ground 1) ?n]`); `not` requires its vars pre-bound (hence `bound?`'s head args).
+
+Skipped: nothing — prompt's full scope delivered. One honest limit reported in findings: row-level DAG dedup can't distinguish a name that's free in one occurrence and bound in another; that's §6.1's documented occurrence-relation territory, avoided by the fixtures.

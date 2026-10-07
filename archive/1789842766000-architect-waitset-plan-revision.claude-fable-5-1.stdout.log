@@ -1,0 +1,81 @@
+Completed-GMT: 2026-09-19 18:38:32 GMT
+Completed-Local: 2026-09-20 01:38:32 +07
+
+I revised `docs/design/dao.stream.waitset.implementation-plan.md` to resolve all 13 consensus items. No other file was touched, and nothing was staged or committed. This is a documentation change, so no tests were run. The timestamps above are the system clock, which reads about an hour earlier than the prompt's `Created` header.
+
+## Per-item disposition
+
+1. **Resolved.** `engine/check-wait-set` stays public as the VM integration.
+   - It calls `waitset/check`, commits the returned `:store` and `:waiting`, raises diagnostics, and builds ready entries.
+   - Only `augment-wait-entry`, `poll-wait-entry` and the inline sweep body are deleted.
+   - The W2 grep check now looks for the two helpers being gone and for `check-wait-set` containing no `stream/next` or `stream/append!` call of its own.
+2. **Resolved.**
+   - Entries are opaque host data, and the library reads only `:reason`.
+   - The resolver is `{:resolve (fn [store entry]) :advance (fn [store entry cursor])}`, invoked synchronously and never retained.
+   - The library never adds a resolved handle to an entry. It makes no promise about what a host puts in its own fields or about payload serializability.
+   - W1 runs the resolver tests against a non-VM store and with host key names the library has never seen.
+3. **Resolved.** Classification is stated separately for `:next` and `:put`. Writer `closed` is terminal under its own keyword and is never mapped to `:end`, with engine citations.
+4. **Resolved.**
+   - The host loop is the sole owner of interpreter state.
+   - `cadence-step` lives in a new pure `cadence.cljc` and never calls `check`.
+   - The JVM queue carries contentless wake tokens only.
+   - External parks are deleted, with the control-stream-plus-nudge pattern named as the replacement.
+   - There is no `make-driver` container, no atom holding a waitset, and no disposition function.
+   - The cljs/cljd timer calls the composition root's own tick with no arguments. The plan says why that is not a disposition callback.
+5. **Resolved.** `:budget` is deleted everywhere. The starvation and rotation reasoning is recorded under *Decisions*, and bounded traversal is deferred until its ordering is specified.
+6. **Resolved.**
+   - `nudge!` is contentless, coalescing, non-reentrant and wired by the composition. Adapters hold no driver reference.
+   - Polling stays authoritative. Close and capacity transitions may nudge, and none is required to.
+   - A lost nudge costs the armed interval, which may be the backoff ceiling.
+   - The plan notes that a read never frees capacity.
+7. **Resolved.**
+   - Two diagnostics are defined: `:dao.stream.waitset/unresolved` and `:dao.stream.waitset/unsupported-reason`. Each leaves `:waiting`, performs no stream operation and leaves the store unchanged.
+   - W2 requires the engine to raise them before restoration, closing the `engine.cljc:397` gap, with one focused new test.
+   - The register row is rewritten as an intentional divergence.
+8. **Resolved.**
+   - `check` returns `{:waitset {:waiting} :woken :store}`, and `:woken` holds that call's results only.
+   - W1 tests cover repeated checks, no library-injected keys, and a `pr-str`/`read-string` round trip.
+9. **Resolved.**
+   - Writer `:put` migration outside the VM is removed outright and added to *Boundary*.
+   - The non-advancing advisory probe is specified with all three R4 rules: retire on terminal, pending writes stay on host cadence, and isolation of cursor state rather than reference spelling.
+   - W4 is now a table that assigns every W0 site.
+10. **Resolved.** W1 gains the gap-recovery test between co-waiters. It asserts wake order, both statuses and the final store cursor.
+11. **Resolved.** W1 pins two literal classification maps, one per operation. Each map's key set must equal `outcomes-next` or `outcomes-append`. Unknown outcomes are asserted terminal for both operations.
+12. **Resolved.**
+   - W5 is scoped by a grep I ran. There are 15 live `dao.runtime` lines in `dao.await.md`, plus two in `yin.vm.universal-continuation-format.md` and one in `yin.vm.v2.divergence-register.md`.
+   - Historical mentions are named and excluded from the end condition.
+13. **Resolved.**
+   - `check` is described as a synchronous, state-threaded interpreter step with explicit stream effects.
+   - The leftover draft sentence is replaced.
+   - "Pure" is kept for `cadence-step` and for `:advance` over an immutable store.
+
+The plan also gains the requested *Revision — 2026-09-20 consensus reconciliation* table. W0's census rows are byte-for-byte untouched.
+
+## Caveats applied beyond the letter
+
+- **Census reconciliation subsection.**
+  - Three adoption cells in the census contradict the consensus: "three inline functions are deleted", "`:put` for a destination-full forwarder", and "`:poll-ms`/`:budget`".
+  - I left the rows alone and added a short note under W0 naming those cells and saying the later sections govern.
+  - The note also restates the two signed-off cells that W4 must respect: the ws acknowledgement sweep stays unchanged, and each REPL session holds one active waiter.
+- **`dao.stream.serving/step!` is assigned host cadence, not probes.** I read `serving.cljc:260-349`.
+  - The tick carries the clock-explicit `:endpoint-step`, which must run every round.
+  - It already polls each medium once per tick.
+  - A probe sweep would double every read and delete nothing, which fails W4's own rule that an adoption must delete what it replaces.
+  - The non-VM waitset consumer is therefore `yin.repl.serve`'s per-session step. I verified at `serve.cljc:551-557,586-603` that it has the same commit shape as `serve-once!`.
+- **`moved?` rule for the shell tick owner.** An outstanding pending write counts as movement, so a retained response never waits out a backoff ceiling. This follows from R4's first qualification.
+- **The deletion rule is split in two.** A waitset adoption deletes the unconditional per-waiter poll. A cadence adoption deletes the fixed timer.
+- **End-condition diff check widened and tightened.**
+  - It now covers the three host `dao/stream/` directories.
+  - It names the compositions that must not change, including `forward`, `apply`, `rpc` and `serving`. This is consistent with serving staying on host cadence.
+- **Stale observe docstring bullet dropped.**
+  - The original W5 bullet about the `dao.stream.observe` docstring described something that is no longer there. `src` has zero `dao.runtime` hits, so I dropped it.
+  - The header's broken link to the deleted `dao.runtime.v2` plan is fixed in place, citing `8c4b7b85`.
+- **`:status` stamping noted in W2.** The integration stamps `:status` onto ready entries, because `terminal-resume-outcome` reads it there.
+
+## Unresolved
+
+- Nothing from the 13 items.
+- Two judgement calls the orchestrator may want gpt-5.6-sol to confirm:
+  - The consensus left each site's probe-or-host-cadence choice to the plan. My choice of host cadence for serving has not been reviewed by either architect.
+  - So has the `unsupported-reason` diagnostic name. The consensus only gave `unresolved` as an example.
+- The `dao.jing` intake pool's assignment is deliberately left undecided until a production caller exists. The plan says so.

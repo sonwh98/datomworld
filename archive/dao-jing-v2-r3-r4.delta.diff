@@ -1,0 +1,374 @@
+--- /tmp/r3.md	2026-09-07 00:40:57
++++ /tmp/r4.md	2026-09-07 00:56:16
+@@ -1,6 +1,6 @@
+ # dao.jing on DaoStream v2 — the content-observer slice
+ 
+-Status: migration plan, revision 3, derived from and subordinate to
++Status: migration plan, revision 4, derived from and subordinate to
+ [`dao.stream.md`](./dao.stream.md) (the contract), [`dao.jing.md`](./dao.jing.md)
+ (the storage-observer design) and [`datom.world.md`](./datom.world.md). Its
+ transport prerequisite is
+@@ -10,9 +10,9 @@
+ migration. This document is transient: it is consumed as its phases complete.
+ Drafted 2026-09-06; revised the same day against the `gpt-5.6-sol` routine
+ review, the `glm-5.3` adversarial review, and a two-round consensus with
+-`gpt-6-astra`; revised again on 2026-09-07 after both reviewers confirmed the
+-prior findings addressed and filed one gap and four precision defects. No
+-phase has started.
++`gpt-6-astra`; revised on 2026-09-07 after both reviewers confirmed the prior
++findings addressed, and again after `glm-5.3`'s delta review closed the verify
++hop's loss path. No phase has started.
+ 
+ Two decisions in this document are **scope-contingent**: they are the plan's
+ position and are taken when implementation is authorized, each with its named
+@@ -339,9 +339,14 @@
+      `rpc/abandon-unsent` with the terminal reason, so the never-accepted
+      request completes as `:lost` through the ordinary outbox rather than
+      being carried silently across a later `rebind`;
+-  4. issue any verify hops the materializer holds pending (J3c below), in id
+-     order, until the writer answers `full` or no more are pending;
+-  5. take completions and diagnostics exactly once.
++  4. **the materializer's turn** (J3c below): if the state is not terminal,
++     issue unissued verify hops in put-id order until the writer answers
++     `full` or none remain; if the state is terminal, complete every
++     unissued verify hop as `:lost` with the terminal reason;
++  5. take completions and diagnostics exactly once, routing each completion
++     whose id a materialization record knows into that record (order 4's
++     issuance registers ids before this drain, so an undeliverable hop's
++     completion, already in the outbox, routes).
+ 
+   A driver that only re-calls `request-*` can never clear a `busy`; it must
+   step. Nothing here loops on `blocked`, holds a clock, retries on its own, or
+@@ -352,7 +357,9 @@
+   attachment — mirroring `yin.repl.driver` (`driver.cljc:220,258,293,305`),
+   which abandons before every rebind. It calls `rpc/abandon-unsent`; the
+   completion carries `:dao.stream.rpc/abandoned` when no terminal reason
+-  exists. Ids stay monotonic.
++  exists. Ids stay monotonic. The abandoned envelope's completion routes into
++  a materialization record if its id is registered there (see the lifecycle
++  table), on the next `step`'s drain.
+ - **Completion decode is total by construction.** A completion carrying
+   `:dao.stream.rpc/response` decodes by op: `{:id n :op :jing/put-content
+   :result :inserted}` or `:present`; `{:id n :op :jing/get-content :found?
+@@ -382,35 +389,93 @@
+ ```
+ 
+ Derives the address locally with `jing/segment-key`, issues `:jing/put-content`
+-through `request-put`, and records `{:payload p :address a :phase :put}` under
+-the put's id. On an `:inserted` completion, completes `{:id n :op :materialize
+-:address a :result :inserted}`. On `:present`, the materialization needs a
+-second correlated `:jing/get-content` for the same address, and the record
+-moves to `:phase :verify-pending`. When that get completes, the materialization
+-completes `:present` with the address only if the returned value equals the
+-payload; otherwise an `:error` completion carrying
++through `request-put`, and — **as soon as `rpc/request!` returns an id**,
++whatever the outcome — records `{:payload p :address a :phase :put}` under
++that put id. `requested`, `pending-request` and `request-undeliverable` all
++carry `:dao.stream.rpc/id` (`rpc.cljc:198,203,211`); only `allocator-error`
++and `terminal` mint no id, and then no record is created and the outcome is
++returned as-is. On an `:inserted` completion, completes `{:id n :op
++:materialize :address a :result :inserted}`. On `:present`, the materialization
++needs a second correlated `:jing/get-content` for the same address, and the
++record moves to `:verify-unissued`. When that get completes, the
++materialization completes `:present` with the address only if the returned
++value equals the payload; otherwise an `:error` completion carrying
+ `:dao.jing.v2.remote/integrity-failure` (unequal) or `/present-but-absent`
+ (`:found? false`) — the two failures `jing.cljc:283-293` throws on locally, as
+ data here. A `:lost` on either hop completes the materialization as `:lost`
+-with the reason. Read-side hydration needs only J3a; `store-tree-async`
+-depends on J3c.
++with the reason. **One completion per materialization**: hop completions are
++consumed by the record and never republished as put or get completions. The
++driver holds the put id and correlates by it. Read-side hydration needs only
++J3a; `store-tree-async` depends on J3c.
+ 
+ **Who issues the verify hop: `step` does, and this is the one obligation the
+ client carries.** The `:present` completion is decoded inside `step`, and the
+ get it calls for cannot always be issued at that moment — the writer may
+ answer `full`, or an unsent envelope may already hold the slot. So `step`
+-retains the unissued hop as data in the per-id record (`:verify-pending`) and
++retains the unissued hop as data in the per-id record (`:verify-unissued`) and
+ issues it in step order 4 on this or a later step, when `rpc/unsent?` is
+-false: it calls `rpc/request!` for `:jing/get-content`, and on `requested`
+-registers the same record under the new get id as well, so the per-id record
+-is reachable by **both** the put id and the verify-get id and the get's
+-completion routes to the materialization rather than to a caller's own
+-`request-get`. If the writer answers `full`, the get becomes the RPC layer's
+-`:unsent`, which step order 1 re-attempts next time; the record stays
+-`:verify-pending` until `requested`. On a terminal state, every
+-`:verify-pending` record completes `:lost` with the terminal reason, exactly
+-once.
++false: it calls `rpc/request!` for `:jing/get-content` and, **as soon as an id
++is returned — on `requested`, `pending-request` or `request-undeliverable`
++alike** — registers the same record under that get id, moving the record to
++`:verify-issued`. From then on the record is reachable by **both** the put id
++and the get id, and every completion carrying either id routes to the
++materialization rather than to a caller's own `request-get`, including a
++completion that was already sitting in the outbox when the id was returned
++(an undeliverable hop) and one that arrives later (a `full`-deferred hop
++abandoned or lost). If the writer answers `full`, the get becomes the RPC
++layer's `:unsent`, which step order 1 re-attempts next time. On a terminal
++state, order 4 completes every `:verify-unissued` record as `:lost` with the
++terminal reason; `:verify-issued` records need no sweep, because their get is
++either outstanding — completed by `lose-outstanding` — or `:unsent` —
++completed by order 3's `abandon-unsent` — and either completion routes by the
++registered get id. **The record's phase transition to done is the
++exactly-once guard**: the first completion that reaches a record completes the
++materialization and removes the record from both indices; a later completion
++for a removed id is impossible from the RPC layer, which completes each id
++once, and would otherwise be published as an ordinary unrouted completion,
++never a second materialization completion.
+ 
++**The lifecycle, as a table.** Every state the record can be in, every event
++that can reach it, what happens to the record, what is published, and under
++which id it routes. A reader checks exhaustiveness against this table, not
++against prose. "Routes by" names the id the RPC completion carries; the
++published materialization completion always carries the **put id**.
++
++| record phase | event | record | published | routes by |
++| --- | --- | --- | --- | --- |
++| *(none)* | `request-materialize`: `rpc/request!` returns `requested` or `pending-request` | created, `:phase :put`, registered under put id | nothing (outcome returned to caller) | — |
++| *(none)* | `request-materialize`: `rpc/request!` returns `request-undeliverable` | created, `:phase :put`, registered under put id; the completion is already in the outbox | on the next drain: `{:id put :op :materialize :lost reason}`; record removed | put id |
++| *(none)* | `request-materialize`: `allocator-error` or `terminal` | not created | nothing; outcome returned to caller, no id | — |
++| `:put` | order 1 re-attempts the put (it was `:unsent`): `requested` / `pending-request` | unchanged | nothing | — |
++| `:put` | order 1 re-attempt undeliverable, or driver `abandon` while the put is `:unsent`, or order 3 abandons it on terminal, or `lose-outstanding` loses it | removed | `{:id put :op :materialize :lost reason}` | put id |
++| `:put` | put completion `:inserted` | removed | `{:id put :op :materialize :address a :result :inserted}` | put id |
++| `:put` | put completion `:present` | `:phase :verify-unissued` | nothing | put id |
++| `:put` | put completion `:error` (handler error, malformed response) | removed | `{:id put :op :materialize :error e}` | put id |
++| `:put` | a get-id completion | **impossible** — no get id has been allocated | — | — |
++| `:verify-unissued` | order 4, not terminal, `rpc/unsent?` true (another envelope holds the slot) | unchanged; retried next step | nothing | — |
++| `:verify-unissued` | order 4, not terminal, `rpc/request!` for the get returns `requested` | `:phase :verify-issued`, registered under get id | nothing | — |
++| `:verify-unissued` | order 4, `rpc/request!` returns `pending-request` (writer `full`) | `:phase :verify-issued`, registered under get id; the envelope is the RPC `:unsent`; order 4 stops issuing further hops this step | nothing | — |
++| `:verify-unissued` | order 4, `rpc/request!` returns `request-undeliverable` | `:phase :verify-issued`, registered under get id; the completion is already in the outbox | on order 5's drain, same step: `{:id put :op :materialize :lost reason}`; record removed | get id |
++| `:verify-unissued` | order 4, `rpc/request!` returns `allocator-error` | removed (the RPC state is now terminal; no id exists to route) | `{:id put :op :materialize :lost :dao.stream.rpc/allocator-error}` | put id |
++| `:verify-unissued` | order 4, state terminal (the sweep) | removed | `{:id put :op :materialize :lost terminal-reason}` | put id |
++| `:verify-unissued` | any RPC completion | **impossible** — the put id already completed (`:present`) and no get id exists | — | — |
++| `:verify-issued` | order 1 re-attempts the get (it was `:unsent`): `requested` / `pending-request` | unchanged | nothing | — |
++| `:verify-issued` | order 1 re-attempt undeliverable, or driver `abandon` while the get is `:unsent`, or order 3 abandons it on terminal, or `lose-outstanding` loses it | removed | `{:id put :op :materialize :lost reason}` | get id |
++| `:verify-issued` | get completion `:found? true`, value `=` payload | removed | `{:id put :op :materialize :address a :result :present}` | get id |
++| `:verify-issued` | get completion `:found? true`, value `≠` payload | removed | `{:id put :op :materialize :error /integrity-failure}` | get id |
++| `:verify-issued` | get completion `:found? false` | removed | `{:id put :op :materialize :error /present-but-absent}` | get id |
++| `:verify-issued` | get completion `:error` (handler error, malformed response) | removed | `{:id put :op :materialize :error e}` | get id |
++| `:verify-issued` | order 4 issuance or terminal sweep | **impossible** — order 4 acts only on `:verify-unissued`; an issued hop completes through its registered get id | — | — |
++| `:verify-issued` | a put-id completion | **impossible** — the put id completed when the record left `:put` | — | — |
++| *removed* | any completion for a formerly registered id | **impossible** from the RPC layer, which completes each id once; defensively, published as an ordinary unrouted completion, never a second materialization completion | — | — |
++
++Every RPC completion carries either a response or a reason (`rpc.cljc:128-134`),
++so the "completion" rows above are exhaustive over what `poll!`, `request!`,
++`abandon-unsent` and `lose-outstanding` can emit; every `rpc/request!` outcome
++(`requested`, `pending-request`, `request-undeliverable`, `allocator-error`,
++`terminal`, `invalid-request`) is covered, `invalid-request` being unreachable
++because the materializer always supplies a keyword op and a vector of args.
++
+ This spends a principle knowingly. Round 1 refused to queue caller work inside
+ the client (contested item 6): a queue of *submitted operations* awaiting a
+ slot would hide the driver's ordering decisions and grow without bound. The
+@@ -418,7 +483,12 @@
+ already submitted and holds an id for; it is bounded by the number of
+ materializations in flight, each of which already consumed an id; it admits no
+ new caller work; and it is data in the state the driver owns, visible as
+-`:verify-pending`, not a hidden buffer. The alternative — a public
++`:verify-unissued` or `:verify-issued`, not a hidden buffer. It is also the
++shape the RPC layer already sanctions twice: `dao.stream.rpc`'s own
++`:unsent` and `apply/serve-once!`'s `:pending-response` are machine-internal
++obligations retained as data and driven by the caller's next call
++(`rpc.cljc:259-264`, `apply.cljc:301-315`), so a client carrying one is
++pattern-consistent, not exception-carved. The alternative — a public
+ `resume-materialize` the driver must call — would make the driver responsible
+ for re-driving an intent it never expressed and cannot see, and re-calling
+ `request-materialize` mints a fresh put and orphans the original record. The
+@@ -494,7 +564,7 @@
+ | `dao.jing.file` opens `{:dao.stream/type :append-log}`; handle carries `:log`                    | private framed file; handle carries `:path :state :write-lock` and the three fns, no `:log`          | Decision 2. **Recorded dissent:** `gpt-5.6-sol` holds that direct file IO behind `:put-content-fn` violates `datom.world.md:53-68` (a host boundary is a stream boundary; callable adapters are rejected) and that a v2 append-log is constructible under the no-wait rule and should be built. The plan holds that the violation, if it is one, is the synchronous content handle itself, present today and unchanged by any transport beneath it, and that a constructible append-log cannot supply `:inserted`'s durability meaning without redesigning `materialize!` and its consumers. `glm-5.3` and `gpt-6-astra` accept the plan's position. |
+ | `file_test` counts records with `ds/next` over the raw log                                       | `dao.jing.file/records` returns the decoded records of a path; tests use it                          | the framing is private; the test reads through the backend's own reader                              |
+ | `content-client` is a handle; `:get-content-fn` returns the value                                | `client-state` / `request-*` / `step`; results are completions correlated by id                       | no operation waits; unimplementable otherwise on cljs/cljd                                            |
+-| `jing/materialize!` over a remote handle                                                         | `request-materialize`: derive, put, verify on `:present`, complete with the address; `step` issues the verify hop | the integrity behavior of `jing.cljc:276-293` must survive the loss of the handle          |
++| `jing/materialize!` over a remote handle                                                         | `request-materialize`: derive, put, verify on `:present`, complete with the address; `step` issues the verify hop and owns its lifecycle | the integrity behavior of `jing.cljc:276-293` must survive the loss of the handle |
+ | collision or unreadable-present throws                                                           | `:error` completion with `/integrity-failure` or `/present-but-absent`                              | inside a driver step an exception has nowhere to go                                                   |
+ | `connect-content!` — synchronous, JVM-only                                                       | gone; the composition attaches through `dao.stream.ws` and builds the client from the whole `attach!` result | the constructor waited; attachment outcome arrives as deposited data                         |
+ | malformed presence envelope throws inside `get`                                                  | completes as an `:error` with a malformed-response code                                              | same                                                                                                  |
+@@ -575,14 +645,17 @@
+ row reads "`dao.stream` (observer only)" and both `dao.jing.v2.*` rows read
+ "transitive via `dao.jing`"; J2's deliverable and the end condition state, as
+ their own bullet and not a footnote, that `dao.jing.v2.*` is transitively v1
+-until J5 removes the observer from `dao.jing`. Under that route the four
+-in-scope edits — `mem_test`, `dht_test`, the `jing_test` section move, the
+-`file_test` excision — still happen, since the section move and excision are
+-needed by J1.2 and J2 regardless. The move-out is the plan's position because
+-the project's standard for a v2 namespace is transitive v1-freeness — the REPL
+-plan built a second VM to make "requiring no v1 namespace" true rather than
+-aspirational — and because the cost is nine bounded test-file edits against
+-nine production namespaces made v1-free at J1 instead of J5.
++until J5 removes the observer from `dao.jing`. Under that route
++`dao.jing.observer` does not exist, so none of the seven repoints happens —
++`mem_test`, `dht_test` and the five `dao.space` files keep calling
++`jing/observer-state` unchanged; only the `jing_test` section move (with
++`observer_test.cljc` requiring `dao.jing` for the observer) and the
++`file_test` excision happen, because J1.2 and J2 need them regardless. The
++move-out is the plan's position because the project's standard for a v2
++namespace is transitive v1-freeness — the REPL plan built a second VM to make
++"requiring no v1 namespace" true rather than aspirational — and because the
++cost is nine bounded test-file edits against nine production namespaces made
++v1-free at J1 instead of J5.
+ 
+ **J1.2 — `dao.jing.file` without a stream.**
+ 
+@@ -748,32 +821,55 @@
+ 
+ **J3c — the stepped materializer.** `request-materialize` per *Decision 3*,
+ over the J3a primitives, in the same namespace; `step` order 4 issues pending
+-verify hops. Tests, socket-free, on all three hosts:
++verify hops and sweeps them on terminal. Tests, socket-free, on all three
++hosts, one per row-group of the lifecycle table:
+ 
+ - fresh payload: one put, completes `:inserted` with the derived address.
+ - present payload: put answers `:present`, `step` issues the correlated get in
+   the same step, equality holds, completes `:present` with the address;
+   exactly two ids; the per-id record is reachable by both.
+ - **verify hop deferred by `full`**: the put completes `:present` while the
+-  writer is scripted `full`; after that step the record is at
+-  `:verify-pending`, no completion has been published, and a caller's
+-  `request-get` answers `busy`; the next step issues the get (writer `ok`);
+-  the completion arrives on the following step; exactly two ids at
+-  completion.
++  writer is scripted `full`; after that step the record is `:verify-issued`
++  with the get as `:unsent`, no completion has been published, and a caller's
++  `request-get` answers `busy`; the next step's order 1 re-attempts the get
++  (writer `ok`); the completion arrives on the following step; exactly two
++  ids at completion.
+ - **unrelated unsent request occupying the slot**: a caller's `request-get`
+   is left `pending-request` by a `full`; then the `:present` completion
+-  arrives; the next step re-attempts the caller's unsent first (order 1),
+-  then issues the verify hop (order 4); both complete; ids are monotonic and
+-  the verify get's completion routes to the materialization, not to the
+-  caller's get.
++  arrives; the record stays `:verify-unissued` that step because
++  `rpc/unsent?` holds; the next step re-attempts the caller's unsent first
++  (order 1), then issues the verify hop (order 4); both complete; ids are
++  monotonic and the verify get's completion routes to the materialization,
++  not to the caller's get.
++- **undeliverable at issue**: the writer is scripted `closed` when order 4
++  issues the get; exactly one `{:op :materialize :lost :dao.stream/closed}`
++  completion is published in that same step's drain, carrying the put id; no
++  get completion is published; no record remains.
++- **undeliverable on the order-1 re-attempt of a deferred hop**: the get was
++  deferred by `full`; the writer answers `transport-error` on the next
++  step's order 1; exactly one materialize `:lost` completion, no phantom get
++  completion, no residual record.
++- **driver `abandon` during a deferred hop**: the get is `:unsent`; the
++  driver calls `abandon`; the next step's drain publishes exactly one
++  materialize `:lost :dao.stream.rpc/abandoned`; no phantom, no residual.
++- **terminal with an unissued hop**: `/detached` arrives in the same poll as
++  the `:present` (both in one budget), so order 4 finds the state terminal
++  with the record `:verify-unissued`; exactly one materialize `:lost
++  /detached`; no residual.
++- **terminal with an issued hop**: the get is outstanding when `/detached`
++  arrives; `lose-outstanding`'s completion routes by the get id; exactly one
++  materialize `:lost /detached`; the sweep does not double-complete it.
+ - present but the server's get returns `:found? false`: completes `:error`
+   with `/present-but-absent`.
+ - present but unequal (a scripted server store seeded with a different value
+   at the same address): completes `:error` with `/integrity-failure`.
+-- `:lost` on either hop, and a terminal state while a record is
+-  `:verify-pending`, complete the materialization as `:lost` with the reason,
+-  exactly once; a caller's own `request-get` for the same address during a
+-  verify hop is not confused with it (per-id record under both ids).
++- `allocator-error` on the verify hop's allocation: exactly one materialize
++  `:lost :dao.stream.rpc/allocator-error`, carrying the put id.
++- a caller's own `request-get` for the same address during a verify hop is
++  not confused with it (per-id record under both ids).
++- **table exhaustiveness**: a test enumerates every `(phase, event)` cell the
++  lifecycle table marks as reachable and asserts each is exercised by one of
++  the cases above, so a row added to the table without a test fails.
+ 
+ Deliverable: J3a and J3c green on clj, cljs (Node) and cljd; J3b green on clj
+ and cljs (Node), and on cljd through the cljd ws lane. The cljd test
+@@ -883,9 +979,9 @@
+ **Architectural decisions**, made here: the durable log is not a stream and
+ the write-path redesign is a separate item (Decision 2); remote content is a
+ driven state machine with a stepped materializer whose verify hop `step`
+-issues (Decision 3); the observer's cursor and non-progress discipline
+-(Decision 1); the three-namespace end state and the observer move-out
+-(Decision 4).
++issues and whose lifecycle is tabulated (Decision 3); the observer's cursor
++and non-progress discipline (Decision 1); the three-namespace end state and
++the observer move-out (Decision 4).
+ 
+ **Implementation gaps**, left open knowingly: the v2 remote client has no
+ coordinate and cannot be reached from `dao.jing.coordinate/open!`; the
+@@ -936,8 +1032,9 @@
+   `dao.stream.apply` and `dao.stream.rpc` over ring buffers on all three
+   hosts and over `dao.stream.ws` on each; clears `busy` only through
+   `step`; issues every deferred verify hop through `step`; completes every
+-  lost, abandoned, unsent-at-terminal and verify-pending-at-terminal request
+-  as data exactly once; and publishes diagnostics exactly once.
++  materialization exactly once through every reachable cell of the lifecycle
++  table, with no phantom hop completion and no residual record; and publishes
++  diagnostics exactly once.
+ - `dao.jing.md` describes the v2 observer, the stream-free file backend, the
+   driven remote client with its materializer, and records the write-path
+   question as an open item.
+@@ -952,33 +1049,35 @@
+ 
+ ---
+ 
+-## What changed from revision 2
++## What changed from revision 3
+ 
+-- **J3c's verify hop has an owner.** `step` issues it, as a fifth step-order
+-  clause (order 4), from a `:verify-pending` per-id record registered under
+-  both the put id and the verify-get id; a `full` on the hop becomes the RPC
+-  layer's `:unsent` and is re-attempted by order 1; terminal completes it
+-  `:lost`. The principle spent — the client carries one bounded obligation —
+-  is named, with why it is not the caller-work queue round 1 refused. Two
+-  tests added: verify hop deferred by `full`, and an unrelated unsent request
+-  occupying the slot. One key, `:attempt`, added to `step`'s result so the
+-  folded re-attempt outcome the J3a test already asserted has a home.
+-- **The move-out inventory is nine test files**, not seven: seven repoints
+-  (with the `mem_test`/`dht_test` second-alias and per-call-site cost stated),
+-  the `jing_test.cljc` section move with `mem-handle` duplicated, and the
+-  `file_test.cljc` excision; J1.1 and J1.2 land as one change. The conclusion
+-  is unchanged; the cost claim was wrong.
+-- **The documentation-route fallback is propagated** to Decision 4's
+-  `dao.jing` and `dao.jing.v2.*` rows and to J2's deliverable, not only to the
+-  end condition; J1's deliverable and J5's deletion step say what they mean
+-  under that route.
+-- **Decision 2's rationale no longer overstates.** "Portable code never
+-  receives a handle to that stream" became: no caller of `materialize!`/`get`
+-  reaches the log; the `:log` key was test-visible and J1 removes it.
+-- **The no-wait argument is restated in its weaker, true form.** A v2
+-  append-log is constructible, because `append!`'s `ok` disclaims durability;
+-  what it cannot supply is `:inserted`'s "durably stored now", so option (a)'s
+-  cost lands on `materialize!`'s contract and its synchronous consumers, not
+-  on the transport. `gpt-5.6-sol`'s dissent is recorded by name in the
+-  *Divergence register*, with what it holds and what the plan holds.
+-- Status line updated to revision 3. Nothing else changed.
++- **The verify hop's loss path has a route home.** The record is registered
++  under the get id as soon as `rpc/request!` returns one — on `requested`,
++  `pending-request` and `request-undeliverable` alike, each of which carries
++  `:dao.stream.rpc/id` (`rpc.cljc:198,203,211`) — and likewise under the
++  put id at `request-materialize`. Every completion carrying a registered id
++  completes the materialization once, the record's removal being the guard.
++  The terminal sweep is assigned to step order 4 and touches only
++  `:verify-unissued` records; issued hops complete through their registered
++  get id via `lose-outstanding` or order 3's `abandon-unsent`. Step order 5
++  is stated to drain after order 4 registers, so an undeliverable hop's
++  already-outboxed completion routes in the same step.
++- **A lifecycle table** enumerates every record phase (`:put`,
++  `:verify-unissued`, `:verify-issued`, removed) against every event — each
++  `rpc/request!` outcome at each issuance point, order-1 re-attempts,
++  `abandon`, the terminal sweep, `lose-outstanding`, and each completion
++  kind — with the record transition, the published completion, and the id it
++  routes by; impossible cells say why. This is the structural answer to a
++  defect that recurred three times as a missed exit.
++- **Three loss-path tests added** (undeliverable at issue, undeliverable on
++  the order-1 re-attempt of a deferred hop, `abandon` during a deferred hop),
++  plus terminal-with-unissued, terminal-with-issued, `allocator-error` on the
++  hop, and a table-exhaustiveness test; the deferred-by-`full` and
++  slot-occupied tests restated in the table's phase vocabulary.
++- **The RPC precedent is cited**: `:unsent` and `apply/serve-once!`'s
++  `:pending-response` are the same shape of machine-internal obligation
++  retained as data.
++- **The documentation-route sentence corrected**: under that route
++  `dao.jing.observer` does not exist, so none of the seven repoints happens;
++  only the `jing_test` section move and the `file_test` excision do.
++- Status line updated to revision 4. Nothing else changed.

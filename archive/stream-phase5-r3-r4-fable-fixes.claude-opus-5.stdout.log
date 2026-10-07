@@ -1,0 +1,46 @@
+Completed-GMT: 2026-09-04 04:49:02 GMT
+Completed-Local: 2026-09-04 11:49:02 ICT
+Coding-Agent: claude
+Session-ID: none (non-interactive run)
+
+## Findings resolved
+
+**Medium 1 — operator `(disconnect)` never returned to local evaluation** (`driver.cljc`, `connect.cljc`)
+`connect/close!` now records intent (`:detached-by :operator`, cleared by `open` and `reattach`) and exposes `operator-detached?`. The driver routes ordinary input remotely only via `remote-routed?` (adapter present *and* not operator-detached), so local evaluation resumes on the next line — before the terminal event lands — and `(disconnect)` drops `:queued`/`:retrying`. `retry-unsent` and `release-queue` use the same predicate. A new `connect-command` branch answers "Still disconnecting…" during the close window instead of falsely claiming "Already connected" or composing a second boundary over the first.
+
+**Medium 2 — `:pending-input` leaked across attachments** (`serve.cljc`)
+`evaluate` now treats a request that leaves `:pending-input` as a correlated `:dao.stream.apply/malformed-request` error and resets the field, so a fragment from attachment A can never prefix B's source.
+
+**Medium 3 — Node `listen!` supplied no clock** (`node.cljs`)
+`listen!` takes `:clock` (default `js/Date.now`) and passes its reading as the fourth argument, making configured pending-slot expiry effective. It also takes `:accept!` (defaulting to this endpoint's `ws/accept-connection!`) so a serving composition can inject the seam it owns.
+
+**Medium 4 — quit/EOF exited with a live endpoint** (`v2.cljc`)
+Added `stop-ticks`, `stop-timeout-text`, `stop-tick`, and `request-stop!`. On all three hosts, a non-running shell asks `serve/stop!` once and keeps stepping until `:status :stopped` or the bounded budget expires (then it says so and exits). Headless gets an explicit trigger: `request-stop!` appends `(quit)` like any line producer — wired to a JVM shutdown hook (which then joins the step owner), Node `SIGINT`/`SIGTERM`, and Dart `ProcessSignal.sigint`.
+
+**Low, resolved:** Node `remove-dot-segments` keeps the RFC 3986 trailing slash (`/a/b/..` → `/a/`, `/repl/.` → `/repl/`), so both canonicalizers agree; `repl-target` tests the *path component*, so `ws://h:1?x=1` names `/repl`; `host/owed` and the `websocket` comment now state that the Node adapter exists and only the seam glue (accept! with clock, lifecycle deposits) is owed, and the `:bind!` contract names `(accept! path socket now)`; the connect/drop same-tick race is gone (`repl-step` polls and observes before handling lines); missing subprotocol is refused *before* the upgrade via `verifyClient` (HTTP 400) with the post-upgrade 1002 close kept as defence in depth; `stop-listening!` takes an optional close-completion callback — the only honest source of `:stopped`.
+
+## Deferred
+
+- **Port zero** — supporting an ephemeral bind means constructing the endpoint after `:bind-succeeded`, a change to the R4 composition. Instead of a generic descriptor refusal, `serve!` now fails with `:yin.repl.endpoint/ephemeral-port-unsupported` and states the limit.
+- **Explicit `:binary!` transport entry** — requires broadening committed `dao.stream.ws`, which is outside the edit list; the NUL-string route stays documented at the adapter.
+- **Node's `:on-listening`/close-completion → lifecycle deposits** — the callbacks now exist, but the translation into `:bind-succeeded`/`:listener-error`/`:stopped` belongs to the R5 glue namespace, which is outside this diff (emitting R4 vocabulary from `dao.stream` would invert the layering).
+
+## Files changed (all unstaged on top of the staged content)
+
+`src/cljc/yin/repl.cljc`, `v2/connect.cljc`, `v2/driver.cljc`, `v2/host.cljc`, `v2/serve.cljc`, `src/cljs/dao/stream/ws/node.cljs`, `test/dao/stream/ws/node_test.cljs`, `test/yin/repl_connect_test.cljc`, `v2_serve_test.cljc`, `v2_test.cljc`. Nothing staged or committed.
+
+## Tests run
+
+- `clj -M:test -n yin.repl-test -n yin.repl-connect-test -n yin.repl-serve-test -n yin.repl-driver-test -n yin.repl-core-test -n yin.repl-adapter-test` → 65 tests, 275 assertions, 0 failures/errors.
+- `npx shadow-cljs compile test` (node-test, autorun; includes `dao.stream.ws.node-test` real-socket layer) → 1192 tests, 34118 assertions, 0 failures/errors, 0 warnings.
+- `clj -M:kondo --lint` over all 11 touched files → 0 errors, 0 warnings.
+- `clj -M:cljd-yin-repl-build compile` → success; `dart analyze lib/cljd-out/yin/repl.dart` → no issues (`ProcessSignal.sigint.watch().listen(...)` emitted as intended).
+
+New tests: operator disconnect returns input to local evaluation, drops the queue, and re-routes remotely after reattach; incomplete input answered as a correlated error that cannot cross to a second attachment; ephemeral-bind refusal; explicit stop trigger as a line producer; quit stops the endpoint before exit (`stop-tick` reaching `:stopped`); query-only URL → `/repl`; RFC trailing-slash canonicalization; pre-upgrade subprotocol refusal (400, no slot consumed); pending-slot expiry on the clock `listen!` supplies.
+
+## Remaining risks
+
+- Fable's pre-existing unresolved risks stand: no cljd *test* runs (committed `test/dao/stream/ws_test.cljc` has no `:cljd` branch — outside this diff), pending sockets are not closed by `serving/stop!` so `:stopped` can be slow on Node with a lingering pending connection (the new bounded budget now bounds the wait rather than hanging), two shells (served vs local) under D4, and the unwired host seam.
+- The shutdown path is proven by unit-level tests (`stop-tick`, `request-stop!`), not by an end-to-end host run; the signal handlers themselves are compile- and analyze-verified only.
+- `verifyClient` is deprecated in `ws` 8 but present and used in its async form (the sync form hardcodes 401); a future `ws` major may require moving to an explicit `upgrade` handler.
+- Step reordering (poll/observe before lines) shifts publication order within a tick: lifecycle notices now precede same-tick local results. Every existing assertion still holds.

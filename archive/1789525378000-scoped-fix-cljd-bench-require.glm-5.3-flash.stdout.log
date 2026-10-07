@@ -1,0 +1,15 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+Done.
+
+**Diff** (`test/bench/yin_vm_bench.cljc:20`, still untracked, nothing else touched):
+
+```diff
+-  (:require #?(:cljd [] :clj [criterium.core :as criterium])
++  (:require #?@(:cljd [] :clj [[criterium.core :as criterium]])
+```
+
+**Verification** — `bb test:cljd`: the `Cannot invoke "clojure.lang.Named.getName()"` NPE on `bench.yin-vm-bench` is gone. The compiler reads the ns form cleanly and proceeds into the file body (it emits defs before failing), so the ns form is now valid ClojureDart. The lane gets far past where it previously aborted.
+
+**One caveat (out of scope, untouched):** the run still exits non-zero, but with a *different, pre-existing* error — `Unknown symbol: measure-ms at line: 113`. Both `measure-ms` defns are reader-conditioned to `nil` under `:cljd` (lines 76 and 86 — only `:clj`/`:cljs` get definitions), yet `run-bench` calls it unconditionally. That predates my fix. Fixing it means either giving the `:cljs` defn a `:cljd` branch or adding one — say the word and I'll do it, but the prompt's boundary was one line.
+
+Findings written to `collab/1789525378000-scoped-fix-cljd-bench-require.glm-5.3-flash.findings.md`.

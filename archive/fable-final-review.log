@@ -1,0 +1,16 @@
+Review is finished and written to the plan file. Here is the verdict.
+
+**REJECT.** §2.3 and §4.4 satisfy the five invariants. The intro, §2.1 and §2.5 do not, and §2.1 contradicts §2.3.
+
+Required edits, in order of severity:
+
+- **§2.1 example uses names, not De Bruijn indices, and has no `:global`.** Lines 148-175 show `:params [x]`, `{:type :variable :name +}` and `[D :variable x]`. Per the §2.3 dictionary these must be `[A :lambda 1 B]`, `[C :global +]`, `[D :variable 0]`, with the map carrying `:arity` and `:index`. Same fix to the §1 Content example at line 45. This breaks invariants 2 and 3.
+- **§2.1 claims the walker already dispatches on this form.** Today's `:variable` and `:lambda` arms read `:name` and `:params`. Add one sentence saying those arms change to positional index lookup and arity binding, plus a `:global` arm, and fill the empty Walker and Codec cells of the `:global` row in §2.3.
+- **§2.5 has no side-table row for names.** The bullet at line 365 promises an occurrence-keyed table but the catalogue at lines 421-439 lacks it. Add a row keyed `[origin root-address path i name]`, the i-th parameter of the lambda at that path. This breaks invariant 4 as written.
+- **Intro misdescribes the AST indexer.** Line 8 says it indexes rows "into `dao.jing`", which is the content store the rows already live in. It should maintain the row and occurrence relations that `q` reads, and the intro should state it is dedicated because `dao.space.index` is datom-only, which §6.5 and §9.3 already say. Invariant 5 is not stated as the owner phrased it.
+- **§2.4 saturation row `:lambda params → []`** contradicts §2.3, where `:lambda` has an `int` arity slot. Delete the row.
+- **§4.4 passes.** One tightening: line 630 offers two alternatives for the encoder gate. Pick the content-id one, since §4.2 already blocks identity uses.
+
+Two follow-on inconsistencies outside the named sections: the §7.7 obligations table still talks about a `:variable` "naming" a param, and the §7.4 validator checks closure params as symbols at the instruction level, which would re-admit names into the segment hash unless lowering emits arity.
+
+Plan mode blocked any edits, so the doc is unchanged. The exact instructions are in the plan file at `/Users/sto/.claude/plans/read-collab-1789421900000-fable-final-re-splendid-bonbon.md`, ready to apply as a revision r9 if you approve.

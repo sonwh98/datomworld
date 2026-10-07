@@ -1,0 +1,28 @@
+C9 is done, apart from cljstyle, which the permission gate wouldn't let me run. The focused JVM namespaces pass and kondo is clean. Node and Dart weren't run, as you asked.
+
+**What changed** (`src/cljc/yin/vm/ucf/authority/admission.cljc`):
+- **Inherited ids:** an op id from another occurrence is admitted only if two things hold:
+  - its occurrence is an ancestor of the current one through completion edges (new public `ancestor?`); a terminal result edge or an orphan gives no ancestry;
+  - the granted checkpoint's baseline carries the id, install children included (new public `member?`).
+
+  Anything else is `:foreign-op-id`. Nothing new is indexed or persisted, and the O(chain length × occurrences) cost note for C12 is in the docstring.
+- **Unreadable checkpoint:** if the body is missing from the store, or its bytes don't check out against the address and the recorded baseline, the answer is `:suspended`. This comes after the tenure check, so a stale holder still gets `:stale`, and nothing is written.
+- **Signature change:** `admit!` now takes the content store: `(admit! a store i author envelope diagnostics)`, like `offer!`. There is no compatibility arity; `admission_test` is updated to match.
+- **C8 gate follow-ups:** `:stale` on a closed occurrence now carries `:yin.k/closed true`. In `completion_test`, the same report retried after its lease ended answers `:replayed` and writes nothing.
+- **Dedup and variants:** no new code was needed. Inherited ids already go through the one dedup namespace, and C5 already refuses any variant whose baseline differs. I added tests for both, including a variant that changes only a child or grandchild payload.
+
+**Tests:** the new `test/yin/vm/ucf/authority/inherited_test.cljc` has 18 tests covering every case in the brief. Before the implementation, 66 of its assertions failed; after, all 112 pass. I also broke each key guarantee on purpose (11 times); every break made a test fail, and every one was reverted.
+
+**Checks:**
+- The 16 namespaces under `yin.vm.ucf.*` and `dao.stream.journal*` pass on the JVM: 263 tests, 0 failures, 19 s.
+- Kondo shows 0 warnings, and the touched files are ASCII with no line over 80 columns.
+- **cljstyle `fix` and `check` were both refused by the permission gate**, so please run them before committing.
+- `target/c9-mut.py`, the mutation script, is left in the git-ignored `target/` folder.
+
+**Questions for you** (I took the smaller option each time; details in the report):
+1. **Order inside the scope check:** I check ancestry before reading the checkpoint, so a non-ancestor's id is `:foreign-op-id` even when the checkpoint can't be read. The other reading is that it should be `:suspended`; that's a one-line swap.
+2. **Where the store lives:** it's an `admit!` argument, so C11's front will have to pass it. The alternative is for `authority/open!` to hold it.
+3. **Which variant counts as the checkpoint:** I accept any offered variant whose bytes verify, since C5 makes them all share one baseline. The UCF text says "the body" in the singular.
+4. **"An unavailable comparison suspends variant admission":** not built, because the comparison uses the recorded baseline, which an open authority always has.
+
+The report is at `collab/1791120000000-compiler-engineer-ucf-c9-inherited-ids.findings.md`.

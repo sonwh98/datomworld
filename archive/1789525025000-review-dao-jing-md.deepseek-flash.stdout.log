@@ -1,0 +1,5 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"agent:builtin:Explore"}
+`ExitPlanMode` isn't available in this session, so the report above stands as the deliverable. The same content is saved at `/Users/sto/.claude-deepseek/plans/read-collab-1789525025000-review-dao-jin-warm-dawn.md` so the orchestrator can transcribe it to `collab/1789525025000-review-dao-jing-md.deepseek-flash.findings.md`.
+
+Summary of the verdict: **not safe to commit as-is** — not because the doc misdescribes the code (Check 1 passes 7/7 and Check 2 passes on substance), but because the prompt's premise is false: the two Architect-prescribed wording corrections are provably absent (`grep -rn "non-pathological" docs/design/dao.jing.md` returns nothing; `:411-414` still says "Two residuals"). Three one-line edits — the Architect's own text — clear it.

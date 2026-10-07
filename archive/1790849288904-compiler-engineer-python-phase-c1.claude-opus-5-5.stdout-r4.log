@@ -1,0 +1,78 @@
+Completed-GMT: 2026-10-01 14:01:02 GMT
+Completed-Local: 2026-10-01 21:01:02 +07
+Coding-Agent: claude
+Session-ID: 976059c2-629b-4b91-8b63-7c4d9604d7cf
+
+# Python phase C1, round 4
+
+Both gate r3 float findings are fixed and every lane passes. I also fixed a related signed-zero bug that the sweep turned up. Two checks were not fully as briefed:
+- **Full JVM suite:** it now runs longer than the tool's 600-second foreground limit, even started alone, so the harness moved it to the background. I waited for it to finish: green.
+- **cljstyle:** blocked by permission again.
+
+The edits are uncommitted, on top of `7a8493e1`. The report, with this round appended, is `collab/1790849288904-compiler-engineer-python-phase-c1.claude-opus-5-5.report.md`.
+
+## Fixes
+
+**1. Zero tests behaved differently on the JVM (P1).**
+- **Cause:** the float `%` and `//` helpers tested for zero with host `=`. On the JVM that distinguishes 0.0 from 0; on JS it doesn't. So an exact multiple got a wrong sign correction on the JVM only: `print(4.0 % -2.0, -4.0 % 2.0, 4.0 // -2.0)` printed `-2.0 0.0 -3.0` instead of CPython's `-0.0 0.0 -2.0`.
+- **Fix:** every zero test in those helpers, including the zero-quotient test, now uses the host-independent `py/zero?`.
+- **Sweep:** every other zero comparison in the prelude works only on ints, where host `=` agrees across hosts, so none needed changing:
+  - the `checked-mul` operand;
+  - integer floor-division and modulo remainders;
+  - `ipow`/`fpow` exponents;
+  - bitwise operands;
+  - `lshift`;
+  - the slice step;
+  - the range index;
+  - the `range` argument count.
+- **Extra fix from the sweep:** unary `-` and `+` were computed as `0 − x` and `0 + x`, which loses the sign of a float zero, so `-0.0` printed as `0.0`. Floats are now negated directly or returned unchanged; ints are unaffected.
+
+**2. Signed zero with an infinite divisor (P3).** A zero remainder's sign is now chosen from the divisor's sign rather than computed as `0.0 × divisor`, which gave NaN when the divisor is infinite. A zero quotient still takes its sign from `0.0 × (x/y)`; that branch only runs when `|x| < |y|`, so `x/y` is always finite.
+
+## Tests
+
+Expected values come from CPython 3.9.6 run on the same source.
+- **End to end, all four VMs:** exact multiples with both divisor signs (including mixed int and float), zero dividends, `x % ±inf` and `x // ±inf` (inf written as `1e400`), and signed-zero printing.
+- **Parity, JVM and Node:** 16 values, rendered on the host because Clojure `=` cannot see a zero's sign.
+
+## Mutation proof
+
+I broke each fix in turn and confirmed the new tests fail, then restored it. No mutation markers remain, and all 107 Python tests pass afterwards.
+
+| Breakage | Result |
+|---|---|
+| remainder zero test back to host `=` | both new tests fail on all 4 VMs, printing the reviewer's exact `-2.0 0.0 -3.0` |
+| quotient zero test back to host `=` | both fail on all 4 VMs |
+| zero sign computed as `0.0 × divisor` again | both fail; the parity output shows `nan` for `0.0 % ±inf` |
+| unary minus back to `0 − x` | both fail on all 4 VMs |
+
+## Checks
+
+| Check | Result |
+|---|---|
+| clj-kondo, 3 changed files as separate arguments | 0 errors, 0 warnings |
+| cljstyle | not run: "This command requires approval" |
+| `bb build:yin-repl-node`, then `bb gen:python-antlr` | both succeeded |
+| Focused JVM, the 7 Python namespaces | 107 tests, 436 assertions, 0 failures |
+| Full `clj -M:test` | 2722 tests, 187957 assertions, 0 failures; partly in the background, overlapping the Node run (see above) |
+| `bb test:cljs` | 0 warnings; 2540 tests, 0 failures; the new signed-zero test ran on Node |
+
+## Still open
+
+The known deviations are unchanged from round 3:
+- ints are bounded to ±2^53 (OverflowError beyond);
+- a float `//` quotient beyond ±2^53 raises OverflowError;
+- generator expressions are accepted only as the sole argument of a consuming builtin;
+- error messages carry no counts;
+- `print` takes no `sep`/`end` keywords;
+- sets iterate in insertion order;
+- dict views are list snapshots;
+- `(x) = 1` is rejected;
+- `**` with a non-integral exponent raises NotImplementedError;
+- the UnboundLocalError message uses 3.11 wording.
+
+## Files changed this round
+
+- `src/cljc/yang/python/antlr/prelude.cljc`
+- `test/yang/python/antlr/e2e_c1_test.clj`
+- `test/yang/python/antlr/prelude_parity_test.cljc`

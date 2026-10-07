@@ -1,0 +1,65 @@
+Completed-GMT: 2026-10-02 19:25:00 GMT
+Completed-Local: 2026-10-03 02:25:00 +07
+
+# Float-address ruling (fable half of the mob)
+
+**Ruling in one line:** the codec is correct and stays untouched. Neither (a) nor (b) as posed is sufficient; I mandate a third path, where a Python float's payload is Jing float64 content (`cbor/float64`) on every host, for literals and runtime values alike.
+
+All evidence is static reading; I ran nothing on Node or Dart. The brief was found under the `1790968830647-…` prefix, not `1790868830647-…`. No files were edited.
+
+## 1. Root cause
+
+The defect is in the producers, not in `dao.jing.cbor`.
+
+- **The codec conforms to its contract.** On JS, `host-integer?` treats any integral, non-negative-zero number as an integer (`src/cljc/dao/jing/cbor.cljc:456-457`), and `number-wire` sends it down the integer path (`cbor.cljc:1003-1011`). The contract requires exactly this: "ordinary integral JavaScript numbers remain integers" and JS callers use the carrier for integral floats (`docs/design/dao.jing.cbor.md:387-391`).
+- **Producer 1, Python source literals.** `parse-number` emits `{:py/float (js/parseFloat t)}` (`src/cljc/yang/python/antlr/lower.cljc:279-281`). The `:py/float` map tag does not reach the bytes; the payload is a bare number. So `2.0` encodes as integer 2 on Node and as float64 on JVM/Dart.
+- **Producer 2, quoted prelude constants.** Integral float literals sit in the quoted prelude at `src/cljc/yang/python/antlr/prelude.cljc:89, 101, 865, 887, 891, 930, 936, 949, 967-968, 1021, 1029, 1176`. Compiled to JS, `1.0` is the number `1`, so the kind is lost before any code runs.
+- **Where it becomes an address.** Both feed `:literal` row bodies hashed at `src/cljc/yin/vm.cljc:1193` (`jing/segment-key body`).
+- **Producer 3, runtime values (not named in the brief).** `py/float` builds `{:py/float (* 1.0 x)}` (`prelude.cljc:89`). On JS, `4/2` yields `{:py/float 2}`, so any snapshot or continuation identity holding an integral float diverges too (`src/cljc/yin/vm/semantic.cljc:996`).
+- **Related Node refusal.** Every float at or above 2^53 is integral, so on Node it hits the "unsafe integral JavaScript number" refusal (`cbor.cljc:1007-1010`). This is the same class as the earlier safepoint Node blocker (`docs/orchestrator-log.md:9677-9679`).
+
+## 2. Mandated mechanism
+
+**Reject (a), the JS number-wire fix.** The kind is already gone when the codec sees the number, so no classification rule can recover it. Any heuristic would break integer addresses and the frozen fixtures, and making Jing aware of `:py/float` breaks its payload-agnostic rule.
+
+**Reject (b) as posed, tagging row inputs only.** It fixes code rows but not runtime values, and C2-S5 is precisely "heap, wire, and hosts … determinism, snapshot rendering" (`docs/design/yang.antlr.md:1858-1860`). It would also leave Node running two representations: carriers in rows received from a JVM peer (`dao.jing.cbor.md:390-391`) and bare numbers in rows lowered locally.
+
+**Mandate: one float representation, the one the wire already delivers.**
+
+1. **Lowering.** `lower.cljc:279-281` emits `{:py/float (cbor/float64 v)}`. This is the identity on JVM and Dart and the carrier on JS.
+2. **Prelude seam.** Wrap in `py/float` (`prelude.cljc:89`) and unwrap in `py/num` (`prelude.cljc:100`) through two new pure data-module functions. Arithmetic between unwrap and rewrap stays host-native on bare numbers.
+3. **No capture inside the seam.** No capture point (yield or safepoint) may sit between an unwrap and its rewrap, so bare transients never reach an addressed image. Pin this with a test.
+4. **Prelude constants.** The quoted prelude carries no integral float literal. Float constants go through the constructor, and coercions like `(* 1.0 x)` become the constructor call. Non-integral literals such as `0.5` are fine. Guard with a JVM-side test that fails on any integral-valued Double in a prelude `:literal` row.
+5. **Execution bridge.** `plain-data?` and `machine-data?` gate scalars with `number?` (`vm.cljc:962, 981`), which the JS carrier fails. Both must admit the float64 carrier. `yin.vm.debruijn` already sees through it (`src/cljc/yin/vm/debruijn.cljc:227, 299`).
+
+**Contract amendments.**
+
+- `dao.jing.cbor.md`: no byte, fixture, or code change. Add one sentence under *Numeric identity* stating that carrying float kind on JS is a producer obligation and the codec never infers it.
+- `yang.antlr.md` §8.5 (`:1243-1247`, `:1339-1340`): the tag alone does not carry kind into bytes; the `:py/float` payload is Jing float64 content.
+- The yin.vm row/data domain doc: the float64 carrier is an admitted scalar, and the data module gains the two functions.
+
+**Migration cost.** One preparatory slice, landed before any float-bearing pin.
+
+- **Addresses.** JVM and Dart addresses for Python-literal rows are unchanged; only Node's move, to match. Prelude rows change on all hosts, as with any prelude edit (`yang.antlr.md:1830`).
+- **Code.** One line in lowering, about a dozen prelude sites, two data-module functions, two predicate sites.
+- **Audit.** `render.cljc` float repr, and dict-key normalization at `prelude.cljc:1176`.
+- **Tests.** Node expectations that compare bare numbers break, because the JS carrier only equals another carrier (`cbor.cljc:351-355`). They move to constructors or `content=`.
+- **Runtime.** One carrier allocation per float result on JS.
+- **Not broken today, as far as I checked.** I did not trace whether a JVM-lowered float row currently executes on Node; the predicate sites above suggest it would be rejected, which this slice would also fix.
+
+## 3. What C2-S5 and C3-S2 may proceed with meanwhile
+
+- **C3-S2** (integer literal and boundary integration, `yang.antlr.md:2113-2114`): proceeds in full. It is integer-only and may pin cross-host addresses for float-free row closures.
+- **C2-S5**: heap collection, lift refusal, user-defined iterator classes, and snapshot work on float-free programs proceed, including cross-host goldens.
+- **Behaviour tests with floats**: output parity against CPython is fine on all hosts.
+- **Not allowed until the preparatory slice lands:**
+  - any cross-host pin of an address whose closure includes a float literal, a float runtime value, or the prelude definitions listed in section 1;
+  - any Node-specific golden for such a tree, since it would freeze the wrong bytes;
+  - any edit to `cbor.cljc` or its fixtures.
+- **JVM-only pins**: Python-literal row pins on JVM are safe to write now. Prelude-inclusive pins are not.
+
+## Comparison with the astra half
+
+The astra log (`collab/1790968830636-architect-float-address-mob.gpt-6-astra.stdout.log`) contains three interim notes and no final ruling, so this analysis is independent. Its interim direction agrees with mine on root cause: the codec conforms, the defect is upstream, the `:py/float` wrapper does not fix it, both literals and quoted prelude constants need covering, and an execution bridge is needed. It has not stated a mechanism. It also has not addressed runtime values in snapshots, which is the decisive point for C2-S5. Concurrence on root cause; the mechanism awaits astra's final ruling.
+
+Status: COMPLETE

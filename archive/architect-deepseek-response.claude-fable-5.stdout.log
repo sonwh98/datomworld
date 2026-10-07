@@ -1,0 +1,109 @@
+Completed-GMT: 2026-09-01 15:19:37 GMT
+Completed-Local: 2026-09-01 22:19:37 Asia/Ho_Chi_Minh
+
+# Response to the deepseek-v4-pro outside review — Reviewer B (claude-fable-5)
+
+I have re-read all four documents against the review. Overall verdict first: this is a good review. Eight of the nine open findings survive contact with the current text; one needs refinement rather than acceptance, and none should be rejected outright. The meta-claim is substantially correct, and the most uncomfortable part is that the evidence for it is in sentences we ourselves wrote and then failed to apply.
+
+## 1. Adjudication of findings 2–10
+
+### Finding 2 — the `create!` asymmetry — **ACCEPT** (contract change)
+
+Settled in full under §2 below. Short form: the plan's rule is right, its home is wrong, and the fix is a caveat on the `ok` row in `dao.stream.md`, not a new outcome.
+
+### Finding 3 — "exactly one resolution event per attachment" — **ACCEPT** (ws spec change)
+
+The reviewer read the text correctly. `dao.stream.ws.md` states the invariant twice ("Exactly one of these is deposited per attachment", line 116; "exactly one resolution event is deposited per attachment", Operations) and also states that `attach!` returns `ok` with a handle "still being established" and that `close!` on that handle disconnects. Nothing anywhere says what, if anything, is deposited when `close!` lands before resolution. Zero resolution events then contradict "exactly one," and the attachment identity handed back by `attach!` becomes an id that simply goes silent on the medium — exactly the unattributable dead end the envelope design exists to prevent.
+
+**Proposed solution**, owned by `dao.stream.ws.md` (the resolution-group paragraph in The Duplex Model, plus the `close!` bullet in Operations). Do not merely narrow the invariant to "attachments that reach a resolution" — that legitimizes the silent id. Instead, decide the abort path:
+
+- `close!` during establishment cancels the connect; the adapter deposits `:ws/closed` correlated to the attachment; no resolution event is ever deposited after that `:ws/closed`.
+- Restate the invariant: *every attachment's story on the medium terminates — with exactly one resolution event, or with `:ws/closed` when `close!` ended it before resolution.* Allow the benign race where a resolution was already in flight when `close!` was called (resolution then `:ws/closed` is legal ordering); the guarantee is that nothing follows the deposited `:ws/closed`.
+
+This is consistent with the spec's own rule that "a boundary deposits everything": local abort is an event the adapter knows about, so it deposits it.
+
+### Finding 4 — server-side attachment identity has no source — **ACCEPT** (ws spec change; blocks 4a/4c)
+
+Correctly identified and, in my ranking, the most implementation-blocking of the nine. The contract places `:dao.stream/attachment` only in the `attach!` success map. The plan says the server-side handle is "minted from a socket the runtime handed over, so neither `create!` nor `attach!` produces it." The ws spec says server deposits are enveloped "exactly as on the client." No document says how the serving side *obtains* the identity it must envelope with, or how the composition associates a handle with an id. Plan 4c listing "how that identity reaches deposited events" as something the deliverable must define is deferral wearing the clothes of definition.
+
+**Proposed solution**, owned by `dao.stream.ws.md`, Serving section:
+
+- The server transport **mints the attachment identity at accept**, exactly as the client transport mints it at `attach!` — minting is already the transport's per the contract's correlation rule, so no contract change is needed.
+- The accept path delivers the accepted connection to the composition **as data mirroring the `attach!` success map**: a map carrying `:dao.stream/handle` and `:dao.stream/attachment`. Where that delivery happens is the transport constructor's accept hook (composition wiring, consistent with 4a's "transport constructor" bullet); the same id then appears under `:ws/attachment` on every event that connection's boundary adapter deposits.
+
+I deliberately propose *not* touching the contract's correlation rule (one could generalize "its `attach!` success map" to "wherever the transport hands over a handle on a distinguishable attachment"). The ws-local fix is sufficient and smaller. **Expect dispute here** — a colleague may argue the contract should own the generalized rule so the next serving transport doesn't reinvent it. I'd accept that amendment if pushed, but the minimal correct fix is ws-side.
+
+### Finding 5 — pause vocabulary gated on nothing — **ACCEPT** (plan change: new gate)
+
+The reviewer's trace is exact. The ws Deferred list itself calls the pause vocabulary "interoperable wire content" requiring "a durable home before it is built — the migration plan that currently describes it is consumed when its phases complete." The Phase 3 wire-contract gate enumerates handshake, disclaimer, close code, codec, decode failure — and not pause. So the only gate that could settle it explicitly doesn't, and the document describing the lease semantics is self-consuming. 4d is unbuildable as specified.
+
+**Proposed solution**: add a **second gate, before 4d**, in the plan — not an extension of the Phase 3 gate. The Phase 3 gate exists so 4a's two wire ends can interoperate; 4a does not need pause, and gating 4a on flow-control decisions over-serializes the slice. The pre-4d gate settles, **in `dao.stream.ws.md`** (which becomes the durable home — it already hosts the Deferred entry, and the vocabulary is transport-adjacent wire content): the lease-request value shape (pause-for-*n*, renewal), where it travels (already decided: ordinary values on the socket the client writes, read off the serving side's request medium), and how the serving composition recognizes it. **Expect dispute**: someone will want this folded into the existing Phase 3 gate for one-gate simplicity. I think that trade is wrong, per above.
+
+### Finding 6 — plan fixes "two unanswered probes" the ws spec defers — **ACCEPT** (plan change; fold into the same gate)
+
+Real, and the same pattern as finding 5: a transient, subordinate document fixing a parameter its superior left open, while claiming "nothing here changes the ws transport." The 4d text also presumes a probe mechanism (server pings) that the ws spec explicitly leaves undecided (protocol frames vs deposited values, who answers).
+
+**Proposed solution**: strike "after two unanswered" and the mechanism presumption from 4d; have 4d reference liveness as settled at the pre-4d gate from finding 5, where mechanism, interval ownership, and threshold get decided in `dao.stream.ws.md`. One gate covers both because 4d is the first phase that needs either.
+
+### Finding 7 — the descriptor gate claims evidence Phase 3 cannot produce — **REFINE** (plan wording)
+
+The observation is right: Phase 3's round trip is in-memory over ring-buffer descriptors and exercises neither `:ws/host`/`:ws/port`/`:ws/path` nor the wire codec, so "this phase produces the evidence for settling it" over-claims for the ws key set. But the gate itself is sound — its sequencing (no Phase 4 on provisional keys) is the valuable part, and the round trip genuinely evidences the *generic* envelope shape and identity representation.
+
+**Proposed solution**: reword plan lines 196–199 to split the epistemics: "the round trip evidences the generic envelope shape and the identity representation; the `:ws/…` key set is then settled *by decision* in `dao.stream.ws.md` against that shape." This is the contract's own discipline — "stated as a decision rather than dressed as a deduction" (`dao.stream.md:86-89`) — applied to the plan.
+
+### Finding 8 — `lag` undefined for an evicted cursor — **ACCEPT** (plan change, with a concrete answer)
+
+Real, and the reviewer is right that the undefined case is precisely the case flow control exercises: the cursor 4d measures is the one most likely to have fallen off the retention window between calls. There is also a clean total answer available, so this costs one sentence:
+
+**Proposed solution**, in the plan's Phase 2 `lag` bullet: eviction is oldest-first, so a cursor whose position is no longer retained is behind *every* retained value — `lag` answers the current retained count. Add: the reader's next `next` will answer `gap`, which is authoritative; `lag` is a measurement, never a substitute for the read outcomes. This makes `lag` total, and the evicted answer (maximally behind) is exactly the signal the flow-control reader needs.
+
+### Finding 9 — resolution events mislabeled "lifecycle" — **REFINE** (ws wording)
+
+The taxonomy slip is real: `:ws/not-found` and `:ws/transport-error` are Resolution events, and the Operations sentence calls the surviving distinction "the correlated lifecycle event." But the reviewer's proposed word swap is slightly too narrow: the distinctions a caller reads off the medium after `append!` answers `closed` straddle *both* groups — not-found vs transport-error (resolution, for a never-established attachment) and ended vs closed (lifecycle, for an established one that went away).
+
+**Proposed solution**: "…the distinction survives only as the correlated **resolution and lifecycle events** on the deposit medium." Small, but the taxonomy is what the retry policy is written against, so it should be exact.
+
+### Finding 10 — contract line 61 over-claims the handle's operation set — **ACCEPT** (one-line contract fix)
+
+Real: `create!` and `attach!` consume no handle, the contract corrects itself in Surfaces (reader/writer/closable), and the plan makes the five/two split explicit — but the authority document's first statement of the rule is wrong. **Proposed solution**: `dao.stream.md:61` → "A handle implements the subset of the **handle surface** its transport declares (see Surfaces)."
+
+## 2. Settling finding 2 — the `create!` asymmetry
+
+**Is `create!` genuinely different?** Partly, and the part that is different is exactly why the fix is a caveat and not a new outcome. `attach!`'s caveat exists because attachment inherently involves an answer only a far end can give. `create!` has no far end: the logical stream's *identity* — plain data, "projecting that identity never fails" — is minted locally and synchronously on every host. So `ok` meaning "a new logical stream exists" is defensible in the identity sense the plan leans on. What is *not* different is resource acquisition: binding a port or opening a handle through an async-only API cannot complete before `create!` returns on a host that cannot block, for exactly the reason the ws spec gives for `attach!`. The contract's flat "A new logical stream exists," read alone, promises an operable, fully-acquired stream — a promise the invariants forbid any transport from keeping on those hosts. The plan noticed this and wrote the correct rule; but the plan is subordinate and *transient* — "consumed as the phases complete" — so a contract-level semantic currently lives only in a document scheduled to disappear. That is the actual defect: right rule, wrong home.
+
+**How to close it.** Three options were posed:
+
+- **A new outcome (`pending`)** — rejected. Either it carries a handle, in which case it is `ok`-with-caveat under another name and fragments the closed set for nothing, or it doesn't, in which case the caller cannot poll and the entire IO model breaks. It would also be asymmetric in the opposite direction: `attach!` didn't get one.
+- **Restricting transports to synchronous-only creation** — rejected. It forecloses async-only hosts, violating the contract's own reason for choosing non-blocking polling: the same operations meaning the same thing everywhere.
+- **A caveat on `create!`'s `ok` row** — **this is the fix**, owned by `dao.stream.md`, mirroring `attach!`'s shape:
+
+> `:dao.stream/ok` — A new logical stream exists: its identity is minted and the handle is operable. Implies not that every resource backing it has been acquired; where a transport must acquire resources it cannot have at call time, the handle reports that state through its own operations and the result of the acquisition arrives later as data.
+
+The plan's sentence then becomes grounded — "answers the same way `attach!` does" is finally something the contract authorizes — and needs no change beyond, optionally, a cross-reference. **Expect dispute** on one point: whether "a new logical stream exists" should be weakened at all when this slice never exercises the case. I hold that it should — the row as written is the only place in the contract where `ok` makes an unhedged completion claim no async host can honor, and leaving it until "a later transport" needs it is precisely how the plan ended up legislating contract semantics.
+
+## 3. The meta-claim
+
+The diagnosis is right on all four counts, and I'll add the mechanism: the failure was not agreement per se but that **convergence spent attention on what we disputed and none on what all three of us read the same way**. Nothing any reviewer contested was ever re-derived; everything we contested got sharper. Taking them in turn, with the process change that would actually have caught each — not resolutions to read harder:
+
+1. **Extending no-wait to `create!` without checking its table.** We validated the plan's "Settled before Phase 1" against the *invariant* (no operation waits — satisfied) and never against the *outcome tables* (does the contract authorize the answer the plan says `create!` gives?). The check that catches this is mechanical: **any "X answers the same way Y does" sentence is a claim about two outcome tables — diff both rows, including their caveats, before accepting the analogy.** We would have seen in one glance that `attach!`'s `ok` carries a caveat and `create!`'s doesn't.
+
+2. **Never exercising `close!` racing an in-flight `attach!`.** We reasoned forward from `attach!` toward resolution and forward from an established connection toward `close!` — two happy-path traversals, no cross-product. The fix is an assignment, not a virtue: **in the convergence round, every absolute quantifier ("exactly one," "always," "never") gets one reviewer whose job is to construct the interleaving that falsifies it**, before the finding list is joined. Three reviewers verifying the same happy paths is redundancy; one adversary per invariant is coverage.
+
+3. **Settling attachment identity for the client path and stopping.** We spent the identity budget on the key-namespace question (`:dao.stream/attachment` vs `:ws/attachment`), resolved it well, and the feeling of resolution closed the topic. The tell was in the plan's own text: "neither `create!` nor `attach!` produces it." The check: **trace every identity/correlation rule end-to-end along every path that produces a handle** — `create!`, `attach!`, and server accept. Any sentence of the form "neither X nor Y produces it" is a standing trigger for "then where does its required metadata come from?"
+
+4. **Exempting backpressure from the wire gate as "above the stream."** The classification is architecturally *correct* — it is above the stream — and that is what made it dangerous: we let a layering answer stand in for a different question, "does it need interoperable specification?", which layering does not answer. The ws Deferred entry we ourselves converged on says so verbatim: "Needing nothing from this transport does not mean needing no specification." We wrote the sentence and didn't apply it to the gate. The check is the contract's own manifest discipline turned on the review: **when a gate enumerates the deferred items it settles, diff the enumeration against the Deferred list it draws from, and require a stated disposition for every unmatched item** — settled here, settled at a later named gate, or never needs settling with a reason. An omission with no stated reason is an unsettled item, not a scoping decision. (Finding 6 falls out of the same diff: "liveness" is on the Deferred list, absent from the gate, and then quietly parameterized by 4d.)
+
+And on finding 1, already fixed but worth owning: accepting the plan's "corrected to match" self-report without re-reading the corrected lines is the purest instance. The general rule: **a claim that a defect was fixed is verified against the current text by a reviewer who didn't write the fix, with the line numbers in hand** — never by the report's existence.
+
+## 4. Ranked actions (propose only — no edits made)
+
+1. **Finding 4 — server-side attachment identity.** `dao.stream.ws.md` Serving: mint at accept; accept-delivery shape mirrors the `attach!` success map (`:dao.stream/handle` + `:dao.stream/attachment`). First because it hard-blocks 4a/4c at the point the correlation rule is load-bearing. *Disputable:* whether the contract's correlation rule should be generalized too; I propose ws-only.
+2. **Finding 2 — `create!` `ok` caveat.** `dao.stream.md` `create!` table, wording as in §2. Second because it is the only contract-semantics change and its current home evaporates with the plan. *Disputable:* whether to touch the row at all before a transport needs it.
+3. **Finding 3 — abort-path resolution invariant.** `dao.stream.ws.md`: `:ws/closed` deposited on pre-resolution `close!`, nothing follows it; invariant restated as in §1.
+4. **Findings 5 + 6 together — a pre-4d gate.** Plan: add a flow-control/liveness gate before 4d (lease value shape, liveness mechanism/threshold), settled in `dao.stream.ws.md` as the durable home; strike "two unanswered" from 4d. *Disputable:* fold into the Phase 3 gate instead; I argue that over-serializes 4a.
+5. **Finding 7 — gate epistemics.** Plan: generic envelope by evidence, `:ws/…` keys by decision.
+6. **Finding 8 — total `lag`.** Plan Phase 2: evicted position → `lag` answers the retained count; the following `gap` is authoritative.
+7. **Finding 10 — contract line 61.** "subset of the handle surface."
+8. **Finding 9 — taxonomy wording.** "correlated resolution and lifecycle events."
+
+The ordering principle: contract-and-blocking first, self-consuming-document rescues second, wording last. Nothing here reopens a converged decision on the model itself — every accepted finding is the model's own rules applied to a path the convergence round never walked, which is, uncomfortably, the reviewer's point.

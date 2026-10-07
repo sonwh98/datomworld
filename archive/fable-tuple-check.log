@@ -1,0 +1,3 @@
+The exit-plan tool is not available in this session, so the plan file stands as the deliverable at `/Users/sto/.claude/plans/read-collab-1789421900000-fable-tuple-di-breezy-hejlsberg.md`.
+
+Recap: the owner was right that Ribbit uses triples, wrong about Erlang and Unison. The best representation is the fixed-arity-per-tag n-tuple row that the code-as-tuples doc already specifies, with EAV kept as a derived projection and the linear instruction vector serving the VM. The only follow-up is a slot-table edit in the design doc to replace symbol-based variable and lambda slots with De Bruijn integers plus a separate tag for free references.

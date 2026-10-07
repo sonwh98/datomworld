@@ -1,0 +1,102 @@
+Created-GMT: 2026-10-03 05:54:00 GMT
+Created-Local: 2026-10-03 12:54:00 +07 (+0700)
+Coding-Agent: claude
+Session-ID: 5face18f-26de-4829-962a-42049a75c13f (resume of the float-fix engineer session)
+
+# Task: Python float-fix round 3 — gate findings, converged carrier ruling, post-rebase reconcile
+
+Role: Yang Compiler and Universal AST Engineer
+
+Implementers:
+- Model: claude-opus-5-5 | Assigned: 2026-10-03 12:54 +07 | Status: active | Rationale: resume of the float-fix engineer (rounds 1-2 context); round 3 applies two independent gate reports and the converged architect ruling
+
+Implement round 3 in /Users/sto/workspace/datomworld-py-floatfix (branch yang-python-floatfix).
+The tree is now REBASED onto master fb690ae6 with your uncommitted round-2 work on top (rebased
+clean, no conflicts; patch backup outside the repo). Do NOT commit, stage, or touch collab/ in the
+main tree. Do not touch any other worktree. Read first:
+- docs/design/yang.antlr.md sections 8.5.5 and 8.5.6 (now landed on master; your round-2 doc paragraph
+  predates them — reconcile, do not duplicate)
+- docs/design/dao.jing.cbor.md (*Numeric identity*)
+- the reports (read-only evidence; the first two are gate reviews, the last three are the architect mob):
+  - /Users/sto/workspace/datomworld/collab/1790996620000-reviewer-python-floatfix-static-gate.glm-5.3-flash.stdout.log
+  - /Users/sto/workspace/datomworld/collab/1790996847000-reviewer-python-floatfix-gate.gpt-6.1-sol.stdout.log (JSONL; final agent_message)
+  - /Users/sto/workspace/datomworld/collab/1790998541000-architect-floatfix-refusal-ruling.claude-fable-5-1.stdout-r2.log
+  - /Users/sto/workspace/datomworld/collab/1790998541000-architect-floatfix-refusal-ruling.gpt-6-astra.stdout-r2.log (JSONL; final agent_message)
+  - /Users/sto/workspace/datomworld/collab/1791006313000-architect-floatfix-refusal-ruling-r2.prompt.md
+
+## Converged ruling (both architects signed; implement exactly this)
+
+1. REMOVE the yin.vm wrappers: `carrier-refusing`, `refuse-carrier`, and their wrapping of the primitive
+   registry in src/cljc/yin/vm.cljc, plus `generic-yin-refuses-the-carrier-test`. Restore the prior
+   primitive bindings (including `/` -> `checked-divide`). Do not alter `=`, `==`, `!=`. Do not replace the
+   wrappers with automatic unwrapping.
+2. ADD to the JavaScript `Float64` carrier (src/cljc/dao/jing/cbor.cljc, the deftype near line 341): a
+   throwing `valueOf` in the `Object` block, so numeric/default coercion refuses loudly (`carrier + 1`,
+   `carrier - 1`, `carrier < 3`, `"" + carrier`). NOT `Symbol.toPrimitive` unless it permits the string
+   hint. `toString`, `str`, `pr-str`, equality, hash, canonical CBOR bytes, NaN normalization, signed
+   zero, JSON behavior, and the frozen fixtures must be unchanged. Raise it through Jing's existing
+   `refuse` helper with a stable carrier-coercion error; NOT `:yin.k/non-portable` (that status belongs to
+   lift outcomes, UCF 7.9). Scope is Float64 only; Decimal/Rational carriers and the query
+   `host-arithmetic` guards are NOT changed here.
+   Keep this change in its own hunks/files as far as possible (cbor.cljc + its tests + dao.jing.cbor.md):
+   the orchestrator will commit it separately, immediately before float-fix.
+3. Docs: dao.jing.cbor.md (coercion refusal, preserved printing, unchanged bytes, the remaining limitation
+   that generic arithmetic over decoded carriers is not portable: JVM/Dart compute, JS refuses);
+   yang.antlr.md 8.5.5 (unchanged standard primitive bindings, the carrier hardening, Python's explicit
+   `data/float-value` seam; delete or merge your own earlier unnumbered float paragraph so 8.5.5 has one
+   text); UCF scalar-arm paragraph: "Admission and round-trip preservation of a numeric scalar do not imply
+   that every primitive accepts it" and that the coercion error is not a lift refusal.
+
+## Required tests (the failure case must be written down as tests, so it is documented)
+
+- A Jing-level JS test (cbor test namespace; mirror how existing cljs-only tests are guarded) named
+  `float64-carrier-refuses-coercion-test` documenting the failure case: on JS, each of `+ - * /` and
+  `< > <= >=` applied to a `Float64` carrier throws, with the carrier in the first position, the second
+  position, and a later variadic position; `(str "" carrier)` / `(+ "" carrier)` string concatenation
+  behaviour per the ruling (`"" + carrier` refuses; explicit `(str c)` works). Assert the error is the
+  stable carrier-coercion error, not `:yin.k/non-portable`. On JVM/Dart the same test asserts the carrier is
+  a plain double and arithmetic computes (so the asymmetry itself is documented as a test).
+- Pins that must keep passing: `(str c)`, `(str "a" c)`, `pr-str`, `=`, `hash`, map/set keys, canonical
+  bytes, `data/float-value` and `cbor/float64` on a carrier.
+- One VM-level pin of the concrete case, named `decoded-float-under-bare-plus-test`: a continuation/row
+  holding decoded `2.0` that meets a bare `(+ acc 1)` throws the carrier-coercion error on Node and gives
+  `3.0` on JVM and Dart. Add a docstring or comment saying this is the documented non-portability.
+- NaN and lifecycle gaps (gate findings): NaN repr (`"nan"`), the one-quiet-NaN canonical byte golden, a
+  NaN-producing float program printing `nan`, `py/finite?`; and carrier-bearing snapshot / continuation /
+  heap round trips plus direct lift and pin admission for integral floats, +-0.0, NaN, +-infinity,
+  preserving canonical bytes.
+
+## Remaining gate findings to fix
+
+- P1 (gpt-6.1-sol): `:clj` branch precedes `:cljd` in the float encoder/classifier paths in
+  src/cljc/yin/vm/debruijn_code.cljc (~244, ~350) and debruijn.cljc (~879): put explicit `:cljd` branches
+  FIRST (CLJD has both :clj and :cljd features; see the ClojureDart reader-conditional trap). Confirm with
+  the CLJD lane.
+- P3 (glm): drop the redundant double coercion at render.cljc:36 `(Double/isNaN x)`; wrap the added
+  >80-column expression lines in prelude.cljc (112, 113, 906, 986) and the test harness lines (leave
+  golden base64/segment-key strings); `numeric-key` op-name in its refusal is accepted as-is (C3-S2
+  deletes it) — do not add a guard.
+- Do not weaken any existing test. Do not broaden scope beyond this brief; ask before editing a file
+  outside the float-fix change set and cbor.cljc/cbor tests/the three docs above.
+
+## Verification (strict single-turn FOREGROUND completion)
+
+Run every lane in the FOREGROUND and finish the whole round in this one turn. Do NOT background anything
+and do not end the turn with lanes unfinished; if a command may exceed the 10-minute cap, chunk it by
+namespace and run the chunks sequentially, reporting each. Kill any orphaned runner JVMs first. Only one
+CLJD runner may exist repo-wide. Required, with exact counts:
+- `mise exec -- bb gen:python-antlr`, `mise exec -- bb build:yin-repl-node`
+- JVM: `bb test:clj` (or chunked equivalents), Node: `bb test:cljs`, Dart: `bb test:cljd`
+- `clj -M:kondo` and `cljstyle check` on changed files
+The orchestrator re-runs all lanes independently; your numbers are untrusted until then.
+
+Begin the final response exactly with:
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+Coding-Agent: claude
+Session-ID: <exact Session-ID>
+
+Then report changed files by commit-group (carrier change vs rest), exact lane/check outcomes with
+counts, any finding you disagree with (with evidence), and anything unfinished. Do not claim edits or
+tests that did not occur. Write your findings to
+/Users/sto/workspace/datomworld-py-floatfix/collab/1791006840000-compiler-engineer-python-floatfix-r3.claude-opus-5-5.findings.md

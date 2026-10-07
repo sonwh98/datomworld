@@ -1,0 +1,82 @@
+Completed-GMT: 2026-10-06 08:23:31 GMT
+Completed-Local: 2026-10-06 15:23:31 +07
+Coding-Agent: claude
+Session-ID: 8b4bda87-5e50-47a0-b0c9-391dba6d3ca7
+
+I reproduced all seven reviewer findings and fixed them, along with Architect notes 8–11. The final JVM runs are green, but the Node and Dart lanes were not run (per the brief). The new code that only runs on those hosts (bounded byte reads, strict UTF-8 decoding, the Dart `Uint8List` test helper) needs the orchestrator's `bb test` to confirm it.
+
+For "fails without the fix", I used one of two methods. For #1 and #3 I wrote the test first and watched it fail. For #2, #4, #5, #8 and #9 I temporarily reverted the fix, ran the test, saw it fail, and restored the fix.
+
+## Per item
+
+1. **P1: a socket left open after a startup refusal.** Reproduced: a truncated `heads.edn` left the socket bound and never closed (counter showed `{:bound 1}` only).
+   - **Change:** `open` now reads and parses `heads.edn` before the node binds. The part after the join moved into a new private `compose` function, and any failure there closes the joined node (`dht/close!`) before rethrowing.
+   - **Test:** `heads-edn-cases-are-refusals-as-data`, which now uses a recording bind seam and asserts binds equal closes in every refusal case. It failed before the fix.
+
+2. **P1: an overflowing port throws out of `startup`.** Reproduced: `NumberFormatException` escaped `startup`.
+   - **Change:** `parse-int` accepts at most 15 digits, so every host parses exactly and nothing can overflow. `--port` now goes through it too and is refused outside 0–65535; it previously called `Long/parseLong` directly.
+   - **Coverage:** every numeric flag shares `parse-int`. The test covers `--dht-follow`, `--dht-peer`, `--dht-port`, `--dht-max-inbound-bytes`, `--port`, a `dht join` token port and `--listen`.
+   - **Test:** `an-oversized-number-is-a-refusal-on-every-numeric-flag`. With the old regex it errored with `NumberFormatException`.
+
+3. **P2: only the first EDN form was read.** Reproduced: a trailing form and a truncated second form both read as a valid empty record.
+   - **Change:** the text is read inside a vector closed by a random keyword, and must come back as exactly the record plus that keyword. This works on every host with no host-specific reader.
+   - **Test:** new cases in `heads-edn-cases-are-refusals-as-data`: a trailing form, a truncated suffix, and an empty file.
+
+4. **P2: no size bound, no strict UTF-8.** Reproduced as described: a `0xff` byte inside a comment parsed, because the old read decoded leniently.
+   - **Change:** a bounded read on each host (at most `heads-max-bytes` + 1 bytes, with 1 MiB as the bound) and strict decoding on each host:
+     - JVM: a `CharsetDecoder` set to REPORT.
+     - Node: `TextDecoder` with `fatal`.
+     - Dart: `Utf8Decoder` with `allowMalformed false`.
+   - **Named refusals:** "holds more than … bytes" and "not valid UTF-8".
+   - **Test:** `heads-edn-is-bounded-and-strict-utf-8`, which also checks that comments and whitespace around a record still read, and that the socket is closed on the refusal. It failed with a lenient JVM decode.
+
+5. **P2: an overflowing refusal ring silenced reports for good.** Reproduced: the note reader stopped at the gap and kept its old cursor.
+   - **Change:** on a gap it now adopts the recovery cursor, prints that the oldest refusals were not reported, and drains what the ring still holds.
+   - **Test:** `deposit-refusals-past-the-ring-are-reported-lost-then-stay-visible` (65 notes → the "lost" line plus 64 reported, then a 66th is still shown). It failed with the old loop.
+
+6. **P2: the kill cases are simulated.** Following the Architect's ruling, I built no kill harness.
+   - **Change:** the kill cases are split out into `a-simulated-crash-restarts-at-the-head-heads-edn-holds`, with a comment stating the simulation.
+   - **New case:** a real `atomic-replace!` interrupted before its rename. It leaves the old `heads.edn` bytes exactly as they were and a stale temp file beside it. Startup ignores the temp file, and the next write replaces `heads.edn`.
+   - `the-write-precedes-the-install` now covers only the failed write and the retry.
+
+7. **P2: the process test raced the first contact.** Reproduced by reading the test, not by an observed failure; the race could fail correct behaviour.
+   - **Change:** A publishes and then stops. Each reader joins, switches VM, types the require, and is asserted parked with no answer yet. Only then does A restart on its own port (same token; its recovered HEAD is the board's first trace). Each parked require then completes with no further input.
+   - **Test:** `require-on-each-vm` gained an offset so each wait is for its own answer. The test passed with 40 assertions.
+
+8. **The moved line repeated.**
+   - **Change:** the moved set is computed before and after this step's installs. Only new name-and-address pairs print, and nothing is stored.
+   - **Test:** `a-move-is-reported-once-and-each-name-its-own`. Without the fix, alib printed 2 and then 3 times.
+
+9. **A failed dial was silent.**
+   - **Change:** one line per change of failure reason, not one per attempt:
+     - refused connection;
+     - no board for this principal (not-found);
+     - no answer;
+     - no dialer.
+   - The remembered reason clears when a dial attaches.
+   - **Test:** `a-dial-failure-prints-once-per-change`, for both nothing listening and a board of another principal. It failed with 4 lines each without the fix.
+
+10. **Docs** (`yin.repl.md`):
+    - (a) A record that refuses startup now says "remove that record", and the doc states the cost: that principal's floor is dropped, so rollback protection for it ends until a head is installed.
+    - (b) Publishers should use a fixed `--listen` port, because a reader's saved `--dht-follow` names it.
+    - (c) `dht join` is loopback only, so cross-machine readers still use `--dht-manifest` with `--dht-principal`.
+    - The doc also gains the new "cannot follow" line.
+
+11. **Ticks.** The unpersisted line now says "ticks"; asserted in `the-write-precedes-the-install`.
+
+**Beyond the list:**
+- The record-refusal message now names the cost too ("…dropping its rollback floor").
+- The `--port` refusal is new behaviour: a non-numeric `--port` used to throw a raw exception.
+- I did not touch the other Architect notes.
+
+## Commands and outcomes
+- `clj -M:kondo --lint` on `dht.cljc`, `main.cljc`, `dht_head_test.cljc`, `main_test.cljc` and `dht_process_test.clj`: 0 errors, 0 warnings.
+- The 13-namespace JVM run (the 10 `yin.repl.*` and 3 `yin.vm.linker.head*` namespaces): **265 tests, 2,807 assertions, 0 failures, 0 errors.**
+- `clj -M:test -n yin.repl.dht-process-test`: **3 tests, 131 assertions, 0 failures, 0 errors.**
+- Revert checks:
+  - `main-test` without fix #2: 1 error.
+  - `dht-head-test` without fixes #4, #5, #8 and #9: 11 failures.
+  - Both were restored and re-run green.
+
+## Unresolved
+- **Possible design amendment:** design 5.7 says `<node dir>/heads.edn`, but the file lives in the store directory, as reported last round. If that sentence should change, it needs an amendment I didn't make.

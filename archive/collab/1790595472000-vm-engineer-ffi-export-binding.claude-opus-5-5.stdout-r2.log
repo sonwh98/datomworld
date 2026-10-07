@@ -1,0 +1,47 @@
+Completed-GMT: 2026-09-28 11:55:08 GMT
+Completed-Local: 2026-09-28 18:55:08 +07
+Coding-Agent: claude
+Session-ID: 2fd38cae-ba0d-4d01-9d12-b9ee9af137e2
+
+# Slice 3a fix round 1: bounded step (P1) and cursor portability (P2)
+
+Both findings are fixed. Kondo and the focused JVM run are clean, but **cljstyle still hasn't run**: the permission gate refused `cljstyle check` again, so you'll need to run it.
+
+I changed only `src/cljc/yin/vm/ffi/remote_serve.cljc` and `test/yin/vm/ffi/remote_serve_test.cljc`, and kept your cljstyle formatting. `close!` is unchanged, and nothing is staged or committed. The report is in `collab/1790595472000-vm-engineer-ffi-export-binding.claude-opus-5-5.report-r2.md`.
+
+## P1: bounded step
+- **Budget:** `::step-budget` is a new required option (a positive integer), checked in `open!`.
+- **How `step` is bounded:** it now gives `remote/mirror-step` a wrapped view of the channel reader.
+  - The view lets at most that many reads through to the real reader and returns their results unchanged.
+  - Once the budget is spent it answers `blocked` without reading, so the mirror stops at the position after the last value it read. The next `step` resumes there.
+  - The view never builds or rewrites a cursor, so the mirror's cursor behaviour is exactly as before.
+- **What the budget counts:** channel reads, not well-formed requests. Counting only requests would need a predicate that is private in `dao.stream.remote`. Malformed values count against the budget, which still bounds the work.
+- **Single owner:** I also documented that `step` belongs to the binding's one serialized drive owner, which was the gate's Q1.
+- **Test:** with 5 requests queued and a budget of 2, successive steps answer `[0 1]`, then `[0 1 2 3]`, then `[0 1 2 3 4]`. A fourth step makes no progress, with nothing skipped or answered twice.
+
+## P2: cursor portability
+- **Check:** `serve!` now refuses any handle served for reading unless the cursors it gives at `:oldest` and `:newest` survive a round trip through the binding's codec. A refused handle gets nil and nothing enters the table.
+- **Where the check lives:** `ucf.remote`'s check (`portable-cursor`) is private, so I wrote the same rule locally, with the CLJD-first catch.
+- **Codec option:** `::codec` is a new optional `{:encode :decode}` option, checked when given. It defaults to `ucf.remote/cursor-codec`. `rs/lift-frame` now uses the binding's codec by default, so serving and lifting judge the same way.
+- **Tests:**
+  - A reader whose cursor holds a function is refused, and the table stays empty.
+  - A writer-only handle is still served, since it exposes no cursors.
+  - A binding given a codec that rejects everything refuses a normal ring buffer, which shows the binding's own codec is used.
+  - The `open!` test now also covers a missing or nil `::step-budget` and a malformed `::codec`.
+
+## Verification
+| Check | Result |
+|---|---|
+| `clj -M:kondo --lint` on both files | 0 errors, 0 warnings |
+| `clj -M:test -n yin.vm.ffi.remote-serve-test -n yin.vm.ucf.remote-test -n dao.stream.remote-test` | 54 tests, 461 assertions, 0 failures, 0 errors |
+| New namespace alone | 10 tests, 85 assertions |
+| `bb test:cljs` (not required) | 2204 tests, 50049 assertions, 0 failures, 0 errors |
+| `cljstyle check` | Not run (permission gate) |
+| CLJD lane | Not run |
+
+When I bypassed each new guard, the two new tests reported 7 failures. I reverted both bypasses, confirmed with a grep that none remain, and the reruns above are green.
+
+## Still open
+- **Formatting:** the new `reify` blocks in both files may need `cljstyle fix`.
+- **Channel ownership:** the `close!` question still waits on the owner's decision.
+- **Request-only budget:** if the Architect wants the budget to count only well-formed requests, that needs either a public predicate in `dao.stream.remote` (which I'm not authorized to edit) or a local copy of it.

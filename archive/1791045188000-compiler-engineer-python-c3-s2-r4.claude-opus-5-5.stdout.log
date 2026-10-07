@@ -1,0 +1,53 @@
+Completed-GMT: 2026-10-03 16:34:54 GMT
+Completed-Local: 2026-10-03 23:34:54 +07
+Coding-Agent: claude
+Session-ID: 65b24574-4b26-45d4-993a-cfccf0b2604a
+
+# C3-S2 round 4: blocked at step 1, the rebase
+
+I could not rebase, so none of the round's work is done. Every git command that changes state was refused with "requires approval", and this non-interactive session can't grant it. The refused commands were `git stash push`, `git checkout -- <files>`, `git rebase master` and `git apply --3way`. Writing the backup patch outside the repo was refused the same way.
+
+**Current state:** nothing changed. HEAD is still 69e58662 and my five files are still uncommitted, with no edits since round 3. Nothing was staged, committed, stashed or lost.
+
+**Not done, because it all needs the rebased base:**
+- the float-fix reconciliation and the `numeric-key` deletion;
+- pinning the NaN-key behaviour;
+- re-minting the address goldens;
+- the `yang.antlr.md` edits;
+- every lane, including the slow tests and the CLJD lane.
+
+I ran no tests this round and started no runners. Copying master's files over the tree with `git show` would have left HEAD 13 commits behind with master's changes mixed into my diff, so I didn't do that.
+
+## What I did do
+
+- **Backup:** my full diff (581 lines) is saved at `build/c3s2.prerebase.patch`. `build/` is gitignored, so the backup sits inside the worktree instead of `../`.
+- **Survey of master:** I read master's versions of the in-scope files without changing anything:
+  - `data/numeric-key` is defined in `data.cljc` at lines 452–464 and exported at 504.
+  - The prelude lists it in `host-names` at line 89 and calls it from `py/key` at about 1263.
+  - Its tests are in `data_test.cljc` at 318–328, and it appears in that file's export list at 346.
+  - The spec text is in `yang.antlr.md` around lines 2268–2290.
+- **Findings file:** `collab/1791045188000-compiler-engineer-python-c3-s2-r4.claude-opus-5-5.findings.md` holds the unblock steps and the full plan below.
+
+## Plan for when it's unblocked
+
+1. **Keys:** `py/key` returns the exact-fraction text keys. Floats are read only through `data/float-value`, because the JS float carrier now throws if anything converts it implicitly.
+2. **Delete `numeric-key`** from all the places listed above.
+3. **NaN:** I propose that every NaN shares one key, `[:py.numeric/nan]`. This differs from CPython, where two NaN objects are two separate keys. That per-object behaviour can't be kept:
+   - On the JVM, whether a NaN lookup hits depends on which boxed object it is.
+   - Jing already stores every NaN as one canonical value.
+
+   This needs Architect confirmation, and I'd record it in `yang.antlr.md` §8.4/§8.5.4.
+4. **Goldens:** re-mint the program and prelude addresses in `float_address_test.cljc`, then report the old and new values.
+5. **Docs:** change only the sentence at about line 2288 of `yang.antlr.md` and the C3 slice status.
+6. **Tests:** keep master's `^:slow` tags and guard wrappers, then re-apply my changes on top.
+7. **Lanes:** run focused namespaces until 23:45, then the full lanes in the foreground. I'd be the only CLJD runner and would kill any orphan runners first. I'd also run the slow Python tests without `long-loops-test`.
+
+## To unblock
+
+Either approve those git commands in this worktree, or have the orchestrator run these and then resume this seat:
+
+```
+git checkout -- src/cljc/yang/python/antlr/prelude.cljc test/yang/python/antlr/e2e_c2_test.clj test/yang/python/antlr/e2e_test.clj test/yang/python/antlr/prelude_parity_test.cljc test/yang/python/antlr/safepoint_test.cljc
+git rebase master
+git apply --3way build/c3s2.prerebase.patch
+```

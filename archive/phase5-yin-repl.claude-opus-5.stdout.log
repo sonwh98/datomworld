@@ -1,0 +1,37 @@
+Completed-GMT: 2026-09-03 22:07:57 GMT
+Completed-Local: 2026-09-04 05:07:57 ICT
+Coding-Agent: claude
+Session-ID: none (new implementation)
+
+## Files
+
+New (only new files, plus the plan's two declared additive build exceptions):
+
+- `src/cljc/yin/repl/core.cljc` — the local shell as one explicit immutable value: VM, lang, value history, v2 output medium + minted cursor, and a per-medium **last-outcome ledger** with `:untried` (so `repl-state` never asks a handle whether it is closed — v2 has no `closed?`). `drain-output` is total over `ok/blocked/gap/end/cursor-mismatch/invalid-cursor/transport-error`, advances only to the exact successor a handle returns, and is bounded by a read budget. `(vm :type)` accepts `:ast-walker` only; `(telemetry)` is answered with a rejection naming `yin.repl`; datom-literal input is answered with its unmet prerequisite instead of being wired to a v1 stream.
+- `src/cljc/yin/repl/driver.cljc` — `repl-step [state now]`, the sole owner of REPL and RPC state. Drains the composition-owned input ring buffer (capacity 1024, cursor held only here), evaluates local input, forwards ordinary source through `yin.repl-adapter`/`dao.stream.rpc`, publishes completions **exactly once** into an outbox, and returns the next state. Never loops on `blocked`; no promise, future, callback, atom, global, or clock. One outstanding remote request at a time — later lines queue instead of clobbering (v1's race at `repl.cljc:1044`), while `help`, `repl-state`, `quit`, `disconnect`, `connect` bypass the queue. A `full` writer retries the *same* already-allocated envelope. Input `gap` publishes a loss notice, resumes at the recovery cursor, and evaluates none of the evicted lines.
+- `src/cljc/yin/repl.cljc` — host entry points. clj: reader thread parks in `read-line` and only appends; one owned poller thread carries the state value through serial `repl-step` calls. cljs (Node): readline handler only appends; one `setInterval` owner. cljd: stdin listener only appends; one `Timer.periodic` owner. `--port`/`--host`/`--headless` parse as in v1; `--telemetry`/`--telemetry-stream` are rejected by name.
+- `src/clj/yin/repl/runner.clj`, `bin/yin_repl_main.dart` — the cljd entry point.
+- Tests: `test/yin/repl_core_test.cljc`, `v2_driver_test.cljc`, `v2_test.cljc`, `v2_build_test.clj`.
+- `deps.edn` (+4 aliases: `:clj-yin-repl`, `:cljs-yin-repl`, `:cljd-yin-repl`, `:cljd-yin-repl-build`) and `shadow-cljs.edn` (+`:yin-repl` `:node-script`) — purely additive; `v2_build_test.clj` asserts every v1 alias/build is unchanged.
+
+Not touched: `yin/repl.cljc`, `src/clj/yin/repl/runner.clj`, `dao.stream` v1, docs, collab. Nothing staged or committed. (`src/cljc/dao/stream/rpc/ws.cljc` and `test/dao/stream/rpc_ws_test.cljc` appeared untracked during this session — another lane's work, untouched by me.)
+
+## Tests
+
+- JVM, focused: `clj -M:test -n yin.repl-core-test -n yin.repl-driver-test -n yin.repl-test -n yin.repl-build-test -n yin.repl-adapter-test` → **37 tests, 125 assertions, 0 failures, 0 errors**.
+- Lint, scoped: clj-kondo over the four new source files and `test/yin/repl/` → 0 errors, 0 warnings.
+- CLJS: `compile yin-repl` → 0 warnings; ran it — `echo '(+ 1 2) …' | node target/yin-repl.js` evaluates, prints, and quits.
+- CLJD: `clj -M:cljd-yin-repl-build compile` → clean (a `.cancel`-on-dynamic warning was fixed with a `^async/Timer` hint); `clj -M:cljd-yin-repl` compiles and runs the Dart REPL end to end.
+- JVM entry point: `clj -M:clj-yin-repl` evaluates, renders `(repl-state)`, and quits.
+
+Not run, deliberately: the shadow `:test` node build (it is `:autorun true`, i.e. a full-suite rerun) and `bb test:cljd`. The new test namespaces are plain `clojure.test` cljc with no host-specific code, and their source namespaces compile on all three hosts.
+
+## Unresolved prerequisites
+
+1. **`yin.vm` does not exist** (`src/cljc/yin/vm/` has no v2). Per the plan's own recorded fallback, the slice runs the ast-walker constructed with **no VM-owned stream**, so no v1 stream protocol is called from any v2 REPL code — but the v1 VM still opens v1 call-in/call-out streams internally (`yin/vm.cljc:539`), so "requires no v1 namespace" is not yet true. Consequences, all reported as text rather than thrown: datom-literal evaluation is unavailable, and `(vm :type)` has one entry.
+2. **`connect`/`serve!` are not wired.** R3/R4 need the WebSocket RPC decoder and the serving composition; `(connect …)` and `--port` report that prerequisite by name instead of opening a socket. The driver's remote path is fully implemented and tested against hand-built request/response media, so R3 is a wiring change, not a rewrite.
+3. `--headless` without a served endpoint says so rather than parking forever.
+
+## Phase readiness
+
+R2 (local REPL + driver + the four aliases and the Node build) is complete and runs on **clj, cljs (Node), and cljd**, minus the two VM-dependent behaviours above. R3 is unblocked at the driver seam: `attach-remote` takes an adapter built from any `rpc/client-state`, so the remaining work is the ws boundary, cursor minting before `attach!`, and moving `Connected to …` onto the neutral `/established` observation. R5's end-to-end facts remain blocked on R3/R4.

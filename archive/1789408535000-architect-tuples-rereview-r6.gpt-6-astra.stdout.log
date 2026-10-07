@@ -1,0 +1,818 @@
+OpenAI Codex v0.153.4
+--------
+workdir: /Users/sto/workspace/datomworld
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+--------
+user
+Created-GMT: 2026-09-14 17:55:35 GMT
+Created-Local: 2026-09-15 00:55:35 +07
+Coding-Agent: codex
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b (resume — your own review thread)
+
+# Task: Re-review the round-6 tuple code-representation design
+
+Role: Architect (reviewer)
+
+Implementers:
+- Model: gpt-6-astra | Assigned: 2026-09-15 00:55:35 +07 | Status: active | Rationale: re-review by the original reviewer; the author is claude-fable-5.1 (Anthropic family), independence preserved. The owner has directed iteration until agreement.
+
+## Context
+
+Your round-5 review (REJECT, 2 P1s — both rule defects inside accepted shapes) was revised against (1545 → 1601 lines; author's mapping at the tail of `collab/1789408362000-architect-tuples-revision-r6.claude-fable-5-1.stdout.log`). The revision's shape: §8.4.1 allocates the incarnation as the stamped id `[log-identity e]` of a **construction record** the composition transacts on the log at construction (uniqueness = the transactor's permanent-id allocation; a no-transacted-log composition falls back to its own unique token, the record saying which form it carries; allocation retry performs a new allocation, with the stated argument that recognizing an earlier record would require the token being allocated; the staged-flush rule unchanged); §8.5 keeps two sequences — harvest catalogue (all definition groups, admission order) and a **derived** declaration catalogue numbering only macro-declared groups in relative order, `:decl k` = declaration-catalogue index, plain groups never stand-in-replaced.
+
+## Task
+
+Re-review `docs/design/yin.vm.tuples.md` as it now stands:
+
+1. For each of your round-5 findings 1–2, verify actual resolution — resolved / not resolved / regressed, with line citations. Do not take the author's mapping at its word.
+2. Challenge the fresh rules: is the construction-record allocation genuinely unique under the transactor's id semantics, including concurrent constructions and the no-transacted-log fallback? Is the retry argument (new allocation, never a re-read) sound, and does the orphaned-construction-record case behave? Does the derived declaration catalogue reproduce the legacy ordinals exactly (macro-only, relative order), and is "derived, never carried" free of its own races?
+3. New defects introduced by this revision are P1s regardless of origin. Cite file and line; run what you can.
+4. As you said in round 4 and round 5: unfinished implementation work belongs in §10 and does not by itself justify rejection. The owner wants the iteration to end at genuine agreement — APPROVE or APPROVE-WITH-FINDINGS where findings are implementation-phase obligations rather than design defects.
+
+## Deliverable
+
+Verdict (`APPROVE` | `APPROVE-WITH-FINDINGS` | `REJECT`), numbered findings with severity/line/defect/fix, a per-finding 1–2 resolution table, and a short "verified sound" list. Produce the complete review in this turn — no plan-only responses, no requests for human input.
+
+Begin the final response exactly with:
+
+Completed-GMT: <actual GMT timestamp>
+Completed-Local: <actual local timestamp and named timezone>
+Coding-Agent: codex
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+codex
+I’ll verify the construction-record allocation against the transactor’s ID rules and check that the derived declaration catalogue preserves legacy ordinals. I’ll also check allocation retries and orphaned records separately from staged expansion retries.
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '1170,1368p'; rg -n 'next-eid|tempids|transact|locking' src/cljc/dao/space/transactor.cljc | head -45; tail -25 collab/1789408362000-architect-tuples-revision-r6.claude-fable-5-1.stdout.log" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+  1170	
+  1171	#### 8.4.1 Attempt identity is scoped to an expander incarnation
+  1172	
+  1173	A record's address is the hash of its value, so two attempts whose records
+  1174	are value-equal are one record, whatever the encoder. A bare per-expander
+  1175	counter does not prevent that: two expanders observing one medium, batch,
+  1176	member, and call path, each at counter `0`, with one macro and one output,
+  1177	would write one record; so would one expander restarted and replaying the
+  1178	batch. The governing contract records every attempt separately
+  1179	(`yin.vm.macro.md:668-669`), so the attempt identity must be unique per
+  1180	attempt across expanders and across executions. It is:
+  1181	
+  1182	```clojure
+  1183	:yin.ledger/attempt [incarnation counter]
+  1184	```
+  1185	
+  1186	- **The incarnation** is a value held in the expander's process state
+  1187	  `ctx` (`yin.vm.macro.md:216-223`), as a new field `:incarnation`,
+  1188	  threaded through every call exactly as `:alloc` and `:t` are. It is
+  1189	  **allocated**, never observed: a cursor read reserves nothing, since a
+  1190	  cursor is a position minted by the stream for observation
+  1191	  (`dao.stream.md:471-477`) and the memory log's `:dao.stream/newest`
+  1192	  cursor is simply its current value count
+  1193	  (`src/cljc/dao/stream/memory_log.cljc:105-110`), so two constructions
+  1194	  with no append between them read one position. The allocation is the
+  1195	  expander's **construction record**: at construction, before any batch
+  1196	  is observed, the composition transacts one entity on the log medium,
+  1197	
+  1198	  ```clojure
+  1199	  [[:db/add inc :yin.expander/type  :incarnation]
+  1200	   [:db/add inc :yin.expander/log   log-identity]]     ; inc is a tempid
+  1201	  ```
+  1202	
+  1203	  and the incarnation is the **stamped id** of that entity,
+  1204	  `[log-identity e]` in `datom.md`'s sense (`datom.md:161-166`), where `e`
+  1205	  is the permanent id the log's transactor assigned. Uniqueness is the
+  1206	  transactor's: it allocates permanent ids from its own counter
+  1207	  (`src/cljc/dao/space/transact.cljc:157-165`, `:193-196`) and no two
+  1208	  committed entities on one log share one, however many constructions run
+  1209	  concurrently or in sequence, and whether or not anything else was ever
+  1210	  appended. Two expanders on one log are two construction records; one
+  1211	  expander constructed twice is two construction records. A composition
+  1212	  whose log is not a transacted `dao.space` cannot allocate this way and
+  1213	  supplies instead a token from its own unique allocator, recorded as
+  1214	  `{:yin.expander/token <token>}` in the same `ctx` field; the record's
+  1215	  `:yin.ledger/attempt` then carries that token, and the warranty that it
+  1216	  is never reused is the composition's. The stamped-id form is the
+  1217	  reference; the token form is admissible only where no transactor
+  1218	  exists, and the record says which form it carries.
+  1219	- **Allocation retry.** Construction is all-or-nothing, as it is for a VM
+  1220	  (`v2.cljc:21-23`): a construction-record append whose outcome is not
+  1221	  `ok` fails the construction and no expander exists. A construction that
+  1222	  is retried after any failure, including a crash after the record was
+  1223	  committed but before `ctx` was retained, performs a **new allocation**
+  1224	  and obtains a new incarnation; it never re-reads a committed record,
+  1225	  because recognizing "its own" earlier record would need a prior unique
+  1226	  token, which is the thing being allocated. An incarnation is reachable
+  1227	  only through the `ctx` that holds it, and a `ctx` that was not retained
+  1228	  is gone. An orphaned construction record is an incarnation under which
+  1229	  no attempt was ever recorded, which is harmless.
+  1230	- **The counter** is a per-incarnation attempt counter in `ctx`, advanced
+  1231	  once per attempt, initial or nested, successful or failed, exactly as
+  1232	  `:alloc` advances (`yin.vm.macro.md:360-365`); admission-failure events
+  1233	  advance it too, since they are attempts under §4.1.
+  1234	- **A staged retry reuses the identity; a distinct execution receives
+  1235	  another.** The expander stages `expand-batch`'s output and log payloads
+  1236	  and retries a failed flush from the staged data without re-running the
+  1237	  expansion (`yin.vm.macro.md:364-365`, `:765-773`): the record, and the
+  1238	  attempt identity inside it, are part of what was staged, so the retry
+  1239	  writes the same record to the same address, which is the idempotent
+  1240	  re-publication the ledger wants. A restart constructs a new expander,
+  1241	  which mints a new incarnation, so replaying a batch after a restart
+  1242	  mints new attempt identities and new records: that is a distinct
+  1243	  execution and is recorded as one. What separates the two cases is
+  1244	  whether `ctx` survived: a retry runs under the `ctx` that produced the
+  1245	  staged payload; a restart does not have it, and allocates (above).
+  1246	
+  1247	The parent-record chain of §8.4 is unchanged; it gains uniqueness from the
+  1248	attempt identity inside every record.
+  1249	
+  1250	### 8.5 Macro declarations travel beside the tree
+  1251	
+  1252	The `:macro?` flag is outside the canonical tree (§2.5). What replaces it
+  1253	is a **declaration fact bound to an occurrence**, produced by the frontend
+  1254	and consumed by the expander at admission. The governing contract admits
+  1255	and harvests **every entity in the batch, in batch order, including
+  1256	definitions disconnected from the execution root**
+  1257	(`yin.vm.macro.md:229-249`). A single rooted tree cannot carry a
+  1258	disconnected definition, so the composition between frontend and expander
+  1259	is an **ordered batch**, not a tree:
+  1260	
+  1261	```clojure
+  1262	{:yin/batch         [<tree-0> <tree-1> … <tree-n>]   ; canonical trees, one per admitted root or disconnected subgraph
+  1263	 :yin/root          i                                ; index of the tree the evaluator runs
+  1264	 :yin/declarations  #{[j path :yin.macro/definition] …}   ; the definition at path in tree j is a macro
+  1265	 :yin/harvest       [#{[j path] …} #{[j' path'] …} …]}   ; one entry per ORIGINAL definition, in admission order;
+  1266	                                                     ;   each entry is the set of [j path] occurrences of that definition
+  1267	```
+  1268	
+  1269	Rules:
+  1270	
+  1271	- **Harvest order is an explicit catalogue, not a traversal.** The
+  1272	  governing contract harvests every definition in the batch **in the
+  1273	  order its entities appeared in the admitted datom batch**
+  1274	  (`yin.vm.macro.md:242-249`), and it admits any acyclic, internally
+  1275	  resolved batch; nothing requires entity order to equal structural
+  1276	  preorder, and a root may contain definitions A then B whose entities
+  1277	  arrived as B then A. Vector order plus preorder therefore does **not**
+  1278	  preserve that contract, and this document does not claim it does. The
+  1279	  catalogue `:yin/harvest` is the preserved order: a vector with **one
+  1280	  entry per original definition**, in the original admission order, each
+  1281	  entry the set of `[j path]` occurrences at which that definition
+  1282	  appears in the canonical trees, connected or not. Initial harvest
+  1283	  (`yin.vm.macro.md` §3.1 step 2) iterates the catalogue, last wins; it
+  1284	  never iterates the trees. For a batch converted from datoms by the §9.1
+  1285	  adapter the catalogue is derived from entity order, so the legacy
+  1286	  contract is preserved exactly. For a batch a tuple-native
+  1287	  frontend emits, the frontend chooses the order it writes; the reference
+  1288	  frontends write source order, which is the **declaration order** of
+  1289	  `yin.vm.macro.md` §3.2 (`yin.vm.macro.md:298-304`: operands before the
+  1290	  body of an immediately applied lambda). That is a new contract for a
+  1291	  new producer, not a narrowing of the legacy one, and the two are kept
+  1292	  distinct: post-expansion declaration order is what the expander uses
+  1293	  for definitions its own output forms (§3.1 step 5), and it stays
+  1294	  separate from the admission catalogue.
+  1295	- **One original definition, many occurrences, one ordinal.** A legacy
+  1296	  batch may hold one definition entity reached through several
+  1297	  references: the codec emits a pre-assigned entity once and lets every
+  1298	  referring site name it (`v2.cljc:394-411`, `seen-eids`), and
+  1299	  `yang.clojure` produces exactly this for a defmacro lambda used at its
+  1300	  definition and at call sites (`clojure.cljc:418-437`). Inlining that
+  1301	  graph into canonical trees produces several `[j path]` occurrences of
+  1302	  one definition. The old harvest and declaration catalogue number the
+  1303	  **entity**, giving it one declaration ordinal `k`, and a transformer
+  1304	  may fabricate a stand-in that selects a catalogue entry by `k`
+  1305	  (`yin.vm.macro.md:254-275`), so the ordinal is observable and
+  1306	  duplicating it would be wrong. Therefore a catalogue entry is an
+  1307	  **occurrence group**: the definition is harvested once, and the
+  1308	  catalogue, not the trees, is the identity of the definition. The
+  1309	  adapter derives groups from entity identity; a tuple-native frontend
+  1310	  emits singleton groups, one per definition it writes, and if it writes
+  1311	  one definition at several places it emits one group naming them all.
+  1312	- **Two sequences: harvest order and declaration ordinals.** The
+  1313	  governing contract numbers **only source macro definitions** into
+  1314	  `:declared`, in harvest order, and replaces only those by stand-ins;
+  1315	  plain definitions stay executable `yin/def` nodes and are forwarded
+  1316	  untouched (`yin.vm.macro.md:254-278`). The harvest catalogue above
+  1317	  contains every definition group, plain and macro alike, because harvest
+  1318	  and redefinition need all of them in admission order. The **declaration
+  1319	  catalogue** is a second, derived sequence: the macro-declared groups
+  1320	  only (those whose occurrences carry `:yin.macro/definition`), in the
+  1321	  relative order they have in the harvest catalogue. A macro group's
+  1322	  declaration ordinal `k` is its index in the declaration catalogue, never
+  1323	  its index in the harvest catalogue; every occurrence of that group is
+  1324	  replaced by a stand-in carrying that same `:decl k` (§3.1 step 3), so a
+  1325	  fabricated stand-in selects the same entry it would select under the
+  1326	  legacy expander. A plain definition preceding macro `m` therefore leaves
+  1327	  `m` at ordinal `0`, as today. Plain groups participate in harvest and
+  1328	  redefinition (§3.1 step 2's last-wins over the harvest catalogue,
+  1329	  including a plain redefinition removing a macro) and are **never**
+  1330	  replaced by stand-ins; their occurrences remain ordinary `yin/def`
+  1331	  syntax in the trees the evaluator receives.
+  1332	- **The catalogue is validated at admission.** Every occurrence in every
+  1333	  group must name a `(yin/def <literal sym> _)` node; every such node in
+  1334	  the batch must appear in exactly one group; groups are non-empty and
+  1335	  pairwise disjoint; every occurrence in a group must have the same
+  1336	  `:literal` symbol and the same value-operand content address, since one
+  1337	  original definition cannot have two bodies; every `:yin/declarations`
+  1338	  entry must be a member of some group, and a group is declared as a whole
+  1339	  (all of its occurrences carry the declaration or none do, which is
+  1340	  automatic for a legacy entity with one flag). The declaration catalogue
+  1341	  is derived from the validated harvest catalogue and the declarations,
+  1342	  never carried separately, so it cannot disagree with either. A
+  1343	  violation is an admission failure `{:kind :malformed-input :reason
+  1344	  :harvest-catalogue}` naming the entry.
+  1345	- **Binding.** A declaration `[j path :yin.macro/definition]` names the
+  1346	  `:application` at `path` in tree `j`, and through the catalogue the
+  1347	  original definition whose group contains `[j path]`; that node must be
+  1348	  `(yin/def <literal sym> <lambda>)`, i.e. operator `[:variable yin/def]`,
+  1349	  first operand a `:literal` symbol, second operand a `:lambda`. A
+  1350	  declaration whose coordinates do not resolve to such a node is an
+  1351	  admission failure, `{:kind :malformed-input :reason
+  1352	  :stray-macro-declaration}`, the successor of §3.1 step 1's
+  1353	  `:stray-macro-lambda`.
+  1354	- **Marks are validated before they are stripped.** A frontend or the
+  1355	  §9.1 adapter that converts a map AST carrying `:macro? true` must reject
+  1356	  a flagged lambda anywhere but the value operand of a `yin/def` as
+  1357	  `:stray-macro-lambda` **at conversion**, before the flag is removed;
+  1358	  it may never strip such a flag and emit a plain lambda. A flag in the
+  1359	  admitted position becomes the declaration at that tree and path. The
+  1360	  quiet case `yin.vm.macro.md` decision 5 exists to prevent is therefore
+  1361	  prevented at the same point it is today.
+  1362	- **Ordering of harvest.** The catalogue's order; last wins, as §3.1
+  1363	  step 2 rules. Vector order and preorder play no part in harvest.
+  1364	- **Missing fact.** A `(yin/def sym v)` with no declaration at its
+  1365	  coordinates is a plain definition. If `sym` is currently a macro, the
+  1366	  plain definition removes it, exactly as §3.1 step 2 rules.
+  1367	- **Scope.** Harvest is syntactic and whole-batch, as today; a declaration
+  1368	  in an unexecuted branch or in a tree the root never reaches is in force
+1:(ns dao.space.transactor
+2:  "The agent-side transactor: a plain value with explicit named operations
+5:   agent; docs/design/dao.space.transactor.md).
+7:   A transactor is not a stream in v2 — it is an interpreter over one
+8:   (dao.stream.md, Composition): append!/transact! allocate transaction time
+9:   and write transaction records through the local stream's writer surface,
+10:   and reads go through the caller's own local handle, which the transactor
+26:   docs/design/dao.space.transactor.md).
+28:   The transactor owns transaction time. Every append! or transact! writes
+29:   exactly ONE atomic transaction record to the local stream
+31:     {:dao.space/transaction {:t <nonnegative-integer> :datoms [...]}}
+34:   transaction. t is allocated from a per-value watermark: on create! the
+48:   Closing is per value: it rejects further appends/transacts with
+57:  "One datom per k/v pair, all sharing transaction time `t`. `:db/id` is
+58:   required: a durable log cannot mint per-batch tempids without colliding
+75:  "Pad [e a v] / [e a v t m] to the canonical 5-tuple. The transactor owns
+76:   transaction time: a non-nil explicit t is rejected, a nil t is stamped
+84:          "the transactor owns transaction time: explicit datom t is rejected"
+113:  #?(:clj (locking lock (f))
+118:  "Derive the next transaction time from a flattened retained history: 0 for
+135:  "Append one atomic transaction record to the local stream. The answer is
+144:  (let [record {:dao.space/transaction {:t t, :datoms datoms}}
+159:  "Create a transactor value from a spec — the value, or a throw: the
+175:        "transactor spec must be a map"
+181:          "the transactor derives transaction time from retained history; :next-t is not accepted"
+187:          "transactor spec requires a :local-stream satisfying the dao.stream reader and writer surfaces"
+192:          "transactor spec requires a non-empty :intake-pool of streams satisfying the dao.stream writer surface"
+198:            "transactor :intake-pool members must satisfy IDaoStreamWriter"
+201:      {:dao.space/transactor true
+204:       :name (or name "transactor")
+210:  "Append one entity map or datom vector as a single atomic transaction.
+214:   and {:dao.stream/outcome :dao.stream/closed} on a closed transactor.
+231:(defn transact!
+233:  single atomic transaction: every datom shares one allocated t and lands
+234:  in one transaction record through exactly one local append, so no partial
+237:  {:dao.stream/outcome :dao.stream/closed} on a closed transactor. Throws
+242:    (throw (ex-info "transact! requires at least one transaction item"
+253:              (throw (ex-info "transact! produced no datoms" {:tx-data tx-data})))
+258:  "Close this transactor value: further append!/transact! answer
+Completed-GMT: 2026-09-14 17:54:44 GMT
+Completed-Local: 2026-09-15 00:54:44 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1601 lines (was 1545). Only this file changed; it remains untracked and `git diff --stat` is empty.
+
+**Finding-by-finding:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Incarnation allocator observed a cursor instead of allocating | Fixed. §8.4.1 now allocates the incarnation as the stamped id `[log-identity e]` of a construction record the composition transacts on the log medium at construction, before any batch is observed; uniqueness is the log transactor's permanent-id allocation. A composition with no transacted log falls back to its own unique token, and the record states which form it carries. Allocation retry is defined: construction is all-or-nothing, any retry performs a new allocation and never re-reads a committed record, because recognizing an earlier record would require the token being allocated. The staged-flush rule is unchanged. §10.3's cross-document note now names the construction-record step. |
+| 2 | Harvest index used as macro declaration ordinal | Fixed. §8.5 keeps two sequences: the harvest catalogue holds every definition group in admission order for harvest and redefinition, and a derived declaration catalogue numbers only macro-declared groups in their relative order. A macro group's `:decl k` is its index in the declaration catalogue, shared by all its occurrences; plain groups are never replaced by stand-ins and stay executable `yin/def` syntax. Validation states the declaration catalogue is derived, never carried. §2.5's catalogue row, §9.1's adapter row, and §10.4 were updated to match. |
+
+Neither finding required an owner ruling.
+
+**Sections touched:** status line, §2.5 (harvest catalogue row), §8.4.1 (incarnation and allocation retry), §8.5 (occurrence-group rule, new two-sequences rule, validation), §9.1 (adapter row), §10 items 3 and 4.
+
+**Verified against source myself:** the cursor contract at `dao.stream.md:471-477`; the memory log's `:dao.stream/newest` cursor being the current value count at `memory_log.cljc:105-110`; transactor permanent-id allocation at `transact.cljc:157-165` and `:193-196`; stamped ids at `datom.md:161-166`; all-or-nothing construction at `v2.cljc:21-23`; the macro contract numbering only macro definitions and forwarding plain definitions untouched at `yin.vm.macro.md:254-278`.
+
+**Taken from the review, not re-run:** the executed two-cursor probe returning identical positions and identical attempt identities. I verified the memory-log code path that produces it but did not execute it.
+
+exec
+/bin/zsh -lc "nl -ba src/cljc/dao/space/transactor.cljc | sed -n '28,47p;107,157p;195,257p'; nl -ba src/cljc/dao/space/transact.cljc | sed -n '188,240p'; rg -n 'single|one transactor|concurrent|writer|watermark' docs/design/dao.space.transactor.md | head -30" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+    28	   The transactor owns transaction time. Every append! or transact! writes
+    29	   exactly ONE atomic transaction record to the local stream
+    30	
+    31	     {:dao.space/transaction {:t <nonnegative-integer> :datoms [...]}}
+    32	
+    33	   through exactly one local append, so no reader can ever observe a torn
+    34	   transaction. t is allocated from a per-value watermark: on create! the
+    35	   retained history is read from its origin (index/snapshot-datoms) and the
+    36	   next t is derived as 0 for an empty history or 1 + the maximum integer
+    37	   datom t otherwise. A malformed history throws. The scan is the causality
+    38	   boundary; a caller-supplied next-t is never accepted.
+    39	
+    40	   Operational outcomes are data; argument defects keep throwing. The
+    41	   watermark advances if and only if the local append answered
+    42	   :dao.stream/ok, so retrying the identical call re-attempts the identical
+    43	   t. publish! builds the covered indexes over the local stream and
+    44	   enqueues them into the intake pool (dao.space.index/publish-index!).
+    45	   Publication is explicit and acknowledges enqueuing only, never observer
+    46	   materialization.
+    47	
+   107	
+   108	(defn- with-write-lock
+   109	  "Serialize timestamp allocation and append on hosts with shared-memory
+   110	   threads. ClojureScript and ClojureDart calls are synchronous within one
+   111	   isolate, so the direct call has the same single-writer semantics."
+   112	  [lock f]
+   113	  #?(:clj (locking lock (f))
+   114	     :default (f)))
+   115	
+   116	
+   117	(defn- derive-next-t
+   118	  "Derive the next transaction time from a flattened retained history: 0 for
+   119	   an empty history, else 1 + the maximum datom t. A datom t that is not a
+   120	   non-negative integer is a malformed history and throws — this scan is the
+   121	   causality boundary of the value."
+   122	  [datoms]
+   123	  (if (empty? datoms)
+   124	    0
+   125	    (let [ts (mapv index/datom-t datoms)]
+   126	      (when-not (every? #(and (integer? %) (<= 0 %)) ts)
+   127	        (throw
+   128	          (ex-info
+   129	            "malformed retained history: datom t must be a non-negative integer"
+   130	            {:history datoms})))
+   131	      (inc (reduce max ts)))))
+   132	
+   133	
+   134	(defn- append-packet!
+   135	  "Append one atomic transaction record to the local stream. The answer is
+   136	   validated with the contract's own validator before it is interpreted:
+   137	   :dao.stream/ok advances the watermark and returns the v2 receipt; any
+   138	   other conforming outcome is returned as data with the watermark
+   139	   unchanged, so the same t is still pending and retrying the identical
+   140	   call re-attempts it; a non-outcome answer is folded to
+   141	   :dao.stream/transport-error with the raw answer retained under
+   142	   :dao.stream/answer."
+   143	  [local-stream next-t t datoms]
+   144	  (let [record {:dao.space/transaction {:t t, :datoms datoms}}
+   145	        answer (stream/append! local-stream record)]
+   146	    (if-not (stream/valid-outcome? :append! answer)
+   147	      {:dao.stream/outcome :dao.stream/transport-error
+   148	       :dao.stream/answer answer}
+   149	      (do (when (= :dao.stream/ok (:dao.stream/outcome answer))
+   150	            (swap! next-t inc))
+   151	          (if (= :dao.stream/ok (:dao.stream/outcome answer))
+   152	            {:dao.stream/outcome :dao.stream/ok
+   153	             :dao.space/t t
+   154	             :dao.space/datoms datoms}
+   155	            answer)))))
+   156	
+   157	
+   195	      (when-not (stream/writer? intake)
+   196	        (throw
+   197	          (ex-info
+   198	            "transactor :intake-pool members must satisfy IDaoStreamWriter"
+   199	            {:intake-pool intake-pool}))))
+   200	    (let [t (derive-next-t (index/snapshot-datoms local-stream))]
+   201	      {:dao.space/transactor true
+   202	       :local-stream local-stream
+   203	       :intake-pool intake-pool
+   204	       :name (or name "transactor")
+   205	       :next-t (atom t)
+   206	       :state (atom {:closed false})})))
+   207	
+   208	
+   209	(defn append!
+   210	  "Append one entity map or datom vector as a single atomic transaction.
+   211	   Answers the v2 receipt on ok — {:dao.stream/outcome :dao.stream/ok
+   212	   :dao.space/t t :dao.space/datoms datoms} — the local append's conforming
+   213	   outcome as data otherwise (watermark unchanged, same t still pending),
+   214	   and {:dao.stream/outcome :dao.stream/closed} on a closed transactor.
+   215	   A malformed value still throws: it is a defect in the caller's own
+   216	   argument, detected before any stream is touched."
+   217	  [log val]
+   218	  (let [{:keys [local-stream next-t state]} log]
+   219	    (with-write-lock
+   220	      next-t
+   221	      (fn []
+   222	        (if (:closed @state)
+   223	          {:dao.stream/outcome :dao.stream/closed}
+   224	          (let [t @next-t
+   225	                datoms (val->datoms val t)]
+   226	            (when (empty? datoms)
+   227	              (throw (ex-info "append! produced no datoms" {:val val})))
+   228	            (append-packet! local-stream next-t t datoms)))))))
+   229	
+   230	
+   231	(defn transact!
+   232	  "Commits a non-empty collection of entity maps or datom vectors as a
+   233	  single atomic transaction: every datom shares one allocated t and lands
+   234	  in one transaction record through exactly one local append, so no partial
+   235	  prefix is possible. Answers the v2 receipt on ok, the local append's
+   236	  conforming outcome as data otherwise, and
+   237	  {:dao.stream/outcome :dao.stream/closed} on a closed transactor. Throws
+   238	  when the collection is empty, any item is invalid, or the expansion
+   239	  yields no datoms."
+   240	  [log tx-data]
+   241	  (when (empty? tx-data)
+   242	    (throw (ex-info "transact! requires at least one transaction item"
+   243	                    {:tx-data tx-data})))
+   244	  (let [{:keys [local-stream next-t state]} log]
+   245	    (with-write-lock
+   246	      next-t
+   247	      (fn []
+   248	        (if (:closed @state)
+   249	          {:dao.stream/outcome :dao.stream/closed}
+   250	          (let [t @next-t
+   251	                datoms (into [] (mapcat #(val->datoms % t)) tx-data)]
+   252	            (when (empty? datoms)
+   253	              (throw (ex-info "transact! produced no datoms" {:tx-data tx-data})))
+   254	            (append-packet! local-stream next-t t datoms)))))))
+   255	
+   256	
+   257	(defn close!
+   188	
+   189	(defn prepare-tx
+   190	  "Takes base-datoms and tx-data.
+   191	   Returns {:datoms [...] :tempids {...} :next-eid new-eid :next-t new-t}.
+   192	   Can optionally pass next-eid and next-t to avoid scanning."
+   193	  [{:keys [base-datoms tx-data next-t next-eid]}]
+   194	  (let [t (or next-t
+   195	              (inc (reduce (fn [mx d] (max mx (nth d 3))) 0 base-datoms)))
+   196	        base-eid (or next-eid
+   197	                     (reduce (fn [mx d]
+   198	                               (let [e (nth d 0)
+   199	                                     v (nth d 2)]
+   200	                                 (-> mx
+   201	                                     (max (if (number? e) (inc e) 0))
+   202	                                     (max (if (and (number? v)
+   203	                                                   (not= (nth d 1) :db/ident))
+   204	                                            (inc v)
+   205	                                            0)))))
+   206	                             datom/first-user-id
+   207	                             base-datoms))
+   208	        parsed-ops (parse-tx-data tx-data)
+   209	        same-tx-ident->eid
+   210	        (into {}
+   211	              (keep (fn [{:keys [op e a v]}]
+   212	                      (when (and (= op :db/add) (= a :db/ident)) [v e])))
+   213	              parsed-ops)
+   214	        effective-ref-attrs
+   215	        (effective-ref-attrs-for-tx base-datoms parsed-ops same-tx-ident->eid)
+   216	        alloc-base-eid (reduce
+   217	                         (fn [eid {:keys [op e a v m-raw]}]
+   218	                           (let [mx (if (and (= op :db/add)
+   219	                                             (number? e)
+   220	                                             (>= e datom/first-user-id))
+   221	                                      (max eid (inc e))
+   222	                                      eid)
+   223	                                 mx (if (and (= op :db/add)
+   224	                                             (contains? effective-ref-attrs a)
+   225	                                             (number? v)
+   226	                                             (>= v datom/first-user-id))
+   227	                                      (max mx (inc v))
+   228	                                      mx)
+   229	                                 mx (if (and (= op :db/add)
+   230	                                             (number? m-raw)
+   231	                                             (>= m-raw datom/first-user-id))
+   232	                                      (max mx (inc m-raw))
+   233	                                      mx)]
+   234	                             mx))
+   235	                         base-eid
+   236	                         parsed-ops)
+   237	        ops (mapv (fn [op]
+   238	                    (let [resolve (fn [id]
+   239	                                    (if (keyword? id)
+   240	                                      (or (lookup-ident-eid base-datoms
+25:surface, appends through its writer surface, and needs no support from the
+38:(def log (transactor/create! {:local-stream local   ; reader+writer surface;
+61:`stream/reader?`/`stream/writer?` (T16's pool check is the same surface
+62:rule), and a reader/writer surface check does not establish retention.
+71:| T2 | `t` comes from a per-value watermark, derived on `create!` as 0 for an empty history else 1 + max datom `t` |
+74:| T5 | The watermark advances **iff** the local append answered `:dao.stream/ok`; a failed or thrown append leaves the same `t` retryable |
+75:| T6 | Single-writer: two values over one local stream derive the same `t` and write colliding records; a documented hazard, not coordinated |
+82:| T16 | Intake pool members are validated with v2 `stream/writer?`; a non-empty collection is required |
+94:| local append ok | `{:dao.stream/outcome :dao.stream/ok :dao.space/t t :dao.space/datoms ds}`, watermark advances |
+95:| local append `full`/`closed`/`invalid-value`/`transport-error` | returned as data, watermark **unchanged**, same `t` still pending |
+99:| local append throws | propagates, watermark unchanged |
+102:contract is now stronger, not weaker: *the watermark advances if and only if
+108:is pinned by a writer double rather than left untested.
+136:whole history, silently. A `stream/reader?`/`stream/writer?` surface check
+145:lifetime** — the watermark and every published index are derived from it —
+168:- **The O(history) watermark replay.** `create!` derives `t` by reading the
+172:  own checkpoint, from which the watermark and incremental indexes resume —
+
+exec
+/bin/zsh -lc "rg -n 'prepare-tx|defn transact"'!'"' src/cljc/dao/space*.cljc src/cljc/dao/space/*.cljc; nl -ba src/cljc/dao/space/transactor.cljc | sed -n '52,105p'; nl -ba docs/design/dao.space.transactor.md | sed -n '65,86p'; nl -ba docs/design/datom.md | sed -n '158,168p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+zsh:1: no matches found: src/cljc/dao/space*.cljc
+    52	            [dao.space.index :as index]
+    53	            [dao.stream :as stream]))
+    54	
+    55	
+    56	(defn- entity->datoms
+    57	  "One datom per k/v pair, all sharing transaction time `t`. `:db/id` is
+    58	   required: a durable log cannot mint per-batch tempids without colliding
+    59	   across appends. Attribute order within one entity's own datoms is
+    60	   whatever the host's map iteration yields — unspecified across platforms."
+    61	  [m t]
+    62	  (when-not (contains? m :db/id)
+    63	    (throw (ex-info "entity map requires :db/id" {:entity m})))
+    64	  (let [e (:db/id m)]
+    65	    (mapv (fn [[a v]]
+    66	            (let [d [e a v t datom/default-op]]
+    67	              (when-not (datom/local-datom? d)
+    68	                (throw (ex-info "invalid persistent local datom"
+    69	                                {:datom d, :entity m})))
+    70	              d))
+    71	          (remove (fn [[a _v]] (= a :db/id)) m))))
+    72	
+    73	
+    74	(defn- pad-datom
+    75	  "Pad [e a v] / [e a v t m] to the canonical 5-tuple. The transactor owns
+    76	   transaction time: a non-nil explicit t is rejected, a nil t is stamped
+    77	   with the allocated `t`. A nil m takes the default assertion op; an
+    78	   explicit m (0, a retraction) is preserved."
+    79	  [d t]
+    80	  (let [[e a v dt dm] d]
+    81	    (when-not (nil? dt)
+    82	      (throw
+    83	        (ex-info
+    84	          "the transactor owns transaction time: explicit datom t is rejected"
+    85	          {:datom d})))
+    86	    (let [padded [e a v t (if (nil? dm) datom/default-op dm)]]
+    87	      (when-not (datom/local-datom? padded)
+    88	        (throw (ex-info "invalid persistent local datom"
+    89	                        {:datom padded, :input d})))
+    90	      padded)))
+    91	
+    92	
+    93	(defn- val->datoms
+    94	  [val t]
+    95	  (cond
+    96	    (map? val) (entity->datoms val t)
+    97	    (and (vector? val) (<= 3 (count val) 5)) [(pad-datom val t)]
+    98	    :else
+    99	    (throw
+   100	      (ex-info
+   101	        "a value must be an entity map or datom vector [e a v] / [e a v nil m]"
+   102	        {:val val}))))
+   103	
+   104	
+   105	#_{:clj-kondo/ignore [:unused-binding]}
+    65	
+    66	Pinned by `test/dao/space/transactor_test.cljc` unless noted:
+    67	
+    68	| # | Invariant |
+    69	|---|---|
+    70	| T1 | Every `append!`/`transact!` writes exactly ONE atomic transaction record `{:dao.space/transaction {:t n :datoms [...]}}` through exactly one local append, so no reader observes a torn transaction |
+    71	| T2 | `t` comes from a per-value watermark, derived on `create!` as 0 for an empty history else 1 + max datom `t` |
+    72	| T3 | A caller-supplied `:next-t` is rejected |
+    73	| T4a | A malformed retained history fails the create |
+    74	| T5 | The watermark advances **iff** the local append answered `:dao.stream/ok`; a failed or thrown append leaves the same `t` retryable |
+    75	| T6 | Single-writer: two values over one local stream derive the same `t` and write colliding records; a documented hazard, not coordinated |
+    76	| T7 | Close is per value: it rejects further writes and neither closes nor erases the local stream or the intake pool |
+    77	| T8 | Close linearizes after an in-flight append |
+    78	| T9 | Creating a transactor creates, registers, or closes nothing |
+    79	| T10 | Entity maps require `:db/id`; an explicit datom `t` is rejected; `[e a v]`/`[e a v nil m]` pad and validate |
+    80	| T11 | `publish!` passes the local stream, pool and opts to `index/publish-index!` and returns its result |
+    81	| T15 | An ok receipt carries the outcome, the allocated `t`, and the datoms — `{:dao.stream/outcome :dao.stream/ok :dao.space/t t :dao.space/datoms ds}` |
+    82	| T16 | Intake pool members are validated with v2 `stream/writer?`; a non-empty collection is required |
+    83	| T18 | The local stream is on a transport declaring complete retention (below) |
+    84	| T19 | `dao.space.schema` installs its next state only when the transactor answered ok (pinned in `schema_test`) |
+    85	| T20 | Retired 2026-09-09 under schema's plan; schema returns the transactor's receipt unchanged and adopts its closed-precedence rule |
+    86	
+   158	  v: Value. Inline canonical primitive (<= 32 bytes) or 32-byte content hash.
+   159	     Entity references and compound values appear here as hashes.
+   160	     See CANONICAL ENCODING for per-type rules.
+   161	     v is the one slot that may hold a *foreign* reference. A reference to an entity in
+   162	     another stream is written as a stamped id — the two-element vector [namespace offset]
+   163	     (namespace 64-bit, offset 64-bit), mirroring IPv6's network-prefix + interface-id
+   164	     split, and written "namespace:offset" by that analogy. It fits well under the 32-byte
+   165	     inline threshold. A writer never mints one: it copies a stamped id it observed from a
+   166	     read. This is an ordinary value, not a coordinate on the datom itself.
+   167	  t: Transaction ID. Monotonic integer, intrinsic and stream-local.
+   168	  m: Metadata entity reference (always an integer, never language-level nil).
+
+exec
+/bin/zsh -lc "rg -n 'prepare-tx|defn transact"'!|locking|next-eid'"' src/cljc/dao/space | head -65; nl -ba src/cljc/dao/space/schema.cljc | sed -n '1,44p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+src/cljc/dao/space/transact.cljc:189:(defn prepare-tx
+src/cljc/dao/space/transact.cljc:191:   Returns {:datoms [...] :tempids {...} :next-eid new-eid :next-t new-t}.
+src/cljc/dao/space/transact.cljc:192:   Can optionally pass next-eid and next-t to avoid scanning."
+src/cljc/dao/space/transact.cljc:193:  [{:keys [base-datoms tx-data next-t next-eid]}]
+src/cljc/dao/space/transact.cljc:196:        base-eid (or next-eid
+src/cljc/dao/space/transact.cljc:254:        [ops extra-datoms next-eid-after-m]
+src/cljc/dao/space/transact.cljc:261:        tempid-map (resolve-tempids tempids next-eid-after-m)
+src/cljc/dao/space/transact.cljc:262:        new-next-eid (+ next-eid-after-m (count tempids))
+src/cljc/dao/space/transact.cljc:382:     :next-eid new-next-eid}))
+src/cljc/dao/space/transactor.cljc:113:  #?(:clj (locking lock (f))
+src/cljc/dao/space/transactor.cljc:231:(defn transact!
+src/cljc/dao/space/index.cljc:613:;;    :ids      nil | {:next-eid n :ownership k}      ; allocator; :unresolved only
+src/cljc/dao/space/index.cljc:718:   supplied :next-eid below the boundary is a composition defect.
+src/cljc/dao/space/index.cljc:724:  (let [eid (or (:next-eid ids) datom/first-user-id)]
+src/cljc/dao/space/index.cljc:727:               "index session :ids requires an integer :next-eid of at least datom/first-user-id"
+src/cljc/dao/space/index.cljc:733:      {:next-eid eid, :ownership ownership})))
+src/cljc/dao/space/index.cljc:753:      :ids {:next-eid n,               :unresolved only; defaults
+src/cljc/dao/space/index.cljc:946:   [:plan {:rows [...] :facts [...] :next-eid n}] or
+src/cljc/dao/space/index.cljc:957:             ctx {:table {}, :next (get-in index-state [:ids :next-eid])}
+src/cljc/dao/space/index.cljc:980:                  :next-eid (:next ctx)}])))))
+src/cljc/dao/space/index.cljc:1039:                      (if ids (assoc ids :next-eid (:next-eid payload)) ids))))))))
+src/cljc/dao/space/schema.cljc:886:  #?(:clj (locking lock (f))
+src/cljc/dao/space/schema.cljc:1000:(defn transact!
+     1	(ns dao.space.schema
+     2	  "Schema representation and extraction over the tuple space
+     3	   (docs/design/dao.space.schema.md).
+     4	
+     5	   The schema lives in the medium it describes: schema rows are ordinary
+     6	   d5 tuples distinguished by the fixed :db/* attribute vocabulary. This
+     7	   namespace provides the axiom definitions (the single source of truth for
+     8	   the five interpreter properties), the bootstrap transaction data, the
+     9	   value-type predicates, the extraction function that reads schema from a
+    10	   d5 source through the public q surface, the resolve-props seam used
+    11	   by the view and wrapper, the validating write wrapper, and the
+    12	   publisher (publish!)."
+    13	  (:require [dao.datom :as datom]
+    14	            [dao.space.index :as index]
+    15	            [dao.space.query :as query]
+    16	            [dao.space.transactor :as tx]))
+    17	
+    18	
+    19	;; =============================================================================
+    20	;; Axioms: the five property idents and their fixed property maps
+    21	;; =============================================================================
+    22	
+    23	(def axioms
+    24	  "The axiom property map: each of the five :db/* property idents maps to
+    25	   its fixed property map. This is the single source of truth for the
+    26	   interpreter axioms. All five are card-one; :db/ident is unique;
+    27	   :db/unique and :db/index are booleans. Rows describing :db/* attributes
+    28	   themselves resolve from this map regardless of what the stream says
+    29	   (resolve-props)."
+    30	  {:db/ident     {:db/valueType :db.type/keyword
+    31	                  :db/cardinality :db.cardinality/one
+    32	                  :db/unique true}
+    33	   :db/valueType  {:db/valueType :db.type/keyword
+    34	                   :db/cardinality :db.cardinality/one}
+    35	   :db/cardinality {:db/valueType :db.type/keyword
+    36	                    :db/cardinality :db.cardinality/one}
+    37	   :db/unique     {:db/valueType :db.type/boolean
+    38	                   :db/cardinality :db.cardinality/one}
+    39	   :db/index      {:db/valueType :db.type/boolean
+    40	                   :db/cardinality :db.cardinality/one}})
+    41	
+    42	
+    43	;; =============================================================================
+    44	;; Bootstrap: genesis tx-data from the axioms
+
+codex
+The declaration-catalogue fix now matches the legacy rule: plain definitions do not consume macro ordinals. The allocation rule has a source mismatch: `dao.space.transact/prepare-tx` computes tempid assignments, while `dao.space.transactor/transact!` stamps time and commits already-resolved datoms. I’ll check whether the claimed permanent-ID allocation is actually available on the stated write path.
+exec
+/bin/zsh -lc 'java -cp "$(cat .cpcache/4107430544.cp)" clojure.main -e '"'(require '\\''[dao.space.transact :as p] '\\''[dao.space.transactor :as t] '\\''[dao.stream.memory-log :as ml])
+(let [mk #(get (ml/create"'! {:dao.stream/type :dao.stream/memory-log}) :dao.stream/handle)
+      tx (t/create! {:local-stream (mk) :intake-pool [(mk)]})
+      data [[:db/add -1 :yin.expander/type :incarnation] [:db/add -1 :yin.expander/log :log/example]]
+      a (p/prepare-tx {:base-datoms [] :tx-data data})
+      b (p/prepare-tx {:base-datoms [] :tx-data data})]
+ (prn {:first-preparation (:tempids a) :second-preparation (:tempids b)
+       :direct-transactor (try (t/transact! tx data) :accepted (catch Exception e (.getMessage e)))}))'"'" in /Users/sto/workspace/datomworld
+ succeeded in 2400ms:
+Loading initial Timbre config from: :default
+{:first-preparation {-1 16}, :second-preparation {-1 16}, :direct-transactor "the transactor owns transaction time: explicit datom t is rejected"}
+
+exec
+/bin/zsh -lc 'java -cp "$(cat .cpcache/4107430544.cp)" clojure.main -e '"'(require '\\''[dao.space.transact :as p] '\\''[dao.space.transactor :as t] '\\''[dao.stream.memory-log :as ml])
+(let [mk #(get (ml/create"'! {:dao.stream/type :dao.stream/memory-log}) :dao.stream/handle)
+      tx (t/create! {:local-stream (mk) :intake-pool [(mk)]})
+      data [[:db/add -1 :yin.expander/type :incarnation] [:db/add -1 :yin.expander/log :log/example]]
+      a (p/prepare-tx {:base-datoms [] :tx-data data})
+      b (p/prepare-tx {:base-datoms [] :tx-data data})
+      commit (fn [plan] (t/transact! tx (mapv #(assoc % 3 nil) (:datoms plan))))
+      ra (commit a) rb (commit b)]
+ (prn {:outcomes [(:dao.stream/outcome ra) (:dao.stream/outcome rb)]
+       :times [(:dao.space/t ra) (:dao.space/t rb)]
+       :entity-ids [(ffirst (:dao.space/datoms ra)) (ffirst (:dao.space/datoms rb))]}))'"'" in /Users/sto/workspace/datomworld
+ succeeded in 2342ms:
+Loading initial Timbre config from: :default
+{:outcomes [:dao.stream/ok :dao.stream/ok], :times [0 1], :entity-ids [16 16]}
+
+codex
+Completed-GMT: 2026-09-14 17:57:21 GMT  
+Completed-Local: 2026-09-15 00:57:21 Asia/Ho_Chi_Minh  
+Coding-Agent: codex  
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+**Verdict: REJECT**
+
+The declaration-catalogue finding is resolved. One allocation defect remains: the design attributes permanent-ID allocation and coordination to a transactor that does not provide them.
+
+**Numbered findings**
+
+1. **P1 — Construction-record uniqueness is not guaranteed by the specified transactor path.**
+
+   **Draft:** §8.4.1, [lines 1195–1210](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1195).
+
+   The cited `dao.space.transact` functions compute tempid assignments from supplied history or allocation state. They are a stateless preparation step, not a coordinated allocator ([prepare-tx, lines 189–207](/Users/sto/workspace/datomworld/src/cljc/dao/space/transact.cljc:189)).
+
+   The actual `dao.space.transactor/transact!` stamps transaction time and appends already-resolved datoms. It neither invokes `prepare-tx` nor allocates entity IDs ([source, lines 231–254](/Users/sto/workspace/datomworld/src/cljc/dao/space/transactor.cljc:231)). Its accepted input is entity maps with explicit IDs or datom vectors—not the proposed `[:db/add tempid …]` operations ([source, lines 56–101](/Users/sto/workspace/datomworld/src/cljc/dao/space/transactor.cljc:56)).
+
+   I ran two independent preparations against the same empty history. Both assigned `{-1 16}`. Committing their resolved datoms sequentially through **one** transactor produced:
+
+   ```clojure
+   {:outcomes [:dao.stream/ok :dao.stream/ok]
+    :times [0 1]
+    :entity-ids [16 16]}
+   ```
+
+   Thus serialization of commitment alone does not give the constructions distinct `[log-identity e]` identities. Separate transactor instances do not solve this either: the governing contract explicitly documents their uncoordinated writes to one stream ([transactor contract, T6](/Users/sto/workspace/datomworld/docs/design/dao.space.transactor.md:75)).
+
+   **Fix:** Specify an allocation owner per log that serializes **fresh-ID allocation and commitment together**, preserves allocation state across reconstruction, and returns the allocated ID to the successful constructor. Name the allocation/write boundary and require constructions to use it. Alternatively, use an explicitly unique composition token for all constructions.
+
+   This can remain unimplemented under §10 once specified, but the current claim that the existing transactor already guarantees it must be removed. My earlier construction-record suggestion also requires this allocation boundary; committing a record alone is insufficient.
+
+**Round-5 findings 1–2**
+
+| Previous finding | Status | Verification |
+|---|---|---|
+| 1 — Cursor-based incarnation allocation | **Not resolved** | Cursor observation is correctly abandoned, but the replacement assumes coordinated entity allocation absent from the cited path: [lines 1195–1210](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1195). |
+| 2 — Harvest indices used as macro ordinals | **Resolved** | The derived declaration catalogue filters macro-declared groups while preserving relative order; plain groups remain executable syntax: [lines 1312–1342](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1312). |
+
+**Verified sound**
+
+- **Macro ordinals now match the governing contract.** Plain definitions do not consume declaration ordinals; every occurrence of a shared macro group receives the same ordinal. This preserves fabricated stand-in selection and leaves plain definitions untouched ([macro contract, lines 255–278](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:255)).
+- **“Derived, never carried” introduces no race.** The declaration catalogue is a deterministic projection of the validated batch’s immutable harvest catalogue and declarations. It avoids a second independently supplied ordering.
+- **Fresh allocation after failed construction is a sound policy.** Provided construction finishes before any batch is observed, a committed record whose result was lost can remain an unused orphan. Retrying need not identify that orphan. The argument is a sufficient policy, although rereading could be supported by a separately designed idempotency token.
+- **Construction retry and staged expansion retry are correctly distinguished.** A failed construction allocates anew; flushing an existing staged expansion reuses its recorded identity ([lines 1219–1245](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1219)).
+- **The fallback token is a valid abstraction.** An explicit composition allocator with a never-reuse warranty can supply incarnation identity without a transacted log. Its uniqueness must cover independent constructions and restarts.
+- **The previously accepted mechanisms remain accepted.** No additional rejection is based on unfinished implementation work.
+
+Only the allocation ownership and commit boundary remain unresolved in this round.
+tokens used
+19,692
+Completed-GMT: 2026-09-14 17:57:21 GMT  
+Completed-Local: 2026-09-15 00:57:21 Asia/Ho_Chi_Minh  
+Coding-Agent: codex  
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+**Verdict: REJECT**
+
+The declaration-catalogue finding is resolved. One allocation defect remains: the design attributes permanent-ID allocation and coordination to a transactor that does not provide them.
+
+**Numbered findings**
+
+1. **P1 — Construction-record uniqueness is not guaranteed by the specified transactor path.**
+
+   **Draft:** §8.4.1, [lines 1195–1210](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1195).
+
+   The cited `dao.space.transact` functions compute tempid assignments from supplied history or allocation state. They are a stateless preparation step, not a coordinated allocator ([prepare-tx, lines 189–207](/Users/sto/workspace/datomworld/src/cljc/dao/space/transact.cljc:189)).
+
+   The actual `dao.space.transactor/transact!` stamps transaction time and appends already-resolved datoms. It neither invokes `prepare-tx` nor allocates entity IDs ([source, lines 231–254](/Users/sto/workspace/datomworld/src/cljc/dao/space/transactor.cljc:231)). Its accepted input is entity maps with explicit IDs or datom vectors—not the proposed `[:db/add tempid …]` operations ([source, lines 56–101](/Users/sto/workspace/datomworld/src/cljc/dao/space/transactor.cljc:56)).
+
+   I ran two independent preparations against the same empty history. Both assigned `{-1 16}`. Committing their resolved datoms sequentially through **one** transactor produced:
+
+   ```clojure
+   {:outcomes [:dao.stream/ok :dao.stream/ok]
+    :times [0 1]
+    :entity-ids [16 16]}
+   ```
+
+   Thus serialization of commitment alone does not give the constructions distinct `[log-identity e]` identities. Separate transactor instances do not solve this either: the governing contract explicitly documents their uncoordinated writes to one stream ([transactor contract, T6](/Users/sto/workspace/datomworld/docs/design/dao.space.transactor.md:75)).
+
+   **Fix:** Specify an allocation owner per log that serializes **fresh-ID allocation and commitment together**, preserves allocation state across reconstruction, and returns the allocated ID to the successful constructor. Name the allocation/write boundary and require constructions to use it. Alternatively, use an explicitly unique composition token for all constructions.
+
+   This can remain unimplemented under §10 once specified, but the current claim that the existing transactor already guarantees it must be removed. My earlier construction-record suggestion also requires this allocation boundary; committing a record alone is insufficient.
+
+**Round-5 findings 1–2**
+
+| Previous finding | Status | Verification |
+|---|---|---|
+| 1 — Cursor-based incarnation allocation | **Not resolved** | Cursor observation is correctly abandoned, but the replacement assumes coordinated entity allocation absent from the cited path: [lines 1195–1210](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1195). |
+| 2 — Harvest indices used as macro ordinals | **Resolved** | The derived declaration catalogue filters macro-declared groups while preserving relative order; plain groups remain executable syntax: [lines 1312–1342](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1312). |
+
+**Verified sound**
+
+- **Macro ordinals now match the governing contract.** Plain definitions do not consume declaration ordinals; every occurrence of a shared macro group receives the same ordinal. This preserves fabricated stand-in selection and leaves plain definitions untouched ([macro contract, lines 255–278](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:255)).
+- **“Derived, never carried” introduces no race.** The declaration catalogue is a deterministic projection of the validated batch’s immutable harvest catalogue and declarations. It avoids a second independently supplied ordering.
+- **Fresh allocation after failed construction is a sound policy.** Provided construction finishes before any batch is observed, a committed record whose result was lost can remain an unused orphan. Retrying need not identify that orphan. The argument is a sufficient policy, although rereading could be supported by a separately designed idempotency token.
+- **Construction retry and staged expansion retry are correctly distinguished.** A failed construction allocates anew; flushing an existing staged expansion reuses its recorded identity ([lines 1219–1245](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1219)).
+- **The fallback token is a valid abstraction.** An explicit composition allocator with a never-reuse warranty can supply incarnation identity without a transacted log. Its uniqueness must cover independent constructions and restarts.
+- **The previously accepted mechanisms remain accepted.** No additional rejection is based on unfinished implementation work.
+
+Only the allocation ownership and commit boundary remain unresolved in this round.

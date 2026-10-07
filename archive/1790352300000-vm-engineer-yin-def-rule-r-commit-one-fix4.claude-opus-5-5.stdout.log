@@ -1,0 +1,19 @@
+Completed-GMT: 2026-09-25 21:58:34 GMT
+Completed-Local: 2026-09-26 04:58:34 +07
+
+I added the P3 fixtures, and each reader-conditional branch the audit claims to read now has one. The only file changed is `test/yin/vm/store_write_audit_test.clj`, and nothing is staged or committed. The report is at `/Users/sto/workspace/datomworld/collab/1790352900000-vm-engineer-yin-def-rule-r-commit-one-fix4.claude-opus-5-5.report.md`.
+
+- **New fixtures:** five, each with the store write only in one branch and a harmless `:clj` branch alongside:
+  - `#?(... :cljs ...)`
+  - `#?(... :cljd ...)`
+  - `#?(... :default ...)`
+  - `#?@` splice, write in `:cljs`
+  - `#?@` splice, write in `:cljd`
+
+  The existing fixture with the write only in `:clj` stays, so all four branches are now covered. The audit caught all five on the first run without any change to its logic.
+- **Docstring:** the claim about reader conditionals now names exactly those branches (`:clj`, `:cljs`, `:cljd`, `:default`, in both `#?` and `#?@`) and says each is pinned by a fixture. It claims nothing beyond that.
+- **JVM lane:** 2,051 tests, 181,076 assertions, 0 failures (last round 2,051 / 181,066; the 10 extra assertions are two per new fixture).
+- **Checks on the changed file:** kondo shows 0 errors and 0 warnings, cljstyle is clean, and every line is ASCII and at most 80 columns.
+- **Not rerun:** Node and Dart, as the brief said; this is a JVM-only test.
+
+Status: COMPLETE

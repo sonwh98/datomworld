@@ -1,0 +1,34 @@
+All three product fixes are in as uncommitted edits, alongside the test-side change. Hashes are identical before and after on the JVM and on Dart, the focused tests pass, and there were no git writes. `cljstyle` was blocked, so it still needs running.
+
+| One parity run (warm mean) | Before (wall / CPU) | After all fixes (wall / CPU) |
+|---|---|---|
+| JVM | 1,383 / 1,707 ms | 923 / 1,240 ms (−33% / −27%) |
+| Dart | 15.9 / 15.4 s | 2.3 / 2.5 s (−85% / −84%) |
+
+On Dart, the SHA-256 swap alone took the run from 15.9 s to 6.3 s. The other two fixes took it the rest of the way, to 2.3 s.
+
+**What changed:**
+- **Dart SHA-256** (`src/cljc/dao/jing.cljc`): `sha256` and `sha256-bytes` on Dart now call `package:crypto`, still returning the same lowercase-hex string. The old hand-written SHA-256 block is deleted; the JVM and Node code is untouched. I first added two known-answer rows: the NIST million-'a' vector and a non-ASCII string written as ASCII escapes. Both passed on the old Dart code before the swap and pass after it.
+- **body-liveness** (`src/cljc/yin/vm/debruijn_register_code.cljc`): the working vectors are now as long as the body, not the whole image. A new test, `body-liveness-reads-only-its-own-body-test`, pins the old outputs on a fixed four-body image, including the cross-body and past-the-image edge cases.
+- **to-hex** (`src/cljc/yin/vm/debruijn_code.cljc`): now a 256-entry byte-table lookup. It matched the old function on 0..69,999 plus edge values above 2^24, 2^31 and 2^32, at both widths callers use (2 and 8). In isolation it cut `register-hash` from 215 to 120 ms on the JVM.
+- **Hash check**: over the prelude, the register image hash, stack image hash and live-set digest are identical before and after every fix, and identical between the JVM and Dart.
+
+**Tests:**
+- **Digest and liveness selection** (`bb test:changed:<lane> --changed …`, 6 namespaces):
+  - JVM: 136 tests passed in 17 s.
+  - Node: 166 tests passed in 21 s.
+  - Dart: 132 tests passed in 55 s.
+
+  The `--changed` list was `test/dao/jing_test.cljc`, `test/dao/jing/hash_registry_contract_test.cljc`, `test/dao/jing/cbor_fixtures_test.cljc`, `test/yin/vm/debruijn_register_compile_test.cljc` and `test/yin/vm/debruijn_code_test.cljc`.
+- **Wider JVM check** (27 namespaces: register, stack, attach-image, linker and the Python tests): 533 tests passed in 156 s.
+- **Not run:** the plain `bb test:changed` selects 140 namespaces per lane, too wide for the cap. Run `bb test:changed` (or `bb test`) one lane set at a time before landing. Node and Dart were not run on the Python namespaces, and no slow lanes were run.
+
+**Lint, format and cleanup:**
+- kondo: 0 errors, 0 warnings on all 10 changed files.
+- No added line is over 80 columns or non-ASCII; I wrapped the four long lines from the earlier test-side change.
+- `cljstyle fix` and `cljstyle check` were both blocked by permissions. I matched the existing layout by hand, so please run `cljstyle check` on the 10 files.
+- The temporary profiler is out of `test/` (moved to `target/prof/`), and its generated Dart files are deleted.
+
+**Declined:** the AST-walker record rebuild (engine-side, as you said). Also the duplicate `to-hex` in `yin/vm/debruijn.cljc`, which isn't on the hot path. And the `validate-resolved` / `index-datoms` repeats in `yin/vm.cljc` and `debruijn_resolve.cljc`, which weren't requested.
+
+The 'Fixes implemented' section in the findings file has the diffs, per-phase numbers and estimates. Roughly: the Python fast form drops to ~85-90 s on the JVM and ~25-30 s on Dart. Most of the 15 tests guarded only because Dart was slow could probably come back into the fast lane, after re-measuring.

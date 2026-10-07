@@ -1,0 +1,87 @@
+Completed-GMT: 2026-10-01 19:10:50 GMT
+Completed-Local: 2026-10-02 02:10:50 +0700
+
+# Python safepoint interpreter, slice 1 (mechanism + signals)
+
+Slice 1 works on the JVM: interrupt, catch, no-park, fail-closed and 100,000-iteration tail preservation all pass on all four VMs. I could not run the Node (CLJS) or Dart (CLJD) lanes in this headless session, so cross-host acceptance is not verified. Nothing is committed, but one staging slip needs undoing (see Incomplete work).
+
+## Test results
+- **JVM lane (`clj -M:test`, the command `bb test:clj` runs):** 2861 tests, 226371 assertions, 2 failures, 0 errors.
+  - Both failures are in `yin.repl.dht-process-test`, which needs `target/yin-repl.js`, and that build couldn't be made here (see below).
+  - Two Dart-peer tests skipped themselves because their peer binaries are absent.
+- **Targeted runs:**
+  - The new and affected test namespaces (stream poll, the two safepoint tests, module, lowering, prelude parity): 66 tests, 469 assertions, 0 failures.
+  - The e2e corpus, C1 corpus and both safepoint namespaces: 66 tests, 783 assertions, 0 failures. That run included the full-size no-signal case before I shrank it; the shrunk test passes alone (20 assertions).
+- **clj-kondo:** 0 errors, 0 warnings on all 17 touched files.
+- **cljstyle:** not run. It only runs through mise, which is untrusted in this worktree. I checked trailing whitespace by hand and found none; blank-line runs and indentation were not machine-checked.
+- **Node lane: not run.**
+  - shadow-cljs fails on Java 17 ("class file version 65", it needs 21).
+  - mise isn't trusted, so mise's Java 21 isn't on PATH.
+  - Env-prefixed commands, scripts and `npm ci` all needed approval I couldn't give.
+- **Dart lane: not run.** No `flutter`/`dart` outside mise.
+- **Bring-up:** `clj -M:antlr-gen` ran fine. `bb build:yin-repl-node` (via `clj -M:cljs …`) failed with the same Java version error.
+
+## Changed files
+New:
+- `src/cljc/yang/safepoint.cljc`
+- `src/cljc/yang/tails.cljc`
+- `src/cljc/yang/python/antlr/safepoint.cljc`
+- `test/yang/safepoint_test.cljc`
+- `test/yang/python/antlr/safepoint_test.cljc`
+- `test/yin/vm/stream_poll_test.cljc`
+
+Moved: `yang/python/antlr/stage.cljc` → `src/cljc/yang/stage.cljc` (namespace `yang.stage`).
+
+Modified:
+- `src/cljc/yin/vm/engine.cljc`, `src/cljc/yin/vm/module.cljc`
+- `src/cljc/yang/python/antlr/lower.cljc`, `uast.cljc`
+- `src/clj/yang/python/antlr/parser.clj`
+- `test/yin/vm/module_test.cljc`
+- `test/yang/python/antlr/e2e_test.clj`, `e2e_c1_test.clj`, `lower_test.clj`, `lower_portable_test.cljc`
+
+## What each part does
+1. **Engine:** `stream/poll!` is exported with a profile declaring `#{:stream/poll}`. The new `handle-poll` behaves like `next!` but returns `:dao.stream/blocked` as a value instead of parking.
+2. **Lowering:**
+   - `:yang/site` marks go on loop lambdas (`:loop`) and function code lambdas (`:call`). They are map metadata, so naive rows and the existing `=` goldens don't change.
+   - The `:program` port now carries a source envelope (medium `:yang.python.antlr/program`, token = the source unit) with the map AST as its member.
+3. **`yang.safepoint` stage:**
+   - Reads site marks from the frontend-metadata side table and inserts a hook call before each marked body, using the reserved binder `yang.safepoint/_`.
+   - Strips and recomputes tail marks over the whole derived tree (via the new `yang.tails`). An empty profile returns the canonical tree unchanged.
+   - Writes a `:derive` record: input A, output A', function `:yang.safepoint/insert`, profile = the hook map plus the address of the sorted site set.
+   - A' goes out on its own medium, with the record's address as its batch token.
+4. **Python hook prelude:** `py.sp/loop` and `py.sp/call` poll the signal stream the composition binds under `py.sp/signals`. On a signal they call the registered handler with `(signal, None)`, or otherwise raise `KeyboardInterrupt` through `py/raise`.
+
+## Acceptance coverage (all four VMs, JVM only)
+- **Transparency:**
+  - Every e2e and C1 corpus program now runs twice, naive and under no-op hooks, with the same expected output. This roughly doubles e2e lane time.
+  - The JVM e2e corpus itself was not run under the real signal hooks with an empty stream.
+- **Identity:** an empty profile gives the same root and rows.
+- **Canonical untouched:** the input batch is unchanged, every derived row validates, and the bundled prelude keeps its id.
+- **Determinism:**
+  - Repeat derivations are identical.
+  - Golden root and record addresses over a small hand-built tree are pinned; Node and Dart haven't confirmed them.
+- **Interrupt:** uncaught, caught by `except KeyboardInterrupt`, and caught by `except BaseException` all behave correctly. `isinstance(e, KeyboardInterrupt)` is true and `isinstance(e, Exception)` is false.
+- **No park:** an empty signal stream finishes without blocking.
+- **Tail preservation:** continuation depth parked at the 10th and the 100,000th safepoint is equal on all four VMs.
+- **Atomicity:** no hook application appears under any prelude definition.
+- **Fail closed:** without the hook prelude, the run reports "Unable to resolve symbol: py.sp/loop".
+- **`stream/poll!`:** empty stream returns `:dao.stream/blocked`; ok advances the cursor; a callee declaring only `#{:stream/next}` is refused with `:yin.k/undeclared-effect`.
+
+## Decisions for review
+- **Load order.** Because the base prelude is bundled inside A, the hook prelude has to load *before* it. So it may only allocate cells and a cursor at load time.
+  - `KeyboardInterrupt` therefore can't be a plain class definition. It's a function `py.b/KeyboardInterrupt` that creates the class under `BaseException` on first use, and the lowering reads the name by calling it.
+  - The class definition itself stays out of the naive prelude, but the canonical program now contains `(py.b/KeyboardInterrupt)`. A naive program that reads that name fails closed instead of raising NameError, even if the module defines its own `KeyboardInterrupt`.
+  - This should get Architect review.
+- **Handler registration.** The lowering doesn't support `import`, so there's no Python-source `signal.signal` yet. Registration is `py.sp/set-handler!` from the composition, tested in prelude notation.
+- **Gaps:** a stream gap is delivered as a signal, and any signal value triggers the default `KeyboardInterrupt`.
+- **Moved the stage.** I moved the stage machinery to `yang.stage` because `yang.safepoint` would otherwise be a language-neutral namespace depending on `yang.python`.
+
+## Smaller notes and incomplete work
+- **Staged rename.** `git mv` staged the stage-file rename (a pure rename, no content). I couldn't unstage it here (approval required). Please run `git restore --staged src/cljc/yang/python/antlr/stage.cljc src/cljc/yang/stage.cljc`.
+- **Speed.** The AST walker takes about 4.5 ms per loop iteration in these programs, under real and no-op hooks alike. I shrank the no-signal e2e case from 3,000 to 300 iterations to keep the lane bounded.
+- **Error naming.** A forged cursor ref on `poll!` produces an error that names `:stream/next`, because `handle-poll` reuses `handle-next`.
+- **Before the next commit:**
+  - Run the Node and Dart lanes. On Dart, `rm -rf test/cljd-out` first, because of the stage-namespace move.
+  - Confirm the golden addresses match on Node and Dart.
+  - Run cljstyle.
+- **Docs.** I didn't touch the design docs (`yang.antlr.md` decision record, `:derive` doc note), per "after sign-off".

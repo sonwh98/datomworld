@@ -1,0 +1,63 @@
+Completed-GMT: 2026-09-17 17:29:10 GMT
+Completed-Local: 2026-09-18 00:29:10 ICT
+
+Source: `docs/design/datom.world.md`, read in full. This is a read-only explanation, so no plan file or code changes are needed.
+
+## Core philosophy and axioms
+
+The four-line credo: everything is data, interpretation over abstraction, explicit causality over implicit assumptions, and restrictions are a feature.
+
+The four foundational axioms build on that:
+
+1. **Everything is a Stream.** All IO and data flow through append-only streams. Persistent facts are immutable tuples and datoms of shape `[e a v t m]`.
+2. **Interpretation creates semantics.** Data is syntax. Meaning only emerges when an interpreter reads it, so one truth admits many perspectives.
+3. **Code and state are datoms.** The Universal AST and runtime execution state are structured datoms, giving syntax independence and structural reflection.
+4. **Everything is a continuation.** Computation is serializable, portable continuations that pause, travel across streams, and resume anywhere.
+
+## Non-negotiable invariants
+
+These six are the hard prohibitions:
+
+- **No hidden global state.**
+- **No implicit control flow.**
+- **No callbacks.** Every callback becomes events on a stream.
+- **No shared mutable state.**
+- **Never collapse interpretation and execution** into the same layer.
+- **Never assume graphs.** Graphs must be constructed explicitly from tuples.
+
+## Rules that follow from the invariants
+
+**Tuples and datoms.** A tuple can be any dimension. The datom is the canonical persistent tuple. Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or join explicitly.
+
+**Streams.** Functions consume streams and produce streams. No function-to-function coupling without a stream boundary. Side effects must appear as stream emissions. Streams are values and can travel through streams. A stream has no privileged reader and its meaning is not in it. The evaluator in yin.vm and the covering index in dao.space observe the same medium, and each one's ignorance of the other is load-bearing. Agents are functions, closures, or continuations whose behavior is specified entirely through stream effects.
+
+**Host boundaries.** This is the most detailed section, and the rules are strict:
+
+- A host boundary is a stream boundary, never a function call. Portable code appends an effect value, a host interpreter performs it and appends the outcome, and correlation is by identity in the data.
+- DaoStream handle operations are the one sanctioned function-shaped contact. Their exhaustive outcome maps are stream protocol, not application callbacks.
+- An adapter that exposes a function for portable code to call is not an interpreter. It relocated the coupling rather than removing it.
+- A callback is replaced by a function that transforms an event into data on a stream. An adapter is a map of those functions and nothing more. Each entry returns one value, cannot return anything to the host, and cannot invoke application code.
+- Which stream an adapter writes to is the caller's composition. The adapter never knows, which keeps layering one-way.
+- A transform deposits every event the boundary protocol admits and judges none semantically. Filtering at the depositing layer destroys perspectives not yet taken. Retention is the medium's operational policy, meaning is interpretation, and neither belongs to the depositor.
+- Wire framing, decoding, and protocol validation happen below the transform. Malformed wire input is transport machinery, not an event.
+- Host error types never cross the boundary. A transform classifies them into qualified plain values.
+- A host with no implementation for an effect emits a qualified unsupported result. That is a correct outcome, not a gap.
+- Envelopes and composition-owned vocabularies stay plain data and never create a separate event mechanism or bus.
+
+## Design principles
+
+- **Malleability is the quality metric.** How cheaply can changes adapt without breaking promises.
+- **Stigmergic coordination** emerges from sharing data across streams.
+- **Derive, don't persist.** Before adding any tag, slot, or field to a content-hashed structure, check whether a correctly scoped Datalog query over the existing structure can compute it. New structure migrates every downstream consumer and duplicates authority. The retired `:global` AST tag is the case study, including the warning that a query at the wrong scope silently mis-derives instead of failing loudly.
+
+## Code style and workflow
+
+Code style: prefer simple data over rich types, total functions over partial ones, declarative pipelines over imperative logic, avoid cleverness, and name things after what they do to streams.
+
+Workflow: do not invent abstractions that hide streams, do not suggest mainstream frameworks unless asked, do not optimize prematurely, ask at the architectural level when uncertain, and align explanations with the Plan 9, Datomic, and Lisp lineage.
+
+Problem decomposition when something looks complex: decompose into streams, identify invariants, restrict degrees of freedom, make causality explicit, and let structure emerge from constraints.
+
+## Linked deeper specs
+
+The master doc delegates detail to `docs/design/datom.md` for tuples, `docs/design/dao.stream.md` for streams, `docs/agents/malleability.md` for design guidance, and `docs/agents/build-n-test.md` for build and test commands.

@@ -1,0 +1,49 @@
+Completed-GMT: 2026-10-02 22:37:19 GMT
+Completed-Local: 2026-10-03 05:37:19 +0700
+
+(The system clock reads earlier than the prompt's Created stamp of 23:40 GMT. I've reported the clock as it is.)
+
+The C4 rulings are now recorded in `docs/design/yang.antlr.md`, as a new section 8.5.6 plus two small amendments in 8.5.1. Only that file changed (+529/−3); nothing is staged or committed. Every new line is ASCII and at most 80 columns, except the two long `collab/` paths in the header, which follow the existing header's convention. Everything is labelled pending; nothing in C4 has landed.
+
+**Placement.** I added 8.5.6 rather than a separate C4 section in §8 or §12. C2, C3 and the float ruling are recorded as 8.5.3 to 8.5.5, and C4 is the next Python phase built on them. It follows the same pattern: a pending note, the rulings, a slice table, acceptance criteria, then Open questions. 8.5.6 also needs the 8.5.5 float gate right next to it.
+
+**Sections touched**
+- **Header:** added an "Updated 2026-10-03" paragraph citing the design and the cross-ruling, stating that the converged rulings govern on conflicts and that nothing has landed.
+- **8.5.1, decision 6:** the "revisit when linked" question is now settled: marks stay (ruling 15).
+- **8.5.1, the old 1414-1417 sentence (now about line 1438):** replaced "class objects copied per receiving task (mob D1)" with "install delivers only code; each task allocates its own through `py/init!`" (ruling 1).
+- **8.5.6 (new):** the full C4 record (mapping below), the L-a to L-e linker prerequisites table, the F1–F3/P1–P3/I1–I7 slice table with acceptance criteria per slice, the ordering, and the Open questions.
+
+**Ruling-to-section mapping (all in 8.5.6 unless stated)**
+
+| Ruling | Where recorded |
+|---|---|
+| 1 Pure install / instantiate | Opening paragraphs and the four ways it fails; `py/init!`; bodies may park; 8.5.1 amendment |
+| 2 Task-local builtins, global fallback | "Builtins" paragraph |
+| 3 `py`/`pysp`/`pym` reserved, injective mangling | "Names" table and the defect-filing note |
+| 4 Hoisted pinned requires, eager restriction, lazy bodies | "Module shape" bullets |
+| 5 Bundled kept until the twelve-lane and float64 gates pass | "Bundled mode", plus P2's float prerequisite |
+| 6 AST walker support plus cross-module store-context restoration | "The AST walker" paragraph, L-b |
+| 7 Host-export profiles by manifest address (integer limits in the profile) | "Host-export profiles", L-a, Runtime row of the pins table |
+| 8 Refusal-as-data plus statement-time resolution | "Catchable imports", L-d, I4 |
+| 9 Refuse delivery cycles, then SCC units | "Cycles", I5 |
+| 10 Static literal import names only | Import-forms table (`import_module`) and the note on future resolvers |
+| 11 Literal `import_module`, same-image reload, hooks refused | Import-forms table and the "live code replacement" paragraph |
+| 12 Static relative imports | Import-forms table |
+| 13 No submodule auto-import; `*` filtering | Import-forms table |
+| 14 Site sets published as content-addressed datoms | Safepoints bullets 3–4, I7 |
+| 15 Frontend marks retained; atomicity distinction | Safepoints bullets 1–2; 8.5.1 decision 6 |
+| 16 Immutable catalogs, no fallback, explicit parser services | "The REPL frontend catalog" bullets, F1/F2 |
+| 17 Content-addressed lowering profile | Lowering row of the pins table |
+| 18 Persistent `__main__`; `(reset)` is a new process | `__main__` paragraph, F3 |
+| 19 Foreign-principal imports wait for D7 slice B and the other gates | "Foreign-principal imports" paragraph, L-e, I3 |
+| Address clarification (code root vs package identity) | "Addresses" paragraph |
+
+**Open questions recorded rather than decided:**
+- Who names the legacy frontend id (owner, per F2).
+- The registry-prefix shadowing is only inferred and needs a failing test first.
+- `yang.antlr.packet` emits a Python-named diagnostic, which would mislabel errors for a second ANTLR language.
+
+**Choices you may want to check:**
+- **Ruling 4:** I used the cross-ruling's wording, which corrects the design. Module names are derivable from rows, but their manifest addresses also need the pinned resolution snapshot, so I did not keep the design's "no new manifest key" claim.
+- **Address stability:** I kept the existing 8.5.3 note that "every bundled unit's address changes" when the prelude grows. It is still true of the bundled profile. The design said this ends under linking; the cross-ruling narrows that to the code root only, since the manifest still changes.
+- **Ordering paragraph:** it names C2-S2 and safepoint slice 2 as "in flight at design time". C2-S2 has since landed (`c3f2da8f`), so I kept the design's sequence without claiming they are all still pending.

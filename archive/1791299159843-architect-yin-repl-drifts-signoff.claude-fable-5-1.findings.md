@@ -1,0 +1,30 @@
+Created-GMT: 2026-10-06 15:05:59 GMT
+Created-Local: 2026-10-06 22:05:59 +07
+Coding-Agent: claude
+Session-ID: fb5a5be5-0b3f-4b27-96a0-8185b7c8413c
+# Task: Architect sign-off on yin.repl saved-state drift fixes and dht key clearing
+Role: Lead System Architect
+Implementers:
+- Model: claude-fable-5-1 | Assigned: 2026-10-06 22:05:59 +07 | Status: active | Rationale: Architecture review and sign-off on implementation of saved-state and dht key-clearing behavior in yin.repl
+
+Completed-GMT: 2026-10-06 15:07:39 GMT
+Completed-Local: 2026-10-06 22:07:39 +07
+
+**Verdict: approved, signed off to land on master.** There are no blocking findings; the two Low findings below can land with this change or as a follow-up. I ran no test lanes myself (the green counts are the brief's), but I did evaluate the edge cases on the JVM.
+
+## Findings
+
+| Severity | file:line | Invariant / evidence | Recommended correction |
+|---|---|---|---|
+| Low | `src/cljc/yin/repl/state.cljc:110` (comment at `src/cljc/yin/repl/main.cljc:446`) | "Explicit beats clearing" applies to every unset flag, not only `--key`. `dht serve --dir /tmp/x --peer localhost:4002 --dht-publish` now resolves to `"--dht-publish" true` and `:publish? true`, and it is saved; before 07252cfd it was stripped. The docstring ("`dht serve` is never publishing") and the comment ("only `init` publishes and signs") now overstate, the doc names only `--key`, and no test pins either behaviour. This is explicit operator intent, so it is not an invariant breach. | Owner decision. Either accept it (reword the docstring and comment to "clears the saved values", add one test for `serve --dht-publish`), or keep serve and join strictly non-publishing by refusing that flag in `dht-args`. I recommend accepting it: one uniform rule, no special case. |
+| Low | `test/yin/repl/state_test.cljc:239` | 07252cfd deleted `(is (not (contains? resolved "--dht-publish")))` from the testing block still titled "init saves publishing; serve unsets it". The assertion still holds under the new code (confirmed by evaluation), so the integration-level check that serve drops a saved publish was lost needlessly. The unit case at line 52 still covers `resolve-flags` itself. | Restore the one assertion. |
+
+## Properties that passed review
+
+- **Contract fidelity:** a saved `--dht-publish` and `--dht-key` are both dropped on `dht serve` and `dht join`; an explicit `--key` stands; `init` keeps its key. Evaluated: saved `{publish, key}` plus `dht serve` resolves to neither, with `:publish? false`; `dht join ... --dht-key k9` over a saved `k1` resolves to `k9`.
+- **The fixed defect:** a former publisher restarted with `dht serve` no longer loads the key, so the banner no longer claims names are signed; it falls to the "no --dht-key" line.
+- **Explicit state and control flow:** `resolve-flags` stays a pure function of `(saved, explicit, unset)`. The clearing is data (`:unset`) passed from `expand-args` to `startup`, and the resolved map is the one that is saved.
+- **Ownership boundaries:** the change is confined to the yin.repl command-line and saved-state layer. Nothing in yin.vm, dao.stream, dao.space or the DHT node is touched, and no key material moves.
+- **Host isolation and portability:** the new code is only `merge`, `apply` and `dissoc`, with no reader conditionals. On a first run `saved` is nil, and ClojureDart's `dissoc` on nil is safe (its fallback `-dissoc` returns nil, checked in the pinned cljd source).
+- **Docs:** `yin.repl.md` matches the code for the clearing rule, the Dart banner wording (matches `banner`), and the keygen default path (matches `keygen-args`). The rest of the doc diff is rewrapping only.
+- **Design docs:** nothing in `yin.vm.linker.dht.head.md` conflicts; the join path still passes no manifest (5.8).

@@ -1,0 +1,53 @@
+Completed-GMT: 2026-10-03 17:30:23 GMT
+Completed-Local: 2026-10-04 00:30:23 +07
+Coding-Agent: claude
+Session-ID: 8a064c70-5a78-4fc8-a2d8-1bcd34e27a0f
+
+S3 holds on the rebased base `eaf7d6f0`. After re-minting 5 prelude-address goldens, every lane I ran is green; Dart was not run, per the brief.
+
+**Merge check:** your rebase kept master's `^:slow` tags. The S3 additions merged cleanly alongside master's float64 code. I ran no git write commands.
+
+**Changed files** (uncommitted, unstaged):
+- `lower.cljc`
+- `prelude.cljc`
+- `e2e_c2_test.clj`
+- `lower_test.clj`
+- `prelude_parity_test.cljc`
+- `float_address_test.cljc` (golden re-mint only)
+
+**Re-minted goldens:** all 5 are in `float_address_test.cljc`. They moved because the bundled prelude grew, so its address and every address containing it changed:
+
+| Golden | Old | New |
+|---|---|---|
+| bundled prelude root | `38a0e750…` | `8130fa02…` |
+| program A root | `f941b996…` | `b88118aa…` |
+| program A′ root | `f05a91d4…` | `e3cc50cf…` |
+| record address | `39bfcf1e…` | `e396a9be…` |
+| prelude-id | `f976da2e…` | `8dfb4eea…` |
+
+The hook-prelude golden didn't move. Node computed the same new values.
+
+**Lanes:**
+
+| Lane | Result | Time |
+|---|---|---|
+| Focused run of the three Python namespaces, slow tests included (23:36, before the gate) | 60 tests, 313 assertions, 0 failures | 11:59 |
+| Full JVM `bb test:clj` (started 23:56) | 2905 tests, 226586 assertions, 5 failures (all the moved goldens), 0 errors | 24:06 |
+| JVM `float-address-test` after the re-mint | 12 tests, 105 assertions, 0 failures | 0:19 |
+| Node `bb test:cljs`, after the re-mint | 2718 tests, 91639 assertions, 0 failures | 5:01 |
+| Slow: `safepoint-test` (tail-preservation) | 1 test, 9 assertions, 0 failures | 1:14 |
+| Slow: `long-generator-with-break-test` | 1 test, 5 assertions, 0 failures | 1:14 |
+| Slow: `resume-continuation-length-is-stable-test` (includes the new nested `yield from` check) | 1 test, 72 assertions, 0 failures | 0:51 |
+| kondo and cljstyle on the 6 changed files | 0 errors, 0 warnings; style clean | — |
+
+The full JVM lane took 24 minutes rather than about 5.5 because four other JVMs were running on the machine.
+
+**Unfinished or worth knowing:**
+- **Partial JVM coverage after the re-mint:** after the re-mint I re-ran only `float-address-test` on the JVM, not the whole lane.
+- **Auto-backgrounded runs:** I started nothing in the background. Two runs went past the 10-minute cap and were moved to the background automatically: the focused run and the full JVM lane. I waited for both to finish in this turn.
+- **Dart:** not run. Long-loops-test was skipped as instructed.
+- **Goldens will move again:** C3-S2's changes to `prelude.cljc` will move the prelude-address goldens again on the next rebase.
+- **Possible `^:slow` tag:** `yield-from-long-range-test` (6000 delegated items on 4 VMs) isn't tagged `^:slow`. Whether to tag it is your call.
+- **Out of S3 scope:** `x in generator`, user-defined `__iter__`/`__next__` (S5), two-argument `iter(callable, sentinel)`, and readable printing of iterators (they currently print as a generic object).
+
+Findings are in `collab/1791045188000-compiler-engineer-python-c2-s3-r2.claude-opus-5-5.findings.md`.

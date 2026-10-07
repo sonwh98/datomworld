@@ -1,0 +1,61 @@
+Completed-GMT: 2026-09-26 06:35:30 GMT
+Completed-Local: 2026-09-26 13:35:30 +0700
+
+# M4 slice S1: `attach-image` in the four kernels
+
+S1 is in place and both lanes I ran pass with no failures. Nothing was committed, staged or stashed, and no existing test was edited or changed result.
+
+## Lane counts
+
+| Lane | Baseline (before any edit) | Final |
+|------|----------------------------|-------|
+| JVM  | 2,118 tests / 181,736 assertions | 2,136 / 181,862, 0 failures |
+| Node | 2,031 tests / 48,573 assertions  | 2,049 / 48,681, 0 failures, 0 warnings |
+| Dart | not run, as instructed | not run |
+
+- My baseline assertion counts were already slightly off the prompt's (181,744 and 48,576) before I edited anything.
+- The 18 new tests are 17 in the new namespace plus one in `repl_test`. The Node log shows "Testing yin.vm.attach-image-test".
+
+## What was built
+
+- **Stack and register kernels:**
+  - An offset table (`:images`), whose base row `load-image` writes.
+  - `attach-image` relocates, appends, adds one `[identity offset length]` row and recomputes `:hash`. It touches no register and ignores an image already held.
+  - `image-pc` and `absolute-pc` convert between absolute pcs and `[identity rel-pc]`.
+- **Hash-safe restore:** entries now record `:image`, the table row their pc falls in. Restore checks format plus table membership, never uses `:hash` as a key, and never writes `:segment` from an entry.
+- **Grow-only returns (register):** the call frame no longer carries `:segment` or `:hash`. A return restores pc, frames, registers and continuation only.
+- **Semantic kernel:** `attach-image` mints a fresh local id and writes the alias column. It leaves control, program, env, stack, k and store alone.
+- **Walker:**
+  - A row decoder annotates each `:lambda` node with its row id, held in metadata so node equality is unchanged.
+  - `:lambda` transitions copy the id into the closure.
+  - `:rows` plus a `[node params]` index are kept on the VM.
+  - `attach-image`, `closure-row` (returns `:unrooted-body` refusals) and `row-node` are new.
+- **yin.repl:** both append functions now call `attach-image`, then set `:pc` themselves.
+
+## Files
+
+- **Changed as expected:** `stack.cljc`, `register.cljc`, `semantic.cljc`, `ast_walker.cljc`, and `repl.cljc` (the append functions only, plus removing its now-unused `relocate`).
+- **Outside the expected list:** `src/cljc/yin/vm/debruijn_register_effects.cljc`.
+  - Its frame check required every frame to carry its own `:segment`/`:hash`, which contradicts r7. It now checks frame pcs against the entry's own `:segment`.
+  - `continuation-payload` now adds `:image`, through a new public `image-row`. Without that, existing tests that build entries with this function would fail the new membership check.
+- **Tests:** new `test/yin/vm/attach_image_test.cljc` (17 tests covering the S1 list and criterion 17), plus one test added to `test/yin/repl_test.cljc`.
+
+## Decisions for review
+
+1. **The REPL does more than set `:pc`.** `attach-image` touches no register, so the REPL now also resets frames, stack, continuation, `:halted?`, `:blocked?`, `:value` and the register file, as the old `load-image` call did. Without this the REPL's behavior would change.
+2. **The REPL takes `:pc` from the image's table row, not the held length.** An input whose image is already held attaches as a no-op, so the held length would point past the code.
+3. **Register `reset` keeps the offset table** (trap 10 in the scoping report). I based this on r7's rule that only the loaders and `attach-image` write the table.
+4. **Entries still carry `:segment` and `:hash`.** Existing tests read them and the register defect check uses them to validate an entry against itself. Neither is a restore key or written back.
+5. **The lift and lower of acts 1 and 4 are not implemented.** They are engine/UCF work (S3); the tests compose them by hand from the new kernel functions. No engine change was needed, so this is not blocked.
+
+## Not checked
+
+- **Dart lane.** Specific things to watch there: metadata on the walker's map nodes (`vary-meta`) and the decoder's `letfn`/atom.
+- **Final JVM run timing.** It started just before I removed an unused require from the new test file and ran cljstyle on it, so it ran the pre-formatting version. The Node lane ran after both edits and passed.
+- **Lint.** kondo reports 0 errors. Two warnings/infos remain, both present at HEAD. cljstyle is clean on all eight files, and added lines are pure ASCII and at most 80 columns.
+
+The report is at `/Users/sto/workspace/datomworld/collab/1790403451133-vm-engineer-linker-m4-s1-attach-image.claude-opus-5-5.report.md`.
+
+The claude.ai Gmail, Google Calendar and Google Drive connectors need authorizing in your claude.ai connector settings before they can be used; this task didn't need them.
+
+Status: COMPLETE

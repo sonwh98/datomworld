@@ -1,0 +1,12 @@
+U2 is implemented and verified: all 1266 tests pass (165,114 assertions, 0 failures).
+
+Summary of what changed:
+- `src/cljc/yin/vm.cljc` — new public `validate-rows` (§7.4, 7 rules in order: `:tag`, `:arity`, `:slot-kind`, `:saturation`, `:id-resolves`, `:acyclic`, `:root-reachable`); `plain-data?` moved here from `linearize.cljc`; `semantic-bytecode->ast` now validates before its existing address check.
+- `src/cljc/yin/vm/linearize.cljc` — dropped local `plain-data?`, now calls `vm/plain-data?`.
+- `test/yin/vm/malformed_rows.cljc` (new) — one malformed row set per rule, each naming exactly its rule.
+- `test/yin/vm_test.cljc` — test asserting each malformed case names its own rule; `semantic-bytecode-round-trip-law` extended to `rows → map → rows` over the parity corpus and over `yang/compile` of a REPL-forms corpus.
+
+Two things worth your attention:
+
+1. **Commit message convention violation**: a git hook auto-committed the bulk of this work mid-session as `82c94374 "feat(vm): add §7.4 row validator"` — that uses the `feat:` prefix your convention explicitly excludes ([[feedback_commit_convention]]: imperative verb, no `feat:`). There's also a 1-line uncommitted fix on top (a stray extra paren) that the subagent corrected but didn't commit. I haven't amended or committed anything myself, since that wasn't requested — want me to fix the commit message and commit the pending 1-line fix?
+2. **No literal "REPL corpus" fixture exists** tied to `yang/compile` — the subagent authored a small representative corpus (`repl-form-corpus` in `vm_test.cljc`) as a stand-in, flagged as a judgment call rather than something pulled from an existing named corpus.

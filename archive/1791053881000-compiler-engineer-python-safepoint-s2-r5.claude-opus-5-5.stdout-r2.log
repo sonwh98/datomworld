@@ -1,0 +1,39 @@
+Completed-GMT: 2026-10-03 19:47:40 GMT
+Completed-Local: 2026-10-04 02:47:40 +0700
+Coding-Agent: claude (claude-opus-5-5)
+Session-ID: a80b326f-0efb-4ae5-ae0f-df0154076bab
+
+# Final round: whitespace-only line wrapping
+
+All the named lines are wrapped, and the change is whitespace only. A git word diff over non-space tokens finds 0 added or removed tokens across all four files. The same check reports the 12 golden lines changed in the earlier re-mint, so it does catch real changes. `float-address-test` still passes with the goldens untouched, and no assertion changed.
+
+## Lines wrapped
+- **`src/cljc/yang/python/antlr/prelude.cljc`**
+  - Line 173 (83 columns, the `py/ctx` assoc chain): split before `:base base`.
+  - Line 178 (83 columns, `py/restore!`): not named, but it's my adjacent line. Split after `py.rt/ctx`.
+- **`src/cljc/yang/safepoint.cljc`**
+  - Line 165 (81 columns, `selected`): the three arguments of `into` now sit on separate lines.
+- **`test/yang/safepoint_test.cljc`**
+  - Lines 110–111 (89 and 91 columns): each `{:type :variable, :name 'w}` map is split across two lines.
+  - Line 108 (84 columns, the `'h/return` map): my adjacent line, wrapped the same way.
+- **`test/yang/python/antlr/safepoint_test.cljc`, `set-recursion-limit-test`**
+  - The named lines 686, 687, 729 and 736 are wrapped.
+  - I also did the optional reflow of the rest of the block (about 676–736): same forms, symbols and strings, only re-indented, with `(hooked` on its own line.
+
+## Over 80 still, among the lines I touched
+- `safepoint_test.cljc` lines 731 and 735 (83 columns): the string literal `"cannot set the recursion limit: the limit is too low"`, which can't be wrapped without changing it.
+- `safepoint_test.cljc` line 757 (87 columns, was 109): the run of closing parens that ends the deepest nested form. Shortening it further would mean restructuring the form.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| `cljstyle fix` then `check` (4 changed files) | clean; `fix` had nothing to change |
+| kondo (4 changed files) | 0 errors, 0 warnings |
+| `float-address-test` | 12 tests, 105 assertions, 0 failures |
+| `safepoint-test` and `yang.safepoint-test` (`-e :slow`) | 29 tests, 438 assertions, 0 failures |
+| `yang.safepoint-test`, re-run after the line-108 wrap | 8 tests, 17 assertions, 0 failures |
+| `e2e-test` and `prelude-parity-test` (`-e :slow`) | 54 tests, 488 assertions, 0 failures |
+| `awk 'length>80'` on touched ranges | only the three lines listed above |
+
+I skipped the message-construction nit as you asked. No goldens, assertions or files outside these four were changed, and I ran no git write commands.

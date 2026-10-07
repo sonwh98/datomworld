@@ -1,0 +1,36 @@
+Completed-GMT: 2026-09-30 11:49:11 GMT
+Completed-Local: 2026-09-30 18:49:11 +07
+Coding-Agent: claude
+Session-ID: 0dd55e3e-bfc9-48ba-ba2a-5e307baeb120
+
+Captured continuations can now be called like functions on all four VMs. The full JVM and CLJS test lanes pass. cljstyle did not run because the harness needed an approval I didn't get. Nothing is staged or committed, and the full report is at `collab/1790766815406-vm-engineer-continuation-invocation.claude-opus-5-5.report.md`.
+
+Calling a continuation with one argument drops the current continuation and delivers that argument to the capture point. The store is not rolled back, and a continuation can be called more than once, including after the expression that captured it has returned. Any other number of arguments throws `"Continuation expects exactly one argument"`, with the same message on every VM. No AST tags or grammar changed, and nothing under `yin.repl`, `dao.jing` or `dao.stream` was touched, so it doesn't conflict with the DHT work.
+
+**What changed:**
+- **`engine.cljc`:** two shared helpers, `reified-continuation?` and `continuation-argument` (which checks arity and throws the shared message).
+- **`ast_walker.cljc`:** one new case in `apply-function`.
+- **`semantic.cljc`:** one new case in `apply-call` that jumps back to the captured position and state.
+- **`debruijn/stack.cljc`:** one new case in `:call` that reuses the existing `stack-restore`.
+- **`debruijn/register.cljc`:** `register-restore` is split into two helpers, `check-format!` and `write-back`, without changing its behaviour. `:call` now uses them to invoke a continuation.
+- **Tests:** a new `test/yin/vm/continuation_invoke_test.cljc` runs five tests on every VM: escape (result 9), tail-position call (8), re-entry after return with a store counter (`[30 3]`), store not rolled back (`[1 :written]`), and the 0- and 2-argument errors.
+- **Docs:** `ast.md` and `co-routines.md` are updated, replacing the "Currently ... throws" text.
+
+**Verification:**
+
+| Check | Result |
+|---|---|
+| Revert proof (disable the new case in one VM at a time) | Each VM fails exactly its own 6 assertions, and no other VM's |
+| Focused JVM run, 7 namespaces | 131 tests, 596 assertions, 0 failures |
+| Full `clj -M:test` | 2408 tests, 184780 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2313 tests, 51231 assertions, 0 failures, 0 errors; output shows `Testing yin.vm.continuation-invoke-test` |
+| kondo | 0 errors, 1 warning that predates this change (the unused hot loop below) |
+| cljstyle | Not run (needs approval) |
+| `bb test:cljd` | Not run, as instructed |
+
+**For the Architect to review:**
+1. **Register VM checks less when a continuation is called.** It only checks that the continuation belongs to this VM and code image. It skips the corruption check and the plain-data check that `register-restore` uses for continuations and values coming in from outside. With the full checks, the escape and tail tests failed: the corruption check rejects any capture made while a closure or primitive is held in a live register, which is the normal `((fn [r] …) (current-continuation))` pattern. As a result:
+   - A hand-made continuation map with bad registers would fail as a host error rather than as a structured corruption error. The stack VM already behaves this way on resume.
+   - A called continuation can deliver a closure on the register VM, as on the other three. `:vm/resume` still rejects non-plain values.
+2. **Unused AST-walker fast loop left alone.** `ast-walker-run-active-continuation` is already never called at HEAD. I added the new case there too, then reverted it because it could never run or be tested. If that loop is ever used again, it will throw "Cannot apply non-function" for continuations until it gets the same case.
+3. **`completion.cljc` unchanged.** Its analysis already treats a captured continuation as reaching everything the continuation holds, so calling one reaches nothing new.

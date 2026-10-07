@@ -1,0 +1,42 @@
+# Fix round 4: a malformed manifest index is now a manifest defect, not a crash
+
+A manifest whose optional `:yin.module/index` is malformed (`42`, `[1]`, `"bad"`) no longer crashes the validator. It is reported as a manifest defect naming the manifest. The walk, the staged load and publication all answer with data. All lanes pass. Nothing is staged or committed. "Fix round 4" is appended to `/Users/sto/workspace/datomworld/collab/1790837000000-engineer-linker-L5.claude-opus-5-5.report.md`.
+
+## Fix
+
+- **The validator** (`src/cljc/yin/vm/linker.cljc`, 5 lines). The index stays optional. When present it must be a map; anything else answers `{:rule :manifest-shape :key :yin.module/index}`. Only then are its values checked.
+- **Walker and publication** (`closure.cljc`, `publish.cljc`): no change needed. Both already turn a validator defect into data, so the fix flows through:
+  - the walk answers `:invalid` with `:manifest-defect`;
+  - the staged load answers `:descriptor-defect` naming the manifest;
+  - publication refuses with `/invalid-requirement`.
+
+## Scan for other crashes
+
+I made the scan a test, `the-manifest-validator-is-total-over-every-key` in `closure_test`. It gives every manifest key, plus the optional index, 8 malformed values: a number, a vector, a string, a set, a list, a keyword, a bad map and a vector of pairs. That is 88 cases. For each, the validator must return a defect, and walking the stored manifest must return `:invalid :manifest-defect` naming its address.
+
+Before the fix, only the index crashed, for 7 of its 8 values. Every other key already returned a defect for every value, because each is shape-checked before use. There were no further defects to fix.
+
+## Regressions
+
+All are cross-host. Each was written first and failed before the fix:
+
+| Test | Checks | Before the fix |
+|---|---|---|
+| Direct walk (`closure_test`, 42 / [1] / "bad") | the defect, and the walk's `:invalid` outcome naming the manifest | 3 failures, 3 errors (crashes) |
+| The 88-case scan (`closure_test`) | every case answers a defect, and every walk is total | 7 + 7 failures, all on the index |
+| Staged load (`linker/dht_test`) | the exact `:descriptor-defect` row with `:code :manifest-defect`, and one load-failed event | 3 failures: it reported `walk-threw` with `:address nil` |
+| Publication (`publish_test`) | `{:status :refused :reason :yin.link.publish/invalid-requirement :name dep}`, nothing written | 3 failures: it threw |
+
+## Mutations
+
+- **Original code restored:** every regression above fails (17 failures and 3 errors in `closure_test` alone).
+- **A non-map index silently accepted:** 16 failures across the walk, the staged load and the scan. The publication test still passes under this mutation, and that is correct. Publication then refuses later, at the missing index entry, and still returns data. The original crashing code does fail it.
+
+## Lanes (final code, foreground, each run to its verdict)
+
+| Lane | Verdict |
+|---|---|
+| kondo (all 11 changed `.clj`/`.cljc` files on the branch) | 0 errors, 0 warnings |
+| `bb test:cljs` | 2613 tests, 0 failures |
+| `bb build:yin-repl-peer`, then `bb test:cljd` after `rm -rf test/cljd-out` | built; +2568, all tests passed (4 more than before) |
+| `bb build:yin-repl-node`, then JVM tests in three chunks | 2700 tests, 0 failures, across all 168 namespaces, including the process test |

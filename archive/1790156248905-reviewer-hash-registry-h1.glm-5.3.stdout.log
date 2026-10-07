@@ -1,0 +1,62 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-23 09:54:21 GMT
+Completed-Local: 2026-09-23 16:54:21 +07 (Indochina Time)
+Coding-Agent: glm
+Session-ID: 2a6d35ed-eca8-4cae-b8f2-681d2fb6d667
+
+# Verdict: READY WITH CHANGES
+
+The H1 cutover is functionally sound and fully green on all three hosts, and 24 of the 25 reviewed contract points conform. One Class-4 site was implemented in the exact shape the architect-signed classification rules out, and two named H1 completion criteria (the active architectural lint; codec round-trip under the selected algorithm) are not met. None of the findings is data-corrupting; all fixes are small and local.
+
+## Verification performed
+
+- Read in full: `dao.jing.hash-registry.md`, `dao.jing.call-site-classification.md`, `datom.world.md`, `hash_registry_contract_test.cljc`; full diff review of all 29 changed files.
+- **Test lanes** (via the delegated-worktree ProcessBuilder route with mise's Java 21/flutter/Node, per project memory; logs in `target/`):
+  - CLJ: 1811 tests, 175507 assertions, 0 failures.
+  - CLJS (shadow `slice-peer` + `test` node-test builds, 0 warnings): 1728 tests, 45364 assertions, 0 failures — `@noble/hashes` 2.4.0 resolves and executes; contract test passes under the real provider.
+  - CLJD (prebuilt peers): 1690 tests, all passed — `blake3_dart` 1.0.0 resolves and executes; the `[1 2 3] → c3a8cc55…` fixture agrees on JVM, Node, and Dart.
+- **Style**: every added line in `src/`/`test/` is ≤ 80 columns and ASCII-only. `cljstyle check` (spawn route) flags 20 files repo-wide — **none of them H1-modified** (pre-existing drift in `.chp`/`.edn`/old test files). `clj-kondo` shows 3 new unused-private-var warnings (see P3-2).
+
+## Confirmed conforming
+
+- **Registry**: closed and immutable, exact entries as specified; `default-hash-algorithm` = `:blake3`; deps pinned exactly (`rctcwyvrn/blake3` 1.3, `@noble/hashes` 2.4.0, `blake3_dart` 1.0.0). `clojure.core/get` qualification in `jing.cljc` is load-bearing (the ns excludes `get`) — correct.
+- **Parser/predicate**: `parse-segment-address` and `segment-matches?` are total, dispatch strictly on the address-carried algorithm, and are behaviorally identical to the H0 reference (now delegating to the real `dao.jing` fns, exactly as the H0 namespace docstring promised). All rejection classes (unknown algo, length, case, non-hex, non-canonical, encoder refusal→false; minting→throw) verified by the frozen tests on all hosts.
+- **All 20 Class-3 sites** converted to `segment-matches?`; none re-mints for validation (remaining `segment-key` calls are Class-2 mints or error-diagnostic values, not equality positions).
+- **Class-4 sites 1–3** (DHT caching, `hydrate!`/`pull!`, `hydrate-async`/`fetched!`) derive the algorithm from the source address and confirm the returned address equals it.
+- **Class-1/2**: `primitive-profile` explicitly `{:algorithm :sha256}`; `checkpoint-candidate`/`restore` swapped to `:schema-address` with no fallback reader (missing key fails closed); frozen contracts (DHT `node-id`, H, dimension/node hashes) untouched; goldens regenerated per the clean-break ruling; no committed dev stores or stale address fixtures remain; `dao.jing.cbor.md` multihash text verified active.
+- Note: the `yin.vm.debruijn.register.md` hunk in `git diff master` is master-side noise (master advanced one docs commit, `026684dd`, past this branch's H0 base) — not an H1 edit.
+
+## Findings
+
+### P1
+
+1. **Class-4 site 4 (`store-tree-async`) does not flush via the address-supplying put operation** — `src/cljc/dao/data/btree/storage.cljc:325,341-343`. The architect-required `:put-content-async-fn` was added to `async-content` (`remote/async.cljc:171`) but has **zero callers and zero tests**; the flush instead calls `:materialize-async-fn` with a bolted-on `{:algorithm (segment-algorithm addr)}` arity — the exact shape the classification rules out ("not a parameter bolted onto the existing `materialize-async-fn` signature"; the site "must carry the source address … using an address-supplying operation"). H1's own complete-when item ("store-tree-async flushes supplying the source address to the remote store") and this review's mandate ("flushes unacked blobs carrying address via address-supplying put operation") are unmet. Behavior is equivalent today (same-process re-mint under the same algorithm reproduces the address, and the `(= addr (:address c))` check fails loudly on divergence), so this is contract nonconformance, not a live bug — but it gates phase completion. Fix: wire the flush through `:put-content-async-fn` (adjusting the completion check from `:materialized?` to `:result`/`:address`; note the plain put skips the verify-read that materialize performs — acceptable, since the remote validates at its own door, but worth one test), or obtain an explicit architect amendment of the classification doc.
+
+### P2
+
+2. **The architectural lint is not active** — H1 requires "the architectural lint/test preventing default-following verification is active" (test obligation: "a source-level guard against reintroducing default-following verification"). Only the H0 representative-form specification exists (`hash_registry_contract_test.cljc` §4); nothing sweeps `src/`. My manual sweep of the current tree finds no remaining equality-position default mints, so the source pass is clean — the guard is simply missing. Note a latent inconsistency to resolve when activating it: the frozen syntactic decision procedure flags `(= (jing/content-hash a) (jing/content-hash b))`, which is `dao.jing.file/validate-codec-round-trip!`'s shape **and also the design's prescribed per-algorithm shape for that site** — the H0 prose ("compared against a pre-existing address") exempts it, but the pinned syntax does not, so activation needs a reviewed exemption for the file-codec site.
+
+3. **`validate-codec-round-trip!` does not use the selected algorithm on both sides** — `src/cljc/dao/jing/file.cljc:93-97` hashes payload and replayed with one-argument `content-hash` (the default), while the design mandates "(content-hash payload {:algorithm algorithm}) / (content-hash replayed {:algorithm algorithm}) … the algorithm selected for the pending address" (H1 item: "file codec round-trip validation uses the selected algorithm on both sides"). The function doesn't receive the address/algorithm at all (`make-put` has it). Behaviorally near-equivalent (both sides deterministic over the same encoder; only a BLAKE3 collision could mask what SHA-256 would catch, and vice versa), but the normative shape is not implemented. Fix: thread the address in from `make-put` and hash both sides under `(segment-algorithm address)`.
+
+### P3
+
+4. **Stale docstrings missed by the generalization pass** (H1: "SHA-only storage docstrings and errors are generalized"):
+   - `jing.cljc:8` ns docstring still says "get reads only :segment/sha256-... content addresses";
+   - `jing.cljc:296-298` `sha256-bytes` docstring still claims "`(sha256-bytes (canonical-bytes v))` is `(content-hash v)`" — now false under the BLAKE3 default (actively misleading);
+   - `dht.cljc:283` `create-content-dht` docstring "routes only :segment/sha256-... addresses" (the ns docstring was fixed; this one wasn't);
+   - `space/index.cljc:289` `valid-manifest?` docstring ":segment/sha256-... content address";
+   - `space/index.cljc:1334,1354` `restore` docstring still names `:schema-hash` and "its content hash must equal the candidate's";
+   - `remote/step.cljc:56-59` ns docstring still describes the superseded "`content-hash` against `segment-hash`" verify mechanism at the exact code H1 changed;
+   - `remote/async.cljc:15-18` handle docstring omits the new `:put-content-async-fn` and the new `materialize-async-fn` arity;
+   - `btree/storage.cljc:28-29` ns docstring "plus segment-key for §5.2 verification" (verification is now `segment-matches?`);
+   - `file.cljc:253` "a SHA-256 collision" (borderline — generalize to "a hash collision").
+
+5. **Dead code orphaned by the cutover** (kondo-confirmed): `dao.jing/hex-digits-set` (`jing.cljc:43`); in the contract test, `hex-digit-pattern` (:92) and `digest-bytes-hex` (:189, transitively `blake3-fixture-by-input-hex` :71) lost their only callers when the reference implementations were delegated to `dao.jing`. Plus the unused `:put-content-async-fn` (P1-1).
+
+6. **`digest-table.edn`'s header overstates H1**: "H1's provider-conformance tests read this file and assert `(= observed (:blake3-256 case))` on every host" — H1 exercises exactly one canonical case (`[1 2 3]`) through `segment-matches?`; the official-vector corpus (10 + 5 cases) is only count-checked. Full vector conformance is H2's deliverable per the design, so this is a phasing mismatch — either add the cheap corpus loop now or fix the comment.
+
+7. **Inconsistent error-diagnostic algorithm**: `yin/vm/semantic.cljc:624` and `space/index.cljc:318` mint the mismatch `:actual` under the **default** algorithm while the claimed address may be SHA-256 (a cross-algorithm mismatch reports a BLAKE3 actual against a SHA-256 claim). `yin/vm/ledger.cljc:206-214` gets this right by deriving the diagnostic algorithm from the claimed address — the other two should match it.
+
+## Disclosure
+
+Per the read-only mandate I edited nothing; lane logs, the kondo log, and the cljstyle report are scratch files under `target/` (gitignored). `cljstyle` and the lane commands ran through the sandboxed ProcessBuilder route recorded in project memory; direct invocation was blocked.

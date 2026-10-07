@@ -1,0 +1,30 @@
+Completed-GMT: 2026-09-02 18:02:50 GMT
+Completed-Local: 2026-09-03 02:02:50 Asia/Shanghai
+
+Both required changes landed in substance. Two leftover sentences contradict them, and the cursor rule's trigger clause misses three site families. Everything below was checked against the source, not the summary.
+
+**Question 1: did the required changes land?**
+
+The divergence record is accurate about why. Under reject mode the only operation that frees a slot is the destructive drain at `ringbuffer.cljc:161`. The non-destructive read at lines 109 to 119 moves the cursor and never `:head`. The contract forbids the one alternative, eviction that waits on a reader. So a reject-mode v2 buffer with no drain fills once and stays full. Two nits, neither affecting substance:
+
+- Line 192 cites `ringbuffer.cljc:72` as part of `drain-one-state`. Line 72 is inside `evict-oldest-state`, which the same paragraph correctly says runs only under the evict policy.
+- "Would never wake" is slightly strong. Under v2 polling, a `close!` would wake a parked put through the `closed` append outcome. Irrelevant now that the request is withdrawn.
+
+The cursor rule is right in principle and under-scoped in its trigger. It says minting happens "when its handle enters the VM store". Three fabrication families never pass through the store, so an implementer still has to decide when to mint:
+
+- The in-stream cursor at `stream_driver.cljc:25` and `ast_walker.cljc:784`. The in-stream is a VM field, not a store entry.
+- The bridge cursor at `ffi.cljc:31-32` and the fallback at line 96. It is defaulted in `normalize`, and `attach` can run on an already-built VM, so there is no single store-entry moment.
+- The one-arity defaults at `apply.cljc:170,184`. That is the envelope layer, with no VM at all. The natural answer is that v2 has no cursorless arities, but the plan does not say so.
+
+**Question 2: new defects from the five changes**
+
+- **Line 272, Phase V2, still says "`take!` redefined".** That directly contradicts lines 140 to 147, which say removed, not reinterpreted. The phase list is what gets built from, so this is the relocated-problem case.
+- **Line 311 still says "three user-visible changes."** Corrected to four everywhere else.
+- **Telemetry**: the new protocol-before-`map?` ordering is correct for record handles. But if the v2 ring buffer cursor is itself a map, the `map?` branch walks the opaque cursor at depth and re-emits its position field, which undercuts the claim that a position summary cannot exist. The cursor-ref's payload should summarise without descent. Minor.
+- **FFI capacity**: "maximum-outstanding plus one" is sound, but maximum-outstanding is one per parked call and the VM does not bound parked calls. The composition picks a number, and exceeding it is fatal where v1 was unbounded. That is a real divergence and should be a named line in the register rather than implied by the retention paragraph. Minor.
+
+Verified clean: the `:module/require` change matches `module.cljc:97-102`, the consumer plan carries all four changes consistently at lines 65 to 78, and nothing in the ported closure outside `engine.cljc` consumes `take!`.
+
+SIGN-OFF: WITHHELD
+1. Line 272: change "`take!` redefined" to "`take!` removed". Line 311: "three" to "four".
+2. Cursor rule, one sentence: minting happens the moment the VM first holds the handle, whether as a store entry, the `:in-stream` field, or a bridge attach, and `dao.stream.apply` has no cursorless arities.

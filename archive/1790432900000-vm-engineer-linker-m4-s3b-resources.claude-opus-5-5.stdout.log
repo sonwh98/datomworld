@@ -1,0 +1,74 @@
+Completed-GMT: 2026-09-26 11:46:56 GMT
+Completed-Local: 2026-09-26 18:46:56 +07
+
+# S3b: private resources table and sealed references (linker r8–r11)
+
+The P0 from the codex gate is fixed: programs can no longer reach engine resources through the store, and a hand-written reference is refused when used. JVM and Node are both fully green; Dart was not run. Nothing is committed. The full report, including every changed test and why, is at `collab/1790432900000-vm-engineer-linker-m4-s3b-resources.claude-opus-5-5.report.md`.
+
+The clocks disagree: `date` gave 11:46:56 GMT, which is earlier than the brief's Created-GMT of 12:00:00. I used what `date` gave.
+
+## What changed
+
+- **r8, private table:**
+  - Stream handles, cursor cells, the FFI pair and the link pair now live only in `:resources`.
+  - The engine's stream handlers, wait-set resolver and resume read and write only that table. `ffi.cljc` and all four kernels read the FFI pair from it.
+  - The wait-entry key `:store-updates` is renamed `:resource-updates`.
+- **r10, seals:**
+  - Every reference the engine issues is `{:type :id :seal}`. The seal is a sha256 hash over the task's secret, the kind and the id.
+  - `put`, `cursor`, `next` and `close` check the seal, the kind, and that the resource is live. Anything else fails closed with `:forged-resource-reference`, naming the effect and the id.
+  - `engine/attach-resource` is how a composition hands a task a stream.
+- **r11 and r9, lift and lower:**
+  - A reference is authenticated against the sending task's secret before it is encoded. The stream crosses as its descriptor, the cursor as a cell.
+  - The receiver attaches the stream through the composition's `:attach-stream` and installs a fresh cursor cell, both in its own `:resources`.
+  - The references are re-sealed under the receiver's secret, and no store key is created.
+- **Also touched:**
+  - `completion.cljc`: pulls resources into a slice beside the store slice.
+  - `telemetry.cljc`: gains a `:vm/resources` summary, where handles appear as identity nodes.
+  - `dao.await`: attaches the streams in its env into `:resources`.
+  - The handoff demo: reads resource keys from `:resources`.
+
+## Choices where the spec left room (all fail closed)
+
+- **The secret is injected, never minted by the engine.** The options are `:capability-secret` for the task, `:secret-source` to mint an install child's secret, and `:attach-stream` to attach lowered streams.
+- **A task with no secret can issue no reference.** `stream/make` fails before any stream is created.
+- **An install child gets its secret only from `:secret-source`.**
+- **Non-test compositions mint their own secret with `random-uuid`,** as the spec's "from its own random source" says. These are the REPL, `dao.await`, `yin.demo`, the three cljs demos, and the cljd bench. Test compositions inject a fixed `tu/secret`.
+
+## Tests
+
+New in `linker_require_test`:
+- A module's forged store reads, and the task's own top-level forged reads, of every predictable id all return nothing.
+- At effect dispatch, the task's own sealed reference works. These are all refused as forged:
+  - a reference with no seal;
+  - a wrong seal;
+  - another task's seal on the same id;
+  - the FFI pair's ids, as a stream or as a cursor cell;
+  - a stream reference relabelled as a cursor.
+- A fabricated reference export is refused at lift, even when the child holds a live stream at that id.
+- A module exporting a stream and a cursor works end to end: the parent writes 5 and reads it back. The references are re-sealed for the receiver and the resources land in its private table.
+- The install is refused with no attacher (`:yin.k/unsatisfied`) or no child secret source (`:no-capability-secret`).
+- `:foreign-image`, which was missing, now has a test using a fault-injected child.
+
+About 20 existing test files changed. Most changes add the secret to the test composition or read handles from `:resources` instead of `:store`. Where a test fed a hand-written reference to an effect, it now uses the reference the engine issued, because a hand-written one is now a forgery by design. Several assertions got stricter; none got weaker. The one comparison I relaxed on purpose is the REPL parity test, which now masks seals the same way it already masked stream UUIDs, since each REPL session has its own secret.
+
+## Checks
+
+| Check | Result |
+|---|---|
+| JVM, full lane | 2,166 tests / 182,516 assertions, 0 failures |
+| Node, full lane | 2,079 tests / 49,247 assertions, 0 failures |
+| kondo | 0 errors (remaining warnings exist at HEAD too) |
+| cljstyle | clean |
+| ASCII / 80 columns on touched lines | 0 violations |
+
+The Node lane ran before my last formatting-only and docstring edits; the final full JVM run was after them.
+
+**Not done / worth a later look:**
+- **Dart lane:** not run; the orchestrator runs it.
+- **UCF doc:** still describes the old store-based decode targets. That doc is S5's.
+- **Seal strength:** the seal is a content hash, not an HMAC, because `dao.jing` has no MAC function. It is sound here, but a library HMAC would be stronger if one is added.
+- **Parked-continuation ids:** `[:resume parked-id]` still takes a guessable id. It is outside r10's list, so I left it.
+
+Separately, the claude.ai Gmail, Google Calendar and Google Drive connectors still need authorizing in your claude.ai connector settings; they weren't needed here.
+
+Status: COMPLETE

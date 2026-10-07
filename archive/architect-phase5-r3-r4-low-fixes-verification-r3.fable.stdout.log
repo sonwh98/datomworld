@@ -1,0 +1,30 @@
+Completed-GMT: 2026-09-04 05:49:30 GMT
+Completed-Local: 2026-09-04 12:49:30 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: fde8b517-9c3f-48c6-a4d9-c455489fbebc
+
+## Scope and method
+
+Read-only review of the unstaged delta to `driver.cljc`, `connect.cljc`, `serve.cljc` and their tests since the round-2 grant, traced against the committed `rpc`, `ws`, `serving`, and `v2-adapter` code. No suites were rerun; the reported JVM, Node, kondo, and CLJD evidence was assessed as claims and each new test was read for the edge it actually drives.
+
+## Findings
+
+Severity | file:line | evidence | correction
+---|---|---|---
+Low | `src/cljc/yin/repl/driver.cljc:227-240`, `:296-306` | `abandon-unsent-now` publishes the old adapter's outbox only when an unsent envelope exists. A line handled earlier in the same tick can leave an unpublished `request-undeliverable` completion with no unsent envelope; a `(connect …)` later in that tick then replaces the adapter and the `lost` completion is dropped. The operator already saw the "request not sent" notice from `submit-remote`, so nothing is silently lost, only the duplicate `lost` line. | Publish the old adapter unconditionally before `attach-remote`, gating only the abandon on `remote-unsent?`.
+Low | `src/cljc/yin/repl/driver.cljc:101-103`, `:296-306` | After an uninvited drop, lines are queued "until (connect …) reattaches". A `(connect …)` to a *different* URL takes `open-connection`, whose `attach-remote` resets `:queued []` with no notice. Same-URL reattach releases them, as promised. Pre-existing; the round-2 recommendation named it. | Publish a notice naming the dropped count when a fresh connection discards a non-empty queue.
+
+## Disposition of the four LOW findings
+
+1. **`/transport-error` routing.** Closed. `queueable-terminals` is `#{/detached}` only, so `remote-routed?` is false after a reachability failure and ordinary input evaluates locally; the "queued until (connect …) reattaches" notice is now reachable only for `/detached`, the one terminal a reattach can honour. Tested end to end through the driver with a 1006 close.
+2. **Fresh `open-connection` abandons old `:unsent`.** Closed. `abandon-unsent-now` abandons with `:abandoned-on-fresh-connection`, moves the completion RPC → adapter → driver outbox via the two existing exactly-once take operations, and only then does `attach-remote` install the new adapter. `retry-unsent` cannot pre-empt it because the terminal is non-queueable. The test constructs the `full`-forever seam, asserts the reason text in the same tick, and asserts the new binding sends only the newly typed line. Request ordering and id monotonicity within each client state hold; the fresh client starts a new allocator, which is a new boundary by design.
+3. **First terminal conclusion is retained.** Closed. `transition` ignores every non-diagnostic lifecycle value once `:status` is in `terminal-statuses`, and `close!` keeps a terminal status rather than writing `:closing`. Tested with a pre-resolution close, which deposits `/transport-error` then `/detached`: status stays `:transport-error` and exactly one event is produced. Reattach resets status to `:connecting` first, so a later `/established` is still observed.
+4. **Never-bound and synchronous stop failures.** Closed. `stop-endpoint!` returns `:never-bound` without calling `unbind!` when no resource was retained; an `unbind!` throw deposits `:listener-error` and returns a transport-error with its diagnostic; `finish-stop` resolves either to `:stopped` with `:resolution nil` and publishes the structured reason, inventing no host completion. The `:stopped` lifecycle event is still deposited only by the host path. Three tests cover host-nil, bind-threw (asserting `unbind!` is never invoked), and unbind-threw (asserting the reason text).
+
+## Passed properties
+
+- Outbox exactly-once is preserved on every new path: no completion is published twice, and the only unpublished-event window is the same-tick edge noted above.
+- Stop status and resolution stay consistent: `stopped?`, `stop!`, and `finish-stop` agree on which endpoints owe nothing, and `:failed` endpoints keep their reason.
+- All changes are pure `.cljc` transitions with no host branch, so the CLJ/CLJS/CLJD claims rest on the same code.
+
+SIGN-OFF: GRANTED

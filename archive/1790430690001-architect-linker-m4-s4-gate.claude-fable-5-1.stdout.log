@@ -1,0 +1,56 @@
+# Gate review: M4 slice S4, manifests and derivation records
+
+Reviewed the uncommitted linker diff (+650/-29) and the new manifest test file in the m4-s4 worktree against the linker spec sections 4.2, 4.3, 5.5, 8.1, 10 and criteria 18, 22, 24. The implementer's report was treated as untrusted and every claim was checked against the diff. Suites were not rerun. The full review is also saved at `/Users/sto/.claude/plans/read-collab-1790430690001-architect-link-mellow-wigderson.md`.
+
+## Verdict: APPROVE-WITH-FIXES
+
+No P0. Two small local P1s.
+
+## P1 findings
+
+**P1-1. Manifest validator is fail-open for a non-map payload.** `src/cljc/yin/vm/linker.cljc:783` wraps the validator in `(when (map? manifest) ...)`, so a vector or string at a valid address returns nil from both `:row-defect-fn` and `:validate-fn` and is reported as a verified manifest. The sibling `record-defect` at line 853 handles this correctly. Today the flaw is masked because `link-manifest` at line 2149 reads the contracts map from nil and refuses `:contract-mismatch`, which is the wrong reason. Any future caller that fetches a manifest directly through `manifest-format` (S3's `link-module`, a registry ingest) would accept garbage. Fix: `(if-not (map? manifest) {:rule :manifest-shape} (or ...))` plus one test.
+
+**P1-2. `declared-discharge` throws on an unknown `:kind`.** Line 1007 is a `case` over `:primitive` and `:module` with no default. `discharge` is a public export and consumes obligations from the wire (section 4.2 step 5b, and `fetched` at line 1746). An obligation with `:kind :other` throws on all three hosts instead of refusing. Fix: default arm returning `:unresolved-free` with the name and kind, plus one assertion.
+
+## P2 findings
+
+**P2-1. Profile pins (task item a).** Not a correctness bug. The profile map is compared whole at line 1975 and its contract field carries `vm/register-contract` which is "r2", so the pin is right and the `:yin.lower/profile` string is only an algorithm name, never a stamp. The spec itself says "the B2 stack lowering, the R1 register lowering" at line 1642 without fixing a value, so the implementer's deviation 3 is honest. But "r1" is exactly the stamp Rule R retired, and the two names disagree on whether the digit tracks the contract. Recommend renaming to `"stack-lowering"` and `"register-lowering"`, following the ledger's `"ast-to-bytecode"` precedent, and amending the spec wording in the same commit. Nothing else in src, test, or docs references the strings. Free break now, expensive later.
+
+**P2-2. Criterion 24's manifest stamp test is missing.** The path at line 2149 is correct but no test links a manifest whose contracts entry names "b1". Also untested: the `:missing :relowering` branch at line 1993 and a record with the wrong op or an extra key.
+
+**P2-3. `:contract-mismatch` evidence reads backwards at the manifest step.** Line 2150 puts the manifest's claim under `:expected` while step 0 at line 1504 puts the requester there. Pick one convention.
+
+## P3 findings
+
+- **Name check skipped without `:name`** (line 2153). Defensible for by-address links, but document it and require S3's `link-module` to always pass it.
+- **Index merge is link-local** (lines 2161, 2167, 2172 discard state). This is the safer behavior, but the `with-manifest-index` docstring claims the entries become composition data. Fix the docstring. If S3 persists the index, persist only entries keyed by that manifest's own derivation outputs.
+- **Module obligations skip export membership.** `declared-obligation` at line 1850 accepts any `dep/f` when `dep` is required, without fetching `dep`'s exports. Acceptable for S4, record it for S3.
+
+## Deviations judged (task item c)
+
+1. New public `link-manifest`: accept, add to section 10 in the S5 doc pass.
+2. Fourth swapped-image reading: accept. The literal spec construction is impossible since the tree image is the manifest's tree by definition. The implementer's construction exercises exactly the `:verifying` recomputation and the `:trusted` addresses-only rule, and installing under `:trusted` with `:trust :composition` is what section 8.1 specifies.
+3. Profile maps in linker.cljc: accept location, fix strings (P2-1).
+4. Fallback arity overloading: accept. The B6 4/5-arity bodies are byte-identical to the removed defns.
+5. Re-lowering over the datom lane: accept. `ast->datoms-with-root` uses a deterministic counter, not gensyms, and identities hash the lowered image, so the round trip is deterministic across hosts.
+
+Done/left is accurate and the 14 deftests match the file.
+
+## Trust and fail-closed audit (items b and d)
+
+- No contract stamp is assigned to external input anywhere. Requester and manifest contracts are compared against the record constant, never defaulted.
+- Every external value passes steps 2 to 4 before it is read: manifest, record, tree, and image each go through their own format record. The record's output is used only as an identity to fetch, and step 3 verifies the image against it.
+- `:verifying` never downgrades. Unimplemented profile, refused tree, and unrelowerable tree each refuse `:unverified-derivation`. Inequality refuses `:derivation-mismatch`. The semantic format uses `ledger/verify-derivation` with the implemented profile passed explicitly.
+- `:trusted` checks the input address, fetches at the output, and says `:trust :composition`. The test confirms it never claims `:verified`.
+- Rule R holds: `yin/def` is refused as module name and among exports, requires, and primitives with `:role :declaration`.
+- ClojureDart: the one new reader conditional puts `:cljd` first. No bare `#?(:clj ...)`, no private cross-namespace access.
+- `drive-link` mirrors `fetch`'s loop with a distinct `::manifest` id tag, so the two cannot collide on one runtime.
+
+## Must-fix before commit
+
+1. P1-1: non-map guard in `manifest-defect`, plus one test.
+2. P1-2: default arm in `declared-discharge`, plus one assertion.
+
+Recommended in the same commit: P2-1 profile rename with spec wording amendment, P2-2 stamp test, P2-3 and the index-merge docstring.
+
+**Verdict: APPROVE-WITH-FIXES**

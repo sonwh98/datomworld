@@ -1,0 +1,20 @@
+Completed-GMT: 2026-10-05 17:53:38 GMT
+Completed-Local: 2026-10-06 00:53:38 +07
+
+I stopped before any edit, because the brief's stop condition applies: the r3 plan doesn't say where lift reads protection classes on a first exclusive export. I changed no code, tests or fixtures, and ran no tests, kondo or cljstyle. The only file I wrote is the report at `collab/1791223000000-compiler-engineer-ucf-d9-v1-lift.findings.md`.
+
+**Why it's a ruling.** No code defines the machine's `:yin.k/custody` map (r3 1.1 describes it but nothing builds it), and a first export has none anyway. So the lift has no input for any of the header values the version-1 body needs:
+- the occurrence
+- the arbitration `{identity, descriptor}`
+- the origin
+- the next-op-seq
+- the set of enrolled streams, which `:unprotected-pending` needs
+
+`export-task`'s `opts` only knows `:cursor-profiles`, and I didn't build the rest of D9 without the header.
+
+**Recommendation in the report.** Pass all of these in one `header` argument to `prepare`, which stores it in the export record beside `:served`. Then `encode` stays a pure function of the record, and a D14 journal can store the record. The composition would supply the header after folding the ledger reader. An incomplete fold would be `:unsatisfied` before `prepare` is called. The report also lists two alternatives and four short questions for the ruling.
+
+**Two concerns for the fixtures.** Regenerating the C4 accepted fixtures through a real lift needs real programs that produce each base. The current mutation paths, such as `[:yin.k/frames 1 :yin.k/pending]`, depend on frame order and may need re-checking against the regenerated bases. Op ids can't come from a real run until D11, so op-id fixtures would need the id set by hand on the wait entry.
+
+Once the header channel is ruled on, the rest of D9 follows from the brief.
+You've hit your session limit · resets 3:50am (Asia/Saigon)

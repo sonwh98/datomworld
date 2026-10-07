@@ -1,0 +1,57 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-03 18:52:52 GMT
+Completed-Local: 2026-10-04 01:52:52 GMT+07
+
+# Gate re-check: Python C2-S3, round 5, final base `be1f8d06`
+
+Re-read the staged change on the rebased tree (6 files, +783/−42; index == working tree; nothing committed). All evidence from the staged files; no suites run.
+
+## 1. `py/stop-as-return` and the delegate throw path — fix confirmed, fresh-eyes re-check clean
+
+`py/delegate-step` (`prelude.cljc:445-459`) now routes only the **generator-delegate throw** outcome through `py/stop-as-return` (`462-468`); the send arm and the non-generator throw arm are untouched. I re-derived every throw case against CPython 3.9.6 (`gen_throw`/`gen_send_ex`/`_PyGen_FetchStopIterationValue` semantics):
+
+| Case | Prelude (`file:line`) | CPython 3.9.6 | Match |
+|---|---|---|---|
+| thrown `StopIteration(7)`, delegate closed | closed passthrough `gen-switch:260-263` → `[:raise]` → consumed as `[:return 7]` | finished generator's throw raises as-is; delegator consumes `StopIteration` and resumes with `.value` | ✓ |
+| thrown `MyStop(8, 9)` (subclass) | `py/subclass?` + `attrs["value"]` = 8 (init inherited via `py/class-lookup`) | same, `.value = args[0]` | ✓ |
+| thrown `StopIteration` (class) | `throw-exc` instantiates → value None → completion None | same | ✓ |
+| thrown into a **suspended** delegate, uncaught | delivered at its yield site; escapes → `py/gen-fail:297-304` → RuntimeError; arrives as `[:raise RuntimeError]` → **not** consumed | `gen_send_ex` converts identically → RuntimeError to caller | ✓ |
+| thrown into a **sequence** delegate | `[:raise v]` raised in the outer (`458`); uncaught → PEP 479 at the outer's boundary | `AttributeError` on `.throw` cleared, original re-raised at the delegator's `yield from` → same | ✓ |
+| delegate **body** raises StopIteration (send or throw) | body path hits `gen-fail` first, so only RuntimeError can arrive; the send arm (`457`) never passes through `stop-as-return` | PEP 479 RuntimeError | ✓ |
+| outer's own handler raises StopIteration | `stop-as-return` only wraps the delegate's switch outcome; the outer's own raise is untouched → RuntimeError | same | ✓ |
+| thrown StopIteration caught by the delegate (yield or return) | `[:yield]`/`[:return]` pass through unchanged (`465` false-branch) | same | ✓ |
+
+Swallow-hunt: the only sources of `[:raise <StopIteration>]` from a generator delegate's switch are `gen-switch`'s closed/created passthroughs of the thrown message (`260-268`) — every body-raised one is already RuntimeError. Nothing else can be consumed. Confirmed no change to the round-1 conforming cases: send forwarding (`434`, `448-451`), close ordering (`445-447` + `py/gen-close`), already-executing (`258-259`), PEP 479 on the body, non-generator delegates. The fix's e2e test hand-verifies (`yield-from-thrown-stop-iteration-test`: "v 7"/"after", "v 8"/"after", "v None"/"after", then two `('generator raised StopIteration',)` — all CPython 3.9.6-correct) and fails without the fix (pre-fix cases 1-3 end in an uncaught RuntimeError).
+
+**P3** | `src/cljc/yang/python/antlr/prelude.cljc:467` | a StopIteration-subclass instance whose attrs lack `"value"` (a guest subclass overriding `__init__` without inheriting `StopIteration.__init__`) completes delegation with None; CPython's `_PyGen_FetchStopIterationValue` falls back to `args[0]` | None is a safe default and normally-defined subclasses are unaffected (init resolves through `py/class-lookup`); if closed later, fall back to `args`' first item when `"value"` is missing. No action requested this slice.
+
+## 2. Sticky invalidation — fix confirmed
+
+`py/iter-step` (`prelude.cljc:1775-1795`): before advancing, a `:keys-iter` source whose live count differs from its recorded size has that size rewritten to `-1` **on the iterator's own source map**, then the fall-through advance raises via `py/iter-at:1788-1793`. Count can never equal −1, so every later `next`/`for` step raises the RuntimeError forever — including after the dict is restored (the parity form does exactly this: `cell/set! dct before` then expects `true` again at `k`). Verified: each `iter()` call builds a fresh keys-iter map, so the poison cannot touch an unrelated iterator or the dict itself; legitimate exhaustion is unaffected (the `:src :py/None` path precedes the check); `next(it, default)` still raises (non-`:return` outcomes are never defaulted, `py/gen-result`); the pre-check and `iter-at`'s check are the same predicate on the same data with no guest code between, so the first error can never fire unpoisoned. The round-1 P3 (same-size delete+insert still silently continues; CPython's version tag) remains, disposition unchanged: out of scope.
+
+## 3. The new tests — can fail, CPython-accurate, honest heap claim
+
+- `yield-from-chain-with-changing-callers-test` (4-deep coverage: chain a→b→c, resumers = top level, guest function, plain generator, delegating generator; throw through three levels from a function): hand-computed `"c1" "c2" "b-list" "a-end" "done"`, log `[('c got', 'sent'), 'c fin', ('b got', 'c-ret'), ('a got', 'b-ret')]`, then `"c caught" "end"` — CPython 3.9.6-exact; exact-output on 4 evaluators, so any stale handler stack or misrouted message fails it.
+- `yield-from-suspension-during-unwinding-test`: yields inside `finally`/`except` while KeyError/ValueError unwind through both levels; hand-computed `"1" "inner cleanup" "outer handler" "outer cleanup" "end"` and `"inner cleanup" "outer2 cleanup" "caller ('v',)"` — including the saved-exception-re-raised-after-resume semantics, CPython-exact.
+- `reachable-heap-is-stable-under-delegation-test`: honest about what it measures. The docstring says it: the module has completed, the one suspended `h` is the only extra root, and the measure is the collector's output over that final state (`live-after-collection`, `e2e_c2_test.clj`), not a mid-run observation. Mechanically sound: `engine/collect` (`engine.cljc:2028-2040`) is the real stop-the-world collector; the root is a well-formed sealed `:cell-ref` rebuilt from the heap entry's own `{:value, :seal}` (`engine.cljc:1888`, ref shape `312-323`); `deep-size` follows continuation/closure payloads via `values/host-typed?` and counts cell refs as themselves (they are plain maps), so shared cells are counted once; alternating callers and 10-vs-1000 equality mean any per-yield or per-caller retention (stale continuations, flag-cell leaks, retained resumers) changes the number — it can fail. `^:slow` is on it and on `yield-from-long-range-test`; all seven master `^:slow` tags intact.
+
+## 4. The merge — clean
+
+`:require` in `e2e_c2_test.clj` carries both `yin.vm.engine` and `yin.vm.integer`, alphabetized, no duplicates, both used (`engine/collect` in the heap test; `integer/` at lines 879-880). No conflict markers in any of the six staged files. `git diff master -- float_address_test.cljc` shows exactly five changed lines — the five prelude-derived goldens (old `d99d4805…/d9185a98…/b3a62d04…/48586d14…/306f688f…` → new `5d0cf7ad…/47f4af6d…/6aef84ed…/b74fa7d9…/1024e8e0…`), re-minted once on this base; the hook-prelude golden and C3-S2's dict-keys golden are not among them. `py/key` (`prelude.cljc:1382`), `py/int-canon` (`1427`), `py/hash` (`1442`) are present from the base and absent from the staged diff. Each new prelude key is defined exactly once (`431`, `437`, `445`, `462`, `1758`, `1775`, `1797`); `"iter"` appears exactly twice (the builtin's name and the `builtin-names` entry).
+
+## 5. Cross-host portability of the new code — clean
+
+New prelude code uses only keyword equality, cell access, `assoc`/`get`, `data/count`, integer arithmetic, `py/conj`/`py/outcome` — no reader conditionals, no floats or unary minus, no regex/str helpers, no private mutable fields. The `(get src :py/type)` probe on a list-valued source (a cell) safely answers nil/false on every host before any `cell/get`. Both new parity forms are host-neutral: quoted vectors/maps (`'[outer …]`, `{:py/str "a"}`) are data read by `sexp->uast`, elements not host-evaluated; the `(list 'let '[…] (reduce (fn [acc s] (list 'py/conj acc s)) [] '[…]))` construction evaluates only at host time to build the form, and the reduce builds the conj chain in `a b c e f g h k` / `r1…v4` order matching the expected vectors, which I hand-traced to exact equality on the prelude semantics.
+
+## Prior-findings ledger
+
+| Finding | Final disposition | Evidence | Remaining action |
+|---|---|---|---|
+| sol P2 #1 StopIteration through delegation | Fixed and verified (all eight throw cases match 3.9.6) | `prelude.cljc:445-468`; new e2e + parity forms | None for S3; P3 above (subclass without `value` → None vs CPython's `args[0]` fallback) |
+| sol P2 #2 sticky dict invalidation | Fixed and verified | `prelude.cljc:1775-1795`; parity restore-step expects `true` | None for S3 |
+| sol P2 #3 test depth | Satisfied: 3-deep chain, changing callers, throw through three levels, yields inside finally/except during unwind, honest heap test | `e2e_c2_test.clj` new tests; `prelude_parity_test.cljc` twin forms | None |
+| glm P3 size-vs-version invalidation | Out of scope, unchanged (orchestrator concurred) | `py/iter-at:1788-1793` | Same-size mutation gap: defer to a later slice |
+| Depth/limit gap (`py/gen-switch` has no limit comparison) | Not this slice; safepoint-s2 owns it and covers delegation entries (they funnel through `py/gen-switch`) | `prelude.cljc:254-281`, `448-450` | None here; safepoint-s2 fix round to address |
+
+**The change is ready to commit.**

@@ -1,0 +1,94 @@
+Completed-GMT: 2026-09-26 18:25:00 GMT
+Completed-Local: 2026-09-27 01:25:00 +0700
+Coding-Agent: deepseek
+Session-ID: 7aec5601-a998-45b8-a314-235fd90bcf23
+
+## S1 — BOUNDARY
+
+| capability-shaped proposal (from the three last-round answers) | verdict | why |
+|---|---|---|
+| lease grant **as** capability | **DROP** | conflation: "a lease may not … gate history … this contract gates nothing" (`dao.lease.md:92`, `:295-296`). Tenure ≠ authorization. The *seam* keeps "a verifier may read a lease ledger as context," but the identity is dropped. |
+| an open key carrying the token (`:dao.stream/cap`) | **KEEP as generic seam** | the request map is open; a credential of unspecified format rides an open key. The *specific* key name and token format → **MOVE to ShiBi**. |
+| issuer/verifier HMAC scheme | **MOVE to ShiBi** | crypto scheme. |
+| attenuation / delegation (a chain) | **MOVE to ShiBi** | the seam treats a credential as opaque; how it attenuates is ShiBi's. |
+| revocation | **MOVE to ShiBi** (semantics); **KEEP as seam** the right "verifier reads revocation state from a context stream" | the *mechanism* of revocation is ShiBi's; the *hook* (context stream) is the seam. |
+| the refusal outcome and its name | **KEEP the need**, name it capability-free (S4) | `:dao.stream/refused` stays; `:unauthorized` is dropped (implies an auth system). |
+| bearer-token replay protection | **MOVE to ShiBi** (or channel-level message auth) | the seam does not own replay. |
+| token-to-lease binding | **MOVE to ShiBi** | a specific revocation mechanism, not a seam. |
+
+The seam owns only: *an opaque credential travels with a request; a verifier (composition data) says allow/refuse; the contract has a capability-free refusal.* Everything else is ShiBi's.
+
+## S2 — THE SEAM
+
+**(a) credential transport.** An **open key in the request map**, per-request. The serve request map is already open; a middleware is composed with the *name* of the key it reads/writes, so the seam names no token format. Per-channel authentication is a separate channel-middleware concern (authenticate the channel once; the mirror trusts the channel's identity), not a capability format.
+
+**(b) authorize step.** **Mirror-side middleware**, verifier supplied as composition data — a **pure function** `(verify credential request context) -> {:allow true} | {:allow false :reason r}`. `context` is explicit (see d).
+
+**(c) credential attach.** **Reflection-side middleware** — `:in` transform adds the credential to each outbound request.
+
+**(d) context.** Explicit composition streams handed to `wrap`, exactly as a deposit medium is handed to a transport constructor (`dao.stream.md:370-375`): a revocation stream, a lease-grant stream, a tick stream (time via `dao.lease`). No ambient state.
+
+```clojure
+;; reflection-side (attach)
+{:dao.stream.mw/in (fn [req] (assoc req :credential cred))}
+
+;; mirror-side (authorize)
+{:dao.stream.mw/in (fn [req]
+                     (if-let [r (verify (:credential req) req context)]
+                       {:dao.stream/outcome :dao.stream/refused :dao.stream/reason r}
+                       req))}
+
+;; verifier = composition data, trivial stand-in (no ShiBi):
+(defn allow-list-verifier [credential _request {:keys [allowed]}]
+  (when-not (contains? allowed credential) :not-on-allow-list))
+```
+
+Worked example: a stream is served with a table entry wrapped by `require-credential` composed with `allow-list-verifier` and `context {:allowed #{k1}}`. A request carrying `k1` is delegated to the inner handle unchanged; a request carrying `k2` (or none) returns `:dao.stream/refused` with `:reason :not-on-allow-list`. Cursors, anchors, `gap`, and every outcome other than the refusal cross verbatim. The seam is exercised with no capability system.
+
+## S3 — WHAT THE SEAM MUST NOT FORECLOSE
+
+| ShiBi need (per `dao.space.security.md:33`, `shibi.chp`, `discovery.md:181-190`) | verdict |
+|---|---|
+| attenuation / delegation (credential as a chain) | **supported** — credential opaque, verifier arbitrary. |
+| offline verification | **supported** — verifier is a pure fn of credential + context; "offline" needs only the issuer's public key in context (ShiBi's crypto). |
+| revocation | **supported** via a context stream; semantics are ShiBi's. |
+| caveats bounding op / identity / time / budget | **supported** — verifier sees the full request (op, identity, args) plus ticks for time. |
+| tokens issued by any peer, no privileged issuer | **supported** — resource owner is both issuer and verifier (composition data); no trusted third party. |
+| migration credentials for agents | **supported** — an opaque value in the request/descriptor. |
+| **spendable / metered use (stateful budget)** | **needs a seam extension**: a stateful budget is not a pure function. The seam already permits the only compliant form — a middleware that **appends a metered fact to a side stream it was composed with** (the middleware round's "no op other than an append to a composed side stream"); a separate interpreter enforces the budget. Budget *semantics* are **UNRESOLVED** pending the capability-vs-currency decision (`discovery.md:186-187`). |
+
+**The middleware must not depend on the capability-vs-currency decision** — and it does not: the verifier is opaque to whether a credential is unforgeable authorization or a spendable unit; only a *budget-enforcing interpreter* above the seam would care, and that is ShiBi's, not middleware's.
+
+## S4 — REFUSAL
+
+**RULING: the generic refusal is `:dao.stream/refused`, a new `dao.stream.md` outcome under OD-1's rule, capability-free by name.** The contract already names squeezing a denial into `not-found` as a misdescription (`dao.stream.md:826-829`) and OD-1 (`:805-846`) defines exactly how a new outcome degrades safely: an unrecognized outcome means "not ok, nothing observed/appended, not retryable unless `:dao.stream/retry?`." A refusal is not retryable (retrying a policy decision changes nothing absent a different credential), so it needs no key.
+
+The row: `:dao.stream/refused` — *the operation exists and a policy composed on this handle declined it; nothing observed, nothing appended; not retryable.* It applies to `cursor`/`next`/`append!` (and `attach!`); `descriptor` stays total (outcome set `{ok}`, `src/cljc/dao/stream.cljc:67-68`). The name names no capability and no authn — a policy declining an op is a general fact true of a read-only file or a local access-controlled ring buffer, so it belongs in `dao.stream.md`, not `serve.md`. The reflection presents it **verbatim** like any other outcome; the reader decides (data is syntax).
+
+## S5 — LEASE ATTRIBUTION
+
+**RULING: confirmed — closed by per-author media alone, independent of ShiBi.** `yin.repl.link-policy.md:205-207`: "A capability token such as ShiBi is not needed for this case and would add nothing until leases guard something that untrusted writers can reach." The lease round's fix (one `#{:writer}` renewal medium per lease, identity carried as `:dao.lease/holder`, attribution by medium, `dao.lease.md:274-276`) needs no token. ShiBi becomes relevant only when a lease guards a resource reachable by *untrusted* writers over a *shared* medium, where medium-attribution fails — which is the future capability case, not the current lease case. The seam and lease attribution are orthogonal.
+
+## S6 — DELTA AND VERDICT
+
+Delta against the lease-integrated converged design (≤400 words):
+
+- **Middleware mechanism stays capability-agnostic** — `wrap`, the request/outcome map shape, the position rule, the side-stream rule, the four prohibitions (`docs/design/dao.stream.middleware.md`). It owns no capability concept.
+- **The credential seam is the only capability-shaped thing serve/middleware own**: an open request-map key for an opaque credential; a mirror-side `verify` (composition data) and reflection-side attach; context as explicit streams. Nothing else.
+- **`dao.stream.md` gains only `:dao.stream/refused`** (S4) plus the already-listed OD-1/2/3 and the composed-handle sentence. No capability vocabulary enters it.
+- **ShiBi-deferred items**: HMAC/macaroon scheme, attenuation, revocation semantics, token-to-lease binding, replay protection, budget/spend semantics — all MOVE to a future ShiBi spec.
+- **Placement**: mechanism + seam + encryption in `dao.stream.middleware.md`; attachment points + the credential open key in `dao.stream.serve.md`; a **ShiBi stub** (`docs/design/shibi.md`, one paragraph: "capability system; integrates via the middleware credential seam; unresolved capability-vs-currency") as the pointer.
+
+**Ship in v1:** the seam + one trivial allow-list verifier (to exercise it) + **encryption** (a transform, not ShiBi — it answers the plaintext caveat). **Do not ship** any capability/auth mechanism; that is ShiBi, unspecified (`bootstrap.md:65`).
+
+**Owner-visible.** (1) Nothing about ShiBi's format, crypto, revocation, or spend-vs-capability can be decided now, and the seam does not need it — it is decided only when ShiBi is specified. (2) The **capability-vs-currency** decision (`discovery.md:181-190`) must be forced before ShiBi is load-bearing; the middleware must not and does not depend on it. (3) Encryption ships now; authentication/authorization waits for ShiBi. **Recommended order:** spec middleware+seam+encryption → spec serve attachment points → force the capability/currency decision → spec ShiBi against the seam.
+
+**VERDICT: READY TO SPECIFY** the seam and middleware. No blocker; the single prerequisite is the named `dao.stream.md` edits (`refused` + OD-1/2/3 + composed-handle sentence). ShiBi itself is a separate, later spec.
+
+## S7 — NAME
+
+**Pick `dao.stream.remote`.** It matches the converged descriptor type `:dao.stream/remote` and names the mechanism — a stream made reachable across a channel — with no server, peer-entity, or copy connotation.
+
+Rejected: **`serve`** (names a server role, contradicting the invariant); **`peer`** (names an entity with identity/membership/discovery, none of which the design has — a peer is a channel end with no protocol id); **`mirror`** (implies a *copy*, the exact thing the design's claim denies, and names only the holding-side half); **`channel`** / **`wire`** (these are the transport sub-layer beneath the serve layer, not the whole mechanism); **`expose`** (a verb, with a security "leak" connotation); **`link`** (collides with the reflection's link state and `yin.vm.linker`, and is generic).
+
+Namespace collisions: `dao.stream.remote` sits beside `dao.stream.ws/forward/rpc/apply/middleware` with no clash; it does **not** collide with `dao.jing.remote` (different prefix) but does *shadow* it conceptually — mitigated because `dao.jing.remote`'s transport half is being retired, leaving only its jing-level client. `dao.stream.serving` is retired/renamed in the same change, so no residual collision.

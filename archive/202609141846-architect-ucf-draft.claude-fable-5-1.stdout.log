@@ -1,0 +1,17 @@
+Task complete. The Universal Continuation Format draft is written to `docs/design/yin.vm.universal-continuation-format.md`. The seed section, including its warning and the five blockers, is preserved verbatim at the top, and the new protocol follows it as sections §7.1 through §7.11.
+
+**What the draft specifies**
+
+Each blocker gets one section with data-driven rules, in dependency order:
+
+- **Code identity (§7.3)** makes `:yin.code/hash` required and defines it as the `dao.jing` segment address of a canonical instruction stream. Entity ids become pcs, ref targets become pcs, provenance attributes are dropped, and the result is sorted and hashed. A contract stamp names the opcode-table revision so a resumer detects semantic drift before lowering.
+- **Safepoints (§7.4)** rule that lifting is legal only at pcs where the reference machine's transition has completed, which is exactly the existing park set. Foreign engines publish `:yin.safepoint/*` datoms per segment and engine profile, where stack depth and env names are derived from the datoms and only the physical layout is engine-owned and never travels.
+- **Portable encoding (§7.5)** closes the value classes. Primitives encode by reverse lookup in the emitter's declared primitive map, stream handles become descriptors, cursors travel as positions, and anything else is refused with a path. Shared subvalues go in a content-addressed value table. Refusal is total, never partial.
+- **Dependency closure (§7.6)** declares segments, primitives, modules by manifest address, effects, FFI ops, and stream identities, all computed from datoms. The store travels as a reachable slice that merges over the resumer's own store. The satisfaction check reports everything missing in one pass.
+- **Ownership (§7.7)** treats resumption as a take, and a take as a lease over datoms, using `dao.lease.md` unchanged with the continuation's content address as the subject. The emitter is an ordinary candidate that holds nothing until it observes a grant, which resolves the source-wakeup race. Every effect from a resumed incarnation carries the lease id for fencing. A `:fork` policy makes multi-resume an explicit declaration rather than a failed exclusion.
+
+The document closes with the lift and lower lifecycles, a closed outcome algebra, an invariant compliance table, and open items that keep the warning in force: the transitional `dao.jing` encoding, contract revision naming, the safepoint conformance harness, arbitration medium wiring, and consumer-side fencing.
+
+**Not done**
+
+The file is uncommitted, as the prompt did not ask for a commit. I did not update the pointer note in `yin.vm.semantic.md` §7 because it already links to this file correctly.

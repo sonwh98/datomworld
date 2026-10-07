@@ -1,0 +1,65 @@
+Completed-GMT: 2026-09-03 07:12:36 GMT
+Completed-Local: 2026-09-03 14:12:36 Asia/Ho_Chi_Minh
+Coding-Agent: codex
+Session-ID: none (new codex exec does not accept a caller-supplied session ID; generated ID is not exposed in text mode)
+
+Read-only adjudication completed. No file was edited, staged, or committed.
+
+## Verdicts
+
+| verdict | severity | file:line | invariant/evidence | recommended correction |
+|---|---|---|---|---|
+| **UPHOLD** | **HIGH** | `docs/design/dao.stream.ws.md:131-142, 428-431, 520-541`; `docs/design/yin.vm.implementation-plan.md:467-478`; `docs/design/yin.repl.implementation-plan.md:211-220, 226-237, 461-466, 586-589` | `:ws/error` is non-terminal in the RPC algebra, while malformed input necessarily tears down the connection with 4002. Code 4002 is excluded from “every other peer close” without its own terminal mapping. Therefore an established RPC attachment can receive only `:ws/error`, retain every outstanding request, and wait forever. | Explicitly make `:ws/error` diagnostic rather than proof that the connection survived, and map completion of a 4002 teardown to an existing terminal event. |
+| **UPHOLD** | **MEDIUM** | `docs/design/yin.repl.implementation-plan.md:165-207, 299-311`; `docs/design/yin.vm.implementation-plan.md:428-446` | Client state contains `:completed`, terminal transitions append to it, allocation consults it, and `repl-step` publishes completions. No transition clears or bounds it. “Drains the response medium” refers to stream reading, not draining `:completed`; publication alone does not imply mutation. The written state machine therefore retains completion history for the client lifetime. | Define `:completed` as an unpublished outbox and add an explicit publish-and-clear transition. Make `:next-id`, not retained completion history, the proof of never-reused IDs. |
+
+## Finding 1 — Protocol-error lifecycle
+
+For an established attachment, the required observable sequence is:
+
+- The endpoint detecting malformed input deposits `:ws/error` as a diagnostic.
+- It initiates close code 4002.
+- When termination occurs, that same local boundary deposits exactly one terminal `:ws/closed`.
+- The peer observing 4002 deposits exactly one terminal `:ws/closed`.
+- The RPC transition for `:ws/closed` loses/completes every outstanding request and permits rebind.
+
+Before client resolution, the existing handshake rule remains authoritative: closure before `:ws/accept` or `:ws/disclaim` produces exactly one `:ws/transport-error` resolution. It must not additionally produce a lifecycle completion for the same unresolved attachment.
+
+Precise replacement wording for `dao.stream.ws.md`:
+
+> `:ws/error` is a diagnostic and is never terminal by itself. A survivable socket error may be followed by no lifecycle event; a protocol failure is followed by the terminal event produced when its required teardown completes.
+>
+> Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` is the authoritative not-found close following the disclaimer frame. Code `4002` is a protocol-error teardown. For an established attachment, completion of a 4002 teardown deposits exactly one `:ws/closed` at both the endpoint that initiated the close and the peer that observed it. The detecting endpoint therefore deposits `:ws/error` first and `:ws/closed` when the connection terminates. Before client resolution, the existing handshake rule applies instead: closure before `:ws/accept` or `:ws/disclaim` deposits exactly one `:ws/transport-error` resolution. Every other peer close or connection loss maps to `:ws/closed`.
+
+Required test: with an established attachment and at least one outstanding RPC request, inject malformed input and prove the detecting side observes `:ws/error` followed by `:ws/closed`, the peer observes `:ws/closed`, and no outstanding request remains.
+
+## Finding 2 — Completion retention
+
+The plan currently mandates unbounded retained history as written. A drain is not implied strongly enough for consistent implementation.
+
+Precise insertion in both RPC transition-algebra descriptions:
+
+> **Completion consumption.** `:completed` is an unpublished outbox, not request history. Every terminal transition appends its completion exactly once. During each `repl-step`, the sole state owner snapshots and publishes the current completions, then returns the next client state with `:completed []`; a later step must not republish them. The vector is therefore bounded by work admitted within one step. Never-reuse across previously published completions is guaranteed by the monotonic `:next-id` high-water mark, not by retaining completed IDs indefinitely. Collision checks cover `:unsent`, `:outstanding`, and any currently unpublished completion.
+
+Update the state comment to:
+
+```clojure
+:completed [ … ] ; unpublished completions since the last repl-step publication
+```
+
+Required tests: completions publish exactly once, `:completed` is empty in the returned post-publication state, its maximum size is bounded by one step’s work budget, and IDs remain monotonic after earlier completions have been cleared.
+
+## Prior sign-off
+
+**Previous sign-off remains valid only conditional on these two corrections. It need not be withdrawn.**
+
+The earlier transport sign-off missed the absence of a terminal 4002 mapping while verifying the close-code vocabulary and RPC lifecycle algebra. The earlier REPL sign-off missed that `:completed` simultaneously served as publishable output, collision history, and persistent state without a consume transition.
+
+## Properties that passed
+
+- Writer-only WebSocket handles and host-composed inbound media remain sound.
+- Attachment identity and bounded acknowledged acceptance handoff remain sound.
+- 4000 still distinguishes ended served streams; pre-resolution closure still resolves as `:ws/transport-error`.
+- The RPC `append!` and `next` transition algebras remain exhaustive.
+- `:ws/closed`, `:ws/ended`, `:ws/not-found`, and `:ws/transport-error` already conservatively lose outstanding requests.
+- The single `repl-step` state owner, cursor advancement, malformed-response consumption, rebind behavior, and monotonic safe-integer allocation remain sound.
+- Neither correction changes the foundational stream boundaries, host isolation, retention policy, or accepted phase structure.

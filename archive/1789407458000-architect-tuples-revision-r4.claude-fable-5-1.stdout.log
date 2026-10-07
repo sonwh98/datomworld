@@ -1,0 +1,25 @@
+Completed-GMT: 2026-09-14 17:41:17 GMT
+Completed-Local: 2026-09-15 00:41:17 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1465 lines (was 1352). Only this file changed; it remains untracked and `git diff --stat` is empty.
+
+**Finding-by-finding:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Batch member index missing from source occurrence keys | Fixed. §2.5 defines the source origin as `[:source medium batch j]` and states the index travels uniformly through declarations, source positions, instruction provenance (§5.3), and initial expansion events (§8.4). The side-table rows and the declaration row were rewritten to match. |
+| 2 | Embedded event id not a transactor-resolved reference | Fixed. §8.4 splits the call occurrence into ordinary values (`call-root`, `call-path`, `origin`) and gives a nested attempt two parent links: `:yin.ledger/parent-event`, a declared reference attribute with a whole-value tempid, which is what `apply-tempid-map` resolves, and `:yin.ledger/parent`, the parent's record address, which is portable. §8.2's record shape holds no log-local id; it is minted after the parent's record exists, so it is hashed once with no post-allocation staging. |
+| 3 | Preorder does not preserve admitted batch order | Fixed. §8.5 adds an explicit `:yin/harvest` catalogue of definition occurrences in original admission order, validated at admission, and initial harvest iterates it. The "preserved exactly" claim is withdrawn: the legacy contract is preserved only through the adapter-derived catalogue, and tuple-native frontends operate under a separately stated declaration-order contract. |
+| 4 | Static parameter discharge assumes exact arity | Fixed. §7.7.2 discharges a parameter obligation only when every call site is known and supplies the argument, citing the `zipmap` binding in both evaluators; escaped closures and unknown call contexts retain the name for resolution through captured environment, store slice, primitives, and modules, or yield `:incomplete`. No exact-arity rule is introduced. |
+| 5 | Convergence over addresses only | Fixed. §7.7.3 makes the work item `[address context]` with a finite bound-name-set context abstraction, fetches code once per address but analyzes each context, and defines convergence over work items, obligations, discovered values, store and FFI requirements, effects, and footprints. Inability to compute a context yields `:incomplete`. UCF's matching defect is recorded in §10.8. |
+| 6 | FFI footprint contradicted the store-slice exclusion | Fixed. §7.7.1's FFI row now records `:yin.k/ffi-ops` as a receiver capability requirement (own pair plus a handler per op), states the pair's store keys are never a slice requirement, and cites UCF §7.6.2's exclusion and §7.4.3's outstanding-call routing. |
+
+No finding was overruled. No finding required an owner ruling; the medium identity coordinate inside an origin remains a composition choice, recorded in §10.3 as something that must be fixed before an origin can be written, not as a ruling this document invents.
+
+**Sections touched:** status line, §2.5, §5.3, §7.7.1, §7.7.2, §7.7.3, §8.2, §8.4, §8.5, §9.1, §10 items 3 through 8.
+
+**Verified against source myself:** `apply-tempid-map` at `transact.cljc:168-185` resolving only a whole-value tempid on a declared ref attribute; `apply-call`'s `zipmap` binding with no arity check at `semantic.cljc:199-205` and the walker's equivalent at `ast_walker.cljc:190-191`; the FFI pair check at `semantic.cljc:405-415`; UCF §7.6.2's slice exclusion at lines 812-814; the macro contract's harvest-in-batch-order rule at `yin.vm.macro.md:242-249`, its declaration-order distinction at `:298-304`, and its nested-expansion linkage at `:692-708`.
+
+**Taken from the review, not re-run:** the executed tempid-map probe leaving `[[:expansion -1] …]` unresolved, and the executed zero-argument closure call resolving the parameter name to a primitive. I verified the code paths those results follow but did not execute them.

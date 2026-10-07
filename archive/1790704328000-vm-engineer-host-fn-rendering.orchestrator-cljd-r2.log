@@ -1,0 +1,689 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @02:12:15
+  yin.repl.slice-peer
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 176, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 242, column: 12, file: yin/vm/debruijn.cljc
+  You rock! 🤘 @02:12:20
+Generated: /Users/sto/workspace/datomworld/build/yin-repl-peer
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @02:12:45
+  bench.yin-vm-bench
+  dao.await
+  dao.await-test
+  dao.data
+  dao.data-test
+  dao.data.arrays
+  dao.data.btree
+  dao.data.btree-async-test
+  dao.data.btree-durability-test
+  dao.data.btree-protocols-test
+  dao.data.btree-test
+  dao.data.btree-transients-test
+  dao.data.btree.storage
+  dao.data.psset-fixtures
+  dao.datom
+  dao.gui.compiler
+  dao.gui.compiler-cljd-test
+  dao.gui.event
+  dao.gui.event.arena-test
+  dao.gui.event.bind-test
+  dao.gui.event.core-test
+  dao.gui.event.decl
+  dao.gui.event.fault
+  dao.gui.event.fixture-test
+  dao.gui.event.fixtures-corpus
+  dao.gui.event.fixtures-gen
+  dao.gui.event.geom
+  dao.gui.event.keyboard
+  dao.gui.event.longpress-test
+  dao.gui.event.machine
+  dao.gui.event.machine-test
+  dao.gui.event.pan-test
+  dao.gui.event.pointer
+  dao.gui.event.pointer-test
+  dao.gui.event.policy
+  dao.gui.event.policy-test
+  dao.gui.event.recognizer
+  dao.gui.event.scripted
+  dao.gui.event.terminal-test
+  dao.gui.event.trace
+  dao.gui.event.transform-test
+  dao.gui.event.util
+  dao.gui.runtime
+  dao.jing
+  dao.jing-test
+  dao.jing.cbor
+  dao.jing.cbor-conformance-test
+  dao.jing.cbor-content-equality-test
+  dao.jing.cbor-fixtures
+  dao.jing.cbor-fixtures-test
+  dao.jing.cbor-test
+  dao.jing.cbor.boring
+  dao.jing.cbor.cljd
+  dao.jing.content
+  dao.jing.content-test
+  dao.jing.content.async
+  dao.jing.content.step
+  dao.jing.content.step-test
+  dao.jing.coordinate
+  dao.jing.dht
+  dao.jing.dht-test
+  dao.jing.dht.kad
+  dao.jing.dht.kad-test
+  dao.jing.dht.node
+  dao.jing.dht.node-test
+  dao.jing.file
+  dao.jing.file-test
+  dao.jing.hash-registry-contract-test
+  dao.jing.mem
+  dao.jing.mem-test
+  dao.jing.stream
+  dao.jing.stream-test
+  dao.lease
+  dao.lease-composition-test
+  dao.lease-test
+  dao.postgraphics.flutter
+  dao.postgraphics.flutter-cljd-test
+  dao.postgraphics.flutter-test
+  dao.postgraphics.flutter.canvas
+  dao.postgraphics.flutter.gpu
+  dao.postgraphics.flutter.texture
+  dao.postgraphics.lowering
+  dao.postgraphics.lowering-test
+  dao.postgraphics.math
+  dao.postgraphics.math-test
+  dao.postgraphics.packing
+  dao.postgraphics.packing-test
+  dao.postgraphics.raster
+  dao.postgraphics.raster-test
+  dao.postgraphics.terminal
+  dao.postgraphics.terminal-test
+  dao.postgraphics.v3-compliance-repro-test
+  dao.postgraphics.validation
+  dao.pretty
+  dao.pretty-test
+  dao.space.index
+  dao.space.index-numeric-test
+  dao.space.index-test
+  dao.space.positional-query-test
+  dao.space.query
+  dao.space.query-numeric-test
+  dao.space.query-test
+  dao.space.schema
+  dao.space.schema-test
+  dao.space.transact
+  dao.space.transact-test
+  dao.space.transactor
+  dao.space.transactor-test
+  dao.stream
+  dao.stream-test
+  dao.stream.apply
+  dao.stream.apply-test
+  dao.stream.cbor
+  dao.stream.cbor-test
+  dao.stream.cbor.boring
+  dao.stream.cbor.cljd
+  dao.stream.conformance
+  dao.stream.forward
+  dao.stream.forward-test
+  dao.stream.memory-log
+  dao.stream.memory-log-test
+  dao.stream.middleware
+  dao.stream.middleware-test
+  dao.stream.observe
+  dao.stream.observe-test
+  dao.stream.observer
+  dao.stream.observer-test
+  dao.stream.remote
+  dao.stream.remote-meet
+  dao.stream.remote-meet-test
+  dao.stream.remote-pair
+  dao.stream.remote-pair-test
+  dao.stream.remote-test
+  dao.stream.ringbuffer
+  dao.stream.ringbuffer-test
+  dao.stream.rpc
+  dao.stream.rpc-test
+  dao.stream.transit
+  dao.stream.transit-test
+  dao.stream.transit.cljd
+  dao.stream.udp
+  dao.stream.udp-test
+  dao.stream.udp.dart
+  dao.stream.waitset
+  dao.stream.waitset-test
+  dao.stream.waitset.cadence
+  dao.stream.waitset.cadence-test
+  dao.stream.waitset.driver
+  dao.stream.waitset.driver-test
+  dao.stream.ws
+  dao.stream.ws-codec-test
+  dao.stream.ws-project
+  dao.stream.ws-project-peer
+  dao.stream.ws-project-test
+  dao.stream.ws-test
+  dao.stream.ws.dart
+  dao.stream.ws.dart-test
+  datomworld.demo.artifact
+  datomworld.demo.artifact-runner
+  datomworld.demo.artifact-runner-test
+  datomworld.demo.artifact-scene
+  datomworld.demo.artifact-scene-test
+  datomworld.demo.continuation-handoff
+  datomworld.demo.continuation-handoff-test
+  datomworld.demo.continuation-transport
+  datomworld.demo.dao-gui
+  datomworld.demo.earth-moon
+  datomworld.demo.earth-moon-runner
+  datomworld.demo.earth-moon-scene
+  datomworld.demo.earth-moon-scene-test
+  datomworld.demo.main
+  datomworld.demo.postgraphics
+  datomworld.demo.solar-system
+  datomworld.demo.solar-system-scene
+  datomworld.demo.solar-system-scene-test
+  datomworld.demo.voxel
+  datomworld.demo.voxel-controls
+  datomworld.demo.voxel-controls-test
+  datomworld.demo.voxel-input
+  datomworld.demo.voxel-input-test
+  datomworld.demo.voxel-runner
+  datomworld.demo.voxel-runner-test
+  datomworld.demo.voxel-scene
+  datomworld.demo.voxel-scene-test
+  yang.clojure
+  yang.clojure.stream-eval-test
+  yang.php
+  yang.python
+  yin.register-bench-cljd
+  yin.repl
+  yin.repl-test
+  yin.repl.adapter
+  yin.repl.adapter-test
+  yin.repl.connect
+  yin.repl.connect-test
+  yin.repl.driver
+  yin.repl.driver-test
+  yin.repl.embed
+  yin.repl.embed-test
+  yin.repl.flutter
+  yin.repl.host
+  yin.repl.host.common
+  yin.repl.index
+  yin.repl.index-test
+  yin.repl.link
+  yin.repl.main
+  yin.repl.main-test
+  yin.repl.query
+  yin.repl.query-test
+  yin.repl.require-test
+  yin.repl.serve
+  yin.repl.serve-test
+  yin.repl.slice-peer
+  yin.vm
+  yin.vm-test
+  yin.vm.ast-walker
+  yin.vm.ast-walker-test
+  yin.vm.attach-image-test
+  yin.vm.code
+  yin.vm.code-test
+  yin.vm.completion
+  yin.vm.completion-test
+  yin.vm.debruijn
+  yin.vm.debruijn-code
+  yin.vm.debruijn-code-test
+  yin.vm.debruijn-linearize
+  yin.vm.debruijn-linearize-test
+  yin.vm.debruijn-register-benchmark-test
+  yin.vm.debruijn-register-code
+  yin.vm.debruijn-register-compile
+  yin.vm.debruijn-register-compile-test
+  yin.vm.debruijn-register-contract-test
+  yin.vm.debruijn-register-effects
+  yin.vm.debruijn-register-effects-test
+  yin.vm.debruijn-resolve
+  yin.vm.debruijn-resolve-test
+  yin.vm.debruijn-test
+  yin.vm.debruijn-vm-contract-test
+  yin.vm.debruijn.register
+  yin.vm.debruijn.register-test
+  yin.vm.debruijn.stack
+  yin.vm.debruijn.stack-effects-test
+  yin.vm.debruijn.stack-parity-test
+  yin.vm.debruijn.stack-test
+  yin.vm.encoder
+  yin.vm.encoder-test
+  yin.vm.engine
+  yin.vm.engine-test
+  yin.vm.ffi
+  yin.vm.ffi-test
+  yin.vm.ffi.remote-serve
+  yin.vm.ffi.remote-serve-test
+  yin.vm.ffi.remote-serve.caller
+  yin.vm.ffi.remote-serve.holder
+  yin.vm.ffi.remote-serve.responder
+  yin.vm.ffi.remote-serve.responder-test
+  yin.vm.ledger
+  yin.vm.ledger-test
+  yin.vm.linearize
+  yin.vm.linearize-test
+  yin.vm.linker
+  yin.vm.linker-authority-ingestion-test
+  yin.vm.linker-authority-test
+  yin.vm.linker-manifest-test
+  yin.vm.linker-require-test
+  yin.vm.linker-step-test
+  yin.vm.linker-test
+  yin.vm.linker.authority
+  yin.vm.macro
+  yin.vm.macro-test
+  yin.vm.malformed-rows
+  yin.vm.mint-test
+  yin.vm.module
+  yin.vm.module-test
+  yin.vm.parity-test
+  yin.vm.pipeline
+  yin.vm.pipeline-test
+  yin.vm.rule-r-test
+  yin.vm.semantic
+  yin.vm.semantic-engine-test
+  yin.vm.semantic-ffi-test
+  yin.vm.semantic-stream-observer-test
+  yin.vm.semantic-test
+  yin.vm.telemetry
+  yin.vm.telemetry-test
+  yin.vm.test-utils
+  yin.vm.ucf
+  yin.vm.ucf-test
+  yin.vm.ucf.remote
+  yin.vm.ucf.remote-test
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 176, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 242, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  at line: 52, column: 50, file: dao/jing/file_test.cljc
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  at line: 77, column: 12, file: dao/jing/file_test.cljc
+DYNAMIC WARNING: can't resolve member indexOf on target type dynamic of library dart:core  at line: 92, column: 20, file: dao/jing/file_test.cljc
+DYNAMIC WARNING: can't resolve member indexOf on target type dynamic of library dart:core  at line: 93, column: 14, file: dao/jing/file_test.cljc
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  at line: 296, column: 12, file: dao/jing/cbor_test.cljc
+DYNAMIC WARNING: can't resolve member kind on target type dynamic of library dart:core  at line: 178, column: 19, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member pointer on target type dynamic of library dart:core  at line: 186, column: 12, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member localPosition on target type dynamic of library dart:core  at line: 191, column: 13, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member buttons on target type dynamic of library dart:core  at line: 203, column: 36, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member pressure on target type dynamic of library dart:core  at line: 205, column: 37, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member dx on target type dynamic of library dart:core  at line: 208, column: 42, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member dy on target type dynamic of library dart:core  at line: 208, column: 57, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member timeStamp on target type dynamic of library dart:core  at line: 207, column: 55, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member inMicroseconds on target type dynamic of library dart:core  at line: 207, column: 37, file: datomworld/demo/artifact.cljd
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  at line: 58, column: 12, file: dao/jing/mem_test.cljc
+DYNAMIC WARNING: can't resolve member toRadixString on target type dynamic of library dart:core  at line: 16, column: 29, file: dao/stream/cbor_test.cljd
+#error {
+ :cause Unknown symbol: array-map at line: 609, column: 44, file: yin/repl_test.cljc
+ :via
+ [{:type clojure.lang.ExceptionInfo
+   :message compiling namespace yin.repl-test
+   :data {}
+   :at [cljd.compiler$compile_namespace invokeStatic compiler.cljc 4999]}
+  {:type clojure.lang.ExceptionInfo
+   :message Error while compiling yin/repl_test.cljc array-map
+   :data #:cljd.compiler{:emit-stack [array-map (array-map :z 2 :type :x) (sorted-map :b (array-map :z 2 :type :x)) (repl/format-value (sorted-map :b (array-map :z 2 :type :x))) (cljd.core/list {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) (cljd.core/let [values__19496__auto__ (cljd.core/list {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) result__19497__auto__ (cljd.core/apply = values__19496__auto__)] (cljd.core/when-not result__19497__auto__ {:type :fail, :actual (cljd.core/list (quote not) (cljd.core/cons (quote =) values__19496__auto__)), :message a typed map nested in an untyped one is ordered too})) (let* [] (cljd.core/let [values__19496__auto__ (cljd.core/list {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) result__19497__auto__ (cljd.core/apply = values__19496__auto__)] (cljd.core/when-not result__19497__auto__ {:type :fail, :actual (cljd.core/list (quote not) (cljd.core/cons (quote =) values__19496__auto__)), :message a typed map nested in an untyped one is ordered too}))) (do (cljd.core/let [values__19496__auto__ (cljd.core/list {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) result__19497__auto__ (cljd.core/apply = values__19496__auto__)] (cljd.core/when-not result__19497__auto__ {:type :fail, :actual (cljd.core/list (quote not) (cljd.core/cons (quote =) values__19496__auto__)), :message a typed map nested in an untyped one is ordered too}))) (try (cljd.core/let [values__19496__auto__ (cljd.core/list {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) result__19497__auto__ (cljd.core/apply = values__19496__auto__)] (cljd.core/when-not result__19497__auto__ {:type :fail, :actual (cljd.core/list (quote not) (cljd.core/cons (quote =) values__19496__auto__)), :message a typed map nested in an untyped one is ordered too})) (catch dart:core/Object t__19519__auto__ st__19520__auto__ {:type :error, :stacktrace st__19520__auto__, :exception t__19519__auto__})) (cljd.test/result (try (cljd.core/let [values__19496__auto__ (cljd.core/list {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) result__19497__auto__ (cljd.core/apply = values__19496__auto__)] (cljd.core/when-not result__19497__auto__ {:type :fail, :actual (cljd.core/list (quote not) (cljd.core/cons (quote =) values__19496__auto__)), :message a typed map nested in an untyped one is ordered too})) (catch dart:core/Object t__19519__auto__ st__19520__auto__ {:type :error, :stacktrace st__19520__auto__, :exception t__19519__auto__}))) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (let* [] (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders)) (do (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders)) (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders)) (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders))) (let* [] (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders)))) (do (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders)))) (cljd.core/fn [] (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders)))) (cljd.core/let [name__19554__auto__ yin.repl-test/a-typed-value-renders-in-one-key-order-on-every-host thunk__19555__auto__ (cljd.core/fn [] (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders))))] (if cljd.test/*in-test* (thunk__19555__auto__) ($lib:t_test/group nil (cljd.core/fn [] ($lib:t_test/test name__19554__auto__ (cljd.core/fn [] (cljd.core/binding [cljd.test/*in-test* []] (thunk__19555__auto__))))) .tags #dart []))) (let* [] (cljd.core/let [name__19554__auto__ yin.repl-test/a-typed-value-renders-in-one-key-order-on-every-host thunk__19555__auto__ (cljd.core/fn [] (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders))))] (if cljd.test/*in-test* (thunk__19555__auto__) ($lib:t_test/group nil (cljd.core/fn [] ($lib:t_test/test name__19554__auto__ (cljd.core/fn [] (cljd.core/binding [cljd.test/*in-test* []] (thunk__19555__auto__))))) .tags #dart [])))) (do (cljd.core/let [name__19554__auto__ yin.repl-test/a-typed-value-renders-in-one-key-order-on-every-host thunk__19555__auto__ (cljd.core/fn [] (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders))))] (if cljd.test/*in-test* (thunk__19555__auto__) ($lib:t_test/group nil (cljd.core/fn [] ($lib:t_test/test name__19554__auto__ (cljd.core/fn [] (cljd.core/binding [cljd.test/*in-test* []] (thunk__19555__auto__))))) .tags #dart [])))) (fn* ([] (cljd.core/let [name__19554__auto__ yin.repl-test/a-typed-value-renders-in-one-key-order-on-every-host thunk__19555__auto__ (cljd.core/fn [] (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders))))] (if cljd.test/*in-test* (thunk__19555__auto__) ($lib:t_test/group nil (cljd.core/fn [] ($lib:t_test/test name__19554__auto__ (cljd.core/fn [] (cljd.core/binding [cljd.test/*in-test* []] (thunk__19555__auto__))))) .tags #dart []))))) (cljd.core/defn a-typed-value-renders-in-one-key-order-on-every-host [] (cljd.core/let [name__19554__auto__ yin.repl-test/a-typed-value-renders-in-one-key-order-on-every-host thunk__19555__auto__ (cljd.core/fn [] (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders))))] (if cljd.test/*in-test* (thunk__19555__auto__) ($lib:t_test/group nil (cljd.core/fn [] ($lib:t_test/test name__19554__auto__ (cljd.core/fn [] (cljd.core/binding [cljd.test/*in-test* []] (thunk__19555__auto__))))) .tags #dart [])))) (let* [] (cljd.core/defn a-typed-value-renders-in-one-key-order-on-every-host [] (cljd.core/let [name__19554__auto__ yin.repl-test/a-typed-value-renders-in-one-key-order-on-every-host thunk__19555__auto__ (cljd.core/fn [] (cljd.core/let [[] cljd.test/*in-test*] (cljd.test/testing name__19554__auto__ (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders))))] (if cljd.test/*in-test* (thunk__19555__auto__) ($lib:t_test/group nil (cljd.core/fn [] ($lib:t_test/test name__19554__auto__ (cljd.core/fn [] (cljd.core/binding [cljd.test/*in-test* []] (thunk__19555__auto__))))) .tags #dart [])))) (cljd.test/defrunner-main)) (deftest a-typed-value-renders-in-one-key-order-on-every-host (is (= {:type :closure, :entry 3, :env {}, :params ['i], :segment -1} (repl/format-value {:type :closure, :params [(quote i)], :entry 3, :segment -1, :env {}})) :type first, then the other keys in printed order, whatever the
+       host's map iteration order) (is (= {:b {:type :x, :z 2}} (repl/format-value (sorted-map :b (array-map :z 2 :type :x)))) a typed map nested in an untyped one is ordered too) (is (= {1 2} (repl/format-value (sorted-map 1 2))) a sorted map whose keys don't compare with :type still renders))]}
+   :at [cljd.compiler$emit invokeStatic compiler.cljc 3814]}
+  {:type java.lang.Exception
+   :message Unknown symbol: array-map at line: 609, column: 44, file: yin/repl_test.cljc
+   :at [cljd.compiler$emit_symbol invokeStatic compiler.cljc 3473]}]
+ :trace
+ [[cljd.compiler$emit_symbol invokeStatic compiler.cljc 3473]
+  [cljd.compiler$emit_symbol invoke compiler.cljc 3444]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3726]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_fn_call invokeStatic compiler.cljc 1835]
+  [cljd.compiler$emit_fn_call invoke compiler.cljc 1832]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3720]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$split_args$fn__5637 invoke compiler.cljc 1578]
+  [clojure.core$map$fn__5956 invoke core.clj 2772]
+  [clojure.lang.LazySeq force LazySeq.java 50]
+  [clojure.lang.LazySeq realize LazySeq.java 87]
+  [clojure.lang.LazySeq seq LazySeq.java 104]
+  [clojure.lang.Cons next Cons.java 41]
+  [clojure.lang.RT next RT.java 733]
+  [clojure.core$next__5472 invokeStatic core.clj 64]
+  [clojure.core.protocols$fn__8279 invokeStatic protocols.clj 168]
+  [clojure.core.protocols$fn__8279 invoke protocols.clj 123]
+  [clojure.core.protocols$fn__8233$G__8228__8242 invoke protocols.clj 19]
+  [clojure.core.protocols$seq_reduce invokeStatic protocols.clj 31]
+  [clojure.core.protocols$fn__8266 invokeStatic protocols.clj 74]
+  [clojure.core.protocols$fn__8266 invoke protocols.clj 74]
+  [clojure.core.protocols$fn__8207$G__8202__8220 invoke protocols.clj 13]
+  [clojure.core$reduce invokeStatic core.clj 6965]
+  [clojure.core$into invokeStatic core.clj 7038]
+  [clojure.core$into invoke core.clj 7029]
+  [cljd.compiler$split_args invokeStatic compiler.cljc 1578]
+  [cljd.compiler$split_args invoke compiler.cljc 1565]
+  [cljd.compiler$split_args invokeStatic compiler.cljc 1570]
+  [cljd.compiler$split_args invoke compiler.cljc 1565]
+  [cljd.compiler$emit_fn_call invokeStatic compiler.cljc 1844]
+  [cljd.compiler$emit_fn_call invoke compiler.cljc 1832]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3720]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$split_args$fn__5637 invoke compiler.cljc 1578]
+  [clojure.core$map$fn__5956 invoke core.clj 2772]
+  [clojure.lang.LazySeq force LazySeq.java 50]
+  [clojure.lang.LazySeq realize LazySeq.java 87]
+  [clojure.lang.LazySeq seq LazySeq.java 104]
+  [clojure.lang.RT seq RT.java 555]
+  [clojure.core$seq__5488 invokeStatic core.clj 139]
+  [clojure.core.protocols$seq_reduce invokeStatic protocols.clj 24]
+  [clojure.core.protocols$fn__8266 invokeStatic protocols.clj 74]
+  [clojure.core.protocols$fn__8266 invoke protocols.clj 74]
+  [clojure.core.protocols$fn__8207$G__8202__8220 invoke protocols.clj 13]
+  [clojure.core$reduce invokeStatic core.clj 6965]
+  [clojure.core$into invokeStatic core.clj 7038]
+  [clojure.core$into invoke core.clj 7029]
+  [cljd.compiler$split_args invokeStatic compiler.cljc 1578]
+  [cljd.compiler$split_args invoke compiler.cljc 1565]
+  [cljd.compiler$split_args invokeStatic compiler.cljc 1570]
+  [cljd.compiler$split_args invoke compiler.cljc 1565]
+  [cljd.compiler$emit_fn_call invokeStatic compiler.cljc 1844]
+  [cljd.compiler$emit_fn_call invoke compiler.cljc 1832]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3720]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$split_args$fn__5637 invoke compiler.cljc 1578]
+  [clojure.core$map$fn__5956 invoke core.clj 2772]
+  [clojure.lang.LazySeq force LazySeq.java 50]
+  [clojure.lang.LazySeq realize LazySeq.java 87]
+  [clojure.lang.LazySeq seq LazySeq.java 104]
+  [clojure.lang.Cons next Cons.java 41]
+  [clojure.lang.RT next RT.java 733]
+  [clojure.core$next__5472 invokeStatic core.clj 64]
+  [clojure.core.protocols$fn__8279 invokeStatic protocols.clj 168]
+  [clojure.core.protocols$fn__8279 invoke protocols.clj 123]
+  [clojure.core.protocols$fn__8233$G__8228__8242 invoke protocols.clj 19]
+  [clojure.core.protocols$seq_reduce invokeStatic protocols.clj 31]
+  [clojure.core.protocols$fn__8266 invokeStatic protocols.clj 74]
+  [clojure.core.protocols$fn__8266 invoke protocols.clj 74]
+  [clojure.core.protocols$fn__8207$G__8202__8220 invoke protocols.clj 13]
+  [clojure.core$reduce invokeStatic core.clj 6965]
+  [clojure.core$into invokeStatic core.clj 7038]
+  [clojure.core$into invoke core.clj 7029]
+  [cljd.compiler$split_args invokeStatic compiler.cljc 1578]
+  [cljd.compiler$split_args invoke compiler.cljc 1565]
+  [cljd.compiler$split_args invokeStatic compiler.cljc 1570]
+  [cljd.compiler$split_args invoke compiler.cljc 1565]
+  [cljd.compiler$emit_fn_call invokeStatic compiler.cljc 1844]
+  [cljd.compiler$emit_fn_call invoke compiler.cljc 1832]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_let_STAR_$fn__5995 invoke compiler.cljc 2173]
+  [clojure.core.protocols$fn__8279 invokeStatic protocols.clj 167]
+  [clojure.core.protocols$fn__8279 invoke protocols.clj 123]
+  [clojure.core.protocols$fn__8233$G__8228__8242 invoke protocols.clj 19]
+  [clojure.core.protocols$seq_reduce invokeStatic protocols.clj 31]
+  [clojure.core.protocols$fn__8266 invokeStatic protocols.clj 74]
+  [clojure.core.protocols$fn__8266 invoke protocols.clj 74]
+  [clojure.core.protocols$fn__8207$G__8202__8220 invoke protocols.clj 13]
+  [clojure.core$reduce invokeStatic core.clj 6965]
+  [clojure.core$reduce invoke core.clj 6947]
+  [cljd.compiler$emit_let_STAR_ invokeStatic compiler.cljc 2171]
+  [cljd.compiler$emit_let_STAR_ invoke compiler.cljc 2169]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_let_STAR_ invokeStatic compiler.cljc 2180]
+  [cljd.compiler$emit_let_STAR_ invoke compiler.cljc 2169]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_do invokeStatic compiler.cljc 2185]
+  [cljd.compiler$emit_do invoke compiler.cljc 2184]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_no_recur invokeStatic compiler.cljc 3624]
+  [cljd.compiler$emit_no_recur invoke compiler.cljc 3623]
+  [cljd.compiler$emit_try invokeStatic compiler.cljc 3632]
+  [cljd.compiler$emit_try invoke compiler.cljc 3629]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3720]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$split_args$fn__5637 invoke compiler.cljc 1578]
+  [clojure.core$map$fn__5956 invoke core.clj 2772]
+  [clojure.lang.LazySeq force LazySeq.java 50]
+  [clojure.lang.LazySeq realize LazySeq.java 87]
+  [clojure.lang.LazySeq seq LazySeq.java 104]
+  [clojure.lang.RT seq RT.java 555]
+  [clojure.core$seq__5488 invokeStatic core.clj 139]
+  [clojure.core.protocols$seq_reduce invokeStatic protocols.clj 24]
+  [clojure.core.protocols$fn__8266 invokeStatic protocols.clj 74]
+  [clojure.core.protocols$fn__8266 invoke protocols.clj 74]
+  [clojure.core.protocols$fn__8207$G__8202__8220 invoke protocols.clj 13]
+  [clojure.core$reduce invokeStatic core.clj 6965]
+  [clojure.core$into invokeStatic core.clj 7038]
+  [clojure.core$into invoke core.clj 7029]
+  [cljd.compiler$split_args invokeStatic compiler.cljc 1578]
+  [cljd.compiler$split_args invoke compiler.cljc 1565]
+  [cljd.compiler$split_args invokeStatic compiler.cljc 1570]
+  [cljd.compiler$split_args invoke compiler.cljc 1565]
+  [cljd.compiler$emit_fn_call invokeStatic compiler.cljc 1844]
+  [cljd.compiler$emit_fn_call invoke compiler.cljc 1832]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_let_STAR_$fn__5995 invoke compiler.cljc 2173]
+  [clojure.core.protocols$fn__8279 invokeStatic protocols.clj 167]
+  [clojure.core.protocols$fn__8279 invoke protocols.clj 123]
+  [clojure.core.protocols$fn__8233$G__8228__8242 invoke protocols.clj 19]
+  [clojure.core.protocols$seq_reduce invokeStatic protocols.clj 31]
+  [clojure.core.protocols$fn__8266 invokeStatic protocols.clj 74]
+  [clojure.core.protocols$fn__8266 invoke protocols.clj 74]
+  [clojure.core.protocols$fn__8207$G__8202__8220 invoke protocols.clj 13]
+  [clojure.core$reduce invokeStatic core.clj 6965]
+  [clojure.core$reduce invoke core.clj 6947]
+  [cljd.compiler$emit_let_STAR_ invokeStatic compiler.cljc 2171]
+  [cljd.compiler$emit_let_STAR_ invoke compiler.cljc 2169]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_let_STAR_$iter__6006__6010$fn__6011$fn__6012 invoke compiler.cljc 2179]
+  [cljd.compiler$emit_let_STAR_$iter__6006__6010$fn__6011 invoke compiler.cljc 2179]
+  [clojure.lang.LazySeq force LazySeq.java 50]
+  [clojure.lang.LazySeq realize LazySeq.java 87]
+  [clojure.lang.LazySeq seq LazySeq.java 104]
+  [clojure.lang.RT seq RT.java 555]
+  [clojure.core$seq__5488 invokeStatic core.clj 139]
+  [clojure.core.protocols$seq_reduce invokeStatic protocols.clj 24]
+  [clojure.core.protocols$fn__8266 invokeStatic protocols.clj 74]
+  [clojure.core.protocols$fn__8266 invoke protocols.clj 74]
+  [clojure.core.protocols$fn__8207$G__8202__8220 invoke protocols.clj 13]
+  [clojure.core$reduce invokeStatic core.clj 6965]
+  [clojure.core$into invokeStatic core.clj 7038]
+  [clojure.core$into invoke core.clj 7029]
+  [cljd.compiler$emit_let_STAR_ invokeStatic compiler.cljc 2179]
+  [cljd.compiler$emit_let_STAR_ invoke compiler.cljc 2169]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_do invokeStatic compiler.cljc 2185]
+  [cljd.compiler$emit_do invoke compiler.cljc 2184]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_no_recur invokeStatic compiler.cljc 3624]
+  [cljd.compiler$emit_no_recur invoke compiler.cljc 3623]
+  [cljd.compiler$emit_dart_run_zoned invokeStatic compiler.cljc 3684]
+  [cljd.compiler$emit_dart_run_zoned invoke compiler.cljc 3680]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_let_STAR_ invokeStatic compiler.cljc 2180]
+  [cljd.compiler$emit_let_STAR_ invoke compiler.cljc 2169]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_let_STAR_ invokeStatic compiler.cljc 2180]
+  [cljd.compiler$emit_let_STAR_ invoke compiler.cljc 2169]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_do invokeStatic compiler.cljc 2185]
+  [cljd.compiler$emit_do invoke compiler.cljc 2184]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_dart_fn invokeStatic compiler.cljc 2559]
+  [cljd.compiler$emit_dart_fn invoke compiler.cljc 2504]
+  [cljd.compiler$emit_fn_STAR_ invokeStatic compiler.cljc 2610]
+  [cljd.compiler$emit_fn_STAR_ invoke compiler.cljc 2596]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_let_STAR_$fn__5995 invoke compiler.cljc 2173]
+  [clojure.core.protocols$fn__8279 invokeStatic protocols.clj 167]
+  [clojure.core.protocols$fn__8279 invoke protocols.clj 123]
+  [clojure.core.protocols$fn__8233$G__8228__8242 invoke protocols.clj 19]
+  [clojure.core.protocols$seq_reduce invokeStatic protocols.clj 31]
+  [clojure.core.protocols$fn__8266 invokeStatic protocols.clj 74]
+  [clojure.core.protocols$fn__8266 invoke protocols.clj 74]
+  [clojure.core.protocols$fn__8207$G__8202__8220 invoke protocols.clj 13]
+  [clojure.core$reduce invokeStatic core.clj 6965]
+  [clojure.core$reduce invoke core.clj 6947]
+  [cljd.compiler$emit_let_STAR_ invokeStatic compiler.cljc 2171]
+  [cljd.compiler$emit_let_STAR_ invoke compiler.cljc 2169]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_let_STAR_ invokeStatic compiler.cljc 2180]
+  [cljd.compiler$emit_let_STAR_ invoke compiler.cljc 2169]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_do invokeStatic compiler.cljc 2185]
+  [cljd.compiler$emit_do invoke compiler.cljc 2184]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_dart_fn invokeStatic compiler.cljc 2559]
+  [cljd.compiler$emit_dart_fn invoke compiler.cljc 2504]
+  [cljd.compiler$emit_fn_STAR_ invokeStatic compiler.cljc 2610]
+  [cljd.compiler$emit_fn_STAR_ invoke compiler.cljc 2596]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_def$fn__7191 invoke compiler.cljc 3420]
+  [cljd.compiler$emit_def invokeStatic compiler.cljc 3412]
+  [cljd.compiler$emit_def invoke compiler.cljc 3364]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_let_STAR_$iter__6006__6010$fn__6011$fn__6012 invoke compiler.cljc 2179]
+  [cljd.compiler$emit_let_STAR_$iter__6006__6010$fn__6011 invoke compiler.cljc 2179]
+  [clojure.lang.LazySeq force LazySeq.java 50]
+  [clojure.lang.LazySeq realize LazySeq.java 87]
+  [clojure.lang.LazySeq seq LazySeq.java 104]
+  [clojure.lang.RT seq RT.java 555]
+  [clojure.core$seq__5488 invokeStatic core.clj 139]
+  [clojure.core.protocols$seq_reduce invokeStatic protocols.clj 24]
+  [clojure.core.protocols$fn__8266 invokeStatic protocols.clj 74]
+  [clojure.core.protocols$fn__8266 invoke protocols.clj 74]
+  [clojure.core.protocols$fn__8207$G__8202__8220 invoke protocols.clj 13]
+  [clojure.core$reduce invokeStatic core.clj 6965]
+  [clojure.core$into invokeStatic core.clj 7038]
+  [clojure.core$into invoke core.clj 7029]
+  [cljd.compiler$emit_let_STAR_ invokeStatic compiler.cljc 2179]
+  [cljd.compiler$emit_let_STAR_ invoke compiler.cljc 2169]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$emit_do invokeStatic compiler.cljc 2185]
+  [cljd.compiler$emit_do invoke compiler.cljc 2184]
+  [cljd.compiler$emit$fn__7626 invoke compiler.cljc 3785]
+  [cljd.compiler$emit invokeStatic compiler.cljc 3780]
+  [cljd.compiler$emit invoke compiler.cljc 3711]
+  [cljd.compiler$load_input$fn__8336 invoke compiler.cljc 4920]
+  [cljd.compiler$load_input invokeStatic compiler.cljc 4919]
+  [cljd.compiler$load_input invoke compiler.cljc 4911]
+  [cljd.compiler$compile_input invokeStatic compiler.cljc 4959]
+  [cljd.compiler$compile_input invoke compiler.cljc 4957]
+  [cljd.compiler$compile_url invokeStatic compiler.cljc 4993]
+  [cljd.compiler$compile_url invoke compiler.cljc 4980]
+  [cljd.compiler$compile_namespace invokeStatic compiler.cljc 5005]
+  [cljd.compiler$compile_namespace invoke compiler.cljc 4995]
+  [cljd.compiler$recompile$fn__8493 invoke compiler.cljc 5104]
+  [cljd.compiler$recompile invokeStatic compiler.cljc 5096]
+  [cljd.compiler$recompile invoke compiler.cljc 5084]
+  [cljd.build$compile_cli$compile_nses__10412 invoke build.clj 462]
+  [cljd.build$compile_cli invokeStatic build.clj 470]
+  [cljd.build$compile_cli doInvoke build.clj 419]
+  [clojure.lang.RestFn invoke RestFn.java 424]
+  [cljd.build$test_cli invokeStatic build.clj 645]
+  [cljd.build$test_cli doInvoke build.clj 644]
+  [clojure.lang.RestFn invoke RestFn.java 460]
+  [cljd.build$_main invokeStatic build.clj 942]
+  [cljd.build$_main doInvoke build.clj 916]
+  [clojure.lang.RestFn applyTo RestFn.java 140]
+  [clojure.lang.Var applyTo Var.java 707]
+  [clojure.core$apply invokeStatic core.clj 667]
+  [clojure.main$main_opt invokeStatic main.clj 515]
+  [clojure.main$main_opt invoke main.clj 511]
+  [clojure.main$main invokeStatic main.clj 665]
+  [clojure.main$main doInvoke main.clj 617]
+  [clojure.lang.RestFn applyTo RestFn.java 140]
+  [clojure.lang.Var applyTo Var.java 707]
+  [clojure.main main main.java 40]]}
+Error while executing task: test:cljd
+cljd exit=1

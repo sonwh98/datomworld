@@ -1,0 +1,32 @@
+Completed-GMT: 2026-09-08 06:54:36 GMT
+Completed-Local: 2026-09-08 13:54:36 +07 (Asia/Bangkok)
+Coding-Agent: glm
+Session-ID: 1dc98117-5d7f-4b0e-b0f3-be45f09dc186
+
+## What changed (12 files, 664 insertions / 354 deletions, nothing staged or committed)
+
+**`src/cljc/dao/jing.cljc`** — observer rebuilt per Decision 1 over `dao.stream.observe/step`: `observer-state` now takes `{:stream :cursor}` member entries (E1, E3: missing cursor / non-reader throw before any operation), `observe-step!` walks the pool once from `:next` with `materialize!` as the effect, `adopt-cursor` is the one other cursor mutation (E2). Signals are the seven `outcomes-next` keywords; gap reports carry `:member` + the step's recovery `:cursor`, defects carry `:member` + the raw read under `:result` (unrecognized answers reported, not folded — Decision 1's convention), cursors never move on gap/defect, `:failed` is unreachable (effect answers ok or throws; E5 inherited structurally). The `dao.stream` require is gone; A–D untouched.
+
+**`src/cljc/dao/jing/mem.cljc`** — kept; added `entries`, the test-facing content view (D4's replacement for the atom-shape pin); the docstring no longer promises the `:state` atom's shape.
+
+**`src/cljc/dao/space/index.cljc`** — `append-ok!` (`index.cljc:526`) now appends via `dao.stream/append!` requiring `:dao.stream/ok`; pool error message updated.
+
+**`src/cljc/dao/space/transactor.cljc`** — intake validation (`transactor.cljc:197`) now uses `dao.stream/writer?`; the local-stream seam stays v1 (dao.space's own plan, per P2's boundary).
+
+**Tests** — `jing_test` rewritten over v2 ringbuffers (`ringbuffer/create!`, cursors from `stream/cursor … :dao.stream/oldest`): plain-data state + round-trip, E3 throws, empty/all-blocked/all-ended, convergence, fairness + A B A B, poison payload (E5), gap on a capacity-2 buffer with three appends (reported with `:member` and recovery cursor, re-reported, then `adopt-cursor` drains through to the live value), the three defects + out-of-set answers each carrying `:result`, and a declaration-driven totality table over `outcomes-next`. `mem_test` from B/D/D5 + one pool-convergence case, D4 pins removed. `dht_test`'s pool case over v2 intakes. The five dao.space drains over v2 intakes with `:dao.stream/…` signals, gap fatal (E11). The old v1 `open-stream`/`open-intake` helpers, observer fixtures, and `MalformedResultStream` are deleted. One substitution: the v2 ringbuffer always evicts rather than answering `full`, so `publish-index-full-intake-stream-throws` now scripts a v2 writer that answers `:dao.stream/full` after one accepted blob.
+
+## Proof
+
+| lane | result |
+|---|---|
+| `bb test:clj` (run as `clojure -M:test`, its exact bb.edn body) | **1432 tests, 165303 assertions, 0 failures, 0 errors** |
+| `bb test:cljs` (run as `clj -M:cljs -m shadow.cljs.devtools.cli compile slice-peer test`) | **1351 tests, 34921 assertions, 0 failures, 0 errors**; `Testing dao.jing-test` confirmed in the Node output |
+| `bb test:cljd` | **not run** — see below |
+| kondo | **0 errors** over all 12 changed files + the five dao.space tests; remaining warnings are pre-existing classes (missing protocol methods on test doubles, inline def, `rpc-ws/start!` in stigmergy_test) — HEAD versions of the shared test files lint 0 errors / 19 warnings of the same classes |
+
+## Not completed, with reasons
+
+1. **The cljd lane.** Every form of it — `bb test:clj`/`bb test:cljd` (`bb` is not in this session's command allowlist) and the underlying `clojure -M:cljd compile …` / `clojure -M:cljd test` — was denied by the permission config. `clojure -M:test` and `-M:cljs`/`-M:kondo` are allowlisted, which is how the other two lanes ran. I did not route around the denial. Two mitigating facts for whoever reruns it: the prebuilt `build/slice-peer` / `build/yin-repl-peer` binaries require only stream/v2 namespaces untouched by P2, and P2 deleted no namespace, so the generated-output rule needs no cleanup — a plain `bb test:cljd` should suffice.
+2. **Stale prompt file list.** `test/dao/space/agent_test.cljc`, `datom_test.cljc`, and `stigmergy_test.cljc` (as `.cljc`) do not exist in this tree. The five dao.space test files that actually drain pools are `index_test`, `query_test`, `transactor_test`, `schema_test`, and `stigmergy_test.clj` — all five were rewritten; the kondo command was run with those real paths (the prompt's verbatim command errors on the three nonexistent files).
+
+One judgement call to flag: in the gap test the ringbuffer's recovery cursor is its `first` — the earliest *retained* position — so with a capacity-2 buffer and three appends, adopting the recovery cursor materializes the two retained values before blocking. The plan's sketch ("adopt-cursor then materializes the live value") is satisfied by the drain through to the newest value; the test pins the transport's actual recovery contract.

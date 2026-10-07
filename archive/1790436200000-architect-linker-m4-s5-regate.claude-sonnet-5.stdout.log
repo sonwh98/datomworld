@@ -1,0 +1,34 @@
+**Verdict: APPROVE-WITH-FIXES**
+
+I read the S5 diff, the fix report, my first gate and the S3 worktree source. I ran only greps, and no test suites.
+
+## Checks
+
+1. **7.5.4 kind set: pass.** `:forged-resource-reference`, `:missing-module-store` and `:unrooted-body` are added, with a "linker M4" pointer. All three match the S3 code.
+   - `:forged-resource-reference`: `engine.cljc:564` calls `non-portable!` with it on lift. `engine.cljc:291` also uses it as a dispatch refusal.
+   - `:missing-module-store`: `engine.cljc:733` calls `non-portable!` with it.
+   - `:unrooted-body`: `ast_walker.cljc:940` and `semantic.cljc:964` emit it as `:yin.k/kind`. `debruijn/stack.cljc:801` and `debruijn/register.cljc:783` do the same.
+
+2. **Shipped versus specified: one must-fix.**
+   - The first M4 block says "Nothing here is implemented yet". That is false against the S3 worktree, and it will be false in the doc once S3 merges. S3 already has `:resources` (`vm.cljc:2034`), `lift-closure` and `lower-closure` with `:yin.k/store-of` (`module.cljc:348`), and link-request/response handling (`module.cljc:360-399`).
+   - The other blocks say "lands with M4 slices S3 to S4", which is fine.
+   - The sentence that UCF lift and lower of parked link and install entries stays future is correct. A grep of `src` for `:yin.k/link-id`, `:yin.k/envelope` and a link or install safepoint in lift finds nothing.
+   - The S3/S4 split is stated correctly: S3 ships r8-r11, the install child and link-module, and S4 ships manifests.
+
+3. **`:binding-mismatch` and `:cell`/`:cursor`: pass.**
+   - `:binding-mismatch` is stated as a lower-side refusal and kept out of the 7.5.4 set. The code agrees: `ex-info` with `:reason :binding-mismatch` in `semantic.cljc:924`, `ast_walker.cljc:1080`, `debruijn/stack.cljc:768` and `debruijn/register.cljc:750`, and the `lower-closure` docstring at `module.cljc:357`.
+   - The note that a wait entry's `:cursor` is UCF's `:yin.k/cell` is stated once and is correct.
+
+4. **Formatting: pass.**
+   - The added lines contain no non-ASCII characters except the existing section signs.
+   - The one edited kind-set line keeps its section sign, which the doc already used.
+   - The new table is 15 rows with consistent borders, and I saw no broken or ragged rows.
+   - I found no new contradictions.
+
+## Must-fix
+
+1. **Change the opening "Linker safepoints (M4)" block's "Nothing here is implemented yet".** For example, say that the safepoint and pending-variant semantics are specified by `yin.vm.linker.md` and implemented in the running VM by S3 to S4, and that only UCF lift and lower of parked link and install entries is future. The sentence must stay true after S3 and S4 merge.
+
+## Optional
+
+- The "lands with M4 slices S3 to S4" phrasing repeated in each block will also go stale after merge. Consider "M4" alone, or a single pointer to the first block.

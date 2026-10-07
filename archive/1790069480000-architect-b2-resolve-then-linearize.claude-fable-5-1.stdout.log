@@ -1,0 +1,30 @@
+Completed-GMT: 2026-09-22 09:13:28 GMT
+Completed-Local: 2026-09-22 16:13:28 +07 (Indochina Time)
+
+Edited `docs/design/yin.vm.debruijn.stack.md` only. Verified no line over 80 columns. The only non-ASCII characters in the file are the pre-existing section signs in the section 1 compliance table, which I did not touch.
+
+**Section 3 changes**
+
+- The opening now states lowering as two pure stages, `resolve` then `lower-stack`, names `resolve` as the shared upstream of the stack and register projections, and keeps the existing `resolve-name` reuse and projection-retirement rules, now pointing at the resolver's namespace.
+- New 3.1 fixes the resolved-tuple contract precisely: named datoms carried unchanged, entity ids preserved so provenance is the id itself, `:variable` loses `:yin/name` and gains `:yin.resolved/depth` plus `:yin.resolved/position` or `:yin.resolved/free`, `:lambda` loses `:yin/params` and gains `:yin.resolved/arity`. The namespace is `:yin.resolved/*` because the dormant projection owns `:yin.debruijn/*`. Binder side table is lambda entity to parameter vector, no per-occurrence names. The walk order, innermost-first resolution stack, refusal rules, tree-level scope validation, and the no-identity justification against D2, D9, D12, and derive-don't-persist are all stated.
+- New 3.2 specifies `lower-stack`: it reproduces the named linearizer's flattening itself since `lower` cannot read resolved tuples, with the exact emission rules listed. Layout equality with `lower` becomes a required structural-comparison test. The pc side table shape and `adapt` as the composition are stated. It says plainly that `closure-body-ranges`, `layout-conforms?`, `body-owner`, `chain-of`, vector-level `resolve-var`, and `rewrite` are removed and why.
+- The two-place scope validation list now names `resolve` on the tree as place one; B1's validator stays place two.
+
+**B2 phase box**
+
+Retitled "resolver and stack lowerer". File box:
+
+- New `src/cljc/yin/vm/debruijn_resolve.cljc`, namespace `yin.vm.debruijn-resolve`: `resolve`, its scope validator, and `unresolve` as a test oracle. Plus `test/yin/vm/debruijn_resolve_test.cljc`.
+- `src/cljc/yin/vm/debruijn_linearize.cljc` keeps `lower-stack`, `adapt`, `lift`, and public `named-canonical-vector`. Removed, not moved: the six vector-level helpers above and the duplicate `image-scope-defect`.
+
+Completion criteria are restated per stage: resolver determinism, every node type, exact names and scalars, the duplicate-parameter fixture resolving to `[0 1]`, hand-built out-of-range tuples refused, and the inverse law. The stack lowerer keeps determinism, every opcode, structural comparison, round trips, and the lift law, now written as `lift(adapt x)` instead of `lift(adapt(lower x))`. Added: B1's golden bytes and H must be reproduced unchanged by `adapt`.
+
+**Untouched**
+
+B0, B1, B3, B4 through B7, sections 1, 2, 4, 5, 7, 9, and D1 through D16 did not need to change. D13 still holds because B6 depends on B2 and the lift, which still exist. One DEFERRED bullet was reworded to name `yin.vm.debruijn-resolve` as the destination for `resolve-name`; it was not a decided item.
+
+**Still needing the owner**
+
+1. The resolved-tuple vocabulary is now fixed in this document as `:yin.resolved/*`, so the R0 deferral in the register design is resolved here. The register doc still lists it as deferred and I was told not to edit it again. It needs a one-line update when that doc is next touched.
+2. The register design's R0 file box also lists `debruijn_resolve.cljc` as new. With this decision the resolver is B2's, so R0 should drop that file and depend on B2 instead. Same one-line fix, same constraint.
+3. B2's implementer needs a redispatch against the new box. The current uncommitted B2 and its in-progress review are against the fused shape.

@@ -1,0 +1,85 @@
+Completed-GMT: 2026-09-30 11:53:07 GMT
+Completed-Local: 2026-09-30 18:53:07 +07
+Coding-Agent: claude
+Session-ID: eb3d451a-74ba-462d-8788-df45ee5c25f8
+# Report r2: DHT epic S2, fix round 1 (Architect sign-off findings, gpt-6-sol)
+
+All four findings and ruling (b) are done in the worktree `/Users/sto/workspace/datomworld-dht-s2`. The JVM, Node and
+Dart suites and kondo all pass. The docs edited are the worktree's own, not the main tree's. Nothing is staged or
+committed.
+
+## Ruling (b): legacy stays until S3
+
+- `docs/design/dao.jing.dht.md` §10 table: the `IDhtNet` / `lookup` / `create-content-dht` row now reads "Deleted in
+  S3, together with `dao.jing.dht.node`, which implements and calls them (Architect ruling on the S2 sign-off). S2's
+  core does not use them."
+- `docs/design/dao.jing.md` status: the old surface stays until S3, which deletes it together with
+  `dao.jing.dht.node`; the S2 core does not use it.
+- `src/cljc/dao/jing/dht.cljc` banner: now "LEGACY, deleted in S3", saying `node` implements it and S3 deletes both.
+  The "pending an Architect ruling" wording is gone.
+- The ten open choices were approved as implemented; none was changed.
+
+## Findings
+
+1. **HIGH, the advance stage ignored `budget`.** `advance` now takes `budget` and carries `:advance-cursor` (the last
+   operation advanced). Each step takes at most `budget` pending writes and gets, in sorted order after the cursor,
+   wrapping round. `step` passes its budget through. New state key: `:advance-cursor nil`.
+   - Test: `the-advance-stage-is-bounded-by-the-budget`. Five pending writes, all their queries expired at tick 500,
+     then three steps with budget 2 must send re-pings `[2 2 1]`.
+   - Red on the old code: `actual [5 0 0]`.
+2. **MEDIUM, the need-cookie reply's cookie was trusted and a refused resend was ignored.**
+   - The cookie is no longer stored in `:cookies`. It rides the one resend only, and is kept only when a full reply
+     carries it.
+   - A resend the socket refuses now removes the query and marks the peer dead for that operation, the same as a
+     refused `issue`.
+   - A need-cookie reply whose operation is gone drops the query.
+   - Test support: the mesh socket gained `:refuse?` over `[from to]`, which answers `:dao.stream/transport-error`
+     with nothing sent, plus a `sent-from` helper.
+   - Test: `a-need-cookie-cookie-is-untrusted-until-a-full-reply`, with each case on a fresh network.
+     - With a working socket: no cookie is stored after the need-cookie reply, the resend is pending, and the cookie
+       is trusted after the full reply.
+     - With a refusing socket: no cookie is stored, no query is left pending, and the peer is in the write's `:dead`.
+   - Red on the old code: 4 failures across the two cases (cookie stored twice, query left pending, peer not dead).
+3. **MEDIUM, fetch-only coverage.** Test: `an-unpublished-node-still-routes-fetches-and-caches`.
+   - Node 1 is unpublished by default, and the test asserts `publish?` is false.
+   - It finds the holder, node 3, through node 2's `:find` hints: node 3 ends up in node 1's routing table.
+   - It fetches on a remote miss (exact found answer) and caches the value in `:local`.
+   - It also answers `:find` for node 2: a reply from node 1 carrying `:peers` is in the log.
+4. **MEDIUM, one step at a time per facade.** `facade_test` now wraps step entry and exit per facade, keyed by node
+   id, with an in-flight counter and a peak. It asserts `{id-1 1, id-2 1}`, and keeps the two-owner-threads and
+   never-the-caller checks.
+
+Tests 3 and 4 cover behaviour that was already correct, so they pass on the old code. Temporary mutations show each
+one can fail (below).
+
+## Mutation proofs (each applied, the suite run, then reverted; grep finds 0 leftovers)
+
+| Mutation | Caught by |
+|---|---|
+| R1: advance ignores the budget | the-advance-stage… (dht_test:739) |
+| R2a: need-cookie cookie trusted again | the need-cookie test :765, :775 |
+| R2b: refused resend left pending | the need-cookie test :776, :777 |
+| R3a: an unpublished node answers no `:find` | an-unpublished-node-still-routes… :809 (and 3 older tests) |
+| R3b: an unpublished node does not cache what it fetched | an-unpublished-node-still-routes… :803 |
+| R4: facade steps one state from four threads | facade_test :50 (peak) and :52 (thread count) |
+
+## Checks (all run in the worktree)
+
+- `clj -M:kondo --lint` on dht.cljc, dht_test.cljc, mesh.cljc, facade_test.clj: 0 errors, 0 warnings.
+- Focused `clojure -M:test` on dht-test, facade-test, linker-test and linker-step-test: 98 tests, 785 assertions, 0
+  failures.
+- Full `clojure -M:test`: 2412 tests, 184908 assertions, 0 failures, 0 errors. Started in the foreground, it hit the
+  tool's 10-minute foreground cap while it shared the machine with the Node run, so the harness moved it to the
+  background and it ran to completion there.
+- `bb test:cljs`: 2314 tests, 51265 assertions, 0 failures, 0 errors.
+- `bb test:cljd`: `+2276: All tests passed!`, and the three new dht-test tests are in the run. This too was moved to
+  the background at the 10-minute cap and ran to completion.
+- cljstyle was not part of this round's check list and was not run (it was blocked by the permission prompt in
+  round 1).
+
+## Files changed this round
+
+`src/cljc/dao/jing/dht.cljc` (advance cursor and budget, need-cookie handling, banner),
+`test/dao/jing/dht_test.cljc` (+3 tests), `test/dao/jing/dht/mesh.cljc` (`:refuse?`, `sent-from`),
+`test/dao/jing/dht/facade_test.clj` (per-facade concurrency peak), `docs/design/dao.jing.dht.md` (§10 row),
+`docs/design/dao.jing.md` (status text).

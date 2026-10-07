@@ -1,0 +1,49 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+Completed-GMT: 2026-10-01 18:20:10 GMT
+Completed-Local: 2026-10-02 01:20:10 +0700
+
+# Static pre-gate review — Python C2-S1 generators core
+
+**Verdict: READY** — no P1, no P2; four P3 notes. Read-only as instructed: no file edited, no test lane run. Static analysis only, plus CPython 3.9.6 (the design's exact reference version, which is this machine's `python3`) runs of the acceptance programs to verify expected outputs and syntax classifications.
+
+## 1. Design conformance (rulings 1-2, Q1) — PASS
+
+- **Per-generator handler stack with boundary frame.** `py/gen-switch` saves the caller's stack into `:caller-ctx` *before* leaving, and installs `:ctx` *before* invoking `:resume` (`prelude.cljc:254-260`); `py/yield-raw` symmetrically saves `:ctx` and restores `:caller-ctx` before delivering `[:yield v]` (`prelude.cljc:294-298`); `py/gen-exit` restores `:caller-ctx` before invoking `:return` (`prelude.cljc:275-276`). Ruling 1's "restore the receiving context before delivering every crossing outcome" holds in both directions. `py/gen-start` installs `(py/frame :generator (fn [e] (py/gen-fail g e)) nil)` (`prelude.cljc:267-268`); `py/raise`'s non-`:finally` arm calls the payload with the exception (`prelude.cljc:117-125`), so escapes reach `gen-fail` with no change to raise/unwind. The boundary can't be dropped: every capture inside a body (`py/try` `saved`, `py/call-ec`) is at depth ≥ the boundary, so `py/unwind-to` never crosses it.
+- **Slot clearing (Q1).** Every transition rebuilds content through `py/gen-content` (`prelude.cljc:229-231`): `:created`→`:running` drops `:body` (`:254-258`), `:running`→`:suspended` keeps exactly `:resume`/`:ctx`, exit sets `:closed` with nothing. Verified not just statically but asserted empirically: `e2e_c2_test.clj:200-201` asserts the suspended key set is exactly `#{:py/type :name :state :resume :ctx}`.
+- **`gen-switch` never raises from the generator's side.** All outcomes are tagged vectors. The only raise — `ValueError "generator already executing"` (`prelude.cljc:240`) — is the caller-side protocol violation on the caller's stack; `:closed` answers `[:return None]`/`[:raise e]` (`:241-244`); throw into a never-run generator closes it and returns `[:raise e]` with no capture taken (`:245-249`) — validation failures leave the generator unchanged (ruling 1 condition).
+- **StopIteration only at protocol boundaries.** `py/gen-result` raises `StopIteration(v)` or returns `default` (`prelude.cljc:307-321`); `py/gen-step` maps `:return` to the `:py/stop` sentinel without an exception (`:322-327`); `next(it, default)` consumes completion directly (ruling 3). PEP 479 conversion in `gen-fail` uses the subclass walk (`:278-285`). `StopIteration.__init__` sets `args`/`value` correctly (`:338-349`); `e.value`/`e.args` render `7 (7,)`/`None ()` as CPython does.
+
+## 2. Lowering correctness — PASS
+
+- **Arms.** `"yield_stmt"`→inner `yield_expr` (`lower.cljc:1449`), `"yield_expr"`→`lower-yield` (`:1450`), parenthesized yield via the `atom` `'('` arm (`:525`); the three guards (atom-paren, augassign RHS, assignment RHS) are all removed and both remaining paths lower generically. The grammar has exactly four `yield_expr` positions (`Python3Parser.g4:146,147,207,588`) and all four are handled. `yield_arg`'s `testlist` case lowers through the `testlist` arm→`display`, so `yield 1, 2` yields the tuple — matching CPython 3.9's PEG grammar (verified: `x = (yield 1, 2)` compiles). `yield from` is refused as `:unsupported "yield from"` (`lower.cljc:1326`), S3 scope; `yield_arg` correctly moved to consumed-rules and the rule-set partition test (`lower_test.clj:471-479`) still holds.
+- **`:gen` binder exactly when the body yields.** `generator-body?` (`lower.cljc:994-1003`) searches the funcdef's block / lambdef's body with the nested-scope stop set. I checked the adversarial classifications against CPython 3.9.6: yield in a comprehension inside a class inside a function (same message, outer not a generator), `lambda: (yield 1)` (lambda is its own generator, per Python), yield in a comprehension's **first** iterable inside a generator — *legal* in CPython, first `next` yields `1`, `send([9,8])` feeds the comprehension — and the implementation matches because the first iterable lowers with the enclosing ctx (`lower.cljc:1417-1418`); yield in a *second* iterable is a comprehension-scope syntax error, same message as CPython.
+- **Resets in every nested scope.** Function bodies: `:comp nil`, `:gen gen-sym-or-nil` (`lower.cljc:1025-1031`); classdef `:gen nil :comp nil` (`:1108-1109`); comprehension `:gen nil :comp kind` (`:1370-1371`); module context nil/nil (`:1514-1115`). All five scope creators covered.
+- **Two syntax diagnostics preserved** with CPython-parity messages: `'yield' outside function` / `'yield' inside list|set comprehension` (`lower.cljc:1322-1325`), including the module-level comprehension-first-iterable case, which CPython also reports as `'yield' outside function`.
+
+## 3. Cross-host hazards — PASS
+
+- All new prelude conditionals are equality tests on keywords/vectors/sentinels — no nil-punning of guest values, no truthiness traps; the send guard is `(not (= v :py/None))` (`prelude.cljc:330`); `next`'s default uses the `:py/missing` sentinel (`:1706`). No reader conditionals, no host types, **no `get` on a continuation** — the flag-cell discriminator (ruling 2) appears on both the switch and yield sides, each capture invoked exactly once; I found no double-resume or boundary-frame-drop path (state is written before the receiving continuation is invoked; single-threaded ordering).
+- `py/iter-at`'s `:generator` arm ignores the index (`prelude.cljc:1418-1422`) — no counter-overflow path exists for generators (ruling 5's C3 exactness obligation stays forward-looking, as the ruling intends). Generators are never printed in S1, so `str`/`repr` of the cell is unexercised (P3-2). The parity triple `[[:yield 1] [:yield 2] [:return :py/None]]` (`prelude_parity_test.cljc:209-222`) uses the same raw-vector comparison pattern as the existing green `prelude-semantics-on-every-vm-test` (`:163-169`), so host vector equality is proven territory.
+
+## 4. Acceptance-table tests — PASS, none vacuous
+
+- All seven S1 rows are present: rows 1-4 and 6 in `e2e_c2_test.clj` (`:47-135`) over all four evaluators with a diagnostics guard; row 5 in `lower_test.clj` (new block `:542-550` asserting empty program + exactly `[:yang.python.antlr/syntax]`, plus message cases); row 7 in `prelude_parity_test.cljc:209`.
+- I ran all five programs under CPython 3.9.6: the test expectations byte-match (`[0, 1, 2]/0/1`; `[]`/`1 ['start']`/`stop None ['start', 'end']`; `1`/`7 (7,)`/`None ()`/`d`; `1 ['a']`/`2 ['a', 'b', ['A', 's', 'B']]`; `2999 2999`) — including the operand-evaluation-order subtlety in the send row.
+- The continuation-length check is real: `(:heap final)` is valid on all four VM records (the walker has a `heap` field; semantic/stack/register carry the engine's `:heap` as an extra key merged from `vm/empty-state` — the same access `cell_test.cljc`/`heap_reclamation_test.cljc` already exercise). It asserts exactly one generator, state `:suspended`, the Q1 key set, then payload node-count equality at 10 vs 1000 items. `every-vm=` fails on `[:thrown …]` or `:diagnostics`; no assertion is tautological.
+
+## 5. Tail and reclamation (rulings 6-7) — PASS for S1 scope
+
+- Crossings are abortive in both directions; the generator's loop is a `mark-tails`-marked self-applied lambda; the 3000-item break row runs on all four evaluators and the `:resume` size is asserted stable — no per-yield continuation growth. Slot clearing means a suspended generator holds no caller reference (asserted key set); the fixed stale base is the ruling-7-accepted design limit, and the stability check pins its fixed size. The dropped-generator reclamation rows are S5 scope, correctly absent here.
+
+## Findings
+
+- **P1 (blocking): none.**
+- **P2 (should-fix): none.**
+- **P3-1** `x in <generator>` raises TypeError ("argument of type is not iterable", `prelude.cljc:1062-1075` fall-through) where CPython 3.9 consumes the generator and answers membership. The design's own gap table lists the `py/contains` `:generator` arm; not S1 scope — track it for S2-S5.
+- **P3-2** `print(<generator>)` renders the generic `:py/object` snapshot (`prelude.cljc:1576-1591`); the design's `{:py/generator name}` form is its S5 row.
+- **P3-3** `e2e_c2_test.clj:168-176`: `size` counts closures/continuations/cell-refs as 1 each, so retained-*reference* growth would show, but retained *content* growth inside cells would not. This matches the design's S1 table exactly; ruling 7's stronger full-graph/retained-size gate lands with the S5 heap rows as planned.
+- **P3-4** `py/next`'s non-generator message is generic ("object is not an iterator", `prelude.cljc:337`) vs CPython's type-naming message — consistent with C1's existing message style; cosmetic only.
+
+**READY** — S1-scope-complete, design- and ruling-conformant, acceptance coverage faithful and non-vacuous, with the deviations found all being the design's own deferred gaps. The report is also recorded in the session plan file; the repo tree was not touched.

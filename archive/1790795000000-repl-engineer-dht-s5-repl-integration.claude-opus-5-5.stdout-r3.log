@@ -1,0 +1,38 @@
+All three sign-off findings are fixed and every lane passed after the last source change. Nothing is staged or committed.
+
+**Fix 1 (HIGH): the lock is now under `dao.*`, and `join {:dir}` takes it**
+- I moved the durable directory store into `dao.space.store`: the content log, HEAD, the lock, validated recovery and `:head-fn`. Its file operations are in `dao.space.store.fs`, which is `yin.repl.store.fs` moved as-is with only its namespace line and docstring changed. The old file is deleted.
+- **Why `dao.space`:** HEAD names an index manifest, and opening validates that index. Putting this under `dao.jing` would make the storage layer aware of index structure.
+- `dao.space.dht/join {:dir}` now opens this store, so it is locked until `close!`. If building the node fails after that open, `join` releases the store and the lock. `:local` still works for callers that bring an already-locked store.
+- `yin.repl.store` now only parses and validates the spec and dispatches the open, so no lock code is duplicated. Every existing lock test from slice 2 still passes on the JVM, Node (including the two-worker-thread case) and Dart.
+- Tests first: the two new lock tests failed with 7 failures before the fix. Re-introducing an unlocked `join {:dir}` as a mutation brings back exactly those 7.
+
+**Fix 2 (MEDIUM): competing opens, and a required Node leg**
+- While publisher A holds its directory, two competing opens are now checked:
+  - a plain `join` on A's directory in the test JVM is refused, naming the directory;
+  - a second REPL process on the same directory exits with status 1, naming it as locked.
+- Before the fix, the plain-join check failed with 2 failures. The second-process check already passed, because the REPL already locked.
+- New task `bb build:yin-repl-node` builds `target/yin-repl.js`, and `bb test:clj` and `bb test` depend on it. It is documented in `docs/agents/build-n-test.md`.
+- A missing Node build now fails the test instead of skipping. I showed this by moving the file aside: the test failed with the build instruction in its message.
+
+**Fix 3 (MEDIUM): no reserved ports**
+- The first node is now an in-test anchor built on the lower-level `dao.jing.dht` core, bound to port 0. That core can hold a socket without a peer; per ruling (a), a REPL with no peers cannot.
+- Every REPL process binds an ephemeral port and reports it, and later processes are given the reported addresses. `free-udp-port` and all `--dht-port` flags are gone from the test.
+- There is no red run for this one: it removes a race in the test rather than changing behaviour.
+
+**Checks**
+
+| Check | Result |
+|---|---|
+| kondo, 17 files | 0 errors, 0 warnings |
+| `bb test:clj` (builds the Node REPL first) | 2539 tests, 186171 assertions, 0 failures |
+| `bb test:cljs` | 2453 tests, 52420 assertions, 0 failures |
+| `bb build:yin-repl-peer` | builds |
+| `bb test:cljd` (after deleting `test/cljd-out`) | "All tests passed!" at +2408 |
+| New Dart test files run directly | 48 tests pass |
+| `bb build:yin-repl-node` | builds |
+| Browser `demo` build | builds |
+
+The process test ran 33 assertions, including the Node reader and both competing opens.
+
+Report: `/Users/sto/workspace/datomworld/collab/1790795000000-repl-engineer-dht-s5-repl-integration.claude-opus-5-5.report-r2.md`

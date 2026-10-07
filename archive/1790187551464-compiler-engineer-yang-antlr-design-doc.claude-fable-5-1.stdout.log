@@ -1,0 +1,21 @@
+Completed-GMT: 2026-09-23 18:28:06 GMT
+Completed-Local: 2026-09-24 01:28:06 +0700 ICT
+Session-ID: d5692e97-efdf-424a-91dc-9b61187d1ffa
+
+The file `docs/design/yang.antlr.md` is written and verified. No other repository files were touched.
+
+**Section count:** 13 top-level sections, in the order the prompt required. Overview, Governing Decisions, Language Frontend SPI, ANTLR Host Boundary, Source Ingestion, DaoStream Integration, Universal AST Encoding and Provenance, Semantic Lowering per Paradigm, Standard Library and FFI Architecture, Diagnostics, Determinism and Isolation, Phased Roadmap, and Verification Laws.
+
+**Line count:** 1686 lines.
+
+Mechanical checks all passed:
+
+| Check | Result |
+|---|---|
+| Lines over 80 columns | 0 |
+| Non-ASCII characters | 0 |
+| HTML tags | 0 |
+
+**What the document contains beyond the plan's text.** The architect's twelve sections were transcribed in third-person voice with tables reflowed to 80 columns and the Mermaid diagram replaced by an ASCII flow. Three things were added from the prompt rather than the plan, and the document labels each as such. The per-host ANTLR runtime table names the Maven, npm, and pub.dev packages with their generation flags. The SPI section includes a `defprotocol` pseudocode sketch, explicitly marked as proposed vocabulary organizing the plan's four frontend parts and step contract. Section 9 lays out the four-layer standard-library model, the `dao.jing` DHT distribution of preludes and packages, and FFI through `dao.stream.apply`, each tied back to the plan's section 8.2 placement rule and the host-boundary rule in datom.world.md.
+
+The owner's "not exhaustive" directive appears verbatim in the preamble, again at the head of section 8, and as the final row of the paradigm table.

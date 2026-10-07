@@ -1,0 +1,49 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+Done. Report:
+
+## Diff (`test/bench/yin_vm_bench.cljc`, untracked — nothing else touched)
+
+First `#?()` form's `:cljd nil` replaced (second form's `:cljd nil` left alone; `:clj`/`:cljs` branches, `ns`, and all other defs untouched; `DateTime` was already imported at line 25):
+
+```clojure
+#?(:cljd
+   (defn- measure-ms
+     "Mean of 9 samples after 4 warmups, each sample 20 runs, in milliseconds
+      per run — the sampling discipline of `yin.register-bench-cljd-v2`."
+     [loaded]
+     (let [now-ms (fn [] (/ (.-microsecondsSinceEpoch (DateTime/now)) 1000.0))
+           sample (fn []
+                    (let [start (now-ms)]
+                      (dotimes [_ 20] (vm/run loaded))
+                      (/ (- (now-ms) start) 20)))]
+       (dotimes [_ 4] (sample))
+       (let [samples (vec (repeatedly 9 sample))]
+         (println "  samples ms/run:" samples)
+         (/ (reduce + samples) (count samples)))))
+   :clj
+   (defn- measure-ms
+     "Criterium quick-bench mean, in milliseconds."
+     [loaded]
+     ...unchanged...))
+```
+
+`now-ms` mirrors `register_bench_cljd_v2.cljd:38-40` exactly (`microsecondsSinceEpoch` / 1000.0); `:cljd` branch stays in first position, two-form shape preserved.
+
+**Honest note:** my first insert was itself one `)` short (the samples-let tail needed 4 trailing parens like its `:cljs` twin, I wrote 3), which made form 1 unterminated — kondo and the cljd compiler both flagged line 76. Found by mechanical paren-depth count, fixed by adding one `)` to my own line. The detour through bb's reader was a red herring (bb chokes on no-match conditionals generally).
+
+## Verification
+
+| Command | Result |
+|---|---|
+| `clj -M:kondo --lint test/bench/yin_vm_bench.cljc` | **0 errors, 0 warnings** (the pre-existing `criterium`/`check!` warnings were artifacts of the broken parse and are gone) |
+| `clj -M:cljd compile bench.yin-vm-bench` | **Bravissimo** — compiles clean |
+| `bb test:cljd` | **+1336 passed, −2 failed** |
+
+## `bb test:cljd` failures (reported per instructions, not just my namespace)
+
+1. `yin.repl-core-test/a-failed-input-is-consumed-exactly-once`
+2. `yin.vm-test/semantic-bytecode-round-trip-law`
+
+These are not caused by this fix: `bench.yin-vm-bench` is not a `_test` namespace (dart test never runs it) and nothing requires it, so a successful compile of it cannot alter those suites. No mention of either failing test in `docs/orchestrator-log.md` or collab artifacts — they look pre-existing but I couldn't confirm on a pre-fix build (sandbox blocked the isolated dart test run; that confirmation is the one open follow-up).
+
+Nothing staged or committed.

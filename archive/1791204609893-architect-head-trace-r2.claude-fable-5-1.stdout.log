@@ -1,0 +1,41 @@
+Completed-GMT: 2026-10-05 12:58:26 GMT
+Completed-Local: 2026-10-05 19:58:26 +07
+Coding-Agent: claude
+Session-ID: c490a9e8-8546-47da-bdc1-73fb22f44275
+
+Only `docs/design/yin.vm.linker.dht.head.md` was edited. I checked every reviewer citation against the tree; all eight findings hold and all eight are accepted. The file is still ASCII with no line over 80 columns, and a "Revision 1" note at the end lists what changed and why.
+
+## Per finding
+
+1. **#1 sequence zero: accepted.** The floor is now a sequence or `nil`, and a `nil` floor accepts any valid sequence, 0 included. Changed: 5.2, 5.5, section 6, H0 (zero cases), H2 (first-transaction case).
+2. **#2 candidates were resolvable: accepted.** Loads get holders; the snapshot set is HEAD, explicitly held loads and installed heads, never a candidate. My earlier "no change to `snapshots`" was wrong. Changed: G5, 5.5, section 6, H1, H2 (rejected and superseded candidates carrying newer assertions).
+3. **#3 board name as identity: accepted.** A name is now lookup data only, resolved to the ring's real descriptor by a named `descriptor` request; the reader then attaches normally. A restart is `not-found` plus a new resolution. H1 lists the `dao.stream.remote.md` amendments item by item; `dao.stream.md` is untouched. Changed: C3, 5.1, 5.3, section 6, X9, X10, section 9, H1.
+4. **#4 poisoned floor: accepted.** The floor is the installed sequence only. Candidates are bounded scheduling state: a sequence mismatch is discarded and remembered, and an unloadable candidate does not block a lower loadable one. Changed: 5.5, 5.9, section 7, X11, section 9, H2 (the arrival orders, also with a `nil` floor).
+5. **#5 crash rollback: accepted.** The order is now confirm, persist, install. Nothing resolves through, reports or re-serves a head before its trace is durable, and a failed write installs nothing and is retried. Changed: 5.5, 5.7, section 6, X12, section 9, H2, H3.
+6. **#6 public reflector: accepted.** Tables are served on loopback only through H4. A new slice H5 adds the return-path proof by reusing the DHT's cookie and then lifts the restriction; it amends the frozen DHT contract, so it starts with its own design note and review. Changed: C4, 5.8, 5.9, section 7, section 9, H1, H3, H4, H5, section 11.
+7. **#7 shared loads: accepted.** Resolved by the same holders: the follower releases only its own, and `forget` becomes release of the explicit holder. Changed: 5.5, 5.7, section 9, H1, H2 (shared-manifest and hand-pin overlap cases).
+8. **#8 recovery removed: accepted.** Hydration leaves the reader's path only. `--dht-recover` keeps it as an explicit, key-requiring publisher act, and H4 amends the remedy sentence in `yin.vm.linker.dht.md` 6.5. Changed: section 3, 5.2, 5.8, section 9, H4.
+
+The two qualified claims are narrowed:
+- **Derived sequence:** proven for the REPL index path only, and enforced for every other caller. `deposit!` now takes datoms and never a sequence, and refuses collision, regression and an empty index.
+- **Poll interval:** the observation claim is now conditional on both datagrams being delivered.
+
+## New defects found while revising
+
+- **N1.** The first draft let a follower with no durable directory act as a relay. A relay now serves only what it holds durably.
+- **N2.** With evict-oldest attachments and no return-path proof, a flood of spoofed sources evicts real askers. H5 tests it.
+- **N3.** The first draft printed the join token on any socket. A node that serves no board now prints no token.
+- **N4.** `(reset)` was missing from the HEAD-move cases H0 must check for a shared greatest `t`.
+
+No new invariant conflict. Two consequences of the fixes:
+- H1 now changes the `dao.stream.remote` wire (one named request shape) and its implementation.
+- Two machines cannot follow each other until H5 lands.
+
+## Owner questions as they stand
+
+1. **Does "always" reach into a live session?** Unchanged: the design keeps a session on what it linked and needs `(reset)`. No ruling settles it.
+2. **What should a bare `q` see after `dht join`?** Source separation is already ruled; the default is open. Options: (a) the reader's own index only, (b) union with installed heads by default, (c) a named view. I recommend (a) now and (c) on demand.
+3. **May a publishing node re-serve followed heads by default?** No ruling settles it. I recommend yes, with a flag to turn it off.
+4. **Is every HEAD move the head you mean?** Your words read that way, but they predate the cost of one index load per publisher round. I recommend every HEAD move.
+5. **New: loopback first, or the return-path proof first?** Options: (a) H1 to H4 on loopback, then H5; (b) H5 directly after H1; (c) accept the unproven public mirror as an explicit exception. I recommend (b) if cross-machine following is the first use you want, otherwise (a), and not (c).
+6. **New: is `--dht-recover` the publisher recovery you want?** The alternative is to drop it and make a new key the only remedy. I recommend keeping it.

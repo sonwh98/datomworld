@@ -1,0 +1,30 @@
+Completed-GMT: 2026-09-05 10:39:35 GMT
+Completed-Local: 2026-09-05 17:39:35 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: f4e3fed9-73ca-4ea5-a485-a45263d8eff0
+
+## Verdict
+
+**Approve with nonblocking notes.** The revised plan resolves all five prior findings and is decision-complete. Every clause I traced against the current code produces a defined, terminating behavior that matches what the plan claims.
+
+## Reconciliation of prior findings
+
+1. **Idle step guard (High). Resolved.** The plan now requires the walker's `step` to guard with the engine readiness predicate before `vm-step` and to return an idle VM unchanged, with an identity-step contract test. This is exactly the no-op currently supplied at `stream_observer.cljc:78`, moved to where it belongs.
+
+2. **Cursor commit on loader failure (Medium). Resolved.** The plan states that observation may compute an advanced observer value, composition commits it only when loading returns, a loader exception returns no session, and the malformed batch is retried on the next observed evaluation. The poison-batch property is documented and tested, with no new status or recovery API. This matches today's behavior at `stream_observer.cljc:47-52` and `core.cljc:497-499`.
+
+3. **Direct-eval behavior change (Medium). Resolved.** The plan records that `eval` no longer drains a separately queued batch, adds it to the divergence register and REPL docs, and adds the source-after-malformed-datom contract test plus the follow-on check that a later datom literal still meets the poison batch.
+
+4. **Writer handle ownership (Low). Resolved.** REPL state holds `:program-stream` separately; the observer exposes no append or close.
+
+5. **Rename (Low). Resolved.** `observe-next` with the stated return shape.
+
+The dependency-direction note is also resolved: the observer requires only DaoStream, engine drops the observer forwarding and its `run-on-stream`, and `run-loop` is preserved.
+
+## Remaining findings
+
+None blocking. Two nonblocking notes for the implementer.
+
+- **Observer outcomes no longer set VM flags.** Today the blocked and end branches at `stream_observer.cljc:53-54` also mark the VM idle via `idle` at `stream_observer.cljc:34-36`. Under the plan the observer has no VM, so that assoc disappears. The only state where this is observable is a VM whose `:halted?` was forced to false with no control, which is what `test_utils.cljc:51` and `ast_walker_test.cljc:302` do. Those helpers are being rewritten anyway. State in the plan that the forged `:halted? false` is dropped and that "preserve outcome behavior exactly" refers to cursor and gap handling, not VM flags.
+
+- **Halted VM with a non-empty ready queue is not idle.** With the readiness predicate as the step guard, a halted VM whose ready queue is non-empty is "not ready," so `step` calls `vm-step` with nil control and throws in the unknown-node branch. This is pre-existing: today's `step-on-stream` at `stream_observer.cljc:79` does the same. The plan preserves it and need not fix it. Mention it in the walker docstring so the identity-step test is not widened to cover this case by mistake.

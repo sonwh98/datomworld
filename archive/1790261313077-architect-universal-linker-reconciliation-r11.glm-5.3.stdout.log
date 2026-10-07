@@ -1,0 +1,12 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-24 14:51:15 GMT
+Completed-Local: 2026-09-24 21:51:15 +07
+Coding-Agent: glm
+Session-ID: a2749e73-2e44-4716-8a1f-6ad0cc1d82d9
+
+`docs/design/yin.vm.linker.md` is now revision r11: 2,678 lines, pure ASCII, no line over 80 columns, uncommitted. As in rounds 5 and 8–10, the round-10 findings file was not present in `collab/`, so r11 worked from the item in the task; the 13.1 record says so. The single finding, and what r11 did:
+
+**P1 — Capability laundering during export lift — agreed.**
+The **Sealed references** rule in 7.3 now makes **lift authenticate before it encodes** (r11). r10 verified seals only at effect dispatch, so a module could export a fabricated reference literal that never passed an effect in the child; a lift that stripped the seal unexamined would emit a portable `:yin.k/stream`/`:yin.k/cursor-ref` marker that the lower then mints into a valid, receiver-sealed capability — laundering exactly what the seal exists to prevent. From r11 the lift, before emitting any resource marker, verifies the reference's seal and resource kind against the emitter task's own capability secret; an invalid, unsealed, or forged reference refuses the export lift immediately with `:yin.k/non-portable` and `:yin.k/kind :forged-resource-reference`. Only an authenticated reference crosses without its seal, and the lower's fresh receiver-sealed reference is unchanged. The Resource lowering block now carries the authentication cross-reference, and the export-laundering test — a fabricated, unsealed literal that never passed an effect fails the export lift — was added to both criterion 23 and the M4 checklist.
+
+Section 13.1 carries the r11 record (round 10, citation/file-box item CLOSED noted as no action); r10–r2 shifted to 13.2–13.10. Next step: hand r11 to `gpt-6-sol` for the round-11 consensus review.

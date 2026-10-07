@@ -1,0 +1,13 @@
+The plan is written to `collab/1788962937302-architect-space-schema-v2-plan.claude-fable-5-1.findings.md`. No other file was changed.
+
+**What I verified against `4b9f0e7` before deciding.** The brief's 8-API / 16-line table is exact. Five refinements are recorded up front: the require and require-macros lines sit outside the table, the test's `ds/strict-vec` is prose not code, only 61 of the 63 `ds/close!` sites target the wrapper, there are 24 receipt assertion lines rather than 20 to 23, and the demo requires `dao.space.query` directly rather than via `semantic`. Schema is confirmed off the demo's path. One fact the brief did not note carries the plan: `schema/current` already accepts an opened published index on its value path, so the published opener can be deleted rather than replaced.
+
+**The rulings, in short.**
+- The wrapper becomes a plain map with `transact!`, `publish!` and a new `close!`. The D10 re-wrap is deleted, so the inner transactor's receipt passes through unchanged and the two-shaped outcome space collapses to one. A closed wrapper answers `closed` as data before argument validation. Argument defects still throw, which keeps schema's central "rejected means nothing appended" claim intact.
+- `closed?` does not survive. The flag stays in the state atom for `transact!` to consult.
+- The descriptor route, the borrowed-realization branch, `schema/published`, both `defopen`s, `PublishedSchemaRows` and the fixtures namespace are all deleted. A live stream enters only through `query/snapshot`, and schema departs from query in one place with a stated reason: it rejects `:gap` and `:defect` snapshots because the schema rows live at the origin and a lost prefix silently disables the lens.
+- `publish!` loses its closed guard and its lock, matching the inner transactor, which never gated publication on close.
+- The "uncovered `finally`" debt is discharged by deleting the code that owned the store, with pointers to the two query tests that pin the surviving opener.
+- Two phases by seam, write side first, so Phase 2's residue grep is the end condition. Each phase carries its own design-doc edits and a proof list with exact grep counts.
+
+**Outcome for the goal.** After Phase 2, `dao.space.schema` requires neither `dao.stream` nor `dao.stream`, and every `dao.space.*` namespace is off v1. The plan's §7 table lists what the rest of the repo still holds by namespace group, none of it planned here.

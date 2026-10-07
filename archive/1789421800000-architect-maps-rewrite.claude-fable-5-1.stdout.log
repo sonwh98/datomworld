@@ -1,0 +1,20 @@
+Done. The rewrite is in the working tree, uncommitted, with the rename staged via `git mv`.
+
+**What changed**
+
+- `docs/design/yin.vm.code-as-tuples.md` is renamed to `docs/design/yin.vm.code-as-maps.md` (git shows it as a staged rename with modified content).
+- The document is rewritten end to end as revision 9, titled "code as content-addressed maps". A scan for "row", "tuple", "projection" and their variants finds no hits.
+
+**The design it now states**
+
+- **The map is the code.** The `{:type … }` AST the walker already reads is the canonical form, the value stored in `dao.jing`, and the payload on a program medium. The old flat-form rulings and the revision 8 round-trip law are explicitly superseded.
+- **Hashing uses the existing encoder, not a new one.** `segment-key` over the canonical map. `order-normalize` already sorts map keys, so key order is free. The code side owns one pure `canonical` function (saturate, exact key set per type, strip `:eid`, `:macro?`, `:yang/*`, stray `:tail?`, runtime keys, metadata). The transitional encoder's list/seq/metadata collisions remain the inherited identity blocker, now localized to `data`-kind values.
+- **Loading from the stream.** One batch is one canonical map or a vector of them, loaded in order. The walker loader drops its `datoms->ast` call and records the address. The semantic loader becomes `lower` composed with the vector loader, keyed by segment address. `run-on-stream` needs no change. Evaluators and `dao.space.index` are peer observers of the same medium, matching the topology in commit 31b6f08.
+- **Querying** goes through a datom view computed from the map, with `:yin/address` and `:yin/path` per node. Structural paths are plain `get-in` paths.
+- The walker's `assoc` into frame-held nodes is now legal and untouched. Its cost moves to the UCF lift, which must strip runtime keys.
+
+**Things you should know**
+
+- **Another session was editing the same file concurrently.** While I worked, it reset the tree and committed 6a100ce and 31b6f08 on the old path, which undid my first `git mv`. I redid the rename on top of 31b6f08. Its working-tree hunks matched what it then committed, so nothing of its work was lost.
+- The instruction level (UCF §7.3.2) is left as is, with open item 10.9 asking whether the ruling should extend to it.
+- Line citations for the walker, codec, linearizer, `dao.jing`, observer, and REPL were verified against the current tree today. Citations to `yin.vm.macro.md`, the transactor, and the frontends are carried from the verified revision 7 text.

@@ -1,0 +1,90 @@
+Completed-GMT: 2026-09-30 06:33:13 GMT
+Completed-Local: 2026-09-30 13:33:13 +07 (Asia/Ho_Chi_Minh)
+Coding-Agent: glm
+Session-ID: cc0f5a21-b57a-45fc-9246-187510705e5e
+
+# Durable index store — slice 1: startup selection and store lifecycle
+
+Branch `repl-durable-index` (worktree `/Users/sto/workspace/datomworld-durable-index`), nothing
+staged, nothing committed. Files touched — all inside the allowed list:
+
+| File | Change |
+|---|---|
+| `src/cljc/yin/repl/store.cljc` | **new.** The startup selection: `--index-store` value parsing (`parse-arg`), embedder-spec validation (`checked-spec`), host file-support probe, and `open` — `:mem` is a fresh `jing.mem` store, `{:type :file :dir d}` is `jing.file/create-content-file` at `<dir>/content.jing` (`content-path` is public: that path is the store's on-disk contract). Every refusal — missing value, unknown scheme, empty dir, dir occupied by a non-directory, dir that cannot be created/written, unopenable content log, host without file support — is `ex-info` with the reason; nothing falls back to memory silently. `file-refusal`'s two-arity answers for a hypothetical capability so the unsupported-host refusal stays testable on capable hosts. |
+| `src/cljc/yin/repl/main.cljc` | `--index-store` added to the **shared** `parse-args` (parsed eagerly into `:index-store-spec`; omission defaults `:mem`), so all three hosts' `-main` take the same syntax. New `startup`: parse + `boot` + `boot-server` behind one gate that answers either the composition or the refusal text (only errors carrying `ex-data` count as designed refusals; anything else keeps its stack trace). New private `refuse!`: print, exit 1. All three `-main`s (CLJ, CLJS/Node, CLJD) now pass through `startup`/`refuse!` before any banner, shell, server, or host loop — a refused startup composes nothing. `boot` forwards the parsed spec into `repl/create-state` (driver.cljc needed no change). |
+| `src/cljc/yin/repl.cljc` | `create-state` wiring only: new `:index-store-spec` option (`:mem` | `{:type :file :dir <path>}`), refused together with `:index-store` ("not both"); resolved/validated once at construction via `store/checked-spec`; the opened store is retained as `:index-store` (unchanged handle injection path — injected handle keeps spec nil) and the resolved spec as `:index-store-spec`. `jing.mem` require moved to `yin.repl.store`, the store's owner. `make-session`/`rebuild-session` untouched — `(reset)`/`(vm …)` keep passing the same `:index-store` handle, which now may be the file store. Docstring states: resolved once, never switched at runtime, restart recovery not implemented. |
+| `test/yin/repl/store_test.cljc` | **new**, runs on all three lanes. |
+| `test/yin/repl/main_test.cljc` | startup-contract tests added under the existing arguments tests. |
+
+## Acceptance → evidence
+
+- **Default is mem, today's behaviour unchanged** — `store-test/the-default-is-the-in-memory-store-of-today`
+  (`:index-store-spec :mem`, `:mem` handle fns); `main-test/the-index-store-flag-parses-on-every-hosts-arguments`
+  (omission ⇒ `:mem`); `main-test/startup-composes-or-refuses-before-any-shell-or-server` (no flag ⇒ memory shell, no server).
+  Unchanged behaviour additionally covered by the whole untouched suite (95-test focused set, 2394-test full JVM run).
+- **file:<dir> opens <dir>/content.jing and publications land there** — `store-test/a-file-store-opens-content-jing-and-receives-publications`:
+  evaluates `(+ 1 2)` on a file store, asserts the manifest address is among `dao.jing.file/records`' on-disk
+  records (a fresh open of the file — bytes are on disk, not in RAM), reads the covered datoms back through the
+  store handle, and checks `(reset)` keeps the identical handle and spec. Green on JVM, Node, and Dart.
+  Live smoke: `clj -M:clj-yin-repl --index-store file:target/smoke-index` with `(defn six [] (* 2 3))` + `(quit)`
+  exited 0 leaving an 11 KB `content.jing`.
+- **Invalid specs refused before startup, clear message, every host's -main** — parse level (missing value /
+  unknown scheme / empty dir) throws from the shared `parse-args`, asserted for `parse-arg` and `parse-args` in
+  both test namespaces; `startup` then answers `{:refusal text}` with `:state`/`:server` nil for
+  `["--index-store"]`, `["--index-store" "bogus"]`, `["--index-store" "file:"]`, and an unopenable dir (a file
+  occupying the path). All three `-main`s share exactly that gate (`startup` + `refuse!`), so the wiring is one
+  code path; live JVM checks printed `Unknown --index-store "bogus"; supported: mem, file:<dir>` and
+  `/etc/hosts is not a directory`, both exit 1.
+- **:index-store-spec + :index-store together refused** — `store-test/a-handle-and-a-spec-together-are-refused`
+  ("not both"; either alone accepted; injected handle ⇒ spec nil).
+- **Same CLI syntax on CLJ, CLJS(Node), CLJD** — one shared parser; the new parser/startup tests compiled and
+  passed in the JVM, Node, and Dart lanes (Dart verified both namespaces explicitly via
+  `flutter test test/cljd-out/yin/repl/{store,main}-test_test.dart`: +7 and +14, all passed).
+- **Host without file support refuses clearly** — `store/host-file-support` (true on JVM/Node/Dart lanes) and
+  `store/file-refusal false dir` ⇒ the `unsupported-host-text` refusal ("not supported on this host … never
+  answered with an in-memory store the operator did not choose"); `open` refuses through the same text before
+  touching the directory.
+- **Portable CLJC** — every mixed reader conditional puts `:cljd` FIRST (incl. the reorders done after the
+  first lanes ran); no cross-ns `#'private` access; no `array-map`.
+
+## Not this slice (deliberately left for slices 2–3, and not blocked)
+
+HEAD pointer, directory lock, crash recovery/rehydration, and durable-mode `(reset)` continuity are absent —
+slice 1's file store receives publications exactly like the mem store. That limit is stated where a reader
+will meet it: `yin.repl.store`'s namespace docstring, `create-state`'s docstring, and here. A second process
+reopening the same directory appends to the same content log (that is `dao.jing.file`'s own replay) — the
+exclusive lock that will refuse it is slice 2.
+
+## Finding worth carrying into slices 2–3 (Node lane toolchain trap)
+
+The first Node run failed 11 new assertions: on the shadow-cljs `:test` build, `(str (helper …))` at an
+assertion site — where `helper` is a `defn` whose body has both a `try`/`catch` and an invoke of a parameter
+(the classic refusal-capture helper) — is **compile-time evaluated and its constant embedded**; a throwing
+eval folds to `""`, so the refusal message was never checked at runtime (a non-throwing fold would silently
+PASS — worse). Probe-bisected to that exact shape; the fix is the shapes this repo already uses: the helper
+returns the **error object** and `ex-message`/`ex-data` is applied at the call site (`require_test`'s shape),
+or `=` against a message-returning helper (`vm_test`'s shape). Both files' `refusal-of` now returns the error
+and every site reads `ex-message` one level down. Saved to project memory
+(`shadow-cljs-str-helper-fold.md`); slices 2–3's corruption/refusal tests must use these shapes.
+
+## Verification (all in the foreground, in the worktree)
+
+| Check | Result |
+|---|---|
+| `clj -M:kondo --lint` over the 5 changed files | 0 errors, 0 warnings |
+| `cljstyle check` | **blocked** — the cljstyle binary requires a permission this session won't grant (tried PATH, full install path, mise shim). Approximated its enabled rules mechanically: no trailing whitespace, no tabs, EOF newlines, ≤2 consecutive blank lines; `:namespaces` is disabled project-wide and indentation follows each file's existing alignment. |
+| Focused JVM: `clj -M:test -n yin.repl.store-test -n yin.repl.main-test -n yin.repl-test -n yin.repl.index-test -n yin.repl.query-test` | 95 tests, 740 assertions, 0 failures, 0 errors |
+| Full `clj -M:test` | 2394 tests, 184,575 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2299 tests, 51,026 assertions, 0 failures, 0 errors (after the fold-shape fix; the first run's 11 failures were the trap above, not store defects) |
+| `bb build:yin-repl-peer` | built; `yin.repl.store`/`yin.repl.main` compiled into the peer's graph cleanly |
+| `bb test:cljd` | "All tests passed!" (+2261); the piped log drops per-test lines (known reporter artifact), so both new namespaces were additionally run alone via `flutter test` on their compiled files: store-test +7, main-test +14, all passed |
+
+## Notes for the orchestrator
+
+- The architect's file-touch list includes updating `docs/design/yin.repl.dao.space-index.md` with the
+  startup contract; docs are outside this brief's allowed files, so that edit is left to the slice owner.
+- The design's "empty file directory" is read as: `file:` with no directory (and the equivalent empty-`:dir`
+  spec). A *new* empty directory is valid and created (recursive mkdirs on every host), which the
+  publications test exercises.
+- `yin.repl.driver` needed no change: `boot` composes the shell itself and hands it to `driver/create-state`
+  as `:repl`, so the driver stayed untouched as the brief allowed-but-did-not-require.

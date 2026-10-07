@@ -1,0 +1,594 @@
+diff --git a/docs/design/dao.stream.md b/docs/design/dao.stream.md
+index 131abb24..05b8047c 100644
+--- a/docs/design/dao.stream.md
++++ b/docs/design/dao.stream.md
+@@ -27,7 +27,7 @@ values and decides nothing about them:
+ - **Which interpreter observes them** is not recorded — a registry of who
+   is listening would be hidden global state.
+ - **When an interpreter runs** is not its decision — "do not introduce
+-  callbacks; every callback is events on a stream", seen from the stream's
++  callbacks; every callback is an event on a stream", seen from the stream's
+   side: DaoStream invokes nothing, so control is never inverted and
+   causality stays explicit (see The IO Model).
+ 
+diff --git a/docs/design/datom.world.md b/docs/design/datom.world.md
+index 444635a6..0a4b3b45 100644
+--- a/docs/design/datom.world.md
++++ b/docs/design/datom.world.md
+@@ -1,5 +1,5 @@
+ ---
+-description: Core philosophy, foundational axioms, invariants, fundamental primitives (tuples, streams), design principles, code style, and development workflow for datom.world
++description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+ ---
+ 
+ # DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+@@ -13,7 +13,7 @@ Restrictions are a feature.
+ 
+ ### Foundational Axioms
+ 
+-1. **Everything is a Stream**: All IO and data flow through append-only streams. Persistent facts are immutable tuples and datoms `[e a v t m]`.
++1. **Everything is a Stream**: All IO and data flow through append-only streams.
+ 2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+ 3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+ 4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+@@ -22,23 +22,16 @@ Restrictions are a feature.
+ 
+ - Do not introduce hidden global state.
+ - Do not introduce implicit control flow.
+-- Do not introduce callbacks; every callback is events on a stream.
++- Do not introduce callbacks; every callback is an event on a stream.
+ - Do not introduce shared mutable state.
+ - Do not collapse interpretation and execution into the same layer.
+ - Do not assume graphs: graphs must be constructed explicitly from tuples.
+ 
+-### Architectural Commitments
+-
+-- **`dao.jing` is syntax, agents are semantics** — the content-addressed encoding stays passive/payload-agnostic.
+-- **Macros are stream topology** — an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+-- **"Peer observers, one stream"** — narrowly scoped: a generic evaluator and `dao.space` independently observing the same stream topic, not a claim that applies to any two consumers regardless of what they consume.
+-- **Observers are independent and optional, full stop** — nothing requires a given medium to have any particular set of consumers wired to it. Which observers exist for a stream is a per-composition choice, not a design-time architectural commitment.
+-
+ ## Tuples and Datoms
+ 
+ Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+-A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata).
+-Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly. Streams carry whatever values the consumer needs.
++A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
++Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+ 
+ See [`docs/design/datom.md`](./datom.md) for full specification.
+ 
+@@ -48,7 +41,7 @@ All IO is modeled as a stream. Functions consume streams and produce streams.
+ No direct function-to-function coupling without a stream boundary.
+ Side effects must appear as stream emissions.
+ Streams are values that can be sent through streams.
+-Streams carry whatever values the consumer needs — no datom requirement, no privileged payload shape.
++Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+ 
+ A stream has no privileged reader, and its meaning is not in it. Any number
+ of interpreters may observe the same medium, and each constructs its own
+@@ -57,116 +50,96 @@ stream constructs CESK state and executes it; `dao.space.index` observing
+ the very same stream materializes covered indexes, so `dao.space.query/q`
+ answers Datalog over the program as it grows. Neither knows the other
+ exists. The medium is their only coupling, and each observer's ignorance of
+-the other is load-bearing — the evaluator never consults an index to run,
+-and the index never evaluates a form to index it. This is how the second
+-axiom becomes architecture: one stream, many interpretations, none of them
++the other is load-bearing: the evaluator never consults an index to run,
++and the index never evaluates a form to index it. This is how axiom 2
++becomes architecture: one stream, many interpretations, none of them
+ the stream's own.
+ 
+ Functions can take anything and return anything.
+-Agents are functions, closures, or continuations in Yin.VM that communicate with the outside world through DaoStream. Agent behavior is specified entirely through stream effects.
++Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+ 
+ See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+-See [`docs/design/agent.tzu.md`](./agent.tzu.md) and [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for agent and VM architecture.
++See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+ 
+ ### Host Boundaries
+ 
+-Host-specific boundaries are isolated with DaoStream and interpreters of
+-DaoStream. A host boundary is a stream boundary, never a function call.
+-
+-DaoStream handle operations are the one sanctioned function-shaped contact
+-with that boundary: their exhaustive outcome maps are stream protocol, not an
+-application callback. Above those operations, portable code still expresses
+-host work as effect values and observes outcomes as stream data.
++A host boundary is a stream boundary, never a function call. The one
++sanctioned function-shaped contact is a `dao.stream` handle operation, whose
++exhaustive outcome map is stream protocol, not an application callback.
+ 
+-Portable code appends an effect value describing what must happen. A host
+-interpreter consumes that stream, performs the operation, and appends the
+-outcome. Portable code reads the outcome. Correlation is by identity in the
+-data; neither side holds a reference to the other.
++**Effects out.** Portable code appends an effect value describing what must
++happen. A host interpreter consumes that stream, performs the operation, and
++appends the outcome. Portable code reads the outcome. Correlation is by
++identity in the data; neither side holds a reference to the other. A host with
++no implementation for an effect emits a qualified unsupported result. That is a
++correct outcome, not a gap to be filled.
+ 
+-An adapter that exposes a function for portable code to call is not an
+-interpreter. It isolates the host library but keeps the coupling, and the
+-effect never appears as an emission.
+-
+-A callback is an event on a stream. That is the same rule in the other
+-direction: when the host initiates -- a socket receives, a connection drops, a
+-timer fires -- the adapter appends one plain-data event and returns. It invokes
++**Events in.** When the host initiates (a socket receives, a connection drops,
++a timer fires) the adapter appends one plain-data event and returns. It invokes
+ nothing. An interpreter reads that stream and decides what the event means.
+-
+ Constructively: **a callback is replaced by a function that transforms an event
+ to data on a stream.** The host's demand for a callback stops at that function.
+ 
+-**An adapter is a map of those functions. That is all an adapter is.** It is a
+-value, not a namespace, and it is general: sockets, files, timers and windows
+-all deliver events by calling something, and an adapter is what they call. The
+-host library is handed the map. Each entry takes the host's arguments and
+-returns one value; the append is the adapter's, not the entry's, so an entry
+-cannot return a value to the host and cannot invoke application code. The
+-adapter is handed only the deposit operation and its own host resource. If its
+-deposit channel fails, it may close that resource to make the boundary
+-observably gone; this is teardown, not an upward callback. Host types are
+-classified into plain data here -- a transform is the last place holding a host
+-error object, and no host type may cross onto the stream.
++**Adapters.** An adapter is a map of those transform functions. That is all an
++adapter is. It is a value, not a namespace, and it is general: sockets, files,
++timers and windows all deliver events by calling something, and an adapter is
++what they call. Each entry takes the host's arguments and returns one value;
++the append is the adapter's, not the entry's, so an entry cannot return a value
++to the host and cannot invoke application code. The adapter is handed only the
++deposit operation and its own host resource. If its deposit channel fails, it
++may close that resource to make the boundary observably gone; this is teardown,
++not an upward callback.
++
++Host types are classified into plain data in the transform: it is the last
++place holding a host error object, and no host type crosses onto the stream. A
++transport may use a qualified envelope to preserve correlation, lifecycle, and
++additive evolution; that envelope remains plain data and creates no separate
++event mechanism. A composition may likewise define its own qualified vocabulary
++for facts it owns.
+ 
+ Which stream an adapter writes to is the caller's composition, never the
+ adapter's knowledge. An adapter cannot tell whether it deposits into one
+-transport's private stream or into a medium many interpreters read, and it does
+-not need to. This is what keeps the layering one-way: a boundary depends on
+-nothing above it, because whoever constructs the adapter supplies the stream.
++transport's private stream or into a medium many interpreters read. This keeps
++the layering one-way: a boundary depends on nothing above it, because whoever
++constructs the adapter supplies the stream.
+ 
+ A transform deposits every event admitted by the boundary protocol and judges
+-none of those events semantically. Wire framing, decoding, and protocol
+-validation happen below the transform: malformed wire input is transport
+-machinery, not an event the adapter is obliged to deposit. Once the transport
+-has produced a valid host event, data is syntax (axiom 2), so worth is not a
+-property of the datum -- an event that is noise to one interpreter is signal to
+-another that does not exist yet, and filtering at the depositing layer destroys
+-the perspectives that have not been taken. How much is retained is the medium's
+-retention policy, which is operational; what an event means is interpretation.
+-Neither is the depositor's decision.
+-
+-An adapter that takes a function to invoke has relocated the callback, not
+-removed it, even when every value it passes is plain data. An adapter whose
+-callback has a meaningful return value is worse: that is a synchronous call in
+-both directions wearing the shape of an event.
+-
+-Host events are ordinary values on an ordinary stream. A transport may use a
+-qualified envelope to preserve correlation, lifecycle, and additive evolution;
+-that envelope remains plain data and creates no separate event mechanism. A
+-composition may likewise define its own qualified vocabulary for facts that it
+-owns. Neither requires a bespoke bus or callback API.
+-
+-Host error types never cross the boundary. A transform function classifies them
+-and emits a qualified value.
+-
+-A host with no implementation for an effect emits a qualified unsupported
+-result. That is a correct outcome, not a gap to be filled.
++none of them semantically. Wire framing, decoding, and protocol validation
++happen below the transform: malformed wire input is transport machinery, not an
++event. Once the transport has produced a valid host event, data is syntax
++(axiom 2): an event that is noise to one interpreter is signal to another that
++does not exist yet, and filtering at the depositing layer destroys perspectives
++not yet taken. Retention is the medium's operational policy; meaning is
++interpretation. Neither is the depositor's decision.
++
++Two things are not adapters. One that exposes a function for portable code to
++call isolates the host library but keeps the coupling, and the effect never
++appears as an emission. One that takes a function to invoke has relocated the
++callback, not removed it, even when every value it passes is plain data; if
++that callback has a meaningful return value, it is a synchronous call in both
++directions wearing the shape of an event.
++
++## Architectural Commitments
++
++- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
++- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
++- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
++- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+ 
+ ## Design Principles
+ 
+ Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+ Stigmergic coordination emerges from sharing data across streams.
+ 
+-**Derive, don't persist.** Before adding a new tag, slot, or field to any
+-canonical, content-hashed tuple structure (an AST grammar, a datom schema,
+-a row shape), check whether the fact it would encode is instead computable
+-from the existing structure via a Datalog query over `dao.space.query/q`,
+-at the correct scope for what the fact actually depends on — not every
+-query over the shallowest available relation is sound; get the scope
+-wrong and a query can silently mis-derive the fact instead of failing
+-loudly. If a correctly-scoped query can derive it, it belongs as a query
+-or a projection, not as new persisted structure: new structure is
+-content-hashed and migrates every downstream consumer, and duplicates
+-authority over a fact a query could derive fresh instead. This is not a
+-zero-cost trade — deriving still costs real query complexity and, if the
+-fact isn't already indexed, the work of building and maintaining whatever
+-does index it — but that cost is paid once, in the query and its index,
+-not in every future migration of the persisted structure. See
+-[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md)'s
+-retired `:global` tag for the concrete case study — a free/bound variable
+-distinction that looked like it needed a new AST node, until it turned
+-out to be computable by query; getting the scope right there took two
+-rounds and a real correctness bug — the simpler query silently
+-undercounted a dependency in the mixed free/bound case.
++**Derive, don't persist.** Before adding a tag, slot, or field to any
++canonical content-hashed structure (an AST grammar, a datom schema, a row
++shape), check whether a correctly scoped Datalog query over
++`dao.space.query/q` can already compute the fact. If it can, it belongs as a
++query or projection: new persisted structure migrates every downstream
++consumer and duplicates authority over a fact a query derives fresh. The
++retired `:global` tag in
++[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
++case study, including the scoping bug that a naive query introduced.
+ 
+ See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+ See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+@@ -196,11 +169,9 @@ If a problem appears complex:
+ 4. Make causality explicit.
+ 5. Let structure emerge from constraints.
+ 
+-For advanced topics (parallel transport, capability tokens, entanglement):
+-See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md)
+-
+ ## Operational & Specialized Guides
+ 
++- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+ - **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+ - **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+ - **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+diff --git a/docs/orchestrator-log.md b/docs/orchestrator-log.md
+index 3b8d75d0..21389d39 100644
+--- a/docs/orchestrator-log.md
++++ b/docs/orchestrator-log.md
+@@ -5428,3 +5428,14 @@ Decisions: N/A, mechanical against plan.
+ Verification: Parity suite passed (1265 tests).
+ Delegates: None.
+ Next: U2 (the validator), currently delegated to `claude-sonnet-5`.
++
++## 2026-09-18 00:47:31 ICT — Phase 1 U2: the §7.4 validator
++Completed-GMT: 2026-09-17 17:47:31 GMT
++Coding-Agent: claude
++Session-ID: 22783059-64d1-4105-86d0-f63035084892
++Tree: dao.stream-redesign-v2@720707c9, committed
++Done: Implemented U2 (`yin.vm/validate-rows`, slot kinds, acyclicity, root-reachability, malformed row test corpus).
++Decisions: N/A, mechanical against plan.
++Verification: Passed the extended `semantic-bytecode-round-trip-law` on parity and REPL corpus.
++Delegates: `claude-sonnet-5` (VM Runtime).
++Next: U3 and U4 (Parallel lanes).
+diff --git a/src/cljc/yin/vm.cljc b/src/cljc/yin/vm.cljc
+index 9f5d593a..0fdcc8fb 100644
+--- a/src/cljc/yin/vm.cljc
++++ b/src/cljc/yin/vm.cljc
+@@ -581,6 +581,22 @@
+                        {:type node-type, :root-id root-id}))))))
+ 
+ 
++(defn plain-data?
++  "True when `x` is data a row or code datom may carry (§2.2, §2.5): scalars
++   and collections of them, never a host function or object. Metadata
++   travels with the value, so it must be plain data too."
++  [x]
++  (or (nil? x)
++      (and (cond (or (boolean? x) (number? x) (string? x) (keyword? x)
++                     (symbol? x))
++                 true
++                 (map? x) (and (every? plain-data? (keys x))
++                               (every? plain-data? (vals x)))
++                 (coll? x) (every? plain-data? x)
++                 :else false)
++           (plain-data? (meta x)))))
++
++
+ ;; =============================================================================
+ ;; Semantic bytecode: flat content-addressed rows
+ ;; =============================================================================
+@@ -743,16 +759,112 @@
+         {:root root, :rows @rows}))))
+ 
+ 
++(defn- semantic-bytecode-slot-kind-ok?
++  "§2.2/§7.4 `:slot-kind`: whether `v` conforms to slot `kind`."
++  [kind v]
++  (case kind
++    :node (jing/segment-address? v)
++    :nodes (and (vector? v) (nil? (meta v)) (every? jing/segment-address? v))
++    (:data :key) (plain-data? v)
++    :sym (symbol? v)
++    :syms (and (vector? v) (nil? (meta v)) (every? symbol? v))
++    :kw (keyword? v)
++    :str (string? v)
++    :int (and (integer? v) (not (neg? v)))
++    :bool (or (true? v) (false? v))))
++
++
++(defn- semantic-bytecode-row-tag
++  [row]
++  (when (and (vector? row) (<= 2 (count row)))
++    (nth row 1)))
++
++
++(defn- semantic-bytecode-child-refs
++  "`[[path-suffix child-id] ..]` for every `node`/`nodes` slot of a row
++   whose `tag` and `body` already passed `:arity`, in slot order; a `node`
++   slot's suffix is its slot index, a `nodes` slot's suffix is `[slot-index
++   item-index]` (§2.5)."
++  [tag body]
++  (let [slots (get semantic-bytecode-grammar tag)]
++    (mapcat (fn [i [_ kind] v]
++              (case kind
++                :node [[i v]]
++                :nodes (map-indexed (fn [j cid] [[i j] cid]) v)
++                nil))
++            (range) slots (rest body))))
++
++
++(defn validate-rows
++  "§7.4: validate a projected row set before reconstruction. `rows` is
++   `{id [id tag & slots]}`; `root` is the root row's id.
++
++   Returns nil when every row is well-formed, else the first defect as
++   `{:rule r :path p}`, or `{:rule :root-reachable :id id}` for a row of the
++   loaded set nothing reaches. Rules run in §7.4's order -- `:tag`,
++   `:arity`, `:slot-kind`, `:saturation`, `:id-resolves`, `:acyclic`,
++   `:root-reachable` -- discovered by descending from the root row, so a
++   path is always available except for `:root-reachable`'s unreached rows.
++   Each rule assumes the earlier ones held."
++  [{:keys [root rows]}]
++  (let [reached (atom #{})]
++    (letfn
++      [(slot-defect
++         [tag slots body path]
++         (some identity
++               (map (fn [[field kind] v]
++                      (cond
++                        (and (nil? v)
++                             (contains? semantic-bytecode-defaults [tag field]))
++                        {:rule :saturation, :path path}
++                        (not (semantic-bytecode-slot-kind-ok? kind v))
++                        {:rule :slot-kind, :path path}))
++                    slots (rest body))))
++       (visit
++         [id path on-path]
++         (cond
++           (contains? on-path id) {:rule :acyclic, :path path}
++           (contains? @reached id) nil
++           :else
++           (let [row (get rows id)]
++             (if (nil? row)
++               {:rule :id-resolves, :path path}
++               (let [tag (semantic-bytecode-row-tag row)
++                     slots (get semantic-bytecode-grammar tag)]
++                 (if (nil? slots)
++                   {:rule :tag, :path path}
++                   (let [body (subvec row 1)]
++                     (if (not= (count slots) (dec (count body)))
++                       {:rule :arity, :path path}
++                       (or (slot-defect tag slots body path)
++                           (let [on-path' (conj on-path id)]
++                             (some (fn [[suffix cid]]
++                                     (visit cid (conj path suffix) on-path'))
++                                   (semantic-bytecode-child-refs tag body)))
++                           (do (swap! reached conj id) nil)))))))))))]
++      (or (visit root [] #{})
++          (some (fn [id]
++                  (when-not (contains? @reached id)
++                    {:rule :root-reachable, :id id}))
++                (keys rows))))))
++
++
+ (defn semantic-bytecode->ast
+   "Reconstruct the canonical map AST from `{:root row-id, :rows {row-id row}}`
+    (§7.1 load-time reconstruction), the inverse of `ast->semantic-bytecode`.
+ 
+-   Every reached row is validated before use; a defect throws `ex-info` whose
+-   data carries `:rule` (`:shape`, `:content-address`, `:tag`, `:arity`,
+-   `:slot-kind`, `:saturation`, or `:id-resolves`) and the offending `:id`.
+-   Nothing is re-defaulted. A row reached through several parents is rebuilt
+-   once and shared."
+-  [{:keys [root rows]}]
++   Calls `validate-rows` first; a defect throws `ex-info` carrying its
++   `:rule` and `:path` (or `:id`). Every reached row is then rebuilt, which
++   still runs its own `:shape` and `:content-address` checks -- the address
++   check is not a structural grammar rule (§7.5) and stays separate. Nothing
++   is re-defaulted. A row reached through several parents is rebuilt once
++   and shared."
++  [{:keys [root rows], :as bc}]
++  (when-let [{:keys [rule path id]} (validate-rows bc)]
++    (throw (ex-info "Semantic bytecode row set failed validation"
++                    (cond-> {:rule rule}
++                      path (assoc :path path)
++                      id (assoc :id id)))))
+   (let [built (atom {})]
+     (letfn
+       [(defect
+diff --git a/src/cljc/yin/vm/linearize.cljc b/src/cljc/yin/vm/linearize.cljc
+index b2a068a2..8ed2d026 100644
+--- a/src/cljc/yin/vm/linearize.cljc
++++ b/src/cljc/yin/vm/linearize.cljc
+@@ -42,25 +42,9 @@
+   -9007199254740991)
+ 
+ 
+-(defn- plain-data?
+-  "True when `x` is data a code datom may carry (§2.5): scalars and
+-   collections of them, never a host function or object. Metadata travels
+-   with the value, so it must be plain data too."
+-  [x]
+-  (or (nil? x)
+-      (and (cond (or (boolean? x) (number? x) (string? x) (keyword? x)
+-                     (symbol? x))
+-                 true
+-                 (map? x) (and (every? plain-data? (keys x))
+-                               (every? plain-data? (vals x)))
+-                 (coll? x) (every? plain-data? x)
+-                 :else false)
+-           (plain-data? (meta x)))))
+-
+-
+ (defn- reject-host-value!
+   [source attr v]
+-  (when-not (plain-data? v)
++  (when-not (vm/plain-data? v)
+     (throw (ex-info (str "Cannot lower a host value into " attr)
+                     {:node source, :attr attr, :value v}))))
+ 
+diff --git a/test/yin/vm/malformed_rows.cljc b/test/yin/vm/malformed_rows.cljc
+new file mode 100644
+index 00000000..c2da2174
+--- /dev/null
++++ b/test/yin/vm/malformed_rows.cljc
+@@ -0,0 +1,43 @@
++(ns yin.vm.malformed-rows
++  "The §7.4/§7.2 part 3 published set of malformed row sets: one
++   `{:root row-id, :rows {row-id row}}` per row rule, each refused for
++   exactly the rule it is named after and no earlier one."
++  (:require [dao.jing :as jing]))
++
++
++(defn- valid-row
++  "A correctly hashed row `[id tag & slots]` for `body`."
++  [body]
++  (let [id (jing/segment-key body)]
++    [id (into [id] body)]))
++
++
++(defn- one-row-bc
++  "`{:root :rows}` holding a single, correctly hashed row."
++  [body]
++  (let [[id row] (valid-row body)]
++    {:root id, :rows {id row}}))
++
++
++(def ^:private fake-address-a
++  (keyword "segment" (str "sha256-" (apply str (repeat 64 "a")))))
++
++
++(def ^:private fake-address-b
++  (keyword "segment" (str "sha256-" (apply str (repeat 64 "b")))))
++
++
++(def malformed-row-sets
++  "`{rule bc}`, one `{:root :rows}` value per §7.4 rule."
++  (let [[missing-id] (valid-row [:literal 999])
++        [lit1-id lit1-row] (valid-row [:literal 1])
++        [lit2-id lit2-row] (valid-row [:literal 2])]
++    {:tag (one-row-bc [:not-a-tag])
++     :arity (one-row-bc [:literal 1 2])
++     :slot-kind (one-row-bc [:vm/gensym :not-a-string])
++     :saturation (one-row-bc [:vm/gensym nil])
++     :id-resolves (one-row-bc [:application missing-id [] false])
++     :acyclic {:root fake-address-a,
++               :rows {fake-address-a [fake-address-a :stream/cursor fake-address-b],
++                      fake-address-b [fake-address-b :stream/cursor fake-address-a]}}
++     :root-reachable {:root lit1-id, :rows {lit1-id lit1-row, lit2-id lit2-row}}}))
+diff --git a/test/yin/vm_test.cljc b/test/yin/vm_test.cljc
+index 5d900a9e..e77d9258 100644
+--- a/test/yin/vm_test.cljc
++++ b/test/yin/vm_test.cljc
+@@ -5,7 +5,9 @@
+   (:require [clojure.test :refer [deftest is testing]]
+             [dao.jing :as jing]
+             [yang.clojure :as yang]
+-            [yin.vm :as vm]))
++            [yin.vm :as vm]
++            [yin.vm.malformed-rows :as malformed]
++            [yin.vm.parity-test :as parity]))
+ 
+ 
+ (defn- error-message
+@@ -263,12 +265,41 @@
+                semantic-bytecode-corpus))))
+ 
+ 
++(def ^:private repl-form-corpus
++  "Clojure forms `yang/compile` turns into canonical map ASTs, standing in
++   for the REPL corpus of §7.2 part 1: lambda, application, if, let, do,
++   quote, `dao.stream.apply/call`, and stream forms as the REPL compiles
++   them."
++  ['(+ 1 2)
++   '(fn [x] x)
++   '(fn [x y] (+ x y))
++   '(if true 1 2)
++   '(let [x 1 y 2] (+ x y))
++   '(do 1 2 3)
++   '(quote (+ 1 2))
++   '(dao.stream.apply/call :op/echo 1 2)
++   '(stream/make 10)
++   '(stream/put! s 42)
++   '(stream/cursor s)
++   '(stream/next! c)])
++
++
+ (deftest semantic-bytecode-round-trip-law
+   (doseq [ast semantic-bytecode-corpus]
+     (let [bc (vm/ast->semantic-bytecode ast)]
+       (is (= ast (vm/semantic-bytecode->ast bc)) "map -> rows -> map")
+       (is (= bc (vm/ast->semantic-bytecode (vm/semantic-bytecode->ast bc)))
+-          "rows -> map -> rows"))))
++          "rows -> map -> rows")))
++  (testing "rows -> map -> rows over parity_test.cljc's corpus"
++    (doseq [[name ast] parity/corpus]
++      (testing name
++        (let [bc (vm/ast->semantic-bytecode ast)]
++          (is (= bc (vm/ast->semantic-bytecode (vm/semantic-bytecode->ast bc))))))))
++  (testing "rows -> map -> rows over yang/compile of the REPL corpus"
++    (doseq [form repl-form-corpus]
++      (testing (pr-str form)
++        (let [bc (vm/ast->semantic-bytecode (yang/compile form))]
++          (is (= bc (vm/ast->semantic-bytecode (vm/semantic-bytecode->ast bc)))))))))
+ 
+ 
+ (deftest semantic-bytecode-list-payloads-mint-no-metadata
+@@ -339,6 +370,13 @@
+                                       {:type :stream/make})))))
+ 
+ 
++(deftest malformed-row-sets-each-name-exactly-their-own-rule
++  (doseq [[rule bc] malformed/malformed-row-sets]
++    (testing rule
++      (is (= {:rule rule} (select-keys (vm/validate-rows bc) [:rule])))
++      (is (= rule (error-rule #(vm/semantic-bytecode->ast bc)))))))
++
++
+ (deftest semantic-bytecode-reconstruction-validates
+   (let [{:keys [root rows], :as bc}
+         (vm/ast->semantic-bytecode (app (local 'f) [(lit 1)] true))
+@@ -354,7 +392,11 @@
+                             (assoc-in bc [:rows op-id 2] 'g)))))
+       (is (= :content-address
+              (error-rule #(vm/semantic-bytecode->ast
+-                            (assoc-in bc [:rows (:root bc)] (get rows op-id)))))))
++                            (-> bc
++                                (assoc-in [:rows (:root bc)] (get rows op-id))
++                                ;; validate-rows checks root-reachable first, so the
++                                ;; rows this reroot orphans must not linger
++                                (update :rows select-keys [(:root bc)])))))))
+     (testing ":id-resolves"
+       (is (= :id-resolves
+              (error-rule #(vm/semantic-bytecode->ast (update bc :rows dissoc op-id)))))

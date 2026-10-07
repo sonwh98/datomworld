@@ -1,0 +1,83 @@
+This file is untracked (new in this branch), so there's no tracked git diff to show — here are the exact before/after edits I applied (both are the only changes; nothing else in the file changed):
+
+**1. Namespace docstring** (`src/cljs/datomworld/demo/yin_repl.cljs:1-28`)
+
+Before:
+```clojure
+  "The browser Yin REPL demo, ported to the DaoStream v2 wire (D3/U4 of
+   `yin.vm.v1-retirement.implementation-plan.md`).
+
+   The v1 demo (`datomworld.demo.yin-repl`) polled explicit `:op/eval`
+   request/response datoms itself.  This one composes the browser WebSocket
+   adapter directly (`dao.stream.ws.browser`, never `yin.repl.host` --
+   that namespace's cljs shadow is Node's) and drives `yin.repl.driver`
+   exactly as `yin.repl.cljc`'s Node host does: one `setInterval` owns the
+   driver state, calls `repl-step` once per tick, and drains `take-outbox`
+   into a transcript.  A line producer -- Eval, Connect, Disconnect -- only
+   appends to the driver's input medium and returns."
+```
+
+After:
+```clojure
+  "The browser Yin REPL demo, ported to the DaoStream v2 wire (D3/U4 of
+   `yin.vm.v1-retirement.implementation-plan.md`).
+
+   The v1 demo (`datomworld.demo.yin-repl`) polled explicit `:op/eval`
+   request/response datoms itself.  This one composes the browser WebSocket
+   adapter directly (`dao.stream.ws.browser`) as `:host` rather than
+   calling `(yin.repl.host/websocket)`, because that call would hand the
+   REPL the wrong adapter here: `yin.repl.host`'s cljs shadow always
+   answers with Node's `ws` composition, whichever build requires it, since
+   the shadow selects per build rather than per platform.
+
+   That said, requiring `yin.repl.driver` below still pulls in
+   `yin.repl.host` transitively (`driver.cljc` requires it unconditionally
+   for its own default), so this browser bundle carries the whole Node `ws`
+   require chain regardless -- `browser-adapter` only decides which map this
+   demo *hands to* `driver/create-state`, not what gets bundled.  The bundle
+   stays working only because npm `ws`'s own `package.json` remaps to a
+   `browser.js` stub that throws if actually called, and nothing on this path
+   calls it.  A future host adapter without an equally polite browser stub
+   would break this bundle at runtime with no compile-time signal from
+   anything in this codebase.
+
+   Drives `yin.repl.driver` exactly as `yin.repl.cljc`'s Node host
+   does: one `setInterval` owns the driver state, calls `repl-step` once per
+   tick, and drains `take-outbox` into a transcript.  A line producer --
+   Eval, Connect, Disconnect -- only appends to the driver's input medium and
+   returns."
+```
+
+**2. `browser-adapter` docstring** (`src/cljs/datomworld/demo/yin_repl.cljs:51-59`)
+
+Before:
+```clojure
+(def browser-adapter
+  "The v2 REPL client boundary's `:host`, composed directly from the browser
+   WebSocket adapter rather than through `yin.repl.host` -- that
+   namespace's cljs shadow always answers with Node's `ws` adapter, whichever
+   build requires it, because the shadow selects per build, not per
+   platform."
+  {:connect! browser/connect!})
+```
+
+After:
+```clojure
+(def browser-adapter
+  "The v2 REPL client boundary's `:host`, composed directly from the browser
+   WebSocket adapter rather than from `(yin.repl.host/websocket)` -- that
+   call would answer with Node's `ws` adapter here too, since the shadow
+   selects per build, not per platform.  This choice picks the right adapter
+   to *use*; it does not keep Node's `ws` require chain out of this bundle,
+   which `yin.repl.driver` already pulls in transitively regardless (see
+   the namespace docstring)."
+  {:connect! browser/connect!})
+```
+
+No other file in the diff (`browser.cljs`, `browser_test.cljs`, `demo.cljs`) stated the inaccurate isolation claim, so nothing else needed changing.
+
+**Verification:**
+- `clj -M:kondo --lint src/cljs/datomworld/demo/yin_repl.cljs` → `errors: 0, warnings: 0`
+- `bb test:cljs` → `Testing dao.stream.ws.browser-test` still appears; `Ran 1381 tests containing 35626 assertions. 0 failures, 0 errors.` (counts match a full `bb test:cljs` invocation, which also compiles `slice-peer`; behavior is unchanged from before this comment-only edit, as expected).
+
+No behavior/logic changed, nothing staged or committed.

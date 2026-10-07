@@ -1,0 +1,63 @@
+Completed-GMT: 2026-10-05 16:40:14 GMT
+Completed-Local: 2026-10-05 23:40:14 +07
+Coding-Agent: claude
+Session-ID: 2e396723-5628-413b-b406-88d743d2aa93
+
+## Summary
+
+All three items are done. The focused run is green: 136 tests, 38258 assertions, 0 failures. Lint is clean. I did not touch `dao.space.dht.cljc` or edit any existing test except the late-answer one, which only gained a step. I ran no git, no formatter, and no Node or Dart.
+
+## 1. The Architect's fix (ruling 1)
+
+- **Change:** in `head.cljc`, `walk-of` now gives a walk only for candidate-kind and index-kind records. The module branch is gone.
+  - A failed record of any other kind stays its owner's.
+  - The `(nil? status)` branch of `settle` picks the address up once that owner forgets the record.
+- **Test:** `a-failed-module-record-is-left-until-its-owner-forgets-it`. It covers each point of the ruling:
+  - After 60 ticks, well past the 100-reading retry delay, the module-kind record is still `:failed` with its original reason.
+  - Exactly one `:unloadable` event is emitted, carrying that failure.
+  - After the owner calls `dht/forget`, the candidate loads and installs, with floor 3.
+
+## 2. Review finding P1: a malformed index no longer crashes the follower
+
+**Choice:** I validated in the follower (`head.cljc`), not inside the covered-index walk.
+- Only the follower needs the check: it is the only consumer that compares a trace's sequence against the index's datoms.
+- The walk is shared by `load-index`, `q` and the snapshot fold. Tightening it would change behaviour for every other consumer and touch a file this round lists as optional.
+- H0's `seq-of` is unchanged.
+
+**Change:**
+- A new total function, `index-seq`, answers `{:seq n}` or `{:invalid true}`. It never throws: it checks that every datom is a vector whose `t` is a nonnegative integer, inside a `try`.
+- **At confirmation:** `settle` uses it. A malformed index produces a `:refused` event with reason `:yin.head/index-invalid` and the trace. The address is released and the trace is remembered as the last rejected one. A new helper, `reject`, now carries both this case and `:yin.head/seq-mismatch`.
+- **At restore:** `follow` uses it in its startup check. A malformed index refuses startup with `{:yin.head/refused :yin.head/index-invalid :principal p}`.
+
+**Tests**, both built over a hash-valid index whose rows are `[[100 :x/y 1 0 0] [101 :x/y 1 "bad-t" 0]]`:
+- `a-malformed-index-is-refused-at-confirmation`:
+  - exactly one `:refused` event with `:yin.head/index-invalid` and the trace;
+  - floor stays at 10, the head of 10 stays installed, nothing else is installed;
+  - shown again, it is not loaded again.
+- `a-malformed-index-refuses-follow-naming-the-principal`: the ex-data is exactly the refusal and principal above, and nothing is installed.
+
+## 3. Review finding P2: the late-answer test now proves the drop
+
+The reviewer's citation is accurate: with no load active and nothing held, `advance-loads` never steps the client, so the injected answer was never read.
+
+- **`a-late-answer-to-an-abandoned-load-is-dropped`** (strengthened). After the late answer is injected, the test now polls the node's client directly. With no load holding an interest, the node itself would not poll it. It asserts:
+  - no completions;
+  - the diagnostics are exactly the unsolicited-answer entry with that answer as its value;
+  - the client's cursor advanced, so the answer was actually read;
+  - nothing is outstanding.
+  - The original assertions follow unchanged.
+- **`a-reloaded-address-cannot-complete-from-the-old-answer`** (new). The address is abandoned and loaded again; the new request goes to a peer that never answers, and the old request's answer is injected with valid bytes. After three steps:
+  - the client read the old answer;
+  - no event fired;
+  - the status is still loading with nothing fetched, and only the new request id is outstanding;
+  - no blob was stored.
+
+## Commands and outcomes
+
+- `clj -M:test -n dao.space.dht-test -n yin.repl.dht-test -n yin.vm.linker.head-test -n yin.vm.linker.head-follow-test -n yin.vm.linker.dht-test -n yin.vm.linker.sign-test`: **136 tests, 38258 assertions, 0 failures, 0 errors.**
+- `clj -M:kondo --lint src/cljc/yin/vm/linker/head.cljc test/yin/vm/linker/head_follow_test.cljc test/dao/space/dht_test.cljc`: **0 errors, 0 warnings.** No touched line is over 80 columns.
+
+## Unresolved
+
+- Node and Dart are still unverified, as before. The new `index-seq` uses `integer?` and `nth` on vectors and catches every throwable for each host.
+- The reviewer's note on `deposit!` stands: the protection against signing an older sequence relies on keeping the board ring, and a replacement ring would lose it. No code path replaces the board in H1, so I left it alone.

@@ -1,0 +1,41 @@
+Completed-GMT: 2026-09-13 14:13:05 GMT
+Completed-Local: 2026-09-13 21:13:05 +07
+
+Phase 0 codec work is done and all tests pass. Where the prompt and the design doc disagreed, I followed the design doc; the three spots are listed under "Concerns" and need your call.
+
+## Changed files
+- **`src/cljc/yin/vm.cljc`** (+37/−41)
+  - **Schema:** added `:yin/root` and `:yin/macro-name`. Removed `:yin/phase-policy`, `:yin/phase`, `:yin/capability`, `:yin/source-call`, `:yin/macro`, `:yin/expansion-root` and `:yin/error`.
+  - **`ast->datoms-with-root`:** now always ends with a root fact `[root-id :yin/root true t m]`. `ast->datoms` calls it, so it gets the fact too.
+  - **Retired arms:** removed the `:yin/macro-expand` arms in both directions, and the `:phase-policy` emit and decode. `:macro?` is still carried on lambdas.
+  - **`index-datoms`:** the last `:yin/root` fact in the batch picks the root, and an explicit `:root-id` option still overrides it. With no root fact it falls back to the old heuristic, unchanged. A root naming an entity with no `:yin/type` is returned as `:error {:rule :dangling-root :entity e}` and never thrown.
+- **`src/cljc/yin/vm/ast_walker.cljc`:** docstring only. It now states decision 1, and there is still no macro branch.
+- **`test/yin/vm_test.cljc`** (new): 9 tests.
+  - The root fact beats the heuristic, the last root fact wins, and an explicit `:root-id` overrides.
+  - A dangling root is recorded, not thrown.
+  - The heuristic fallback is unchanged.
+  - `compile` output is compared against a snapshot I captured before editing; the only difference is one added last row.
+  - Macro lambdas keep `:macro?` without a phase, and the schema changes are checked.
+  - `:yin/macro-expand` now fails in both directions.
+
+## Verification
+- **`clj -M:test -n yin.vm-test -n yin.repl-core-test`:** 26 tests, 97 assertions, 0 failures, 0 errors.
+- **Other v2 tests that use the codec** (ast-walker, continuation handoff, `dao.await`, parity, engine, ffi, module, runtime-adapter): 92 tests, 351 assertions, 0 failures. Before my changes, the five of these I ran first gave 68 tests, 240 assertions, 0 failures.
+- **CLJS** (`npx shadow-cljs compile test`): 1,238 tests, 34,412 assertions, 0 failures; `Testing yin.vm-test` appears in the output.
+- **clj-kondo:** 0 errors, 1 warning: unused private var `ast-walker-run-active-continuation` at `ast_walker.cljc:521`. My change to that file is only the docstring, so I believe the warning was already there. I couldn't lint the HEAD version to prove it because the command wasn't approved.
+- **`git diff --stat`:** 2 files changed, 37 insertions, 41 deletions, plus the new untracked test file.
+
+## Concerns
+1. **Root fact shape.** The prompt asks for `[watermark :yin/root <root-eid>]` with `:yin/root` as a ref. I used design §2.4's `[root :yin/root true]` with `:yin/root` as a plain value, for two reasons:
+   - The codec has no watermark or batch entity to put the fact on.
+   - A ref attribute holding `true` would break the transactor.
+
+   So `[?e :yin/root ?r]` gives the root in `?e`, with `?r` = `true`. Tell me if you want the prompt's form instead.
+2. **Dangling root.** §2.4 says "fails" and the prompt says "record, don't throw". I record it as `:error` and keep the named entity as `:root-id`. Decoding that batch with `datoms->ast` still throws, so evaluators fail loudly at load.
+3. **`:yin/macro-expand` in `datoms->ast`.** The prompt says it is "silently ignored". With the arm removed, it now hits the existing "Unknown AST node type in datoms" error, like any other type the codec doesn't know. I read that throw as the "loud failure path" the prompt describes; the test asserts it.
+4. **Test file location.** I used the prompt's path, `test/yin/vm_test.cljc`. Design §7 names `test/yin/vm_test.cljc`.
+5. **Scope of the walker edit.** `ast_walker.cljc` is on the "don't edit" list, but deliverable 6 explicitly asks for the docstring change, so I made only that.
+
+## §7 Phase 0 items not done (outside this task's files)
+- Amending `macro-design.md`, `cross-language-macro.md` and the divergence register.
+- Making `dao.stream.observer/run-on-stream` throw with the partial session. It looks already landed in commit 7b2c1b3, but I didn't check it.

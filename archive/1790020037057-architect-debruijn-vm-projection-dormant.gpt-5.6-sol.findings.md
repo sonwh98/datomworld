@@ -1,0 +1,2 @@
+I’ll remove the projection from every sharing-path role, preserve only its dormant historical/protected references, and update the artifact model, B5, compliance table, and deferred decisions.
+I’m updating the design so the executable image hash H is the sole sharing identity, while preserving the merged projection only as a dormant, protected artifact. I’ll verify all remaining projection references are historical/protective rather than load-bearing.

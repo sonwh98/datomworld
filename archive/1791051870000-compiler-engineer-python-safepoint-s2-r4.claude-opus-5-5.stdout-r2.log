@@ -1,0 +1,60 @@
+Completed-GMT: 2026-10-03 18:46:28 GMT
+Completed-Local: 2026-10-04 01:46:28 +0700
+Coding-Agent: claude (claude-opus-5-5)
+Session-ID: a80b326f-0efb-4ae5-ae0f-df0154076bab
+
+# Round 4: generator resume admission
+
+All five items are done and every focused run passes. One design choice in item 1 needs your review before you run the full lanes. The details are in `collab/1791051870000-compiler-engineer-python-safepoint-s2-r4.claude-opus-5-5.findings.md`.
+
+## What was already on disk, and what I finished
+- **Already correct and kept:** the conflict resolution (master's `slow` require, `^:slow` and `slow/guard` wrapper unchanged); the regenerated programs file with three new programs; the three new tests.
+- **Missing, now done:** the item‑1 fix and its red run; items 3 and 5; most of item 4; the parser check on the new packets.
+
+## Decision for review: where the limit lives
+The gate's fix compares against `py.sp/limit`, but that check has to sit in `py/gen-switch` in the base prelude. Naive programs load the base prelude without the hook prelude. So every naive program that uses a generator would fail on an unresolved name.
+
+I moved the limit cell into the base prelude as `py.rt/limit` (default 1000, still outside what escapes restore). The hook prelude's setter, getter and `py.sp/enter` now read and write that cell. Naive runs now also refuse generator crossings past the limit, counting only nested active generators.
+
+## Item 1: admission check
+- **The fix:** on a generator start or resume, before anything is written, it compares the resumer's absolute depth plus one with the limit. A refusal raises `RecursionError` on the caller's stack and leaves the generator as it was. `throw` and `close` take the same path.
+- **Red, on the tree before the fix:** `generator-admission-test` failed on all four VMs, 4 of 4 assertions. Expected `["start refused" "2" "resume refused" "3" "4" "100"]`, got `["3" "5" "6" "100"]`.
+- **Green:** that test plus the two new item‑2 tests, 3 tests with 12 assertions, 0 failures. The fix had not been applied before this run, so nothing had to be disabled to show the red.
+- The admission sentence is added to §8.5.2.
+
+## Items 2 to 5
+- **Item 2:** pinned results under limit 100:
+  - shallow, then deep, then shallow resume: 99, 79, 99;
+  - nested active generators counted additively: 98, 78;
+  - a `try` left normally after resuming from a different depth: 79, 99;
+  - a `finally` run at the current base under `throw` and `close`: 99 each;
+  - a refused deep resume followed by a good shallow one, with the caller untouched (in the admission test).
+
+  The parser check now covers all seven packets.
+- **Item 3:** the old clause in the design doc now says escapes restore the record saved at capture, keeping the current `:base`.
+- **Item 4:** I fixed the lines the gate named, plus my new lines from this round.
+  - The two message strings in `safepoint.cljc` are split, which adds `data/str-concat` to the hook prelude's host names. That file now has no line over 80 columns.
+  - The packet data was reflowed; only the seven source docstrings stay over 80, because wrapping them would change the strings.
+  - Other over‑80 lines that earlier rounds of my diff added are still there, because the gate didn't name them. Say if you want those wrapped too.
+- **Item 5:** goldens are not re‑minted. `float-address-test` fails 6 of 105 assertions, all prelude‑derived:
+  - the base‑prelude root (`:222`);
+  - the hook‑prelude root (`:224`), which moved because I changed the hook prelude;
+  - four program addresses built on them (`:242`, `:244`, `:246`, `:250`).
+
+## Focused runs (JVM, four VMs per test)
+
+| Run | Tests | Assertions | Result |
+|---|---|---|---|
+| Both safepoint namespaces (`-e :slow`) | 27 | 414 | 0 failures |
+| `prelude-parity-test` and `lower-test` | 43 | 154 | 0 failures |
+| `e2e-c2-test` (`-e :slow`) | 15 | 75 | 0 failures |
+| `e2e-test` (`-e :slow`) | 35 | 407 | 0 failures |
+| Parser check on 7 packets | 1 | 7 | 0 failures |
+
+The `e2e-test` row ran just before I added the three new packets to the parser check; the check itself was re‑run alone afterwards. kondo reports 0 errors and 0 warnings, and cljstyle is clean. I ran neither the full lanes nor Dart.
+
+## Scratch files
+I don't need any of them. All five are safe to delete, and nothing in `src`, `test` or the design doc refers to them:
+- `tmp_cst_dump.clj`: the packet generator; the parser check now guards the packets.
+- `tmp_out.txt`, `tmp_body.txt`, `tmp_header.clj`: its output pieces.
+- `tmp_err.txt`: its stderr.

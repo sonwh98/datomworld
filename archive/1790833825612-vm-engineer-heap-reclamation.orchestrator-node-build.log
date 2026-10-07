@@ -1,0 +1,4 @@
+Loading initial Timbre config from: :default
+[:yin-repl] Compiling ...
+[:yin-repl] Build completed. (173 files, 14 compiled, 0 warnings, 3.66s)
+node build exit 0

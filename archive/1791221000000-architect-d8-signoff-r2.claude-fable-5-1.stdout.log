@@ -1,0 +1,13 @@
+**SIGN-OFF** (ready to land).
+
+**Basis.** I re-read `prepare`, `encode`, `not-appended?` and `abort` in the current `export.cljc`, plus the test lines that pin them. I did not re-read the rest of the test file or the `enter` changes for the glm gate's explicit-park rows, and I ran nothing.
+
+- **Must-fix 1 is closed completely.** A refused prepare now returns its outcome with `:record` carrying everything served so far. Skipping memoization of a `nil` answer is correct: `nil` means the stream was not served, so asking again on retry cannot double-serve. `a-refused-prepare-keeps-what-it-served-test` covers the retry.
+- **Must-fix 2 is closed.** A machine under custody is refused `:tenure-ended` at or past the bound, and `:tenure-unconfirmed` without `:live true` or with no tenure at all. The tests cover inside the bound without evidence, `:live false`, and `nil`.
+- **The widened `not-appended?` set is right.** `dao.stream.md`'s append table says of `invalid-value`, `closed` and `refused` that nothing was appended, and `full` likewise. `transport-error` and a missing answer still refuse the abort.
+
+**Still carried to later slices, as before:**
+- The served table is keyed by handle; D9 must re-key it before D14.
+- The tenure form uses bare numbers, so a `dao.lease` duration map passed as `:now` would throw at the comparison; D13 reconciles that.
+- `:yin.k/refused` needs its line in the UCF.
+- Node and Dart lanes are owed at landing.

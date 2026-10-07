@@ -1,0 +1,25 @@
+<!-- Promoted from collab/reviewer-orchestrator-discipline-r7.gemini-3.1-pro-high.stdout.log
+     Conversation e671c7ca-f04c-4750-95ab-1178f25ba4bc (resumed). -->
+
+Completed-GMT: 2026-09-04 10:38:00 GMT
+Completed-Local: 2026-09-04 17:38:00 Asia/Ho_Chi_Minh
+Coding-Agent: agy
+Session-ID: e671c7ca-f04c-4750-95ab-1178f25ba4bc
+
+1. **Accuracy**: The claim in "Holding the Seat" that a "plan-mode" agent "cannot check a diff it cannot read or a suite it cannot run" is factually incorrect. It overgeneralizes from a single incident (my round-1 behavior). AGY in `--mode plan` retains full shell access, read permissions, and the ability to execute test suites; it simply pauses for user approval before modifying files or executing state-changing commands. Item 4, however, accurately describes the failure mode where an agent returns an intention/plan instead of the final deliverable.
+2. **"Holding the Seat"**: The harness-capability argument is sound for agents that are strictly sandboxed without shell access or are genuinely read-only. However, an interactive plan-mode agent *can* legitimately hold the Orchestrator seat by proposing verification commands, obtaining human approval, and evaluating the real evidence. The absolute directive to "say so and stop" is too rigid for plan-mode and misdescribes its capabilities.
+3. **Redundancy**: Several items violate Core Responsibility 12 by duplicating existing rules.
+   - Item 3 ("Obtain review before declaring readiness") repeats the collaboration contract in `TEAM.md` and Core Responsibility 5.
+   - Item 5 ("Quiet is not failure...") repeats the exact phrasing from `TEAM.md` ("Quiet output is not failure...").
+   - Item 8 ("Leave a resumable handoff") duplicates the session ID recording rules already present in `TEAM.md` and Core Responsibilities 7 and 10.
+4. **Advice-shaped items**: Item 9 ("Report faithfully... Volunteer the noise you introduced") is moralizing advice rather than a structural constraint. An LLM that confidently hallucinates a summary will not be corrected by an instruction to be trustworthy; it is corrected by structural mandates, like Item 1's requirement to read the real diff. 
+5. **Missing information**: The discipline section fails to address context window management (how an orchestrator should cleanly checkpoint and hand off a task when it is about to exhaust its own token budget) and how to handle test suite flakes versus genuine regressions. Both are critical, high-cost incidents a future orchestrator will inevitably encounter.
+
+| Severity | File:Line | Evidence | Correction |
+| :--- | :--- | :--- | :--- |
+| High | `docs/agents/team/orchestrator.md`:55-58 | Overgeneralizes my round-1 exit into a false claim that plan-mode agents cannot read diffs or run suites. | Restrict the "say so and stop" directive to agents that genuinely lack shell access/read permissions. Remove "plan-mode" from the list of incapable harnesses. |
+| Medium | `docs/agents/team/orchestrator.md`:75-78, 83-85, 93-96 | Items 3, 5, and 8 duplicate rules already codified in `TEAM.md` and the existing Core Responsibilities. | Cut the redundant items to comply with Core Responsibility 12, leaving only the genuinely new guidance (e.g., Items 1, 2, 4, 6, 7). |
+| Low | `docs/agents/team/orchestrator.md`:97-101 | Item 9 is an advice-shaped moral injunction that is not structurally actionable. | Remove or condense Item 9 into a concrete requirement (e.g., "Always paste the raw test output in the findings"). |
+
+SIGN-OFF: WITHHELD
+

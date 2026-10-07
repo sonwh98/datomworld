@@ -1,0 +1,11 @@
+
+Claude configuration file not found at: /Users/sto/.claude/.claude.json
+A backup file exists at: /Users/sto/.claude/backups/.claude.json.backup.1789386401577
+You can manually restore it by running: cp "/Users/sto/.claude/backups/.claude.json.backup.1789386401577" "/Users/sto/.claude/.claude.json"
+
+
+Claude configuration file not found at: /Users/sto/.claude/.claude.json
+A backup file exists at: /Users/sto/.claude/backups/.claude.json.backup.1789386401577
+You can manually restore it by running: cp "/Users/sto/.claude/backups/.claude.json.backup.1789386401577" "/Users/sto/.claude/.claude.json"
+
+Not logged in · Please run /login

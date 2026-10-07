@@ -1,0 +1,63 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-04 15:55:52 GMT
+Completed-Local: 2026-10-04 22:55:52 +07
+
+# Gate review, M-next C slice C3 (authority core)
+
+**Verdict: APPROVE-WITH-NITS.** Read-only; no suites run, nothing edited (lanes/kondo/cljstyle green taken from the brief). The slice matches plan 1.1–1.5, 1.7, 1.10 and the C3 slice text; the boundary is clean; both doc edits are verbatim and correctly placed. The nits are two small test gaps and one latent authoring-side leniency — none block.
+
+## Mutation pass by inspection (the attack the brief asked for)
+
+Per guarantee, would a test go red if it were broken?
+
+| Guarantee | Pinned by | Ruling |
+|---|---|---|
+| One transact per decision | `open-enroll-and-reopen` (authority_test.cljc:92, frame count); `two-decisions…` (:296, t set = `range 8`) | Yes |
+| Whole-decision serialization | `two-decisions-cannot-both-act-on-one-projection` (:289–302), JVM `future`s; engineer's mutation 1 went red (3 FAIL + 1 ERROR). Removing only *part* of the decision from the lock also goes red: a stale-projection enroll commits an enrolled fact whose identity names another t → fold `:foreign-target` → poison | Yes on JVM; Node/Dart serial by construction, honestly documented in `concurrently` (:279–286) |
+| Whole-authority poison incl. readers | `crash-at-each-cut…` (:138–149): seam/enroll!/close-target! suspended, frames unchanged, projection nil, both reader ops transport-error; mutation 2 went red | Yes |
+| Bound refusal commits nothing | `a-transition-past-a-bound…` (:202–222): frames-equality, non-poison, replayed still answers, holds after reopen | Yes |
+| Contiguous t == position at reopen | `reopen-refuses-a-gap-and-a-t-mismatch` (:175–199): t≠position, t gap, position gap, malformed record, each writing nothing; plus one good reopen | Yes |
+| Add-only enrollment | Half: 8 enrolls → 8 distinct targets (:296–298); identities embed t so re-enrollment is structurally impossible. The retraction refusal (`ledger.cljc:196`, op must be `default-op`) is enforced but **pinned by no test** | Partly — see finding 4 |
+| Target positions/cursors stable across reopen | `the-target-reader-contract` (:254–259): oldest equal after reopen, read through decoded cursor, projection equality (:301–302) | Yes. (Note: dense-per-target vs global-t is not distinguishable in this fixture's shape — the target is enrolled at t0 with only admissions after — but the observable contract is pinned) |
+| End after close | :269–276, twice, including on a further reopen | Yes |
+| Closed-result after close | :264–273; and cross-checked at fold time — a post-close ok-result would defect in `fold-fact` and answer `:suspended`, not `:committed` | Yes |
+| Deterministic frame bytes | `the-same-decisions-make-the-same-bytes` (:317–326), six pinned BLAKE3 digests; red before pinning per engineer; Node confirmed; Dart by the green lane | Yes |
+| Fold fails closed on unknown fact kinds | Holds by construction, doubly (nil `attribute-order` → `:malformed-fact`, ledger.cljc:128–132; and even without that, `case` with no default throws → caught → `:unreadable-record`, :210–213) — but **pinned by no test** | No — finding 1 |
+
+**The `:uninstalled` path — confirmed untested, testable without a hook, correct by reading.** `commit!` (authority.cljc:161–182) reaches `:uninstalled` only when `transact!` answered ok but the read-back or fold fails; no C3 test exercises it (the three cuts all fail the append itself → `:uncertain-append`). No hook is needed: the public `transition!` accepts any `decide`, so a test can pass a decide fn returning a fold-rejected fact — a duplicate op id is the easiest (`:duplicate-op-id` is checked first in `fold-fact`). Then transact! persists the frame, the fold defects, and the authority must answer `{:yin.k/status :suspended :yin.k/reason :uninstalled}`, later transitions `:poisoned`, and — worth asserting too — a reopen now *refuses* (the corrupt frame stands): fail-stop, which is the right consequence. Recommend that test in C3 or at latest C12, and recommend **not** adding an injection hook. By reading, the code is correct: the two failure windows are properly distinguished (non-ok append → `:uncertain-append` vs post-ok install failure → `:uninstalled`), the state swap is under the lock, and the retained projection is gated behind `poisoned?` everywhere it is served.
+
+## Boundary and cross-host checks (all pass)
+
+- **No `yin.vm` engine namespace required**: requires are `dao.*` plus the new `yin.vm.ucf.*` only (ledger.cljc:36–38, authority.cljc:32–36, seam.cljc:9–11).
+- **No C5+ vocabulary**: no `admit!`, grants, reclaim, completion, inputs, judge, or quarantine anywhere; the only "admit" is the seam docstring saying it does not exist (seam.cljc:8).
+- **Seam**: public var, docstring states both the ClojureDart private-var limitation and "NOT an admission entry point" (seam.cljc:1–8). Matches the slice text.
+- **Cross-host determinism**: bytes flow only through the corpus-frozen canonical CBOR (map keys and set elements sorted by canonical bytes, cbor.cljc:23, boring.cljc:103–108; numbers kind-strict, keywords via tag 27 over `[namespace name]`); `content-key` is built from strings/keywords so dedup keys agree on every host (cbor.cljc:882); the fold and `facts->datoms` iterate only vectors in decision/published order — no host map/set iteration reaches the bytes; all counters bounded at 2^52−1 pre-commit, so JS doubles stay exact. The pinned digests then verify the concrete frames on all three hosts.
+- **Lock**: JVM `locking` on the shared lock atom covers the whole decision incl. `close!`; Node/Dart are synchronous in one isolate (nothing awaits inside a transition), so the direct call has the same semantics — the `with-lock` docstring says so (authority.cljc:44–52).
+- **Docs**: the 1.1 exception text is verbatim in the new blockquote, scoped explicitly to arbitration ledgers with the publication pipeline untouched; T18 gains one pointer sentence, *Where durability lives* gains one ("Arbitration ledgers are the one exception, below") — minimal and consistent. The one extra sentence (naming `yin.vm.ucf.authority`, one `transact!`/one frame) is accurate and useful. The 14.2.1 insertion is character-for-character plan 1.9, both paragraphs, including "Forwarding … is at-least-once or fail-stop", placed exactly after the admission-guarantee sentence.
+
+## Findings
+
+1. **`test/yin/vm/ucf/ledger_test.cljc:84` — minor (test gap).** Nothing pins "fold fails closed on unknown fact kinds" or its defect name. Five slices (C5–C10) each add a kind; pin the fence before they land. Fix: one assertion in `the-fold-refuses-what-the-ledger-cannot-hold` with hand-stamped datoms, e.g. `[[16 :yin.k/custody :yin.k/other 0 1]]` → `:malformed-fact`.
+2. **`src/cljc/yin/vm/ucf/authority.cljc:171–182` — minor (test gap, engineer Q7).** The `:uninstalled` poison is untested. Fix: the zero-hook test described above (defective `decide` via public `transition!`, duplicate op id), asserting the suspended reply, the blocked later transitions, and the refusing reopen. Do not add an injection hook.
+3. **`src/cljc/yin/vm/ucf/ledger.cljc:90–102` — minor (latent).** `facts->datoms` silently drops fact attributes outside the published order, and a fact of an unknown kind yields no datoms (then `(reduce max [])` at authority.cljc:208 throws — an argument defect, no write, but by accident). The fold is strict; the authoring side is lenient: a typo'd attribute in a future decide fn commits a fact silently missing data — no defect, no poison. Fix when C5 adds kinds (or now, small): validate in `transition!` before transact — kind known in `attribute-order`, attributes ⊆ published order — throwing as an argument defect.
+4. **`src/cljc/yin/vm/ucf/ledger.cljc:196` — nit (test gap).** The add-only fold check `(= datom/default-op (nth d 4))` is unpinned; the authority cannot author a retraction (`[e a v]` triples only), so it guards only foreign records. Fix: one ledger test folding a record stamped with op 0 → `:malformed-datom`.
+5. **`src/cljc/yin/vm/ucf/authority.cljc:98–116` — info.** A `create!` throw is folded into `:t-mismatch`. Unreachable in practice (the fold has already validated every datom by then); if touched again, give it its own defect name.
+6. **`src/cljc/yin/vm/ucf/authority.cljc:261–266` — info.** `TargetReader`'s `descriptor` answers ok on a poisoned or closed authority (structural metadata; the reads themselves fail correctly). Fine as is; a docstring word would pre-empt the question.
+
+## The engineer's 11 questions
+
+1. **Arbitration identity = journal identity; `"<arb>/target/<t>"`.** Accept. Plan 1.10 fixes derivation, not shape; an opaque string is canonical and host-independent, and structured values can be adopted later without touching the fold (identity is compared, never parsed).
+2. **`:yin.k/target-closed`, `:yin.k/admitted`; one entity holding effect + result + dedup; payload omitted when closed.** Accept. Co-locating dedup and effect in one record is exactly the shape C5's `binding-evidence` requires; the closed payload omission is fold-enforced both ways.
+3. **Intake pool: fresh memory log nobody reads.** Accept for C3 — the authority never calls `publish!`, so the pool is inert, and the plan is silent. When a slice publishes derived indexes (the exception text anticipates them), pass the pool through `open!` opts then; not before.
+4. **`close!`: readers answer transport-error.** Accept. "Retire the value" plus reopen-as-recovery is coherent and matches the poison behavior; the divergence from generic stream close semantics (reads keep serving) is documented in the docstring. C7's outcome projection should re-confirm the choice, since drivers will read around closes.
+5. **Every non-ok transact poisons, `invalid-value` included.** Accept. Unreachable in C3 (the intent digest encodes the payload first, so a non-encodable payload throws as an argument defect before any write); if a later slice makes it reachable, consider splitting it out as a certain refusal — until then, over-poisoning is the safe direction and reopen clears it.
+6. **Seam replies beyond committed/replayed.** Accept. `:intent-conflict` committing nothing is right while quarantine is C7's; `:refused`/`:replayed` for close-target match its docstring.
+7. **Untested `:uninstalled`; hook for C12?** Accept the confirmation, amend the remedy — no hook: the path is reachable today through public `transition!` with a defective decide (finding 2). Add the test in C3, not C12.
+8. **One bound option; the other bounds implied.** Accept. Entity ids outpace both t and target positions by construction (ids start at 16, one per fact), so the id bound implies the rest; a t-only bound is unconstructible through `::max-exact`. Deleting the seam's dead check was right; `transition!` still checking t explicitly honors plan 1.7.
+9. **`open!` repeats a fold check.** Accept keeping it. It validates a different producer (`create!`'s derivation) against the record count, and plan 1.5 step 3 names it; defense-in-depth that no test can observe is fine.
+10. **Fold fails closed on unknown kinds; later slices add both arms.** Accept the mechanism, amend with finding 1 — pin the defect name with a test now, before five slices each add a kind. When those land, finding 3's authoring-side guard becomes the paired fence.
+11. **Cross-host fixture: pinned per-frame BLAKE3 digests.** Accept — and the gap has closed: the brief states the lanes on this exact tree are green on JVM, Node and Dart, which completes the Dart verification. C12's checked-in ledger file remains the stronger artifact; per-frame digests are right for C3.
+
+The engineer's deviations (code-before-tests, cljstyle not run, seam bound removal) are honestly reported and adequately compensated: the mutation evidence covers the two properties most at risk from that order, cljstyle is clean per the brief, and deviation 3's arithmetic argument is correct.

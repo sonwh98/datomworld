@@ -1,0 +1,17 @@
+Completed-GMT: 2026-10-03 17:09:36 GMT
+Completed-Local: 2026-10-04 00:09:36 +07
+Coding-Agent: claude
+Session-ID: af1f9774-0b7e-48d6-8e11-9690c65e0164
+
+The five goldens are updated, and the focused runs now pass. Before editing, I confirmed my `py/range-at` change is the only reason the old goldens broke.
+
+1. **Proof of cause:** I put the `py/range-at` code back to master's version by hand. I kept the new comments, since comments aren't part of the hashed code, and left the new tests in place. `clojure -M:test -n yang.python.antlr.float-address-test` then gave **12 tests, 105 assertions, 0 failures, 0 errors**, so the old goldens passed again. I then restored the fast path; `git diff --stat` shows `prelude.cljc` at 27 lines (21+/6−), the same as round 1.
+2. **Goldens:** only lines 221, 241, 243, 245 and 249 of `test/yang/python/antlr/float_address_test.cljc` changed (checked with `git diff -U0`). The old values were already full `:segment/blake3-…` keywords, so the new ones went in the same way. The old-to-new table is in the Round 2 section of the findings file.
+3. **Focused runs:**
+   - `float-address-test` plus `prelude-parity-test`: **23 tests, 149 assertions, 0 failures, 0 errors**.
+   - kondo on the three changed files: 0 errors, 0 warnings.
+   - `cljstyle check` via mise: clean.
+
+As instructed, I didn't run the full JVM, Node or Dart lanes, so none of them has been re-run with the new goldens yet. Nothing is staged or committed.
+
+Findings (Round 2 appended): `collab/1791045477000-compiler-engineer-python-range-elem-fastpath.claude-opus-5-5.findings.md`

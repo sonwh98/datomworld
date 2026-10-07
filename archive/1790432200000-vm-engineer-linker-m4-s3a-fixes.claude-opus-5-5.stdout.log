@@ -1,0 +1,60 @@
+Completed-GMT: 2026-09-26 11:20:35 GMT
+Completed-Local: 2026-09-26 18:20:35 +07
+
+# S3a: fixes for the two P1 gate findings
+
+Both P1 findings are fixed and the namespaces I touched pass on the JVM; I ran only those, not the full lanes. Nothing is committed. The report is at `collab/1790432200000-vm-engineer-linker-m4-s3a-fixes.claude-opus-5-5.report.md`.
+
+The clocks disagree: `date` said 11:20:35 GMT when I finished, which is earlier than the brief's Created-GMT of 11:50:00. I recorded what `date` gave.
+
+## Finding 2: a publication failure now refuses the install
+
+`advance-install` in `engine.cljc` now catches any failure while the install is published. That covers:
+- attaching an origin image;
+- lowering the slice or a store snapshot;
+- receiving a dependency.
+
+Such a failure now produces a refusal instead of a throw:
+- The refusal is marked `:phase :linked` and keeps the error's own `:reason`, falling back to `:install-error`.
+- It is built from the state the round started with, so nothing half-published survives.
+- The install entry is removed, and every waiter is restored with the refusal as its require's error.
+- No throw escapes the scheduler round.
+
+## Finding 3: the register offset table must describe the code space exactly
+
+A new `table-defect` in `debruijn_register_effects.cljc` requires the rows to:
+- be well-formed `[identity offset length]` rows;
+- be in offset order, starting at 0;
+- be contiguous and non-overlapping;
+- cover every instruction.
+
+Every row's identity is now checked against its slice, including zero-length rows. Only positive-length rows also get the structural check.
+
+## Tests
+
+- **Offset table** (in `attach_image_test`): a missing row, an overlapping row, reordered rows, and a forged zero-length identity are each rejected, while the genuine empty base row is accepted.
+- **Publication failures** (in `linker_require_test`): a `FaultyTask` test kernel delegates to the stack kernel and injects a failure at each of the four publication stages. For every stage the test checks that:
+  - the round returns;
+  - no install and no waiter remain;
+  - the woken entry carries the refusal with `:phase :linked`;
+  - neither module is published;
+  - the program sees the error.
+
+I wrote these tests after the fixes, so I never watched them fail against the old code. Without the fixes, the injected throw would escape the round and the malformed tables would pass validation.
+
+## Checks
+
+- **JVM, touched namespaces:** 136 tests / 926 assertions, 0 failures:
+  - `linker-require-test` and `attach-image-test`: 40 tests / 508 assertions;
+  - `debruijn-register-effects-test`, `debruijn.register-test`, `engine-test` and `debruijn-register-contract-test`: 72 tests / 418 assertions.
+- **Kondo:** 0 errors, 0 warnings.
+- **Cljstyle:** clean.
+- **ASCII and 80 columns:** 0 violations.
+
+The orchestrator's ClojureDart `runtimeType` patch in `engine.cljc` is still in place, now at line 478.
+
+Not run: the full JVM, Node and Dart lanes (the orchestrator runs them). The `:foreign-image` test the gate mentions is outside this brief and still missing. The private `:resources` table and sealed references are S3b and were not touched.
+
+Separately, the claude.ai Gmail, Google Calendar and Google Drive connectors still need authorizing in your claude.ai connector settings; they were not needed here.
+
+Status: COMPLETE

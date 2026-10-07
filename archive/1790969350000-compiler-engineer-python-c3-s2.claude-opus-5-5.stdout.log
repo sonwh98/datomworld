@@ -1,0 +1,10 @@
+I couldn't start this task because the prompt file isn't anywhere I can read.
+
+- **In this worktree:** `collab/1790969350000-compiler-engineer-python-c3-s2.prompt.md` doesn't exist. `collab/` only has the four architect findings files (the C3 bignum design, the C3 cross-ruling, and the two float-address mob files). A search of the whole worktree and the git history found nothing either.
+- **In the main checkout:** I tried `/Users/sto/workspace/datomworld/collab/1790969350000-compiler-engineer-python-c3-s2.prompt.md`, but the read permission was denied. This is the known catch with delegates in sibling worktrees: they can't read the main `collab/`.
+
+Either of these would unblock me:
+1. Copy the prompt into this worktree's `collab/` (`/Users/sto/workspace/datomworld-py-c3key1/collab/`), along with anything it references that isn't already here. Re-run me and tell me where to write the report, also inside this worktree.
+2. Allow reads from `/Users/sto/workspace/datomworld/collab/`.
+
+I haven't made any changes. The branch `yang-python-c3-s2` is as it was.

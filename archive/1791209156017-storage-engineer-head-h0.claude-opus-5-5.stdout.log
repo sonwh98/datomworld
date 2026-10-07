@@ -1,0 +1,60 @@
+Completed-GMT: 2026-10-05 14:18:51 GMT
+Completed-Local: 2026-10-05 21:18:51 +07
+Coding-Agent: claude
+Session-ID: c7244636-7620-475e-b23a-a591106058b2
+
+H0 is built and passes the focused JVM tests and kondo. One H0 criterion needs a ruling: I found a HEAD move that commits no transaction (hydration, first item under Unresolved). I'm reporting it as the brief says; it is not worked around.
+
+## Changed files
+- **New `src/cljc/yin/vm/linker/head.cljc`**: `trace`, `verify`, `seq-of`, `judge`, using the exact keywords from 5.2 and 5.5.
+- **`src/cljc/yin/vm/linker/sign.cljc`**:
+  - Added the prefix `head-domain "yin.head/trace:v1\n"`, `sign-trace` and `verify-trace`.
+  - `message` now takes an optional prefix; the old one-argument form still uses the name-envelope prefix.
+  - I moved the host Ed25519 verify code, unchanged, into a private `verify-message`. `verify-envelope` calls it, with the same checks, the same prefix and the same `catch`. The unchanged name-envelope vectors and tamper tests in `sign-test` still pass.
+  - Only the namespace docstring changed besides that.
+- **`test/yin/vm/linker/sign_vectors.edn`**: added three entries; nothing existing was changed.
+  - `:head` (sequence 0) and `:head-wide` (sequence 4294967297, encoded `1b 0000000100000001`). Each has the envelope, canonical bytes, signed message and signature under the RFC 8032 TEST 1 seed.
+  - `:head-tamper :name-domain-signature`: the same key's signature over the name-envelope prefix plus the head's canonical bytes.
+- **New `test/yin/vm/linker/head_test.cljc`**: 8 tests. The arity test is JVM only (`#?(:cljd nil :clj ...)`).
+
+## Commands run
+- `clj -M:test -n yin.vm.linker.head-test -n yin.vm.linker.sign-test`: **12 tests, 155 assertions, 0 failures, 0 errors.**
+  - The first run errored because my test data used entity ids the transactor refuses. I fixed the test, not the code.
+- `clj -M:kondo --lint` on the four files: **0 errors, 0 warnings.**
+  - The deliberate 5-argument `judge` call now goes through `apply`.
+- I also started `clj -M:test -e …` to compute the vectors. The `:test` alias ran the whole suite instead, so I stopped it with no result. I recomputed the vectors with `clj -M -e`.
+- I ran no Node or Dart lanes, as instructed.
+
+## Return shapes I chose (for the reviewer to check)
+- **`judge`** returns one bare keyword: `:yin.head/malformed`, `:yin.head/wrong-principal`, `:yin.head/bad-proof`, `:yin.head/stale`, `:yin.head/equivocation`, `:duplicate` or `:candidate`.
+  - Its checks run in table order.
+  - `principal` is the full `"ed25519:<64 hex>"` id.
+  - `floor` is an integer or `nil`.
+  - `installed` is the installed manifest address or `nil`.
+- **`verify`** returns `true` or `false` and never throws.
+- **`seq-of`** returns the greatest `index/datom-t`, or `nil` for no datoms.
+- **`trace`** throws `ex-info` with `:reason :yin.head/malformed` rather than return a malformed trace.
+- **Sequence bound (please rule):** a sequence above 2^53−1 is `:yin.head/malformed`. I took this from 5.10 ("stays within 2^53") and the `dao.stream.cbor` safe-number range, so every host reads the shape the same way. The 5.5 table does not name this bound.
+- **Shape checks counted as "closed shape":** the principal must be `ed25519:` plus 64 lowercase hex, the manifest must pass `jing/segment-address?`, and the signature must be 128 hex.
+
+## seq-of evidence for each HEAD-move case
+All of these read the datoms back from the manifest each HEAD names.
+- **Rounds:** two rounds give sequences `[0 1]`.
+- **Name transaction (`commit-names`):** gives `2`.
+- **`(reset)`:** the next round gives `3`.
+- **Restart:** after close and reopen, `seq-of` over the rehydrated recovery equals the value before the restart, both over `(:datoms recovery)` and over `read-datoms` of the recovered manifest. The next round gives `4`, and all five HEADs are strictly increasing.
+- **Unwritten-row recovery:** two rounds with failing row puts write no HEAD. The `commit-names` that follows writes one HEAD with sequence `2`, and the next round gives `3`.
+- **Against the transactor directly:** its first `t` is 0, and `seq-of` of that single transaction is 0.
+
+I read the code for every HEAD write. `index.cljc/publish` is called only after a committed transaction, at `step` and at `commit-names`. Rehydrating and `carry-over` write no HEAD.
+
+## Unresolved concerns
+1. **A HEAD move with no transaction: hydration.** `yin/repl/dht.cljc:202-212` (`hydrated`) writes HEAD to a loaded remote manifest without committing anything.
+   - Within one directory this does not make two HEAD writes share a sequence. Hydration only runs into an empty directory, or one whose HEAD already names that manifest (`refused-head`, `open` lines 78-80). The next publication then gets greatest `t` + 1.
+   - Across directories it is exactly the "key kept and directory lost" case in 5.2. If a node hydrates some *other* manifest and then publishes under a key that already signed that sequence, readers would judge it `:yin.head/equivocation`.
+   - The design names hydration as the remedy for that case, so this may be intended. Because the brief's STOP rule is literal, I have not added a test or any workaround. The architect should decide whether 5.2 needs reopening.
+2. **Arity check is JVM only.** It checks the arglists and that a 5-argument call raises an `ArityException`. ClojureScript ignores extra arguments and ClojureDart can't read var metadata reliably, so on those hosts only the fixed signature stands. Every host still checks that `judge`'s answers are the same for the same inputs.
+3. **Untested on Node and Dart.** The vectors, the CBOR round-trip and the 2^32+1 sequence haven't run there yet; that's for your landing lanes. The temp-directory test copies `index_test`'s portable cleanup helpers.
+
+## Incomplete work
+None, apart from the hydration ruling above.

@@ -1,0 +1,25 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+R2 is complete. Report at `collab/storage-space-query-v2-r2.glm-5.3.findings.md`; nothing staged or committed.
+
+## Fix 1 — legacy v1 realization path deleted
+
+- `legacy-v1-realization?` gone; `current`/`history` route every source through `db-source`. Any unrecognized host object now gets the same I1 rejection as raw maps/vectors — `index/snapshot-datoms` is unreachable from `dao.space.query`.
+- The two schema tests pass the closed realization **directly** to `schema/current` (the reviewer's own first alternative to the prompt's test-side drain). I chose it because it keeps schema's realization branch + `interpret-view`'s drain exercised rather than pre-digesting the stream in the test. `borrowed-path-does-not-close-again` is **not vacuous**: `schema/current` is exactly the operation that historically closed inner streams, and the count staying at 1 proves neither its drain nor the interpretation closes a borrowed source.
+
+## Fix 2 — transport typing off query values
+
+- `relation` → `{:dao.space.query/relation tuples}` exactly; view values carry only `:dao.space.query/view`/`:source`/`:as-of` — so v1 descriptor helpers no longer classify query values as transports. The published *coordinate* keeps its own `:dao.stream/type` (index's shape, untouched).
+- `schema/current` accepts `(query/value? d)` or a legacy keyword-typed descriptor; `validate-not-nested-view!` keys on `:dao.space.query/view` ∈ `#{:current :history}` plus the legacy `:dao.space.schema/current` check — W12's three rejections still throw the same message.
+- `bound-inherited-from-source` (nil≡nil, as the reviewer found) replaced by `schema-current-returns-a-fact-relation-value` — asserts `(query/value? v)` and `(:fact? v)`, the result contract previously pinned nowhere directly. `query_test` gained `unrecognized-host-objects-are-rejected` (atom, delay, clj Date → I1) and no-transport-type assertions.
+
+## Verification
+
+| lane | result |
+|---|---|
+| `bb test:clj` | 1424 tests, 165259 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 1335 tests, 34844 assertions, 0 failures, 1 pre-existing wasm error; `Testing dao.space.query-test` in Node output |
+| `bb test:cljd` | All tests passed — 1288 (query-test and schema-test ran on Dart) |
+| `:demo` build | 0 warnings |
+| kondo (4 touched files) | 0 errors; the one warning + infos in schema files are byte-identical at `78b5262` (verified by linting the HEAD extracts) |
+
+Cleared items untouched. One note for the record: the two borrowed tests deviate from the prompt's prescribed drain shape in favor of the stronger direct pass — argued in the report.

@@ -1,0 +1,16 @@
+Completed-GMT: 2026-09-24 12:29:36 GMT
+Completed-Local: 2026-09-24 19:29:36 +07
+Coding-Agent: claude
+Session-ID: f9328487-72e9-44e8-a216-0fbb81bf6a2e
+
+`docs/design/yin.vm.linker.md` is now revision r4, 1859 lines, pure ASCII, no line over 80 columns, uncommitted. The round-3 findings file named in the task is not present in `collab/`, so I worked from the five items in the task and cited the reviewer thread in the status line. Section 13.1 carries the r4 register; r3 and r2 moved to 13.2 and 13.3.
+
+**Per item, all agreed**
+
+1. **Definitions and exports.** Subtraction is replaced by defined-before-use. A main-sequence occurrence is discharged only by a definition that precedes it in evaluation order, and one whose definitions all follow it is refused with a new use-before-definition reason. An occurrence inside a lambda body accepts any main-sequence definition, since the body runs on application. A body applied too early fails in the child at run time and is reported through the refused phase. The static export refusal from r3 is withdrawn. Exports are verified only at the validated phase, so a key computed at run time is neither rejected nor assumed.
+2. **Correlation id examples.** The two completion examples now carry the origin-and-counter tuple.
+3. **Closure relocation.** The lift records each closure's origin image from the positional offset table or the semantic alias column, so a re-exported closure from a transitive dependency names that dependency's image. The origin set must consist of images this scheduler verified, or the install is refused as a foreign image. The parent loads every origin image it lacks before lowering. The closure marker gains a binding key with named and positional variants, with lift and lower tables for the semantic, walker, stack, and register closure shapes, and cross-discipline lowering is refused. This is listed as a UCF amendment.
+4. **Authority envelopes and replay.** Assertions and retractions are distinct signed envelopes covering operation, name, manifest, principal, and a per-principal sequence. A retraction is bound to one assertion by that assertion's content id. Replay is prevented by a strictly rising per-principal sequence with composition-declared floors; replays and equivocating pairs are discarded. Divergence: a monotone sequence was chosen over nonces so the snapshot check needs no nonce store, and timestamps are audit-only.
+5. **Contract disambiguation.** The manifest now carries a container schema version, checked by the manifest validator, and a per-format execution contract map. Step 0 compares only the requested format's entry with the format record, so a four-way manifest links through stack with b1, through register with r1, and through the semantic VM with v2. The r3 single-contract field is named as a defect.
+
+Completion criteria 20 through 22 and the M4 entry criterion add tests for each of these.

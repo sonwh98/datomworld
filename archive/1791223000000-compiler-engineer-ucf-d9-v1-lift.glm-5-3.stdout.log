@@ -1,0 +1,29 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+D9 is complete. The ruled round is green on all three lanes, and the report is at `collab/1791223000000-compiler-engineer-ucf-d9-v1-lift.findings.md`.
+
+**What the partial diff had right (kept):** the whole header channel per the ruling — `prepare`'s fourth `header` argument with the shape check, the version switch in `export-task` (nil header = v0 fork lift byte-for-byte; header = v1 exclusive in `dao.jing.cbor` with `:yin.k/exclusive` added), kind/header agreement (halted = origin only, children = none), `protected!` with `:unprotected-pending` and the unsatisfied stream, `:op-seq-exhausted`, the self-check (inspect then `validate-body` before `:ok`), canonical byte-ordering, the served-table re-keying, the v1 install-phase rule, and the fixture-regeneration architecture with the re-pinned `checkpoint-v1.txt`.
+
+**What I fixed or added:**
+- **The lift's own hold refusals** — the D4/D5/D6 rulings require them *at lift, before `lift-pending!`*; the partial diff relied on `enter` alone, so a direct `export-task` on a held/cursorless machine lifted it. Added `unliftable-hold` plus direct-lift test rows.
+- **A real `prepare` defect**: the by-handle dedup left a second resource key out of the served table, making the record unprepared for a resource the lift itself reached; fixed and pinned with a two-resources-one-handle machine.
+- **The child row for the unsatisfied refusal**, and predicate re-targeting of the last two index-addressed fixture mutations.
+- **Four cross-host defects the lanes caught**: float64 carriers refused as `:host-object` on Node (now v1-admitted, v0 still refused); ClojureDart's `assoc`-on-nil producing a PersistentList that broke every v0 lift on Dart; `array-map`/canonical map iteration portability; Dart's `1 = 1.0` num equality.
+- **The regeneration's unlisted consequences**: `inherited_test` (74F/4E) and `front_test` (2F) index the old fixture shapes, and `ledger-v1.txt` is a derived pin — adapted and re-rendered. This widens the diff beyond the ruling's permitted list; flagged for sign-off rather than stopping on a red suite.
+
+**Verification:** JVM UCF battery 332 tests / 3132 assertions green, adjacent engine suites 89/892 green; Node full fast lane 3119/95311, 0/0; Dart — the eight affected namespaces compiled and run, all pass; kondo 0/0, cljstyle clean; fixture digests identical across fresh JVM processes. Carried: the UCF 7.7.4/7.8 and linker-dht 14.2.2 doc amendments (outside the permitted diff, as D8 carried its UCF line), the D11 op-id obligation, and the full-lane Dart run at landing.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+All three findings are applied, proven red→green test-first, and the report carries the round. Summary:
+
+**Must-fix 1 (subsumes gate finding 1) — mint-free ordering.** Two leaks, both confirmed red by probe before fixing:
+- The ordering scratch at `canonical-order` minted **cell numbers** during sort comparisons *and* claimed **serve identities** (its marker asks went through the real `serve!`), so host iteration order decided which distinct cursor got `c-0` and which stream got `s1`. The scratch now runs fully mint-free under `:ordering`: cursor-ref sort keys are seeded by the resource id / position pair (the very identity the cell table keys by — injective per cell, equal for aliases), and stream markers are seeded by resource id with no `serve!` call at all.
+- `snapshot-module-stores` walked each module store in host order; it now uses the same `ordered` the task store uses. Version 0 traversal untouched.
+
+The architect's pinned rows both landed: `cursor-referenced-store-keys-order-nothing-test` (store map keyed by two cursor references nothing else reaches) and `module-store-cursor-values-order-nothing-test` (module store holding two cursor values, reached through a lowered-shape module closure — the spawn path never creates one). Both flipped bytes before the fix, equal bytes and one address after; Dart runs the same machines with the flip `:cljd`-gated. **Gate finding 1 noted in the report as closed by this same fix.** The fixture pins did not move (anchors re-digest to their committed addresses).
+
+**Must-fix 2 — serve-once across retries.** `prepare` now reconstructs handle→descriptor from the retained `:served` table resolved through the machine's resource bindings (`seeded-by-handle`, before any new key is served; handles never persisted), and the table-hit branch records the handle for same-call aliases. The new row covers the pinned scenario (one serve, both alias keys retained after retry, encode needs nothing) **plus** the striking leg the architect described — a retry over bindings that moved: a fresh resource alias of the served handle reached first. Verified red with the seeding neutralized, green with it.
+
+**Verification on the final state:** JVM battery + adjacent suites 424 tests / 4056 assertions, 0/0; Node whole fast lane 3122 / 95343, 0/0; Dart eight namespaces all pass; kondo 0/0; cljstyle clean; fixture digests unchanged.
+
+**One new concern found and left open (reported):** a halted root whose `:yin.k/result` holds cursor references fails the cell census on both versions — `export-task` reads the cells snapshot before the result encode mints those cells. Pre-existing, not pinned by a test; flagged for the architect to assign.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+API Error: Request rejected (429) · [1308][已达到 5 小时的使用上限。您的限额将在 2026-10-06 06:57:06 重置。][20261006044911b4ef77a39f6341b7]

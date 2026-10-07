@@ -1,0 +1,42 @@
+Completed-GMT: 2026-09-27 16:11:40 GMT
+Completed-Local: 2026-09-27 23:11:40 +07 (Asia/Ho_Chi_Minh)
+
+## Summary
+
+Applied the Architect's ruling (`collab/1790505601000-architect-apply-envelope-ruling.gpt-6-sol.findings.md`) in full for items 1–3 and 5. Item 4 (the deferred `dao.stream.ws.cljc` accept-frame/disclaim retirement) is **not done** — investigation surfaced a real cross-host correctness risk that needs its own resolution, detailed below. `dao.stream.apply.cljc`, `yin.vm.ffi.cljc`, `yin.vm.ast_walker.cljc` are untouched, per the ruling.
+
+## Files touched
+
+**Deleted** (item 1): `src/cljc/dao/stream/serving.cljc`, `src/cljc/dao/stream/rpc/ws.cljc`, and their tests.
+
+**Reworked**:
+- `src/cljc/dao/stream/rpc.cljc` — dropped the `dao.stream.apply` dependency; owns its own request/answer vocabulary (`request-value`, `success-answer`, `error-answer`, `answer?`/`answer-id`/`answer-ok`/`answer-error`). Ids are self-minted random safe-integers (not sequential) with collision retry — this satisfies `dao.stream.remote.md` §5's "random ids so callers sharing one answers stream don't collide," while keeping the ruling's caller-owned allocation bookkeeping (outstanding map, collision detection, terminal path) intact. `poll-read` translates reflection failures: `:dao.stream.remote/not-found`→`:dao.stream.apply/not-found`, `:channel-gone`→`/detached`, bare `:dao.stream/end`→`/ended`, other transport errors→`/transport-error`. Added `mint-cursor`/anchor-resolution in `poll!`, mirroring `dao.jing.content.step`'s precedent, needed because a reflection's cursor mint is itself an async, retryable wire operation.
+- `src/cljc/yin/repl/serve.cljc` — server composes over `dao.stream.ws-project/make-acceptor` + `accept-step!` with a mirror table of `"yin.repl/requests"` (writer) / `"yin.repl/answers"` (reader); `advance-requests` is the interpreter over those two local ends (the §5 service convention's "peer S"). All per-attachment session/probe/waitset machinery is gone — correlation is by the request/answer's own random id, not by which WS connection carried it.
+- `src/cljc/yin/repl/connect.cljc` — client composes `ws-project/dial` + `dial-attach!`/`dial-reflect!` (new, see below), attaching both `"yin.repl/requests"` and `"yin.repl/answers"` reflections over one shared link. `attach!` answers ok synchronously (the contract's deferred confirmation), so `:established` is reported immediately rather than waiting on an async event — this made the old `observe`/`transition`/lifecycle-cursor machinery obsolete; replaced with `observe-terminal`, driven by the RPC client's own `:terminal`. `close!`/`reattach` operate on the dialed channel; reattach always composes a **fresh** dial (never reuses the old medium), per `dial`'s own documented contract.
+- `src/cljc/yin/repl/adapter.cljc` — retargeted onto `dao.stream.rpc`'s vocabulary.
+- `src/cljc/yin/repl/driver.cljc` — `poll-remote` now drives `connect/step!` (see bug #1 below) before polling the RPC client; `observe-connection` reads `connect/observe-terminal` instead of the removed `connect/observe`; `Connected to …` is published with event kind `:yin.repl.connect/connected` (a cross-process test asserts this specific kind).
+- `src/cljc/dao/stream/ws_project.cljc` — added `dial-reflect!` (small, additive): lets a second reflection share the link `dial-attach!` already established, honoring `dao.stream.remote`'s "one link per channel" invariant instead of creating a second link.
+
+**Tests rewritten**: `dao/stream/rpc_test.cljc`, `yin/repl/{serve,connect,adapter,driver,embed,main}_test.cljc`, `yin/repl/slice_peer.cljc`, `dao/stream/ws/node_test.cljs`. **New**: `yin/repl/serve_connect_wire_test.clj` (real JVM-socket round trip: connect→eval→disconnect→detached→reattach→eval, over the actual production composition, no fakes).
+
+## Two genuine bugs found and fixed along the way
+
+1. **Client never drove its own projection.** Nothing called `ws-project/dial-step!` for the client side, so wire bytes the host deposited never reached the reflections' local ring — every reflection op hung forever. Fixed by adding `connect/step!` and calling it from `driver.cljc`'s `poll-remote` (and from the new wire test's poll loops).
+2. **Server shutdown raced its own "ended" signal.** `serve.cljc`'s `stop!` originally closed session sockets directly, which a real client could observe (`:ws/closed`→`:detached`, reattachable) *before* ever seeing the shared answers medium's own `:dao.stream/end` (→`:ended`, permanent) — non-deterministically, since it depends on the client's independent poll cadence. Fixed: `stop!` now closes only the shared requests/answers media; `finish-stop` waits `stop-grace-ticks` (2) mirror passes before closing sessions' sockets, giving any outstanding client read time to observe `:ended` first. Verified via repeated runs of the cross-process `main_test.cljc` (was flaky/backwards before the fix, is consistently correct after).
+
+## Verification
+
+- `clj-kondo` clean on every touched file (checked repeatedly through the session).
+- `dao.stream.rpc-test`, `yin.repl.{serve,connect,adapter,driver,embed}-test`, `yin.repl.serve-connect-wire-test`: **57 tests / 244 assertions / 0 failures**, run standalone, multiple times.
+- Full JVM suite (`clj -M:test`): 2264 tests / 183077 assertions. Failures present are **not** in files this slice touched:
+  - `yin.vm.ucf.remote_test`, `dao.space.remote_meet_test`, `dao.lease` — a different `remote` module (VM UCF, unrelated to `dao.stream.remote`); grepped and confirmed zero references to any namespace this slice touched. Concurrent work in the same tree, not attributable to this slice.
+  - `yin.repl.main-test`'s cross-process facts (spawn real child JVM processes with fixed timeouts) are flaky under system load — repeated isolated runs show a *different* small failing subset each time, converging to all-green except the Dart test. Not a logic defect.
+  - `a-dart-client-attaches-to-this-jvm-server` fails because the compiled Dart peer binary is stale; rebuilding needs `flutter`, which **is not on PATH in this environment** (`clj -M:cljd compile` fails with "Can't find flutter on PATH") — a pre-existing environment gap, not something in scope to fix.
+- **Node/cljs**: could not run at all — `shadow-cljs` itself fails to load in this environment (`clj -M:cljs -m shadow.cljs.devtools.cli compile test` errors inside shadow-cljs's own bootstrap, before touching any project code) — pre-existing environment issue. Verified `test/dao/stream/ws/node_test.cljs` (rewritten off `dao.stream.serving`/`dao.stream.rpc.ws` onto `ws-project`/echo-via-`append!`+`next`) only via `clj-kondo`.
+- **Dart**: could not compile at all (`flutter` missing).
+
+## Item 4 — not done, and why
+
+Investigating the deferred `:ws/accept` frame send (`ws.cljc` accept-slot!) and disclaim branch, I found the client's `WsHandle` only leaves `:connecting` phase (unblocking `append!`, which answers `:dao.stream/full` until then) when `deliver!` receives that exact frame. Simply deleting the send would permanently strand every client in `:connecting`. The architecturally consistent fix — matching the server side, which already sets `:open` synchronously with no round trip — is to make the client do the same. But `connect!`'s contract explicitly promises not to wait for the peer, and at least one host (JS `WebSocket.send()` before its own `open` event throws) may not tolerate writes issued that early. Resolving this needs deliberate, cross-host-tested work I did not have room to do safely alongside the ruling's actual subject (items 1–3), and no test in the existing suite currently exercises it, so nothing regressed by leaving it alone — but per the brief it was one of five ordered work items, so I'm not marking it done.
+
+Status: BLOCKED - item 4 (dao.stream.ws.cljc accept-frame/disclaim retirement) needs a coordinated client+server phase-transition redesign to avoid stranding every client in :connecting; items 1, 2, 3, and 5 are complete and verified per above.

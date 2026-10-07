@@ -1,0 +1,3 @@
+I couldn't read the prompt file, so I haven't started the task. The read of `/Users/sto/workspace/datomworld/collab/1790181437770-compiler-engineer-debruijn-type-preservation.prompt.md` was blocked because it's outside this worktree and permission wasn't granted. I haven't tried to get around that with another tool.
+
+To proceed, either grant read access to that path (or the `collab/` directory), or copy the file into the worktree and tell me where it is.

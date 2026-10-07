@@ -1,0 +1,22 @@
+Completed-GMT: 2026-09-16 06:41:00 GMT
+Completed-Local: 2026-09-16 13:41:00 +07 (Asia/Ho_Chi_Minh)
+
+The plan is written to `docs/design/yin.vm.v1-retirement.implementation-plan.md` (640 lines, untracked, not staged). No implementation code was touched.
+
+**Shape of the plan.** It follows the two adjacent plans: a verified-versus-judged section, a consumer census by disposition, numbered decisions, units with per-unit criteria, a Phase 0 sweep, completion criteria, a boundary table of what is owed elsewhere, and a revision history. The census holds fifty files against the eleven the brief named.
+
+**Unit breakdown and order.**
+- **U1** deletes `dao.await` v1 and its test. Confirmed a no-op with no hidden consumer. Lands today as its own commit.
+- **U2** builds the v2 Flutter widget as two files: a Flutter-free `embed` composition over the existing v2 `serve!`, testable on all three hosts with the injected fake host functions the serve tests already use, and a thin Flutter view owning the notifiers and one periodic timer. It needs one additive option in the v2 REPL core so host primitives survive `(reset)`, which v1 silently loses today.
+- **U3** is the telemetry decision point, no build by default.
+- **U4** ports the browser REPL demo onto the v2 wire, which needs a browser WebSocket adapter that does not exist yet.
+- **U5** moves the remaining v1 VM test consumers to v2. The parity test keeps its corpus by pinning values captured from v1 before deletion.
+- **U6** is one atomic deletion commit after U2, U4 and U5: twenty-five files, five aliases, two shadow builds, three inverted build-test assertions, and the prose describing deleted code. It opens the `dao.runtime` R4 gate.
+
+**Scope surprises the owner should read first.**
+- **v2 telemetry emission does not exist.** The brief said it did and only the servers were missing. The v2 telemetry namespace is a stub that rejects a telemetry stream, and the v2 REPL rejects the telemetry flags. The v1 servers are the only reachable telemetry in the tree. Building the v2 emit path is a VM feature plan, not a consumer migration. The plan's default deletes the servers with v1 and records a separate telemetry plan as owed. The alternative gates the deletion on that plan. This is the one departure from "replacements first" and is flagged as an owner decision.
+- **Two consumers by wire, not by namespace.** The telemetry viewer and the public "Yin REPL" browser demo both speak the v1 wire, so a namespace grep misses them. The viewer is on the transport item's list and already delisted from the picker, so it stays. The browser demo is live in the picker, so the plan ports it before deletion, matching the prior plan's no-regression precedent.
+- **More test consumers than listed.** Three `yang` compiler tests, an unused require in the module test, and an orphan benchmark all sit on the v1 VM.
+- **mr-clean is noise.** It is fully merged into master with nothing unmerged.
+
+**Assumptions stated in the document.** The telemetry default and the browser-demo port are the owner's to confirm before U6. The `dao.await.v2` rename is deferred to the same rename wave as the stream and runtime namespaces rather than done early.

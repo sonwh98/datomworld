@@ -1,0 +1,47 @@
+The semantic VM is about 8.7x faster than the AST walker on the JVM, so I made it the default evaluator in `yin.repl.core`. Nothing is committed: `git add` and `git commit` needed approval this session couldn't give, so all changes are still in the working tree.
+
+**JVM benchmark** (Criterium on `vm/run` alone, using the old tail-recursive countdown so the numbers compare with the historic table):
+
+| Mean per run | n=500 | n=5000 | Ratio to walker |
+|---|---|---|---|
+| AST Walker | 8.64 ms | 86.96 ms | 1x |
+| Semantic | 1.04 ms | 10.02 ms | 0.115x |
+
+The old register/stack VMs no longer exist, so I compared against the walker instead. Register used to run at about 0.76x the walker; the semantic VM runs at 0.115x, well past the target.
+
+**Not run: Node.js and Dart.** Running `node` and `dart` needed approval I couldn't get, and I didn't work around the block. Both harnesses compile, and §8 says plainly that there are no numbers for those hosts. To fill them in:
+```sh
+node target/vm-bench.js 500 5000
+dart run bin/register_bench_cljd_v2.dart
+```
+That means the default switch rests on JVM numbers only.
+
+**Checks run:**
+- **Tests:** all pass. JVM had 1439 tests and the ClojureScript suite on Node had 1340, both with 0 failures.
+- **Lint:** clj-kondo found nothing on the changed Clojure files.
+- **Parity probe:** I ran the same inputs through a REPL on each evaluator. Every result matched, including errors, 100,000 tail calls and 20,000-deep non-tail recursion. The only differences were how closures print and the evaluator name in `(repl-state)`.
+
+**Changes:**
+- **Benchmark:** new `test/bench/yin_vm_bench.cljc` (runs on JVM and Node; it checks the result before timing), plus a `:vm-bench` build in `shadow-cljs.edn`. The existing Dart harness now runs both evaluators.
+- **Design doc:** `docs/design/yin.vm.semantic.md` has a new §8 with the results, the missing-hosts note and the default decision. It replaces the "measured, not asserted" line.
+- **Divergence register:** `docs/design/yin.vm.divergence-register.md` already existed (it covers v1 vs v2), so I added a section rather than overwriting it. The section lists seven differences between the semantic VM and the walker:
+  - `eval` refuses an AST.
+  - Closures have a different shape.
+  - Machine state and continuations have a different shape.
+  - A `step` is one instruction.
+  - Unsupported nodes are rejected before running.
+  - Reloading different code under an existing segment id is an error.
+  - The handoff demo refuses to ship a continuation holding a live stream.
+
+  For streams and FFI I found no differences. I also updated its two statements that said v2 has only one evaluator.
+- **Default:** `create-state` in `yin.repl.core` now defaults to `:semantic`, and `v2_core_test` is updated to match. `(vm :ast-walker)` still selects the walker.
+
+To commit:
+```sh
+git add docs/design/yin.vm.semantic.md docs/design/yin.vm.divergence-register.md shadow-cljs.edn src/cljc/yin/repl/core.cljc src/cljd/yin/register_bench_cljd_v2.cljd test/yin/repl_core_test.cljc test/bench/yin_vm_bench.cljc
+git commit -m "Benchmark the semantic VM and make it the v2 REPL default"
+```
+
+One unrelated problem I left alone: the design doc has two sections both headed §7.
+
+The Gmail, Google Calendar and Google Drive connectors need authorizing in your claude.ai connector settings before they can be used.

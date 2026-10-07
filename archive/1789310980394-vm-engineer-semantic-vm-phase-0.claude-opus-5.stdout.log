@@ -1,0 +1,33 @@
+Completed-GMT: 2026-09-13 14:57:31 GMT
+Completed-Local: 2026-09-13 21:57:31 +0700
+
+All five Phase 0 items are done, and the new and existing suites pass on JVM and cljs. **The cljd test run did not happen:** `clojure -M:cljd test` was blocked by the permission prompt, so the "green on all hosts" requirement is only met for JVM and cljs.
+
+## Changed files
+- **`docs/design/yin.vm.semantic.md`** (new): §1–§6 of the findings, copied line for line (lines 52–619), with a short status header on top.
+- **`src/cljc/yin/vm.cljc`**: added `:push 22` and `:halt 23` to `opcode-table` and to the literal map inside `opcase`. Added `code-schema` with the 15 value attributes and the 5 ref attributes.
+- **`src/cljc/yin/vm/ffi.cljc`**: `call-response-wait-entry` and `call-result` now live here as public functions, with unchanged bodies.
+- **`src/cljc/yin/vm/ast_walker.cljc`**: removed its private copies of those two functions and pointed its three call sites at the `ffi` versions. Nothing else changed.
+- **`src/cljc/yin/vm/code.cljc`** (new): `well-formed?` returns nil for a valid segment or the first defect as `{:rule :entity}`. Rules run in §2.6 order: `:one-segment`, `:instruction-shape`, `:dense-pcs`, `:sorted-by-pc`, `:dangling-target`, `:missing-terminator`, `:negative-argc`.
+- **`test/yin/vm/code_test.cljc`** (new): 8 tests with hand-built segments (the §2.7 example, an `if`, an `ffi-call`), with passing and failing cases for each rule.
+
+`git diff --stat` also lists `src/cljc/dao/space/index.cljc` and `test/dao/space/index_test.cljc`. Those changes were already there when I started, and I didn't touch them.
+
+## Verification
+- **Required command** (`v2-test`, `code-test`, `ast-walker-test`, `ffi-test`): 56 tests, 211 assertions, 0 failures, 0 errors.
+- **All eight v2 JVM suites:** 87 tests, 349 assertions, 0 failures. Before my changes it was 79 tests and 313 assertions; the difference is the new file. No existing test was edited.
+- **cljs** (shadow `:test` build, then node): 1277 tests, 34652 assertions, 0 failures. The output includes "Testing yin.vm.code-test".
+- **cljd:** not run.
+- **`opcase`:** checked on the JVM only. It expands to `(case (int x) 22 … 23 …)` and picks the right branch for 22, 23, 20 and an unknown code.
+- **Kondo:** 0 errors, 1 warning (unused private `ast-walker-run-active-continuation`). Linting the unchanged HEAD version of the walker gives the same warning, so it isn't from this change.
+
+## Unresolved concerns
+1. **cljd is unverified**, including the `opcase` literal map on that host. Someone needs to run `clojure -M:cljd test`.
+2. **Extra rule:** `:instruction-shape` flags an instruction that points at another segment, or whose op is missing or not in the §2.4 list. §2.6 doesn't list this, but the later rules need a known op to work. The architect should confirm or rename it.
+3. **Rule 5 only ever fails on the last instruction.** As written, a block that doesn't end in `:jump`/`:return`/`:halt` is allowed if the next instruction is a branch or closure target. So in practice the rule only catches a missing final terminator or an empty segment. One side effect: a main sequence with no `:halt` that runs straight into a closure body passes. If that should be rejected, the spec needs a stricter rule.
+4. **Missing targets:** a `:jump` or `:branch-false` without `:yin.code/target`, or a `:closure` without `:yin.code/body`, is reported under `:dangling-target`.
+5. **`opcase` has no cljs test.** It isn't exported to cljs (no `:require-macros`) and nothing calls it yet, so a test that runs on every host would need edits outside this task's files.
+6. **Retractions are ignored:** `well-formed?` doesn't look at the `m` (assert/retract) slot of each datom, and a repeated attribute keeps its last value, the same as `index-datoms`.
+
+## Incomplete Phase 0 items
+- Only the cljd part of "all v2 suites green on all hosts", because that test run was blocked. Nothing was committed.

@@ -1,0 +1,64 @@
+Completed-GMT: 2026-10-05 13:42:44 GMT
+Completed-Local: 2026-10-05 20:42:44 +07
+Coding-Agent: claude
+Session-ID: c490a9e8-8546-47da-bdc1-73fb22f44275
+
+## New length
+
+`docs/design/yin.vm.linker.dht.head.md` is now 1071 lines, down from 1439 (about a quarter shorter, less than I aimed for). It was rewritten, not patched; it is ASCII with no line over 80 columns. Slices are now H0 to H3; the old H4 and H5 are gone.
+
+## The owner's question, in three sentences
+
+Right: cross-machine does not need a redesign. The follower takes a `dao.stream` reader handle and calls only `cursor` and `next`, and the trace, the acceptance rule, `heads.edn` and reader semantics carry no address, source or transport datum. Going off loopback changes only how the handle is obtained and who may connect; slice H1 pins this by driving the follower over a plain local ring with no channel.
+
+Section 8 also lists the three redesign risks, none of them in the core:
+- **Name versus identity:** whether a well-known name may be a mirror-table identity is unsettled in the contract. It blocks relaying, not cross-machine following.
+- **Many sources:** "latest observed wins" is sound only for a single source. Many sources need a different scheduling rule; the trace, rule, floor and file are unaffected.
+- **Token port:** the token assumes TCP and UDP share one external port number. A third part `ws:<port>` is reserved for NATs that map them apart.
+
+## WebSocket versus UDP
+
+I recommend WebSocket for the core and for the first step off loopback. UDP on the DHT socket stays the deferred alternative, wanted when two hole-punched peers must follow each other without a relay.
+
+Verified in the tree:
+- **Arbitrary ring over ws:** `ws-project/make-acceptor` takes any mirror table, and `accept-step!` runs `remote/mirror-step` per accepted connection. `dial`, `dial-attach!` and `dial-step!` give the reader a reflection.
+- **Existing use:** `yin.repl.serve` already does this with a two-entry table, so serving the head ring is existing code.
+- **Return path:** ws rides TCP, so there is no spoofed-source reflection. UDP would need a new proof, and UDP fragments carry no request key.
+- **Contracts:** ws amends none; UDP amends two, one of them frozen.
+- **NAT:** ws needs one side to accept TCP and does not hole-punch. The DHT has no NAT meeting today, so cross-machine use already needs the publisher directly reachable on UDP.
+- **Token:** it stays `yin:<host:port>/<principal>` if the board listens on TCP at the node's UDP port number.
+- **Confidentiality:** `wss` is not supported, so the channel is cleartext. Integrity is the signature's.
+
+Not verified, and assigned to the off-loopback step:
+- whether the acceptor bounds concurrent sessions;
+- whether one connection can make a step long (`mirror-step` loops to `blocked`);
+- whether the listener seams under `yin.repl.host` compose outside `yin.repl.serve` on all three hosts;
+- whether a TCP listener binds at the UDP port number on each host.
+
+## The five round-2 findings
+
+1. **P1 candidate eviction starvation: eliminated.** There is one candidate slot and no eviction; the latest observed trace takes it, even over a higher claimed sequence.
+2. **P1 unfinished load blocking: still applicable, fixed.** A replaced candidate's load is abandoned in the step the newer trace is observed, and the new load starts at once. `abandon` is a new function in `dao.space.dht`; no deadline is added, and the one outstanding fetch ends by the DHT's own bound. H1 tests a permanently unfinished old load against a fully local newer head.
+3. **P2 retry of a failed shared load: still applicable in smaller form, fixed.** Load kinds no longer mix (a cross-kind load is refused instead of silently ignored). A failed record at the candidate's address is forgotten and restarted under the kind it had.
+4. **P2 "existing tests pass unchanged": eliminated.** `forget` is untouched, so `forget-clears-a-terminal-record-and-is-refused-while-loading` passes as written. H1 must name any test the new kind-conflict refusal migrates.
+5. **P2 cookie cannot gate fragments: eliminated from the core.** No UDP mirror is built. Section 8.2 records pre-reassembly proof on the outer fragment envelope as a requirement of the deferred UDP design.
+
+Round-1 finding #4, left "partly" resolved, is now resolved. A wrong or unloadable signed trace holds the slot only while it is the newest thing the source shows, and the floor never moves for it.
+
+On recovery: hydration is not removed and `--dht-recover` is not added. The defect was only that `dht join` used hydration; join stops doing so, and `--dht-manifest` stays as it is, which keeps the existing recovery remedy with no amendment.
+
+## New defects
+
+- **N5.** `yin.repl` already serves per-process rings under the fixed names `yin.repl/requests` and `yin.repl/answers` (`connect.cljc:64-82`, `serve.cljc:224-225`). This is the alias pattern round-1 finding #3 rejected. The core follows the landed convention, and slice H2 must get a ruling for both (amendment A1). If the ruling is "disallowed", H2 stops and the board naming reopens; nothing else in the core depends on it.
+- **N6.** The REPL's `--port` endpoint cannot carry the board: its table holds the evaluation service. The board gets its own endpoint.
+- **N7.** `dao.space.dht/load` silently ignores a load of an address already recorded under another kind (`dht.cljc:1166-1170`).
+- **N8.** Revision 1 removed hydration and then had to add `--dht-recover` to restore what that broke. That was over-reach, and it is undone.
+
+## Owner questions as they stand
+
+1. **Does "always" reach into a live session?** The design keeps a session on what it linked and needs `(reset)`. No ruling settles it.
+2. **What should a bare `q` see after `dht join`?** Source separation is ruled; the default is open. Options: (a) the reader's own index only, (b) union with installed heads, (c) a named view. I recommend (a) now and (c) on request.
+3. **Is every HEAD move the head you mean?** A follower loads a new index per publisher round, not only per `yin.link/publish`. I recommend every HEAD move.
+4. **New: is WebSocket acceptable as the first cross-machine transport?** It needs one side to accept TCP at the same port number as its UDP socket, does not hole-punch, and is cleartext. I recommend yes.
+
+No longer questions: default relaying and the order of the return-path proof are deferred with their designs, and publisher recovery needs no decision.

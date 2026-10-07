@@ -1,0 +1,42 @@
+Completed-GMT: 2026-09-30 12:37:15 GMT
+Completed-Local: 2026-09-30 19:37:15 +07
+Coding-Agent: claude
+Session-ID: adc2ad2b-7804-4513-bdbe-b35cd38d01bf
+
+# Durable index store, slice 3: indexer rehydration and `(reset)` continuity
+
+Slice 3 is done and every lane is green: a restarted durable REPL now answers `q` with the previous run's facts. Nothing is staged or committed. The full report is at `collab/1790768800000-storage-engineer-repl-durable-index-slice3.claude-opus-5-5.report.md`.
+
+**Slice 2, round 3 (still open):** the report for fix round 3 (`report-r4.md`) was never written. That round's Dart lane was cut off when the session ended, and its result was never seen. The code is in fbc30186, and this slice's Dart run on top of it passed; round 3 changed only ClojureScript-only code, cljs-only tests, and docstrings.
+
+**What changed:**
+- **Rehydration at startup.** `create-state` seeds the indexer from the recovered snapshot before any evaluation is admitted (`index/rehydrate`).
+  - The transaction log is rebuilt with one record per original `t`, each datom and its `t` kept as recovered, so new transactions continue `t` from it.
+  - Entity ids resume one past the greatest restored entity or metadata id, never below `first-user-id`.
+  - The recovered manifest and transaction counts become the indexer's own.
+- **Continuity across `(reset)` and `(vm …)`.** With a durable store, a rebuilt session's indexer continues the old one's log, ids, counts and manifest (`index/carry-over`), so neither `t` nor entity ids restart. With the memory store, reset still starts an empty index.
+- **Session tokens.** No code change was needed: every process start already mints its own token, and restored facts keep their original tokens and metadata.
+- **Docs.** The interim-hazard text is gone from the design doc and the store docstring; both now describe this behaviour. No `dao.space` or `dao.jing` file changed.
+
+**Tests first.** On the old code, the restart test failed with 8 failures: `q` saw no old facts, entity ids collided, `t` restarted, HEAD lacked the old facts, and `(reset)` lost them. The mem-mode test passed before, as intended. Both pass now on the JVM, Node and Dart.
+
+**Acceptance:** the restart sequence runs as real REPL input lines. Evaluate, stop, restart on the same directory, `require` `dao.space.query`, and `q` sees the old facts. Then `(def beta 2002)`, and `q` shows both runs with increasing `t` and distinct session tokens. The test also checks that `(reset)` and `(vm :stack)` keep the facts, mem-mode reset is unchanged, restored and new ids never overlap, and HEAD after the first post-restart publication covers old and new facts.
+
+A live smoke across three real JVM processes and a `(reset)` showed the same thing.
+
+**Mutations:** I broke each core property in turn, and every break made a test fail. One (not restoring the transaction counts) first slipped through, because the `require` line publishes and restores the counts anyway. An added check on the index status right after restart, before any input, now catches it.
+
+**Verification (all ran to completion in the foreground):**
+
+| Check | Result |
+|---|---|
+| kondo on the changed files | 0 errors, 0 warnings |
+| Focused JVM | 114 tests, 846 assertions, 0 failures |
+| Full `clj -M:test` | 2413 tests, 184,702 assertions, 0 failures |
+| `bb test:cljs` | 2322 tests, 51,138 assertions, 0 failures; "Testing yin.repl.store-test" appears |
+| `bb build:yin-repl-peer` | built |
+| `bb test:cljd` | All tests passed (+2280); both new tests ran by name |
+
+cljstyle was not run; it has been blocked by the approval gate since earlier slices. The mechanical formatting checks are clean.
+
+The Gmail, Google Calendar and Google Drive connectors still need authorizing in your claude.ai connector settings. Nothing here needed them.

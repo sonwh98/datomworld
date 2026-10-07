@@ -1,0 +1,53 @@
+I removed `stream-values` and `fact?`, all four lanes still pass, and the cljd REPL now starts. The only file changed is `test/dao/test_utils.cljc`, and nothing is staged.
+
+## 1. Both helpers were unused
+I searched `src`, `test`, `bin` and the three config files for `stream-values|fact\?|stream_values|fact_QMARK`. Nothing calls either helper:
+- **`stream-values`:** the only other hits are in `test/dao/space/transactor_test.cljc:140`, which defines and uses its own private `stream-values`. That file doesn't require `dao.test-utils`.
+- **`fact?`:** the other hits are the map key `:fact?` in `dao/space/schema.cljc`, `query.cljc` and `schema_test.cljc`, which is unrelated.
+- **Who uses `dao.test-utils`:** only the three `dao.runtime.driver` tests (clj, cljs and cljd). They use just `make-non-waitable-stream`.
+
+## 2. The change
+The whole "Telemetry Helpers" section is gone, including its heading comment:
+```diff
+      (atom {:buffer {}, :tail 0, :closed false, :capacity capacity}))))
+-
+-
+-;; =============================================================================
+-;; Telemetry Helpers
+-;; =============================================================================
+-
+-(defn stream-values
+-  "Drains a stream into a vector of all current values."
+-  [stream]
+-  (vec (ds/->seq nil stream)))
+-
+-
+-(defn fact?
+-  "Checks if a specific datom (a v t) exists in a collection of datoms."
+-  [datoms attr value]
+-  (boolean (some #(and (= attr (nth % 1)) (= value (nth % 2))) datoms)))
+```
+The file keeps `NonWaitableStream` and `make-non-waitable-stream`. The `dao.stream :as ds` require is still used by that record.
+
+## 3. Test results
+| Command | Result |
+|---|---|
+| `clj -M:kondo --lint test/dao/test_utils.cljc` | `errors: 0, warnings: 0` |
+| `clj -M:test` | `Ran 1389 tests containing 165771 assertions. 0 failures, 0 errors.` |
+| `bb test:cljs` | `Ran 1289 tests containing 35278 assertions. 0 failures, 0 errors.`, test build had 0 warnings |
+| `bb test:cljd` | `01:35 +1245: All tests passed!` |
+
+- **Node output:** includes `Testing dao.runtime.driver-cljs-test`, `dao.stream.ws.browser-test`, `yin.repl-embed-test` and `yin.vm.parity-test`.
+- **cljd lane:** I deleted `test/cljd-out` completely first (no file in it is tracked by git), so the lane rebuilt everything. `driver-cljd-test_test.dart`, which uses `dao.test-utils`, was rebuilt and passed.
+
+## 4. The cljd REPL starts
+With HEAD at `7e14a91`, I ran `clj -M:cljd-yin-repl --telemetry < /dev/null`:
+```
+Compiling ClojureDart namespace...
+ClojureDart compilation successful. Starting Dart REPL...
+--telemetry and --telemetry-stream are not part of the DaoStream v2 REPL slice; v2 telemetry is owed to its own plan (yin.vm.telemetry.implementation-plan.md, not yet written)
+yin> Bye
+```
+There's no `run_main` error. The Dart REPL starts, rejects `--telemetry` with text that names no v1 program, and exits when input ends.
+
+I ran interactive mode rather than `--headless`. A headless run with `--port 18097` stays up serving, which is what it should do, but my output filter held everything until the process exited, so I couldn't read its startup lines. I stopped it after 180 seconds and checked that no process was left behind. The interactive run goes through the same compile-and-start path.

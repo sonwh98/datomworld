@@ -1,0 +1,27 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-10-02 20:22:48 GMT
+Completed-Local: 2026-10-03 03:22:48 +07
+
+## Gate round R6: the three findings, applied
+
+Note on the reviewer log itself: `/Users/sto/workspace/datomworld/collab/` is outside this session's sandbox (the read was not granted), so I worked from the three findings exactly as transcribed in your message — each carried its line anchors and prescription, which was sufficient. All three fixes stay inside `handoff.cljc` and `handoff_test.cljc`.
+
+### P1 — `validate-registers` now requires the segment
+`:yin.k/segment` joined the required-keys list; the "segment names carried code" check and the pc-bounds check now run **unconditionally** (the old `when-some` guard is gone), so a segmentless register set never validates and the reviewer's exact repro — segment removed, pc 9999 — refuses instead of lowering. `check-frame-pc` dropped its now-dead existence guard and states its precondition (it runs after `validate-registers`).
+
+### P1 — parked records sit at the explicit-park kind
+The `:yin.k/parked` pass in `validate-body` now also resolves the record's pc through `ucf/safepoint-at` and requires `:explicit-park` among the kinds there: an in-bounds pc at an ordinary instruction, a non-safepoint pc, an out-of-bounds pc, or a missing segment all refuse `:yin.k/undecodable` naming the record id — a steered record never restores as a continuation. (This matches what the encoder can produce: explicit parks write the one `:park` safepoint; FFI parked records never enter the traveled slice.)
+
+### P2 — the carried-stream regression test now isolates its subject
+The test attaches a **second** stream the test creates itself, reached only through a sealed reference in the wait entry's environment and a store entry; no cell, pending, or halt result names it, and the test asserts exactly that (`(= 1 (count ...cells))`). The old collector misses it, so this is now a true regression test — and it goes further, reading `"solo"` back through the reflection after mirror rounds, proving the attachment is live, not just present in the resource table.
+
+### Coverage delta
+22 deftests / 143 assertions in the handoff namespace (was 21/131): new segment cases (absent, absent + wild pc, naming no carried code), and a new `a-parked-record-at-no-explicit-park-refuses` deftest covering the steered-pc, out-of-bounds, and missing-segment tampers plus the untampered control.
+
+### Verification — three lanes, sequential and solo
+- **JVM:** `Ran 2861 tests containing 225994 assertions. 0 failures, 0 errors.`
+- **Node:** `Ran 2678 tests containing 91409 assertions. 0 failures, 0 errors.`
+- **Dart:** `22:23 +2633: All tests passed!` (2,633 passed; the handoff suite's 22 deftests confirmed executing on the Dart lane)
+- clj-kondo 0/0 and cljstyle clean on both files; every line ≤ 80 columns, pure ASCII, no em dashes. Nothing committed or staged; no checkout/reset/stash; the tree still carries only the stage-1 files, the two gate-round edits, and the untouched-elsewhere set.
+
+Status: COMPLETE

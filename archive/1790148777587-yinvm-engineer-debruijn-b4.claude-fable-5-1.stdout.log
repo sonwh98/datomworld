@@ -1,0 +1,64 @@
+```text
+Completed-GMT: 2026-09-23 07:49:56 GMT
+Completed-Local: 2026-09-23 14:49:56 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: fe146f5f-4241-4570-a6a5-b2321369425c
+```
+
+B4 is implemented and green on the JVM. Nothing was staged or committed. Two things need your attention first.
+
+**Two edits outside the file box.** Both are direct consequences of the decided removal of `:status`, and each is a one-fixture change. Revert either if you disagree.
+- `test/yin/vm/debruijn/stack_test.cljc`: the B3 fixture asserting that `[:current-continuation]` throws "Not yet implemented" is obsolete once B4 executes it. Replaced by an `:unknown-opcode` fixture with the same shape.
+- `test/yin/vm/debruijn_linearize_test.cljc`: one assertion read `(:status result)`. It now calls `vm/halted?`.
+
+**Two host lanes could not be executed here.** CLJS compiled clean (317 files, 0 warnings) but the node run aborted before any test because this worktree has no `node_modules` (missing `ws`). Symlinking the main checkout's modules and `npm install` both required approval this session cannot grant. The ClojureDart lane (`clojure -M:cljd test`) was also approval-blocked. Both lanes are unverified, not failing.
+
+## 1. Changed and new files
+
+| File | Change |
+|---|---|
+| `src/cljc/yin/vm/debruijn/stack.cljc` | +474 / -84, rewritten for the seam |
+| `src/cljc/yin/vm/engine.cljc` | +23, additive: `scheduler-round`, 3-arity restore call |
+| `src/cljc/yin/vm/ffi.cljc` | +21, additive: `response-wait-entry` |
+| `test/yin/vm/engine_test.cljc` | +76, three fake restores gain a third param, three new tests |
+| `test/yin/vm/debruijn/stack_effects_test.cljc` | new, 875 lines |
+| `test/yin/vm/debruijn/stack_test.cljc` | one fixture (out of box, above) |
+| `test/yin/vm/debruijn_linearize_test.cljc` | one assertion (out of box, above) |
+
+## 2. Test outcomes
+
+| Suite | Tests | Assertions | Result |
+|---|---|---|---|
+| `yin.vm.debruijn.stack-effects-test` | 30 | 201 | pass |
+| `yin.vm.debruijn.stack-test` | 14 | 23 | pass |
+| `yin.vm.engine-test` | 22 | 102 | pass |
+| `yin.vm.debruijn-linearize-test` | 11 | 249 | pass |
+| Ten VM suites together (above four plus semantic, semantic-ffi, semantic-engine, ast-walker, ffi, contract, telemetry) | 151 | 931 | pass |
+
+The oracle VMs' own suites pass unchanged against the 3-arity engine call, confirming their existing two-arity shims still work. Kondo on all changed files: 0 errors, 0 warnings.
+
+## 3. Engine seam and payload
+
+- **Engine edits are exactly the three in engine.md §7.** `resume-from-run-queue` now calls `(restore-fn base entry (:value entry))`. `scheduler-round` is the semantic VM's round with restore as a parameter. `ffi/response-wait-entry` dissocs `:request-sent :op :datom` and adds the four reader keys, preserving everything else verbatim.
+- **Bookkeeping.** `:status` is gone. The record carries the engine keys, plus `:hash` (H of the loaded image, computed by `image-hash` at load) and `:bridge`. The FFI pair is built by `vm/empty-state`, as the semantic VM builds it. `halted?`, `blocked?`, and `value` are the engine predicates. `run` is `engine/run-loop` wrapped by `ffi/maybe-run`. `step` runs one instruction when active, otherwise one `engine/scheduler-round` bound to the restore.
+- **Register payload** on every parked record, wait entry, and reified continuation is `{:segment :pc :frames :stack :continuation :format :hash}` with `:segment` the image vector itself, `:format :yin.debruijn.code`.
+- **`stack-restore [base entry val]`** refuses first (`:rule :continuation-format`, with both actual and expected format and hash in ex-data), then handles `:request-sent` by re-parking through `response-wait-entry`, `:call-id` by unwrapping via `call-result` and dropping the parked record, and otherwise writes the registers and conjes `val` onto the restored stack. It also clears `:halted?`, so a driver resuming a halted machine through `engine/resume-continuation` gets running work back.
+- **Builders** close over `pc+1` and the operand-popped stack. Stack layouts: `:stream-put` takes the value on top and the target beneath, matching what `lower-stack` emits. Primitive calls whose result is an effect descriptor dispatch through `handle-effect` with the same builders, so a `stream/next!` module call parks after its call site with no host fn on the entry.
+- **Continuation opcodes** push the tagged payload, go through `engine/park-continuation`, and `engine/resume-continuation` with `stack-restore`. `:ffi-call` mirrors the semantic VM's two-step using `response-wait-entry` for both the immediate-send and retry-then-send paths.
+- **One added VM function:** `load-image [vm segment]`, which reloads an image keeping store, parked map, wait set, and counter, so the mismatched-hash refusal can be exercised as designed.
+
+## 4. Parity results
+
+Under B0's normalizer, fresh instances each side, semantic VM via `linearize`, this VM via `adapt`:
+- Values agree for stream make, put, cursor, close, gensym and double gensym, store put/get, `yin/def`, current-continuation, park, and the "Invalid stream reference" error including ex-data.
+- Both VMs block on an empty stream with `:yin/blocked`, wake to the same value, end with nil on close, and see `:dao.stream/gap` after eviction.
+- FFI round-trip through installed handlers yields the same value and leaves `:parked` empty on both.
+- A store slice written by `yin/def` of a stream ref normalizes identically.
+
+## 5. Notes for B5
+
+- **Cross-program park/resume is refused by design.** The single-image rule in §4.1 item 4 means a continuation parked under image A cannot resume after loading image B. B5's cross-program fixtures must either use one image driven twice (the pattern the `park-then-resume-segment` test uses, store-resolved only) or record a refusal. Supporting it would need a `{H image}` code map, which is a design change.
+- `ffi/response-wait-entry` lets the engine's transient wake stamps (`:value :status :store-updates :cursor`) ride into the new reader entry. They are overwritten on the next wake and have no effect, but the spec's "remove exactly three keys" wording is what produces them.
+- Telemetry is not wired into this VM (`:telemetry` is not accepted). Engine snapshot calls are identity when disabled.
+- Kondo reports the pre-existing `:refer-clojure :exclude [eval]` as unused, as it did for B3.
+- To finish verification: install npm deps in the worktree (or symlink the main checkout's `node_modules`) and run `clj -M:cljs -m shadow.cljs.devtools.cli compile test`, then `clojure -M:cljd test`.

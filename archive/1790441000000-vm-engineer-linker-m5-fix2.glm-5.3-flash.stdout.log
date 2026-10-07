@@ -1,0 +1,12 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+fix2 is complete. All five gate findings were verified against the code and fixed — no disagreements:
+
+1. **P0 — child origins reused after rollback** (confirmed): `carry-link-counter` is now `carry-link-identity`, carrying `:id-counter` *and* `:origins` across every rollback path (in-round refusal, pending-resume raise, `(abandon)`). I chose identity carry over pair replacement — the surviving pair is what lets a pending require continue, and section 7.2's rule is never-reuse, not rebuild; the one cosmetic trade (a dropped child's late response skips as `:unknown` rather than `:late`) is noted in the report.
+2. **P1 — pre-drive identity snapshot** (confirmed): `drive-links` now attaches the interrupted VM's identity to the raise itself (`link-raise`), so both catch sites carry the latest minted state instead of a pre-drive snapshot; the floor wrapper in `run-evaluation` is gone.
+3. **P1 — `(abandon)` blind to installs** (confirmed): engine.cljc gains public `abandon-installs` (reusing its own `refuse-install`), and `abandon-pending` derives abandonment from the parked VM's live `:wait-set` — installs first, then all link entries — so the raise always happens.
+4. **P2 — silently consumed input**: chose the retain design — lines typed while pending are kept with their parsed forms and evaluate exactly once, in typing order, on completion; `(abandon)` drops them and says so; the notice states the contract.
+5. **P2 — false `:progress?`** (confirmed): `serve` now reports a refused response append as pending with no progress claimed.
+
+**Regression tests added** (7 tests / 64 assertions total): late-response-after-abandon must not settle a later require (this staging genuinely fails with `:module-name-mismatch` without the carry), install-wait abandon with empty pending links, retained-lines-run-once over a never-answering `:content-client` wire (which also exercises the remote-content kind), plus carried-counter pins.
+
+**Verification:** full JVM suite 2201 tests / 182774 assertions / 0 failures; kondo 0/0; cljstyle clean, 80 cols, ASCII; cljd compile of the touched namespaces clear. Node/Dart execution lanes are the orchestrator's. The `fix2` section is at the top of the report, nothing committed.

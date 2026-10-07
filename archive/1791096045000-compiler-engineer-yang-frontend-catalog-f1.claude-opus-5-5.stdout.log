@@ -1,0 +1,39 @@
+Completed-GMT: 2026-10-04 06:44:51 GMT
+Completed-Local: 2026-10-04 13:44:51 +07 (Asia/Bangkok, +0700)
+Coding-Agent: claude
+Session-ID: 0f00061f-cf68-4097-8bb6-b07c7dd44e0c
+
+F1 is in: the catalog and manifest validation are written, and the new test passes on the JVM. I did not run the Node or Dart lanes; those are yours.
+
+**Changed files**
+- New: `src/cljc/yang/frontend.cljc`. Pure cljc with no reader conditionals.
+  - The catalog is a plain value whose entries are keyed by `[id revision]`. There is no global registry.
+  - `validate` refuses functions, atoms, records and any other host object anywhere in a manifest, and gives the `:path` to the bad value. It also checks the nine manifest keys that §3.7 pins, the grammar map, and the SPI revision (only 1 is accepted).
+  - `install` returns a new catalog, or a `:revision-conflict` refusal if that `[id revision]` is already installed with a different manifest or binding.
+  - `revisions` lists the installed revisions of an id.
+  - `select` takes an id, an optional revision, and optional pins on any other manifest key. It refuses with `:unknown`, `:incompatible`, or `:ambiguous`; the ambiguous case lists the matching revisions instead of picking one.
+  - Refusals use the linker's `{:status :refused :reason ...}` shape, with reasons as `:yang.frontend/*` keywords as §10.2 asks.
+- New: `test/yang/frontend_test.cljc`. Pure cljc.
+- `docs/design/yang.antlr.md`: the 8.5.6 F1 table row now says it landed in `src/cljc/yang/frontend.cljc`. One sentence, kept to 80 columns.
+
+No prelude, `yin.repl`, VM or golden was touched, so nothing needed re-minting.
+
+**Test outcomes**
+- `clojure -M:test -n yang.frontend-test`: 3 tests, 27 assertions, 0 failures, 0 errors.
+  - Acceptance 1: two revisions installed into an empty catalog are both selectable, and the original catalog is unchanged.
+  - Acceptance 2: a manifest holding a function is refused as data.
+- kondo: 0 errors, 0 warnings. cljstyle fix and check: clean. ASCII only, no line over 80 columns.
+- I did not compile the namespace for CLJS or CLJD. Every core predicate it uses already appears in shared `src/cljc` code.
+
+**Deviations and unfinished**
+- §8.5.6's intro still says "none of it has landed". Changing that was outside my allowed edit, so you may want to amend it.
+- No git commands were run.
+
+**Questions** (the doc leaves these open; I took the smallest choice for each, details in the findings):
+1. Should the grammar map be optional for a frontend built on a reader, like Clojure? Currently it is required.
+2. Content addresses are accepted as a keyword or a non-empty string. Should they be keyword-only?
+3. Re-installing a revision with the identical manifest and binding returns the same catalog; anything else is refused as a conflict. Is that right?
+4. "Select by profile" is plain equality on pinned manifest keys, not a query over support claims. F2 may want more.
+5. The installed binding is opaque in F1; its shape is left to F2.
+
+Findings: `collab/1791096045000-compiler-engineer-yang-frontend-catalog-f1.claude-opus-5-5.findings.md`

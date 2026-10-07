@@ -1,0 +1,57 @@
+Completed-GMT: 2026-10-03 18:49:02 GMT
+Completed-Local: 2026-10-04 01:49:02 +0700
+
+# Architect ruling: where the recursion-limit cell lives (safepoint slice 2)
+
+**Verdict: accept (a).** The limit cell belongs in the base prelude as `py.rt/limit`, with generator admission always on. Three stale comments and one doc sentence need fixing before commit; none changes behaviour.
+
+Read-only: I read `git diff HEAD` in `/Users/sto/workspace/datomworld-py-safepoint2`, the engineer's r4 findings, my own generator-depth ruling (the gpt-6-astra one I did not get to), and §8.5.2 of `yang.antlr.md`. Nothing was edited and no suite was run.
+
+## 1. Is the limit cell in the base prelude acceptable?
+
+Yes, and it is the only alternative that keeps the dependency pointing one way.
+
+- **The base prelude still knows nothing about hooks.** `py/gen-switch` names only `py.rt/limit`, `py.rt/ctx`, `py/abs-depth` and `py.b/RecursionError`, all base definitions. No `py.sp` key appears in the base; the hook prelude reads and writes a base cell, which is the direction `KeyboardInterrupt` already set.
+- **The base already owns everything else the check needs.** This slice puts the record (`:depth`, `:base`), the crossing that sets `:base`, and `RecursionError` in the base prelude. The limit is the one remaining operand of a comparison the base's own crossing must make.
+- **(b) is rejected.** Rebinding or wrapping `py/gen-switch` from the hook prelude collides with load order: the hook prelude loads before the base and "may not touch a base definition while loading". It would also duplicate the crossing, or redefine a reserved `yin/def` name.
+- **(c) is rejected.** A no-op `py/admit` that exists only to be replaced is the base prelude knowing about hooks, just without saying the name. It has the same load-order and redefinition problem, and it adds a call per crossing to remove one comparison.
+- **Derive, don't persist** is not engaged: the limit is configuration, not a fact derivable from existing rows. It adds one cell and no AST or tuple structure.
+- **Same address on every host** holds: the definition is the literal `(cell/new 1000)`, with no host dependence. Changing the limit at run time writes the cell and moves no address.
+
+## 2. Is the naive behaviour change acceptable?
+
+Yes; it does not break "naive is the reference, hooks only add".
+
+- **Naive refusals are a subset of CPython's.** A naive run counts only nested active generators, which is never more than the frames CPython counts. Any program a naive run now refuses, CPython also refuses (for example a generator sieve past about 1000 primes).
+- **Hooked runs only add.** A hooked run counts the same generator frames plus function frames, so it refuses everything a naive run refuses and more.
+- **Transparency is untouched.** The no-op-hook derived program and the naive program share the base prelude, so the slice 1 acceptance "no-op hooks give the naive output" still holds.
+- **The oddity to record:** a naive run enforces the limit on generator nesting but not on function recursion. That is a partial bound, not a wrong one, and it costs one cell read and one comparison on a crossing that already does a capture and several cell writes.
+
+§8.5 decision 4 says recursion accounting is "not part of the naive lowering". That stays true of the lowering, but the doc should state the split so the next reader does not see a contradiction. Suggested sentence for §8.5.2:
+
+> The base prelude owns the dynamic-context record, the limit cell and admission at generator crossings, because the crossing is prelude code that no site mark reaches; the hook prelude owns counting function frames. A naive run therefore bounds only nested active generators, which CPython also bounds.
+
+## 3. Does the base prelude hash move in a way that matters?
+
+No, beyond the one golden re-mint.
+
+- The base prelude root already moves in this slice because `py.rt/handlers` became `py.rt/ctx`. The limit cell and the admission check ride the same re-mint.
+- The engineer's six `float-address-test` failures are all prelude-derived (base root, hook root, four program addresses built on them), which is what a single re-mint should look like.
+- The cost is acceptable for a counter and a comparison, because the alternative seams would move the same hash and add more rows.
+
+## 4. Does this cover the `yield from` delegation entries?
+
+By construction yes, but I could not confirm it against code. `yield from` is not in this tree or on master's prelude: `lower.cljc:1360` still refuses it.
+
+- Every existing entry goes through `py/gen-switch`: `next`, `send`, `throw`, `close`, and the iteration path at `prelude.cljc:495`. All are covered with no extra code.
+- A `throw` or `close` on a generator that was never started closes it without running a frame, and correctly skips admission.
+- C2-S3 is covered if, and only if, its delegation calls `py/gen-switch` (or the `next`/`send`/`throw` functions above) and never invokes a `:resume` continuation or `py/gen-enter` directly. That condition should go in the S3 brief, with one test: a `yield from` chain of k generators refused at the limit leaves every generator in the chain suspended.
+
+## Fixes before commit
+
+- `prelude.cljc`, the `RecursionError` class comment: "raised by the safepoint hook prelude's depth accounting" is now incomplete, since the base raises it at generator admission.
+- `prelude.cljc`, the state-definitions docstring still says "the two runtime cells"; there are three.
+- `prelude.cljc`, the namespace docstring: the `py.rt/out` line lost its column alignment.
+- `yang.antlr.md` §8.5.2: add the ownership sentence from question 2.
+
+Ruling: (a) stands. The limit is Python semantics that the base prelude's own crossing needs, the dependency runs hook to base only, naive refusals are a subset of CPython's, and the hash cost is absorbed by the re-mint this slice already requires. Commit after the four comment and doc fixes, the golden re-mint and green lanes; carry the `py/gen-switch`-only condition into the C2-S3 brief.

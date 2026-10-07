@@ -1,0 +1,39 @@
+Completed-GMT: 2026-09-29 17:42:41 GMT
+Completed-Local: 2026-09-30 00:42:41 +07
+Coding-Agent: claude
+Session-ID: 5939e397-ce71-4ffa-8bfa-9f5ba06d2a83
+
+# q bugs: the `:in` inputs bug (BUG 2) is fixed; the bare-symbol bug (BUG 1) needs an owner decision
+
+BUG 2 is fixed in the REPL bridge. BUG 1 is diagnosed but not fixed: the docs don't say what a bare symbol in a pattern should mean, so I stopped there as the brief requires. Its tests still fail on purpose, 5 failures on every lane. Nothing is staged or committed. The full report is in `collab/1790702695000-qa-engineer-query-symbol-constant-and-in-inputs.claude-opus-5-5.report.md`.
+
+**Tests first.** I wrote the tests before changing any source; `src/` had no edits yet. Run on the untouched code, they gave 74 tests, 406 assertions, 25 failures:
+- **BUG 1 on the host:** `[?e :a foo]` expected `#{[1]}` or a refusal, got `#{[2] [1]}`.
+- **BUG 1 in the REPL:** on each of the 4 VMs, expected `#{[3]}` or a query-failed refusal, got `#{[7]}`.
+- **BUG 2:** 20 failures (5 per VM). `:in ?f` failed with "query options must be a map", with and without `{:view :current}`, and with `{:view :history}`. With no input at all it silently returned `#{}`.
+
+## BUG 1: why a bare symbol matches everything
+- **Cause:** in `src/cljc/dao/space/query.cljc`, `unify` (:981) treats every symbol except `_` as a variable, and `resolve-binding` (:935) turns an unbound one into a wildcard. So `foo` behaves like a variable called `foo` and matches every row.
+- **Host and REPL agree.** The orchestrator's host example returned `#{}` only because its rows had `m=0`, which makes them retractions. With asserted rows the host also matches everything. The REPL bridge passes symbols through unchanged.
+- **The docs are silent.** The Datalog surface in `docs/design/dao.space.query.md` (:346-407) doesn't define bare symbols, and it cites Datomic syntax only for rules (:390). `dao.space.md` and the existing tests don't define them either.
+
+**Decision needed:** either option makes the waiting tests pass.
+- **(a) Constant, as in Datomic.** Only `?`-symbols and `_` are variables. This reads naturally for `[?op :yin/name inc]`. It also needs a decision on bare symbols in function-clause and rule arguments.
+- **(b) Refuse.** A bare symbol in a pattern throws a clear error, and users pass symbol values through `:in`.
+
+## BUG 2: why `:in` inputs failed
+- **Cause:** the engine binds the index to `$` by default only when `:in` is absent (query.cljc:1613). The bridge always passes the index as the first input. So with `:in ?f`, the index was bound to `?f`, and `'inc` became an extra argument that the engine read as its options map.
+- **Fix** in `src/cljc/yin/repl/query.cljc`: new helpers `in-patterns` and `with-index`. The bridge now always puts `$` first, whether or not the user wrote it. The user's inputs fill the remaining `:in` patterns in order. If the count is wrong, the bridge refuses with `:yin.repl.query/query-failed` ("input arity").
+- **Mutation check:** bypassing `with-index` brought all 20 BUG 2 failures back. I reverted it and confirmed with grep.
+
+## Verification
+| Check | Result |
+|---|---|
+| kondo (3 changed files) | 0 errors, 4 warnings, all on existing `repl/query-*` references in the old tests |
+| cljstyle | **not run**: the permission prompt wasn't approved |
+| Focused JVM (4 namespaces) | 119 tests, 692 assertions, 5 failures (all BUG 1) |
+| Full `clj -M:test` | 2365 tests, 184346 assertions, 5 failures (all BUG 1) |
+| `bb test:cljs` | 2270 tests, 50826 assertions, 5 failures (all BUG 1); both query test namespaces ran |
+| `bb test:cljd` | not run, as instructed |
+
+**Also please confirm:** for BUG 2 I made the index always the implicit `$`. The alternative was to require users to write `:in $ ?f`. I chose the implicit form because the design findings say "the index is implicit" (`archive/collab/1790669186000-architect-repl-q-on-require.gpt-6-sol.findings.md`:22).

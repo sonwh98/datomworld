@@ -1,0 +1,30 @@
+S2 is in place and green on the JVM: 164 tests across the 13 affected namespaces, with no failures. Nothing has run on Node or Dart yet, cljstyle was blocked by permissions, and I made no git writes. The full report is at `collab/1791202800000-compiler-engineer-python-c3-s2.findings.md`.
+
+**What changed**
+- **Lowering (`lower.cljc`):**
+  - A literal up to 2^53−1 is now a native literal. Anything larger becomes `(py/int-lit "<lowercase hex>")`, converted exactly through the public `integer` module, with one instance per literal.
+  - `max-exact-int`, `parse-radix` and the old "beyond 2^53" refusal are gone. The small native accumulator remains only for string escapes, with the same code-point bounds.
+  - The digit budget is a packet field, `:yang.python.antlr/max-digits`. If no budget is declared, a decimal literal above 2^53−1 is a diagnostic.
+  - The lowering now checks Python's integer grammar itself and uses CPython 3.9.6's error messages.
+- **Prelude:** one new definition, `py/int-lit`, and `integer/parse` added to `host-names`.
+- **Renderer:** a new arm prints exact integers, including JS and Dart BigInts, in full decimal with no digit limit.
+- **Doc:** the 8.5.4 bullet now says radix 16, and the S2 row says "Landed."
+- **Tests:** a new portable `int_literal_test.cljc` covers every test the brief lists, all parserless. The five `float_address_test` goldens were re-minted once, at the end; no other goldens moved.
+
+**Decisions you should look at**
+1. **A second way to declare the budget, beyond the brief.** The parser→lowering pipeline had no way to put the budget on a packet, and existing C1 programs use the decimal literal `9007199254740992`. That number is now in call form, so `e2e_c1` failed without a budget. I added a 5-argument `lower/open-stage` that takes `max-digits`; it fills in the budget only for packets that don't declare one. There is still no default.
+2. **Admission check.** There was no Python profile admission point anywhere in `src`. I added `prelude/register-integer-module`, which refuses `::max-bits` below 53. Only the shared e2e helper and the new test use it so far; whether the other test setups should switch is your call.
+3. **The pinned lexer rejects every underscore in a number**, so even `1_000` is a syntax error. Underscore spellings can therefore only be tested through hand-built packets, which is how the spelling groups test them.
+4. **No new test is tagged `^:slow`.** The slowest takes 2.7 s on the JVM. I kept them in the fast lanes because the Node and Dart BigInt paths are the point of this slice.
+
+**Risk until S3-A lands:** on Node, a literal of 2^53 or more is now a BigInt, and the current C1 operators will throw a host `TypeError` on it. For example, `9007199254740992 + 0` used to compute, because exactly 2^53 was native before. The tests that use that literal run on the JVM only, so they stay green. On Dart the same applies from 2^63. This follows fable's order (S3-A after S2), but it matters if S2 ships alone.
+
+**Mutations:** all four I could test on the JVM were caught:
+- decimal reconstruction: 52 failures
+- a native 2^53 literal: 4 failures
+- removing the budget check: 3 errors
+- lowering the admission floor: 1 failure
+
+Removing the renderer arm can only be caught on Node and Dart, because a JVM bignum already prints correctly.
+
+**Not run:** `long-loops-test` (about 14 minutes, over the 10-minute foreground cap), the Node and Dart lanes, and cljstyle.

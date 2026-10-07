@@ -1,0 +1,60 @@
+Completed-GMT: 2026-09-02 07:14:00 GMT
+Completed-Local: 2026-09-02 14:14:00 Asia/Ho_Chi_Minh
+
+Read-only review of `docs/design/dao.lease.md` (703 lines, untracked) against `datom.world.md`, `yin.vm.jit.md`, `dao.stream.md`, `dao.stream.ws.md`, and the three cited GC passages. No edits made.
+
+## Findings, most severe first
+
+**1. HIGH | §A lease is facts (l.231–236), §Renewal (l.282–286), §Out of scope/Carriage (l.669–675) | The holder can seed its bound from the grant, and every fact except `:lapsed` reaches the holder the ordinary way.**
+The grant goes to the grantor's own log (l.454–455), which the holder does not read. Carriage says only renewals ride as payload. So in the canonical served-connection case nothing carries `:accepted` to the holder, and "since it observed the grant" has no observation to point at: the holder-side bound the round-2 fix introduced is unseedable. Line 234 also says a grant "reaches the holder the same way every other fact does," which l.372 and l.672 contradict for `:lapsed`.
+Correction: in Carriage, state that `:accepted` and `:rejected` are delivered to the holder as ordinary payload on the medium the composition wired, that this delivery is carriage of the one authored fact and not a second authoring, and that a holder that has not observed its grant holds nothing and must not act. Reword l.234 to exclude `:lapsed`.
+
+**2. HIGH | §Lapse is a conclusion (l.359–370) | "Two cursors carry no ordering between them, so the pass is specified."**
+The pass orders the lease-fact cursor relative to judgment, but never places the tick cursor. If ticks are drained after step 1, facts are stamped with the previous pass's newest tick while "now" is the fresh one, so a slow driver manufactures exactly the false lapse step 1 says it prevents. Example: driver stalls 30s, tick period 1s, duration 20s, holder renewed 1s ago; interval measures 30s and the live holder lapses.
+Correction: add a step 0, "drain the tick cursor to blocked," so every fact drained this pass is stamped with the newest tick and judgment uses that tick as now. Note this over-credits stale renewals, which is the direction l.407 already chooses.
+
+**3. HIGH | §Lapse is a conclusion step 3 (l.367–370), §Never (l.583–584) | The judge "performs the act — close, stop, free," then appends the record.**
+Under `datom.world.md` Host Boundaries, portable code appends an effect and a host interpreter performs it; the only party allowed to close a host resource directly is the boundary adapter that holds it. Either the judge is the adapter, which the document nowhere says, or step 3 is an effect append whose completion arrives later as data, and "record follows act" cannot be ordered inside one pass. The pending-reclaim set (l.432) then has two states, effect-appended and outcome-observed, not one.
+Correction: state which. Either "the judge is composed inside the boundary that possesses the resource and closes what it itself holds," or rewrite steps 3–4 as "append the reclaim effect; append `:lapsed` only after the effect's outcome datum is observed, in a later pass."
+
+**4. MEDIUM | §Precedent (l.31–40, l.80–82), §Lapse (l.332–334), §Judging (l.443–447), §Never (l.570) | The lease is a collector's mark and sweep; the judge's state is a root set; the design is "conservative."**
+The kinship is real but the vocabulary is from the wrong branch. Jini's lease comes from RMI DGC's dirty/clean calls, which is reference counting with decay. `walk-addresses` is tracing. The document says the two "do not yet justify a shared abstraction" and then imports tracing terms into the lease body anyway. Nothing is traced from the "root set"; it is a table of counts that decay, and calling it a root set invites the completeness the fence's first bullet has to deny. "Conservatively" (l.32) means in GC "never frees a live object," which fence bullet 2 says a lease cannot promise. "Mark before sweep before record" (l.369) extends the metaphor to a phase GC does not have.
+Correction: in Precedent, name the family precisely as "distributed reference counting where the count decays unless refreshed," keep tracing vocabulary for the repository's three deferred collectors only, replace "root set" with "grant table" or "the grantor's own ledger," and replace "conservatively" at l.32 with "erring toward retention, without being able to promise it."
+
+**5. MEDIUM | §Precedent (l.33–34) | Distributed GC "is where the technique was invented."**
+Leases were introduced by Gray and Cheriton (1989) for distributed file-cache consistency. Distributed GC adopted them via Network Objects and then RMI DGC, from which Jini inherited them. The lineage claim survives the correction; the "invented" claim does not, and the document stakes "this is not a borrowed metaphor" on it.
+Correction: "Jini's lease descends from RMI's distributed garbage collector, which took the lease from Gray and Cheriton's cache-consistency work."
+
+**6. MEDIUM | §Judging lapse gap rule (l.472–480), §Whose obligation (l.505–511) | After a gap every lease is unknown for one full duration.**
+On a shared deposit medium (`dao.stream.ws.md` l.138–140, one medium per boundary), one flooding attachment evicts everyone's renewals. Each pass then sees a gap, every uncapped lease restarts its window, and no dead holder on that medium ever lapses while every component reports healthy. This is the restart-outpaces-duration leak in a second form, and the document lists only the restart form.
+Correction: add a third limit beside the two at l.505: "a medium that gaps more often than one duration never completes an observation window, and per-attachment media are the isolation." Also note that `:dao.lease/max` still bounds it because tenure start is unaffected by gaps.
+
+**7. MEDIUM | §A lease is facts table (l.165–171, l.186–190) | Column header "Required beside `:dao.lease/lease`."**
+A proposal cannot carry a lease id, since the grantor mints it; the table lists Proposal under that column anyway. Refusal shows "—" but must carry the proposal's correlation id or it answers nothing. The correlation key itself (l.189) is never named, and l.228 implies a refused proposal "spent" a lease id it never had.
+Correction: give the correlation key a name, split the column into "identity carried" (correlation id on proposal and refusal, lease id on grant, release, lapse, with the grant echoing the correlation id), and reword l.228 to "renegotiating is a new proposal with a new correlation id."
+
+**8. MEDIUM | §Lapse (l.343–357), §Judging (l.425–433, l.457–467) | Ticks are "plain data appended when a timer fires"; durations are unit-to-magnitude maps; the judge may "persist the terms."**
+What a tick carries is unstated, so an implementer must invent how an interval measured in ticks is compared to a duration in units, and whether the tick period is declared or the tick carries a host timestamp. Tenure start and observations are tick-valued and judge-local, so they cannot survive a restart on a fresh tick stream; the persistence option should say that only terms persist and that persistence therefore does not rescue the cap (l.506).
+Correction: specify that a tick carries the adapter's monotonic reading in the same unit representation as durations, and add one sentence under "persists the terms" saying tick-valued observations are not persistable, which is why the one-duration rule applies after every restart regardless.
+
+**9. LOW | §Lapse (l.336–341), §Never (l.586–587) | "Anyone may judge."**
+A third party can seed only by reading the grant back, which the possessor is told not to do, and only where grant and renewals share a readable medium. In the canonical case they do not. The sentence is true but nearly vacuous.
+Correction: "Anyone who can read both the grant and the renewals may judge; only the possessor's judgment has effect."
+
+**10. LOW | §Where the collector's problem differs (l.66–75) | Three consequences fence the kinship.**
+A fourth is missing and is the one a GC reader will assume: there is no stop-the-world. The holder keeps running through the sweep, which is why l.291–297 needs fencing tokens from the resource. State it in the fence so the reader does not expect the sweep to be atomic.
+
+**11. LOW | §Lapse step 2 (l.365–366), §Attribution (l.308–318) | Step 2 "compares each lease's interval"; the attribution basis is "declared nature, inspectable."**
+Step 2 does not mention acting on a `:released` fact. The attribution basis has no defined form to inspect, unlike DaoStream retention. Add release to step 2; say what value the judge is handed as its attribution basis, even schematically.
+
+**12. NOTE | The brief says the reframe confirms the delegation denial "via the reference-cycle parallel."** No such passage exists in the document. The denial rests entirely on the round-2 argument (renewer as `LeaseRenewalManager` in cleaner materials), which stands on its own. If the parallel was intended, it is a good one: a refcount collector cannot free a cycle, and a chain link renewing on non-evidence is that cycle. Either add it or drop the claim from the change summary.
+
+Nothing found at the level of an invariant violation against `datom.world.md` beyond finding 3, and nothing found that adds an operation or key to `dao.stream.md`.
+
+## Was the GC reframe worth making?
+
+Yes. The subsection "Where the collector's problem differs" is the strongest passage in the document: "a duration is a timeout standing in for reachability" and "a false lapse is a possible outcome of a correct lease" say in two sentences what round 2 spent paragraphs on, and the separation "they await a collector, not a lease" is a real contribution to the repository's three deferred reclamation items. What was not worth importing is the tracing vocabulary in the body. Mark, sweep, and root set name a mechanism the lease does not have, contradict the document's own refusal to generalize, and are the source of findings 4 and 10. Keep the fence, cut the tracing terms, name the refcount-with-decay lineage instead.
+
+## The thing most likely wrong that I cannot prove
+
+The document assumes throughout that grantor, judge, and possessor are one interpreter with a resource it can close. That holds for the served connection and the forwarder pause. For the third justifying use, a claim an agent leaves on shared work, I doubt anyone possesses the resource: the "reclaim" is appending a fact that voids the claim, which is a record and not an act, so steps 3 and 4 collapse and "possession, not truth" has no possessor. That use looks like the durable-resource case the document itself gates off at l.526–534. If so, the vocabulary is justified by two uses, not three, and the shared-work claim needs the fencing and incarnation rules the document declines to invent. I cannot prove it without a design for the shared-work medium, which does not exist yet.

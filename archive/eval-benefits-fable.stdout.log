@@ -1,0 +1,11 @@
+The plan is written to `/Users/sto/.claude/plans/collab-eval-benefits-fable-prompt-md-squishy-hummingbird.md`. The ExitPlanMode tool is not exposed in this session, so I cannot formally request approval through it. The plan is complete and ready for you to approve.
+
+**What the plan is.** The prompt asks for a read-only architecture review, so exploration was the whole job. I read every namespace under the two v2 trees, the scheduler, the three host adapters, both implementation plans, the divergence register, and the tests. The plan file holds the drafted findings with file and line citations. Execution is one step: emit the report with the required `Completed-GMT` header. No code changes, no agents.
+
+**Headline verdicts the review will report.**
+
+- **Explicit causality: largely delivered.** No registry, host-owned dispatch, per-attachment identities on every event, caller-owned cadence, and a bounded pre-accept handoff through streams. Three leaks: the JVM adapter blocks inside a contractually non-blocking `append!`, the transport host edges deposit REPL-namespaced error codes, and `serving/stop!` leaves pre-accept sockets open.
+- **True CESK serialization: half delivered.** The VM is transport-decoupled and continuations are plain maps, but nothing projects a continuation to datoms. Frames, wait-set entries, and the store embed host functions and live handles. Effects execute inside the transition rather than being emitted as data.
+- **Closing the leaks: delivered for FFI parked-continuation accumulation, partial for isolation.** The bridge lives inside the VM record and is driven by `vm/run`. All parked FFI calls share one cursor, so out-of-order responses throw instead of routing. The VM itself has no races to fix since it is immutable data on one thread.
+
+If you approve, I will produce the final report as the next message.

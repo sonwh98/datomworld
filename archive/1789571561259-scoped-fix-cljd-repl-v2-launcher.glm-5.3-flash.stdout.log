@@ -1,0 +1,33 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+Done. Report:
+
+## Diff (the only change I made)
+
+```diff
+--- a/bin/yin_repl_main.dart
++++ b/bin/yin_repl_main.dart
+@@ -3,7 +3,7 @@ import '../lib/cljd-out/yin/repl.dart' as repl;
+ 
+ void main(List<String> args) async {
+   try {
+-    await repl.run_main(args);
++    await repl.main(args);
+```
+
+## Verification
+
+- **Generated Dart name** — `lib/cljd-out/yin/repl.dart:529` still emits `dc.dynamic main(dc.dynamic args$2, ...)` (the `^{:dart/name main}` metadata working as intended); nothing in `v2.cljc` touched, no recompile needed to confirm.
+- **`clj -M:kondo --lint bin/yin_repl_main.dart`** — kondo parses the `.dart` file as Clojure and reports 17 garbage "Unresolved symbol" errors (`void`, `try`, `catch`…). Meaningless, as anticipated in the task; noted rather than forced.
+- **`clj -M:cljd-yin-repl` (headless, stdin from `/dev/null`, 3-min timeout)** — actual output:
+  ```
+  Loading initial Timbre config from: :default
+  Compiling ClojureDart namespace...
+  ClojureDart compilation successful. Starting Dart REPL...
+  yin> Bye
+  ```
+  It starts, prints the `yin>` prompt, and exits cleanly on EOF with `Bye`. **No `Method not found: 'run_main'`** — the original failure is gone. (First attempt at a 15s timeout hit the timeout mid-compile before the Dart process even launched; 180s was enough.)
+- **`rm -rf test/cljd-out && bb test:cljd`** — `01:20 +1245: All tests passed!` — **1245 tests, 0 failures**, exit 0.
+
+## Nothing else touched
+
+`git status -- bin/` shows only my one-line `M bin/yin_repl_main.dart`. The ` D bin/yin_repl_main.dart` deletion visible there is pre-existing (it was already in the working tree before this session — part of the pending v1-deletion work), not something I did. No staging, no commit.

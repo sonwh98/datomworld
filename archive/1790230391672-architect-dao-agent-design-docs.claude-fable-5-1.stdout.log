@@ -1,0 +1,30 @@
+Completed-GMT: 2026-09-24 06:24:27 GMT
+Completed-Local: 2026-09-24 13:24:28 +07
+
+All four `dao.agent` subsystem design documents are written under `docs/design/` and pass every document invariant.
+
+**Files created**
+
+| File | Lines |
+|---|---|
+| `docs/design/dao.agent.mcp.server.md` | 611 |
+| `docs/design/dao.agent.schema.md` | 556 |
+| `docs/design/dao.agent.harness.md` | 493 |
+| `docs/design/dao.agent.mcp.client.md` | 516 |
+
+**Invariant checks** (all clean): no line over 80 columns, zero non-ASCII bytes, headers only at `##` and `###`, and every opening fence carries a language tag (tagged openings equal bare closings in each file).
+
+**Key design decisions worth the owner's attention**
+
+- **MCP server is transport plus interpreter, not a callback host.** Requests become events on an ingress stream, the tool dispatcher is a pure `step` fold over that stream, and responses are egress events correlated by JSON-RPC id. Zero global session state.
+- **`task_claim` is a proposal, not a CAS.** The medium has no CAS. The claim is an offset in the proposer's stream; the governor's grant `t` is the lease epoch and the linearization axis. The `dao.lease` vocabulary is reused directly.
+- **`:verdict/*` is folded into `:review/verdict`.** A separate verdict entity would duplicate a fact the review row already holds, per "derive, don't persist". The board never stores `:task/claimant` or expiry flags either; those are queries.
+- **Only the governor asserts `:task/status`.** Derivation queries bind the governor source explicitly, so a lax foreign writer cannot corrupt the state machine.
+- **`:mcp/invoke` needs no kernel change.** The parent doc's Phase 3 said to implement it in `yin.vm.debruijn.register`. This spec narrows that: `:ffi-call` already takes any op keyword, so `:mcp/invoke` is a bridge handler in `dao.agent.mcp.client`. This keeps "yin.vm never requires dao.agent" true by construction.
+- **Crash resilience ordering.** Snapshot to jing, args to jing, then `:started` datoms, all before the external call runs. Rehydration is a query over unfinished invocations. Non-idempotent tools are never auto-reissued and surface as `:needs-operator`.
+- **Timestamps are diagnostic only.** All `long` time attributes never order anything; ordering comes from stream `t` and the governor's recorded ingress-observation datoms, with a data-only tie-break for a governor restarted without them.
+
+**Not done**
+
+- The files are unstaged and uncommitted. The prompt did not ask for a commit.
+- No entries were added to `docs/orchestrator-log.md` or the parent `dao.agent.md` to link the four siblings. The parent doc's Phase 3 wording about implementing `:mcp/invoke` in the kernel now disagrees with the client spec and should be amended in a follow-up.

@@ -1,0 +1,44 @@
+Completed-GMT: 2026-09-29 18:36:19 GMT
+Completed-Local: 2026-09-30 01:36:19 +07
+Coding-Agent: claude
+Session-ID: 5939e397-ce71-4ffa-8bfa-9f5ba06d2a83
+
+# Round 3: map inputs, bare-symbol refusals and the linker test are done
+
+All three items are done, test-first, and every lane passes. `linker.cljc` was not edited, and nothing is staged or committed. The full report is in `collab/…claude-opus-5-5.report-r3.md`.
+
+**Tests first.** On the round-2 code the new tests gave 37 failures:
+- **Bare symbols in the engine:** all 9 `:in`/`:find` cases returned a result instead of throwing.
+- **Map input through the REPL:** `:in ?m` with `{:k 1}` was refused as a bad options map. The case with one extra map was also misreported as bad options instead of an input-count error.
+- **Bare symbols through the REPL:** `:in f` returned `#{[nil]}` and `:find op` returned `#{}`, instead of a query-failed refusal.
+- **Linker:** the new assertion already passed, because it pins the round-2 fix. Its evidence is mutation M3 below.
+
+**Map inputs (`src/cljc/yin/repl/query.cljc`).** The bridge now splits arguments by the query's declared `:in` count, not counting the implicit `$`:
+- That many arguments are inputs, maps included.
+- At most one more argument may follow, and it must be the options map. It is still checked as before, so a bad `:view` is still `invalid-input`.
+- Anything else is refused as `query-failed` with an "input arity" message.
+
+**Bare symbols in `:in` / `:find` (`src/cljc/dao/space/query.cljc`).** A new check runs inside `q` before anything is evaluated:
+- **`:in`** accepts only `?`-variables, `$`-sources, `%` and `_`. Inside tuple, collection and relation inputs it accepts `?`-variables, `_` and `...`.
+- **`:find`** requires `?`-variables everywhere, including aggregate arguments and `pull` variables.
+- The error reads "A bare symbol in :find is not a query variable: foo (only ?-symbols are variables)". Through the REPL it shows as `:yin.repl.query/query-failed`.
+- A bare symbol as a function result binding (`[(f ?a) out]`) is left as a constant comparison that binds nothing, as the gate described.
+
+**Linker (`test/yin/vm/linker_test.cljc`).** A new assertion checks that `(+ 'k 2)` gives no definitions.
+
+**Mutation checks (all reverted, confirmed by grep):**
+- **M1 + M2:** restoring the old map splitting and removing the new check gave 41 failures.
+- **M3:** restoring the old symbol handling in the engine gave 1 linker failure: `(+ 'k 2)` produced a spurious definition of `k`.
+
+**Spec:** the Terms bullet in `docs/design/dao.space.query.md` now describes the function result-binding behaviour and the `:in`/`:find` refusals.
+
+| Check | Result |
+|---|---|
+| kondo (5 changed files) | 0 errors; the same 4 warnings as before, all in existing test code |
+| cljstyle | **not run**: the permission prompt wasn't approved |
+| Focused JVM (4 namespaces) | 173 tests, 0 failures |
+| Full `clj -M:test` | 2371 tests, 0 failures |
+| `bb test:cljs` | 2276 tests, 0 failures; all three affected test namespaces ran |
+| `bb test:cljd` | not run, as instructed |
+
+One edge case: if a query declares no inputs, a single trailing map is still read as the options map, as before. A map is only taken as an input when the query declares a slot for it.

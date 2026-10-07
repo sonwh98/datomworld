@@ -1,0 +1,38 @@
+Completed-GMT: 2026-09-04 05:19:19 GMT
+Completed-Local: 2026-09-04 12:19:19 Asia/Ho_Chi_Minh (+07)
+Coding-Agent: claude
+Session-ID: none (non-interactive run)
+
+## Findings resolved
+
+**HIGH — JVM interactive lifecycle** (`v2.cljc`). `poll-loop!` now owns the exit: it takes an `exit!` argument (defaulting to `.halt`) and calls it after `drain-server!`. A typed `(quit)` stops the endpoint and ends the process from the step owner; the reader parked in `read-line` is never waited on. Headless keeps its shutdown hook (`request-stop!` + join) and the main-thread joins remain the fallback wait.
+
+**MEDIUM — operator-disconnect reconnect trap** (`driver.cljc`, `connect.cljc`). The "Still disconnecting" branch is now gated on `(nil? (remote-terminal state))`, so it answers only before a terminal lands; once one has landed a later `(connect …)` falls through to `open-connection` and composes a fresh boundary. `connect/close!` keeps a status the boundary already reported (`terminal-statuses`) instead of overwriting it with `:closing`, so `(repl-state)` still shows `:not-found`/`:ended`/`:transport-error`.
+
+**MEDIUM — stale RPC `:unsent`** (`rpc.cljc`, `driver.cljc`). New public transitions `rpc/unsent?` and `rpc/abandon-unsent` (state → state, appending the request's completion with a reason). The driver abandons on operator `(disconnect)` (`:yin.repl.driver/operator-disconnect`) and on reattach (`:yin.repl.driver/abandoned-on-reattach`), so the loss is published as an ordinary `lost` completion. `handle-line`, `retry-unsent`, and `release-queue` now consult RPC's `:unsent` rather than trusting the driver's `:retrying` shadow: a newly typed line queues instead of being replaced by the stale envelope, and `retry-unsent` is the only resend path.
+
+**MEDIUM — shutdown of a never-bound endpoint** (`serve.cljc`, `v2.cljc`). New `serve/stopped?` (stopped, or no serving driver at all); `stop!` leaves an endpoint with no `:serving` untouched instead of claiming `:stopping`, and `stop-tick` uses `stopped?`. A failed/never-bound endpoint finishes on the first tick and keeps `:failed` with its reason, rather than burning ~5 s and printing a misleading timeout. Off-by-one fixed: `stop-join-millis` = `tick-millis × (stop-ticks + 2)` for both JVM joins.
+
+**LOW, resolved.** Ordinary input routes locally after non-reattachable terminals (`queueable-terminals` = `/detached`, `/transport-error`; `/ended`, `/not-found` and reader-terminal outcomes return to the local shell). The clock-omitting 2-arity of `serve!`'s `accept!` is dropped, leaving only the documented `(accept! path socket now)`. Incomplete input is refused with serve-owned `:yin.repl.serve/incomplete-input`. The `verifyClient` two-argument arity requirement (and the `ws` 8 deprecation) is documented at the definition.
+
+## Files changed (all unstaged)
+
+`src/cljc/dao/stream/rpc.cljc`, `src/cljc/yin/repl.cljc`, `v2/connect.cljc`, `v2/driver.cljc`, `v2/serve.cljc`, `src/cljs/dao/stream/ws/node.cljs`, `test/dao/stream/rpc_test.cljc`, `test/yin/repl_test.cljc`, `v2_connect_test.cljc`, `v2_serve_test.cljc`. Nothing staged or committed. (`docs/agents/team/TEAM.md` and `v2/host.cljc` carry pre-existing unstaged changes from the prior session; I did not touch them.)
+
+## Tests (TDD: written red first, then implemented)
+
+- Focused JVM: `clj -M:test` over the ten v2 REPL / v2 stream namespaces → **108 tests, 502 assertions, 0 failures/errors**.
+- Node: `clj -M:cljs -m shadow.cljs.devtools.cli compile test` → **1200 tests, 34162 assertions, 0 failures/errors, 0 warnings**, including `dao.stream.ws.node-test`.
+- kondo over all 12 touched source/test files → 0 errors, 0 warnings.
+- `clj -M:cljd-yin-repl-build compile` → success; `dart analyze` on `v2.dart`, `driver.dart`, `connect.dart`, `serve.dart`, `rpc.dart` → no issues.
+
+New tests: non-reattachable terminal (`/not-found`) does not trap a later connect and the status survives the close; an ended stream returns input to the local shell; a line typed while a request is unsent is queued, not clobbered, and both go in order; an unsent request is abandoned on disconnect and the reattached binding sends the new line with a retired id; an unsent request does not survive an uninvited drop and reattach; `rpc/abandon-unsent` completes with its reason, retires the id, and is a no-op with nothing unsent; a never-bound endpoint reports stopped at once and keeps `:failed`; `stop!` claims nothing for it; a typed `(quit)` exits the JVM step owner without end-of-input.
+
+The connect fixture gained a `:full?` toggle so an *open* socket can answer `full` (`send!` → `false`), which is the only way to hold a genuinely unsent request on a connection that can still end as a reattachable drop.
+
+## Remaining risks
+
+- The driver's abandon-on-reattach is a guard, not a path the WebSocket boundary reaches: after a drop the retry meets a closed writer and RPC completes the request as undeliverable first. It is unit-tested at the RPC layer and covered end-to-end only on the disconnect path; the test asserting the real transport behaviour is named accordingly.
+- `connect/observe` still applies post-terminal transitions, so a socket that dies before opening ends with connection status `:detached` while RPC's terminal is `/transport-error`. Routing follows the RPC terminal, so behaviour is correct; only the displayed status is the later of the two. Not in this fix's scope.
+- Shutdown remains proven at unit level plus the new JVM `poll-loop!` exit test; the signal handlers themselves are still only compile/analyze-verified, and Node/Dart hosts spend one extra tick before finishing a never-bound endpoint.
+- Standing prior risks are unchanged: no cljd test execution, pending pre-accept sockets not closed by `serving/stop!`, two shells under D4, the unwired Node host seam, and two aligned-but-unmerged canonicalizers.

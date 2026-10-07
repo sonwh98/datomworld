@@ -1,0 +1,23 @@
+**REJECT.** All six fixes from the previous round were applied where requested, but one of them is still wrong and the names-to-indices change stopped at §2 and §4.4. Every later section that reads or lowers a `:variable` still treats it as a name. The full fix list is in the plan file at `~/.claude/plans/read-collab-1789421900000-fable-rereview-vectorized-aurora.md`. The essentials:
+
+**Previous fixes, verified**
+- Fixes 1 through 5 are present: index-based examples in §1 and §2.1, walker-arm note at line 156, no `params -> []` saturation row, the variable-names side-table row at line 424, §4.4 alternative gone.
+- Fix 6 is not done. Line 8 still says the indexer "indexes the linearized AST tuples into `dao.jing`". The rows already live in `dao.jing`. The indexer's output is the row relation of §6.1 that `q` runs over. Also, no section in the body defines the indexer at all. It needs a paragraph in §6 stating it is a stream observer peer to the evaluators, maintains the row and occurrence relations, and is distinct from `dao.space.index`.
+
+**Blocking new defect: the lowering target still needs names**
+The linearizer emits `:var name` and `:closure params body` (`src/cljc/yin/vm/linearize.cljc:93-98`), §7.5 validates those as symbol operands, and §7.7 extracts `[$code _ _ :var ?name]`. Rows carry neither names nor params, so `lower : rows → vector` cannot produce those operands, and the §5.2 derivation is no longer a function of the tree address. The doc must state that the instruction grammar gains `:var index`, `:global name`, and `:closure arity body` under a new execution contract, with §5.2.1, §7.5, and §7.7 updated and a §10 item that `yin.vm.semantic.md` §2.4 must be amended.
+
+**Stale name-based rules to rewrite**
+- §6.3 line 831: `[?id :variable ?name]` should bind `?index`. Lines 832 and 865 (§6.4) use `:variable +` for a named operator; that is `:global +` now.
+- §7.7 line 1070 extracts names from `:variable`. Names come only from `:global`, and the comment "not only free ones" is inverted.
+- §7.7.1 footprint table has no `:global` row, violating its own "every tag has a row" rule at line 1170.
+- §7.7.2 and §7.7.3 still speak of a `:variable` naming a param and falling through to store/primitives by name on under-arity calls. With a positional environment there is no name fallthrough. The doc must state what an unbound index does.
+- §8.5 line 1680: the `yin/def` operator is a `:global` node, not a `:variable`.
+- §9.1 lines 1759-1769 say no walker arm changes, contradicting §2.1 line 156. The walker and codec rows must list the `:variable`, `:lambda`, and `:global` changes.
+
+**Underspecified**
+- The index convention is never defined. State that it is a De Bruijn index over binder slots from the innermost lambda outward, with an arity-n lambda contributing slots 0 to n-1 in parameter order, and add a §7.4 rule that an index must be below the enclosing slot count. Without this the side-table join at line 424 is undefined.
+- §2.3's `:lambda` row cites today's params-based walker and codec lines with no change note, unlike the `:variable` row.
+- The `syms` kind in §2.2 and the matching clause in §7.4 line 987 are now used by no tag.
+
+The plan-mode exit tool is not available in this session, so I could not hand the plan over formally. The review is complete and read-only, and no file other than the plan was written.

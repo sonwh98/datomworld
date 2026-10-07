@@ -1,0 +1,28 @@
+Completed-GMT: 2026-09-22 19:52:09 GMT
+Completed-Local: 2026-09-23 02:52:09 Indochina Time
+Coding-Agent: claude
+Session-ID: (this session; no separate collab session id was issued to me)
+
+**P2 — cross-body jump/branch-false validator rule.**
+
+Added `jump-scope-rule` to `src/cljc/yin/vm/debruijn_register_code.cljc` (right before `register-bounds-rule`): for every `:jump`/`:branch-false` instruction, compares `(get owner pc)` (the instruction's own body, via the existing `owner-of` helper) against `(get owner target)` (the jump target's body); refuses with `{:rule :jump-scope, :pc pc}` if they differ. `:closure` targets are untouched (different operand, already checked by `body-scope-rule`). Wired into `body-rules` immediately after `body-scope-rule` (the first rule that makes `owner-of` meaningful) and before `register-bounds-rule`/`terminator-rule`/the four live-set rules, per the task's placement instruction, with the `body-rules` docstring and the namespace-level validator docstring both updated to name it.
+
+Test: `validator-rejects-cross-body-jump-target` in `debruijn_register_compile_test.cljc`. Builds `(app (lam [x] (tail x)) (if-node true 1 2))`, which lowers to two bodies (body 0 pcs 0-7 with an in-body `:jump` at pc 4, body 1 pcs 8-9). Confirms the unmodified image passes (`nil? register-image-defect`), then rewrites the `:jump`'s target to body 1's `:start` (8) — a bounds-valid pc per `target-bounds-rule` but the wrong body — and confirms `register-image-defect` now returns `{:rule :jump-scope ...}`. Existing `validator-accepts-every-corpus-image` and `validator-accepts-b2-fixtures` (which include `if-program`, containing legitimate within-body `:branch-false`/`:jump`) still pass, confirming no false positive against legitimate within-body jumps.
+
+**P3 — `:move`/`:store-get`/`:store-put` coverage claim.** Closed by adding a real test rather than correcting the docstring (cheap, as the task predicted): `move-and-store-mnemonics-are-never-emitted` in `debruijn_register_compile_test.cljc`, a `doseq` over every instruction in every image in `register-corpus` (the full register-lowerable parity corpus) plus the six B2 fixtures, asserting none is `:move`/`:store-get`/`:store-put`. Left `opcode-table`'s docstring in the source file unchanged since its claim ("asserted by this phase's own tests") is now true.
+
+**P3 — off-by-one comment.** Fixed the "E: a tail call" comment block in `debruijn_register_compile_test.cljc` (was: "`f` loads into reg1, `x` ... into reg2"); now states temp 0 (reg1) is reserved for the body's own return register, so `f` is reg2 and `x` is reg3, matching the actual lowered image (`[:load-free 2 f]`, `[:load-bound 3 0 0]`, `[:call <ret> 2 [3] true []]`), which I confirmed by running the lowerer directly. No assertions changed (they already located the call by tail-flag, not hardcoded register number).
+
+**Test counts.** `yin.vm.debruijn-register-contract-test` + `yin.vm.debruijn-register-compile-test` combined: 36 tests before my two new `deftest`s -> 38 tests / 473 assertions after, 0 failures, 0 errors (`clojure -M:test -n yin.vm.debruijn-register-contract-test -n yin.vm.debruijn-register-compile-test`).
+
+**What I ran.**
+- Focused JVM: `clojure -M:test -n yin.vm.debruijn-register-contract-test -n yin.vm.debruijn-register-compile-test` -> 38 tests, 473 assertions, 0 failures/errors.
+- Full JVM suite: `clojure -M:test` -> 1836 tests, 175904 assertions, 0 failures/errors.
+- CLJS: `npx shadow-cljs compile test` -> 1753 tests, 45702 assertions, 5 failures — all 5 in `dao.stream.slice-test` (socket/process-based, pre-existing, unrelated to this phase; confirmed by name-grep on the FAIL blocks). `yin.vm.debruijn-register-compile-test`/`contract-test` both ran with 0 failures attributed.
+- `clj-kondo` (`clojure -M:kondo --lint ...`): permission system denied the command in this non-interactive session (same wall a prior session in this same worktree hit and logged, per `collab/1790108154000-yinvm-engineer-register-r1...stdout.log`); not retried, per that same precedent and the task's own environment note giving no override.
+- `cljstyle`: no such alias/task exists in this repo (`bb tasks`/`deps.edn` have no cljstyle entry); not run.
+- CLJD: not run — out of scope for this task (task's Never list forbids touching CLJD-relevant B1 namespaces; the environment section names only the JVM focused run).
+
+**Deviations.**
+- Could not run `clj-kondo`/`cljstyle` as the completion criteria ask (see above) — flagged rather than silently skipped.
+- No other deviations: did not touch any file in the Never list; did not touch design docs; implemented exactly the three findings named in the prompt.

@@ -1,0 +1,32 @@
+C3 is done: the authority core is built and green in the focused JVM and Node runs. I made no git writes and ran everything in the foreground. I couldn't run cljstyle, and I didn't run Dart or the full lanes.
+
+**What I built:**
+- **`yin/vm/ucf/ledger.cljc`:** a pure fold of the ledger into its current state. It fixes the attribute order for each fact kind and draws entity ids from a counter derived from the ledger. It refuses records whose `t` isn't their position, and fails closed on fact kinds it doesn't know.
+- **`yin/vm/ucf/authority.cljc`:** a transactor over a C1 memory journal, with `open!`, `close!`, `transition!`, `enroll!`, `close-target!` and a reader-only target stream.
+  - Each decision is one `transact!` and one journal frame, under one lock.
+  - Poison covers the whole authority. Every transition then answers `:suspended`, readers answer `:dao.stream/transport-error`, and only a reopen clears it.
+  - A transition that would pass the 2^52-1 bound commits nothing and answers `:suspended`.
+- **`authority/seam.cljc`:** `commit-effect!`, documented as a test seam. There is no `admit!`.
+- **Docs:** the transactor exception text (plan 1.1) is in `dao.space.transactor.md`, with T18 and "Where durability lives" each getting one added sentence. The exactly-once wording (plan 1.9) went into `yin.vm.linker.dht.md` 14.2.1, where there was an obvious spot.
+
+**Tests:**
+- **JVM focused** (ledger, authority, transactor and journal namespaces): 39 tests, 0 failures.
+- **Node focused:** 11 tests, 0 failures. The cross-host check is a list of per-frame hashes worked out on the JVM; Node produced the same bytes independently.
+- **Accidental full Node run:** a misconfigured earlier run executed the whole Node lane (2805 tests, 0 failures), but on code from before my final edits.
+- **kondo:** clean.
+
+**What didn't go to plan:**
+- **cljstyle:** both `fix` and `check` were blocked by the permission prompt, so please run them on the five new files.
+- **Not test-first:** I wrote the code before the tests. Afterwards I removed the lock, and separately the poison check, to confirm the concurrency and crash-cut tests fail without them. They do. The other tests were never shown failing.
+- **Removed a check:** the seam's target-position bound could never trigger, because the entity-id bound always hits first. I deleted it and documented why.
+- **One untested path:** the case where the frame is written but the in-memory state can't be updated still poisons the authority, but no test covers it, because there's no way to inject that failure without a test hook.
+
+The report has 11 open questions, each with the smallest choice I took. The main ones:
+- the arbitration identity is the journal's identity, and a target identity is the string `"<arb>/target/<t>"`;
+- the fact names, and one admitted fact holding effect, result and dedup record together;
+- the unused memory log I supply because the transactor requires an intake pool;
+- what readers answer once the authority is closed.
+
+The report is at `collab/1791104400000-compiler-engineer-ucf-c3-authority-core.findings.md`.
+
+Separately, the claude.ai Gmail, Google Calendar and Google Drive connectors need authorizing in your claude.ai connector settings before they can be used.

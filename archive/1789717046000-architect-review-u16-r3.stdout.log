@@ -1,0 +1,13 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Verified. `merge-indexes` (`src/cljc/yin/vm/macro.cljc:387-403`) does exactly what F1 required — cross-tree merge verified with `same-value?`, tree order then canonical address order, error `{:kind :malformed-input :reason :address-conflict :tree j :address a}` naming the later tree — it is wired through `admit` (line 421, 442, 467) into `expand-batch` (line 1157), the unverified `(apply merge indexes)` is gone, and the regression test is present (`macro_test.cljc:401-413`: metadata-distinct conflict → `:address-conflict :tree 1`; identical shared rows still merge `:ok`). My earlier finding was based on a pre-update read of the file; the current state discharges F1.
+
+The doc amendments match the code on every point I checked:
+
+- **A3 (§3.5):** run-tree-only post-harvest, other trees batch-local — matches the implementation's walk.
+- **A1 (§5.2):** rejection data named (`:fuel-guard`, `:suspended`, `:effect-guard :tag t`, `:body-error :message s`), the `:macro` addition, and the host-dependent-`message` caveat — matches `bounded-row-evaluator`/`invoke*` exactly (and it folds in R2, which I'd left non-blocking).
+- **A2 (§7.1/§7.2):** new table rows are in the implementation's actual order; plain-value/marker-before-address rule stated; the cross-tree merge sentence ("verifies one address, one body, and names the later tree") matches `merge-indexes`; `:tree j` and `:ordinal nil` semantics match `admit`; §7.2's `:reason` vocabulary (`:packet-shape`, `:address-conflict`) matches `expand-call`'s wrapper and `merge-output`.
+- **A4 (§8.2):** `call-path` relative to the event's `input-root` frame (source tree root after stand-in replacement for initial, parent `output-root` for nested), operator-rewrite calls logging source-occurrence coordinates with nil `parent-event`, and absolute run-tree paths in guard/invalid-output errors — matches the `frame`/`rel` mechanism and the event-shape tests.
+
+## SIGN OFF
+
+U16 Phase 1 is architecturally approved: all six implementation decisions accepted, F1 discharged in code with its regression test, A1–A4 recorded faithfully in the spec, and no non-negotiable invariant violated. Verification basis: direct reading of the current implementation, tests, and amended spec (the suite was not re-run in this session). The one residual, carried as non-blocking: **R1** — run the CLJS and CLJD lanes before commit; cross-host evidence is still JVM-only (this worktree lacks `node_modules/ws`).

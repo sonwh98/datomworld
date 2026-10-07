@@ -1,0 +1,26 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+Whole revised plan written to `/Users/sto/.claude/plans/read-collab-architect-space-index-v2-pla-snappy-puddle.md`.
+
+**The P0 is accepted in full**, and r2's answer to it was worse than the defect: `retained-history-survives-reopen-at-capacity` asserts a gap it cannot produce, so it would have pinned a defect as a feature. §6 is gone entirely — there is no number to pick, since the transport declares no capacity key and passing one is `invalid-spec` by construction.
+
+**Structural change you should notice: five phases became three.** Two deletions drive it.
+
+I also **deleted r2's Phase 2** — the `observe/snapshot` promotion. The transport changed the argument. `query/snapshot` classifies every stopping outcome as data because its input's nature is unknown; `index/snapshot-datoms` now reads a handle whose nature is *declared*, with three reachable outcomes. Sharing one loop would make index carry query's vocabulary for conditions its transport excludes — exactly what `conformance.cljc`'s exclusion principle warns against. Index's read is ten lines. I recorded the naming rule (no `drain`; `snapshot` if ever shared) and the deferral of a generic retention law so a later reader doesn't re-derive it.
+
+And the standalone doc phase is deleted: review P2 is right that Phases 4 and 5 were not order-independent, so each code phase now carries its own doc edits. r2's Phase 5 is Phase 3 here, kept in full.
+
+**On the throw, since you asked for the call:** the gap branch is deleted, one totality branch survives. The gap throw bought nothing even before the transport existed — on a ring buffer a fresh `:oldest` never gaps, which is the whole P0, so it could not have caught the failure it appeared to guard. What survives is the `case`'s own totality over a handle the function is *given*, not defensive code for an excluded outcome.
+
+The uncomfortable part, stated in the plan rather than papered over: **that branch cannot catch a wrongly wired ring buffer either** — a ring buffer answers `ok`/`blocked`/`end` from a fresh `:oldest` just as the memory-log does. Nothing inside index can detect the defect, by the contract's own design. The protection is the declaration and the composition that honours it. I wrote a note pointing any future reviewer tempted to add a check at *Explicitly Absent* first.
+
+**The five other findings**, each at the point it bites (indexed in §10):
+
+- **Schema state on failed append** — install `next-state` only on `:dao.stream/ok`; new invariant T19. It's tested with a writer double, because the real transport excludes `full` and no test can induce it.
+- **Test inventory** — all five records plus both reifies enumerated, and the closure criterion is the residue grep, not the list: `ds/` in `transactor_test` must go 135 → 0.
+- **Closedness bridge** — both halves. `SchemaWrapper.close!` keeps `{:woke []}`; `publish!`'s guard moves under the wrapper lock. I chose serialize over redefining publish-after-close because the constraint picks it: redefining is a semantic change belonging to schema's own plan. The cost is real — the lock is now held across an index build — and I said so.
+- **P5** — no covering test anywhere, and I softened r2's overclaim that stigmergy covered P1–P5.
+- **Capacity accounting** — 28, not 29; `query_test:97` is a literal; **27 migrate including the carrier**, which r2 contradicted itself about.
+
+**Two things I judged beyond the literal findings.** ADR 0003 gets an *amendment*, not a supersession — its decision is untouched and only two Consequences bullets go stale, including the retention bullet that names `full`/`gap` as the loss vocabulary, which the local log now excludes. And §7 states separately what's deleted with S5 and T4b, because deleting a test needs the same standard as keeping one; here the standard is `ff44107`'s exclusion principle rather than a survivor. The malformed sub-cases stay — any value can be appended to a memory-log.
+
+Want me to promote this to `collab/1788948293243-architect-space-transactor-v2-plan-r3.claude-fable-5-1.findings.md`?

@@ -1,0 +1,14 @@
+Completed-GMT: 2026-09-04 08:40:28 GMT
+Completed-Local: 2026-09-04 15:40:28 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: 62abdc7f-5704-438a-bb07-29c6e2dd81fd
+
+**Verification:** Re-inspected the staged `docs/agents/team/TEAM.md` diff and re-tested against installed `codex exec resume --help`.
+
+1. Session table (TEAM.md:177) now reads `codex | ~/.codex | JSONL thread.started.thread_id | codex exec resume <id> --json -` — matches the real subcommand syntax; confirmed `<id>` as SESSION_ID positional, `--json` as a valid resume flag, `-` as the PROMPT positional (reads from stdin), all accepted by the installed CLI.
+2. Follow-up command (TEAM.md:233-234) is now `codex exec resume <id> --json - < <follow-up-prompt> > collab/<task>-r<n>.gpt-5.6-sol.stdout.log` — `-s read-only` is gone.
+3. Adjacent comment (TEAM.md:230-232) now reads: "`resume` exposes no sandbox flag. Resume only a thread that was created read-only; if its effective policy cannot be verified, start a new read-only review thread instead of implying an override here." This matches `codex exec resume --help` (no `-s`/`--sandbox` option present) and makes no unverified inheritance claim, consistent with the stated OpenAI-docs search result.
+
+No remaining finding.
+
+SIGN-OFF: GRANTED

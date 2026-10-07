@@ -1,0 +1,14 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-24 13:31:32 GMT
+Completed-Local: 2026-09-24 20:31:32 +07
+Coding-Agent: glm
+Session-ID: a2749e73-2e44-4716-8a1f-6ad0cc1d82d9
+
+`docs/design/yin.vm.linker.md` is now revision r9: 2,544 lines, pure ASCII, no line over 80 columns, uncommitted. As with rounds 5 and 8, the round-8 findings file was not present in `collab/`, so r9 worked from the item in the task; the 13.1 record says so. The single remaining finding, and what r9 did:
+
+**PARTIAL — Stream & cursor lowering to private resources — agreed.**
+A new **Resource lowering (r9)** block in 7.3 closes the last gap r8 left open: the UCF continuation format itself still decoded `:yin.k/stream` to "an attached handle, under a fresh store key" (§7.5.1's table) and `:yin.k/cursor-ref` to "a store cursor entry", with §7.5.3 lowering each logical cell to "a fresh store cursor entry" — which would bypass the private `:resources` table at every boundary crossing. From r9 those decode targets are the private table, recorded as an amendment to UCF sections 7.5.1 and 7.5.3: lowering installs an attached handle under a fresh **resource id** in `:resources`, lowers a logical cell to a `:resources` cursor entry seeded with its carried position, remaps every `:yin.k/cursor-ref` to that entry (two refs to one cell still share one entry), and creates no store key. Program values keep only the non-forgeable opaque `stream-ref`/`cursor-ref` ids, exactly as a running program holds them.
+
+Per the item's checklist, every affected reference was updated: criterion 12's amendment list now covers sections 4.1, 7.5.1, 7.5.3, and 7.6.2; criterion 23 and the M4 test list both gain the lift/lower case for a module export carrying a stream or cursor reference (receiver's `:resources` gains the attachment or cell, the export's value is the remapped reference, no store key created); the file box's UCF line names the 7.5.1/7.5.3 resource decode targets.
+
+Section 13.1 carries the r9 record (round 8, walker provenance CLOSED noted as no action — this was the last open item); r8–r2 shifted to 13.2–13.8. Next step: hand r9 to `gpt-6-sol` for the round-9 consensus review — with every round-8 finding closed, this revision is the consensus candidate.

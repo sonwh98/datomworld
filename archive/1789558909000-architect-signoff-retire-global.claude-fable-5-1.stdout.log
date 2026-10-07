@@ -1,0 +1,56 @@
+Completed-GMT: 2026-09-16 04:44:55 GMT
+Completed-Local: 2026-09-16 11:44:55 +07 (Asia/Ho_Chi_Minh)
+
+# Architect review: retire the `:global` AST tag
+
+**Verdict: APPROVE-WITH-FINDINGS (nonblocking).** The reversal is architecturally sound, the codebase is clean of `:global`, and both affected JVM test namespaces pass. The findings below are documentation cross-reference slips of exactly the fatigue kind the prompt asked me to hunt for, plus one pre-existing §2.5 inconsistency the new test now makes load-bearing. None change the design argument.
+
+## What was verified
+
+- JVM run of both namespaces:
+
+```
+clojure -M:test -n dao.space.query-test -n yin.vm-test
+Ran 74 tests containing 327 assertions. 0 failures, 0 errors.
+```
+
+- No `:global` remains anywhere in `src/`. The codec grammar, walker, semantic VM, mnemonics table, and linearizer never gained it. The only residual mentions are §4.5's own historical narrative, the test comment, and older `docs/orchestrator-log.md` entries.
+- Every code reference the diff cites is accurate: `resolve-var` throws on an unresolved name at `engine.cljc:47-64`, the walker's `:variable` arm is at `ast_walker.cljc:361-363`, the `:var` opcode at `semantic.cljc:256-259`, and `semantic-bytecode-grammar` exists at `v2.cljc:569`.
+- Both test namespaces are compiled into the CLJD test build (imported by the generated Dart test files). CLJD verification is therefore genuinely pending, not inapplicable.
+
+## Evaluation
+
+**1. Retiring `:global` is sound.** §4.5's argument holds. Dropping the tag removes a fact that duplicated authority with a derivable query, and it removes a frontend obligation (perfect free/bound classification at authoring time) that no frontend in the codebase performs. The three disclosed limitations are honestly stated and correctly classified: the row-only rule's missing edge clauses only overcount (conservative-safe), the mixed-occurrence undercount is demonstrated by a running contrast assertion rather than asserted, and the not-root-scoped rule is named as implementation work for open item 5. Nothing in the codebase assumes `:global` exists. The `:variable` fallthrough the design now keeps is what the evaluators already do today, so the runtime contract is unchanged by this unit.
+
+**2. "Derive, don't persist" is correctly scoped.** It requires query-scope correctness explicitly, names the silent-mis-derivation failure mode, and acknowledges query complexity and indexing cost as real, once-paid costs. It does not overclaim. One wording slip noted below.
+
+**3. Process integrity.** The final state coheres, but three rounds on one document left two stale internal cross-references that a fresh reader hits immediately. Listed as findings 1 and 2.
+
+**4. Invariants, boundaries, portability, migration.** Dropping `:global` strengthens "no hidden global state": the tag's name misdescribed a mutable, time-varying store as global, and the design now says so. Ownership is unchanged. Migration risk is nil since no persisted row ever carried `:global`. Portability is the one open gate, discussed in finding 4.
+
+## Findings
+
+Format: severity | file:line | evidence | correction.
+
+1. **Low** | `docs/design/yin.vm.code-as-tuples.md:1207` | The §7.7 comment calls the test's occurrence rule set "the verified version (scoped per root …)", but §4.5 at line 736 states the same rule set is "Not root-scoped as written". A future implementer reading §7.7 alone would lift the test rules believing they are root-safe. | Replace "scoped per root" with "not yet root-scoped" so the parenthetical agrees with §4.5.
+
+2. **Low** | `docs/design/yin.vm.code-as-tuples.md:754` | "unlike the row-only rule's own tag-coverage gap noted below" points downward, but that gap is described above at lines 691-700. | Change "below" to "above".
+
+3. **Low** | `docs/design/yin.vm.code-as-tuples.md:385` | Pre-existing, but now load-bearing. §2.5 says path indices are "the row's positions", and the new fixture correctly uses row positions (operator at `[2]`, operands at `[[3 0]]`). §2.5's own example `[2 [1 0]]` cannot be valid under that convention, since position 1 of any row is its tag, never a `nodes` slot. The production occurrence indexer will be written against §2.5, so the example should match the convention the passing test has now pinned. | Change the example to a valid path such as `[2 [3 0]]` with a matching description.
+
+4. **Low** | `test/dao/space/query_test.cljc:1134` | CLJD and CLJS are unverified for this unit, and both new namespaces are in those builds. The new tests are the first cross-host use of the `&` rest pattern in a query clause, plus `subvec`, `tree-seq`, and `min-key` in fixtures. All exist on both hosts, so I expect a clean run, but expectation is not verification. | Acceptable to commit on JVM evidence for a design-decision unit whose production code change is a one-line grammar deletion. Run `bb test:cljd` and the CLJS node test before the branch merges to master, and confirm "Testing dao.space.query-test" appears in the node output.
+
+5. **Info** | `test/dao/space/query_test.cljc:23` | The demonstration adds a test-only require of `yin.vm` into the storage-layer test namespace. That is a cross-observer dependency between two peers of one stream, in tests only, justified by §4.5 pointing at this file. | Acceptable as is. If the codec fixture builder grows, move the free-variable tests into a dedicated integration namespace rather than letting the coupling spread.
+
+6. **Info** | `docs/design/datom.world.md:157-159` | "a query that looked sufficient undercounted a dependency in a case the simpler query didn't cover" refers to the same query twice under two descriptions. | Tighten to "the simpler query silently undercounted a dependency in the mixed free/bound case".
+
+7. **Info** | `docs/orchestrator-log.md:3465-3507` | The most recent "Next:" entries still plan a `:global` walker arm and frontend scope analysis. The prompt says the reversal chain is not yet logged. | Superseded once the chain entry lands; no action beyond writing that entry.
+
+## Properties confirmed
+
+- Free/bound is computable by query over the row relation alone for uniformly bound or uniformly free names, and by an occurrence-joined query for the mixed case, both against the real engine.
+- The retained `:variable` resolution path is the existing evaluator behaviour on both the walker and the semantic VM.
+- `:yin.k/requires` conservativeness is preserved by the design text at every site that formerly relied on the tag: §7.7 extraction, the §7.7.1 footprint table, §7.7.2 obligations, §7.7.3 completion, and open item 5.
+- The codec change is a pure deletion from the grammar table, so reconstruction validation and structural sharing tests still cover every remaining §2.3 tag.
+
+**Sign-off: APPROVE-WITH-FINDINGS (nonblocking).** Safe to commit now on JVM evidence. Fix findings 1 to 3 in the docs before or with the commit, and close finding 4 before merge to master.

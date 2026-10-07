@@ -1,0 +1,59 @@
+Completed-GMT: 2026-09-28 14:55:05 GMT
+Completed-Local: 2026-09-28 21:55:05 +07
+Coding-Agent: claude
+Session-ID: 7d111381-2e90-40d2-9519-0a15d8ccca19
+
+# Slice 3b: lease wiring for the FFI export binding
+
+Slice 3b is implemented and all seven acceptance tests pass. Nothing is staged or committed. `cljstyle check` did not run because the permission gate blocked it, and I did not run the CLJD lane (that's yours).
+
+The full report is in `collab/1790606567000-vm-engineer-ffi-lease-wiring.claude-opus-5-5.report.md`.
+
+**Changed files:** only these two. No other file needed changing or authorization.
+- `src/cljc/yin/vm/ffi/remote_serve.cljc`: I kept the lease wiring in this file rather than a separate `lease.cljc`, because it shares the binding's state with `retire!`.
+- `test/yin/vm/ffi/remote_serve_test.cljc`: the 3a tests now include the lease options, and there are 9 new deftests.
+
+## What it does
+
+- **`open!`** now requires seven lease options: duration, tolerance, cadence, ticks, media, writer and renewal capacity. The cap and drain budget are optional. There are no invented defaults, and the units are the `{:ms 1 :s 1000}` table from S6. The binding checks the option shapes itself, then `dao.lease/make-judge` checks the rest. Any refusal names the option it fell on and happens before anything is published.
+- **`serve!`** gives each newly served identity its own lease. It creates a ring buffer as the renewal medium, publishes it with surface `#{:writer}`, and grants the lease to it. The judge treats whoever writes to that medium as the holder.
+- **`step`** runs the mirror pass, then one judge pass. The judge only knows the time from ticks the host puts on the tick stream; nothing reads a clock.
+- **Reclaim** runs the same retirement transition as `retire!`. The identity and its renewal entry leave the table first; only after that is the lapse recorded. The procedure is idempotent and always reports success.
+- **Other retirements** (explicit `retire!`, `close!`, a refused lift) end the lease with cause `:policy` at the next judge pass. `step` after `close!` still runs the judge pass, so those leases are still recorded.
+- **Detach and reattach:** a channel that ends is reported as `::detached?` and nothing is retired. The new `reattach!` swaps in a new channel end and keeps identities, cursors and leases. It closes the old writer, so the remote side's unfinished appends end as append-unknown.
+
+## Test results
+
+| Check | Result |
+|---|---|
+| `clj -M:kondo --lint` (both files) | 0 errors, 0 warnings |
+| `clj -M:test` on the five namespaces you listed | 140 tests, 1222 assertions, 0 failures |
+| `yin.vm.ffi.remote-serve-test` alone | 18 tests, 229 assertions, 0 failures |
+| `bb test:cljs` | 2212 tests, 50193 assertions, 0 failures; the new namespace appears in the output |
+| `cljstyle check` | not run (blocked by the permission gate) |
+| `bb test:cljd` | not run, as instructed |
+
+The remote holder in the tests is built with `make-holder`. It renews and releases through a real reflection, and only counts a renewal once the far side's ok comes back.
+
+I checked the reclaim tests with six temporary code mutations, each caught by the intended tests, and the source was restored byte-identical afterwards:
+- reclaim reports success without retiring
+- reclaim is not idempotent
+- table removal happens after the lapse is recorded
+- `reattach!` leaves the old writer open
+- detaching retires everything
+- re-serving reuses the old identity
+
+## Choices where the design left room
+
+- **Holder and grant delivery live in the tests.** The design puts the holder on the remote peer, so a production holder belongs with 3c. The test copies the grant into the holder's inbox. Serving the grants stream as a `lease-grants` entry, per S6, is not built.
+- **Every served identity gets a lease.** Handles are only exported through `serve!` for remote continuations.
+- **`::lease-media` must be supplied.** `make-judge` needs at least one medium when it is assembled, before any renewal medium exists; a lease-proposals stream is the natural fit. Proposals get no answer, and grants are unsolicited.
+
+## Open concerns
+
+- **Two direct edits to the judge's `:facts` vector.** Removing a finished lease's renewal medium edits it directly, because `dao.lease` has no public way to unwire a medium. Renewal media are also wired after assembly with `wire-facts`, so those entries have no `:medium` declaration (nothing reads it). A public unwire function in `dao.lease` would be cleaner, but that file needs your authorization.
+- **Unchecked source collision.** `open!` does not refuse a `::lease-media` source equal to `rs/grantor`. If one matched, facts on that medium would count as the grantor's own.
+- **Anyone can renew.** Anyone who learns a renewal medium's descriptor can extend that lease until ShiBi exists. This is already known from S6.
+- **Renewals can count one pass late.** A renewal still unread on the channel is only counted at the next pass. Tolerance sizing has to allow for the mirror's read budget.
+
+Not done: cljstyle, the CLJD lane, and 3c (the apply responder, the real-VM end-to-end test, and the UCF retained round trip).

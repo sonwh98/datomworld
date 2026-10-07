@@ -1,0 +1,131 @@
+Completed-GMT: 2026-09-19 15:46:27 GMT
+Completed-Local: 2026-09-19 22:46:27 +07
+
+# Adversarial review: dao.lease Phase 1+2
+
+Not ready for commit. There are 5 P1, 8 P2 and 5 P3 findings; nothing reaches P0. Each P1 comes with a failing test to add first, none of which the current suite contains.
+
+This was a read-only static review. I edited nothing and ran no test suites, as the brief directed. Plan mode was active, so I wrote no plan file.
+
+## P1 — invariant violated, or exploitable by a non-trusted author
+
+**P1 | src/cljc/dao/lease.cljc:791-798 | A non-holder `:released` poisons the holder's later legitimate release (V7/J2).**
+- The else branch runs `(mark-seen judge lid status)` for a release from any author, and for leases not in the ledger.
+- `admissible?` (619-626) then rejects the real holder's release as `:repeated-status`, and the drain drops it.
+- Lease ids are public on the grantor's stream, so any writer on a fact medium can pre-empt any holder's release. The lease then ends only by `:silence`, so the reclaim is late and carries the wrong cause.
+- Every such fact also adds a permanent `:seen` entry under an attacker-chosen id, so memory grows without bound.
+- `holder-release-reclaims-with-release-cause-test` (test:577-589) never follows the forged release with a genuine one, so it passes while the invariant is false.
+- Fix: return `judge` unchanged in the else branch. Add a test that sends a forged release, then the holder's release, and expects a `:release` lapse.
+
+**P1 | lease.cljc:848-868, 1107-1111 | A budget-truncated fact drain still classifies `:silence`, which manufactures absence evidence.**
+- When the budget runs out while the cursor still answers `:ok`, `drain-fact-cursor` returns `[judge entry]`, which is indistinguishable from `:blocked`. `judge-step` then goes on to step 4.
+- Scenario: `:drain-budget 2`, lease granted at reading 1 with duration 10. The medium holds filler, filler, then the holder's renewal. Tick 12 arrives and the lease is reclaimed for `:silence` while its renewal sits unread.
+- Non-lease values spend budget too, so anyone sharing the medium can starve another holder's renewals at will.
+- This contradicts the contract ("Absence is evidence only over a window the judge observed"; step 2 says "to `:dao.stream/blocked`"). The J16/D7 claim that facts are "late, not wrong" holds for ticks, not for facts.
+- `drain-budget-test` uses proposals only, so it never exercises this.
+- Fix: record truncation on the cursor entry. In that pass, suppress the `:silence` clause for leases on that medium, or for all leases until `:leases` registration is sound (see the next finding). `:release`, `:cap`, `:policy` and pending retries may still run. Amend J16.
+
+**P1 | lease.cljc:858-860 | Any admissible fact naming a lease registers it on that medium, whoever wrote it, so a non-holder can keep another holder's lease alive.**
+- A non-holder renewal for L on the attacker's own medium registers L there.
+- Overflowing that medium produces a gap, which marks L `unknown` with `:resumed = now` (818-833).
+- Repeating this faster than one duration means L is never reclaimed for silence. This is delegated renewal in effect, and it defeats the per-attachment isolation the contract's Limits section relies on.
+- Fix: register a lease only when the fact was authoritative, meaning an eligible renewal or release from the holder, or a self-authored grant. Have `apply-valid-fact` report whether the fact counted.
+
+**P1 | lease.cljc:627-633 with 130-134, reached from 852-854 | An unauthenticated fact can wedge the judge permanently on the JVM.**
+- `admissible?` applies the stale-reading rule to tick facts read from fact cursors, before any check of who wrote them.
+- A fact `{:dao.lease/event :dao.lease/tick :dao.lease/reading {:s 9223372036854775807}}` passes `duration?`.
+- `compare-durations` then computes `(* na 1000)`, which throws `ArithmeticException: integer overflow`. This rests on Clojure's checked long arithmetic; I did not execute it.
+- The exception escapes `judge-step`, the threaded state is discarded, and the cursor never advances. Every later pass re-reads the same fact and throws again.
+- On cljd the multiplication wraps silently, and on cljs precision is lost above 2^53. Both can corrupt the ordering of readings.
+- Fix:
+  - Apply the stale rule only in `apply-tick-value`; ticks on fact cursors are noise.
+  - Bound magnitudes in `duration?`, or use `*'` under `:clj`.
+  - Never let a thrown exception leave the cursor in place.
+
+**P1 | lease.cljc:515, 772 against plan D4 and finding 9 | The resolver is called as `(resolver fact)`, not `(resolver source fact)`.**
+- The plan's own reconciliation marks finding 9 "Applied", but the code does not apply it. `wire-facts` keeps no source binding.
+- Per-author media and attachment identity, two of the three attributions the contract names, cannot be expressed.
+- What remains is a self-asserted envelope key. The tests use `(get fact :author)`, so every authority test passes with forgeable attribution.
+- Fix: have `wire-facts` take a source, and call `((:resolver judge) (:source entry) fact)`.
+
+## P2
+
+**P2 | lease.cljc:1040-1042 | The lease is marked pending after the reclaim, not before it, and a throwing reclaim loses the whole pass.**
+- The docstring, J8 and D5 all say "mark pending first".
+- A throw from `reclaim` is a case of "does not report", but it escapes `judge-step`.
+- Leases reclaimed and recorded as `:lapsed` earlier in that pass return to the ledger. The next pass appends a second `:lapsed` for each, which is the repeat the contract calls defective.
+- Grants appended in step 3 are duplicated the same way.
+- Fix: assoc pending first, then run `(try (reclaim …) (catch … false))`.
+
+**P2 | lease.cljc:937-943, 946-956 | `flush-queue` keeps grants that were rejected, not merely undelivered, and re-drops them every pass.**
+- A rejected grant is one that is defective against units, has a repeated lease id, or answers an already-answered proposal.
+- `author-grant` (580) checks `defective?` without units, so a grant in a foreign unit can enter the queue.
+- `:dropped` then increases on every pass without limit.
+- Fix: make the result three-way (`:delivered`, `:rejected`, `:retry`) and discard rejected grants.
+
+**P2 | lease.cljc:932-943, 966-971 | `deliver-authored` does not restrict which statuses it delivers.**
+- An `:answer` hook that returns a `:lapsed`, `:released` or renewal fact gets it appended to the grantor's stream.
+- A `:lapsed` written this way records a reclaim that never happened, which breaks "record follows the act".
+- Fix: accept only `:accepted` and `:rejected`.
+
+**P2 | lease.cljc:616-618, 735-739 | `:answered` is keyed by proposal id alone, but holders mint proposal ids.**
+- Holder B proposes under holder A's proposal id and gets an answer. A's proposal then becomes permanently inadmissible.
+- Fix: key by `[author pid]`. A smaller fix is to stop applying the rule to `:proposed` facts.
+
+**P2 | lease.cljc:818-833, 858-860 | A lease is not marked `unknown` when its medium gaps before any of its facts were observed there.**
+- Scenario: a lease granted in step 3 whose first renewal is evicted before the judge reads it. The gap leaves it `known`, and it is reclaimed for silence across a window the judge never observed.
+- No test covers a gap that arrives before the first renewal.
+- Fix: on a gap, also mark every lease not yet registered on any medium. Alternatively, let the grant declare its medium.
+
+**P2 | lease.cljc:1124-1141 | `restart` has three problems.**
+- A failed reclaim is skipped silently. Nothing is granted, nothing is recorded, nothing is retried, and nothing is reported. Return the unreclaimed items.
+- Clearing `:seen` while keeping the fact cursors lets old self-authored `:accepted` facts that are still undrained re-seed prior tenures. Their later silence reclaim then frees a subject that belongs to the new holder.
+- A stale `:queue` survives the restart.
+
+**P2 | lease.cljc:728-739 | `:seen` and `:answered` are never pruned.**
+- Both grow without bound in a long-lived judge, and both would be part of any persisted ledger.
+- Fix at least the attacker-driven growth described in the first P1. Note the rest as owed.
+
+**P2 | lease.cljc:899-907 | After an abort in step 1, only the first fact cursor is drained.**
+- The loop re-checks `(some? (:abort judge'))`, which is already set from the tick drain.
+- This contradicts the docstring's "steps 2 and 3 still run".
+- A persistent tick error starves fact cursors 2 through n, and their media then gap.
+- Fix: compare `:abort` before and after each cursor's drain.
+
+## P3
+
+**P3 | lease.cljc:1009-1013 | A gap can bring a silence reclaim earlier than it would otherwise occur.**
+- The `unknown` silence bound leaves out tolerance.
+- With tolerance 5 and duration 10, a lease last observed at 100 that gaps at 101 becomes due after 111. Without the gap it would be due after 115.
+- This follows the contract literally, so it is a question for the contract owner.
+
+**P3 | lease.cljc:237-296 | The structural gate leaves gaps.**
+- Shape is checked only on the statuses that require it. A `:rejected` or renewal fact carrying a malformed `:dao.lease/duration`, `:dao.lease/max` or `:dao.lease/reading` passes, although the contract's Validity sentence is not limited by status.
+- Constructors cannot reject foreign units, because they take no unit table.
+- `proposal` silently ignores a non-map `ask`.
+- A missing cause reports both `:missing-cause` and `:invalid-cause`.
+
+**P3 | lease.cljc:533 | Some misconfigurations throw mid-pass or halt the judge with no signal.**
+- `:drain-budget 0` is accepted because 0 is truthy, and the judge then never observes a tick.
+- `interval` and `add-duration` throw mid-pass on an incommensurate unit table or a tolerance in a foreign unit.
+- An `unknown` entry with no `:resumed` reading throws a null-pointer error at 1011. A recovered persisted ledger is the case the contract names, and no recovery helper exists.
+- These can be deferred to `make-judge`, but they should be listed as owed.
+
+**P3 | test:447-471 | `validity-is-pure-test` cannot fail.**
+- Nothing wires the atom or the clock into the validator, so reading either could never change the result.
+- The plan's Phase 1 item 3 required a validator built with access to both.
+
+**P3 | test:794-826 | `surviving-older-renewal-not-inferred-newest-test` proves its rule only through a truncated drain.**
+- It uses `:drain-budget 1` and reads the tail on the next pass, which is the hazard from the second P1.
+- Once that finding is fixed, the test needs restating.
+
+## What holds
+
+- **Pass order and `now`:** the pass runs in the contract's order, `now` is fixed before step 2, and the first-tick rule holds.
+- **Cursors:** a tick gap is not treated as a fact gap, `:end` retires only its own cursor, and all three defect outcomes abort the pass before step 4.
+- **Classification:** cause precedence is correct, a pending lease keeps its cause, the cap is measured from an immovable tenure start, and eligibility precedes policy.
+- **Authority:** non-grantor `:accepted`, `:rejected` and `:lapsed` facts establish nothing. Grants seed their start and last observation from the pass's `now`.
+- **Record:** the `:lapsed` record follows a successful reclaim, and an append that does not answer `ok` leaves the lease pending.
+- **C5:** the grep over the whole file is clean, and nothing in it holds a clock, timer, atom or registry.
+- **C6:** `dao.stream*` is unmodified, and nothing in `src` requires `dao.lease`.
+- **Portability:** `random-uuid` is already used in cljc under all three hosts.

@@ -1,0 +1,85 @@
+Completed-GMT: 2026-10-06 08:03:13 GMT
+Completed-Local: 2026-10-06 15:03:13 +07
+Coding-Agent: claude
+Session-ID: d8d95e30-f2d2-443b-9aa9-36e7001a904e
+
+SIGNED OFF
+
+This is an architecture sign-off from reading only: I ran no lane (the session was read-only). Landing still needs the full three-host `bb test` green. The "each read on Dart" bullet for `heads.edn` is unverified until the Dart lane runs `yin.repl.dht-head-test`, which the engineer did not do.
+
+I read the whole of `src/cljc/yin/repl/dht.cljc` and `test/yin/repl/dht_head_test.cljc`, the diffs of every other changed file, design 5.4 to 5.10, 6, 7, 8.3, 10, 11 and 13, and the H1/H2 code the slice calls (`head.cljc` deposit and settle, `head/ws.cljc`). I did not read the http-kit, Node `ws` or Dart listener seams.
+
+## Blockers
+
+None.
+
+The design 5.7 line change (`heads.edn` in the DHT store directory) is correct as written and needs no further text.
+
+## Rulings
+
+1. **Host module and follower state: sound.**
+   - `head-answer` (`src/cljc/yin/repl/query.cljc:848`) makes one `head/heads` call, or `linker.dht/names` plus `head/moved`. It holds no fold, verification or file write; `names` is the same plain-API call `yin.link/names` already makes.
+   - Carrying the follower on the node value under `:yin.repl.dht/*` keys is not a leak. Design 5.5 already puts installed manifests on the node value, and `::hydrating`, `::refusal` and `::dir` predate H3 in the same file.
+   - `dao.space.dht` reads none of those keys and `yin.vm` is untouched.
+   - Nothing new is persisted except `heads.edn`; links and waiting writes are process state and `moved` is derived.
+
+2. **Simulated kills: acceptable for H3.**
+   - `persist` (`src/cljc/yin/repl/dht.cljc:630`) is synchronous: write, then install, with the file as the only durable state between them.
+   - The `:fail` seam plus reopen reproduces the on-disk state of a kill before the write; `:write-then-fail` plus reopen reproduces a kill after it.
+   - A real kill would add only a test of `fs/atomic-replace!`'s atomicity, which is `dao.space.store.fs`'s existing contract shared with HEAD.
+
+3. **Deposit on every HEAD move: yes, this is 5.4, and the publisher stays minimal.**
+   - The `:head-fn` wrapper (`src/cljc/yin/repl/dht.cljc:306`) deposits after `announce!`, in the same call.
+   - A recovered HEAD is deposited at open, and a hydration deposits once through the base `:head-fn`.
+   - The gate is key, peers and `:publish?`; a deposit failure is caught and never fails the HEAD write.
+   - `head/deposit!` is idempotent for the same manifest and sequence, so the startup deposit raises no spurious refusal.
+
+4. **The two unhandled cases: recorded risks, not blockers.**
+   - **Lost request on an attached reflection.** On loopback TCP a dead peer always closes the connection, and `step-link` checks `:lost` every tick after attach. A live but silent source is section 10's "withholding is undetectable", with liveness deferred to `dao.lease`. This must be reopened at the off-loopback step, where half-open TCP is real; add it to 8.3's unverified list then.
+   - **Untested refused deposit.** It is a print-only path (`src/cljc/yin/repl/dht.cljc:535`). A test is cheap and wanted as a follow-up.
+
+5. **Token and flag shapes: consistent with 5.5, 5.8, `--help` and `yin.repl.md`.** The optional `ed25519:` prefix matches the existing token behaviour. Footguns, none blocking:
+   - **Silent dial failure.** A `:lost` or refused dial prints nothing (`src/cljc/yin/repl/dht.cljc:609`). A reader following a principal the endpoint does not serve redials forever in silence and its require pends forever. This covers a publisher re-inited with another key and a publisher restarted on a new ephemeral port. I found no "custom-key hazard" note in the files I read, so this is my reading of it. Fix: one line per dial-outcome transition (`not-found` is a definite answer).
+   - **Second `dht join` in the same directory.** It replaces the saved principal, follow and peer whole, and the old `heads.edn` record then refuses startup. That conforms to 5.7, but the doc's remedy "move the file aside" drops every principal's floor, which removes rollback protection. The doc should say "remove that record" and state the cost.
+   - **Ephemeral publisher port.** The saved `--dht-follow` pins it; the docs should tell publishers to fix `--listen`.
+
+6. **Owner invariants: no violation.**
+   - **No privilege:** the board is a plain ring, and loopback is a composition condition, not a stream property. Who accepts and who dials is H2's shape, already signed.
+   - **Apply independent of rpc:** `yin.head` rides the existing `::call` effect; no rpc or transport word was added.
+   - **Linker boundary is dao.stream:** first-contact parking lives in the link interpreter (`src/cljc/yin/repl/link.cljc:374`), not in any evaluator.
+   - **No backward-compat shims:** the three-part token is refused, not shimmed.
+   - **collab never committed:** the `collab/` files are untracked; do not stage them.
+
+## H3 bullets against tests
+
+Every bullet has a test.
+
+| Bullet | Pinned by |
+|---|---|
+| Token once, third part refused | `the-token-prints-once-when-the-board-is-bound`, `no-board-means-no-token`, `a-token-with-a-third-part-is-refused-with-the-pin-message` |
+| Join saves follow, bare restart from `heads.edn` | `dht-join-saves-its-follow-and-a-bare-start-resumes-it`, plus the restart leg opened with no WebSocket seam |
+| Undeclared principal, pin suspends | `dht-follow-of-an-undeclared-principal-refuses-startup`, `dht-manifest-suspends-following-for-the-run` |
+| Require parks, `(abandon)` ends it | `a-reader-follows-requires-moves-and-restarts-from-heads-edn`, `abandon-ends-a-first-contact-require` |
+| Write precedes install | `the-write-precedes-the-install` |
+| Moved line, repeat require, `(reset)` | the same follow test, and `moved-leg` in the process test |
+| `heads.edn` cases | `heads-edn-cases-are-refusals-as-data` (portable; Dart run pending) |
+| End to end, JVM and Node, four VMs, restart with A stopped | `a-reader-follows-the-publisher-s-head-across-processes` |
+| Host module holds no rule | the source scan and `the-host-module-answers-with-no-follower` |
+
+## H2 notes
+
+- **Resend or repair for a dial that never answers:** done. A dial still resolving after the delay is closed and recomposed, with the delay doubling.
+- **Only the token's loopback address is dialed:** checked at parse and again in `open`, and asserted on the dialed set.
+- **Close before the next dial:** `drop-dial` closes first; asserted.
+- **Failed bind holds no resources:** reading host code is acceptable and no leak test is needed. `step-board` composes the endpoint once per process and never retries, so any leak is bounded to one object. A leak test becomes mandatory if a rebind retry is ever added.
+- **Real listener on JVM and Node:** the process test crosses real sockets.
+
+## Non-blocking notes
+
+1. **The moved line repeats.** `moved-lines` (`src/cljc/yin/repl/dht.cljc:692`) prints every still-moved name at every later install. With every HEAD move depositing, a busy publisher reprints it each round until `(reset)`, which is against 5.7's "one line". Fix by diffing `moved` before and after the step, with nothing stored. Do this soon.
+2. **Move attribution.** With two principals installed in one tick, the line names both rather than the one that moved the name.
+3. **Deposit cost.** `deposit-head!` reads the whole index on every HEAD move to derive the sequence, inside the HEAD write. Fine now; revisit when indexes grow.
+4. **Double backoff.** A `:lost` dial followed by the follower's `:source-lost` on the old handle calls `drop-dial` twice. The delay doubles once more and one resolving dial may be wasted; it is harmless.
+5. **Duplicate derivation.** `repl.dht/linked-registry` repeats `query/session-modules`.
+6. **Delay unit.** The `:unpersisted` line says "ms" for a delay in node ticks; this is right only while ticks are milliseconds.
+7. **Owner visibility.** `dht join` is now loopback only, and a non-loopback publisher prints no token. Cross-machine readers are back to `--dht-manifest` plus `--dht-principal` by hand until the off-loopback step (section 13, questions 4 and 5). `yin.repl.md` should say that in one sentence.

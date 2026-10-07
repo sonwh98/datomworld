@@ -1,0 +1,8 @@
+error: unexpected argument '--thread-id' found
+
+  tip: to pass '--thread-id' as a value, use '-- --thread-id'
+
+Usage: codex [OPTIONS] [PROMPT]
+       codex [OPTIONS] <COMMAND> [ARGS]
+
+For more information, try '--help'.

@@ -1,0 +1,3 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-flash","query_source":"generate_session_title"}
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+API Error: 503 Server Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (api.deepseek.com).

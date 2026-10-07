@@ -1,0 +1,453 @@
+Completed-GMT: 2026-10-01 13:25:01 GMT
+Completed-Local: 2026-10-01 20:25:01 +07
+Coding-Agent: claude
+Session-ID: 976059c2-629b-4b91-8b63-7c4d9604d7cf
+
+# Python phase C, slice C1: report
+
+## Summary
+
+All six C1 items are implemented in the lowering and prelude only. There are no VM changes and no new AST tags.
+
+**Test results.**
+- All Python tests pass: 98 tests and 395 assertions, including 13 new end-to-end tests that run on all four VMs over the real `cell` and `data` modules.
+- The full JVM suite passes: 2695 tests, 187529 assertions, 0 failures.
+- `bb test:cljs` passes with 0 warnings.
+
+**Mutation proof.** I made 9 deliberate breakages, each reverting one implemented piece. Every one turned its tests red. One of them first exposed a coverage gap in the slice tests, which I closed.
+
+**Not done.**
+- cljstyle is blocked by permission in this session.
+- `bb test:cljd` was not run, per the brief.
+
+Work is in `/Users/sto/workspace/datomworld-py-c1`, on branch `yang-python-phase-c1`. Nothing is staged or committed.
+
+## Supported now
+
+**1. `finally` and `with`.**
+- `try`/`finally` and `try`/`except`/`else`/`finally` run the finally block on every exit: normal completion, `return`, `break`, `continue` and `raise`.
+- Nested finally blocks run innermost first.
+- A `return` inside `finally` overrides the pending return or exception.
+- An exception raised inside `finally` replaces the one already in flight.
+- `with a as x, b:` follows the language reference's expansion:
+  - `__exit__` is looked up before `__enter__` runs;
+  - on an exception, `__exit__(type, value, None)` is called, and a truthy result suppresses the exception;
+  - every other exit calls `__exit__(None, None, None)`;
+  - the `as` target can be any assignment target.
+
+**2. Tuples, unpacking and slices.**
+- Tuples have value semantics:
+  - `==` compares elements (so `(1, 2) == (1.0, 2)`);
+  - they are hashable when their elements are, so `d[1, 2]` and `d[(1.0, 2)]` find the same key;
+  - lists, dicts and sets used as keys raise TypeError "unhashable type".
+- Tuple and list targets unpack, nested to any depth, including `x, (y, z) = ...`, `[d] = ...`, `for k, v in d.items():` and `with m as (p, q):`.
+- One starred target per assignment is allowed (`first, *rest = ...`).
+- Unpacking with the wrong count raises ValueError.
+- Slices work on lists, tuples and strings, with start, stop and step, negative indexes, and clamping exactly as `slice.indices` does it.
+- Slice assignment works on lists for an absent step or a step of 1. An extended slice target is rejected.
+
+**3. Operators.**
+- `**` on ints, and on floats with an integral exponent. A negative exponent returns a float, and `0 ** -n` raises ZeroDivisionError.
+- `%` and `//` use Python's floor semantics for negative operands, on both ints and floats, and raise ZeroDivisionError on a zero divisor.
+- `& | ^ ~ << >>` on ints, using unbounded two's complement as Python does. A negative shift count raises ValueError.
+- `in` and `not in` work for lists, tuples, ranges, str (substring), dict keys and sets.
+- All the new augmented forms work. `+=` and `*=` on a list mutate it in place, so aliases see the change, matching `list.__iadd__`.
+- Also added: list, tuple and str concatenation and repetition.
+
+**4. Comprehensions.**
+- List, dict and set comprehensions, with multiple `for` and `if` clauses.
+- Each comprehension has its own scope:
+  - its targets are cells local to the comprehension;
+  - the first iterable is evaluated in the enclosing scope, so a class body can use its own names there;
+  - lambdas inside the comprehension share the loop variable's single cell, so `[lambda: i for i in range(3)]` gives 2, 2, 2.
+- A generator expression is accepted only as the sole argument of `list`, `tuple`, `set`, `sum`, `any` or `all`, and only when that name resolves to the builtin. There it is lowered as a list, which is not observably different. Any other generator expression is rejected as "generator expression (phase C2)".
+
+**5. Keyword arguments.**
+- Call sites accept `name=value`, `*iterable` and `**mapping`.
+- Definitions accept keyword-only parameters (after `*name` or a bare `*`), keyword-only defaults, and `**kwargs`.
+- All binding failures are Python TypeErrors: too many positional arguments, multiple values for an argument, an unexpected keyword, a missing positional argument, a missing keyword-only argument, and `**` applied to a non-mapping or with non-string keys.
+- The static syntax errors are: a repeated keyword, a positional argument after a keyword argument, named arguments missing after a bare `*`, and a non-default argument after a default one.
+
+**6. The five P3 notes from the r2 gate.**
+- **(a) Implicit `object` base and the exception classes the prelude raises: left unchanged, because the current behaviour is CPython's.** CPython uses `builtins.object` for an implicit base, and its interpreter-raised errors are `builtins.TypeError` and friends regardless of what the module binds those names to. A test now pins it: after `TypeError = None; object = 1`, a class still defines and an internal TypeError is still caught by `except Exception`.
+- **(b) `global globals; globals()` now works.** `globals` is a per-module function object, passed to the module body as `%globals-fn` and read through the same "module key wins, else builtin" path as every other builtin. It can also be used as a value now.
+- **(c) An out-of-range `\U` escape is now a qualified syntax diagnostic** ("illegal Unicode character in \U escape"), not a host exception.
+- **(d) `0755`: the r2 note does not hold for the pinned grammar.** Its lexer has no token for that literal, so the parser already emits a syntax-error packet; a test now pins that. I added a matching lowering guard in case a grammar ever passes one through.
+- **(e) repr fixes:**
+  - UnboundLocalError's message is now CPython 3.11's: "cannot access local variable 'x' where it is not associated with a value".
+  - repr picks quotes the way Python does: `"it's"` gets double quotes.
+  - `\n`, `\r` and `\t` are escaped, and other control characters as `\xNN`.
+
+## Still rejected (each with a qualified diagnostic)
+
+- **For C2:** generator expressions anywhere other than the consuming-builtin position, and `yield`.
+- **Imports and statements:** imports, `del`, `assert`, `match`, `async`/`await`, and decorators.
+- **Display and argument forms:** `@` and `@=`, `{**d}` in a display, multi-dimensional slicing, extended slice assignment, and multiple inheritance.
+- **Literals:** f-strings, bytes, and integers above 2^53 (big ints are a later slice).
+- **Annotations:** parameter and return annotations.
+- **`**` with a non-integral exponent** (for example `2 ** 0.5`). This is a runtime NotImplementedError, not a static rejection, because the runtime exponent is not known statically and there is no portable `pow`/`exp`.
+
+## Rule → Universal AST changes
+
+The "every grammar rule classified" test passes and has been updated. These rules moved out of the unsupported set:
+
+| Rule | Now | Lowers to |
+|---|---|---|
+| `with_stmt` | handled | `(py/with mgr (fn [%wv] (assign target %wv) body))`, nested right to left for several items |
+| `with_item` | consumed by `with_stmt` | (see `with_stmt`) |
+| `star_expr` | handled | splice `py/extend` in displays and in `*` call arguments; `py/unpack-star` in targets; a syntax error anywhere else |
+| `sliceop` | consumed by `subscript_` | `(py/slice start stop step)` |
+| `comp_for`, `comp_iter`, `comp_if` | consumed by the comprehension | `py/for-each` loops and `if` filters inside the comprehension |
+| `test_nocond` | handled | lowered to its single child |
+| `lambdef_nocond` | handled | same as `lambdef` |
+
+Existing rules changed as follows:
+
+| Rule | Change |
+|---|---|
+| `try_stmt` | A `finally` clause becomes `(py/try-finally (fn [] <try/except part>) (fn [%fx] <finally>))`. |
+| `testlist`, `testlist_star_expr`, `exprlist` | One element is lowered as before. Several elements, a trailing comma or a star produce `(py/tuple <elements>)`. A lone `*a` is a syntax error. |
+| `atom` | `()` is an empty tuple; a parenthesised list with commas is a tuple; `[...]` and `{...}` cover list, set and dict displays and comprehensions. |
+| `expr` | Adds `// % ** & \| ^ << >>` and unary `~`. A `**` chain is regrouped to the right, because the grammar's left-recursive alternative groups `a**b**c` as `(a**b)**c`. |
+| `comparison` | Adds `in` → `py/in` and `not in` → `py/not-in`. |
+| `atom_expr` | The call trailer builds positional args with conj and extend, and kwargs pairs with conj and kw-extend. A call with keywords uses `py/call-kw`. A generator-expression argument becomes a list comprehension when the callee is a consuming builtin. The subscript trailer handles slices and tuple keys. |
+| assignment, `for` targets, `with` targets | General `assign-target`: tuple and list targets go through `py/unpack` / `py/unpack-star` and are assigned left to right. A tuple target in augmented assignment is a syntax error. |
+| `funcdef`, `lambdef` | `py/make-function name spec defaults kwdefaults code`. `spec` is the static `{:params :star? :kwonly :kwstar?}`. Keyword-only defaults are evaluated at definition time. The code vector follows the written order of the parameters. |
+| module | `(py/run-module (fn [%globals %globals-fn] body))` |
+
+## Prelude additions
+
+- **Handler stack and escapes.** The stack is now a chain of depth-numbered frames `[kind payload rest depth]`.
+  - `py/frame` and `py/frame-depth` build and read them.
+  - `py/raise` pops `:finally` frames, running each thunk with the exception, until it reaches a `:handler`.
+  - `py/unwind-to` pops frames above a depth, running finally thunks with None. Every `py/call-ec` escape calls it before jumping, so `return`, `break` and `continue` run pending finally blocks.
+  - Also new: `py/try-finally`, `py/with`, `py/type-of`.
+- **Calls.**
+  - `py/make-function` now takes `(name spec defaults kwdefaults code)`.
+  - `py/call-kw` is new, and `py/call` is now its positional-only form.
+  - Binding is done by `py/bind-args` together with `py/bind-keyword(s)`, `py/fill-defaults`, `py/fill-kwdefaults`, `py/pad`, `py/index-of`, `py/lookup-pair` and `py/fn-error`.
+  - Call-site splicing uses `py/extend`, `py/kw-extend` and `py/kw-pairs`.
+  - `py/instantiate` passes keyword arguments on to `__init__`.
+- **Integer operations.** These are exact algorithms built only from `+ - * <`, because no host primitive does them portably. They are valid within 2^53.
+  - `py/divmod-pos` divides by doubling the divisor.
+  - `py/int-floordiv` and `py/int-mod` apply Python's sign rule on top of it.
+  - `py/floor` floors a real by binary descent; it raises OverflowError outside ±2^53.
+  - `py/ipow` raises to an integer power by repeated squaring.
+  - `py/bit-op` handles unbounded two's complement by recursing until both operands are 0 or -1.
+  - Built on these: `py/floordiv`, `py/mod`, `py/pow`, `py/bitand`, `py/bitor`, `py/bitxor`, `py/invert`, `py/lshift`, `py/rshift`.
+- **Sequences.**
+  - `py/add` gains list and tuple concatenation.
+  - `py/mul` and `py/repeat` handle repetition.
+  - `py/iadd` and `py/imul` work in place on lists.
+  - `py/kind` and `py/sequence?` classify values.
+- **Membership and equality.** `py/contains`, `py/in`, `py/not-in` and `py/seq-contains?` are new. `py/eq` now compares tuples element by element and sets by membership.
+- **Keys, sets and dicts.**
+  - `py/key` now normalizes tuples recursively and refuses unhashable values; `py/keys-of` supports it.
+  - `py/dict-has?`.
+  - Sets: `py/set-new`, `py/set-add`, `py/set-from`, `py/set-fill`.
+  - Dict methods `items`, `keys`, `values` and `get`. `items`, `keys` and `values` return lists, which are snapshots rather than live views.
+- **Slices.** `py/slice`, `py/slice-positions` (the `slice.indices` algorithm), `py/slice-bound`, `py/slice-walk`, `py/pick`, `py/slice-of` and `py/set-slice`. `py/getitem` and `py/setitem` now handle slices and tuples.
+- **Iteration.**
+  - `py/iterable` turns a str into a tuple of its characters, decoding it once.
+  - `py/to-vector`, `py/collect`, `py/for-each` and `py/for-each-at`.
+  - `py/unpack` and `py/unpack-star`.
+  - `py/iter-at` now also walks sets.
+- **Builtins.**
+  - New: `list`, `tuple`, `set`, `sum`, `any`, `all`, list `append` and set `add`.
+  - Every builtin now carries a parameter spec, so arity and keyword errors are TypeErrors.
+  - New exception classes: NotImplementedError and OverflowError.
+  - Classes now have a `__name__` attribute.
+- **Rendering.** The boundary renderer handles sets (with `set()` for an empty set) and implements the Python string repr.
+
+## Test outcomes (all run in the foreground)
+
+| Check | Result |
+|---|---|
+| clj-kondo on the 10 changed files, as separate arguments | 0 errors, 0 warnings |
+| cljstyle | **not run.** `cljstyle check src/cljc/yang/python/antlr/lower.cljc` returned "This command requires approval", so formatting is unverified. |
+| `bb build:yin-repl-node`, then `bb gen:python-antlr` | Build completed with 0 warnings. The parser generated with all digests verified. |
+| Focused JVM: the seven `yang.python.antlr.*` namespaces | 98 tests, 395 assertions, 0 failures, 0 errors |
+| Full `clj -M:test` | 2695 tests, 187529 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 0 warnings; 2520 tests, 53195 assertions, 0 failures; `lower-portable-test` and `prelude-parity-test` ran on Node |
+| `bb test:cljd` | not run, per the brief |
+
+**New tests:**
+- `test/yang/python/antlr/e2e_c1_test.clj`: 13 deftests, each on all four VMs (ast-walker, semantic, stack, register) over the real modules. They cover every exit through `finally`, finally nesting and override, raise inside finally and handler-stack consistency, `with`, tuples and unpacking, slices, tuple value semantics and unhashable keys, arithmetic operators, membership and augmented assignment, comprehensions, comprehension scope, keyword arguments, and the P3 runtime items.
+- `lower_test.clj`, new goldens: try/finally, with, unpacking, comprehension, keyword call, and slice plus `**` regrouping. Refusal and syntax lists were rewritten: 15 refusals and 15 static errors. A parser-level test pins the `0755` rejection.
+- `scope_test.clj`: tuple, star and with targets; comprehension scopes, including where a first-iterable lambda belongs and a class-body comprehension.
+- `prelude_parity_test.cljc` (also runs on Node): 24 new cases for floor division, modulo, power, bitwise ops, tuple equality and keys, and slice positions on JS numbers.
+
+## Mutation proof
+
+Each mutation temporarily broke the code that implements one item. I ran the related tests against it, then restored the code. A final run showed no mutation markers left and all 98 tests green.
+
+| # | Mutation | Tests that turned red |
+|---|---|---|
+| M1 | `py/unwind-to` stops running finally thunks (escape path) | finally-runs-on-every-exit, finally-nesting-and-override, with-statement: 12 failures across 4 VMs |
+| M1b | `py/raise` stops running finally thunks (raise path) | finally-runs-on-every-exit, raise-in-finally-and-handler-stack: 8 failures (`with` correctly unaffected, since its raise path is a handler) |
+| M1c | `py/with` ignores `__exit__`'s result | with-statement: 4 failures |
+| M2 | `py/key` stops normalizing tuples | tuples-and-unpacking, tuples-are-values-and-unhashable-lists: 8 failures |
+| M2b | `py/slice-bound` stops clamping the upper bound | **first run: slices-test still passed**, a real coverage gap. I added `t[1:100]`, `'hello'[-100:2]` and `t[100:0:-1]`, and it then failed 4/4. |
+| M3 | integer `//` drops the floor adjustment, and `**` regrouping is disabled | arithmetic-operators on 4 VMs gave `-7//2` → -3, `-7%3` → -1, `2**3**2` → 64, `-6&3` → 0; slice-and-power golden failed: 5 failures |
+| M4 | the first iterable is evaluated inside the comprehension scope | comprehension-scope: NameError on `n`, 4 failures |
+| M5 | the keyword duplicate-value check is removed | keyword-arguments: 4 failures |
+| M6 | the `globals` builtin branch is removed | gate-p3-runtime: NameError on `globals`, 4 failures |
+| M7 | repr always uses single quotes | gate-p3-runtime: 4 failures |
+
+## Mechanical versus not
+
+**Mechanical:**
+- the new operator and comparison table entries;
+- the augmented forms;
+- the CST arms for `with`, slices, displays and tuple expressions;
+- the new builtins;
+- the rule reclassification.
+
+**Not mechanical:**
+1. **finally and with.** The handler stack had to become typed, depth-numbered frames so that one data structure serves both `raise`, which unwinds until a handler, and escapes, which unwind to a captured depth. Getting "return in finally overrides" and "raise in finally replaces" right came from popping a frame before running its thunk, not from anything in the grammar. Continuations carry the control flow as the owner said, but the unwinding protocol around them was design work.
+2. **Integer arithmetic.** The host offers only `+ - * / <`, and `/` returns a Ratio on the JVM but a double on JS. Floor division, modulo, power, bitwise ops and float floor had to become algorithms that give identical results on all hosts.
+3. **Comprehension scope.** Scope analysis needed a new scope kind with a split rule: the first iterable belongs to the enclosing scope, while everything else, including nested lambdas, belongs to the comprehension.
+4. **Keyword binding.** CPython's argument-binding algorithm as prelude code, with every failure a TypeError, is the largest single piece.
+5. **Grammar mismatches the mapping had to correct.** The grammar groups `**` to the left, so the lowering regroups it. The grammar also accepts a lone `*a` that Python rejects.
+
+## Unresolved concerns
+
+- **Error messages carry no counts.** "g() takes too many positional arguments" stands in for CPython's "takes 1 positional argument but 2 were given", because `data` has no number-to-string primitive.
+- **Set iteration and display order is insertion order,** which is deterministic but differs from CPython's hash order (for example, `{1, 0}` versus `{0, 1}`). The comprehension test avoids depending on the difference.
+- **`dict.items()`, `keys()` and `values()` return list snapshots,** not live views.
+- **`**` with a non-integral exponent raises NotImplementedError,** because there is no portable `pow`/`exp`. JVM long overflow in `**` is still a host error; big ints are a later slice.
+- **Escapes now pay an unwinding check.** Every `py/call-ec` escape runs `py/unwind-to`, which costs one depth comparison when no frames lie above the escape's depth. `try`/`finally` allocates one frame vector per entry, and every `py/try` and `py/call-ec` allocates one flag cell, as in phase B. Heap reclamation (60b60898) now collects these.
+- **The `(x) = 1` target is still rejected** as an unsupported assignment target. Python accepts it; it is rare.
+- **CLJD is verified by reading only.** The one new reader conditional, `code-unit` in `render.cljc`, puts `:cljd` first and uses `.codeUnitAt`. No protocol methods were added.
+- **cljstyle has not been run** on these edits.
+
+---
+
+# Round 2
+
+This round answers the gate's REQUEST CHANGES (`collab/1790852251711-reviewer-python-phase-c1-gate.qwen3.8-max.findings.md`). It builds on round 1 plus the orchestrator's cljstyle whitespace fixes, which are kept. Nothing is staged or committed.
+
+**Expected outputs come from CPython itself.** `python3` (CPython 3.9.6) was available locally, so I ran every new e2e program through it and copied its output into the tests. The only exception is where an int leaves ±2^53, which is the documented OverflowError deviation. The scratch scripts lived in the gitignored `build/` and have been deleted.
+
+**Two gate claims did not match CPython. In both I followed CPython and say so here:**
+- **P3a.** Python 3.8+ does not reject `break`/`continue` in `finally`: 3.8 removed the ban on `continue`, `break` was always legal, and PEP 765 (3.14) adds only a warning. CPython's behaviour is that a `break` or `continue` in `finally` swallows the exception in flight. That already held here; it is now pinned by a test.
+- **P3e.** The gate quoted CPython's `5.9 % 1.1` as `0.39999999999999947`. CPython actually gives `0.3999999999999999`.
+
+**One part of the brief also differs from CPython.** P1 asked for nested tuples to match recursively in both forms. CPython does that for `isinstance` only:
+- For an `except` clause, CPython checks every element of a flat tuple and raises TypeError on any element that is not a BaseException subclass, including a nested tuple. It checks all elements before matching, so `except (A, (KeyError, B))` fails even when the exception is an `A`.
+- I implemented exactly that, and the test pins both forms against CPython's output.
+
+## Required changes
+
+**P1, tuples of classes.**
+- `py/class-match?` is new: a class or a tuple, matched recursively, and TypeError for anything else. `isinstance` now uses it.
+- `py/exc-matches` is new and is what the lowering now emits for every except clause, instead of `py/isinstance`. It follows the CPython rules described above, with CPython's message.
+- Test `tuple-of-classes-test`, all four VMs, CPython output:
+  - the nested tuple misses all four exceptions;
+  - the flat tuple catches A, B, C and KeyError and misses ValueError;
+  - `isinstance` recurses;
+  - `except None` and `isinstance(1, 2)` raise TypeError.
+
+**P2, the integer bound.** Ints are bounded to the inclusive range [-2^53, 2^53]. Leaving it raises a guest OverflowError.
+- **How it is checked.** Every check happens before the host operation:
+  - `py/checked-add`: an exact comparison against `2^53 − b`, with no out-of-range intermediate on any host;
+  - `py/checked-sub`;
+  - `py/checked-mul`: compares `|b|` against `⌊2^53/|a|⌋`, computed with the exact doubling division, plus a fast path when both operands are below 2^26.
+- **Where it applies:**
+  - `py/arith`'s int path, now keyed by `:add`/`:sub`/`:mul`, which covers `+ - *`, unary `-`/`+` and `sum`;
+  - `py/ipow`; float powers use a separate unchecked `py/fpow`;
+  - `py/lshift` (`0 << n` is 0);
+  - `py/rshift` (beyond 53 places the result is 0 or -1);
+  - `py/invert`;
+  - `py/bit-op`'s recursion;
+  - the closed-form range length.
+- **Exact remainder.** `py/int-mod` now takes the remainder from the exact division, with no transient `b*q` product.
+- **Literals.** The literal limit was raised from 2^53−1 to 2^53, so `-9007199254740992` is accepted, matching the runtime range.
+- **Tests:**
+  - e2e `integer-bound-test` on all four VMs: `2**53`, `2**53+1`, `3**40`, `1<<52`, `1<<53`, `1<<54`, `-(2**53)-1`, `(2**53-1)*3`, `-2**53-1`, `0<<100`, `-1>>100`, `~(2**53)`, `2**52*2`.
+  - parity `integer-bound-on-every-host-test` runs the overflow cases over real cells on all four VMs, on the JVM and on Node.
+  - 8 new non-raising boundary parity cases, for example `94906265²`.
+
+## P3 dispositions
+
+| Item | Disposition |
+|---|---|
+| a. break/continue in finally | **Kept as is, matching CPython;** the gate's premise was wrong (see above). Pinned by a test: `break` in finally swallows the exception, and `continue` in finally runs it once per iteration (count 3). |
+| b. raise of a non-exception; `except E as e` unbinding | **Fixed.** `py/as-exception` requires a BaseException subclass or an instance of one, otherwise TypeError "exceptions must derive from BaseException". `except E as e:` now wraps its handler in `py/try-finally`, which unbinds `e` on every exit: a cell goes back to unbound, a module name is removed with `py/global-del-quiet` (a new `py/dict-del-quiet` keeps insertion order), and a class attribute with `py/delattr-quiet`. |
+| c. `len(range)` and `x in range` | **Fixed, O(1).** `py/range-len` is the closed form `(|stop-start|-1)//|step|+1`. `py/range-has?` checks the bounds and that the value lies on the step. A non-int left operand falls back to scanning, so `2.0 in range(3)` still works. |
+| d. dict/set changing size during iteration | **Fixed.** `py/iterable` wraps a dict or set in a key iterator that records the size at loop start. `py/iter-at` raises RuntimeError "dictionary changed size during iteration" (or "Set changed size during iteration") when the size differs. Lists are still walked live, as in Python. |
+| e. float `//` and `%` last-ulp | **Fixed with the fmod correction.** `py/fmod-pos` is an exact fmod on doubles, using the same doubling long division. Each subtraction is exact by Sterbenz's lemma. `py/float-divmod` is CPython's `float_divmod`: the remainder comes from fmod and is then sign-corrected, and the quotient is `(x−mod)/y` with the ±0.5 floor correction and signed zeros. Results match CPython on `5.9 % 1.1`, `5.9 // 1.1`, `-5.9 % 1.1`, `7.5 // -2`, `-7.5 % 2`, `0.3 % 0.1` and `1e10 % 3.3`. **Remaining deviation:** a quotient beyond ±2^53 still raises OverflowError from `py/floor`, where CPython returns a large float. |
+| f. builtin keywords; `C(1, 2)`; with-dunders | **Fixed.** Builtin specs carry `:no-kw`, so `len(obj=[1])` gives TypeError "len() takes no keyword arguments". `sum` keeps `start=` as in CPython; `print(sep=…)` is a TypeError here, a documented deviation. A class with no `__init__` that is not a BaseException subclass raises "C() takes no arguments" when given arguments; exception classes still keep their `args`. `py/with` looks up `__enter__` and `__exit__` on the type, so instance attributes are ignored, and a missing protocol raises 3.11's TypeError (CPython 3.9 raises AttributeError, and the test accepts either). |
+
+All of b–f are covered by `gate-p3-round2-test`, which runs the CPython-verified program on all four VMs.
+
+## Round 2 mutation proof
+
+Each mutation was applied, the named tests were run, and the code was restored. Where one deftest covers several items, the diverging line was read to confirm which item failed.
+
+| # | Mutation | Result |
+|---|---|---|
+| R1a | `exc-matches` stops checking tuple elements | `tuple-of-classes-test` fails, 4/4 VMs |
+| R1b | `class-match?` stops matching tuples (the original spike bug) | `tuple-of-classes-test` fails, 4/4 |
+| R2 | the overflow checks in `checked-add` and `checked-mul` are disabled | `integer-bound-test` and `integer-bound-on-every-host-test` both fail, 8 failures. The JVM throws the host `long overflow` the gate described. |
+| R3a | `py/raise` runs a finally thunk before popping its frame | the round-2 P3 test fails: `continue`-in-finally counts 6 instead of 3, because the thunk runs twice |
+| R3b-1 | `as-exception` accepts any cell | fails: the `NotExc()` instance is raised uncaught |
+| R3b-2 | `except … as` no longer unbinds | fails: `print(err)` prints `<KeyError object>` |
+| R3c | `range-has?` ignores the step | fails: `5 in range(10, 0, -3)` becomes True |
+| R3c-2 | `range-len` off by one | fails: `1501199875790165` |
+| R3d | dict/set iteration walks a snapshot instead of raising (fully disabling the check would loop forever, so this is the strictest mutation that terminates) | fails: both "changed size" lines are missing |
+| R3e | float `%` reverts to `x − y·floor(x/y)` | fails: `0.40000000000000036` and `1.0` appear |
+| R3f-1 | the builtin `:no-kw` check is removed | fails: one "TypeError" line is missing |
+| R3f-2 + R3f-3 | a class without `__init__` stores args, and `with` uses `getattr` | fails: one "TypeError" line is missing (f-2) and "not a context manager" is missing (f-3) |
+
+After restoring: a grep for mutation markers finds none, and all 102 Python tests pass (414 assertions).
+
+## Round 2 checks (all run in the foreground)
+
+| Check | Result |
+|---|---|
+| clj-kondo, the 10 changed files as separate arguments | 0 errors, 0 warnings |
+| cljstyle | **not run.** `cljstyle check src/cljc/yang/python/antlr/prelude.cljc` returned "This command requires approval", so this round's edits are unverified for formatting. |
+| `bb build:yin-repl-node`, then `bb gen:python-antlr` | Build completed with 0 warnings. The parser generated with all digests verified. |
+| Focused JVM, the seven Python namespaces | 102 tests, 414 assertions, 0 failures |
+| Full `clj -M:test` | 2699 tests, 187557 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 0 warnings; 2521 tests, 53202 assertions, 0 failures; `prelude-parity-test`, including the integer bound over real cells, ran on Node |
+| `bb test:cljd` | not run, per the brief. Round 2 adds no reader conditionals or protocol methods. |
+
+## Files changed in round 2
+
+- `src/cljc/yang/python/antlr/prelude.cljc`
+- `src/cljc/yang/python/antlr/lower.cljc`: `py/exc-matches`, `unbind-name`, and the literal limit
+- `test/yang/python/antlr/e2e_c1_test.clj`: 3 new deftests
+- `test/yang/python/antlr/lower_test.clj`: the try golden
+- `test/yang/python/antlr/prelude_parity_test.cljc`: 14 cases and the integer-bound test
+
+## Deviations still open after round 2
+
+- **Integer range.** Ints are bounded to ±2^53 (OverflowError), not arbitrary precision; big ints are a later slice. A float `//` whose quotient exceeds ±2^53 also raises OverflowError.
+- **Error messages carry no counts.** Exception: the "takes no arguments" and "takes no keyword arguments" messages match CPython.
+- **`print` takes no `sep`/`end` keywords.**
+- **The UnboundLocalError message is 3.11's,** while the local oracle was 3.9. Not tested against 3.9.
+- **Unchanged from round 1:** set order is insertion order; dict views are list snapshots; `(x) = 1` is rejected; `**` with a non-integral exponent raises NotImplementedError.
+
+---
+
+# Round 3
+
+This round answers gate r2's REQUEST CHANGES (`collab/1790856811617-reviewer-python-phase-c1-gate-r2.gpt-6.1-sol.findings.md`, gpt-6.1-sol). The edits are uncommitted, on top of `7a8493e1` (the C1 commit, rebased onto master `6b8502fd`, where D7 host-typed closures landed).
+
+**Interrupted session.** The previous session hit its limit partway through this round. On resuming I found:
+- all seven items already implemented, with their tests on disk;
+- one mutation still applied (M3b, eager `sum`), which I restored;
+- mutations M1, M2a, M2b, M3a and M3b proven before the cut-off.
+
+I then finished the remaining mutations and every check.
+
+**Oracle.** Expected outputs again come from CPython 3.9.6, run on the same source. Every value in the round-3 tests is within ±2^53, so the expectations are CPython's output verbatim. The scratch scripts in the gitignored `build/` have been deleted.
+
+**D7 check.** The rebase onto host-typed closures and continuations needed no change: all 105 Python tests passed on the rebased base before any round-3 edit. The prelude never inspects a closure's or continuation's fields.
+
+## Items
+
+**1. P1, range elements diverged across hosts.**
+- **Fix.** `py/range-elem` computes `start + i·step` without forming `i·step`, which can reach 2^54. It halves `i` and doubles `step`, so:
+  - every partial sum is itself an element of the range at an index ≤ `i`, and therefore within ±2^53;
+  - every addend is a power-of-two multiple of `step`, which is exact on every host.
+- **The bound test.** It needs no length: the one-past element may round on JS, but its true value lies beyond `stop` and rounding is monotone, so it still compares at or past `stop`.
+- **Laziness kept.** `range(...)` still builds no length, so a range longer than 2^53 can be created and partly iterated, as in CPython.
+- **Tests.**
+  - The reviewer's case `list(range(-2**53, 2**53, 6004799503160661))` and its negative-step mirror are in `prelude_parity_test.cljc`, which runs on JVM and Node, and in e2e on all four VMs.
+  - The expected four elements end with `9007199254740991` / `-9007199254740991`.
+
+**2. P2, range length and membership.**
+- **Length.** `py/range-count` computes `(stop // step − start // step) + (start % step < stop % step ? 1 : 0)`, mirrored for a negative step. Every operand is in range, and only the length itself is bound-checked.
+  - `len(range(-2**53, 2**53, 2**53))` is now 2.
+  - A length beyond 2^53 is an OverflowError, as `len()` of such a range is in CPython.
+- **Membership.** It compares floor remainders, `x % step == start % step`, instead of forming `x − start`.
+- **Tests:** e2e on all four VMs, plus parity cases for length 2, length 4, membership of `9007199254740991`, and non-membership of `1`.
+
+**3. P2, generator expressions passed to consuming builtins.**
+- Each consumer now runs its own semantics inline and lazily, one element at a time, through the comprehension machinery:
+  - **`any`/`all`:** a `py/call-ec` escape at the first decisive element;
+  - **`sum`:** a running fold in a cell, starting at 0;
+  - **`set`:** adds as it goes;
+  - **`list`:** unchanged;
+  - **`tuple`:** a tuple of the list.
+- **Why `sum` and `set` changed too.** Eagerly building a list first would have changed exception order in observable ways. CPython stops `sum(g(x) for x in [1, 'a', 3])` after logging `[1, 'a']` and `set(...)` after `[1, [2]]`; the eager form logged all three.
+- **Runtime guard.** The inline form applies only while the name still denotes the builtin: a runtime `(py/is <read> py.b/X)` test. If `globals()['any']` has been rebound, a generator argument raises NotImplementedError ("generator expressions are phase C2") instead of producing a wrong answer.
+- **Tests:**
+  - `any(1 // x for x in [1, 0])` is `True` with log `[1]`;
+  - `all(0 // x for x in [1, 0])` and `all(f(x) > 5 ...)` are both False with log `[1]`;
+  - the `sum` and `set` stopping points above;
+  - `generator-consumer-rebound-test`.
+
+**4. P2, float `%`.** `py/float-mod` computes only the fmod-based remainder and never forms the floored quotient, so `1e20 % 3.0 == 1.0`, `-1e20 % 3.0 == 2.0`, `1e300 % 7.0 == 1.0` and `5.5 % 1e300 == 5.5`. Float `//` still uses `py/float-divmod`, and a `//` quotient beyond ±2^53 is still the documented OverflowError.
+
+**5. P2, range argument validation.** `py/range3` requires `py/int?` on all three arguments before any arithmetic, and normalizes booleans through `py/num`. `range('a')`, `range(1.5)` and `range(None)` are now guest TypeErrors, and `range(True, 5)` has length 4.
+
+**6. P3, keywords to exception constructors.** A BaseException subclass with no `__init__` now rejects keyword arguments with "ValueError() takes no keyword arguments". An explicit `__init__` still binds keywords (`raise E(code=7)` works).
+
+**7. P3, `*` after an explicit keyword.**
+- **The change.** `call-parts` now tracks `**` separately from explicit keywords, giving the language reference's rules with CPython's messages:
+  - `*iterable` may follow `name=value` but not `**mapping` ("iterable argument unpacking follows keyword argument unpacking");
+  - a positional argument may follow neither ("positional argument follows keyword argument [unpacking]").
+- **Evaluation order.** Positional and `*` arguments are evaluated before keyword values, which I checked against CPython: in `f(a=g(), *h())`, `h` runs before `g`.
+- **Binding.** `h(a=1, *[2])` raises "h() got multiple values for argument 'a'", and `k(b=1, *[2])` is 21.
+- **Tests:**
+  - e2e;
+  - the golden `star-after-keyword-golden-test`;
+  - two new static syntax errors.
+
+## Round 3 mutation proof
+
+Each mutation was applied, the named tests were run, and the code was restored. Where one test covers several items, the diverging output line was read to confirm which item failed.
+
+| # | Mutation | Result |
+|---|---|---|
+| M1 | `range-at` back to unchecked `start + i·step` | `bb test:cljs`: `prelude-semantics-on-every-vm-test` fails on all 4 VMs on Node. **The same mutation passes on the JVM,** which is exactly the host divergence the reviewer reported and why the parity test is the detector. |
+| M2a | range length back to the bounded endpoint difference | `prelude-semantics` and `gate-round3-test` both fail on 4/4 VMs (OverflowError for the len-2 range) |
+| M2b | membership back to `x − start` | `prelude-semantics` fails on 4/4 |
+| M3a | `any(genexp)` eager | `gate-round3-test` fails with the reviewer's ZeroDivisionError |
+| M3b | `sum(genexp)` eager | fails: log `[1, 'a', 3]` instead of `[1, 'a']` |
+| M3c | `all(genexp)` eager | fails: ZeroDivisionError |
+| M3d | `set(genexp)` eager | fails: log `[1, [2], 3]` |
+| M3e | the rebound-builtin guard always takes the inline path | `generator-consumer-rebound-test` fails on 4/4 |
+| M4 | `%` back through `float-divmod` | fails: OverflowError "float floor outside the supported range" on `1e20 % 3.0` |
+| M5 | `range3` validation back to the float-only check | fails: two "range TypeError" lines missing (`'a'` and `None`) |
+| M6 | builtin exception constructor accepts keywords | fails: an uncaught ValueError with empty args (the reviewer's case) |
+| M7 | `*` after a keyword is a syntax error again | `gate-round3-test` gets a lowering diagnostic, and `star-after-keyword-golden-test` errors with the syntax error |
+
+After restoring, a grep for mutation markers finds only the legitimate `True` literal lowering, and all 105 Python tests pass (427 assertions).
+
+## Round 3 checks
+
+| Check | Result |
+|---|---|
+| clj-kondo, the 5 changed files as separate arguments | 0 errors, 0 warnings |
+| cljstyle | **not run.** `cljstyle check src/cljc/yang/python/antlr/lower.cljc` returned "This command requires approval", so this round's edits are unverified for formatting. |
+| `bb build:yin-repl-node`, then `bb gen:python-antlr` | Build completed with 0 warnings. The parser generated with all digests verified. |
+| Focused JVM, the seven Python namespaces (foreground) | 105 tests, 427 assertions, 0 failures, 0 errors |
+| Full `clj -M:test` | **2720 tests, 187948 assertions, 0 failures, 0 errors** (exit 0). **Not wholly foreground:** I started it in the foreground, but the harness moved it to the background when it passed its 600-second limit, so `bb test:cljs` overlapped it. I waited for it to finish and read the result before writing this. |
+| `bb test:cljs` (foreground) | 0 warnings; 2539 tests, 53559 assertions, 0 failures, 0 errors; `lower-portable-test` and `prelude-parity-test` ran on Node |
+| `bb test:cljd` | not run, per the brief. No reader conditionals or protocol methods were added this round. |
+
+## Files changed in round 3 (relative to 7a8493e1)
+
+- `src/cljc/yang/python/antlr/prelude.cljc`: `py/range3` validation, `py/range-count`, `py/range-elem`, `py/range-at`, `py/range-len`, `py/range-has?`, `py/float-mod`, `py/genexp-unsupported`, and the keyword check on exception constructors
+- `src/cljc/yang/python/antlr/lower.cljc`: lazy generator consumers with the runtime builtin guard; the `:sum`/`:any`/`:all` comprehension kinds; separate keyword and `**` tracking in `call-parts`
+- `test/yang/python/antlr/e2e_c1_test.clj`: `gate-round3-test` and `generator-consumer-rebound-test`
+- `test/yang/python/antlr/lower_test.clj`: `star-after-keyword-golden-test` and two static syntax errors
+- `test/yang/python/antlr/prelude_parity_test.cljc`: 10 cross-host cases (range elements, length and membership near ±2^53; `range-elem`; `float-mod`)
+
+## Deviations still open after round 3
+
+- **Integer range:** ints are bounded to ±2^53, and a float `//` quotient beyond ±2^53 raises OverflowError; `%` no longer has this limit.
+- **Generator consumers:** a generator expression is accepted only as the sole argument of `list`/`tuple`/`set`/`sum`/`any`/`all` while that name denotes the builtin. Everything else is C2.
+- **Still open from earlier rounds:**
+  - error messages without counts;
+  - no `print` keywords;
+  - insertion-ordered sets;
+  - dict views as list snapshots;
+  - `(x) = 1` rejected;
+  - non-integral `**` raises NotImplementedError;
+  - the 3.11 UnboundLocalError wording.

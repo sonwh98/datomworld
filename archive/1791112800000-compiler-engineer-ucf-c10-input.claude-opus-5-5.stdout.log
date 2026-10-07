@@ -1,0 +1,39 @@
+Slice C10 is built test-first and green on the JVM and Node. I couldn't run cljstyle or Dart: the permission gate blocked cljstyle again, as in C5 and C6, so please run `cljstyle fix` then `check` on the three touched files. Nothing is committed.
+
+**What it does** (`src/cljc/yin/vm/ucf/authority/input.cljc`):
+- **`record-input!`** records one input for an occurrence. It answers `:recorded` only after the durable commit; a crash cut answers `:suspended` instead. Equal content at a known k answers `:replayed`, and different content is refused as `:input-conflict` with nothing committed. A gap in k is refused.
+- **Tenure** is checked first: a wrong epoch or lapsed lease is `:stale`, even for a k already recorded. An exhausted occurrence is `:suspended`, and so is a poisoned authority (via the existing transition).
+- **`frontier`** is the count of input records at the lease's grant. **`inputs`** returns the replay prefix up to the frontier and never past it. **`replay-input`** checks each source and fails closed on a mismatch.
+- **"No input recorded yet" and "no evidence" are distinct:** the first is a prefix with frontier 0; the second is a `:suspended` or `:refused` answer, never an empty prefix.
+- **The rule for D** is in the namespace docstring: the driver delivers an input only after `:recorded` or `:replayed`.
+- **Tenure check:** my own private helper; C7's namespace isn't used. The report flags it for merging with C7's.
+
+**Tests** (`test/yin/vm/ucf/authority/input_test.cljc`, 20 tests, none slow):
+- **Red first:** against a stub namespace all 20 failed (89 failures, 2 errors).
+- **Coverage:** all the cases the brief asked for are there, including a holder that replays its inputs correctly, one that doesn't (fails closed), a divergent input at the same k, and the lowered k bound.
+- **Mutations:** I broke 17 guarantees on purpose. One survived at first: comparing observed values with plain `=` instead of a canonical comparison. I added a `-0.0` vs `0.0` assertion, and that mutation now fails too.
+
+**Results:**
+- **JVM**, the C3–C6 suites plus mine: 188 tests, 1364 assertions, 0 failures.
+- **Node**, whole suite: 2895 tests, 92971 assertions, 0 failures. The first run had one failure in my gap-replay test. I think a float in the cursor comes back as a different host type on JS, but I didn't print the values to confirm. The test now uses the canonical comparison the protocol itself uses.
+- **kondo** is clean, and the files are ASCII only with no line over 80 columns.
+
+**Deviations from the brief:**
+- **Node ran in the background.** A Node run takes longer than the 10-minute foreground limit, so both runs went to the background; I waited for each to finish before reporting.
+- **The k bound is a per-call option**, `::input/max-seq`. That avoided editing `authority.cljc`. The existing counter bound can't be used for this test, because the entity-id bound always fires first.
+
+**Shared-file edits:** only `ledger.cljc`, all additive, with line ranges in the report for the merge:
+- the docstring (35-38 and 50-54);
+- the attribute order (104-107);
+- `input-defect` (344-366);
+- the fold arm (476-488).
+
+The likely merge conflict with C7/C8 is the closing `})` of the attribute-order map.
+
+The report has 9 open questions, mainly the `:input-conflict` naming and whether an input conflict should quarantine the occurrence. My mutation script is left in the gitignored `target/` folder.
+
+Files are in `/Users/sto/workspace/datomworld-c10input`:
+- `collab/1791112800000-compiler-engineer-ucf-c10-input.findings.md`
+- `src/cljc/yin/vm/ucf/authority/input.cljc`
+- `test/yin/vm/ucf/authority/input_test.cljc`
+- `src/cljc/yin/vm/ucf/ledger.cljc`

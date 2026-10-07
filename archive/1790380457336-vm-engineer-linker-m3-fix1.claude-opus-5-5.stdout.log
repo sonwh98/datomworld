@@ -1,0 +1,29 @@
+Completed-GMT: 2026-09-26 00:09:37 GMT
+Completed-Local: 2026-09-26 07:09:37 +07
+
+All four gate items are fixed and all three lanes pass. Nothing is committed or staged, and I added no `fetch` deadline or abort hook. The full report is at `/Users/sto/workspace/datomworld/collab/1790380457336-vm-engineer-linker-m3-fix1.claude-opus-5-5.report.md`.
+
+**Lanes** (run one at a time, 0 failures and 0 errors each):
+
+| Lane | Last M3 figure | Now |
+|---|---|---|
+| JVM | 2,098 / 181,640 | 2,102 / 181,666 |
+| Node | 2,011 / 48,483 | 2,015 / 48,507 |
+| Dart | 1,973 | 1,977 |
+
+The +4 on each lane are the four new tests, and all 13 step tests appear by name in the Dart output. kondo and cljstyle are clean. `git diff HEAD --check` is clean, but it doesn't see the untracked step test, so I also scanned every added line: all ASCII, at most 80 columns, no trailing whitespace.
+
+**The fixes**
+1. **§6.4 drive sentence:** it now says the drive only serves the content pair and returns the state, and that `fetch` calls `step` after each drive. The reason is stated: `step` hands each completion out once, so a drive that stepped the linker would lose it. It also says liveness is the drive's. No other sentence in the doc repeated the wrong description.
+2. **Base64 cap before decoding:** the linker now bounds the reply text before decoding it, then keeps the existing cap on the decoded length. The refusal is the same `:parts-limit` with `:bound :max-bytes` and the address.
+   - **Deviation from the brief:** I refuse only when the *fewest* bytes the text could decode to already exceed the budget. The brief's `ceil(3n/4)` is an upper bound and would wrongly refuse a reply exactly at the limit: a 64-byte payload is 88 characters, and ceil(3×88/4) is 66.
+   - **Order with the strict-Base64 path:** the text cap runs first. So oversize text is `:parts-limit` whether or not it is valid Base64, and text within the cap that isn't strict Base64 is `:absent`.
+   - **Test:** it failed first on the old code. It pins the oversize refusal, the `:absent` path, a reply exactly at the limit (`:ok`), and one byte under (`:parts-limit`).
+3. **Admission order:** `:unsupported-format` now comes before the contract checks. The new test failed first, and it also pins that every other check keeps its previous order.
+4. **Fail-closed paths:** two new tests, with no production change needed.
+   - **Terminal client:** a read not yet sent and a read already on the wire both complete `:absent`, and nothing is sent.
+   - **Full writer:** uses a small test-only stub writer. The retried envelope keeps its id, no second request goes out while one is owed, and both links then complete.
+
+**Left and removed:** the §6.4 signature block still shows only the two shorter arities, not the contract argument; that was outside this item. I removed my one scratch file, `.m3fix/check.py`.
+
+Status: COMPLETE

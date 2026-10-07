@@ -1,0 +1,39 @@
+Completed-GMT: 2026-09-28 12:08:21 GMT
+Completed-Local: 2026-09-28 19:08:21 +07
+Coding-Agent: claude
+Session-ID: 2fd38cae-ba0d-4d01-9d12-b9ee9af137e2
+
+# Slice 3a fix round 2: dedicated channel end (owner decision (a))
+
+The binding now requires the composition to declare its channel end as its own before it will open, and `close!` keeps closing that end's writer. Kondo and the focused JVM tests pass.
+
+I changed only `remote_serve.cljc` and `remote_serve_test.cljc`. Your cljstyle formatting and the round-1 fixes are kept, and nothing is staged or committed.
+
+## Changes
+- **New required option `::channel-exclusive?`:** this is where the composition declares the ownership rule: no other reflection or mirror may read or write this channel end. The binding can't prove that from a handle, so it takes the composition's word.
+  - The value must be exactly `true`.
+  - If it's missing, `open!` refuses with reason `::missing`.
+  - Any other value refuses with reason `::not-exclusive`, so the refusal says what's wrong. Other options still refuse as `::malformed`.
+- **Docstrings:** the `open!` options list and the namespace docstring now describe the ownership rule.
+- **`close!`:** the code is unchanged. Its docstring now says it may close the writer only because `open!` required that declaration.
+
+## Tests
+- **`open!` refusals:**
+  - `::channel-exclusive?` is now part of the missing-option sweep.
+  - `false`, `nil`, `:yes` and `1` each refuse with `::not-exclusive`.
+- **Existing `close!` test, extended rather than duplicated:**
+  - It checks the binding was opened with the declaration.
+  - After `close!`, writing to the binding's channel returns `:dao.stream/closed`.
+  - The unanswered remote append still produces exactly one `append-unknown` event.
+- **Shared test options:** the `opts` fixture now sets `::rs/channel-exclusive? true`.
+
+## Verification
+| Check | Result |
+|---|---|
+| `clj -M:kondo --lint` on both files | 0 errors, 0 warnings |
+| `clj -M:test -n yin.vm.ffi.remote-serve-test -n yin.vm.ucf.remote-test -n dao.stream.remote-test` | 54 tests, 470 assertions, 0 failures, 0 errors |
+| New namespace alone | 10 tests, 94 assertions |
+| cljstyle | Skipped per the brief, for you to run |
+| Node and CLJD | Not run this round; the change adds only `true?` and plain maps |
+
+The report is in `collab/1790595472000-vm-engineer-ffi-export-binding.claude-opus-5-5.report-r3.md`.

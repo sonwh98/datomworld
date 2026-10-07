@@ -1,0 +1,52 @@
+# Fix round 2: a dangling retraction is now one global diagnostic
+
+Owner decision 6 is in place, with one exception: it is not printed at the REPL, because no printing of fold diagnostics exists to follow. A retraction whose assertion is in no loaded snapshot is now reported once, under a new `:global-diagnostics` key. It carries the retraction's principal and the assertion id it names, and never appears in a per-name diagnostic. All lanes pass on the final code. Nothing is staged or committed. The "Fix round 2" section is appended to `/Users/sto/workspace/datomworld/collab/1790837000000-engineer-linker-L5.claude-opus-5-5.report.md`.
+
+**Not done: printing it "once per change".** The brief says to print it the way fold diagnostics are already printed, but the REPL never prints fold diagnostics. Users only see them as the data `(yin.link/names)` returns. Printing on change would need new shell state and a hook in `yin/repl.cljc`, `yin/repl/main.cljc` or `yin/repl/dht.cljc`, none of which is authorized, so I stopped there. At the prompt, the diagnostic appears once, as data, in what `(yin.link/names)` returns, and the REPL test asserts exactly that. If you want a printed line, authorize one of those files and say what should trigger it: an index load, a HEAD change, or both.
+
+## What changed
+
+- **`yin.vm.linker.dht`.** `fold` splits the diagnostics that the authority fold produces:
+  - A dangling retraction whose assertion id matches no envelope in the snapshot set moves to `:global-diagnostics`.
+  - `names` returns both keys.
+  - `resolve-name` and `dependency-bindings` only look at the remaining `:diagnostics`, so the global entry can't attach to a name.
+  - If the retracted assertion *is* in the set (for example, one principal retracting another's assertion), the diagnostic stays with that name, because the name is known from the referenced envelope.
+  - The authority code and the envelope are unchanged.
+- **REPL.** `(yin.link/names)` already calls `ld/names`, so it carries `:global-diagnostics` with no REPL change.
+- **Design doc.** §7.3 shows the new key and states the rule; §9's `:absent` row now limits `:dangling-retraction` to the in-set case and points to the global key.
+
+## Tests (JVM, Node and Dart)
+
+- **Unit test** in `test/yin/vm/linker/dht_test.cljc`:
+  - The retraction sits in two snapshots and is reported once under `:global-diagnostics`, with no `:dangling-retraction` under `:diagnostics`.
+  - `resolve-name 'base` is `:absent` with empty diagnostics, and the other name still resolves.
+  - In the in-set case, `:global-diagnostics` is empty and the diagnostic stays with the name, which still resolves.
+- **REPL test** in `test/yin/vm/linker/dht_end_to_end_test.cljc`: a reader hydrates an index containing a dangling retraction.
+  - `(yin.link/names)` shows it once under `:global-diagnostics` and not under `:diagnostics`.
+  - `(require 'my.lib)` is refused `:absent` with empty diagnostics.
+- **Red first.** The global assertions failed before the fix. The two "not in a per-name diagnostic" assertions already held before the fix, because a missing envelope yields no name; mutation G3 below shows they still catch a leak.
+
+## Mutations
+
+Each was applied temporarily, seen failing, and reverted. Every new assertion failed under at least one.
+
+| # | Mutation | Caught by |
+|---|---|---|
+| G1 | nothing moved to global | unit and REPL: global present, not in `:diagnostics` |
+| G2 | global entry also left in `:diagnostics` | unit and REPL: not in `:diagnostics` |
+| G3 | global entries attached to every name | `resolve-name` and the REPL require response |
+| G4 | every dangling retraction made global | in-set case (2 assertions) |
+| G5 | global entry listed twice | "once" (unit and REPL) |
+| G6 | a global diagnostic empties the name map | other name still resolves |
+| G7 | an in-set retraction removes the name | the other principal cannot retract it |
+
+## Lanes (final code, foreground, each run to its verdict)
+
+| Lane | Verdict |
+|---|---|
+| kondo (5 changed files) | 0 errors, 0 warnings |
+| `bb test:cljs` | 2605 tests, 0 failures; both new tests ran |
+| `bb build:yin-repl-peer`, then `bb test:cljd` after `rm -rf test/cljd-out` | built; +2560, all tests passed (2 more than before) |
+| `bb build:yin-repl-node`, then JVM tests in three chunks | 2692 tests, 0 failures, across all 168 namespaces, including `yin.repl.dht-process-test` |
+
+The JVM tests ran in three chunks because `bb test:clj` runs longer than the 10-minute foreground limit.

@@ -1,0 +1,108 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+# Review: `docs/design/yin.repl.implementation-plan.md`
+
+## Findings, most severe first
+
+---
+
+**CRITICAL | plan:252-254, 401-403 vs `src/cljc/yin/vm.cljc:6-9`, `src/cljc/yin/vm/stream_driver.cljc:3,25-26`, `src/cljc/yin/vm/telemetry.cljc:2,281`, `src/cljc/yin/vm/ffi.cljc:11,99,110` | The plan's core promise — "a working local REPL … requiring no v1 namespace" (R2, and the End condition) — is unimplementable as written, because the evaluator the REPL must use consumes its streams through v1 protocols.**
+
+Every `vm/eval` and `vm/run` goes through `engine/run-on-stream` (`engine.cljc:304-319`, reached from `semantic.cljc:880-897` via `ffi/maybe-run`), which polls the REPL-supplied `:in-stream` with **v1** `ds/next`, fabricating its initial cursor as `{:position 0}` (`stream_driver.cljc:25-26`). The VM appends telemetry datoms to the REPL-installed stream with **v1** `ds/append!` (`telemetry.cljc:281`), classifies values with `satisfies? ds/IDaoStreamReader` (`telemetry.cljc:124,166`), and its ffi bridge reads/writes call-in/call-out streams the same way (`ffi.cljc:99,110`). A v2 ring-buffer handle implements none of v1's protocols, so the first idle-ingress poll after the first `vm/eval` throws. Note also plan:80 lists "VM construction and reset" among things that "touch no stream" — `make-vm` builds the in-stream (`repl.cljc:160-172` → `make-local-stream:344-346` → v1 `ds/open!`).
+
+**Correction:** the plan must pick one before R2 and say so: (a) a new adapter namespace implementing v1's `IDaoStreamReader`/`IDaoStreamWriter` over v2 handles — which still *requires* `dao.stream` v1 to define the protocols, so "no v1 namespace" dies anyway; (b) keep the VM-internal streams (in-stream, telemetry) as v1 ring buffers and reword the end condition to something true, e.g. "no v1 `dao.stream.rpc.*`/`dao.stream.ws` dependency — the VM seam stays v1 until yin.vm's own migration plan"; or (c) drop the datom-literal eval path and VM telemetry from the slice. As written, R2 fails at the first evaluation, on every host.
+
+---
+
+**CRITICAL | plan:372, 114-124, 263-266 | "The REPL does not have that problem because it already owns a polling loop" is false against the code, and the plan never specifies the loop that must replace v1's promises.**
+
+v1's REPL owns no polling loop — `rpc-client/wait-for-response` owns it (`rpc/client.cljc:77-111`), and the REPL consumes its Promise/Future (`repl.cljc:526-546`, `739-766`; the cljs main's print-and-re-prompt is promise-chained at `repl.cljc:903-909`, the cljd main's at `repl.cljc:1044-1055`). In v2, `poll!`'s "`blocked` returns to the caller; that is the yield" (plan:120-121) is only a real yield if the caller then returns to the host loop. On Node and Dart, the readline/LineSplitter line handler cannot wait — it must return after `request!`, and a host timer (`setInterval` / `Timer.periodic`) must own `poll!`, response printing, and the prompt discipline. On clj, `run-cli!` parks in `read-line` (`repl.cljc:856-861`); with no background poller, "Connected to …" (which R3 moves to observing `:ws/opened` on the medium, plan:263-266) and remote results print only after the user's *next* keypress. A synchronous `(loop [] (poll!) (recur))` on cljd/cljs deadlocks the event loop — ws IO never progresses, `blocked` never clears. The contract permits the fix ("cadence belongs to the runtime driving the interpreters", `dao.stream.md:180`), but this plan, whose whole subject is the REPL, never names the driver, its cadence, or its ownership per host — and never states `eval-input`'s new contract (v1 returns a Promise/Future on two hosts; v2 forbids that surface for `connect` but is silent for eval).
+
+**Correction:** add a per-host driver deliverable to R2/R3: clj — the caller-owned blocking wait the plan already sanctions (plan:122-124) for eval, *plus* one background poller thread (or an explicit decision that connection status reports lazily); cljs/cljd — a single ticker that owns `poll!` and replaces the promise chains, with the single-poller discipline stated (two pollers on one client state can deliver completions to the wrong consumer).
+
+---
+
+**HIGH | plan:284-287 vs `dao.stream.ws.md:140-143` | R4's one-medium-per-attachment choice omits the boundary-level lifecycle announcement stream the ws spec requires for exactly that granularity.**
+
+ws.md:140-143: "One medium per attachment isolates them, but the boundary must then announce new attachments on a boundary-level lifecycle stream, since nothing discovers a stream by itself." R4 picks per-attachment media ("the safer default", plan:286-287) with no announcement stream, and no statement of how the composition learns a socket was accepted at all without callbacks — v1 used `:on-connect` (`repl.cljc:792-798`, `rpc/ws.cljc:63-72`), which ws.md forbids as a public surface (ws.md:165-169). R4's last bullet (plan:295-297) flags server-side attachment *identity* as open in the spec, but not the accept-notification mechanism it depends on even more basically.
+
+**Correction:** either add the boundary lifecycle stream and the accept-notification resolution to R4's deliverables and its spec-dependency list, or choose one-medium-per-boundary (demultiplex by `:ws/attachment`, already carried per ws.md:93-97) and accept the documented flooding tradeoff explicitly.
+
+---
+
+**HIGH | plan:226-231, 126-129, 138-142 | The request/response wire envelope, error convention, timeout ownership, and the seam between R1's bare values and the `:ws/…` envelopes on the real medium are all unspecified.**
+
+v1's envelope is `dao.stream.apply`'s maps (`apply.cljc:42-63, 93-103`); v1's server wraps handler errors as `{:error msg}` (`rpc/server.cljc:24-38`). R1 never says whether v2 copies these shapes under its own keys, reuses the v1 namespace (a v1 dependency inside `dao.stream.rpc.*`), or invents new ones. The plan distinguishes gap-loss "from a timeout" (plan:128-129) — but a step-driven layer with no clock has no timeout; who tracks deadlines is unstated. And the deposit medium carries envelopes `{:ws/attachment … :ws/event :ws/payload :ws/value …}` (ws.md:105-111), not bare responses: R1's ring-buffer tests will work on bare values and then R3's `poll!` reads `:ws/…` envelopes — the unwrap/filter step is assigned to no one (`rpc.ws` is described as "wiring" only, plan:138-142).
+
+**Correction:** R1 should fix the request/response value shapes (an explicit copy of apply's envelope under v2 keys is the obvious answer), the error encoding, and that `poll!` takes — or `rpc.ws` supplies — an extraction from deposited envelopes to response values that skips resolution/lifecycle events; timeouts should be declared caller-owned (the driver), with gap-loss the layer's only time-independent loss report.
+
+---
+
+**HIGH | plan:253-254 vs plan:317-318 | R2's deliverable is gated on aliases that R5 creates.**
+
+R2 ends with "requiring no v1 namespace: `clj -M:clj-yin-repl`, …" (plan:253-254); R5 says "The four `deps.edn` aliases and the v2 cljd runner land here" (plan:317). **Correction:** land the aliases at R2 (they sit beside the existing set and touch nothing), or restate R2's deliverable without them.
+
+---
+
+**MEDIUM | plan:226-228, 268-271 | Client reattach is underspecified: no writer-rebind, ambiguous cursor provenance, attachment-id rotation.**
+
+R3 requires "the deposit medium — with its cursor — outlives the socket" (plan:270-271), so `init-client` must accept a caller-minted cursor (which anchor? — "plus a minted cursor", plan:227, doesn't say minted *by whom* or where), and the client must survive swapping a dead writer handle for a fresh `attach!` result — but the R1 surface (`init-client`, `request!`, `poll!`, `close!`) has no rebind. After reattach, the new boundary deposits under a *new* `:ws/attachment` value; a client filtering by the old id (the pattern ws.md:152-157 suggests) drops everything. **Correction:** add a rebind/rebuild-with-cursor operation, state the anchor (`:dao.stream/newest` for a fresh client; the kept cursor for resume), and state that on a private medium the client correlates by envelope kind, not attachment id.
+
+---
+
+**MEDIUM | plan:169-175, 282-283, 303-304 | D3 is over-deferred, and R5's own connect example contradicts it.**
+
+R5 connects to `daostream:ws://localhost:8080` — **no path** (plan:304) — while D3 debates what `/repl` names and R4 builds a resolution table keyed by served path; v1's server ignores paths entirely (`ws.cljc:165-198`). What a pathless URL normalizes to, and which path the v2 server serves, are unstated. Meanwhile the disclaimer half of D3 is already answered by the spec (`:ws/not-found`, authoritative, unretweeted — ws.md:330-338; the plan itself restates this at plan:266-268); only the key *set* is genuinely gated. **Correction:** state the interim semantics now — under D2a, `/repl` names a composition-owned server-side stream created at endpoint start (possibly forever empty until forwarding/resumption exists), which is the only reading consistent with ws.md:8-16 ("names a server-hosted stream … the same descriptor reaches the same stream every time"); make R5's example `daostream:ws://localhost:8080/repl` and define pathless-URL normalization. Note R5 fact 3 quietly rewords the spec's promise as "reaches the same *endpoint*" (plan:311) — an implementer should not bake that shift in.
+
+---
+
+**MEDIUM | plan:241-244 vs stream-plan:139-147 | Whether the v2 ring buffer can be declared unbounded is a sibling-plan decision this plan asserts by implication.**
+
+R2: "Choose and record the capacity; 'unbounded' is a declaration, not an omission" — but the sibling plan scopes Phase 2 to "evict-oldest retention with declared capacity" with gap-with-recovery as a produced outcome, and names no unbounded mode. **Correction:** either coordinate an explicit unbounded declaration into the sibling plan's Phase 2, or pick finite capacities for the REPL's output/telemetry/in streams and record the numbers here.
+
+---
+
+**LOW | plan:39 vs `repl.cljc:815-830, 836-848` | `--telemetry` / `--telemetry-stream` CLI flags are unaccounted.**
+
+The copied `parse-args` includes them and `configure-state` invokes `(telemetry …)` at startup; `--telemetry-stream ws://…` is remote telemetry, excluded from the slice (plan:273-276, 378-380). **Correction:** say whether v2 keeps the flags with local-only semantics, errors on remote URLs, or drops them.
+
+---
+
+**LOW | plan:349-352 | The host-matrix instruction presupposes that transient send-buffer `full` exists; on all three hosts it may not.**
+
+java.net.http `sendText` buffers (v1 joins the future, `ws.cljc:241-243`), Node `ws.send` buffers, Dart `WebSocket.add` buffers — none exposes backpressure. The honest per-host answer may be "`full` excluded by nature," which the contract permits with a stated reason (`dao.stream.md:417-424`). **Correction:** reframe as "declare the `append!` outcome subset per host, with reasons" — which is what the contract actually asks.
+
+---
+
+## On the specific questions
+
+**The v2 RPC diagnosis (§ "why it is not a port") is correct.** Verified: v1's client reads responses through the *same duplex handle* it wrote to (`client.cljc:155-156` → `WebSocketStream`'s reader delegates to the hidden `:remote-stream` inbox, `ws.cljc:68-70`) — exactly the "hidden per-socket inbox" ws.md:160-163 forbids; cursors are `(:position …)` arithmetic seeded from `(atom {:position 0})` (`client.cljc:29-42, 129`); and it returns Promise/Future per host (`client.cljc:55-57, 108-111`; same triple in `await-connected`, `ws.cljc:458-507`). The plan's characterization at plan:337-342 is accurate.
+
+**The two-handle, step-driven shape is right for a REPL — conditionally.** The condition is the driver (finding 2). What a clj caller writes is acceptable and short: `request!` (retry on `full` — safe, since `full` means nothing was appended), then `loop [p (poll!)] → find id, else (Thread/sleep 10) (recur)`. Two requests outstanding at once work cleanly — ids are matched at drain time, which *removes* the entire class of bug that v1's `advance-cursor!` monotonic-max surgery exists to patch (`client.cljc:29-42`); the only disciplines are single-poller and serializing client-state updates through one atom.
+
+**cljd.** A `dart:io` WebSocket **server** is available and already proven in-repo (`ws.cljc:369-410`: `HttpServer.bind` + `WebSocketTransformer.isUpgradeRequest/upgrade`) — cljd is not client-only. The step-driven design works on the Dart event loop **only** with a real yield: `Timer.periodic` driving `poll!`, or returning from the line callback; a synchronous retry loop deadlocks (this is finding 2's sharpest edge). The `#?(:clj …)` trap is stated correctly (plan:343-348) and the plan's own design steps on it nowhere — but the *verbatim copy* contains bare `#?(:clj …)` blocks (`repl.cljc:63, 836`) that must become `#?(:cljd nil :clj …)`; the plan's "worth checking … before they are taken as precedent" covers this, barely.
+
+**The duplication.** ~60% is a fair bulk estimate (I count roughly 620–680 of 1085 lines as pure or near-pure). But the implied clean split at "touches no stream" is false at function granularity: `emit-output!` (113-117), `make-repl-primitives` (120-130), `make-vm` (160-172), `create-state` (175-202, inline `{:position 0}` cursors), `stream-status`/`repl-state` (213-299, uses `ds/closed?`), `collect-*`/`format-eval-result`/`finalize-eval` (381-451), `eval-datoms` (454-467), `handle-command` (552-626), and the whole `eval-input` chain (652-731) all straddle. And the copy is not *verbatim* wherever a `{:position n}`, `ds/open!`, or `ds/closed?` sits inside an otherwise-pure function. Copying is nonetheless the right call under the constraint: the pure halves are `defn-` private (unreachable without editing v1), and extraction *is* editing.
+
+**D2/D3.** D2a is right: the accepted-connection handle is writer+closable with its writer surface on that connection's outbound path (ws.md:44-48), replies are private by construction, and D2b's only real benefit (outbound replay history) is worthless until resumption is specified. D3: the recommendation to gate the *key set* is procedurally right, but the *semantics* are available now (see the D3 finding) and R4's first bullet is otherwise circular.
+
+## What would fail first, starting R1 tomorrow
+
+R1 succeeds — two ring buffers, no socket, provided the sibling plan's Phases 1–2 have landed (they haven't; nothing in this repo contains `dao.stream` yet). R2 then fails immediately: the first `(vm :semantic)` or first evaluation drives `engine/run-on-stream` → `ingest-next-program` → v1 `ds/next` on the v2 in-stream → protocol-dispatch exception on all three hosts; enabling `(telemetry)` fails the same way at `telemetry.cljc:281`. If the implementer routes around that by handing the VM v1 streams, the R2 review check "requiring no v1 namespace" fails instead. Independently, the R2 deliverable command `clj -M:clj-yin-repl` doesn't exist until R5. R3/R4 don't fail so much as stall: the gates, the server-side attachment-identity answer (plan:295-297), and the accept-notification mechanism are all absent.
+
+## What an implementer cannot determine from these documents
+
+1. The v1↔v2 seam at the VM: adapter, v1-internal streams, or dropped paths (finding 1) — the plan doesn't know the VM consumes streams.
+2. The REPL's own driver per host: who calls `poll!` while the user waits, at what cadence, and `eval-input`'s new contract (finding 2).
+3. Request/response envelope, error encoding, timeout ownership, and envelope-unwrapping at the medium seam (finding 4).
+4. How the server composition learns of an accepted connection without callbacks, and the announcement stream for per-attachment media (finding 3).
+5. Server-side attachment identity — correctly flagged as open, but with no named owner for resolving it (the sibling plan's 4a, implicitly).
+6. Whether the v2 ring buffer accepts an unbounded declaration (finding 8).
+7. `init-client`'s cursor anchor and the reattach/rebind story (finding 6).
+8. Pathless-URL normalization and the served path (finding 7).
+
+## Is the scope right?
+
+**The exclusions are all correct; the plan is too narrow in exactly one place — it is missing a prerequisite it doesn't know it has — and its one deliberate widening is defensible.** Nothing on the exclusion list is required to make the REPL work: `forward-step` is genuinely dead under D2a, the REPL's R4 *is* its own serving composition, Phase 5 is replaced by R5, the conformance harness proves nothing the slice needs, `retry`/`dedup` exist for a lossy transport that v2 doesn't have, remote telemetry and the Flutter widget are separate consumers. Nothing included is dead weight except arguably the cljd ws transport ownership — but that is declared, argued, *required by the sibling plan's own end condition* (stream-plan:493-498 declares itself incomplete on cljd until that transport exists), and de-risked by v1's working `dart:io` implementation. It does, however, make this plan's schedule hostage to the host with the least spec coverage; the gates must produce cljd answers too.
+
+**The plan should not be executed as written.** Not because the shape is wrong — the diagnosis of v1's RPC layer is exactly right, the two-handle step-driven client is the correct design, D2a is the correct decision, and the narrowing discipline is the best I've seen in this repo's plans — but because two of its central claims are false against the code it plans to build beside: "requiring no v1 namespace" (the VM's ingress and telemetry are hard-wired to v1 protocols) and "the REPL already owns a polling loop" (it never did; v1's RPC client owned it, and the replacement driver is unspecified). Both are fixable by amendment — a scope decision on the VM seam and a per-host driver deliverable — without touching the architecture. Until those two amendments land, R2 cannot complete on any host, and R3/R4 would be built against a REPL whose own loop doesn't exist.
+[?25h

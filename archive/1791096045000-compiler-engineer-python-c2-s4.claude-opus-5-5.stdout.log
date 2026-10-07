@@ -1,0 +1,48 @@
+Completed-GMT: 2026-10-04 06:59:36 GMT
+Completed-Local: 2026-10-04 13:59:36 +07 (Indochina Time, +0700)
+Coding-Agent: claude
+Session-ID: eccc034e-500f-4c51-b2ca-2fdda44289aa
+
+S4 is implemented: generator expressions are now anonymous generators and the C1 inlining is gone. JVM and Node tests pass; Dart was not run because the compile command needed a permission this session couldn't get. Full findings are in `collab/1791096045000-compiler-engineer-python-c2-s4.claude-opus-5-5.findings.md`.
+
+**Changed files**
+- `src/cljc/yang/python/antlr/lower.cljc`:
+  - A generator expression, in parentheses or as the sole call argument, now lowers to `(let [%first (py/iter <outermost iterable>)] (py/make-generator "<genexpr>" (fn [%gen] ...)))`. The outermost iterable is evaluated and `iter()`-checked at creation in the enclosing scope; every other clause runs only when the generator is resumed.
+  - The inlining is removed: `consuming-builtins`, `builtin?`, `callee-builtin`, the special case at the call site, the `:sum`/`:any`/`:all` comprehension kinds, and both "phase C2" refusals.
+  - `yield` inside a generator expression is now the syntax error "'yield' inside generator expression".
+- `src/cljc/yang/python/antlr/prelude.cljc`:
+  - Removed `py/genexp-unsupported`.
+  - `sum`, `any`, `all` and `set` now take one element at a time instead of building a full list first. Without this, removing the inlining would break laziness and the existing C1 "sum stopped" / "set stopped" expectations.
+  - The generator machinery is unchanged: every crossing still goes through `py/gen-switch`.
+- `docs/design/yang.antlr.md`: the S4 table row now ends "Landed." Other places still say S4 is pending (the 8.5.3 intro sentence, the line-19 status paragraph, the list near line 3568). I left them because they were outside the allowed text.
+- Tests:
+  - `e2e_c2_test.clj` has six new source-program tests, with expected output checked against the local CPython 3.9.6. They cover laziness, the iterable being evaluated at creation, scoping, nesting and rebound consumers, PEP 479, and send/throw/close.
+  - `prelude_parity_test.cljc` has two portable tests, including the recursion-limit boundary: under limit 2, a third nested generator expression is refused and stays `:created`.
+  - `lower_test.clj` has a golden showing a generator expression passed to `sum` is a plain call with no inlining, plus new yield diagnostics and classification cases.
+  - In `float_address_test.cljc` I re-minted five address goldens, last and once.
+- Tests updated because they pinned the removed inlining:
+  - In `lower_test.clj` I removed the two "generator expression (phase C2)" refusal rows; those refusals no longer exist.
+  - In `e2e_c1_test.clj`, `generator-consumer-rebound-test` asserted the C1 `NotImplementedError`. It now asserts CPython's result: the rebound lambda receives the generator. That file wasn't on the allowed list; I relied on the brief's permission to update tests that pinned the removed inlining. No other C1 test changed.
+
+**Test results** (all run in the foreground)
+
+| Lane | Tests | Assertions | Failures / errors |
+|---|---|---|---|
+| JVM `lower-test` | 28 | 97 | 0 / 0 |
+| JVM `e2e-c2-test -e :slow` | 28 | 140 | 0 / 0 |
+| JVM `e2e-c1-test -e :slow` | 18 | 216 | 0 / 0 |
+| JVM `prelude-parity-test -e :slow` | 21 | 84 | 0 / 0 |
+| JVM `float-address-test` (after re-mint) | 12 | 105 | 0 / 0 |
+| Node, focused `prelude-parity-test` | 21 | 84 | 0 / 0 |
+
+kondo reports 0 errors and 0 warnings, and cljstyle `check` is clean.
+
+After those runs I re-wrapped three quoted prelude forms for line length (whitespace only; the generated code is identical). I then re-ran kondo, cljstyle and float-address, but not the e2e or parity namespaces.
+
+**Timings:** each new e2e test costs about 1–4 s on the JVM, measured against a trivial-test baseline. The longest, `genexp-nesting-and-call-arguments-test`, is about 4 s, close to but under the 5 s line, so nothing is tagged `^:slow`.
+
+**Deviations and unfinished**
+- **Dart not run.** The orchestrator needs to run the Dart lane.
+- **`gi_*` not covered.** 8.5.3 defers `gi_*` introspection, so on a generator expression these attributes raise AttributeError like on any generator here, which differs from CPython. I didn't write a source test for it because it can't match CPython's output.
+- **Close-on-collection excluded.** CPython closes the inner generator when a generator expression is closed and dropped; this runtime doesn't (ruling 6), so I kept that case out of the test programs.
+- **ANTLR parser generated.** The new worktree had no generated parser, so I ran `bb gen:python-antlr`. Its output is under `build/` and doesn't show in `git status`.

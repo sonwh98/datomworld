@@ -1,0 +1,49 @@
+Completed-GMT: 2026-10-05 13:52:00 GMT
+Completed-Local: 2026-10-05 20:52:00 +07
+Coding-Agent: claude
+Session-ID: c490a9e8-8546-47da-bdc1-73fb22f44275
+
+## New length
+
+`docs/design/yin.vm.linker.dht.head.md` is now 1328 lines, up from 1071. I did not take the optional tightening: the growth is ownership, client cleanup, name resolution, refusal translation and their tests, all of which the core needs. It is still ASCII with no line over 80 columns, and only that file was edited.
+
+## Per finding
+
+All five citations check out against the tree; all five are accepted.
+
+1. **Identity-contract conflict (P1): accepted.** A board name is now lookup data only, resolved once to the ring's real descriptor; the reader then attaches normally. Changed: C3, new C4, 5.1, section 6, 8.2, 8.3, section 9, H2, section 12.
+2. **Shared candidate ownership (P1): accepted.** The follower keeps an owner set `{address #{principal}}` for the candidate records it started and removes a record only at the last release. Release happens at replacement, rejection and installation; release at installation is the cleanup that lets a later manual `load-index` succeed. Changed: 5.5, H1 (two principals sharing a manifest, replacement, rejection, manual load after install).
+3. **Host refusal translation (P1): accepted.** Both host load operations answer a DHT refusal as the call's error value. It is in H1 with `yin/repl/query.cljc` in scope and a test through the host module. Changed: 5.5, H1.
+4. **Abandon and fetch-client cleanup (P2): accepted.** `abandon` retires the record's client interest using `content.step/abandon` (unsent request) or `content.step/retire` (outstanding id), both of which already exist. `advance-loads` now steps the client whenever it holds anything, not only while a load is active. Each load has its own request id, so other loads are untouched. Changed: 5.5, section 6, H1 (the four abandon cases plus two loads on one address). This also closes the two partly resolved round-2 items.
+5. **Replay and load-frequency claims overstated (P2): accepted.** The document now says the core gives safety and no progress guarantee, bounds the work an alternation can cause, and withdraws "loaded once per process". Changed: 5.5, 5.9, 8.4, section 10, H1 (alternating-replay tests), section 12, new question 5.
+
+Small corrections applied: the mirror-call citation runs to line 276, and 8.2 says the reserved `ws:<port>` does not cover a different advertised host, a reverse-proxy path, or two unreachable peers.
+
+## Identity decision: (a)
+
+I chose (a), the round-2 approach, for three reasons:
+- **Against (b):** it leaves `dao.stream.md` untouched, so no owner decision on the identity contract is needed. Making a name a legal identity would amend the governing contract and need cursor semantics for a stream replaced under its name.
+- **Against (c):** an endpoint address is not the ring's identity, and any fixed entry key is the alias again, so that option does not exist.
+- **Already reviewed:** the reviewer marked (a) resolved in round 2.
+
+The cost is one named `descriptor` request shape in `dao.stream.remote`, a `resolve` on the link, and a name map on the ws acceptor and dial. H2 lists the `dao.stream.remote.md` amendments section by section.
+
+Two things I got wrong in revision 2 are withdrawn. I treated the `yin.repl` aliases as a convention to follow; they are a landed defect (C4). And I claimed the question "blocks relaying, not following"; a fixed name is already false across one publisher's restart.
+
+## New defect
+
+- **N9.** `dht-answer` lets any refusal thrown by `load-index` or `load-module` through the host interpreter today, not only the new kind-conflict one. H1's translation covers every `:dao.space.dht/refused` code on both operations.
+
+Also named so it is not lost: the `yin.repl` service's fixed identities (`yin.repl/requests`, `yin.repl/answers`) conflict with `dao.stream.md`. That is outside this design and needs its own task; H2's name resolution is the available fix.
+
+## Owner questions
+
+None of the five blocks adoption of the core.
+
+1. **Does "always" reach into a live session?** The design keeps a session on what it linked and needs `(reset)`. No ruling settles it.
+2. **What should a bare `q` see after `dht join`?** Source separation is ruled; the default is open. I recommend the reader's own index only for now, with a named view on request.
+3. **Is every HEAD move the head you mean?** A follower loads a new index per publisher round. I recommend yes.
+4. **Is WebSocket acceptable as the first cross-machine transport?** It needs one reachable TCP port at the UDP port number, does not hole-punch, and is cleartext. I recommend yes. This gates the step after the core, not the core.
+5. **New: is safety without a progress guarantee acceptable for the core?** The core never installs a wrong or older head, but a source can withhold, and a path attacker on a cleartext channel can alternate old signed heads so no load completes. I recommend accepting it for the core and deciding again at the step off loopback, where `wss` or a scheduling policy could be required first.
+
+**One named blocker that is not yours:** H2 amends `dao.stream.remote.md`, a contract whose every sentence is a rule. That contract text needs Architect and independent-reviewer sign-off before H2 lands. H0 and H1 do not depend on it.

@@ -1,0 +1,54 @@
+Completed-GMT: 2026-10-06 09:06:11 GMT
+Completed-Local: 2026-10-06 16:06:11 +07
+Coding-Agent: claude
+Session-ID: d8d95e30-f2d2-443b-9aa9-36e7001a904e
+
+SIGNED OFF
+
+This signs the architecture and the code I read; landing still needs the full three-host `bb test` green. The only lane log on disk, `collab/h3-bb-test.log`, is still the 15:32 red run, so I have not seen a green one.
+
+## Blockers
+
+None.
+
+## Rulings
+
+**Item 2, the `{}` start for a link: a sound fix, not a mask.** The mechanism is a ClojureDart compiler divergence, and I found it in the cljd source:
+
+- `assoc` carries an inline rule (`cljd/core.cljd:1325`): a direct call with two or more pairs and keyword keys compiles to `(-conj m {…})`.
+- `nil`'s `-conj` is `(cons o nil)` (`cljd/core.cljd:1101`), so `(assoc nil :dial d :since now :handle nil)` is a one-element list holding the map on Dart, and a map on the JVM and Node.
+- A single pair goes to `-assoc`, which is right on `nil`. `assoc` passed as a function (`update`, `update-in`) is not inlined and is also right.
+
+So the defect was the code's assumption, and starting from `{}` at `src/cljc/yin/repl/dht.cljc:835` removes it at the only place a link can be `nil`.
+
+I checked the other multi-key `assoc` forms in the file `dht.cljc` as it stands now, and grepped `link.cljc` for `assoc`/`update` forms on a possibly-nil value; none can receive `nil`:
+
+- `dht.cljc:801` gets `{}` or a `drop-dial` map.
+- `dht.cljc:810` follows a single-key `assoc`.
+- The `update links …` at `dht.cljc:943` passes a function, and `drop-dial` answers a literal map.
+- `link.cljc` has no such form.
+
+I did not re-scan `main.cljc`, `query.cljc` or `repl.cljc` this round; the engineer's focused Dart runs over their tests passed.
+
+One small request, non-blocking: make the comment at `dht.cljc:831` name the mechanism (the inlined multi-key `assoc` becomes `-conj`, which on `nil` conses a list).
+
+**Item 3, the regular-file check: acceptable.**
+
+- Each host refuses a directory, FIFO, device or dangling link before any open that could block, and follows a symlink only to a regular file.
+- The uncovered check-to-open swap on the JVM and Dart needs write access to the node's own locked store directory. Whoever has that can already replace HEAD or the content log, and the worst outcome here is a blocked startup, not a wrong head. No re-check is needed.
+
+**Item 4, the cleanup restructure and `:open-store`: sound.**
+
+- The order is unchanged: `refused-head`, `heads-records`, `dht/join`, `compose`. `compose`, the reader's strictness and confirm → persist → install are as I signed them.
+- Ownership is now clean: before the join only the directory store is closed; after it only the node is. `quietly!` keeps a failing close from replacing the refusal.
+- I did not read the node's close path to confirm it closes the store in a `finally`. I rely on the "store closed exactly once" assertion in `a-failed-cleanup-never-masks-the-refusal`, which I also did not run.
+- `:open-store` is the same kind of option as `:write-heads!` and the spec's `:bind!`: an injected host seam with the production default, below dao.stream. It is not a compatibility shim; no old path is kept alive. `create-state` does not forward it, so it does not reach the shell's surface.
+
+## Notes
+
+- I saved the `assoc` trap to memory as a ClojureDart cross-host trap, beside the existing ones.
+- The Dart `decode-utf8` now relies on `dart:convert`'s `utf8` rejecting malformed input by default. That is the documented behaviour, but no test in the list I was given runs the invalid-byte case on Dart by name; confirm `heads-edn-is-bounded-and-strict-utf-8` is in the Dart lane's passing set.
+- There is no FIFO test on Node or Dart. That is acceptable: the check is a type test before open on each host, and the JVM test covers the blocking case.
+- No Node test lane has run in any round; the full `bb test` is the first. Watch the process test's immediate rebind of A's port there.
+- Still open and non-blocking from round one: move attribution when two principals install in one tick, the whole-index read per deposit, the double backoff, and the duplicate registry derivation. From round two: `read-bounded` and `decode-utf8` are host file interop outside `dao.space.store.fs`. I accept them staying for H3, but they should move there in a follow-up so 5.10's "host seams, all existing" stays true.
+- Do not stage `collab/`.

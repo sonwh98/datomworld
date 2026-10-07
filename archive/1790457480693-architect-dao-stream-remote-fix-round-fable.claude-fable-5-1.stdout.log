@@ -1,0 +1,43 @@
+Completed-GMT: 2026-09-26 21:27:41 GMT
+Completed-Local: 2026-09-27 04:27:42 +07
+
+A note before the per-item summary: gpt-6-sol's parallel pass was landing edits in the same working tree while I worked. My whole-file rewrite of the spec was rejected for that reason, so I switched to targeted edits on top of the current text rather than overwriting the other pass. Where the other pass had already addressed a finding, I kept its text and only tightened what was inconsistent or under-specified.
+
+## Item 1: gate decision reads (P1)
+
+The other pass had already specified initial cursor minting at wrap, the per-outcome transitions, the two-read bound on gap, and serialization by the composition (`docs/design/dao.stream.middleware.md:120-147`). I added what was still open:
+
+- `docs/design/dao.stream.middleware.md:109-116`: what a decision value may be, including an immutable query value, and that `verify` is then a query over it with the request as bindings, the shape `dao.space.query/q` has (verified against `src/cljc/dao/space/query.cljc:1599-1606`).
+- `docs/design/dao.stream.middleware.md:135-139`: what `verify` receives once the gate is ended, the `{:dao.stream.middleware/ended true}` marker, so "becomes ended" has a defined effect.
+- `docs/design/dao.stream.middleware.md:79-86`: the four prohibitions now name the decision read as "a bounded read on a composed decision medium" rather than a fixed count, matching the gate text.
+
+## Item 2: ShiBi fit (P1)
+
+Chose path (b) and marked (a) a non-goal, in all three places:
+
+- `docs/design/dao.shibi.md:20-44`: the two-interpreter fit stated as the one chosen path: the index interpreter publishes the tuple space's current query value as the decision; the query interpreter is `verify`, the required adapter contract, a Datalog query over that value with the request as bindings.
+- `docs/design/dao.shibi.md:46-56`: limits stated precisely: one snapshot per call, cost bounded by the composition, no opening or waiting inside `verify`, staleness bounded by index cadence and medium eviction, fail-closed on the `none` and `ended` markers, a decision is not a fact unless emitted.
+- `docs/design/dao.shibi.md:58-63`: request-specific decisions awaited over streams declared a non-goal for this version, with the reason (a gate awaiting an answer would wait).
+- `docs/design/dao.stream.remote.md:583-589`: section 7 names the same chosen path and points at the ShiBi doc for the contract and its limits.
+
+## Item 3: right-size the spec (P2)
+
+The other pass moved most of the fate table and the amendment inventory; I moved the full fate list into the plan as `docs/design/dao.stream.remote.implementation-plan.md:178-219` (section 5, renumbered from my earlier duplicate "4"), and trimmed narrative in the spec: the piggyback history sentence at `dao.stream.remote.md:194-197`, the merged loss paragraph at `:300-303`, the meeting-board pointer folded into `:495-496`, and the tail sections merged into one at `:593-598`. Result: **598 lines** (was 675 at the re-gate).
+
+## Item 4: stigmergy companion (P2)
+
+Already done by the other pass at `docs/dao.space.stigmergy.md:242-247` (historical note, `dao.jing.content` pointer). I recorded it in the plan's inventory at `docs/design/dao.stream.remote.implementation-plan.md:174-175` and made no further change.
+
+## Item 5: pair gap to loss (P2)
+
+The other pass's sentence said the link "applies its existing resend rule to outstanding reads" after the gap, which contradicts the channel-loss path it invokes. Fixed:
+
+- `docs/design/dao.stream.remote.md:401-410`: an `in` gap closes the channel reader for the link; the link observes `end`, abandons outstanding ids (not re-sent), reports each abandoned `append!` as `append-unknown`, and reattachment on the same pair descriptor mints a fresh `in` cursor at `:newest`; the gap is never surfaced as a source's gap.
+- `docs/design/dao.stream.remote.md:267-269`: the channel-loss rule now names the pair adapter's gap-or-end closure as one of its three causes.
+- `docs/design/dao.stream.remote.implementation-plan.md:149-151`: slice 7 proves the rule.
+
+## Checks
+
+No non-ASCII bytes in the four design files; no line over 80 columns in any line I added or edited (the only over-80 lines are pre-existing prose in `docs/dao.space.stigmergy.md`); plan headings now number 1 to 5 without duplicates; no stale "section 9" or "plan 2)" reference remains in the spec. Not run: any build or test, per the brief.
+
+Status: COMPLETE

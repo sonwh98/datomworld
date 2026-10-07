@@ -1,0 +1,64 @@
+Completed-GMT: 2026-10-05 09:34:26 GMT
+Completed-Local: 2026-10-05 16:34:26 +07
+
+I stopped D4 before making any edit, because two of the prompt's explicit stop conditions hold. No source was edited and no tests or kondo were run, so there is no red/green evidence and no observe/apply pair was split. The report is in `collab/1791194500000-vm-engineer-ucf-d4-engine-r1.findings.md`.
+
+1. **The FFI and link request appends are not in `engine.cljc`.**
+   - The link append is `module/append-link-request` in `module.cljc`, reached through `require-handler`.
+   - The FFI append is inlined at the `:ffi-call` site of each kernel: `semantic.cljc`, `debruijn/stack.cljc`, `debruijn/register.cljc` and `ast_walker.cljc` (`park-and-call`).
+   - The acceptance criteria limit the diff to `engine.cljc` and its tests, so gating these needs a wider diff than allowed.
+2. **The held `:stream/poll` and `:stream/cursor` observations have no representation in the existing wait grammar.**
+   - `:stream/cursor` has no wait reason, so `handoff.cljc` `observed-wire` would see no variant. Parking it needs a new wire variant, which r2 forbids.
+   - `:stream/poll` cannot reuse a `:next` entry. The sweep would resume it with a read value instead of the held observation, and the extra key it needs on the entry is unrepresented.
+
+`:stream/put`, `:stream/next` and `:stream/close` could be split inside `engine.cljc` alone, but I did not land a partial D4 because the next rounds build on it.
+
+Decisions for you:
+- Either widen the diff to `module.cljc` and the four kernels, or move the FFI and link request appends to D5/D6.
+- Either allow a new wait reason or variant for held observations, or choose another representation. Two options: refuse poll and cursor under `:running`, or have the driver perform them with no parked record.
+Completed-GMT: 2026-10-05 09:45:38 GMT
+Completed-Local: 2026-10-05 16:45:38 +07
+
+I stopped again before editing anything, because the narrow stop condition holds. No tests or kondo were run, so there is no red/green evidence. The overwritten report is `collab/1791194500000-vm-engineer-ucf-d4-engine-r1.findings.md`.
+
+The kernels' `:stream/next` park-entry builders would accept a `:stream/cursor` effect, since they ignore the effect argument. The blocker is that three of the four kernels' cursor call sites give the engine nothing to build the `:observe` entry from:
+
+- **`semantic.cljc` (l.443):** the cursor site passes `nil` for park-entry-fns. It needs `(call-park-entries seg pc E St K)`, as `:stream-next` and `:stream-put` already pass.
+- **`debruijn/register.cljc`:** `:stream-cursor` is not in `boundary-opcodes`, so it has no `:live` operand and the continuation payload cannot be computed. Fixing that changes the register encoder and code format.
+- **`ast_walker.cljc` (l.411):** the cursor site passes no builder and ignores `blocked?`, so a parked entry would be dropped. It needs the `{:k (:next k) :env env}` builder and a `blocked?` branch.
+- **`debruijn/stack.cljc`:** this one works as is.
+
+Poll is not affected: no kernel emits `:stream/poll`, so it parks with whatever builders the caller supplies.
+
+Decision for you: I recommend option 2.
+1. Widen D4 to a small change at the three cursor sites.
+2. Move gated `:stream/cursor` to D5 with the kernel round. D4 would land put, next, poll and close, plus `gate-mode`, the `:observe` entry for poll, the sweep skip and `apply-observation` for poll.
+3. Park cursor with no continuation and return a placeholder reference. This contradicts the ruling's "resume with the cursor reference", so I would not take it unprompted.
+
+I'll implement whichever you pick, test-first.
+Completed-GMT: 2026-10-05 09:57:50 GMT
+Completed-Local: 2026-10-05 16:57:50 +07
+
+D4 is landed for put, next and poll, and gated close is not implemented. It has the same missing-builder problem as cursor: the semantic kernel's close site passes `nil` for builders, the walker passes none and ignores `blocked?`, and `:stream-close` is not a register-kernel boundary opcode. Under `:running`, close still calls `close!`, so it is unfenced until D5. In `:exporting` and `:ended` it is refused with no handle call. The full report is in `collab/1791194500000-vm-engineer-ucf-d4-engine-r1.findings.md`.
+
+**What changed**
+- **`yin/vm.cljc`:** adds `gate-mode`, which reads `:yin.k/gate`.
+- **`yin/vm/engine.cljc`:**
+  - Put and next are split into observe and apply halves, so ungated behavior is still `apply ∘ observe`.
+  - Under `:running`, put parks as the `:put` entry it builds on `full`, and next parks as the `:next` entry it builds on `blocked`. Neither touches a handle.
+  - Poll parks as a machine-only `:observe` entry with `:op :poll`, built with the caller's `:stream/poll` or `:stream/next` builder.
+  - `check-wait-set` now skips `:observe` entries.
+  - New public `apply-observation [state entry outcome]` advances the cursor exactly as the ungated poll does, queues the continuation and makes no stream call. It refuses in `:exporting` and `:ended`.
+- **`test/yin/vm/engine_gate_test.cljc` (new):** 6 tests, 46 assertions.
+
+**Evidence**
+- **Red:** the new test file first failed at compile with `No such var: vm/gate-mode`.
+- **Green:** the new tests pass, 6 tests and 46 assertions. They cover zero calls under `:running` for put, next and poll, refusal in `:exporting` and `:ended`, and the sweep skip. For `ok`, `blocked` and `gap`, `apply-observation` gives the same resources and ready value as the ungated poll.
+- **Existing suites, no gate:** `yin.vm.*` gives 1221 tests and 12873 assertions, and `yin.repl.*` plus `datomworld.*` gives 306 tests and 2410 assertions, all with 0 failures and 0 errors (JVM, `:slow` excluded).
+- **kondo:** 0 errors on the changed files. The 4 warnings are all in `yin/vm.cljc` on lines I did not touch. cljstyle not run.
+- `git status` outside `collab/` shows only `vm.cljc`, `engine.cljc` and the new test file.
+
+**Concerns**
+- **`:observe` entries:** they cover `:op :poll` only. The cursor `:origin` and `:id` shape is not built, and D5 should decide whether close and cursor reuse the entry.
+- **Resume path:** no kernel emits poll, so the resume path for a queued `:observe` entry is untested at any kernel; D5 or D12 should cover it.
+- **`:yin.k/held`:** nothing sets it yet; the driver (D12) owns that.

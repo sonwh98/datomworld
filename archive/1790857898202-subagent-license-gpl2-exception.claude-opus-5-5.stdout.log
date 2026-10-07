@@ -1,0 +1,89 @@
+Completed-GMT: 2026-10-01 12:42:22 GMT
+Completed-Local: 2026-10-01 19:42:22 +07
+Coding-Agent: claude
+Session-ID: c9c76024-1216-4bf5-a6b5-5d725ecc491e
+
+# DRAFT: needs owner approval. LICENSE-EXCEPTION is a draft, not final licence text. This is not legal advice.
+
+Report written to `collab/1790857898202-subagent-license-gpl2-exception.claude-opus-5-5.report.md`. Nothing is staged or committed. Only the three authorized files changed:
+
+- **`LICENSE`:** now the GPL-2.0 text, replacing GPL-3.0.
+- **`package.json`:** only the `"license"` field changed.
+- **`LICENSE-EXCEPTION`:** new, 29 lines.
+
+Two of the requested checks did not run as asked: the second download of the GPL text failed, and `node -e` was blocked by the permission gate. Details are under "Checks" below.
+
+## 1. LICENSE source and digest
+- **Source:** https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt, saved as raw bytes with no edits.
+- **Size:** 17984 bytes.
+- **SHA-256:** `edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6`
+- This is the current gnu.org version, which gives the FSF's address as `<https://fsf.org/>`. The Linux kernel's COPYING file uses an older version with the "51 Franklin Street" postal address. The licence terms are the same.
+
+## 2. LICENSE-EXCEPTION (full text)
+```
+datom.world Linking Exception
+
+Copyright (C) 2021-2026 Sonny To
+
+datom.world is licensed under the GNU General Public License, version 2
+only (GPL-2.0-only), as set out in the file LICENSE. It is not licensed
+under any later version of the GNU General Public License.
+
+As a special exception to the GPL, the copyright holder gives you
+permission to link or otherwise combine datom.world with independent
+modules licensed under the Eclipse Public License 1.0 (EPL-1.0), the
+Eclipse Public License 2.0 (EPL-2.0), or the Apache License 2.0
+(Apache-2.0), and to copy and distribute the resulting combination,
+provided that:
+
+  (a) datom.world, and any work based on it, is distributed under the
+      terms of GPL-2.0-only, including its corresponding source; and
+
+  (b) each independent module is distributed under the terms of its
+      own licence.
+
+An "independent module" is a module that is not derived from or based
+on datom.world. Such modules need not be licensed under the GPL, and
+the terms of their licences do not become obligations under the GPL.
+This exception does not change the licence of datom.world itself.
+
+If you modify datom.world, you may extend this exception to your
+version, but you are not obligated to do so. If you do not wish to do
+so, delete this exception statement from your version.
+```
+
+What I modelled it on:
+- **The classic GPLv2 "As a special exception, the copyright holders give permission to link ..." wording.** Examples are the OpenSSL exceptions in projects like wget, and the template in the FSF's GPL FAQ.
+- **The GNU Classpath exception.** From it I took the definition of "independent module", the rule that each module must still meet its own licence, and the "you may extend this exception to your version" closing.
+- **One deliberate change from Classpath:** Classpath lets you distribute the combined program "under terms of your choice". I dropped that phrase. Clause (a) keeps datom.world and anything based on it under GPL-2.0-only, so only the EPL and Apache modules are freed.
+
+The years 2021-2026 come from git history: the first commit is 2021-11-21. All author identities are the owner's.
+
+## 3. package.json
+```
+  "license": "SEE LICENSE IN LICENSE"
+```
+- **Why not the `WITH LicenseRef-...` form:** it is not valid SPDX. In the SPDX 2.x expression grammar (spec 2.3, Annex D), whatever follows `WITH` must be an exception from the official SPDX exceptions list. A `LicenseRef-` name is not allowed there.
+- **SPDX 3.0 does allow a custom exception,** written `WITH AdditionRef-datomworld-linking-exception`.
+- **npm checks this field against the 2.x grammar.** It also explicitly accepts `SEE LICENSE IN <file>`, so that is the valid fallback the brief named.
+- **Caveat:** `LICENSE` holds only the GPL text. Someone reading `package.json` only finds the exception by noticing the `LICENSE-EXCEPTION` file next to it.
+
+## Checks (all run in the foreground)
+1. **LICENSE matches the fetched text: PASS, with a caveat.** It is byte-identical to the copy downloaded from gnu.org earlier in this session.
+   - A second download to compare against failed: gnu.org timed out three times.
+   - Re-check once the network is up: `curl -s https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt | cmp - LICENSE`
+2. **LICENSE-EXCEPTION is ASCII-only: PASS.** Every byte is printable ASCII or a line feed.
+3. **package.json parses: PASS using Python's `json.load`.** The requested `node -e JSON.parse` command was refused by the permission gate, so it did not run. Equivalent command: `node -e "JSON.parse(require('fs').readFileSync('package.json','utf8'))"`
+
+## Legal caveats (not legal advice; have counsel review before any public release)
+- **The change only applies going forward.** Copies already released under GPL-3.0, or published while `package.json` said ISC, stay licensed that way to the people who received them.
+- **Sole authorship must really hold.** Before release, confirm there is no vendored, copied, generated or AI-assisted code from other sources in the tree. Future contributions will also need a policy, such as a CLA or a stated "GPL-2.0-only with this exception" rule.
+- **This is not literally the Linux kernel's licence.** The kernel is GPL-2.0-only plus a narrow note saying user programs are not derived works; it has no linking exception for libraries. This draft is closer to the Classpath style. The strength of the copyleft on datom.world's own code is the same as the kernel's.
+- **Each module's own licence still applies.** The exception removes the GPL's objection only. EPL-1.0 source and choice-of-law terms, and Apache-2.0 NOTICE and patent terms, still bind those modules; clause (b) says so.
+- **EPL-2.0 is listed directly** so the draft doesn't depend on whether each EPL-2.0 library names GPL as an allowed "Secondary License".
+- **Datomic peer:** check the exact version used. Datomic Pro binaries have been Apache-2.0 since 2023, but older versions were proprietary and are not covered.
+- **Clojure and JVM linking:** whether loading code at runtime creates a "work based on" datom.world is legally unsettled. The draft is meant to work either way.
+- **Other dependency licences were not audited.** That includes MIT, BSD, LGPL and GPL-3.0-only libraries. A GPL-3.0-only dependency would be incompatible with GPL-2.0-only.
+- **No conflict with GPL-2.0 section 6 ("no further restrictions"):** the exception only adds permissions.
+
+Separately: the claude.ai Gmail, Google Calendar and Google Drive connectors need to be authorized in claude.ai's connector settings before they can be used. They weren't needed for this task.

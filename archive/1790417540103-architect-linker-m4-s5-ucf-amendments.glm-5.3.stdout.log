@@ -1,0 +1,21 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-26 10:24:09 GMT
+Completed-Local: 2026-09-26 17:24:09 +07
+
+Task complete. Full report written to `/Users/sto/workspace/datomworld/collab/1790417540103-architect-linker-m4-s5-ucf-amendments.glm-5.3.report.md`. Summary:
+
+**What changed** — exactly one file, `docs/design/yin.vm.universal-continuation-format.md` (200 insertions, 1 deletion, uncommitted). Every decision ported from the linker design's section 7.3 (with 7.2 for the wait states), checked against section 9's M4 paragraph, the section 10 file-box entry, and completion criterion 12:
+
+- **7.4.1** (lines 436-439, 449-479): the `:yin.k/reason` list gains `:link-request`, `:link-response`, `:install`; a new box table adds the three safepoints with resume pc, stack, and resume outcomes per the effectful-call row the require effect parks through.
+- **7.4.3** (626-679): the three pending variants (envelope verbatim from linker 7.2) plus the id, cursor-minting, correlation, retry, and restore rules.
+- **7.5.1** (737-770): `:yin.k/binding` `:named`/`:positional` closure variants and `:yin.k/store-of` (shapes verbatim), `:binding-mismatch`; (773-803) resource decode targets moved to the private `:resources` table and the sealed-reference rule (lift authenticates before encoding, lower re-seals, `:forged-resource-reference`).
+- **7.5.3** (926-936): cells lower into `:resources`, no store key created.
+- **7.6.2** (1067-1079): the resource split amending the opening store-model list; (1099-1118) isolated module stores — per-module snapshots, `:missing-module-store` refusal, per-task `:module-stores`, no merge at module grain.
+
+Everything else is untouched, including the Proposed/Deferred warning, 7.11's acceptance matrix, and the Rule R "v3" contract text.
+
+**Ambiguity resolved, not blocking**: linker 7.2 step 4 cites "(section 11, item 10)" for the pending variants while the amendments list is item 12 (all other citations say item 12, and item 12 names them); treated as a citation slip and followed the unambiguous decision text. Also noted in the report: the two new refusal kinds are named in 7.5.1/7.6.2; 7.5.4's closed kind set was not extended because it is outside the authorized sections.
+
+**Checks**: no test lane applies. Self-checks pass — only the one file in `git diff`; all 200 added lines pure ASCII, ≤80 columns except 18 box-table rows (147 cols, pipes aligned); no em dashes or conflict markers; only committed docs cited. Unrun: the orchestrator's independent verification and the non-GLM review.
+
+Status: COMPLETE

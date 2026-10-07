@@ -1,0 +1,29 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Round 2 complete. Report: `collab/1789014225034-stream-jing-remote-phase2-r2.glm-5.3.findings.md`; nothing staged or committed.
+
+## P1 — the eighth exit
+
+`call!`'s loop now wraps only the sleep in a `try`: on `InterruptedException` it retires the call from the **step's latest state** (`retire-call`, reason `:dao.jing.remote/interrupted`), stores it through `settle!`, re-asserts the thread's interrupt flag, and throws `{:request-id, :reason}`. The catch never returns, so the `recur` after the `try` runs only after a full sleep — which also satisfies `recur`'s no-crossing-`try` rule. `settle!` is now genuinely the only way out, for eight exits.
+
+**The proof is deterministic, no second thread**: the test sets its own thread's interrupt flag before the call — `Thread/sleep` throws on entry when the flag is already set — over a latch-gated server. It pins the allocator advancing to id 1, empty outboxes, the flag preserved, and — after releasing the stall — that the next call returns `:fast-now`, never the interrupted call's late `:gated-late`. **Mutation-checked**: with the fix reverted, that test fails 4 ways, including the wrong-result symptom the reviewer predicted; restored, 0 failures.
+
+One discovered wrinkle, recorded in the report: under cognitect.test-runner the interrupt flag doesn't survive from a catch to a later assertion (a bare-REPL call preserves it), so the test captures it inside the catch itself.
+
+## P2 — test 6 teardown race
+
+The `accepted` atom became a three-state slot (`nil` / socket / `::teardown`) coordinating the accepter and the `finally` so exactly one closes the accepted socket in every interleaving — including a socket published during cleanup. Assertions untouched.
+
+## Verification
+
+| lane | result | r1 baseline |
+|---|---|---|
+| `clojure -M:test` | **1456 / 165512, 0 failures** | 1455 / 165505 |
+| `bb test:cljs` | **1358 / 35024, 0 failures**; remote-test confirmed | 1357 / 35023 |
+| `bb test:cljd` | **+1312, all passed** | +1311 |
+| demo | **212 files, 0 warnings** | 212 / 0 |
+| kondo (both files) | **0 / 0** | 0 / 0 |
+
+Closure greps all still zero; `reset! (:rpc` appears once — inside `settle!`.
+
+Two things flagged for you rather than done: the plan's §5.1/N11 exit lists need the eighth exit reconciled (plan untouched per instruction), and `dao.jing.md`'s exit sentence could name interruption — both noted in the report. Also, `connect-content!`'s establishment-loop sleep still propagates a raw interrupt by design (no id, no outstanding request, no client to reuse — no P1-class defect); say the word if you want it closed-and-thrown for symmetry. One more: HEAD moved to `aa232ab` mid-session — your own `docs(agents)` commit; it touches none of my files.

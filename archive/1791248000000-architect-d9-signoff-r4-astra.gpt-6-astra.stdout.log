@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"01a0f878-281b-7253-ac44-ff2402583d35"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll recheck the current diff for the restoration assertions missing in the last review, along with the result-encoding order. I won’t edit files or run suites.\n"}}

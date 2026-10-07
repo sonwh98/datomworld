@@ -1,0 +1,18 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Phase 1 is complete. Summary:
+
+**Edits** (3 files, nothing staged or committed):
+- `src/cljc/dao/space/index.cljc` — private `stream-payload-datoms` → `element-datoms` (body and all three error messages verbatim); new public `datoms-from-elements` = `(into [] (mapcat element-datoms) elements)`; `snapshot-datoms` **not** restructured — the only change inside it is the callee rename, so the incremental read loop and S8 failure ordering are untouched.
+- `test/dao/space/index_test.cljc` — purely additive (63 insertions, 0 deletions): `datoms-from-elements-is-the-local-stream-vocabulary`, pinning S2, S3, S6, S7 directly plus an equivalence check against `snapshot-datoms`. **No existing test was modified.**
+- `docs/design/dao.space.index.md` — `datoms-from-elements` in *Public surface* with the required "no `src` caller by design — do not clean it up" note.
+
+**Verification** (`bb`/`clojure -M:cljd` were denied by permissions, so lanes ran as their exact `bb.edn` underlying commands; cljd ran as the real bb task via `mise exec`):
+- `clojure -M:test` — **1432 tests, 165341 assertions, 0 failures, 0 errors**; `Testing dao.space.index-test` present
+- shadow `slice-peer test` — **1342 tests, 34913 assertions, 0 failures, 1 error**; `dao.space.index-test` green. The one error (`wasm-eval-emits-telemetry-test`) is **pre-existing at `ba90b3a`**: commit `78b5262` removed the `yin.vm.wasm` require but left the deftest — a file this phase never touches. Left as found.
+- `mise exec -- bb test:cljd` (peers rebuilt first, per the task) — **All tests passed!** (+1295); all 32 index deftests confirmed in the generated Dart test file, new test included
+- `:demo` compile — clean, 0 warnings
+- kondo on both touched files — **0 errors, 3 warnings, all pre-existing** (`PublishedIndexStream`/`MalformedResultStream` v1 impls, Phases 2/3 constructs, on lines outside the diff)
+- `cljstyle fix` changed nothing; `cljstyle check` clean
+
+Report written to `collab/1788950986527-storage-space-transactor-phase1.glm-5.3.findings.md` with commands, counts, and the explicit no-test-modified statement.

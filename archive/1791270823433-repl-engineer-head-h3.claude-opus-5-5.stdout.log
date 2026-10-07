@@ -1,0 +1,76 @@
+Completed-GMT: 2026-10-06 07:52:20 GMT
+Completed-Local: 2026-10-06 14:52:20 +07
+Coding-Agent: claude
+Session-ID: 8b4bda87-5e50-47a0-b0c9-391dba6d3ca7
+
+Slice H3 is implemented and every criterion has a passing JVM test. That includes the end-to-end process test across real loopback sockets, with both a JVM reader and a Node reader. Per the brief, the full Node and Dart lanes were not run; the orchestrator's `bb test` at landing still has to confirm them. I ran no git commands.
+
+## Changed files
+- **Source:** `src/cljc/yin/repl/dht.cljc`, `main.cljc`, `state.cljc`, `query.cljc`, `link.cljc`, `src/cljc/yin/repl.cljc`.
+- **Tests:**
+  - **New:** `test/yin/repl/dht_head_test.cljc`. It is a test for `dht.cljc`; I added a file because `dht_test.cljc` is already 2,594 lines.
+  - **Changed:** `test/yin/repl/main_test.cljc`, `state_test.cljc`, `dht_process_test.clj`.
+- **Docs:** `src/cljc/yin/vm/docs/yin.repl.md`, plus the `--help` lines in `main.cljc`.
+- **Not edited:** no other file. The head design doc and `dao.stream.md` are untouched.
+
+## Commands and outcomes
+- `clj -M:kondo --lint` on all ten changed source and test files: 0 errors, 0 warnings.
+- `bb build:yin-repl-node`: built, 0 warnings.
+  - `npm ci` was refused for lack of approval. The Node leg still passed, so `ws` most likely resolved from the parent checkout's `node_modules`.
+- Final combined JVM run of 13 namespaces (the 10 `yin.repl.*` namespaces below plus `yin.vm.linker.head-test`, `head-follow-test` and `head-ws-test`): **259 tests, 2,736 assertions, 0 failures, 0 errors.**
+  - `yin.repl.dht-head-test`, `main-test`, `state-test`, `dht-test`, `query-test`, `require-test`, `store-test`, `serve-test`, `connect-test`, `driver-test`.
+- Earlier focused runs:
+  - `dht-head-test`: 10 tests, 97 assertions.
+  - `main-test`: 35 tests, 276 assertions.
+  - `state-test`: 14 tests, 100 assertions.
+- `clj -M:test -n yin.repl.dht-process-test` (all three slow tests): **3 tests, 124 assertions, 0 failures.**
+  - The new test alone: 33 assertions.
+  - Its first run had one failure, in my own wait helper: it required a publication acknowledgement that a single anchor can't give. I fixed the helper; nothing else in that run failed.
+
+## H3 criteria — all done
+1. **Token prints once, only when the board is bound; a third part is refused with the pin message.** Pinned by `the-token-prints-once-when-the-board-is-bound`, `no-board-means-no-token` (port in use, non-loopback bind, no key) and `a-token-with-a-third-part-is-refused-with-the-pin-message`. In the process test, A prints exactly one token.
+2. **`dht join` passes no `--dht-manifest` and saves `--dht-follow`; a bare restart resolves from `heads.edn` before any connection.** Pinned by `dht-join-expands-a-token-to-peer-principal-and-follow` and `dht-join-saves-its-follow-and-a-bare-start-resumes-it`. The restart part is checked at open, before any step and with no WebSocket host, in `a-reader-follows-requires-moves-and-restarts-from-heads-edn`.
+3. **An undeclared followed principal refuses startup; `--dht-manifest` suspends following for that run.** Pinned by `dht-follow-of-an-undeclared-principal-refuses-startup` and `dht-manifest-suspends-following-for-the-run`.
+4. **A require typed before the first head parks and completes on the install; `(abandon)` ends it.** Pinned by `a-reader-follows-…` and `abandon-ends-a-first-contact-require`. The process test also checks that the first require prints a pending line.
+5. **The write precedes the install.** Pinned by `the-write-precedes-the-install`: a failing write prints `:yin.head/unpersisted (disk full)`, installs nothing, and installs after the retry.
+   - Both kill cases (before the write, and between write and install) are **simulated**: a write seam fails, then the shell is closed and reopened from the same directory. No real OS process is killed.
+6. **The moved line, an unchanged repeat require, and `(reset)` then require.** Pinned in-process by `a-reader-follows-…` and in the process test's `moved-leg` on both the JVM and Node readers.
+7. **`heads.edn` cases (absent, malformed, a record that fails verification, a record for an unfollowed principal).** Pinned by `heads-edn-cases-are-refusals-as-data` and `heads-edn-renders-with-no-space-before-a-closer`. These are portable tests, so they will run on Dart at landing; they have not run there yet.
+8. **End to end on JVM and Node.** Pinned by `a-reader-follows-the-publisher-s-head-across-processes`: requires on all four VMs, republish, `(reset)`, and a restart with A stopped.
+9. **The host module holds no rule.** Pinned by a JVM-only source scan, `the-host-module-holds-no-fold-verification-or-file-write`, and by `the-host-module-answers-with-no-follower`.
+
+## Shapes I chose
+- **Token:** `yin:<host:port>/<64 hex>`. The parser also accepts an `ed25519:` prefix on the principal.
+- **`--dht-follow`:** `<64 hex>@<host:port>`.
+  - The host must be a loopback literal; `localhost` becomes 127.0.0.1.
+  - It needs a `--dht-peer`, takes each principal once, and allows at most 64.
+  - In the spec it becomes `:follow [{:principal hex :host h :port p}]`. With a pin, the spec gets `:follow-suspended true` and no `:follow`.
+- **`heads.edn`:** written by `pr-str` as `{:version 1, :heads {"ed25519:…" trace}}`, with closed keys.
+  - It lives in the `dht:<dir>` store directory, not the node directory.
+  - For `dht` subcommands those are the same directory. **Design 5.7 says "`<node dir>`" and should say the store directory.**
+- **Where the follower state lives:** it is carried on the DHT node value under `:yin.repl.dht/…` keys. `query.cljc` reads it through `repl.dht/follower`.
+- **New public helpers:** `repl.dht/read-heads`, `parse-heads`, `render-heads` and `follow-lines`. `open` gains an options map: `:key`, `:ws`, `:write-heads!`.
+- **Real host binding:** only `main/startup` supplies the real WebSocket host. `boot` uses whatever `:ws-host` it is given, so in-process tests never bind real listeners.
+
+## H2 sign-off notes
+1. **Liveness is the host's.** A dial still resolving after the repair delay is closed and recomposed, as is a lost one, with the delay doubling from `:repair-ticks` to `:repair-max-ticks`. Pinned by `a-lost-or-silent-dial-is-closed-and-composed-again`.
+2. **Only the given address is dialed.** Followed addresses are loopback-only at parse and again in `open`; the tests assert the dialed address set.
+3. **Close before the next dial.** The old dial is closed both on the follower's `:source-lost` and on a lost dial, before the next is composed (asserted in the same test).
+4. **Does a failed bind hold resources?** Checked by reading host code only; I did not test leaks.
+   - **JVM:** `http-kit/run-server` throws synchronously, so `serve` refuses and keeps no listener. Whether http-kit closes its internal selector on a failed start is unverified.
+   - **Node:** `ws` emits `error` from an http server that never listened, which holds no socket.
+   - **Dart:** the `HttpServer.bind` future fails, so no server is stored.
+5. **A real listener.** The end-to-end test crosses real http-kit and Node `ws` sockets.
+
+## Owner-question defaults, and where each is baked in
+1. **No relink in a live session:** the moved line plus `(reset)`. Small change (`moved-lines` in `dht.cljc`).
+2. **Bare `q` answers the reader's own index:** this falls out of join no longer hydrating; there is no code to change.
+3. **Every HEAD move deposits:** baked into the `:head-fn` wrapper. Depositing only on `yin.link/publish` would need a signal from the indexer that a round published names: a moderate change.
+4. **WebSocket, loopback only:** enforced in three places (`parse-follow`, `checked-follow`, and the H2 `serve`). Each is a small change.
+5. **Safety without a progress guarantee:** inherited unchanged from H1's follower.
+
+## Unresolved and incomplete
+- **Node and Dart lanes not run** (per the brief). Unknown Dart risks: `pr-str` output of `heads.edn`, and the new portable test file.
+- **Kill cases are simulated,** not real process kills.
+- **A lost request on an attached reflection is not detected.** The follower would see retryable errors indefinitely. Over TCP that should surface as a closed channel and `:source-lost`, but it isn't separately handled or tested.
+- **A refused deposit is not tested.** It is reported through a 64-entry note ring and printed as a line, but no test makes a deposit refuse.

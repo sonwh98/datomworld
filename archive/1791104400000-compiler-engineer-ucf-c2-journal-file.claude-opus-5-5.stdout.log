@@ -1,0 +1,29 @@
+The file backend for the journal (slice C2) is built and passes its focused tests on the JVM and Node. I did not run Dart, the full lanes, or cljstyle. I made no git writes, and `journal.cljc` is unchanged.
+
+**What's new**
+- `src/cljc/dao/stream/journal/file.cljc`:
+  - `backend!` creates the directory if needed, takes its lock, and opens `journal.jing` as a `dao.jing.file` content file.
+  - Each journal frame is one content frame. Replay reads `dao.jing.file/records` and checks that each re-encoded frame still matches its address.
+  - A put that answers `:present` counts as a failure, so the journal poisons the handle.
+  - The durability declaration is data on the backend, under `:dao.stream.journal/durability`. Dart declares `:process-crash`; Node's lock kind is `:claim-file`.
+  - No new framing or fsync code.
+- `test/dao/stream/journal/file_test.cljc` covers every case the brief asked for. The JVM-only kill test is a real child process killed with SIGKILL mid-append; it takes about 2.3 s, so it isn't tagged `^:slow`.
+- Small doc edits: the `records` docstring in `dao/jing/file.cljc` now names this use, and the "File backend" section of `docs/design/dao.stream.journal.md` describes what was built.
+
+**Results**
+- **JVM:** the new namespace passes (10 tests, 63 assertions). Run together with the existing journal, `jing.file` and cbor-guard tests: 53 tests, 0 failures.
+- **Node:** 38 tests, 0 failures, 0 warnings, including the new namespace.
+- **kondo:** clean.
+- **Not run:**
+  - cljstyle needed an approval this session didn't have; I checked line width and ASCII by script instead.
+  - I skipped the red-before run, because moving the source aside also needed approval. The namespace didn't exist before, so every new test would have failed to compile.
+- All temp directories were cleaned up.
+
+**Questions for you (also in the report)**
+1. **Power loss on JVM and Node:** these hosts declare `:power-loss` as the plan says, but `dao.jing.file` never syncs the directory when it creates the journal file. A power cut right after the first open could lose the file and its identity. Either we add one directory sync at creation (new fsync code, which the brief ruled out), or these hosts declare `:process-crash` for now.
+2. **Torn header:** if the only frame on disk is a torn header, `dao.jing.file` refuses to open (`:open-failed`). The memory backend instead starts a fresh empty journal. Is refusing acceptable?
+3. **Memory backend:** should it carry a durability declaration too? Right now it has none, so C3 must read a missing key as "memory, never capable".
+4. **Names:** please confirm the `persisted` set, `#{:identity :content-references}`, suits C3.
+5. **Truncate:** the backend's truncate always answers a failure. It can't be reached today, because the content file drops torn tails itself.
+
+The report is at `collab/1791104400000-compiler-engineer-ucf-c2-journal-file.findings.md`.

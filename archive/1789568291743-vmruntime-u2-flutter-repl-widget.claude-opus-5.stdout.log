@@ -1,0 +1,40 @@
+U2 is implemented, and the JVM, CLJS and CLJD test runs all pass. The manual Flutter smoke test was **not run**: I can't launch a Flutter app or connect to a device here, so it is still an open gap. v1 `src/cljd/yin/repl/flutter.cljd` is untouched. Nothing is staged or committed.
+
+## What changed
+
+**Changed files** (full diff is in `git diff` on these files; the other modified files in the tree were already there from U4/U5 and I didn't touch them):
+- **`src/cljc/yin/repl/core.cljc`**
+  - `create-state` accepts `:primitives` and stores it as `:extra-primitives`.
+  - `make-session` and `rebuild-session` pass it on.
+  - `make-vm` gains a 3-argument form that merges the host map over the REPL primitives; the 2-argument form still works as before.
+- **`test/yin/repl_core_test.cljc`**: adds `host-primitives-survive-reset-and-vm-selection`. `(answer)` returns `"42"` before `(reset)`, after `(reset)`, and after `(vm :ast-walker)`.
+- **`dao_gui.cljd` and `solar_system.cljd`**: now require `yin.repl.flutter`. In `dao_gui.cljd` the desktop command is now `-M:clj-yin-repl` and the connect hint ends in `/repl`.
+- **`dao_gui.md`**: the compile command is now `clj -M:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.main`, the desktop command uses `-M:clj-yin-repl`, and the connect lines and the expected "Connected to" text use `daostream:ws://localhost:<port>/repl`.
+
+**New files:**
+- **`src/cljc/yin/repl/embed.cljc`**: `start`, `step`, `status`, `status-text`, `stop` and `stopped?`, as D1 describes.
+  - The bind host defaults to `"0.0.0.0"` and `host` defaults to `(repl-host/websocket)`.
+  - `status-text` shows "listening" (running, no clients), "client connected", "starting", "stopping", "stopped" or "failed".
+- **`src/cljd/yin/repl/flutter.cljd`**: the three notifiers, `default-port`, `load-device-ip!` copied from v1, `start-server!`, `stop-server!` and `info-card`. `eval-input!` is not ported.
+  - **Start:** `start-server!` stops any running server, loads the device IP, and only then starts the endpoint. It advertises the found IP, or `"localhost"` if none was found.
+  - **One owner:** each server gets one `Timer.periodic` at 25 ms. The endpoint value lives inside that timer, and nothing else writes to it.
+  - **Stop:** `stop-server!` doesn't touch the endpoint. It sets a stop flag, sets the status to "stopping" and returns `:stopped`. The timer sees the flag, stops the endpoint, and keeps stepping until it reports stopped or 200 ticks pass. Then it cancels itself and sets "stopped".
+  - **Stop during IP loading:** if `stop-server!` runs before the IP lookup finishes, the endpoint is never started.
+  - **Status line:** an old server's timer only writes the status while it is still the current server, so it can't overwrite a newer server's status.
+  - **Card URLs:** `info-card` shows `daostream:ws://…:<port>/repl`.
+- **`test/yin/repl_embed_test.cljc`**: three tests using a fake host, following `v2_serve_test`:
+  - binding to `0.0.0.0` with an advertised host: the first `step` reaches `:running` and the status reads "listening" with 0 clients;
+  - through a connected session, `(answer)` returns `"42"`, and still returns `"42"` after `(reset)`;
+  - after `stop`, stepping reaches `stopped?` and the status reads "stopped".
+
+## Verification
+- **Lint:** `clj -M:kondo --lint` on every touched `.clj*` file gives 0 errors. The one warning (an unused `gpu` require in `solar_system.cljd`) was already there.
+- **JVM:** `clj -M:test -n yin.repl-embed-test -n yin.repl-core-test` ran 25 tests with 108 assertions: 0 failures, 0 errors. I re-ran it after a final indentation-only fix in `core.cljc`.
+- **CLJS:** `bb test:cljs` printed `Testing yin.repl-embed-test` and ran 1381 tests with 35626 assertions: 0 failures, 0 errors.
+- **CLJD:** I ran `rm -rf test/cljd-out` first, then `bb test:cljd`. All three `v2-embed-test` tests ran, and the suite ended with `02:07 +1334: All tests passed!`.
+- **Widget compile (extra check):** `clj -M:cljd compile yin.repl.flutter datomworld.demo.dao-gui datomworld.demo.solar-system datomworld.demo.main` succeeded. Its only warnings are in the unrelated `artifact.cljd`. `dart analyze` on the generated `lib/cljd-out/yin/repl/flutter.dart` found no issues.
+
+## Not verified
+- **Manual Flutter smoke test:** not run. Still unchecked: that the demos reach "listening", that the desktop v2 REPL can connect, that `(show-sample-frame!)` and `(bodies)` still work after `(reset)`, and that stopping ends at "stopped". The `.cljd` widget has only been compiled and analyzed, never run.
+- **Quick restart:** if a server is restarted while the old one is still shutting down, the new server may try to bind port 7777 before the old one releases it. The bind would then fail and the status would show "failed". The spec doesn't cover this, and the demos don't restart that fast.
+- **`/repl` in URLs:** I added `/repl` to the connect strings in `dao_gui.cljd` and `dao_gui.md`, as the plan's consumer list says. The smoke-test text in the plan uses the form without a path, which should also work because an empty path maps to `/repl`.

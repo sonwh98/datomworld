@@ -1,0 +1,34 @@
+Completed-GMT: 2026-09-28 12:19:44 GMT
+Completed-Local: 2026-09-28 19:19:44 +07
+Coding-Agent: claude
+Session-ID: 2fd38cae-ba0d-4d01-9d12-b9ee9af137e2
+
+# Slice 3a fix round 3: writer-only exports skip the cursor check (P3)
+
+The new test pins the P3 finding, passed against the unchanged source, and fails when I deliberately break the rule. So `serve!` was already right: only exports with a reader surface get the cursor check.
+
+## Changed files
+- `test/yin/vm/ffi/remote_serve_test.cljc` only.
+
+`remote_serve.cljc` was edited only for the temporary mutation and is back to its previous content. Nothing is staged or committed.
+
+## What changed in the test
+- **Fixture:** `host-cursor-reader` is now also a writer (`append!` answers ok), while its reader cursors still hold a host object (a fn). The existing reader-surface refusal case is unaffected; that handle is still refused.
+- **Test:** the writer-only case in `a-reader-whose-cursors-are-not-portable-is-never-entered` now serves that fixture under a writer-only surface policy, instead of a ring with portable cursors. It asserts:
+  - `serve!` admits the handle.
+  - Its table entry is exactly `{:handle h, :surface #{:writer}}`.
+
+## Mutation check
+- I temporarily made `servable-surface` run the cursor check on every surface, writer-only included.
+- The new namespace then failed: 10 tests, 95 assertions, 2 failures, both in the writer-only case (lines 381 and 384).
+- I reverted it, and `grep -c MUTATION` gives 0 in both files.
+
+## Verification (after the revert)
+| Check | Result |
+|---|---|
+| `clj -M:kondo --lint test/yin/vm/ffi/remote_serve_test.cljc` | 0 errors, 0 warnings |
+| `clj -M:test -n yin.vm.ffi.remote-serve-test -n yin.vm.ucf.remote-test -n dao.stream.remote-test` | 54 tests, 471 assertions, 0 failures, 0 errors |
+
+cljstyle, Node and CLJD weren't run this round, as the brief didn't ask for them. The added `reify` writer block in the test may need your cljstyle pass.
+
+The report is in `collab/1790595472000-vm-engineer-ffi-export-binding.claude-opus-5-5.report-r4.md`.

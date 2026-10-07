@@ -1,0 +1,27 @@
+I updated the §8.2 benchmark table, but I couldn't commit Phase 4. This session isn't allowed to run `git add` or `git commit`, even as separate commands.
+
+**Doc change (`docs/design/yin.vm.semantic.md` §8.2):** The "Status: open / no numbers" note is gone. The section now lists the commands and a table with your results:
+
+| Mean time per run | Node.js (n=5000) | Dart (n=50000) | Ratio to walker |
+|---|---|---|---|
+| AST Walker (v2) | 71.30 ms | 184 ms | 1x |
+| **Semantic (v2)** | **19.82 ms** | **21 ms** | **0.278x (Node), 0.114x (Dart)** |
+
+I didn't run either benchmark myself; the numbers are the ones from the prompt. I took Dart's n=50000 from the harness default, since the prompt didn't give one.
+
+**The results don't back up §6.3's prediction.** §6.3 said the speed gap over the walker would be bigger on V8 and Dart than on the JVM. It isn't:
+- **Dart:** 0.114x, about the same as the JVM's 0.115x.
+- **Node:** 0.278x, a smaller gap. The semantic VM is about 3.6x faster than the walker there, against about 8.7x on the JVM.
+
+The section now says this directly. Both hosts still beat the old 0.76x register-VM target. I left the §6.3 prediction (line 644) as written.
+
+**To commit:** all six modified tracked files belong to Phase 4: the two design docs, `shadow-cljs.edn`, the REPL core and its test, and the cljd bench. The `collab/` files are untracked logs and I'd leave them out. To commit by hand:
+
+```sh
+git add docs/design/yin.vm.semantic.md docs/design/yin.vm.divergence-register.md \
+  shadow-cljs.edn src/cljc/yin/repl/core.cljc \
+  src/cljd/yin/register_bench_cljd_v2.cljd test/yin/repl_core_test.cljc
+git commit -m "Finish semantic VM Phase 4: default REPL to :semantic, record divergences and host benchmarks"
+```
+
+Or allow `git add`/`git commit` for this session and I'll run it. The message follows your commit style: an imperative verb, no `feat:` prefix and no Co-Authored-By trailer.

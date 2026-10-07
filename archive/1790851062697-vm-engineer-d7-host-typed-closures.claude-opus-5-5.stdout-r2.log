@@ -1,0 +1,75 @@
+Completed-GMT: 2026-10-01 11:40:24 GMT
+Completed-Local: 2026-10-01 18:40:24 +07
+Coding-Agent: claude
+Session-ID: a991361e-3716-4327-84f0-1a35a3a5a57b
+
+# D6/D7 slice A: host-typed closures and continuations on all four VMs (Round 2)
+
+I fixed all three gate findings, and each new test fails when its fix is reverted. Every lane passes except cljstyle, which is still blocked: each invocation needed approval and none ran. Nothing is staged or committed. The full report is `collab/1790851062697-vm-engineer-d7-host-typed-closures.claude-opus-5-5.report.md`, with the Round 1 section first and a Round 2 section appended.
+
+## Round 2 fixes
+
+**1. Printing is opaque (P1).** Closures and continuations now print only as `{:type :closure}` or `{:type :continuation}`, never the payload, environment, frames, stack or owner tag. The marker has the same shape as the existing `{:type :host-fn}` marker.
+- This holds for `str`, `pr-str`, the REPL display, guest `print`/`println`/`prn`, and values nested in collections.
+- In `values.cljc` one `marker-text` table feeds every host:
+  - CLJ: `toString` and a `print-method` per type;
+  - CLJS: `IPrintWithWriter` and `toString`;
+  - CLJD: `IPrint`.
+- On CLJD I added no `toString`, because the repo has no precedent for one there. The default Dart `toString` is `Instance of 'Closure'`, which carries no payload.
+- In `repl.cljc`, `quote-symbols` now renders the marker instead of the payload.
+- `ast.md` and `state.md` are updated.
+
+**2. A lower takes its binders from the attached lambda (P1).**
+- **Walker and semantic:** `lower-closure` first runs `vm/check-params!` on the marker's params. The params must then equal the attached lambda's: the walker's `:lambda` row, or on the semantic VM a `:closure` instruction with that entry.
+- **Positional kernels** had the same gap in arity form. Their markers carry an arity, not names, so a store-of key can't be planted there, but a wrong arity would still have been minted. The lower now requires a `:closure` instruction with that body pc and that arity.
+- A mismatch refuses with `{:reason :marker-mismatch, :segment s}`, raised by the new `engine/marker-mismatch!`.
+
+**3. Falsy binders (P2).** `vm/check-params!` now boxes the bad binder, so `nil` and `false` binders are refused too.
+
+## New tests and mutation proof
+
+The new tests are in `yin.vm.host-typed-values-test`:
+- **Non-symbol binders:** `:yin.k/store-of`, `nil` and `false` on all four VMs, each through its own path, all refused `:non-symbol-parameter` with the right `:kind`.
+- **Tampered markers:** a lifted marker is tampered with, then lowered into another task.
+  - Walker and semantic: bad binders refuse `:non-symbol-parameter`; the params `[y]`, `[x y]` and `[]` refuse `:marker-mismatch`.
+  - Stack and register: arity 0 or 2 refuses `:marker-mismatch`.
+  - An untampered marker lowers on all four VMs.
+- **Opaque printing, host side:** on all four VMs, a closure and a continuation that both capture `"s3cr3t-42"`, rendered by `str`, `pr-str` and `format-value`, alone and nested. The test first confirms the payloads really hold the value.
+- **Opaque printing, guest side:** real REPL input on every VM type through `println`, `print` and `prn`.
+
+| Mutation (each applied alone, restore verified with `cmp`) | Result |
+|---|---|
+| REPL renders the payload again | 48 failures |
+| CLJ `toString`/`print-method` render the payload | 24 failures |
+| Walker lower without `check-params!` | 3 failures |
+| Walker lower without params equality | 3 failures |
+| Semantic lower without `check-params!` | 3 failures |
+| Semantic lower without params equality | 3 failures |
+| Stack lower without the arity check | 2 failures |
+| Register lower without the arity check | 2 failures |
+| `check-params!` without the box | 12 failures |
+
+## Checks (all in the foreground)
+
+| Check | Outcome |
+|---|---|
+| clj-kondo, separate arguments | 0 errors; the 5 warnings are all present on `HEAD` |
+| cljstyle | **Blocked**, not run |
+| `bb gen:python-antlr` | ok |
+| `bb build:yin-repl-node` | ok, 0 warnings |
+| Focused JVM | 222 tests, 2169 assertions, 0 failures |
+| Full `clj -M:test` | **2691 tests, 187798 assertions, 0 failures, 0 errors**; the 6 `yang.python.antlr.*` namespaces ran |
+| `bb test:cljs` | **2538 tests, 53552 assertions, 0 failures**; "Testing yin.vm.host-typed-values-test" appears |
+| `bb test:cljd` | Not run, per the brief |
+
+## Open concerns
+
+- **CLJD is still unverified:**
+  - the equality and hash blocks;
+  - `instance?` and field access on the new types;
+  - whether `get` on these types answers nil;
+  - and now the `IPrint` blocks.
+- **The semantic lower is stricter than the gate asked:** the marker's entry must be the entry of a `:closure` instruction with the same params.
+- **Slice B is not done** (the marker origin-versus-store check), so, as the gate says, isolation is incomplete until it lands. Slice C is also not done.
+
+Round 1 concerns 2 to 8 are unchanged, and the gate accepted them.

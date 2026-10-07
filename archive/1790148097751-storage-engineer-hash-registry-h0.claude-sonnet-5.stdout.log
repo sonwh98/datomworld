@@ -1,0 +1,49 @@
+```text
+Completed-GMT: 2026-09-23 07:34:00 GMT
+Completed-Local: 2026-09-23 14:34:00 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: a00ad15a-2e8b-4319-a92f-b6ef5b3990b8
+```
+
+## 1. Files touched
+
+| File | Status | Diffstat |
+|---|---|---|
+| `docs/design/dao.jing.cbor.md` | edited | +38/-21 |
+| `docs/design/dao.jing.call-site-classification.md` | new | 267 lines |
+| `test/resources/dao/jing/blake3-vectors.edn` | new | 38 lines |
+| `test/resources/dao/jing/digest-table.edn` | new | 132 lines |
+| `test/dao/jing/hash_registry_contract_test.cljc` | new | 441 lines |
+
+`git status` confirms no other paths changed — no `src/`, `deps.edn`, `package.json`, or `pubspec.yaml` touched. (I used `.scratch-blake3check/` under the repo root as scratch space to derive/verify BLAKE3 digests with a hand-written, spec-checked Python implementation, since no BLAKE3 provider or network access was available; it's deleted, not part of the diff.)
+
+Note: I named the vectors file `blake3-vectors.edn` rather than `.json` — the directive offered "`.json` (or `.edn`)"; EDN lets it share one portable `clojure.edn` reader with `digest-table.edn` across JVM/CLJS/CLJD.
+
+## 2. Test outcomes
+
+- `clojure -M:test -n dao.jing.hash-registry-contract-test` → **13 tests, 62 assertions, 0 failures, 0 errors**
+- `clojure -M:test -n dao.jing-test` (regression) → **39 tests, 229 assertions, 0 failures, 0 errors**
+- `clj -M:kondo --lint test/dao/jing/hash_registry_contract_test.cljc` → **0 errors, 0 warnings**
+
+All BLAKE3 fixture values were independently derived from a from-scratch BLAKE3 reference implementation I wrote and checked against the spec (its empty-input output matched the known official digest exactly, confirming correctness by avalanche), then cross-checked against the digest-table's canonical-Clojure-value cases by actually invoking `dao.jing/canonical-bytes` on the JVM — caught and fixed two EDN-authoring bugs this way (`'sym` reads as `(quote sym)`, not a bare symbol; `(list 1 2 3)` reads as a 4-element literal list, not the evaluated 3-element list) before they became silently-wrong frozen fixtures.
+
+## 3. Call-site classification summary
+
+`docs/design/dao.jing.call-site-classification.md` inventories, by class:
+- **Class 1 (frozen)**: the 5 direct `jing/sha256` consumers, `yin.vm.debruijn/dimension-hash` recorded accurately as a `def`, `primitive-profile`'s mislabel flagged as the one Class-1 site needing an H1 source edit, and the absent register contract recorded as future integration.
+- **Class 2 (mint)**: 10 direct mint sites, `request-materialize`/`materialize-async-fn` classified as default-only remote mint entry points, and `checkpoint-candidate`'s bare `:schema-hash` flagged as non-conforming (H1 → `:schema-address`).
+- **Class 3 (validate)**: 20 call sites (covering the design's 18 enumerated bullets — two bullets each cover more than one distinct site), all currently using one of two non-conforming comparison shapes, all requiring `segment-matches?` in H1.
+- **Class 4 (copy)**: all four address-preserving paths, with `store-tree-async` detailed as needing a *new* address-supplying async remote operation (not a parameter bolted onto `materialize-async-fn`'s payload-only signature).
+
+It also inventories documentation-only SHA assumptions (for H1's docstring pass) and pins the architectural-lint target (`dao.jing/content-hash`, `dao.jing/segment-key`, fully-qualified-var-resolved, excluding `dao.jing.cbor/content-hash`).
+
+## 4. Frozen contracts
+
+No production code was touched, so VM H/R, de Bruijn dimension/node hashes, and the DHT node-id contract are untouched by construction. The classification document explicitly records their locations and disposition (Class 1) rather than proposing any change to them.
+
+## 5. Deviations / notes for H1
+
+- **`docs/design/dao.jing.cbor.md`**: beyond the two directive-cited spots, I also generalized the file-backend frame's "digest is a raw 32-byte SHA-256 byte string" wording (it's the address-carried algorithm's digest now) and the "SHA-256 collision resistance" acceptance-criteria line, since both are address-algorithm claims the architect's directive ("no longer claim SHA-256 is the sole DaoJing address algorithm") covers even though they weren't in the cited line ranges.
+- The contract-test file is necessarily self-contained: since `dao.jing` itself gains no registry/`segment-matches?`/BLAKE3 support until H1, the test defines a private reference implementation of the frozen grammar/parser/predicate rules and pins it against fixtures — plus the *real* `dao.jing/sha256-bytes`, `canonical-bytes`, `content-hash`, and `segment-key`, which don't change shape in H0. H1 should replace the reference `parse-segment-address`/`segment-matches?` with calls into the real `dao.jing` functions; the fixtures and pinned behavior shouldn't need to change.
+- The architectural-lint test specifies the lint's decision procedure (syntactic, fully-qualified-var-based, not data-flow) against representative forms; it is not a repository-wide sweep, since today's real Class-3 sites are still non-conforming pending H1.
+- `test/resources/dao/jing/digest-table.edn`'s canonical-value rows are pinned to the current order-normalized print encoder at HEAD `ba88f769`; the contract test's `fixtures-load-and-agree-with-canonical-bytes` guards this and will need re-generation alongside every other DaoJing fixture when the CBOR clean break lands, per `dao.jing.cbor.md`'s existing ruling.

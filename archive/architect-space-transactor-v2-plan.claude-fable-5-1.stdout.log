@@ -1,0 +1,24 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+Plan written to `/Users/sto/.claude/plans/read-collab-architect-space-index-v2-pla-snappy-puddle.md` (the index plan was already promoted to `collab/`, so reusing the file was safe).
+
+**Your measured facts check out** — 246/735 lines, the v1/v2 asymmetry at `:188-189` vs `:200`, every call site. One addition that unlocks the central move: **nothing outside `transactor_test` reads through the wrapper.** `SchemaWrapper` implements only `ds/IDaoStreamBound`; `stigmergy_test` reads `(:local agent)` directly.
+
+**The seven decisions:**
+
+**D1 (Q2) — a transactor is not a stream in v2; it's an interpreter over one.** `dao.stream.md`'s *Composition* already names the case. `append!` isn't a stream append (entity map in, transaction receipt out); `next` is pure delegation to a handle the caller supplied and still holds, with two test-only callers; `close!`/`closed?` close nothing. It becomes a plain value with named operations — the same move query made for the relation transport. `next` and `closed?` both go.
+
+**D2 (Q1) — `transactor/create!`, and the descriptor was never portable.** `:local-stream` and `:intake-pool` hold live handles, so the map could never cross a serialization boundary — it was a v1 *dispatch* record wearing the word "descriptor". It becomes the constructor's spec. `create!` returns the value or throws, matching `open-published!` and `publish-index!`, because a gap on open isn't retryable the way `full` is. I flagged the `create!` name as the one call you may want to overrule.
+
+**D3 (Q3) — operational outcomes become data; argument defects keep throwing.** Throwing on `full` was always wrong: it turns backpressure into an exception the caller must catch to obey the retry contract the docstring already promises. And the contract gets *stronger* — from prose to checkable: the watermark advances iff the local append answered `:dao.stream/ok`.
+
+**D4 (Q4) — keep the O(history) replay.** The local stream is the only durable truth; a stored counter is a second truth that can disagree. Also not a new cost — it's the same walk `publish-index!` already does. Named as an Open item, not designed.
+
+**D5 (Q5) — `dao.stream.observe/snapshot`, returning `:values`.** Under your naming rule. The two callers only ever *looked* like they disagreed on gaps: `snapshot` is total, and throwing is index's policy above it — the layering index already settled.
+
+**D6 (Q6) — schema moves at its call sites only.** It already has a per-wrapper `state` atom, so holding its own `:closed` flag is three lines. Six forced edits, tabulated; schema stays v1-shaped under its own plan.
+
+**D7 — this does not close index.** The published-adapter remainder (`PublishedIndexStream`, owed to schema) survives, so `[dao.stream :as ds]` stays in `dao.space.index`. Section 7 costs folding it in — ~25 lines into schema, 60 out of index, and *simpler* than what exists since schema forces the rows at open anyway. It's the cheapest moment, but it's your call, not mine.
+
+Four phases: index's vocabulary split → `observe/snapshot` promotion → the swap (one phase; the deletion can't be partial) → docs. The swap carries a hazard worth your attention: **v1's `{:dao.stream/type :ringbuffer}` was unbounded, v2's requires a capacity and evicts.** An under-sized capacity turns into a silent gap on the next open or publish, not a compile error.
+
+Want me to promote this to `collab/architect-space-transactor-v2-plan.claude-fable-5-1.findings.md`?

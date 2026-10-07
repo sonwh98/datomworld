@@ -1,0 +1,24 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+Written to `/Users/sto/.claude/plans/read-collab-architect-space-index-v2-pla-snappy-puddle.md`.
+
+**The defect is confirmed** — verified in the transport, not taken on report. `v2/ringbuffer.cljc:62` mints `:oldest` at `(:first s)`; `:126` advances `first'` on every evicting append, so `:first` *is* the eviction watermark; `:87-96` reports `gap` only when `pos < (:first s)`. A cursor minted after an eviction has `pos = (:first s)`, which is never less than itself. The review is right.
+
+And my plan was wrong in a way worth naming: it stated a completeness invariant and then defended it with a *capacity* rule. Capacity is the wrong knob — a larger window makes loss less likely and never makes it reported.
+
+**The judgement you asked for: both mechanisms stand, and only one gives completeness.** A gap-excluding transport gives *completeness* (the history is complete because the transport cannot lose it); a kept origin cursor gives *detection* (it may be incomplete, but you're told). Where completeness is a correctness requirement, only the declared transport delivers it, and the origin cursor is the honest failure mode rather than a substitute. Where a consumer can proceed on a suffix but must know it's on one — viewer, monitor, resumable forwarder — the origin cursor is right and sufficient. On a gap-excluding transport a fresh `:oldest` *is* the origin, so keeping one costs nothing and buys nothing.
+
+**Four edits**, all reusing existing vocabulary: two bullets in *Cursors* (the `:oldest`-is-not-a-completeness-claim rule, and the origin cursor, written to mirror the existing `:newest`-before-the-operation bullet); one replaced sentence plus one new *Complete history* subsection in *Retention and Gaps*; one bullet in *Explicitly Absent*. No invariant, outcome set, or operation table moves.
+
+The replaced sentence is the highest-value single edit. "Silently skipping evicted history is forbidden — a reader must be able to know it missed values" is the sentence a reader relies on, and it promises more than the mechanism delivers. It becomes a promise to a **cursor**, not to a handle.
+
+**The `dao.space` ruling: yes, a wiring defect, and `dao.space`'s own** — latent since the local stream was first wired, independent of the migration. It must wire a transport whose creation specification declares complete retention and which therefore excludes `gap`. I did not design it.
+
+**Two things you should weigh before this lands:**
+
+First, **v2 has no transport that can serve a complete-history consumer today.** `dao.stream.ringbuffer` is the only namespace under `src/cljc/dao/stream/` defining `create!`; its `valid-spec?` requires a positive capacity and it evicts. v1 had `dao.stream.file`; v2 has no counterpart. So the transactor/index plan is blocked on a *transport*, not on prose — the contract text is necessary and not sufficient.
+
+Second, and it softens that: **this is not new breakage.** The v1 local streams are ring buffers opened with no capacity, and `ringbuffer.cljc:82`'s eviction test is `(and capacity …)` — they never evict. The current system is *accidentally* correct: it satisfies complete retention through an unbounded instance the contract had no way to describe and the code never declared. The migration turns an undeclared accident into a declared requirement, which is better discovered now than after a capacity was picked.
+
+r2 §6 is deleted outright, including its `retained-history-survives-reopen-at-capacity` test — that test would have pinned a defect as a feature. T4 and index's S5 stand unchanged but change status: on a correctly wired transactor they become unreachable, and that is the point. `index_test:379`'s scripted gap fixture stays as the way to exercise them, which is what it was always for.
+
+Want me to promote this to `collab/1788876195157-architect-stream-complete-history.claude-fable-5-1.findings.md`?

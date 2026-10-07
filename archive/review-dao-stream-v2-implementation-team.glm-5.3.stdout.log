@@ -1,0 +1,107 @@
+All verification is complete. Here is the review.
+
+---
+
+# Review — DaoStream v2 implementation (staged changes)
+
+**Scope:** the 8 staged files, checked against `AGENTS.md`, `docs/design/datom.world.md`, `docs/design/dao.stream.md` (the contract), `docs/design/dao.stream.implementation-plan.md` (the plan), `docs/design/dao.stream.ws.md`.
+
+**Note on review conditions:** all 8 files were reformatted and re-staged mid-review (mtimes 17:20:44–45). All findings below were verified against the final staged content (index == worktree at time of writing).
+
+## Test report
+
+| Check | Result |
+|---|---|
+| `clojure -M:test -n dao.stream-test -n dao.stream.ringbuffer-test -n dao.stream.transit-test` | **PASS** — 16 tests, 131 assertions, 0 failures |
+| Full JVM suite (`clojure -M:test`) | PASS — 1152 tests, 165862 assertions (legacy included) |
+| `clj -M:cljs … compile test && node target/node-tests.js` | **FAIL — 2 errors**: `portable-domain-roundtrip-test`, `descriptor-identity-gate-test` (uncaught `Error: Doesn't support name: `) |
+| `clojure -M:cljd test` | **FAIL — build aborts**: `Unknown symbol: codec/portable-value? … file: dao/stream/transit_test.cljc` — the whole-project cljd suite cannot compile |
+| `clojure -M:cljd compile dao.stream.ringbuffer` + `dart analyze lib/cljd-out/…/ringbuffer.dart` | cljd emits, **Dart analyzer: 1 error** (`2 positional arguments expected by 'instance$QMARK_', but 1 found`, ringbuffer.dart:419) |
+| JVM probes (see P1-1/P1-2) | `encode-descriptor` of a real ring-buffer descriptor **throws**; `(portable-value? (random-uuid))` → false; `(portable-value? 5N)`/`1.5M` → true |
+
+**Verdict at the bottom: REQUEST CHANGES.**
+
+---
+
+## Confirmed defects
+
+### P0 — breaks a runnable host or the slice's central promise
+
+**P0-1. `encode`/`decode` throw on every call under ClojureScript.**
+`src/cljc/dao/stream/transit.cljc:91` and `:101` call `(transit/writer nil :json)` / `(transit/reader nil :json)`. On transit-cljs the format is the **first** argument (`(writer type opts?)`, verified in `cognitect/transit.cljs:212`, `:106` of the 0.8.280 jar): the code passes `nil` as the type and `:json` as an opts map, so `(name nil)` throws — exactly the two Node test errors. The plan's Host matrix (`implementation-plan.md:520-525`) requires the codec corpus to pass identically on clj/cljs/cljd; it fails on Node today.
+*Fix:* `:cljs (transit/write (transit/writer :json) value)` and `:cljs (transit/read (transit/reader :json) text)`.
+
+**P0-2. The cljd helper file hijacks the v2 codec namespace on cljd — the entire cljd test build dies.**
+`src/cljd/dao/stream/transit.cljd:1` declares `(ns dao.stream.transit.cljd)`, but its **path** (`…/v2/transit.cljd`) maps to ns `dao.stream.transit`. ClojureDart prefers a `.cljd` file over the `.cljc` of the same ns, so on cljd, `require [dao.stream.transit …]` loads the verbatim legacy-copy file (which has no `portable-value?`) instead of the cljc wrapper — hence `Unknown symbol: codec/portable-value?` and the abort of `clojure -M:cljd test` while compiling `dao.stream.transit-test`. This also means the `#?(:cljd [dao.stream.transit.cljd :as transit])` branch at `transit.cljc:12` can never take effect. kondo flags the symptom (`Namespace name does not match file name`).
+*Fix:* move the file to `src/cljd/dao/stream/transit/cljd.cljd` (ns `dao.stream.transit.cljd` → path `dao/stream/transit/cljd.cljd`). That restores cljd preference for the cljc wrapper at `dao.stream.transit` and makes the require resolvable.
+
+**P0-3. `dao.stream.ringbuffer` does not compile to Dart.**
+`src/cljc/dao/stream/ringbuffer.cljc:154` — `#?(:clj clojure.lang.IAtom :cljs cljs.core/Atom)` has no `:cljd`/`:default` branch, so on cljd the conditional vanishes and the form becomes a 1-arity `instance?`. ClojureDart inlines `instance?` only at arity 2 (cljd `core.cljd:419-423`); the leftover call is emitted as `instance$QMARK_(x$1, )`, which the Dart analyzer rejects (`not_enough_positional_arguments`, verified on the generated `lib/cljd-out/dao/stream/ringbuffer.dart:419`). The cljd "compile" task reports success because it only checks cljd emission, not Dart validity.
+*Fix:* put the whole `cond` behind per-host conditionals, e.g. `#?(:clj … :cljs … :cljd (if (instance? RingHandle x) (.-state ^RingHandle x) nil) :default …)`, or drop the raw-atom branch and accept only `RingHandle` (resolvers return handles; the atom reach-through is an unnecessary coupling anyway).
+
+**P0-4. `finite-number?` is an empty function on cljd — every number becomes non-portable.**
+`src/cljc/dao/stream/transit.cljc:19-25` — the `#?` has no `:cljd`/`:default` branch, so on cljd the body vanishes and the fn always returns `nil`; `safe-number?` is then falsy for **all** numbers, so `encode`/`decode` throw for any numeric value (the staged round-trip test's `:ring/capacity 32` would fail on cljd once P0-2/P0-3 are fixed). Numbers are core to the portable domain (`dao.stream.ws.md:596-601`).
+*Fix:* add a `:cljd` branch (e.g. `(and (number? x) (or (int? x) (and (double? x) (not (.isNaN x)) (not (.isInfinite x)))))`) and consider a conservative `:default false` so unknown hosts fail closed instead of silently.
+
+### P1 — confirmed defects, blocking the plan's gates
+
+**P1-1. A real ring-buffer descriptor cannot cross the codec — Phase 3's round trip is unimplementable as staged.**
+`src/cljc/dao/stream/ringbuffer.cljc:25` mints logical-stream identity with `(random-uuid)`, i.e. a host `java.util.UUID`/`cljs.core.UUID`. UUIDs are outside the v2 portable domain (`dao.stream.ws.md:596-601`), and the contract requires envelopes to be "plain data through and through: every value must survive the host serialization codec structurally unchanged" (`dao.stream.md:301-305`). Verified on JVM: `encode-descriptor` on a real ring-buffer `descriptor` result **throws** ("invalid DaoStream v2 descriptor"). The staged transit tests pass only because they substitute a vector identity (`[:stream "one" 7]`) for the real thing — precisely the case the plan's Phase 3 deliverable exists to prove (`implementation-plan.md:270-275`).
+*Fix:* mint identity in the portable domain — `(str (random-uuid))` (or a keyed map). Do **not** widen the codec domain to UUID; ws.md fixes it.
+
+**P1-2. The writer-side portability gate admits non-domain numbers on clj, creating cross-host divergence.**
+`src/cljc/dao/stream/transit.cljc:19-34` — on clj, `clojure.lang.BigInt` (`5N`) and `java.math.BigDecimal` (`1.5M`) are `number?`/`integer?`-true and in safe range, so `portable-value?` returns true (verified) and they encode as `~n`/`~f`. The cljd reader decodes those tags to `BigInt`/`TransitBigDec` wrapper **records** (`transit.cljd:280-281`), which `number?` rejects → decode throws there. The domain is "safe integers … finite doubles" (`dao.stream.ws.md:597-601`); the clj gate is the enforcement point and is too permissive.
+*Fix:* on `:clj`, accept only boxed longs/ints (`(fixnum? x)`) and `java.lang.Double`; reject Ratio/BigInt/BigDecimal/Float explicitly.
+
+**P1-3. Plan-mandated test deliverables are absent.** The implementation's core semantics look right, but the evidence the plan requires for these phases was never written:
+- No ring-buffer **manifest** (the exact exclusion table at `implementation-plan.md:217-228` appears nowhere) and the Phase 1 conformance suite is never run against the ring buffer (`implementation-plan.md:237-239` "runs here for the first time"). It is demonstrated only against mock handles whose fixtures partly fabricate results (see P2-2).
+- No **concurrency** cases at all — no `record-op!`/`check-linearizability` run against the real ring buffer for append/append, append/next, append/close, cursor/close, independent readers (`implementation-plan.md:150-164`). The oracle exists and its synthetic-history tests pass, but the oracle has never touched the transport.
+- No **Phase 3 round trip**: descriptor → codec → `make-attacher` → same logical stream, kept-cursor resumption, `not-found` for unbacked descriptors through the codec path (`implementation-plan.md:268-275`) — untestable today anyway because of P1-1.
+- No **cross-host corpus** (`implementation-plan.md:258-259`, `:525` "must pass identically on all three").
+These omissions are exactly why P0-1/P0-2/P0-4 and P1-1 survived to staging.
+
+### P2 — confirmed smaller defects / latent risks
+
+**P2-1. cljd reader cache-mirroring diverges from Cognitect — latent cross-host decode corruption.**
+`src/cljd/dao/stream/transit.cljd:98-103` (`cacheable?`) caches map keys of **any length ≥ 1** starting with `~`, `^`, `#`, or `r`; Cognitect caches a map key only when its length > 3 (`MIN_SIZE_CACHEABLE = 3`, `caching.js:22-46` of transit-js 0.8.874; non-key strings only for `~:`/`~$`/`~#` prefixes). Concrete counterexample: a `:r` keyword key encodes as `"~:r"` (length 3) — the clj/cljs writer allocates **no** cache slot for it, but the cljd reader writes one (`transit.cljd:304-332`), shifting every subsequent cache index; the next `^n` ref in a cache-heavy payload then decodes to the wrong string. Inherited verbatim from legacy (`diff` after ns rename is empty). `cache-code` (`transit.cljd:106-111`) itself matches Cognitect's `codeToIdx` (base 44, offset 48) — only the *cacheability predicate* diverges. The missing cross-host corpus (P1-3) is where this should have been caught.
+*Fix:* mirror Cognitect exactly: cache in key/tag position iff `(> (count s) 3)` plus the non-key `~:|~$|~#` rule; drop the `r`/`^`/`#`-prefix short-key rule.
+
+**P2-2. Mock conformance fixtures fabricate outcome maps, making the induction check tautological for those outcomes.**
+`test/dao/stream_test.cljc:526,529` — `:end` and `:closed` fixtures return hardcoded `{:dao.stream/outcome …}` maps instead of inducing the outcome on the handle. The harness's central claim — "for each declared outcome the fixture actually produces it" (`implementation-plan.md:132-135`) — cannot distinguish induced from fabricated. *Fix:* require fixtures to operate through the handle (close the mock, then read), or at least document the weakening.
+
+**P2-3. `run-reader-laws` claims cursor-provenance checks it does not perform.**
+`test/dao/stream/conformance.cljc:171-200` — the docstring and plan (`implementation-plan.md:126-127`: "cursor provenance — mint / successor / gap-recovery only") promise successor/gap-recovery cursor validity; only anchor minting and non-destructive re-read are asserted. *Fix:* feed each `next`-successor and gap-recovery cursor back through `next` and assert a contract outcome.
+
+**P2-4. The linearizability checker crashes instead of failing closed on malformed cursors.**
+`test/dao/stream/conformance.cljc:438-460` — `abstract-stream-step` compares `(:position cur)` numerically without an `integer?` guard; a history containing a non-integer position throws inside `check-linearizability` rather than reporting `{:linearizable? false}`. Robustness only (no staged history triggers it).
+
+**P2-5. Ring-buffer `next` retains a dead `transport-error` branch that the manifest excludes.**
+`src/cljc/dao/stream/ringbuffer.cljc:97` — unreachable today (every position in `[first, tail)` is present in `:values`, single-deref snapshot), but the plan's ring-buffer manifest excludes `transport-error` for `next`; leaving the branch in is a latent manifest violation. *Fix:* make it `:dao.stream/invalid-cursor` (a non-stream cursor shape) or delete the branch.
+
+**P2-6. cljd decode-side gate accepts wrapper records as "portable".**
+`src/cljd/dao/stream/transit.cljd:276` etc. decode `~u`/`~f`/`~c` to defrecord wrappers; records satisfy `map?`, so `portable-value?` (`transit.cljc:53`) accepts them as ordinary maps. A `~u`-tagged UUID in an inbound payload therefore decodes on cljd to `#TransitUUID{:value "…"}` — structurally unequal to the clj side's `java.util.UUID` — and silently passes the decode gate. Defense-in-depth gap once cross-host traffic exists. *Fix:* on cljd, reject the wrapper records in `portable-value?` (they are outside the domain), so non-domain wire content fails as data.
+
+### P3 — design questions / minor
+
+**P3-1. Dispatch helpers shipped inside the contract namespace.** `src/cljc/dao/stream.cljc:366-391` — `host-dispatch-create!`/`host-dispatch-attach!` are pure functions taking the host's table (no registry, no side effects — the invariants hold), but the contract says DaoStream "neither performs nor standardizes" host dispatch (`dao.stream.md:370-378`) and the plan says "Host dispatch is documentation plus an example map in tests" (`implementation-plan.md:96-97`). Harmless as staged; consider relocating to the tests or naming them as composition conveniences so the contract namespace stays free of dispatch shape.
+
+**P3-2. Generic descriptor validation goes beyond the plan's generic layer.** `v2.cljc:299-305` requires `:dao.stream/identity` at the generic layer, while the plan defines generic validation as "`:dao.stream/type` present and qualified; everything else transport-owned" (`implementation-plan.md:105-106`). Behaviorally identical here (the outcome is `invalid-descriptor` either way), but it should be a documented decision or pushed to transports.
+
+**P3-3. Minor lint/dead code.** `transit.cljc:7` excludes `read` but never defines one; `transit.cljd:93` `tagged-array` unused; `ringbuffer_test.cljc:2` unused `testing` refer; `transit.cljd` kondo noise mostly stems from P0-2's path mismatch.
+
+**P3-4. `record-op!` logical clock can miss happens-before edges under thread contention** (only in the permissive direction — weaker oracle, no false alarms). Acceptable for a bounded checker; worth a docstring note.
+
+## What is correct (worth stating)
+
+- **Architecture fidelity:** five handle operations on separate protocols with `descriptor` universal; `create!`/`attach!` as plain per-transport functions with no protocol, no multimethod, no registry, no load-time effects — exactly the retired-registry boundary the plan demands.
+- **Outcome algebra:** the closed outcome sets and required-key tables in `v2.cljc:53-118` match the contract tables verbatim; the validator and the manifest partition logic (produces ∪ exclusions == contract set, disjoint, reasons required) are sound.
+- **Ring-buffer semantics vs the contract:** one-atom coherent state with single-deref `next`; evict-oldest never waits for readers; `gap` with earliest-retained recovery cursor; owner keeps minting cursors after logical close while a closed attachment answers `closed`; attachment close freezes the tail so post-close appends are unobservable (`end` at the freeze point); attach to a closed logical stream succeeds and reads to `end`; `append!`/`close!` idempotence and closed answers all conform — and `close-freezes-attachment` tests the subtle case correctly.
+- **cljd codec independence:** the v2 cljd namespace requires only `dart:convert`; it shares code with legacy only by copy, per the plan's allowance.
+
+## Verdict
+
+**REQUEST CHANGES.**
+
+Blocking: P0-1 … P0-4 (two of three hosts broken; cljd currently cannot even build the project test suite), P1-1 (the descriptor gate the slice exists to prove is unimplementable with the staged ring buffer), P1-2 (domain gate wrong on clj), P1-3 (the plan's conformance/oracle/round-trip evidence was never written — which is precisely how the P0s got this far).
+
+Recommended order: fix P0-1/P0-2/P0-3/P0-4 and P1-1/P1-2, then add the missing ring-buffer manifest + conformance run, the concurrency oracle cases, the codec round trip through `make-attacher` with kept-cursor proof, and a cross-host corpus (fixed encoded strings) that exercises repeated keys (cache refs) — that corpus is the right place to pin down P2-1 before Phase 4 puts this codec on the wire.

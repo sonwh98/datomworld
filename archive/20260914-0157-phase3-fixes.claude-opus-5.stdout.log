@@ -1,0 +1,20 @@
+I fixed all three issues the architect flagged. All tests pass: 27 JVM tests (handoff and REPL suites) and 1340 CLJS tests on node, all with 0 failures. The `demo` build compiles with 0 warnings. I couldn't run node myself (it needed approval), but compiling the test build ran the suite, and the handoff test namespace is in that bundle. I haven't clicked through the demo in a browser.
+
+**1. [P1] Streams made before a handoff** (`continuation_handoff_v2.cljc`)
+- A new `resource-keys` function lists anything in the VM's store that isn't a definition or the VM's own FFI stream pair. In practice that means stream handles made by `:stream-make`.
+- `shippable?` now returns false while any of those exist, and `semantic-registers` / `continuation-datoms` throw instead of shipping a stream reference that would point at nothing on the receiver.
+- The regression test builds `((fn [s] (stream/cursor s)) (stream/make 4))` and steps until the stream exists. It checks the VM is no longer shippable, that shipping throws, and that the sender can still finish. It also checks that a freshly loaded VM is still shippable.
+- This is the "reject" option from the review, not the "reattach resources" one. A continuation that holds a live stream simply stays on its sender.
+
+**2. [P2] Ordinary data turning into primitives**
+- There is now one reserved key, `:yin.continuation/tag`. A primitive is encoded as `{tag :primitive, :name n}`. An ordinary map that happens to contain that key is wrapped as `{tag :quote, :value m}`.
+- The decoder works from the outside in, so a quoted map's own tag key is never read as a tag. Unknown tags throw.
+- The new test sends look-alike marker maps (top-level, nested and quoted), a set, a list and a bogus tag, and checks they all arrive unchanged. It also checks that real `+` references arrive as the receiver's own primitive.
+
+**3. [P2] Global state in the demo** (`continuation_stream_v2.cljs`)
+- The namespace-level `app-state` and `run-raf-id` are gone. Each mount of `main-view` creates its own session: a state atom, a host-event stream with its own read position, and its own animation-frame handle.
+- Clicks, source edits, interval changes, animation frames and unmount are now events appended to that stream. `emit!` appends one, reads everything new, folds it into the state through `handle-event`, and then starts or cancels the session's animation frame to match whether it's running.
+- The old `...!` functions that mutated state directly are now plain state-to-state functions, and the views take state as an argument.
+- One small fix came along with this: a run reset now includes the transport's `:seq` counter, which the old state never initialised.
+
+I didn't change the Status line in the prompt file; the earlier Phase 3 prompt still says "active" too, so there's no convention of marking it done. Nothing is committed yet.

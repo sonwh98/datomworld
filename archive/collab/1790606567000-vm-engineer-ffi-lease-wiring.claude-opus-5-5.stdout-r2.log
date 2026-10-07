@@ -1,0 +1,52 @@
+Completed-GMT: 2026-09-28 15:33:59 GMT
+Completed-Local: 2026-09-28 22:33:59 +07
+Coding-Agent: claude
+Session-ID: 7d111381-2e90-40d2-9519-0a15d8ccca19 (resumed)
+
+# Slice 3b fix round 1: P1 and P2
+
+Both gate findings are fixed and the JVM and CLJS test lanes pass. `cljstyle check` did not run because the permission gate blocked it. The CLJD lane was not run, as instructed. Nothing is staged or committed. The full report is in `collab/1790606567000-vm-engineer-ffi-lease-wiring.claude-opus-5-5.report-r2.md`.
+
+**Files changed:** only the four allowed ones: `src/cljc/dao/lease.cljc` (additive only), `test/dao/lease_composition_test.cljc`, `src/cljc/yin/vm/ffi/remote_serve.cljc` and `test/yin/vm/ffi/remote_serve_test.cljc`.
+
+## P1: grantor-source collision
+
+- `open!` now refuses any `::lease-media` entry whose `:source` is `rs/grantor`, with the refusal `{::option ::lease-media, ::reason ::grantor-source}`.
+- The refusal happens before the judge is built, before the mirror cursor is minted, and before anything is published.
+- It is tested with a claiming medium alone and alongside valid media.
+
+## P2: public declared wiring and unwiring in `dao.lease` (owner-authorized)
+
+- **Shared validation:** `make-judge`'s per-entry check is moved unchanged into a private helper, `check-medium-entry!`, which both paths call. The validation is shared, not copied.
+- **`make-judge`** now also records `:resolver-bindings` and `:durable?` on the judge it returns. This is additive.
+- **New `wire-declared-facts judge entry`:** it runs the same checks `make-judge` runs on each medium: entry shape and declaration, the durable/host-values refusal, and resolver compatibility against the judge's recorded bindings. The declaration stays on the wired entry. A judge that `make-judge` didn't build is refused under `:resolver-bindings`.
+- **New `unwire-facts judge handle`:** it removes exactly the medium with that handle and is idempotent. The ledger, ticks and other media are untouched.
+- **remote_serve** now wires renewal media through `wire-declared-facts`, using a new public `renewal-declaration`, and removes finished media with `unwire-facts`. A grep of `remote_serve.cljc` for `:facts|wire-facts` finds only `lease/unwire-facts` and its docstring, so no remote_serve code touches the judge's `:facts` vector.
+- **New dao.lease tests** (`wire-declared-facts-test`, `unwire-facts-test`) cover all four cases you asked for:
+  - a valid declaration wires, is kept, and its renewals count;
+  - each invalid declaration is refused under the seam it names;
+  - unwiring removes exactly that medium and is idempotent;
+  - an unwired medium's renewal never reaches `judge-step`.
+
+## Notes you asked for (no code change)
+
+- **Q3 (open renewal):** accepted by the gate as the documented S6 seam.
+- **Q6 (tolerance must cover the mirror's read budget):** the composition owner's sizing duty. It is now stated in the `open!` docstring (under `::lease-tolerance`) and in the `step` docstring.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| `clj -M:kondo --lint` on the 4 changed files | 0 errors, 1 warning |
+| `cljstyle check` | not run (permission gate) |
+| Focused JVM run (the five namespaces in the prompt) | 142 tests, 1243 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2224 tests, 50312 assertions, 0 failures, 0 errors; both changed test namespaces appear in the output |
+| `bb test:cljd` | not run, as instructed |
+
+The kondo warning is an unused `traffic` binding at `lease_composition_test.cljc:627`. It was already there: the committed HEAD version of that file gives the same warning at the same line, in code I didn't touch.
+
+## Open items
+
+- `wire-declared-facts` does not refuse a medium whose source is the judge's own `:self`, matching `make-judge`. Adding that check inside `dao.lease` would change `make-judge`'s behaviour, which this additive-only round didn't allow. remote_serve refuses the case itself for its standing media.
+- I did not repeat the mutation checks this round, since the prompt didn't ask for them.
+- Not done: cljstyle (blocked), the CLJD lane, and slice 3c.

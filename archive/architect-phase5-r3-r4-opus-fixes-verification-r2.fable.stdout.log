@@ -1,0 +1,44 @@
+Completed-GMT: 2026-09-04 05:36:30 GMT
+Completed-Local: 2026-09-04 12:36:30 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: fde8b517-9c3f-48c6-a4d9-c455489fbebc
+
+## Scope and method
+
+Read-only static review of the current unstaged delta (`git diff`, 13 files) resuming the withheld sign-off, against the Opus blocker-fix log, the governing design documents already read in this conversation, and the committed `rpc`, `ws`, `serving`, and `core` code the fixes compose over. No suites were rerun; the orchestrator's JVM, kondo, and diff-check evidence and Opus's Node and CLJD evidence were assessed as claims and each new test was read for what it actually exercises.
+
+## Findings
+
+Severity | file:line | invariant / evidence | recommended correction
+---|---|---|---
+Low | `src/cljc/yin/repl/driver.cljc:196`, `:378-382`, `:285` | Consistency of the new routing rule. `/transport-error` is now a queueable terminal, so ordinary lines are queued with "queued until (connect …) reattaches". A reachability failure is not reattachable, so the operator's `(connect …)` takes `open-connection`, whose `attach-remote` resets `:queued []` and drops those lines silently. The notice promises a delivery the fresh boundary never makes. Pre-existing mechanism, but the delta made the queueing an explicit decision. | Either route locally after `/transport-error` as for `/ended` and `/not-found`, or carry `:queued` across `open-connection` for the same URL and publish a notice for a different URL.
+Low | `src/cljc/yin/repl/serve.cljc:298-307`, `:618-638` | Shutdown of an endpoint whose bind *threw*: `:serving` exists but `@resources` is nil and the serving lifecycle is `:failed`. `stop!` marks it `:stopping`; `finish-stop` calls `unbind!` with nil resources; a host that throws deposits `:listener-error` but no `:stopped`, so the shell spends the full budget and prints the timeout for a listener that never bound. The never-bound fix covers the descriptor-gate and missing-package cases only. | Skip `unbind!` when resources are nil, and let a `:stop-endpoint!` transport-error mark the endpoint `:stopped` locally with the deposited reason, since no host completion can follow.
+Low | `src/cljc/yin/repl/driver.cljc:278-286` vs `:259-275` | Symmetry of `:unsent` ownership. `reattach` abandons an unsent envelope and publishes the loss; `open-connection` replaces the adapter wholesale with no abandon. The closed-writer retry at the top of the same tick completes the request first on every real host, so this is a guard gap on the same "writer answers `full` forever" host the reattach comment names, not a reachable loss. | Call `abandon-unsent` with a reason before `attach-remote` in `open-connection`, matching `reattach`.
+Low | `src/cljc/yin/repl/connect.cljc:497-540` | Display only, acknowledged by Opus: `observe` applies a post-terminal `/detached` after `/transport-error`, so `(repl-state)` shows `:detached` while RPC's terminal, which governs routing and reconnect, is `/transport-error`. | Have `transition` ignore lifecycle events once `:status` is in `terminal-statuses`, mirroring the RPC layer's post-terminal diagnostic rule.
+
+## Disposition of every prior blocker
+
+1. **HIGH — JVM `(quit)` did not exit.** Closed. `poll-loop!` now takes `exit!` (default `.halt`) and calls it once after `drain-server!`; the reader parked in `read-line` is never waited on. The new test injects `exit!` and asserts exactly one call with a server of nil; the structural claim (reader not joined) is verified by reading `-main`. Headless keeps the hook-plus-join path and the poller's own halt ends it there too.
+2. **MEDIUM — operator-disconnect reconnect trap.** Closed. The "Still disconnecting" branch is gated on `(nil? (remote-terminal state))`; I traced disclaimed, ended, transport-error, and disconnect-while-connecting through `connect-command` and each reaches `open-connection` or `reattach`. `connect/close!` preserves `terminal-statuses`. The new test covers the disclaimer path end to end including the second boundary's request.
+3. **MEDIUM — stale RPC `:unsent`.** Closed. `rpc/unsent?` and `rpc/abandon-unsent` are pure `.cljc` with no host branch; abandoning appends a completion with the caller's reason, clears `:unsent`, leaves `:outstanding` untouched, and keeps `:next-id` monotonic, so `ids-in-use?` retires the id via the unpublished completion and the next allocation is `id + 1`. The driver abandons on operator disconnect and on reattach, publishes the loss on the next tick's `poll-remote`, queues a new line whenever RPC holds an unsent envelope, and resends only through `retry-unsent`. Within the driver the invariant "unsent implies `:retrying`" holds on every path I traced, so `release-queue` cannot deadlock. Tests cover queue-not-clobber with order, abandon-on-disconnect with retired id, the uninvited-drop path (where the closed writer completes the request first, as the test text honestly states), and the RPC unit contract.
+4. **MEDIUM — never-bound endpoint shutdown.** Closed for the cases the finding named. `stop!` leaves an endpoint with no `:serving` untouched and `stopped?` answers true for it, so `stop-tick` finishes on the first tick with `:failed` and its reason intact; tested. `stop-join-millis` now exceeds the 201-step drain. The residual bind-threw case is the Low above.
+5. **Related LOW fixes.** Closed: non-reattachable terminals return input to the local shell (tested for `/ended`); the clock-omitting `accept!` arity is gone; the incomplete-form refusal carries `:yin.repl.serve/incomplete-input` (tested); the `verifyClient` two-argument requirement and `ws` 8 deprecation are documented at the definition.
+
+## Passed properties
+
+- **One resend path.** `retry-unsent` is the only caller that resends a retained envelope; `handle-line` and `release-queue` both defer to RPC's `:unsent` rather than the driver's shadow.
+- **Completion invariants across hosts.** Abandonment reports through the same `:completed` outbox as every other loss, is published exactly once by `publish-completions`, and never re-enters `:outstanding`; nothing in the addition is host-conditional.
+- **New-line ordering.** Lines within one tick are submitted or queued in input order; `release-queue` releases one line per tick only when the request path is free.
+- **Step-owner exit on all hosts.** JVM halts from the poller, Node from the interval, Dart from the periodic timer; no host waits on a reader to exit.
+- **Honest `:stopped`.** Still deposited only by the host close completion; `stopped?` short-circuits only where no host exists to deposit it, and `stop!` no longer claims `:stopping` for such an endpoint.
+- **No new hidden state, callbacks, or waits.** The `exit!` argument is composition data with a host default; every other change is a pure transition over explicit state.
+
+## Deferred risks
+
+- Standing risks are unchanged: no cljd test execution, pending pre-accept sockets not closed by `serving/stop!`, two shells under D4, the unwired Node host seam, two aligned but unmerged canonicalizers, and signal handlers verified by compile and analysis only.
+- Interactive JVM and Dart Ctrl-C with `--port` still exits with a live endpoint; only headless installs the trigger.
+- Node and Dart spend one extra tick finishing a never-bound endpoint; harmless.
+
+The four blockers are closed with regression tests that exercise the claimed behaviour, and the remaining items are Low consistency and guard gaps that do not breach an invariant or the DaoStream contract.
+
+SIGN-OFF: GRANTED

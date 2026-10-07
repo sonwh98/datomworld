@@ -1,0 +1,39 @@
+Completed-GMT: 2026-09-29 07:12:43 GMT
+Completed-Local: 2026-09-29 14:12:43 +07
+Coding-Agent: claude
+Session-ID: 067152df-fd04-4aff-859e-8aa524ba524d
+
+# Report: Lease source-authority regression tests (Architect post-epic ruling, item 2)
+
+Only one test was new. The other two acceptance items already had tests, and I confirmed with mutations that those tests catch the failure they guard against. The change is tests only: `git diff -- src` is empty, and nothing is staged or committed. I didn't touch the yin.repl files, main_test.cljc or orchestrator-log.md.
+
+Changed: `test/dao/lease_composition_test.cljc` (+28 lines, one deftest).
+
+## Acceptance items
+
+| # | Invariant | Status | Test |
+|---|---|---|---|
+| 1 | A judge can wire and read its own grantor-authored medium | **Partly covered before; now fully covered (NEW test)** | `a-judge-wires-and-reads-its-own-grantor-authored-medium-test` |
+| 2 | remote-serve refuses an inbound medium with `:source` = `::grantor` | **Already covered** | `open-refuses-each-missing-or-malformed-lease-option`, the testing block at `test/yin/vm/ffi/remote_serve_test.cljc:407` |
+| 3 | Renewal media remain attributed to their holder | **Already covered** | `serving-grants-a-lease-to-a-served-renewal-medium` (`test/yin/vm/ffi/remote_serve_test.cljc:735`) |
+
+**Item 1:** `grantor-authored-facts-establish-terms-test` (`test/dao/lease_test.cljc:1398`) already checked that a `:grantor`-sourced fact seeds tenure. But it works at the `initial-judge`/`wire-facts` level. No test built the judge through `make-judge` or `wire-declared-facts`, which is where the ruling says a blanket refusal must not be added. The medium at line 115 that the ruling cites is the holder's medium, not the judge's.
+
+The new test builds a `:self :grantor` judge with a `:source :grantor` ledger medium, once through each API. It checks that both paths wire the medium. It then appends a grantor grant to that ledger and checks that each judge seeds tenure with the grant's holder.
+
+## Mutations (each reverted)
+
+| Mutation | Result |
+|---|---|
+| A. `make-judge` and `wire-declared-facts` refuse a medium whose `:source` equals the judge's own `:self` | **Only the new test fails.** No other test caught this. The new test still fails with just the `wire-declared-facts` half. |
+| B. `resolve-author` silently returns nil for self-sourced media | The new test fails on both paths, and so do two existing `lease_test` tests. |
+| C. `claims-grantor?` always returns false (the grantor-source guard is removed) | The item 2 test fails (lines 414, 415, 417). |
+| D. The renewal medium is wired with `:source grantor` instead of the holder's identity | The item 3 test fails at line 735, and so do the renewal, release and detach end-to-end tests (17 failures, 1 error). |
+
+## Verification
+- **kondo:** 0 errors and 1 warning: an unused binding `traffic` at line 627 of the same test file. It was already there, in a test I didn't change.
+- **Focused JVM run** (the three namespaces): 100 tests, 888 assertions, 0 failures, 0 errors.
+- **`bb test:cljs`:** 2249 tests, 50589 assertions, 0 failures, 0 errors. The output includes "Testing dao.lease-composition-test".
+- **`bb test:cljd`:** not run, as instructed.
+
+The report is at `collab/1790665745000-qa-engineer-lease-authority-regressions.claude-opus-5-5.report.md`.

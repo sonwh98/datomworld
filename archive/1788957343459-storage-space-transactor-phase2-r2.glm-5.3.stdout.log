@@ -1,0 +1,30 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r2 corrections are complete — report at `collab/1788957343459-storage-space-transactor-phase2-r2.glm-5.3.findings.md`, nothing staged or committed.
+
+## What was applied
+
+**P1 (blocking, docs)** — all five passages:
+- **Fault Tolerance** rewritten on the two-stage model: atomicity (crash leaves a prefix, never a torn transaction or partial manifest), un-published memory-log contents do not survive process failure, durability begins at publication in `dao.jing`, restart recovery from published state, checkpoint named as future work. The persistent-file, file-reopen, `ds/next`, and `:daostream/gap` claims are gone.
+- `:182` q returns a bounded **value**; worker-loop intro writes via `transactor/append!`; `dao.space.schema.md` calls the inner object the transactor value from `create!`; the stigmergy doc's opening definition uses `transactor/append!`/`transact!`.
+- Grep-verified: none of the stale claims remain in the phase's five docs.
+
+**Finding 1** — plan §4.5/§5.5 corrected in the r5 file, both marked "Corrected (2026-09-09, phase 2 r2)" inline so the successor reads truth, not a silent edit: the `:777` carrier and `stream-values` now migrate in Phase 3 with the adapter deftests that are their only callers.
+
+**Finding 2** — `create!` guards `(map? spec)` before the `:next-t` check; `(transactor/create! 42)` now throws D2's clean ex-info, pinned by a `#"must be a map"` sub-case.
+
+**Finding 3** — `NonOutcomeAppendStream` double + `append-folds-a-non-outcome-answer-to-transport-error`: asserts the exact fold `{:dao.stream/outcome :dao.stream/transport-error :dao.stream/answer :boom}` and the retry committing at the original `t 0`. That closes the last untested branch in `append-packet!`.
+
+## Verification
+
+| lane | result |
+|---|---|
+| `bb test:clj` | **1434 tests, 165356 assertions, 0 failures, 0 errors** |
+| `bb test:cljs` | **1344 tests, 34923 assertions, 0 failures**, 1 pre-existing error (the `wasm` one) |
+| `bb test:cljd` | **All tests passed!** (+1297) |
+| demo | Build completed, 0 warnings |
+| kondo / cljstyle | 0 errors 0 warnings / clean |
+
+Two incidents worth knowing about, both in the report:
+
+1. **The host killed the first full `bb test:clj` re-run** (exit 137) — per your brief's instruction I wrote the partial findings file first, then resumed; the retry and the other lanes all completed, and the partial was replaced by the final report.
+2. **A self-inflicted kondo false alarm**: the first r2 lint reported two bogus arity errors. Cause: Phase 2's baseline verification had stdin-linted `git show HEAD:transactor.cljc` into kondo, which cached that v1 analysis (5-param `append-packet!`, `DaoStreamLog`) under the live namespace. Cleared the gitignored `.clj-kondo/.cache`, re-linted clean. Phase 2's reported kondo result stands (its run preceded the poisoning); the trap is now in the report and my memory.

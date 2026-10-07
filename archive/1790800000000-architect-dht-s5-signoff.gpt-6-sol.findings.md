@@ -1,0 +1,15 @@
+The author’s report covers the requested paths, but the approval depends on the code and test gates. I’m checking the join and hydration APIs, the REPL wrappers, and the process test now.
+Completed-GMT: 2026-09-30 20:31:00 GMT  
+Completed-Local: 2026-10-01 03:31:00 Asia/Ho_Chi_Minh
+
+**SIGN-OFF WITHHELD.** The implementation provides a genuine `dao.space.dht` API outside `yin.repl`, and the REPL host functions call that API. The code also supports the S5 behavior for an explicitly selected DHT store: `mem` remains the default; solo opens no socket; publication is separately enabled and announced before sharing; publication outcomes come from DHT facts; rounds use the local store; and the process test exercises remote hydration and query over loopback. The secret is minted in memory for each networked join, and the bind default is loopback.
+
+| Severity | File:line | Issue | Fix |
+|---|---|---|---|
+| High | [dao.space.dht.cljc](/Users/sto/workspace/datomworld-dht-s5/src/cljc/dao/space/dht.cljc:173) | Public `join {:dir …}` opens `content.jing` without the directory lock required by the durable store contract. Two plain callers can open the same directory. | Put a reusable locked directory store under `dao.*` and use it for `:dir`; retain `:local` for callers supplying an already locked store. |
+| Medium | [dht_process_test.clj](/Users/sto/workspace/datomworld-dht-s5/test/yin/repl/dht_process_test.clj:247) | Seeing a `lock` file does not prove that concurrent opening is refused. The Node exchange is silently optional when `target/yin-repl.js` is absent (line 251). | Add a competing-open assertion. Make the Node leg a required, built test target if JVM↔Node is claimed as acceptance evidence. |
+| Medium | [dht_process_test.clj](/Users/sto/workspace/datomworld-dht-s5/test/yin/repl/dht_process_test.clj:34) | Reserving ports by opening and closing temporary sockets creates a bind race on loaded hosts. | Have listeners bind ephemeral ports and pass their reported addresses to subsequent processes, or retry port collisions. |
+
+**Rulings on the open points:** (a) Refusing bind and port flags in solo mode is coherent with “no peers means solo”; a first node can list peers that are not up yet. It does not create a privileged node. (b) The lock belongs in a reusable `dao.*` host store because `join {:dir …}` is a public plain-Clojure entry point; this is the sign-off blocker. (c) The Node leg is useful evidence when built, but a notice and skip cannot serve as a dependable cross-host gate. (d) The single Dart-client failure followed by a passing rebuild is inconclusive; it is not by itself an S5 finding.
+
+The lazy `js/require` calls are sound for the stated Node path and allow the browser build to load these namespaces without binding a socket. They do not make networked DHT operation available in a browser. The author reports passing JVM, CLJS, Dart, and build lanes; I inspected their report and code but did not independently rerun those lanes in this read-only review.

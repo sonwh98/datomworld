@@ -1,0 +1,21 @@
+Completed-GMT: 2026-09-14 17:54:44 GMT
+Completed-Local: 2026-09-15 00:54:44 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1601 lines (was 1545). Only this file changed; it remains untracked and `git diff --stat` is empty.
+
+**Finding-by-finding:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Incarnation allocator observed a cursor instead of allocating | Fixed. §8.4.1 now allocates the incarnation as the stamped id `[log-identity e]` of a construction record the composition transacts on the log medium at construction, before any batch is observed; uniqueness is the log transactor's permanent-id allocation. A composition with no transacted log falls back to its own unique token, and the record states which form it carries. Allocation retry is defined: construction is all-or-nothing, any retry performs a new allocation and never re-reads a committed record, because recognizing an earlier record would require the token being allocated. The staged-flush rule is unchanged. §10.3's cross-document note now names the construction-record step. |
+| 2 | Harvest index used as macro declaration ordinal | Fixed. §8.5 keeps two sequences: the harvest catalogue holds every definition group in admission order for harvest and redefinition, and a derived declaration catalogue numbers only macro-declared groups in their relative order. A macro group's `:decl k` is its index in the declaration catalogue, shared by all its occurrences; plain groups are never replaced by stand-ins and stay executable `yin/def` syntax. Validation states the declaration catalogue is derived, never carried. §2.5's catalogue row, §9.1's adapter row, and §10.4 were updated to match. |
+
+Neither finding required an owner ruling.
+
+**Sections touched:** status line, §2.5 (harvest catalogue row), §8.4.1 (incarnation and allocation retry), §8.5 (occurrence-group rule, new two-sequences rule, validation), §9.1 (adapter row), §10 items 3 and 4.
+
+**Verified against source myself:** the cursor contract at `dao.stream.md:471-477`; the memory log's `:dao.stream/newest` cursor being the current value count at `memory_log.cljc:105-110`; transactor permanent-id allocation at `transact.cljc:157-165` and `:193-196`; stamped ids at `datom.md:161-166`; all-or-nothing construction at `v2.cljc:21-23`; the macro contract numbering only macro definitions and forwarding plain definitions untouched at `yin.vm.macro.md:254-278`.
+
+**Taken from the review, not re-run:** the executed two-cursor probe returning identical positions and identical attempt identities. I verified the memory-log code path that produces it but did not execute it.

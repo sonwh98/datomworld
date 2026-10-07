@@ -1,0 +1,65 @@
+^D[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+# DaoStream v2 — Round 3 Adversarial Review
+
+All three documents, the authority, and all three prior review logs read in full. Every applied correction was re-verified against its adjudicated intent first; findings below are what survives. Sibling round-2 logs (`review-round2-dao-stream.*`) were identified as parallel reviews of this same round and deliberately not mined.
+
+## Verification of applied corrections
+
+Correctly applied, with no new defect introduced at the point of application: `transport-error` in the `append!` table (contract:429); the ninth invariant (contract:76-77); exhaustive outcome sets + the three exclusion reasons (contract:85-91, 334-342 — implemented per the adjudicator's refined three-class rule, not the architect's stricter substitute-pairing rule, which is the right call); outcome sets for `descriptor`/`cursor`/`close!` (contract:189-193, 377-379, 444-445); host-composed dispatch entries (contract:299-304); `:dao.stream/attachment` + envelope + granularity + Handshake section (ws:60-90, 172-180); server-side handle, constructor, `forward!` totality (complete over all six `next` and all five `append!` outcomes — verified), narrowed 4c, identity tests (plan:188-196, 256-265, 278-281, 310-312).
+
+The handle-relative `append!` change was applied to the Writing table and propagated to Close — but **not** to two other places that still assert the strong reading. Those are findings 1 and 2.
+
+## Findings
+
+**1. HIGH | docs/design/dao.stream.md:477-479, 486-488 | Concurrency section retains the strong reading of `append!` success, contradicting the relaxed Writing semantics**
+The Concurrency section opens: "Each logical stream is one append-only sequence: **a successfully appended value occupies exactly one definite position in that sequence**, and every operation's outcome reflects the sequence at one moment," and later: "Whether an append landed before a close is answered by the sequence itself: the value has a position or it does not." After the relaxation (contract:425, 431-437), a successful append on a ws client handle or a server-side connection handle places the value in "the ordered outbound path," and — per plan 4c's explicitly optional inbound interpretation — it may never acquire a position in the served logical stream at all. Both Concurrency sentences are therefore false as universal claims, and "answered by the sequence itself" is false for every attachment-scope handle. This is the identical defect class as adjudicated finding 2, surviving in a section the correction never touched; the adjudicator's own verification cited this section (then line 442) as evidence, and the fix stopped at Writing.
+*Correction (contract):* rescope both sentences to the sequence the handle's surface is on — e.g. "Each sequence a handle's surfaces are on is append-only: a value accepted by `append!` occupies exactly one definite position in the sequence this handle's writer surface is on. For a handle on the logical stream itself, that sequence is the logical stream's, and every operation's outcome reflects it at one moment," and "Whether an append landed before a close is answered by the sequence the handle's surface is on."
+
+**2. MEDIUM | docs/design/dao.stream.md:193-194 vs 449-451 | `attach!`'s yield sentence uses "on the logical stream" in a sense the contract's own scope vocabulary has retired**
+"`attach!` … returns a handle **on** the same logical stream the descriptor names" (bold in the original) vs. Close: "An attached handle is **on an attachment**." After the relaxation this is not a loose synonym: no surface of a ws handle is on the served logical stream — its writer surface is the outbound path, it has no reader surface, its `close!` ends the attachment — only `descriptor` names the logical stream. "On" is defined by use throughout the outcome tables ("what this handle is on"), and under that definition the attach! bullet now contradicts Close for every remote transport. The bolded "same" teaches exactly the reading finding 2 existed to retire.
+*Correction (contract):* "returns a handle attached to the same logical stream the descriptor names — joined through transport-declared surfaces whose scopes are part of the transport's nature (see Close, Writing)."
+
+**3. MEDIUM | docs/design/dao.stream.ws.md:182-232 (Operations, absent bullet); plan:105, 188-196, 277 | The server-side connection handle cannot honor `descriptor`'s `{ok}` set as provisioned**
+The contract makes `descriptor` universal with outcome set `{ok}` (contract:189-193); the plan requires it "on every handle regardless of surface" (plan:105). A ws descriptor must name a served logical stream, never a connection (ws:9-16), so a conforming connection handle's `descriptor` must answer the served stream's descriptor — which requires the resolved identity at mint time. But the resolution table is composition-owned 4c data (plan:277), and the 4a transport constructor receives only "the deposit destination and its admission declaration" (plan:193-196). The ws spec's Operations section never states what `descriptor` returns on *any* ws handle (client is inferable, connection handle is not). Compounding it: the Phase-1 conformance harness is factory-driven (plan:109-113) and connection handles have no factory, so this handle's descriptor — and its close/append laws — are structurally untestable by the slice's only conformance artifact.
+*Correction:* ws spec states that a ws handle's `descriptor` names the served stream it joined, client and accepted-connection handles alike; plan 4a's server-side deliverable takes the resolved identity (or a resolver closure) from the composition at mint time, and 4c's association bullet names that handoff; note the harness gap or add a server-side factory hook.
+
+**4. MEDIUM | plan:109-117, 291-317 vs contract:334-342 | The new outcome-declaration duty has no enforcement home, and the ws transport's declared exclusions are never exercised**
+Surfaces now normatively requires each transport to declare which outcomes it produces and one of three reasons per exclusion — but the Phase-1 harness consumes only "factories plus its declared surface set"; there is no outcome-profile input and no per-exclusion driver anywhere in the plan. Most concretely: the canonical displaced-outcome case the adjudicator itself named as the example — attach to a path the endpoint disclaims → deposited `:ws/not-found` plus `append!` → `closed` (ws:176-180, 199-209) — appears in no Phase 4 or Phase 5 test (Phase 5 tests bootstrap, kill-connection, identity, and cursor-resume only). `invalid-descriptor` on ws is likewise untested. As written, the slice can complete with the Surfaces rule unenforced and the ws transport's most distinctive contract behavior unverified.
+*Correction (plan):* Phase-1 harness input grows the per-operation outcome declaration as data; Phase 4 adds a disclaiming-endpoint fixture asserting the deposited `:ws/not-found` envelope and the subsequent `closed` append, and an `invalid-descriptor` case.
+
+**5. LOW-MEDIUM | plan:280-281 vs ws:72-77, 84-90 | 4c's association bullet assumes an envelope capability the ws spec does not grant**
+"how a connection is associated with the served stream it joined, and how that identity reaches deposited events." The deposited envelope is fixed at `{:dao.stream/attachment, :ws/event, :ws/value}` and built by the transport's adapter — the composition cannot add a served-stream key — and under the slice's one-medium-per-boundary granularity the destination does not encode it either. Read as served-stream identity, the bullet is unimplementable; read as attachment identity, it is redundant (the ws spec already guarantees every event carries it) and misplaced (the transport mints the id, not the composition). Related drift: Phase 5 fact 3 (plan:310-312) names the event class "resolution," a vocabulary item that exists nowhere in the envelope.
+*Correction (plan):* "how a connection is associated with the served stream it joined — composition-owned state keyed by the attachment identity the transport mints"; align fact 3's "resolution" with `:ws/not-found` / `:ws/transport-error`.
+
+**6. LOW | docs/design/dao.stream.md:266 vs 292-297 | `create!`/`not-found` meaning cell is narrower than the specified behavior**
+The table says not-found means "No transport here matches `:dao.stream/type`," but Host Dispatch specifies a second trigger: a matching transport that supplies no `:dao.stream/create` (the ws case) also returns `not-found`. *Correction:* "Nothing here creates a stream of that type."
+
+**7. LOW | docs/design/dao.stream.md:101 vs ws:63-64, 73 | `:dao.stream/attachment` establishes transport-minted required keys inside the contract's shared result namespace, unlabeled**
+The adjudicator directed this spelling (result keys cannot be `:ws/…`), and it is the only conforming choice under the current rule — but the contract nowhere licenses transports to add required keys under `:dao.stream/`, while the envelope rule for specs/descriptors routes transport-owned keys to the transport's own namespace (contract:222-224). Two transports defining the same `:dao.stream/` key differently is now constructible. *Correction (contract):* one sentence in Result Convention — transport-defined result keys are permitted, live under `:dao.stream/`, and must be named to be transport-specific.
+
+**8. LOW | docs/design/dao.stream.ws.md:196 | "three of four hosts" — every other document counts three**
+The contract's IO model and the plan's host matrix enumerate clj, cljs (Node), cljd; the browser client is explicitly out of the slice. The fourth host is never named. *Correction:* "three of the hosts," or name the four.
+
+**9. LOW | plan:262-265 | `forward!`'s "Terminate and report rather than retry" names no report channel**
+Under the no-callback rule a long-running interpreter cannot invoke its owner; "report" must be either a returned value to its driver or an append onto a composition-designated stream. One sentence in 4b prevents an implementer from reinventing a callback under delivery pressure — the plan's own standard for its *Settled* section.
+
+**10. LOW | docs/design/dao.stream.ws.md:69-83 vs docs/design/datom.world.md:101-103 | The deposited-event envelope is unreconciled with the authority's "no bespoke envelope … or fact taxonomy to be read"**
+The envelope is justified and adjudication item C mandated it — attribution plus the connection's own mechanical event class, with `:ws/value` opaque — but no document says so against datom.world's sentence, and a future reviewer will re-raise it. *Correction (ws):* one clause — the envelope carries attribution and event classes the socket itself distinguishes, not a taxonomy of what values mean; `:ws/value` is never inspected.
+
+## Judgment on the handle-relative `append!` change
+
+**Sound.** Under the ninth invariant a remote authoritative position cannot be known at return time, so the strongest honest synchronous claim is acceptance into the handle's own ordered writer surface — and the contract defers the rest exactly where it defers everything else: as data at the far end.
+
+**Minimal.** The weaker alternative (`ok` = "the transport accepted the value," no order claim) would discard the ordering guarantee that the peer's deposit order and `forward!`'s disciplines depend on; the stronger alternative (positions in the logical stream, hence no remote writers) makes ws unimplementable. The one quibble is wording, not semantics: "the next position in the sequence" imports position vocabulary into a surface that has no cursors — the outbound path is ordered, not position-addressable.
+
+**Dependents on the stronger reading that survive:** exactly two, both reported above — Concurrency (finding 1, HIGH) and the `attach!` yield sentence (finding 2, MEDIUM). Everything else I traced — Close's handle-relative outcomes, Reading's `end`, the round-trip guarantee's "reaches," `forward!`'s totality branches, deposit admission's teardown rules, Retention and Gaps — reads consistently under the relaxed semantics.
+
+## Severity summary
+
+- **Blocker/critical: none found.** The documents are internally coherent enough to implement against; nothing contradicts an axiom or a non-negotiable invariant.
+- **HIGH: one** (finding 1).
+- **MEDIUM: three** (findings 2-4), plus one borderline (finding 5).
+- **LOW: five** (findings 6-10).
+
+Findings 1 and 2 are two halves of one fact: the relaxation was written into Writing and Close but not carried through the contract's remaining append-semantics prose. That is the single correction I would insist on before Phase 1 begins; findings 3 and 4 should be settled in the same pass, since both are cheapest to fix while the plan is still paper.
+[?25h

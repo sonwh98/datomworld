@@ -1,0 +1,16 @@
+Completed-GMT: 2026-09-13 13:50:26 GMT
+
+Reviewed `git diff HEAD -- docs/design/yin.vm.macro.md` against all six amendment points.
+
+| # | Confirmation |
+|---|---|
+| 1 | **Confirmed:** §4.1 splits the external `:yin/source-call` value from the log-local `:yin/source-node` ref, with exclusive roles and neither on admission failure. |
+| 2 | **Confirmed:** Provenance prose uses the correct attribute for each role and explains the naming. |
+| 3 | **Confirmed:** `event-schema` declares `:yin/source-node`, `:yin/macro`, and `:yin/expansion-root` as refs; `:yin/source-call` remains undeclared. |
+| 4 | **Confirmed:** §4.2 distinguishes external coordinates from batch-local resolution and preserves the durable-ID condition for `:yin/macro`. |
+| 5 | **Confirmed:** Incidental references, including Appendix C, no longer conflate the two roles. |
+| 6 | **Confirmed:** The unchanged Phase 0 list correctly removes the old `:yin/source-call` ref declaration from the VM schema. `:yin/source-node` belongs to the new event schema, not the retired-attributes list. |
+
+**Issues:** No P1/P2/P3 findings. `git diff --check` passed. No files were written.
+
+**Verdict: APPROVE.**

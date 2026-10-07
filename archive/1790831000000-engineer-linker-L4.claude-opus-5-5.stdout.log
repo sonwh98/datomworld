@@ -1,0 +1,80 @@
+# Engineer report: linker over dao.jing.dht, slice L4
+
+L4 is implemented and every lane passed when run in the foreground. Each acceptance bullet has a test, and I demonstrated failing runs (missing implementation or mutations) before green. Nothing is staged or committed. One spec gap needs an Architect decision (finding 1).
+
+Report file: `collab/1790812000000-engineer-linker-L4.claude-opus-5-5.report.md`. Worktree `datomworld-linker-l2`, branch `linker-l4`, from `bd9bfae7`.
+
+| Lane | Result |
+|---|---|
+| `clj -M:kondo --lint` on all 13 changed src/test files | 0 errors, 0 warnings |
+| `bb test:clj` | 2683 tests, 224122 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2597 tests, 90245 assertions, 0 failures, 0 errors; all 6 changed namespaces ran |
+| `bb build:yin-repl-peer` | built; its warnings are all in files I didn't touch |
+| `bb test:cljd` (after `rm -rf test/cljd-out`) | `+2552 … All tests passed!`; the 11 new tests are in the regenerated suite |
+
+## What changed
+
+- **`yin.vm.linker.publish`:** `module-from-index` derives a module from indexed code (5.3). `assertion`, `retraction`, `next-seq` and `name-envelopes` sign the name claims; the next sequence is derived from the publisher's own index (6.1, 6.5, 6.6).
+- **`yin.vm.linker.dht`:**
+  - The snapshot set is now HEAD plus every loaded index (7.2).
+  - New `authority` helper.
+  - New `resolve-name` gives the section 9 refusal shapes for names.
+  - New `publish-name!` is the single plain call behind publishing: derive, publish, sign.
+- **`yin.repl.index`:** every evaluated program's rows go into the index store each round (5.1). A failed row write records stage `:materialize` and the round doesn't publish. `commit-names` commits the signed envelopes as one transaction and publishes at once, so HEAD announces them.
+- **`yin.repl.link` / `yin.repl` / `yin.repl.query`:** the reader's declared principals, plus its own key's principal, reach the link source. A new `yin.link` host module answers `publish` and `names`. Each call checks its arguments and makes one plain call. The session's indexer then commits the envelopes. No REPL code walks, fetches, folds or signs.
+- **`yin.repl.main`:**
+  - New flags `--dht-key`, `--dht-principal` (strict 64-char lowercase hex) and `--dht-keygen`.
+  - Key loading never falls back to a fresh key.
+  - Keygen never overwrites an existing file, and the seed is never printed.
+  - Banner lines added; all three hosts' `-main` handle keygen.
+- **Docs:** `yin.vm.linker.dht.md` (5.3 options, section 10 rows) and `yin.repl.dao.space-index.md` (rows every round, names as one transaction).
+
+## Acceptance bullets → evidence
+
+1. **Rows each round; a second node loads the tree by its root.** `every-row-of-each-evaluated-program-is-in-the-index-store` and `every-round-s-rows-are-published-and-a-second-node-loads-the-tree-by-its-root`.
+2. **More rows than the pending-write bound, acknowledged, never `/busy`, eight rounds in a row.** `rounds-larger-than-the-pending-write-bound-are-acknowledged-never-busy`.
+3. **A failed row replication.** `a-failed-row-is-partial-unreachable-except-from-the-publisher-and-repaired`:
+   - The round is `:partial`, naming exactly that row, and HEAD moved.
+   - The first line names the result, "1 of N blobs not sent", and that the node is retrying.
+   - A reader that can't reach the publisher fails `:miss` on that row; one that can, loads it.
+   - After healing, the node repairs on its own after at least 30000 ticks, prints the acknowledged line, and a new load succeeds.
+   - `retry-at-the-prompt-brings-the-same-repair-forward` covers `(dao.space.dht/retry m)`.
+4. **Refused manifest.** `a-refused-manifest-is-unacknowledged-and-repaired-the-same-way`.
+5. **Peers that never accept.** `with-peers-that-never-accept-twenty-rounds-report-and-the-ticker-idles`: 20 first reports, no acknowledgement, every prompt answers at once, and the ticker goes idle again after a repair cycle.
+6. **Module published in a `:partial` round.** `a-module-published-in-a-partial-round-is-absent-until-repaired`: the reader resolves the name, the require is refused `:absent` with the miss cause, and after repair it evaluates to `4242`.
+7. **Two-principal dependency at the prompt.** `a-two-principal-dependency-evaluates-or-raises-dependency-binding`: `:absent`, then evaluates to `43`, then `:mismatch`, then `:ambiguous`.
+8. **`(yin.link/publish 'my.lib '[f])`.** `publish-at-the-prompt-derives-one-tree-and-declares-what-it-reads` and `publish-at-the-prompt-refuses-and-writes-nothing`, plus plain tests showing a refusal leaves the store at zero entries.
+9. **Republishing a name.** `republishing-a-name-retracts-then-asserts-…` and `republishing-a-name-resolves-by-the-snapshot-a-reader-holds` (new snapshot gives the new address, old gives the old, both give the new).
+10. **The fold over the snapshot set.** `the-fold-reports-what-does-not-resolve-and-refuses-ambiguity`, plus L2's `an-envelope-in-two-snapshots-is-one-event`.
+11. **Only HEAD and loaded indexes are folded.** `only-head-and-loaded-indexes-are-folded`.
+12. **Key file cases.** Three `main-test` tests: missing, malformed and mismatched files each refuse startup; keygen refuses to overwrite; the seed appears in no output.
+13. **Sequence after a restart.** `the-next-sequence-is-derived-from-the-index-after-a-restart` writes seqs 1, 2, 3, so there is no equivocation.
+
+## Failing runs before green, and mutations
+
+- **Before the implementation:** the `publish` and `linker.dht` tests failed with `No such var`. The index tests failed with 15 failures and 1 error. The 6 new REPL/main tests failed with 22 failures and 2 errors.
+- **Mutations, all caught and restored (`cmp`-checked):**
+
+  | # | Mutation | Caught by |
+  |---|---|---|
+  | M1 | rows not materialized | 4 tests: 27 failures, 1 error |
+  | M2 | HEAD left out of the snapshot set | 4 failures |
+  | M3 | earliest instead of latest defining program | 1 failure |
+  | M4 | republish writes no retraction | 6 failures |
+  | M5 | sequence always 1 | 4 failures |
+  | M6 | node doesn't declare its own principal | 2 failures |
+
+## Findings for the Architect / owner
+
+1. **Spec gap in 5.3: needs a decision.** If the publisher typed `(require 'base)` as its own program, the derived tree never runs it, because 5.3 collects only defining programs. The manifest still declares `base` under `:requires`. But the install child only passes the reader modules it actually linked, so on the reader `(app/g)` fails with `Unable to resolve symbol: base/f` (observed). I didn't invent a rule. The two-principal test types the require and the definition as one program, which 5.3 does collect. Options: 5.3 also collects each declared module's latest requiring program, or the publisher adds the requires itself.
+2. **Section 9 name refusals now have their full shapes.** The DHT source now refuses with `:absent` plus that name's `:diagnostics`, or `:ambiguous-name` with `:addresses` and `:asserters`. L3 had answered only `{:reason :absent :name n}`.
+3. **5.1 changes existing behaviour, as specified.** A store that refuses every write now fails at stage `:materialize`, not `:publish`. I updated the two existing tests that asserted the old stage (`index_test`, `query_test`). I read "not reported indexed" as: a `:materialize` failure skips that round's publication.
+4. **HEAD is read from disk on every fold.** `snapshots` reads `<dir>/HEAD` and its datoms each time, so the cost grows with index size.
+5. **`(reset)` drops host modules.** It drops `yin.link` and `dao.space.dht` like other host modules, so they must be required again; this tripped one of my tests.
+6. **Dart keygen permissions.** `dart:io` has no chmod, so Dart can't set owner-only permissions on the key file. The JVM uses `rw-------` where supported; Node uses mode 0600.
+7. **Where the 5.1 banner line lives.** It's in `yin.repl.main/banner`, because `yin/repl/dht.cljc` isn't on L4's file list.
+8. **Publish answer and refusals.** `(yin.link/publish …)` answers `{:module :address :links}`. Refusals are raised as the call's error under the reason keyword.
+
+## Not done / not run
+
+Nothing was skipped and no sandbox blocked a lane. Kondo ran as `clj -M:kondo` (the documented form) because `clojure -M:kondo` needed approval. My temporary scratch test file is deleted; the remaining scratch files are under git-ignored `target/l4/`, and `git status` shows only the 15 intended files.

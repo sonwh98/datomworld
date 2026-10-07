@@ -1,0 +1,53 @@
+Completed-GMT: 2026-09-02 18:35:06 GMT
+Completed-Local: 2026-09-03 02:35:06 Asia/Shanghai
+
+Reviewed the two plans against `vm.cljc`, `engine.cljc`, `ffi.cljc`, `ast_walker.cljc`, `ringbuffer.cljc`, `module.cljc`, the contract and the sibling plan. The design change is right, and it removes the dependency rather than moving it. It also opens four holes the plan does not close, and the biggest one is the one you named.
+
+## 1. The closure claim is now right
+
+With the ring buffer gone, the ten ported namespaces reach a stream in exactly one way. `dao.stream.apply`, `dao.runtime`, `telemetry`, `ffi`, `stream_driver` and `runtime_adapter` require only `dao.stream` (v1 protocols) or nothing stream-related at all. The only `dao.stream.ringbuffer` requires are `vm.cljc:7-9` and `engine.cljc:7`, and the only calls behind them are `open-local-stream` (`vm.cljc:134-139`) and `handle-make` (`engine.cljc:131-141`). I found no third construction site. The v1 `dao.stream.apply` never calls `open!` either. So "protocols and nothing more" holds, and the cljd three-way reader conditional at `vm.cljc:7-9` disappears with it.
+
+One sentence would make the claim checkable rather than asserted. The V1 phase says `dao.stream.apply` is built "over two ring buffers". That describes its test, but an implementer could read it as the namespace constructing its own endpoints, which is how the ring buffer would come back through `yin.vm.ffi`. The sibling plan writes an explicit dependency check for `v2/ws.cljc` at 4a. This plan should say the same of `dao.stream.apply`: it takes handles and requires only the protocols.
+
+## 2. `:make-stream` with no default leaves a hole, and it is the FFI pair
+
+The plan says that absent a constructor, the VM is "coherent" and "runs today with `:in-stream nil`". That is true of the in-stream, which `engine.cljc:310` guards. It is not true of the FFI pair, and the plan's one sentence on it ("The FFI pair is created the same way") does not say what happens when there is nothing to create it with.
+
+**The pair is built unconditionally and used unconditionally.** `empty-state` (`vm.cljc:539-540`) always produces `call-in` and `call-out`. `park-and-call` (`ast_walker.cljc:121-152`) reads both from the store and appends to `call-in` with no guard. `bridge-step` (`ffi.cljc:95-99`) reads `call-in` and calls `next` on it with no guard. With no `:make-stream` and no supplied handles, a `:dao.stream.apply/call` node is a protocol call on nil. That is a host exception, not "unsupported and says so".
+
+**The check must precede parking.** `park-and-call` runs `park-continuation` at line 125 before it touches a stream at 145. An "unsupported" error raised after that point leaves a parked continuation in `:parked` and a consumed id-counter. The rule has to be tested before the park.
+
+**`:call-in` and `:call-out` are existing options the plan never mentions.** `empty-state` already accepts handed-in handles, which is exactly the "streams the composition handed it" path the plan invokes. The plan must say whether these survive. I recommend they do, since they are the option that lets a composition supply the pair without `:make-stream`.
+
+**Construction now performs stream operations that can fail.** Building the pair calls `:make-stream`, whose `create!` outcomes are `ok`, `invalid-spec`, `not-found`, `transport-error`. Minting the call-out cursor, the in-cursor at `ast_walker.cljc:786`, and the bridge cursor at `ffi.cljc:31-32` each call `cursor`, whose outcomes include `closed` and `transport-error`. The plan states the handling for `handle-cursor` and for nothing at construction. A VM cannot be half-built, so the rule should be that any non-`ok` outcome at construction fails construction with an error carrying that outcome.
+
+**The bridge cursor has no handle to mint from.** `ffi/normalize` fabricates `{:position 0}` from a bare handler map and never sees the VM. In v2 the mint needs the call-out handle, so `normalize` either moves under `attach` where the store is visible, or `bridge-from-opts` runs after the pair exists. The plan cites `ffi.cljc:31-32,96` as mint sites but does not resolve that `normalize` has nothing to mint against.
+
+So the rule I would expect the plan to state, in one paragraph: the pair comes from `:make-stream` when supplied, else from `:call-in`/`:call-out` when supplied, else the store holds no pair. With no pair, a non-nil `:bridge` is a construction error and a `:dao.stream.apply/call` node fails before parking with an error naming the missing constructor.
+
+## 3. The effect table is complete for `:stream/*` and wrong in two rows
+
+The six rows match the six handlers in `handle-effect` (`engine.cljc:418-541`). `:vm/store-put` and the module-handler default branch sit outside the table's stated scope, and the module section covers the latter. Row by row:
+
+- **`:stream/make` is under-specified.** `:make-stream` returns a create outcome, so `handle-make` must be total over four outcomes, and the row names none of the failure cases. Also the module's zero-arity `make` produces `{:capacity nil}` (`ringbuffer.cljc:427-429`), which in v1 means unbounded. v2 has no unbounded mode. The plan says the module "survives the port unchanged apart from `take!`", which carries a nil-capacity request straight into `:make-stream`. Only the module path is affected, since the AST path defaults to 1024 at `ast_walker.cljc:426`, but `yang` compiles `(stream/make)` (`clojure_test.clj:214`) so it is reachable from source. Either the zero-arity `make` goes, or the VM declares a default, or `handle-make` rejects nil. Any is fine. Silence is not.
+- **`:stream/put` states a transport property as a VM property.** "No `full` on evict-oldest, so no parking" was true when the engine hardcoded the ring buffer. The engine no longer names a transport, and the contract's `append!` set is `ok`, `full`, `invalid-value`, `closed`, `transport-error`. The handler must be total over all five. `full` needs a defined behaviour, and the honest one is already in the plan: park in the polling wait set, which `dao.runtime` retries for `:put` at `runtime.cljc:114`. `invalid-value` is absent from the row entirely. The same relocation hits the retention section, whose sentence "every append site reads its outcome for `closed` and `transport-error`, never for `full`" is now false as a VM rule and true only of the ring-buffer composition. The divergence register entry should be scoped the same way.
+- **`:stream/cursor`** adds `closed` and `transport-error`. The contract's set also has `invalid-anchor`, which is impossible for a literal `:dao.stream/oldest` on a conforming transport but costs one branch to be total. Minor.
+- **`:stream/next`** and **`:stream/close`** are right. For close, v1's `resume-parked` wakes readers with nil; under the polling wait set a parked reader re-polls, gets `end`, and resumes with nil. Same result, as the plan's waiter deletion implies.
+
+## 4. What the change introduces or relocates
+
+- **The backpressure divergence moves from the VM to the composition.** This is the theme of point 3 and it should be stated once, plainly: the VM is total over the contract; what a given composition can observe follows from the transport it supplied.
+- **Every test now supplies `:make-stream`.** The V6 parity form generates expectations from v1 tests that call `(ast-walker/create-vm)` bare. The v2 side needs a test-side constructor that closes over the ring buffer, or the shared corpus cannot be run. Worth one sentence in V6 so the harness author does not invent it.
+- **`yin.vm.module` owning the effect constructors is clean.** It ends up with no stream dependency at all, and `resolve-var`'s `stream/make` to `stream.make` path lookup works unchanged against a registry value. The REPL plan's R2 wording matches.
+- **The `:make-stream` shape is the right abstraction.** A function of capacity, not a creation specification, keeps transport-owned keys out of the VM's vocabulary, which is what the contract's Host Dispatch section requires.
+
+SIGN-OFF: WITHHELD
+
+The shortest list that would earn it:
+
+1. **State the FFI-pair rule** for a VM with no `:make-stream`: pair from `:make-stream`, else from the existing `:call-in`/`:call-out` options, else no pair, in which case non-nil `:bridge` is a construction error and `:dao.stream.apply/call` fails before `park-continuation`. Say where the bridge cursor is minted now that `ffi/normalize` has no handle.
+2. **State that construction fails** on any non-`ok` outcome from pair creation or cursor minting.
+3. **Make `:stream/make` total** over the four `create!` outcomes and define nil capacity from the module's zero-arity `make`.
+4. **Make `:stream/put` total** over all five `append!` outcomes, with `full` parking in the polling wait set, and re-scope the two "never `full`" sentences and the register entry to the ring-buffer composition.
+
+Optional, one line: `dao.stream.apply` takes handles and requires only the protocols.

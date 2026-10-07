@@ -1,0 +1,25 @@
+Completed-GMT: 2026-09-03 21:46:00 GMT
+Completed-Local: 2026-09-04 04:46:00 ICT
+Coding-Agent: agy
+Session-ID: none (fresh retry)
+
+## Resolved Findings
+
+* **HIGH** `src/cljc/dao/stream/forward.cljc`: The `:gap-policy :resume` loop is resolved. Resumes are now correctly counted against the `:batch-budget` allowance, and a recovery cursor that does not advance now returns `:source-gap` to prevent a transport fixed-point infinite loop.
+* **MEDIUM** `src/cljc/dao/stream/ringbuffer.cljc`: Frozen attachment recovery now correctly yields the earliest retained position (`:first`), fixing the defect where recovering an already-evicted tail caused an infinite re-gap loop.
+* **MEDIUM** `src/cljc/dao/stream/ws.cljc`: Pending handoff slot leaks are resolved. `endpoint-step` now checks and releases slots where the handle is `:closed` (e.g. from pre-accept peer loss) or where the explicit wall-clock `:expiry-ms` bound has passed.
+* **MEDIUM** `test/dao/stream/ringbuffer_test.cljc`: The required bounded concurrent linearizability histories are now demonstrated. The oracle confirms concurrent append, next, and close! operations against the abstract stream model.
+* **LOW** Mixed reader conditionals: Resolved in `src/cljc/dao/stream/ringbuffer.cljc` by placing `:cljd` first before `:clj` and `:cljs`.
+* **LOW** `src/cljc/dao/stream/rpc.cljc`: Unbounded diagnostics growth is fixed. `take-diagnostics` introduces a correct publication and clearing boundary.
+* **LOW** `src/cljc/dao/stream/ws.cljc`: The `emit!` boundary explicitly preserves the `:ws/value` key in the event map, correctly surfacing legitimate nil payloads.
+* **INFO** `src/cljc/yin/repl_adapter.cljc`: The adapter correctly rejects the `telemetry` command and safely uses the non-evaluating `edn/read-string` instead of the evaluating reader for sniffing input lines.
+
+## Passed Properties
+
+Architecture, layering, cursor discipline, WebSocket wire shape, admission enforcement, RPC allocator, codec, and targeted CLJD portability properties are confirmed. As noted in the architectural intent, two-process Phase 5, cljd WebSocket transport, real host socket adapters, and full `yin.repl` core/driver namespaces remain deferred work.
+
+## Unresolved Risks
+
+None. All cited issues have been corrected in the staged implementation.
+
+SIGN-OFF: GRANTED

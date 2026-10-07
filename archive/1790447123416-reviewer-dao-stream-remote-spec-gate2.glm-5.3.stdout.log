@@ -1,0 +1,81 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+Completed-GMT: 2026-09-26 18:37:00 GMT
+Completed-Local: 2026-09-27 01:37:00 +0700
+Coding-Agent: glm
+Session-ID: b0bd616e-614a-4d4a-b8e0-e51983f1de9b
+
+# Review, items 5–8 (second independent reviewer)
+
+## 5. Unification and dao.jing.remote
+
+**Sweep.** Every network primitive in `src/` was located by grep (`WebSocket|DatagramSocket|java.net|Socket|dgram|http-kit` etc.); the only dao/yin files touching sockets or HTTP are the four ws adapters, `dao.jing.dht/node.cljc`, `dao.jing.remote*`, `yin.repl*`, and the demos. Checked and correctly excluded from the fate table: `src/clj/world/server.clj` (website ring/httpkit server), `src/clj/world/datom/ollama.clj` (HTTP client to a local LLM — application tool, not a dao.stream path), `dao.stream.waitset*` (not network), `yin.repl.host*`/`embed`/`main`/`flutter` (the ws host seam, covered by the yin.repl row's URL item), demos (consumers; slice 5's proof names "the demo REPLs work"; `equation_plotter.cljs:233` uses `dao.stream.apply/call`, the AST node the fate row correctly keeps). `yin.vm.streams-all-the-way-down.md:370` mentions WS/UDP as examples only. **Nothing is missing from the table.**
+
+Row-by-row against the tree:
+- **ws + 4 adapters — subsumed ✓.** Accept/disclaim/served-path exist as claimed (`src/cljc/dao/stream/ws.cljc:25,60,268,281`); hosts claim exact: node `listen!` (`node.cljs:10`), dart `.listen` (`dart.cljd:110`), browser "no `listen!` here" (`browser.cljs:8`).
+- **serving — retired, but the "Why" is false.** "Its one consumer is `yin.repl.serve`" — `dao.jing.remote` also requires it (`src/cljc/dao/jing/remote.cljc:29`) and drives `make-serving`/`start!`/`step!`/`stop!` (`remote.cljc:981,1023,1038,1046`); `test/dao/stream/ws/node_test.cljs:24` too. Slice ordering still works (slice 4 deletes `dao.jing.remote` before slice 5 deletes serving), but the sentence is wrong in a section headed "verified against the tree". MUST-FIX 1.
+- **forward — unrelated ✓** (`forward.cljc` ns doc: "copying one DaoStream to another"); it is also the copy mechanism ws.md's edited text leans on, and it stays — consistent.
+- **rpc — convention-over ✓** (`rpc.cljc` ns doc: polling state machines over two explicit handles). Gap: slice 5 deletes the apply wire envelope that `rpc.cljc` requires (17 references); no slice names rpc's rework. SHOULD 5.
+- **rpc.ws — retired ✓** ("the only layer above the transport that knows `:ws/…` events", ns doc); consumers `yin.repl.connect.cljc:21` and `serve.cljc:29`, both in slice 5.
+- **apply wire envelope — retired ✓**; the kept AST node exists (`yin/vm.cljc:194,578`, `ffi.cljc`); ok-or-error wrapper is `apply.cljc:19-21`.
+- **yin.repl row ✓**: `:op/eval` (`serve.cljc:63`, `adapter.cljc:17`), shared shell D4, `daostream:` prefix (`connect.cljc:49`).
+- **dao.jing.remote/step/async/coordinate — retired ✓**, shapes verified: `accept-bytes!` (`remote.cljc:35`, private), `client-state/request-get/request-put/request-materialize/step/abandon` (`remote/step.cljc:132,208,221,235,521,562`), `async-content` (`remote/async.cljc:78`, consumed by `btree/storage.cljc:22,100,164,255,321`), `open!` (`coordinate.cljc:32`); today's remote coordinate is `{:keys [url options]}` (`coordinate.cljc:19`) so ":url form is gone" is a real, accounted change (consumers: tests and coordinate itself).
+- **linker M3/M4 ✓**: `linker.cljc:1170` hard-codes the old `:jing/get-content`/`{:found? :value}` envelope; the `yin.vm.linker.md` §6.2 companion edit updates the vocabulary, code follows in slice 4 — coherent.
+- **DHT — unrelated ✓ defensible**: own Kademlia envelope over raw `DatagramSocket` (`node.cljc:39,46-50,147`); the 1200-byte and reply-to-source claims cited as the UDP channel's template are exactly in the code. It does leave a second UDP stack alive by choice; the table says so.
+- **codecs — subsumed ✓** (`cbor.cljc:112`, `transit.cljc:137`).
+
+**The dao.jing.content decision: sound and minimal.** The four roles map one-to-one onto the existing decomposition (handlers/`serve-content!`→`serve-step`; `remote.step`→`dao.jing.content.step`; `connect-content!`→driver; `remote.async`→async), and the coordinate-as-two-remote-descriptors is the right p2p shape: it names two streams instead of a server endpoint, works over any channel type, and stays serializable. Consumers all accounted: coordinate (`dao.space.query.cljc:250`), `yin.repl.link` (`link.cljc:184`), linker M3/M4, btree async, tests (slice 4 proof: "no require of `dao.jing.remote` remains"). The "three copies become one" claim is grounded — `remote.cljc:35`, `step.cljc:258-259`, `linker.cljc:1219,1309` — with the honest strengthening that only copy 1 includes the canonical CBOR decode. Two imprecisions: the driver's consumer list says `dao.space.index` and `yin.vm.content`, but the tree's coordinate opener is `dao.space.query:250` and `yin.vm/content.cljc` has no remote path at all (its handle is an argument); and §8 spells four namespaces (`dao.jing.content/serve-step`, `.step`, `.driver`, `.async`) while §9 slice 4 says "`dao.jing.content` with `serve-step`, `step`, `driver`, `async`". SHOULD 6, 12.
+
+**Named functions**: every existing name verified above; every new name (`dao.jing/accept-bytes!`, `serve-step`, `dao.jing.content.step`, `driver`, `async`, `mirror-step`, `middleware/apply-request|wrap|gate|present`, `dao.stream.udp`, `.pair`, `.meet`) is stated as new with a creating slice. ✓
+
+## 6. Companion edits
+
+- **dao.stream.ws.md** — accurate: the copy-path paragraph matches the contract's own OD-3 evidence ("What a remote host reads is a copy"); "uses an attachment of this transport as a channel and owns no stream either" matches remote.md §2/§3.1; the three deferred-item pointers are all true (descriptor-request-as-probe is idempotent under §2.5's resend; kept cursor per OD-3 decision 2; rpc/serving retirement is slice 5). Leftover: 46 "server/client" mentions remain in the mechanics sections (:113 "Server-minted attachment identity", :325-331) beside the new dialer/acceptor vocabulary — contract-tracking (`dao.stream.md:301,636` say "server-side"), so not false, but the file is internally mixed. SHOULD 9.
+- **UCF** — faithful; put-resume rule, gone→`:yin.k/unsatisfied`, lease-holding exporter, and the acceptance row's citation of §9 slice 8 all check out against remote.md §2.4/2.5/§6/§9. Leftovers: :1740 "cross-host facade proof" and :1777 "string-backed stream facade" still use the retired term. SHOULD 9.
+- **dao.jing.md** — the coordinate paragraph and backend bullet are honestly tensed ("today only the deprecated JVM form … exists"; "Until that lands, it is as described here"). Two neighbours left stale: :401-403 still says dispatch "recognizes … `:dao.jing/remote` on the JVM" with no target qualifier, contradicting the same doc's new every-host coordinate; :514-516 asserts "one shared function, `dao.jing/accept-bytes!`" in present tense though it exists today only as a private fn in `dao.jing.remote`. SHOULD 2, 3.
+- **yin.vm.linker.md** — every change true and consistent with remote.md §8 (vocabulary, `accept-bytes!`, §6.3 shape, M3, deps, M5 driver timing). ✓
+- **dao.data.btree.md** — §7 notes honest; but the backend-table row now names nonexistent `dao.jing.content` under a "verified against `dao/jing/mem.cljc` and `dao/jing/file.cljc`" header (:812-819). SHOULD 4.
+- **dao.jing.dht.md** — NAT edit true; the rendezvous-topics citation resolves (`dao.stream.discovery.md:119`). ✓
+- **daostream-udp-design.md** — superseded note accurate on all three claims. ✓
+- **dao.lease.md** (carriage only; Status line ignored as instructed) — the `not-found` sentence and the two-subjects bullet match remote.md §6 exactly; no contradiction introduced. ✓
+- **Five outside the list**: `dao.space.query.md` ✓; `yin.vm.debruijn.stack.md` ✓; `yin.vm.debruijn.linker.md` ✓ (the :348 scenario rename lacks the "formerly" qualifier the other two carry — trivial); `dao.jing.remote.implementation-plan.md` correctly marked historical ✓; `dao.jing.cbor.md` — the rename leaves "get record boundaries for free from Transit's own message envelopes" (:31-33) attributed to `dao.jing.content`, which per remote.md §3.1 may ride the CBOR profile, where boundaries come from the channel codec, not Transit. SHOULD 1.
+- **Missed companions** (docs the edits left stale-forward): `docs/dao.space.stigmergy.md:241-246` (a working guide instructing `default-handlers`/`connect-content!`), `dao.jing.hash-registry.md:410-411` (lists the three ingress sites that become one), `dao.jing.call-site-classification.md:94-137` (cites remote file:lines). Historical plans are fine as history. SHOULD 7.
+
+## 7. Length and simplicity
+
+725 against a target under 600. Cuts that lose no rule: §10's per-file companion summary (~20 lines — it duplicates the diffs; keep only the OD-acceptance record, which is a ruling); §7's ShiBi enumeration (remote.md:550-560) duplicates `dao.shibi.md` "How it plugs in" (~8); §1's impossibility bullets and §4's table state the symmetric-NAT/CGNAT and browser facts twice (~6); the §2 concept table as bullets (~8); the six bordered ASCII tables (§2.4, §4, §6, §7, §8, §9) as markdown tables (~30-40 lines of border and wrap overhead). Total ≈ 70-80 → ~650. Going below 600 additionally means trimming §2.4's stale-anchor argumentation or §5's walkthroughs, which carry rules and the owner-required toy — so either accept ~650 or convert the tables and re-measure; the prose itself is close to minimal.
+
+**Lost from the old draft** (`git show HEAD:docs/design/dao.stream.serve.md`):
+- **Bounded meeting work** (old :781-791: M bounds active pairs, inbox retention, per-step work, fanout; overflow answers a refusal) — dropped while the new §6 makes board postings "records, never reclaimed" and `meet-requests` world-writable (`#{:writer}`). A reachable meeting peer is now an unbounded memory target by design and the document does not say so. The owner wants impossibilities stated; this one is created, not inherent. MUST-FIX 2.
+- Liveness guidance (old §7.6: cadence bounded by NAT binding lifetime, "tens of seconds for UDP") — reduced to "keep-alive probes are the peer's own cadence"; one sentence worth restoring. SHOULD (fold into MUST 2's fix if convenient).
+- Acceptable losses: held reads (`:serve/hold`, old §3.7) was optional and pending an owner decision, and the budget/`more` mechanism answers the same round-trip cost; the invariant-compliance and concurrency-linearization sections are now covered by contract citations (Concurrency, Composition); the prior-art section is dispensable.
+
+## 8. Citations
+
+Thirty spot-checks; twelve-plus listed: remote.md:6→`71f3fb93` ("docs(design): add the dao.stream.serve spec") ✓; :286-288→ the four adapter files, with node `listen!` (`node.cljs:10`), dart `.listen` (`dart.cljd:110`), browser no-listen (`browser.cljs:8`) ✓; :302-303,:316-317→ `dht/node.cljc:46-50,147` ✓; :41→ `dao.lease.md:269-271` "A false lapse is possible" ✓; :556-558→ `dao.stream.discovery.md:181-190` ✓; shibi.md:4→ `docs/bootstrap.md:65` ✓; :14-16→ `dao.space.security.md:31,33` ✓; :36-37→ `yin.repl.link-policy.md:196` ✓; remote.md:165→ `dao.stream.md:999-1002` Granularity ✓; :178-179→ attach outcomes "defers a remote confirmation" ✓; :196→ §Where the asynchrony goes (`dao.stream.md:479`) ✓; :246-247→ Concurrency "one perspective … at one moment" (`:671`) ✓; middleware.md:40→ Close/Envelopes ✓; :74→ Composition (`:783`) ✓; :13→ `datom.world.md:83-98` ✓; remote.md:107→ Host Boundaries (`datom.world.md:106-108`) ✓; §9 slice 8→ UCF §7.4.3/§7.5.3 exist ✓; :604→ OD-5 (`dao.stream.md:892`) ✓; dht.md:167-171→ `discovery.md:119` ✓. **No wrong citation found.** Two soft ones: remote.md:434's "at least 128 random bits" disjunct is not in `discovery.md` (only the key-hash form is); dao.jing.md:514-516 presents `dao.jing/accept-bytes!` as existing.
+
+## OTHER (outside my items, tripped over)
+
+- §6's renewal medium is a `#{:writer}` surface reachable by anyone who learns its descriptor; until ShiBi, a third party can append renewals to another peer's lease. The rounds ruled attribution needs no ShiBi, but this is lease *extension*, not attribution — one sentence should say it is accepted or gated.
+- Bookkeeping, not a doc defect: the third new file is `docs/design/dao.shibi.md`, not `shibi.md` as the task header names it; the documents themselves are consistent (`remote.md:44`).
+
+## VERDICT: APPROVE-WITH-FIXES
+
+**MUST-FIX**
+1. `docs/design/dao.stream.remote.md` §8, serving row (~:578): "Its one consumer is `yin.repl.serve`" is false — `dao.jing.remote` requires and drives `dao.stream.serving` (`src/cljc/dao/jing/remote.cljc:29,981,1023,1038,1046`; also `test/dao/stream/ws/node_test.cljs:24`). Why: a tree-verification claim that understates slice 5's blast radius and hides the slice 4→5 ordering dependency. Name both consumers.
+2. `docs/design/dao.stream.remote.md` §4/§6: restore a bound on meeting work or state the exhaustion honestly. The old draft bounded pairs, retention, per-step work and fanout with observable refusal (`dao.stream.serve.md` at HEAD :781-791); the new design pairs a world-writable `meet-requests` with a board that is "records, never reclaimed" (~:460), so a reachable meeting peer grows without bound by design. Why: the owner requires impossibilities stated; this one is self-inflicted and one sentence fixes it.
+
+**SHOULD-FIX**
+1. `dao.jing.cbor.md:31-33`: "record boundaries … from Transit's own message envelopes" is wrong for `dao.jing.content` over the CBOR profile (remote.md §3.1); say the channel codec's message boundaries.
+2. `dao.jing.md:401-403`: unqualified "`:dao.jing/remote` on the JVM" contradicts the same doc's every-host coordinate target at :332-339; add the target or "today".
+3. `dao.jing.md:514-516`: `dao.jing/accept-bytes!` asserted in present tense; it exists today only as private `dao.jing.remote/accept-bytes!` (`remote.cljc:35`). Mark as the target.
+4. `dao.data.btree.md:812-819`: backend row renamed to nonexistent `dao.jing.content` under a "verified against" header; annotate as target.
+5. remote.md §9 slice 5: name `dao.stream.rpc`'s fate — the slice deletes the apply envelope `rpc.cljc` requires (17 refs); rework it over reflections in slice 5 or retire it.
+6. remote.md §8 driver bullet: consumers are `dao.space` (coordinate opened at `dao/space/query.cljc:250`) and btree; `yin.vm.content` has no remote path today — qualify or drop.
+7. Stale-forward docs left unedited: `docs/dao.space.stigmergy.md:241-246` (working guide), `dao.jing.hash-registry.md:410-411`, `dao.jing.call-site-classification.md:94-137`; add a one-line pointer each.
+8. Length: apply the §7 cut list (~70-80 lines, no rule lost) and either accept ~650 or convert the bordered tables to reach the target.
+9. Terminology: UCF:1740,1777 "facade" leftovers; ws.md's 46 residual server/client mentions beside the new dialer/acceptor vocabulary.
+10. remote.md:434: cite only the key-hash name form, or add the 128-bit form to `dao.stream.discovery.md`.
+11. remote.md §6/§7: one sentence on third-party renewal appends being accepted (or gated) until ShiBi exists.
+12. remote.md §8 vs §9 slice 4: pick one spelling for the content namespaces (`dao.jing.content/serve-step` + `.step`/`.driver`/`.async` vs "one module with four fns").

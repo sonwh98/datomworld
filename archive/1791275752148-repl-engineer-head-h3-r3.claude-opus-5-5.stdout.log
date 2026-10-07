@@ -1,0 +1,66 @@
+Completed-GMT: 2026-10-06 09:03:31 GMT
+Completed-Local: 2026-10-06 16:03:31 +07
+Coding-Agent: claude
+Session-ID: 8b4bda87-5e50-47a0-b0c9-391dba6d3ca7
+
+The tree compiles on Dart again, and all four items are fixed. Fixing item 1 also exposed a second Dart-only bug in the dial code. One change does reach the Architect's "comes back to me" cases: the cleanup in `open` was restructured (item 3), so the Architect should re-read `open`. The read-then-bind order, the reader's strictness and the shape of `compose` are unchanged.
+
+## 1. Dart compile failure (blocker)
+**Actual cause:** not the `.-length` warning, which was only a warning. I compiled `yin.repl.dht` alone with `clj -M:clojuredart:cljd compile yin.repl.dht`, and the compiler named the error:
+- `Not an expected argument name: .allowMalformed, valid names: ._allowMalformed`
+- Faulty form: `(convert/Utf8Decoder. .allowMalformed false)`, in the Dart branch of `decode-utf8`.
+
+**Fix:**
+- `decode-utf8` now uses `(.decode convert/utf8 ^Uint8List bs)`. Dart's default `utf8` codec already refuses malformed input with a `FormatException`, so decoding stays strict.
+- `byte-length` gets a `^Uint8List` type hint, which removes the dynamic warning.
+- `dht.cljc` now imports `Uint8List` the same way `sign.cljc` does.
+- `read-bounded` and `decode-utf8` stay in `dht.cljc`, so design 5.10 needs no change.
+
+**A second Dart-only bug, found by the focused run:** once the namespace compiled, 6 tests in `dht-head-test` failed on Dart because no dial was ever composed.
+- **Evidence:** the follower's `::follow :links` value printed as a *list* of link maps rather than a map. Each step-link had started from `nil` and done a multi-key `assoc` onto it.
+- **Fix:** each principal's link now starts as `{}` (`(get links p {})`).
+- I did not isolate the exact ClojureDart mechanism, only that starting from `{}` fixes it. The same tests pass on the JVM either way.
+
+## 2. A named pipe at `heads.edn` blocked startup
+- **Reproduced:** with the regular-file check disabled, the new FIFO test hit its deadline ("the read did not block on the FIFO" failed).
+- **Fix:** `read-bounded` refuses anything that is not a regular file, before any open that could block, with the message "it is not a regular file".
+  - A directory, FIFO or device is refused.
+  - A symlink is followed only when its target is a regular file; a dangling symlink is refused rather than read as absence.
+  - Node also opens with `O_NONBLOCK` and re-checks the opened descriptor with `fstat`.
+  - JVM and Dart check the type before opening; neither re-checks after open, so a swap between check and open is not covered there.
+- **Tests:**
+  - `heads-edn-must-be-a-regular-file` (portable): a directory, a symlink that is followed, and a dangling symlink.
+  - `a-fifo-at-heads-edn-is-refused-not-waited-on`: JVM-only and `^:slow`. It runs `mkfifo`, then reads in a child JVM with a 240 s deadline.
+  - No Node or Dart FIFO test.
+
+## 3. A failed cleanup masked the original refusal
+- **Reproduced:** with cleanup failures allowed to propagate, every case in the new test got a raw `IOException("close failed")` with no `ex-data` instead of the refusal.
+- **Fix, and the reason the Architect should re-read `open`:** before the join, `open` closes only the directory store. Once joined, it closes only through the node, whose close shuts the socket and then (in a `finally`) the store. Both cleanups go through a new `quietly!`, so a failing close can never replace the original refusal.
+- **New seam:** `open` gains an `:open-store` option (the durable directory open), used by tests to make the store's close throw.
+- **Test:** `a-failed-cleanup-never-masks-the-refusal`. It covers a throwing socket close, a throwing store close, both, and a pre-join refusal with a throwing store close. Each case asserts:
+  - the original refusal (with `ex-data`) is what's thrown;
+  - binds equal socket closes, and the store is closed exactly once;
+  - the directory opens again afterwards.
+- **What the revert check doesn't cover:** it only proves the masking. The old double store close isn't re-created by that revert; the exactly-once assertion pins it against the new code only.
+
+## 4. Message on an unreadable `heads.edn`
+Both messages now state the cost:
+- The unreadable-file refusal: "move it aside to follow every principal from no head, dropping each one's rollback floor until a head is installed".
+- The per-record refusal now ends "…until a head is installed".
+
+`yin.repl.md` already states this cost from round 2, so I left it unchanged.
+
+## Commands and outcomes
+- `clj -M:clojuredart:cljd compile yin.repl.dht`: before the fix, failed with the error above; after it, "Compilation succeeded".
+- `bb build:yin-repl-peer`: succeeded on the final tree; `build/yin-repl-peer` was generated.
+- `bb build:yin-repl-node`: build completed, 0 warnings.
+- Focused Dart runs via `bb src/dev/cljd_agg.clj --only …`:
+  - `yin.repl.dht-head-test`, `yin.repl.main-test`, `yin.repl.state-test`: **60 tests, all passed.**
+  - `yin.repl.dht-test`, `yin.repl.query-test`, `yin.repl.require-test`, `yin.repl.store-test`: **117 tests, all passed.**
+  - I ran this second set because `link.cljc`, `query.cljc` and `repl.cljc` changed in earlier rounds and the Dart lane never got past the build.
+- The 13-namespace JVM run: **268 tests, 2,837 assertions, 0 failures, 0 errors.**
+- `clj -M:test -n yin.repl.dht-process-test`: **3 tests, 131 assertions, 0 failures, 0 errors.**
+- `clj -M:kondo --lint` on `dht.cljc` and `dht_head_test.cljc`: 0 errors, 0 warnings.
+- No Node test lane was run.
+
+**Touched this round:** `src/cljc/yin/repl/dht.cljc` and `test/yin/repl/dht_head_test.cljc`. No new files, nothing under `docs/design`, no git.

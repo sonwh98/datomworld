@@ -1,0 +1,46 @@
+Completed-GMT: 2026-09-15 22:11:56 GMT
+Completed-Local: 2026-09-16 05:11:56 +07 (Asia/Ho_Chi_Minh)
+
+# Architect sign-off: dao.jing.md canonical encoder amendment
+
+Read-only review of the uncommitted diff to `docs/design/dao.jing.md`, checked line by line against the committed encoder in `src/cljc/dao/jing.cljc` at 0cafb2d, its tests, the file backend, the v2 transit codec, the DHT put path, and the r2 review log. No files were edited.
+
+## Findings
+
+Severity | file:line | evidence | recommended correction
+
+- **LOW (new)** | `docs/design/dao.jing.md:198-199` and `:414` | The doc says scalar metadata "on symbols and keywords" is ignored. Keywords cannot carry metadata on any host: `Keyword` implements neither `IObj` on the JVM nor `IWithMeta` in ClojureScript, and `with-meta` on one throws. Only symbols are affected among portable scalars. | Change both occurrences to "scalar (symbol) metadata". Trivial, same file, worth folding into this commit.
+- **LOW (new)** | `docs/design/dao.jing.md:425` | "other hosts print their own identity-bearing form" is likely an overclaim. ClojureScript prints a typed array as `#object[Uint8Array 1,2,3]` and Dart's `Uint8List` prints `[1, 2, 3]`, both content-bearing but host-specific. The item's conclusion, that byte arrays are not portably content-addressable, holds either way. I did not run the JS or Dart hosts to confirm. | Reword to "other hosts print their own host-specific form, which does not match the JVM's", which is true regardless.
+- **LOW (new, not in this diff)** | `src/cljc/dao/jing.cljc:282-284` | The `content-hash` docstring still says "Total over any value" and "order-normalized pr-str is the current encoder". Both are stale since 0cafb2d: it throws on records, and the encoder is `canonical-print`. The doc amendment is correct; the committed docstring is not. | Follow-up code-comment fix. Not this doc's scope.
+- **LOW (r2 N5)** | `docs/design/dao.jing.md:3-8` | The status paragraph enumerates what remains open and omits the two new open items. It is the same file and a one-line change. | Add "byte-array addressing, and metadata-carrying backends and transports" to the enumeration. Cheap enough to fold in; not blocking.
+- **LOW (r2 N2)** | `docs/design/dao.jing.md:441-442` | "the failure mode is loud" is exact for the file backend. Over the DHT transport, the peer refuses the metadata-stripped payload at `dht/node.cljc:113-118` and `dht.cljc:167-174` absorbs the refusal as best-effort replication, which `dao.jing.dht.md` already declares as the contract. That is silent non-replication, not corruption, so the item's safety argument survives. The item's closing prescription already covers every transport. | Optional qualifier: "loud for the durable file backend". Out of scope tonight is a correct judgment.
+- **LOW (r2 N3)** | `docs/design/dao.jing.md:432-433` | "no wire codec carries metadata today" is true as usage and imprecise as capability: `dao.stream.transit` exposes an opt-in `write-meta` with zero callers. The codec that matters for jing remote, `dao/stream/transit.cljc`, does not carry metadata. | Out of scope. Optionally "no wire codec in use carries metadata".
+- **LOW (r2 N4)** | `docs/design/dao.jing.md:421` | The open item says "`dao.jing.md` lists byte arrays" while sitting inside dao.jing.md. Self-reference by filename reads oddly. | "*Canonical encoding* above lists byte arrays". Cosmetic.
+- **r2 N6** | ragged wrap at `:205` | Cosmetic. No action.
+
+## Properties confirmed
+
+Every claim in the amended contract paragraph maps to code:
+
+- Collection metadata reattached on map, set, vector, and seq branches: `jing.cljc:117-140`.
+- Reader-position keys stripped and empty metadata dropped: `jing.cljc:106-113`. Tested at `jing_test.cljc:247`.
+- Scalar leaves fall through to the host printer, so symbol metadata is ignored: `jing.cljc:74,141`.
+- Lists and seqs normalize to one list: `jing.cljc:140`.
+- Sets keep `#{}` braces via a sorted set, the only type marker: `jing.cljc:133-136`.
+- Records throw anywhere in the value: `jing.cljc:114-116`. Tested at `jing_test.cljc:256-279`.
+- The `:present` read-back re-hashes rather than using `=`: `jing.cljc:373`. Tested at `jing_test.cljc:391-403`.
+- The r2 N1 fix is present and correct: every collection byte comes from `str` and `str/join` inside `canonical-print`, so only scalar leaves reach the host printer.
+- The three-residual split is principled. The three are false-equality collisions; the byte-array item is the mirror-image non-convergence gap.
+- The file backend writes with plain `pr-str` and verifies the hash on replay: `file.cljc:59,76`. The v2 transit portable check inspects structure only: `transit.cljc:52-72`. The third open item's factual basis holds.
+
+Invariants: no hidden state, no layer collapse. The encoder stays payload-agnostic and storage-ignorant. Deciding that collection metadata is address-significant is a real refinement of what "equal value" means at this boundary, and the amendment records it explicitly rather than leaving it implicit in the code. That is the right place for it.
+
+## Judgment on the deferred N2 to N6
+
+All correctly judged out of scope for this amendment. N2 and N3 are about the DHT replication contract and a dormant codec path, neither owned by this doc's encoder section, and the doc's prescription already covers them. N5 is the only one that lives in the same file and touches the same subject, so I recommend folding it in alongside the keyword wording fix, but neither blocks.
+
+## Verdict: APPROVE-WITH-FINDINGS (nonblocking)
+
+Safe to commit as-is. Recommended before commit, both one-line edits in the same file: change "symbols and keywords" to "symbols" at lines 198 and 414, and extend the status enumeration at lines 5 to 8. Follow-ups outside this commit: the stale `content-hash` docstring and the byte-array host wording.
+
+Commit scope stays `git add -- docs/design/dao.jing.md` only. The tree also carries unrelated yin.vm v2 work.

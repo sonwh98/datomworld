@@ -1,0 +1,48 @@
+Completed-GMT: 2026-10-05 21:38:33 GMT
+Completed-Local: 2026-10-06 04:38:33 +07
+Coding-Agent: claude
+Session-ID: f56f11bb-ea1a-422e-8dc5-dd66b6ff7938
+
+## Finding 1: (b), drop the memory entirely
+
+The reviewer's citation holds: `remote.cljc:876` stores the whole refused name per link with no bound. I signed that sentence in round 2 and called the memory sound; it was correct but not bounded, and it is not needed.
+
+**Reasoning**
+- **Derive, don't persist decides it.** The channel writer is the source of truth for whether a value can be carried. Asking it again re-derives the same refusal, so the link has nothing to remember.
+- **No hidden state, bounded below `dao.stream`.** With (b) a `resolve` of an unsendable name leaves the link exactly as it found it, apart from the id counter. Option (a) adds two bounds, an eviction rule and a beyond-the-bound answer to a contract that needs none of them.
+- **The original finding stays closed.** Its defect was that `resolve` answered retry forever for a name that could never be sent. Under (b) every call returns the writer's refusal as terminal data, and no id is left outstanding. Each call still mints an id and costs one refused append. That is a counter and a constant, the caller's own loop pays for it, and nothing grows.
+- **`closed` needs no memory either.** A closed writer keeps answering `closed`, and after the reader ends the link answers `channel-gone`.
+
+**Exact replacement for 2.4** (`dao.stream.remote.md:325-329`, replacing from "A send the channel writer refuses" through "until channel loss."):
+
+> A send the channel writer refuses with `full` is retried by the next `resolve`; any other refusal is returned as the writer's own outcome, leaves nothing outstanding and is remembered nowhere, so each `resolve` of that name attempts the send again.
+
+**Code:** remove `:unsendable` (`remote.cljc:862-863`, `:874-876`); the `:else r` branch then covers every refusal other than `full`. Update the `resolve-name` docstring to match.
+
+**Tests**
+- Rework `an-uncarryable-name-is-a-terminal-resolve`: for `invalid-value` and for `closed`, three calls give the same writer outcome, three sends are attempted, and `:outstanding` and `:filed` stay empty.
+- Add a many-name case: resolving 100 distinct refused names leaves the link holding none of them (no name in `:outstanding`, `:filed` or any other key).
+- Keep the `full` case as it is.
+
+## Finding 2: the fix is right and sufficient
+
+The citation holds: `remote.cljc:93-97` now admits a named error with no identity, and `remote.cljc:513` compares a missing identity as `nil`.
+
+- **Fix:** in the identity branch of `absorb!`, require `(contains? v :dao.stream/identity)` before the equality at `:513`. That restores the pre-H2 behaviour exactly for identity requests, since the old validator required the key for every answer.
+- **Sufficient:** the named branch is unaffected, because `absorb-named!` requires the echoed name (`remote.cljc:482-484`). An answer with a matching identity and a stray name is still accepted, as an open map allows.
+- **Tests:** as the reviewer says, for a `nil`-identity reflection, an absent identity is dropped and the probe stays outstanding, for both `not-found` and `oversize`; an explicit `nil` identity is tested separately.
+
+**Contract sentence: yes, one, in 2.4 Resolve.** Insert after "it echoes the name asked.":
+
+> An answer that carries no `:dao.stream/identity` completes no identity request.
+
+**`nil` identity for a reflection:** a pre-existing gap, outside H2. `valid-remote-descriptor?` (`remote.cljc:927-929`) defers to the generic `stream/valid-descriptor?`. I did not open that function; that it admits `nil` is the reviewer's reproduction. Whether a `nil` identity should be legal is a `dao.stream.md` question. Do not expand the slice; record it as a follow-up.
+
+## The test race: H2 does not carry it
+
+- The find-then-bind window is in the test only (`head_ws_test.cljc:708-713`), not in `serve`.
+- It became necessary because of the ruling-4 fix, and the window is microseconds on loopback.
+- A retry loop would also have to handle a bind that fails asynchronously through the lifecycle medium, which is more test machinery than the risk warrants.
+- If the lane ever flakes on address-in-use, add a bounded retry then.
+
+**Sign-off:** the contract text is signed off once the finding-1 replacement and the finding-2 sentence are in as written above. No further Architect round is needed if they go in verbatim.

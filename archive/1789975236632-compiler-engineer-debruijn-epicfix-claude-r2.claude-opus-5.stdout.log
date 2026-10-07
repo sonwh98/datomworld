@@ -1,0 +1,54 @@
+Completed-GMT: 2026-09-21 07:40:04 GMT
+Completed-Local: 2026-09-21 14:40:04 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: 69f82e15-85c9-4754-a273-a5f4ad68d932
+
+F1–F4, F6, F7 and the D6 gap tests are in place. The JVM and CLJS lanes pass; kondo and cljstyle did not run because their commands were refused in this session, and I did not run CLDJ. I edited only `src/cljc/yin/vm/debruijn.cljc`, `test/yin/vm/debruijn_test.cljc` and `test/yin/vm/pipeline_test.cljc`, and staged and committed nothing. `pipeline.cljc` is unchanged because F9 needed no source change.
+
+## Changes in `debruijn.cljc`
+
+- **F1:** in `canonical-value`, a set whose count shrinks under canonicalization now throws `:unsupported-value`, like the map rule. `encode-value` also throws on equal element encodings, as it already does for maps.
+- **F2:** the reader now calls a new `check-record` after the shape gate and before re-hashing. Minted hashes and `dimension-hash` do not change.
+  - **Slots per type:** a table built from `node-grammar` lists each node type's allowed record slots.
+  - **Grammar violations:** an unknown type gives `:unknown-node-type`; a slot outside the type's row gives `:unknown-attribute`; a missing required slot, or a `:variable` without exactly one of `:bound`/`:free`, gives `:missing-slot`.
+  - **Spelling:** every scalar must already be its own canonical spelling, checked exactly rather than with `=`. A violation, including a stored `:macro? false`, gives `:noncanonical-value`. On CLJS every in-range number counts as canonical, because 1.0 and 1 are the same value there.
+- **F3:** `project-node` now stores `[node h]` in the `[eid stack]` memo and creates each record once, via a new non-recursive `mint-record`. It replaces `merkle-node`, which is removed.
+  - A new public function, `project-datoms-counted`, returns the same result plus `:mints`, the number of records created. `project-datoms` returns that result without `:mints`.
+- **F4:** attribute checks are now per node type. `check-attributes` runs after the type is known, so for example a `:yin/body` on a `:literal` is diagnosed.
+- **F6:** the writer's "missing record" throw now uses rule `:missing-record`, which the input can never cause. `exception-diagnostic` reports `:invalid-input` only when the ex-data has a keyword `:rule` that isn't internal. Anything else is `:internal-error`, with the ex-data under `:data` when there is any.
+- **F7:** a `:batch-budget` that isn't a positive integer (0, -1, nil, 1.5) now ends the step at once with status `:invalid-input` and `{:rule :invalid-budget}`. Calling it again returns the same state.
+
+## New tests (13)
+
+- **`debruijn_test`:**
+  - F1: `#{1 1.0}` is diagnosed on JVM and CLJD only (CLJS can't build that set); two spellings of é are diagnosed on every host.
+  - F2: records with a renamed slot (`:free` changed to `:key` or `:value`, `:arity` changed to `:buffer`, with stored hashes unchanged) are diagnosed; so are a missing slot, `1.0` stored under `1`'s address, and decomposed spellings in a string, inside a collection, and in a symbol.
+  - Everything the writer produces still passes the reader.
+  - F3: a 40-level shared doubling chain creates exactly 81 records, one per source entity. At depth 6 it has the same fingerprint and records as the tree-built version.
+  - Also: F4 cases, stored datoms equal for a renamed program pair, F6 classification, F7 budgets, destination `:invalid-value`/`:transport-error`/`:closed`, and repeat-step idempotence for four more terminal statuses.
+- **`pipeline_test`:**
+  - F9: a nil literal goes through the real file store (`dao.jing.file`), including closing and reopening it. The nil datom survives and `datoms->projected` finds no hash mismatch.
+  - Two separate stores hold identical stored datoms for the renamed pair.
+
+## What I ran
+
+| Command | Result |
+|---|---|
+| `clojure -M:test -n yin.vm.debruijn-test -n yin.vm.pipeline-test` | 84 tests, 373 assertions, 0 failures, 0 errors (baseline before my tests: 71 / 288, green) |
+| `bb test:cljs` | 1561 tests, 39015 assertions, 0 failures, 0 errors; both namespaces appear as "Testing …" |
+| `clojure -M:kondo --lint …` (first all three files, then one file) | refused ("requires approval"); not run |
+| `cljstyle check …` (first all three files, then one file) | refused; not run |
+
+The pinned fingerprints (`095c83f7…`, `dimension-hash` `11954e46…`, the D3 byte fixtures) are unchanged, and their tests pass.
+
+## Deviations from the brief
+
+1. **No kondo or cljstyle:** both commands were refused, so the touched files are neither linted nor style-checked.
+2. **Java version and env:** I couldn't set the brief's environment block. `env …` was refused, and `$HOME` in commands was blocked as shell expansion. I used the PATH defaults, which are Java 21 and the mise clojure/bb, for both the JVM and CLJS lanes, so the JVM lane ran on Java 21, not 17.
+3. **F3 counts records created, not `node-hash` calls:** the old code only called `node-hash` when the preimage memo missed, so a `node-hash` count was already linear and wouldn't catch the blow-up. The count that grew exponentially was records built per unfolded path, which `:mints` counts. On the old code the depth-40 test would hang rather than fail.
+4. **New public function:** `project-datoms-counted` is the counter seam. I made it public rather than private because private-var access across ClojureDart is doubtful.
+5. **Diagnostic data:** F4 walk diagnostics now also carry `:type`. Internal errors carry `:data` when there was ex-data.
+6. **Rule naming quirk:** a `:variable` record carrying both `:bound` and `:free` is also reported as `:missing-slot`, which is an odd name for that case. No test covers the both-present case.
+7. **CLJD not run:** new code with `:clj` branches puts `:cljd` first: the `Double` check in `canonical-spelling?` and the new `cleanup-file` helper in `pipeline_test`. `pipeline_test` also now requires `dao.jing.file` and `dart:io` (the latter for CLJD only). The CLJD set test relies on ClojureDart keeping `1` and `1.0` as separate set members, as the existing map test does. If it doesn't, that test's count-is-2 check will fail first and say so.
+
+A process note: my first JVM run with the new tests hung. My own depth-40 test compared the resolved root, a tree with 2^40 leaves, using `=`. I stopped the run, changed the assertion to compare only `:fingerprint` and `:records`, and the rerun is the green one above.

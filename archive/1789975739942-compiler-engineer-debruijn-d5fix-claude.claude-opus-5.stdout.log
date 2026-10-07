@@ -1,0 +1,46 @@
+Completed-GMT: 2026-09-21 07:43:17 GMT
+Completed-Local: 2026-09-21 14:43:17 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: 69f82e15-85c9-4754-a273-a5f4ad68d932
+
+All eight accepted D5 findings are applied and the focused JVM and CLJS runs pass. r2 was complete before I started. I checked P2-1 against the code first: the old gate only checked that some `:yin/root true` marker existed, so a trailing half-graph or two graphs got through. I edited only `src/cljc/yin/vm/pipeline.cljc` and `test/yin/vm/pipeline_test.cljc`; `debruijn.cljc` needed no change. Nothing is staged or committed.
+
+## Changes in `pipeline.cljc`
+
+- **P2-1:** `framing-defect` replaces `root-marker` and runs before any write. It calls `debruijn/frame-datoms` and accepts only exactly one complete frame.
+  - The rejection rule is `frame-datoms`' own: `:partial-frame`, `:malformed-datom` or `:retract`.
+  - Zero frames gives `:missing-root`, and several give `:multiple-frames`. `frame-datoms` has no rule for either case, so these two names are mine.
+  - A rejected batch returns `:named {:outcome :rejected :rule r}` and `:projected {:outcome :not-attempted :rule r}`.
+- **P3-2:** a writer answer that is not a map, or has no keyword `:dao.stream/outcome`, maps to `:invalid-writer-answer`. The raw answer is kept under `:receipt`.
+- **P3-3:** `batch-of` throws `:bad-request` when both `:ast` and `:datoms` are given (the neither case already threw).
+- **P3-4:** `persist-projected!` keeps the `:status` from `exception-diagnostic`. An internal defect now returns `:projected {:outcome :internal-error}`; invalid input stays `:diagnostic`.
+- **P3-6:** a store failure now returns `{:rule :projected-write-failed :message … :cause (select-keys ex-data [:result :address])}` and never includes the envelope.
+- **P3-8:** added the portability sentence to the namespace docstring. The docstring and results table now also describe the new gate and the new outcomes.
+
+## Changes in `pipeline_test.cljc`
+
+- **Shared event log:** `recording-writer` and `mem-store` can now take one shared event log atom. The writer logs `[:named-write]`, each put logs `[:put addr result]`, and each get logs `[:get addr]`.
+- **P2-2 and P3-1:** the dedupe test asserts the exact sequence `[[:named-write] [:put a :inserted] [:named-write] [:put a :present] [:get a]]`, and that no get comes before the first put. That sequence would fail on a lookup before the write or on an overwriting put, and it also shows each named write comes before its store put.
+- **New `only-exactly-one-complete-frame-persists`:** covers a complete graph followed by an unfinished one, two complete graphs, a retract, a malformed datom and an empty batch. Each is rejected with its rule, and the shared log stays empty, so neither the writer nor the store was touched.
+- **Updated test:** `partial-and-rootless-batches-reject-before-persistence` now expects `:partial-frame` instead of `:missing-root`, the rule the gate actually reports.
+- **New `writer-answers-without-a-keyword-outcome-are-classified`:** covers `nil`, `5`, `{}` and a string outcome.
+- **New `a-request-takes-exactly-one-source`:** covers both sources given and neither given.
+- **New `projection-defects-are-internal-errors-not-diagnostics`:** covers the internal-error path and checks that invalid input stays a `:diagnostic`.
+- **Updated test:** `projected-write-failed` now checks the wrapped diagnostic instead of the raw one.
+
+## Verification
+
+| Command | Result |
+|---|---|
+| `clojure -M:test -n yin.vm.debruijn-test -n yin.vm.pipeline-test` | 88 tests, 412 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 1565 tests, 39054 assertions, 0 failures, 0 errors; `yin.vm.debruijn-test` and `yin.vm.pipeline-test` both appear |
+
+As instructed, I didn't run kondo, cljstyle, the Java-17 lane or CLJD, and I didn't set up the env block. Both runs used Java 21 from PATH, exactly as in r2.
+
+## Deviations from the brief
+
+1. **Extra `:message` in store failures:** the diagnostic includes `:message (ex-message t)` alongside the shape the brief specified, so a store throw without ex-data still says what went wrong.
+2. **Internal-error test is injected, and skipped on CLJD:** well-framed input can't reach an internal defect, so the test redefines `debruijn/project-datoms` with `with-redefs` on JVM and CLJS. It is wrapped in `#?(:cljd nil :default …)` because ClojureDart probably can't redefine vars. On CLJD that test only checks that invalid input stays a `:diagnostic`.
+3. **Framing-gate internal errors:** if `frame-datoms` itself hit an internal defect (not input), the batch is still rejected, with `:rule :internal-error`.
+
+The claude.ai Gmail, Google Calendar and Google Drive connectors still need authorizing in your claude.ai connector settings; nothing here used them.

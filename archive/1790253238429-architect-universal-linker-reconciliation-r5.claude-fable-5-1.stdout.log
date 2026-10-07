@@ -1,0 +1,15 @@
+Completed-GMT: 2026-09-24 12:36:42 GMT
+Completed-Local: 2026-09-24 19:36:42 +07
+Coding-Agent: claude
+Session-ID: f9328487-72e9-44e8-a216-0fbb81bf6a2e
+
+`docs/design/yin.vm.linker.md` is now revision r5, 2035 lines, pure ASCII, no line over 80 columns, uncommitted. The round-4 findings file named in the task is not present in `collab/`, so I worked from the four items in the task. Section 13.1 carries the r5 register; earlier rounds shifted to 13.2 through 13.4. `attach-image` adds no step-function change, so the must-not-change clause still holds.
+
+**Per item, all agreed**
+
+1. **Dominance, not source order.** Discharge now requires an unconditional definition that dominates the occurrence. A definition under an `:if` branch, a jump target range, or a lambda body discharges nothing, and the obligation is retained and must be declared by the manifest. Scanner signatures are fixed: both return position-bearing records with an occurrence path or pc, an in-body flag, and a conditional flag. A scanner that returns no positions degrades to retaining every obligation, which is more obligation than necessary and never less.
+2. **Wait-entry id typo.** The `:link-response` example now carries the origin-and-counter tuple.
+3. **Non-destructive attachment and walker closures.** Each kernel gains `attach-image`, which extends code space only. The semantic VM adds a fresh local id without renumbering. The positional kernels relocate and append without touching pc, stack, frames, continuation, or registers, and record an offset-table row. The walker extends its row set. The REPL's append functions become attach plus a pc assignment. Walker closures lift by locating the single `:lambda` row whose body slot is the closure's node through the walker's row index, and lower by decoding that row's body in the parent. An unrooted body refuses the lift.
+4. **Duplicate versus equivocation.** Authority processing is three ordered passes. Exact duplicates collapse by content id first and are honored once. Only distinct envelopes with equal sequence from one principal count as equivocation. Then ordering and floor checks catch old-sequence replays. Replaying a valid envelope can no longer suppress it.
+
+Completion criteria 15, 17, and 21 and the M4 entry criterion gained tests for each change, and the file box lists the four kernel files `attach-image` touches.

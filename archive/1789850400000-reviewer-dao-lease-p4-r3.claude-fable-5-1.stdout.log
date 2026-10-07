@@ -1,0 +1,20 @@
+Completed-GMT: 2026-09-19 20:16:03 GMT
+Completed-Local: 2026-09-20 03:16:03 +07
+
+# Phase 4 final gate: F1–F3
+
+**Phase 4 is ready for commit.** F1, F2 and F3 are all resolved, and I found no new defect in the touched lines. One stale docstring sentence remains; it does not block the commit. I edited nothing and did not rerun suites.
+
+| Finding | Disposition | Evidence | Remaining action |
+|---|---|---|---|
+| F1 capacity-below-budget refusal | **Fixed** | The check is gone: `check-derived-medium-refusals!` now takes only `media` and `durable?` (`lease.cljc:2180`). The docstring records that the relation is "Deliberately NOT derived" and gives the reasoning (2079-2083). Fixture capacities are back to honest values: `standard-medium` declares `:capacity 8` (test:86), and the serving fixtures declare 16 and 1. The `:capacity` matrix row is gone from the test file. The budget is validated as a positive integer under `:refused :drain-budget` (2174-2179). | One cosmetic item, below. |
+| F2 judge cannot read the real envelope | **Resolved by option 2** | Both sketches now carry the comment. It says the flattened shape "is NOT the transport's" and that the key as modelled is "SELF-ASSERTED" (test:689-695, 751-757). §6 has the `:unwrap` seam row, owed to a transport-scoped plan (plan:554). | None for this commit. |
+| F3 vacuous ledger assertion | **Fixed** | The assertion now uses `get-in` (test:543). The both-halves test drains `holder-ticks` and feeds the drained reading to `due-to-renew?` (test:508-517). | None. |
+
+## Non-blocking
+
+- **`lease.cljc:1966-1968`.** The `check-medium-declaration!` docstring still says the judge-side constructor "additionally relates [capacity] to its :drain-budget". That relation was deleted, and the docstring now contradicts 2079-2083. Drop the clause.
+- **Open from earlier rounds, all recorded and none blocking:**
+  - `make-holder` requires `:durable-judge` from a holder.
+  - `:scope` is a label that nothing enforces.
+  - An F2 follow-up must not assume the unwrap seam exists. `:envelope-key` attribution stays unusable against real `ws` envelopes until the §6 row is delivered.

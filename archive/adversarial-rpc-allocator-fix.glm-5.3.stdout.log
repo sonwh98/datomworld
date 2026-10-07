@@ -1,0 +1,53 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-07 08:02:35 GMT
+Completed-Local: 2026-09-07 15:02:35 +07 (Asia/Bangkok)
+Coding-Agent: glm
+Session-ID: 50d48a71-9ff9-44b7-8dc0-b334e5f42aac
+
+# Code review — the allocator-error fix in `dao.stream.rpc` (uncommitted, +69 −1)
+
+Reviewed the working-tree diff against the full source, the test file's helpers, and both downstream consumers. Line cites are the working tree.
+
+## 1. The fix is correct and complete
+
+`allocation-failure` (rpc.cljc:160–166) now threads `(lose-outstanding :dao.stream.rpc/allocator-error true)` (rpc.cljc:163) where it previously did a bare `(assoc :terminal …)`. I checked every property the old line had, one by one:
+
+- **Terminal value** — `lose-outstanding` with `terminal? true` sets `:terminal` to its reason (rpc.cljc:318–319), the identical keyword. The assoc is genuinely subsumed.
+- **Diagnostic** — the `->` threading evaluates `(:next-id state)` against the original binding, and `lose-outstanding` does not touch `:next-id`, so the diagnostic's value and position (after the loss, in `:diagnostics`) are byte-identical to before; test 1 asserts the exact map and it passes.
+- **`:next-id`** — untouched by `lose-outstanding`; monotonicity preserved. (Not asserted by the tests — the one finding below.)
+- **`rpc-result` shape** — unchanged: outcome `allocator-error`, state, `:dao.stream.rpc/diagnostic` key over `(last (:diagnostics state))`.
+- **Discharges exactly what was owed, nothing more** — one completion per `:outstanding` id, each carrying the full request record plus `:reason :dao.stream.rpc/allocator-error`, outstanding cleared; test 3 proves the empty case publishes nothing. And the `:unsent` interaction the prompt asks about **cannot occur**: `request!` dispatches to `attempt-unsent` before allocation whenever `:unsent` holds (rpc.cljc:247–248), so `allocation-failure` is reachable only with `:unsent` nil — structurally, not conventionally. That precedence is already pinned by the file's own first test (`:ignored/op` is ignored while an envelope is unsent).
+- **No ordering hazard between loss and diagnostic** — they live in separate outboxes (`:completed`, `:diagnostics`) drained by separate take functions; there is no interleaving to get wrong.
+
+## 2. No regressions at the five sibling sites or downstream
+
+`lose-outstanding` itself (rpc.cljc:313–320) is unmodified; its five other call sites (now rpc.cljc:376, 382, 408, 415, 420) call it exactly as before, and nothing else calls `allocation-failure` but `allocate-request`. Downstream, one by one:
+
+- **`ids-in-use?`** now sees the lost ids in `:completed` — inert: the state is terminal, `request!` short-circuits before allocation (rpc.cljc:244–245), and `rebind` refuses a non-`/detached` terminal, so no allocation ever consults that entry again. Had one somehow occurred, refusing to reuse a completed id is the correct conservatism anyway.
+- **`rebind`** — refuses, as before and as the fix specification required.
+- **`abandon-unsent`** — no-op: `:unsent` is necessarily nil at and after this failure.
+- **`take-completed` bounding** — the vector grows by |outstanding| at the failure, bounded by requests in flight, drained once by the owning step; no unbounded growth path.
+- **`yin.repl`** — I checked the double-report question specifically. The adapter maps `allocator-error` → terminal (v2_adapter.cljc:117) and `publish-completions` (v2_adapter.cljc:185–196) maps a reason completion to a `:yin.repl.adapter/lost` event exactly once; `queueable-terminals` (driver.cljc:189–195) contains only `/detached`, so on an allocator-error terminal the driver merely stops routing *new* input remotely — it never queues or re-delivers the outstanding line by another path. The new `:lost` event is strictly the report that was previously missing. No consumer depended on the old silence; the green full-suite runs on all three hosts corroborate.
+
+## 3. Attacking my own prescription
+
+The strongest counter-argument I can construct: pre-fix, the state was plain data, so a caller could have manually `(assoc :terminal nil)` and resumed polling to recover the outstanding responses; post-fix they arrive pre-completed as losses. I reject it on three grounds: no shipped consumer does this (the only sanctioned revival is `rebind`, deliberately restricted to `/detached`); it contradicts terminal's documented irrevocability — a caller reaching into `:terminal` is doing what the jing plan called the layering error; and no information is destroyed, since the completions carry op and args for any re-issue. Loss-at-terminal is also not a novel semantic here — it is what the five sibling terminal paths already do; the sixth was an omission, not a design. I also looked for a caller that treats a non-empty completion vector at `allocator-error` as a defect — none exists; `take-completed`'s contract is agnostic to when completions were appended. My prescription survives.
+
+## 4. The tests are adequate and honest
+
+The helpers are real ring buffers through real `rpc/client-state` (rpc_test.cljc:14–26) — the bystander request is genuinely appended, allocated, and moved to `:outstanding` before the collision is forced; nothing is scripted. Test 1 (collision) asserts all five invariants with exact shapes — outcome, terminal, empty outstanding, the full completion map, `take-completed` draining to empty, and the full diagnostic; test 2 (exhaustion) covers the other failure mode; test 3 proves no phantom completions when nothing was owed. The orchestrator's red/green run — bystander tests failing with `{0 {:op :math/add …}}` still outstanding and completions empty pre-fix — confirms they discriminate on precisely the defect. The forcing mechanisms are legitimate on caller-owned plain data. One small gap, filed below.
+
+## 5. `declare` vs relocation — acceptable
+
+`lose-outstanding`'s own dependencies (`completion`, `append-completion`, rpc.cljc:128–139) sit above `allocation-failure`, so relocation was possible; but its five other callers live in the response-decoding section where it resides, and moving it there-to-here would orphan it from its section to serve one earlier caller. `(declare lose-outstanding)` with a comment stating *why* the forward reference exists (rpc.cljc:154–157) is the better trade. The `declare`-then-`defn-` sequence yields a private var, kondo is clean, and the cljd run executed all three new tests by name, which settles the portability question the `declare` could have raised.
+
+## Findings
+
+**P3 | test/dao/stream/rpc_test.cljc:189–217 (both bystander tests) | `:next-id` preservation across the failure is not asserted — the tests prove what was discharged but not that the allocator's position survived it.** `lose-outstanding` preserves `:next-id` today, and the diagnostic's value documents what it was at failure, but nothing pins that the post-state's `:next-id` is unchanged — a future "fix" that advances or rewinds `:next-id` on collision would pass these tests while breaking the ids-stay-monotonic property `abandon-unsent`'s docstring already promises. **Fix:** add one line to test 1 — `(is (= 0 (:next-id state)) "the failed allocation consumes no id; ids stay monotonic")` — and the same in test 2 against `(inc rpc/max-safe-id)`.
+
+No other actionable findings. Not raised as findings, for the record: the commit body should name the defect's provenance (`collab/stream-v2-rpc-allocator-defect.findings.md`) and `yin.repl` as the second affected consumer, so the `dao.jing.v2` J3c gate's dependency is traceable from the commit alone; and the subject line `fix(stream): report outstanding requests lost when allocation fails` matches the repo's `type(scope):` convention and describes behavior rather than mechanism — good as written.
+
+## Verdict
+
+**Ready to commit.** The one-line substitution is exactly the fix this seat specified, it preserves every observable the old line had while discharging precisely the debt the defect named, the five sibling loss paths and both downstream consumers are unaffected (with the one plausible double-report hazard checked and absent), and the tests drive the real path, assert exact shapes, and were demonstrated red before the fix and green after. The P3 is a one-line assertion worth adding in the same commit, but it gates nothing.

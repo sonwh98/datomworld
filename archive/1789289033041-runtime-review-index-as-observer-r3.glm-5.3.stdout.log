@@ -1,0 +1,38 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+```text
+Completed-GMT: 2026-09-13 09:10:36 GMT
+Completed-Local: 2026-09-13 16:10:36 +07 (ICT)
+Coding-Agent: glm
+Session-ID: 8fc82a93-61d0-4e6e-b53e-e8e9b90eba14
+Role: VM Runtime Review | Model: glm-5.3
+```
+
+# Round-3 Confirmation — `dao.space.index.as-observer.md`
+
+HEAD `0bd7550` ("docs(space): pin resumed index sessions strong, not just fresh ones"); diff `280dda2..HEAD` touches only the note (45+/15−); working tree clean. Every code claim below re-verified against source.
+
+## Resolution table
+
+| # | Round-2 finding | Status | Where & why |
+|---|---|---|---|
+| N1 | `:strong` remedy bound to the session's recording storage; a session resumed via `open-published!`/`restored-indexes` gets the JVM `:soft` default and the F2 sequence survives (P2) | **Resolved** | §4.1's remedy paragraph now states the load-bearing fact verbatim — "Ref-pinning consults the **tree's** settings, not the storage passed to `store-tree`, so a `:strong` recording handle pins nothing by itself" — then gives the mechanism per session kind: from-`:oldest` safe either construction way (in-memory settings → `make-store-ref` pins the raw node; build-through-recording-storage → construct it `:strong`); a **resumed** session restores through a session-constructed `:strong` kv-storage over the durable content store (`bt/restore-tree` behind an index-side helper), explicitly **not** through `open-published!`/`restored-indexes`, "whose storage takes the host default, `:soft` on the JVM, because those are the *read* path". That last rationale is correct against `index.cljc:311-313` (no `:ref-type` threaded) and `btree.cljc:39-44` (JVM `:soft` default), and the "read path wants eviction" reading matches §5.3's intent. §4.2's resume sentence no longer names `open-published!` — it now says "restores the four trees lazily from the manifest through a session-constructed `:strong` kv-storage… (§4.1 — not the query read path)". My round-2 over-narrowing note ("settings carry no storage") is gone; both from-`:oldest` construction styles are named. The re-restore rejection gained the missing consequence ("`-restore` throws on absence", `storage.cljc:48-50`). Both `bt/restore-tree` (public, `btree.cljc:2086`) and `kv-storage {:ref-type :strong}` (`storage.cljc:74-75`) exist today, so the specified resume needs no btree changes. |
+| N2 | "Survives a forced GC" not a deterministic test; soft clearing cannot be forced (P3) | **Resolved** | Phase 0′ now pins the hazard **both ways** through the btree's existing `:test` seam: a resumed session restored through a `:test`-ref storage, published, drained, refs cleared → the next query *throws* "missing index segment" (hazard reproduced deterministically); the same sequence under the session-constructed `:strong` storage → no throw; plus the wrong-construction assertion for `restored-indexes`. The mechanism is sound: `clear-test-refs!` walks resident nodes and the root slot clearing `TestRef` wrappers (`btree.cljc:2121-2136`, root included at `:2134-2136`), `TestRef` exists on all three hosts (`:96-97`, `:184-201`), and a cleared root faults through the wrapper's `storage` field — which after a publish is the drained recording handle (`-store-tree!`, `:1253`) — producing exactly the "missing index segment" throw (`storage.cljc:48-50`). Under `:strong` the slots hold raw nodes, `clear-test-refs!` skips them (`instance? TestRef` guard), and no throw is possible. `bt/settings` exposes `:ref-type` (`:1721-1725`) so the wrong-construction assertion is writable. One portability nit on that third assertion — **N3** below. |
+
+## Code verification of the resumed path (prompt §What-to-do 2)
+
+**(a) Root pinned at both wrap sites — confirmed.** A session-constructed `kv-storage` with `:ref-type :strong` puts `:strong` in the shared `Settings` (`storage.cljc:73-78`); `restore-tree` adopts it via `(-settings storage)` so the set's `settings` field is that `Settings` (`btree.cljc:2094-2098`). First traversal: `resident-root`'s fault memoization does `(set! root (make-ref settings n))` (`:1240`) and `make-ref` returns the raw node for `:strong` (`:208-209`) — pinned. After a publish: `-store-tree!`'s post-store wrap `(set! root (make-store-ref settings r))` (`:1255`) routes through `(make-ref sett node)` because `settings-storage` is non-nil (`:227`) — raw node again, pinned. `node-store`'s per-child wrap (`:1065`) uses the branch's `:strong` settings likewise.
+
+**(b) `:strong` reaches every node `conj` creates — confirmed.** `conj` threads the set's settings into `node-conj` (`:1749-1750`), and every constructor site passes that `sett` through: Leaf insert/split (`:526`, `:539`, `:547`), Branch single-replacement (`:712`), two-node (`:745`), split halves (~`:799-800`), and `conj`'s own new-root split (`Branch. … nil sett`, `:1769`). The successor wrappers carry `sett` (`:1760`, `:1777`), so every later conj inherits it; descent recursion passes `sett` down (`:680`) and child faults memoize with the branch's `:strong` settings (`:1049`). For a resumed tree the restored nodes' settings and the set's are one `Settings` object throughout, so no mixed-settings node can appear.
+
+**(c) Child slots fault through the durable store — confirmed.** `node-child`'s state-3 fault resolves through `settings-storage` (`btree.cljc:1042-1050`), which for a resumed session is the session-constructed kv-storage over the durable content store — never the recording handle (the recording handle only ever appears as `store-tree`'s argument and in the wrapper's `storage` field). The wrapper field is read in exactly one place, `resident-root`'s refault branch (`:1234`), which is unreachable while roots are raw nodes; `hydrate!` is a no-op for `KVStorage`-backed sets and `-accessed` is a no-op hook. **No other refault route exists — the resumed path is closed.**
+
+## New findings introduced by r3
+
+**[P3 — suggestion/alignment] N3. Phase 0′'s third assertion is JVM-observable only.** "A session restored through `restored-indexes` is asserted to be the wrong construction for an index session" is only distinguishable on the JVM: `restored-indexes` takes the host default (`index.cljc:311-313`), which is `:soft` on the JVM but already `:strong` on cljs and cljd (`btree.cljc:39-44`) — off the JVM, a ref-type-based wrong-construction assertion (`bt/settings`, `:1721-1725`) is vacuous (the read path *is* `:strong` there, and the hazard does not exist). The test should gate that one assertion on the JVM, or assert the distinction against `bt/default-ref-type*` rather than a literal. Test-wording detail; nothing in the design depends on it.
+
+Nothing else new: the §4.1 two-bullet mechanism is accurate at every clause checked; §4.2 is now consistent with §4.1; Appendix A's round-2 table is faithful and its cited findings file (`…-r2.glm-5.3.findings.md`) exists in `collab/`; the r3 commit is docs-only.
+
+## Verdict
+
+**APPROVE.** N1 and N2 are resolved — the remedy now binds `:strong` where ref-pinning actually consults it (the tree's settings), the resumed session's restore path is specified correctly and is implementable with today's APIs, the deterministic `:test`-seam test pins the hazard both ways, and the round-1/round-2 trail (F1–F5, N1–N2) is fully closed in Appendix A. The one remaining item (N3) is a non-blocking test-portability wording detail. Across three rounds the note's claims about the code have held or been corrected to hold; with this round the design is consistent with `dao.data.btree`'s actual durability machinery on every host.

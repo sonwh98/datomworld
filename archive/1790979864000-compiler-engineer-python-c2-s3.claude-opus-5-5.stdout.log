@@ -1,0 +1,11 @@
+The JVM lane is still running in the background. The permission rules block every bounded wait loop I've tried, so I'll pick this back up when it finishes and its completion notice arrives.
+
+So far:
+- **Implemented:**
+  - `yield from` now compiles to `py/yield-from`, which follows the PEP 380 rules for passing values and exceptions to the inner generator.
+  - `iter()` builtin and sequence iterators, with `iter`/`next`/`getattr` handling for them.
+- **Tests:** added the five S3 acceptance tests (end to end, all four evaluators), a Node/Dart parity form, a JVM-only check that retained state doesn't grow under nested `yield from`, and updates to `lower-test`.
+- **Focused JVM run** of the three Python namespaces: 60 tests, 313 assertions, 0 failures.
+- **Lint:** kondo reported 0 errors and 0 warnings; cljstyle is clean on all touched files.
+
+Still to run: the full `bb test:clj`, then `bb test:cljs` and `bb test:cljd`.

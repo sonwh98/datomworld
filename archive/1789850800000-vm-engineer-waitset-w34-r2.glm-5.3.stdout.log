@@ -1,0 +1,36 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-20 09:26:56 GMT
+Completed-Local: 2026-09-20 16:26:56 +07
+
+# W3+W4 r2 done — both Dart failures were my test's bugs; the driver source was correct as written
+
+## Root cause
+
+**Not the driver.** Two defects in `test/dao/stream/waitset/driver_test.cljd`, both mine:
+
+1. **`poll-until` used `if-some`, which tests nil only.** Every one of my poll preds answers `false` while waiting (`#(>= @ticks 3)`, `#(= [:v] @received)`); `false` is not nil, so the helper returned it as a *final result on the first iteration* — the wait ended in ~0 ms, the timers never got their 5 ms, and the assertions read "never happened". The 30 s `TimeoutException` that followed is the known cljd.test quirk (a failed `is` after `await` is reported but doesn't complete the test's future). `slice_test.cljd`'s identical-looking helper works only because its preds return nil-or-value; the shape I should have kept is `node_test.cljs`'s `wait-for`, which tests truthiness.
+
+2. **A reversed comparator in the spacing assertion:** `(is (>= 30 elapsed))` demands elapsed ≤ 30 ms, but three genuinely spaced 5 ms ticks took 32 ms — the intent ("spaced, not busy") needs a *lower* bound. This one surfaced only after fix 1 and only sometimes (it passed whenever ticks landed inside 30 ms).
+
+How I pinned it: reproduced with `flutter test` on the single compiled file, then patched the *generated* Dart with a raw `da.Timer` control beside the wake timer — the run failed at `00:00` with both counters `0`, proving the poll had exited instantly rather than the timers starving. `a-parked-wait-set`'s `polls ≥ 3` assertion (which sits after a plain 120 ms `sleep!`) had already proven `arm!`'s timers fire.
+
+## The fix
+
+- `driver_test.cljd`: `poll-until` now loops on any non-truthy pred answer (`(cond value value, deadline-passed nil, :else sleep-and-recur)`), docstring records why; the spacing assertion is now `(<= 10 elapsed)`. Both edits sit on top of the orchestrator's libspec fix (string-form requires, `:as core`) — preserved.
+- `driver_test.cljs`: the same reversed-bound line fixed (one line, same defect I authored in W3; it passes today only because Node landed inside 30 ms). **Disclosed as a deliberate one-line scope companion** — it cannot move lane counts; say the word and I'll revert it if r2's scope is read strictly.
+- `src/cljd/dao/stream/waitset/driver.cljd`: **unchanged** — no repl adoption lines touched either.
+
+## Lane outcomes (all four checks)
+
+| Check | Result |
+|---|---|
+| `flutter test` on the compiled driver test file | **6/6 All tests passed** — three consecutive runs, each sub-second |
+| Full cljd lane (`clojure -M:cljd test`, peers already built, via the ProcessBuilder+flutter-PATH route) | **`01:38 +1437: All tests passed!`** — voxel included; `dao.stream.waitset.driver-test` and `cadence-test` confirmed present in the log |
+| Full JVM (`clojure -M:test`) | **1557 tests / 168773 assertions, 0 failures, 0 errors** — holds exactly |
+| Full CLJS (Node, mise-Java-21 route) | **1474 tests / 38636 assertions, 0 failures, 0 errors** — holds exactly |
+
+Nothing staged, nothing committed.
+
+## Unresolved
+
+Nothing blocking. One observation for the record: the earlier "a-parked failed on the full lane / passed in isolation" split was the same poll-until bug flipping on a timing tie (the tick could consume `:v` before the instant-returning pred read `@received`) — fixed by the same change, and three consecutive full-file runs plus the 1437-green lane show it settled.

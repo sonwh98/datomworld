@@ -1,0 +1,54 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"auto_mode"}
+All four checks are complete and verified. Here is the review report.
+
+---
+
+# Review: `:global` removal from `ast->semantic-bytecode`
+
+**Verdict: safe to commit as-is — all four checks pass.**
+
+## Check 1 — Grammar removal is clean ✅
+
+`src/cljc/yin/vm.cljc` contains no dangling `:global` reference anywhere. I checked beyond the grammar map, as instructed:
+
+- **Grammar** (`semantic-bytecode-grammar`, `v2.cljc:569-589`): `:global` entry gone. The map now holds exactly **17 tags** (verified by evaluating `(count (keys semantic-bytecode-grammar))` → `17`).
+- **`slot-value`** (`v2.cljc:689-700`): dispatches only on slot `kind` (`:node :nodes :sym :syms :bool :data :key`), no tag-specific case. Clean.
+- **`child`** (`v2.cljc:736-759`): dispatches only on `kind`, no `:global` case. Clean.
+- **`build`** (`v2.cljc:760-800`): looks the tag up in `semantic-bytecode-grammar` generically; no `:global` branch. Clean.
+- The separate datom codec paths (`ast->datoms-with-root`'s `case type` at `v2.cljc:414-479`, and `datoms->ast`'s `case node-type` at `v2.cljc:508-560`) never had a `:global` case — `:global` existed **only** in the semantic-bytecode grammar. So the removal is complete with no orphaned dispatch arms.
+
+`grep -rn ':global'` over both files returns nothing (the only "global" hit in the file is the word "global" in the `store` docstring at `v2.cljc:87`, unrelated).
+
+## Check 2 — Substitutions are faithful ✅
+
+`local` (`v2_test.cljc:166-168`) is `{:type :variable, :name n}`; the deleted `global` helper was `{:type :global, :name n}`. Both carry a single `:name` slot, and the former grammar entries `:global [[:name :sym]]` and `:variable [[:name :sym]]` were structurally identical. Every substitution (`+`, `f`, `<`) preserves the symbol name and changes only `:type` — nothing else about what's being tested changes.
+
+The assertion changes are correct, not weakened:
+- `'[:global +]` → `'[:variable +]` (`v2_test.cljc:241`) reflects the new row body `[tag :name]`.
+- The comment `":if, :application, :global, one :literal"` → `"... :variable, ..."` (`v2_test.cljc:261`); the asserted count `4` is unchanged because `:global` and `:variable` each occupy one row.
+
+No new test infrastructure, no deleted assertions — pure tag/name substitution.
+
+## Check 3 — Coverage test remains meaningful ✅
+
+`semantic-bytecode-corpus-covers-every-tag` (`v2_test.cljc:214-219`) asserts set-equality between grammar keys and the tags emitted by the corpus. All **17** remaining tags are still exercised (I traced each: `:literal`, `:variable`, `:lambda`, `:application`, `:if`, `:dao.stream.apply/call`, `:vm/gensym`, `:vm/store-get`, `:vm/store-put`, `:vm/current-continuation`, `:vm/park`, `:vm/resume`, `:stream/make`, `:stream/put`, `:stream/cursor`, `:stream/next`, `:stream/close`).
+
+No *other* tag lost coverage. The `global` nodes appeared either standalone (`(global '+)`) — contributing only the removed `:global` tag — or nested as `:application` operators / `:if` tests/consequents, whose enclosing tags are covered by independent corpus entries. `:variable` coverage was already provided by `(local 'x)` at `v2_test.cljc:179`; the replacement `(local '+)` is redundant, not load-bearing. The equality assertion is strong: it would fail on either a missing tag or a spurious extra one.
+
+## Check 4 — Test run ✅
+
+```
+Ran 23 tests containing 172 assertions.
+0 failures, 0 errors.
+```
+
+Confirms the reported figures exactly.
+
+---
+
+No findings to flag. The change is a clean, mechanical tag retirement: grammar reduced from 18 to 17 tags, faithful test substitution, coverage intact, and the suite green. **Safe to commit as-is.**
+
+---
+
+Note: this was a read-only review — I ran the test and a read-only eval to confirm the tag count, but made no edits. There is no implementation to plan, so nothing further to approve.

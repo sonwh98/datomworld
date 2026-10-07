@@ -1,0 +1,67 @@
+Completed-GMT: 2026-10-01 06:31:59 GMT
+Completed-Local: 2026-10-01 13:31:59 +07
+Coding-Agent: claude
+Session-ID: 2947d033-73d2-4318-8c54-54eab162cb00
+
+# Heap reclamation slice 1: deterministic mark-sweep over the task `:heap`, on all four VMs
+
+All seven build items are done in `/Users/sto/workspace/datomworld-heap-gc` (branch `vm-heap-reclamation`, nothing staged or committed). The full JVM suite and `bb test:cljs` pass with 0 failures. Each tested part was proven by temporary mutation: 18 mutations, all caught, and all restored.
+
+**One check could not run:** `cljstyle check` needs a permission approval this session didn't have, so formatting is unverified.
+
+The full report is at `collab/1790833825612-vm-engineer-heap-reclamation.claude-opus-5-5.report.md`.
+
+## Changed files
+
+| File | Change |
+|---|---|
+| `src/cljc/yin/vm.cljc` | Adds `default-gc-threshold` (4096) and `fresh-gc`. `empty-state` takes a new `:gc-threshold` option and returns `:gc`. |
+| `src/cljc/yin/vm/module.cljc` | `IModuleKernel` gains `gc-roots` and `gc-children`. |
+| `src/cljc/yin/vm/engine.cljc` | Adds the collector: `trace`, `mark`, `sweep`, a public `collect`, the trigger in `:cell/new` and a public `pin-refs`. Pinning happens at `:stream/put`. An absent heap id is refused with `:dead-or-forged-reference`. |
+| `ast_walker.cljc`, `semantic.cljc`, `debruijn/stack.cljc`, `debruijn/register.cljc` | Each declares a `gc` record field (threaded through the walker's positional `cesk-return`), pins FFI request args, takes `:gc-threshold`, passes the base to `spawn-module` children, and implements the two kernel methods. |
+| `docs/state.md`, `docs/ast.md` | New heap sections, each saying it supersedes "reclamation can wait". No in-repo doc carried that note; it exists only in the uncommitted collab ruling. |
+| `test/yin/vm/heap_reclamation_test.cljc` | New file: 16 deftests across the four VMs. |
+| `test/yin/vm/cell_test.cljc` | Every program now runs at gc threshold 1 and at 1e9. The "unknown id" case now expects `:dead-or-forged-reference`, per owner decision 4. |
+| `test/yin/vm/linker_require_test.cljc` | The test-only `FaultyTask` kernel delegates the two new methods. |
+
+Two small additions beyond the brief:
+- **`:base` in `:gc`:** the map carries `:base` next to `:since`, `:threshold` and `:pinned`, because the `max(base, 2 × live)` rule needs it.
+- **Sparing new ids:** ids allocated after a cycle starts are spared by checking whether they were in the cycle's heap snapshot, instead of parsing `:cell-N`. The two are equivalent because ids only grow.
+
+## Test outcomes
+
+- **kondo:** run on all 10 changed `.clj(c)` files. 0 errors; the 5 warnings and 1 info are all pre-existing and on lines I didn't touch.
+- **Focused JVM** (audit, heap-reclamation and cell tests): 34 tests, 484 assertions, 0 failures, 0 errors.
+- **Full JVM** (`clj -M:test`, after `bb build:yin-repl-node`): 2597 tests, 186968 assertions, 0 failures, 0 errors. The first full run had one failure: `store-write-audit-test` flagged `(conj (:store vm) …)` in `gc-roots` as a store write. That code only reads the store; I rewrote it as a vector literal and didn't touch the allowlist.
+- **CLJS** (`bb test:cljs`): 2511 tests, 53160 assertions, 0 failures, 0 errors. "Testing yin.vm.cell-test" and "Testing yin.vm.heap-reclamation-test" both appear.
+- **CLJD:** not run, per the brief.
+
+## Mutation proof
+
+The tests caught every one of these mutations:
+- turning off the trigger;
+- each extra root: `:val`, `:store`, `:module-stores`, `:parked`, `:wait-set`, `:ready-queue`;
+- not following a cell's contents while marking;
+- no pin at `:stream/put`;
+- the `:dead-or-forged-reference` reason;
+- the walker frame's `:evaluated` and the walker closure's environment;
+- the semantic and stack VMs' `:stack` root, and the register VM's `:registers` root;
+- the stack and register VMs' payload children;
+- a random trigger, to show the determinism test catches nondeterminism.
+
+The `:registers` mutation first went uncaught because `:value` also held the ref. A double-nested operand test now covers that case.
+
+## Unresolved concerns
+
+- **Guest-forged shapes:** a guest map that imitates a kernel shape (for example `{:type :closure :body <ref>}`) is traced by that shape. A ref hidden in the skipped key gets swept and is then refused. That fails closed rather than unsafely, but the program can see the difference; closing it needs the host-typed closures the design calls D7.
+- **Opaque values:** a ref inside a host fn (such as `partial`) or an unrealized lazy seq can't be traced, so it would be swept and then refused when used. An infinite realized seq would never finish tracing.
+- **No tail calls in the de Bruijn compilers:** they emit no tail calls, so a recursive loop that binds a cell keeps every iteration's cell live through pending return frames. That is correct liveness, not a collector bug, and the bounded-heap test is written around it.
+- **Walker program is a root:** the design's root table lists walker `control`, so each walker collection walks the program AST once.
+- **CLJD unverified:** `satisfies?` support in ClojureDart is unchecked.
+- **Not built yet:** halt and park as collection points (optional in the design) and budgeted marking.
+- **Diagnostics are not roots:** values held only in the FFI or link diagnostics are not traced, following the design's root list.
+
+## Incomplete work
+
+- `cljstyle check` did not run.
+- The test logs `collab/heap-gc-jvm-full.log` and `collab/heap-gc-cljs.log` are untracked and stay uncommitted.

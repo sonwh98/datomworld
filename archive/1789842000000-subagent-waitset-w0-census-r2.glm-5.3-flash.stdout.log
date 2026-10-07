@@ -1,0 +1,21 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"sdk"}
+Completed-GMT: 2026-09-19 18:17:27 GMT
+Completed-Local: 2026-09-20 01:17:27 +07
+
+All fixes applied to the W0 section of `docs/design/dao.stream.waitset.implementation-plan.md` only; diff is that one file (+50/−1 vs. pre-W0). Every citation below was verified against source before writing it.
+
+**Rows added (the missing production multiplexed waiters):**
+- `dao.stream.ws`'s ack-slot sweep `endpoint-step` (`ws.cljc:565`, slot polls `:574-591`) — multiplexed per configured slot, invoked by `serving/step!` at `serving.cljc:339-342`; W4 candidate like the serving row.
+- `yin.repl.serve`'s per-session step — `advance-sessions`/`session-step` (`serve.cljc:586-619`, called from `serve/step` at `:704`): a `:put` retry on each session's pending response or a `:next` on its request medium, for every adopted session; production multi-waiter, W4 candidate.
+
+**No-loop claims corrected (the auditor was right on both):**
+- `forward-step` does loop — `:batch-budget`/resume-allowance loop at `forward.cljc:101-140`. Reclassified in place as a bounded budget step inside the serving row.
+- `connect/observe` does loop — budgeted at `connect.cljc:537-564`. Given its own row (caller: the shell driver's `observe-connection`, `driver.cljc:489`); single medium, nothing for a waitset to change.
+
+**Omissions added:**
+- `yin.vm.ffi/maybe-run`'s bridge loop (`ffi.cljc:229`, loop `:237-244` over `bridge-step` at `:173`, `blocked` at `:219`) — single call-in medium per VM; adoption only matters if a host multiplexes several VMs' bridge media.
+- `dao.space.index/snapshot-datoms` (`index.cljc:428`, drain `:445-452`; callers `yin.vm.ledger`, `dao.space.transactor`, `dao.space.schema`) — folded into the one-shot catch-up drains row; complete-retention medium, so no cadence across rounds.
+
+**Re-check of the remaining claims:** `observe/step` confirmed loop-free (one read, one effect — `observe.cljc:58-126`) and `dao.await` confirmed loop-free (effect maps only; `resume` just re-runs the VM, `await.cljc:227`). But `dao.jing.remote.step` was likewise wrong in r1: its `issue-pending-verifies` loops (`step.cljc:396-457`) until the writer answers `full`. It got its own row, classified as a bounded budget step with cadence owned by its driver. The census intro and the closing note now record the r2 revision.
+
+**Citations I could not verify:** none — every line reference in the prompt checked out, plus the three I re-checked myself.

@@ -1,0 +1,55 @@
+Completed-GMT: 2026-09-25 23:37:04 GMT
+Completed-Local: 2026-09-26 06:37:04 +07
+
+(These are the host clock's times. They are earlier than the brief's Created stamp of 2026-09-26 04:20 GMT, so either the clock or that stamp is off.)
+
+M3 is implemented and green on all three hosts. The full report is at `/Users/sto/workspace/datomworld/collab/1790358000000-vm-engineer-linker-m3-stepped-core.claude-opus-5-5.report.md`. Nothing is committed or staged, and the stash entry is untouched.
+
+**Lane counts** (0 failures and 0 errors on every lane):
+
+| Lane | Baseline (19719d66) | Final |
+|---|---|---|
+| JVM | 2,089 tests / 181,424 assertions | 2,098 / 181,640 |
+| Node | 2,002 / 48,286 | 2,011 / 48,483 |
+| Dart | 1,964 passed | 1,973 passed |
+
+The extra 9 tests on each lane are the new namespace, and all nine appear by name in the Dart output. kondo and cljstyle are clean. Every added line is ASCII and at most 80 columns.
+
+**Files changed**
+- **`src/cljc/yin/vm/linker.cljc`:**
+  - New: `link-state`, `request-link`, `step`, `abandon` and `verify`.
+  - Renamed: `free-name-defect` is now `discharge`, the export name the spec lists.
+  - Reworked: `fetch` is now the blocking driver over a runtime and holds no content handle. The two fallbacks take a runtime.
+  - `:unsupported-format` is added to the refusal set.
+- **`test/yin/vm/linker_step_test.cljc` (new, 9 tests):**
+  - the refusal matrix driven through `step`, for all four formats;
+  - a link that stays pending while the server answers one part per step;
+  - requests carrying a function or handle refused as `:invalid-request`;
+  - the section 6.4 traffic test: rings equal element for element, equal get counts, and no handle in the linker state;
+  - the DHT handle behind the served boundary;
+  - `abandon` completing `:lost` exactly once;
+  - two links on one content pair;
+  - the code-identity row.
+- **`linker_test.cljc` and `content_test.cljc`:** every M2 fetch now goes over a ring-buffer content pair. The JVM WebSocket test now runs through the linker's own RPC client, for all four formats.
+
+**How the M2 semantics were kept.** The linker talks `:jing/get-content` directly over `dao.stream.rpc`, not through `dao.jing.remote.step`. That layer hashes and decodes the payload itself, which would break M2's order of byte cap, then address check, then decode. The spec explicitly allows the `dao.stream.rpc` route. Each link reads its parts in worklist order, so traffic, get counts and which refusal is reported first all match M2. Contract admission is unchanged, and no contract stamp is ever assigned.
+
+**Deviations** (the report has the reasoning for each):
+1. **`fetch` has an extra argument.** It takes `opts {:contract c}` as a fifth argument, and `format` is a keyword. The spec's shorter arities stay `:invalid-request`, as in M2.
+2. **`fetch` calls `step` itself.** `:drive` serves the content pair and returns the state. `step` hands out completions only once, so a drive that stepped the linker would lose the completion `fetch` waits for.
+3. **A corrupted RPC reply is now `:address-mismatch`.** It was `:absent` in M2 only because the old content client rejected the reply before the linker saw it. The M2 test is renamed and re-specified to match.
+4. **`free-name-defect` is renamed to `discharge`**, the export name in section 10.
+5. **A runtime serves one `fetch`.** `fetch` does not return the updated state, so a caller that links again needs a fresh runtime or the stepped interface.
+6. **Shared test helpers live in `linker_test`.** The step test and `content_test` require it, and some of its fixtures are now public.
+7. **Not strictly test-first.** I wrote the core before the step tests.
+8. **M4-scope items held back.** A by-name request answers `:absent`, and the name-environment and policy options are not stored yet.
+
+**Acceptance matrix.** UCF §7.11 currently has no rows tagged M3. I covered the brief's code-identity row with its own test.
+
+**Not tested:**
+- the terminal-client path;
+- the retry when the content writer is full, which ring buffers never produce because they evict instead.
+
+Whether `fetch` finishes is up to the drive: a server that never answers loops forever unless the drive gives up. That is documented, and there is no built-in deadline.
+
+Status: COMPLETE

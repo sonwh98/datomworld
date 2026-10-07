@@ -1,0 +1,22 @@
+The framing is good, and it's a better place than r7 landed. Here's my read.
+
+**What it gets right**
+
+- **It dissolves r7's worst wart.** r7 said "the tuple tree is the AST, not a projection," and then had to re-scheme continuation frames (§2.6) because the walker does `assoc` runtime state into nodes. Making the map the ephemeral machine image means the walker and its tests stay untouched. That's the minimal-diff outcome.
+- **It makes the two levels uniform.** The instruction vector was already flat, positional, canonical. The tree level now has the same shape. §6.1's row set stops being a "view" and becomes the thing itself, which is what `q` was verified against anyway.
+- **It's the Unison move.** Hash the structure with names stripped, reconstruct names from a dictionary. The §2.3 table as a bidirectional dictionary is the right formalization, and the round-trip law is the right conformance obligation.
+- **It fits the layering.** Rows are payload for dao.jing, which stays passive. dao.space queries the same rows without knowing they're code. The reconstruction precedent in `datoms->ast` is real and already handles every tag.
+
+**Two things I'd push on before this lands**
+
+1. **Structural sharing collides with the §4.2 block harder than the prompt admits.** In r7, collapsing identical subtrees was an optional projection step, so the encoder block could defer it. In the new model the row set is a set, and a `nodes` slot for `(+ x x)` is `[D D]` by construction. Two distinct values that hash equal under the non-injective encoder will silently merge into one row. That's corruption, not deferred optimization. The doc should say either that the row form as a whole is gated on the encoder fix, or that until then rows carry allocated ids the way the current codec does, with content ids swapped in when the encoder lands. "§4.2 stands verbatim" plus "§4.4 sharing becomes structural" can't both be true without one of those sentences.
+
+2. **Row-per-value versus packed-per-tree is not purely an implementation note.** A tree's address is the root row id. To load it, something must resolve that id to the closure of rows. If rows are stored individually, that's a DAG walk of N fetches and the well needs a get-by-id path. If they're packed, the pack has its own address that is not the root id, and manifests and derivation records need to say which one they name. Either answer is fine, but the choice determines the loader's interface and the validator's "every row reachable from root" rule. I'd state it as open but list what depends on it.
+
+**Smaller notes**
+
+- "Never content-hashed" is slightly overstated. The canonical map is addressed, just through its projection. Say "never hashed directly."
+- The round-trip law is identity on the *canonical* map, meaning post-strip and post-saturate. The doc should define that form explicitly, since the frontend's raw map carries `:yang/*` keys and stray `tail?` marks that the law doesn't preserve.
+- The §2.6 concern doesn't vanish. It moves from code storage to continuation serialization. When frames get projected to datoms, the runtime keys the walker assoc'd into nodes must be stripped at that boundary. Worth one sentence so it isn't rediscovered later.
+
+Net: I'd ship the round with points 1 and 2 folded into the charter, since both are ontology, not polish, and astra will find them otherwise.

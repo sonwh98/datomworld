@@ -1,0 +1,35 @@
+Completed-GMT: 2026-10-05 09:36:10 GMT
+Completed-Local: 2026-10-05 16:36:10 +07
+
+D3 is implemented and its tests pass on the JVM. I did not run the Node and Dart lanes, so portability is untested. Those are the orchestrator's to run at landing.
+
+**Changed files**
+- New `src/cljc/yin/vm/ucf/holder/evidence.cljc`
+- New `test/yin/vm/ucf/holder/evidence_test.cljc`
+- New report at `collab/1791194500000-compiler-engineer-ucf-d3-evidence.findings.md`
+
+I edited no landed namespace and made no git writes.
+
+**What it does**
+`(evidence/read-evidence arbitration records l)` takes attributed `[author record]` data and counts only the arbitration identity's records. It folds them from the origin with `ledger/fold-record` and answers one of:
+- **Ready:** binding, the set of enrolled targets, and the replay prefix, which can be a real empty prefix.
+- **`:yin.k/awaiting-grant`:** the history is whole so far but holds no grant of `l` yet.
+- **`:yin.k/unsatisfied`:** with reason `:transport-error`, `:start-past-origin`, `:gap`, `:fold-defect`, or the binding's own no-evidence reason.
+
+Unavailable answers carry neither a prefix nor an enrollment. It holds no authority handle and never reads `authority/projection`.
+
+**Evidence**
+- **Red:** the new test namespace failed to load, with `Could not locate yin/vm/ucf/holder/evidence.cljc on classpath`.
+- **Green:** `clojure -M:test -n yin.vm.ucf.holder.evidence-test` gave 8 tests, 34 assertions, 0 failures, 0 errors.
+- **First run:** the first run had 1 failure, caused by my own wrong expectation in a test. A forward t-jump is correctly `:gap`, so I fixed the test, not the implementation.
+- **kondo:** 0 errors, 0 warnings on both files. cljstyle was not run, per the brief.
+- **Contract rows covered:**
+  - Fold from the origin equals the authority's own projection, compared in the test only.
+  - A gap, a start past the origin, a transport error and a fold defect each answer unavailable, none as an empty prefix.
+  - Another author's records establish nothing.
+  - The evidence survives a `dao.stream.remote` reflection and a canonical-codec round trip.
+
+**Concerns for the orchestrator**
+- **Transport errors:** a transport error enters as data. The driver must put `[author {:dao.stream/outcome ...}]` in place of a record when a read fails. This is an interface choice for D13 to confirm.
+- **Transitive load:** the namespace requires `authority.input` for `inputs`, which loads `yin.vm.ucf.authority` transitively, though no authority value is used. Avoiding the load would mean moving `input/inputs`, which is a landed-code change I did not make.
+- **Cost:** the read re-folds from the origin on every call, so it costs O(history) as the plan's risk 3 notes. There is no incremental fold.

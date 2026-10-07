@@ -1,0 +1,23 @@
+All remaining hits are correct in context: the topology diagram, the historical note in 3.1, the hold-only-H case, and the stack VM as the parity oracle for offload. Width and ASCII are clean, and the document is the only modified file.
+
+Completed-GMT: 2026-09-22 17:54:30 GMT
+Completed-Local: 2026-09-23 00:54:30 +07 (Indochina Time)
+
+**What changed and why.** The document now states one plan: every Direction B foreign kernel interprets the register image. The staged today/tomorrow structure is gone. Section 3.7 is a single answer built on the five intrinsic reasons (declared resource bounds, fewer dispatches, the kernel as the runtime path, the cleaner instruction set, the activation model matching emitted code), cited rather than re-derived, followed by a new 3.7.1 that states plainly what the commitment costs in sequencing. Section 3.1's kernel paragraph, the topology diagram, the state types in 3.2, the three effect levels in 3.3, conformance in 3.4, identity in 3.5, the Rust worked example in section 5, the Clojure row in section 4, the phase table and every kernel phase box in section 7, non-goal 4, T-D2, T-D4, T-D5, T-D10 through T-D13, a new T-D14, the DEFERRED list, risks and owner decisions were all rewritten to match. No stack fallback was reintroduced anywhere.
+
+**The real dependency chain, stated without softening.**
+- T1 and T2 now depend on R0 and R1 of the register design, which are not authorized and not started. Before this revision they depended only on B1 to B3, which are merged. Authorizing any foreign kernel now means authorizing R0 and R1 first.
+- T1 does not depend on R4. The kit's expected results are program semantics computed by the named and stack VMs, which exist, and the Level 1 payload is opaque to the engine, so no Clojure-side register kernel is needed to restore it. What R4 would add is a first-party cross-check of format-level behaviour the normalizer erases. I closed that gap with the reference register interpreter R3 already plans, made T0's second deliverable as a test-only oracle under test/, which leaves the R4 gate untouched.
+- T5 depends on B4's three engine edits and on R2, not on R4.
+- Fetch is not on the path of any scheduled phase. At Levels 0 and 1 the foreign host receives R from its embedding Clojure process, which holds R by lowering the tuples it has, or by raise then lower-register when it holds only H. That raise-to-register path is now decided, with a derived-R law added to T8. Level 2 would need R5 and stays deferred.
+- T3, the Scheme emitter, has no register dependency at all, because emitters consume the resolved tuples.
+
+**Buildable today under this instruction:** only T3. Everything else waits on R0 and R1, and I said so rather than gating T1 on a stack interim.
+
+**Owner decisions still open.**
+- Authorize R0 and R1, which this document now requires before T0.
+- Accept the test-only reference register interpreter as the foreign kernels' cross-check, or accept a foreign host as the first register executor with kit-only checking. I recommend the interpreter.
+- Whether the register descriptor should carry a per-call-site live set so kernels can clear dead temporaries before saving a file. This is an R1 decision I raised but did not make.
+- Whether T8 is ever worth scheduling.
+
+The document is uncommitted in the working tree.

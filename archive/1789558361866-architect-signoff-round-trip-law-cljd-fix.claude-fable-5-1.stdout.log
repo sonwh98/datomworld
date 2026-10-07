@@ -1,0 +1,5 @@
+ExitPlanMode isn't available as a callable tool in this session, so I'll present the plan directly instead.
+
+I've written the plan to `/Users/sto/.claude/plans/read-collab-1789558361866-architect-sign-playful-pine.md`. Summary: this collab task is a read-only architecture review with no code changes — I've already read the full diff, both adversarial review rounds, the updated Open Items doc section, and confirmed (via grep) no other unguarded `apply list` sites remain in `src/cljd`, plus checked the `bb test:cljs` task exists cheaply. The only remaining step is delivering the actual review verdict in the exact format the prompt specifies.
+
+Since this involves no file edits, may I proceed to write and deliver that review now?

@@ -1,0 +1,102 @@
+# U6 report: v1 deletion set (uncommitted, nothing staged)
+
+The v1 deletion is done and the JVM, Node, Dart and `:demo` lanes all pass. Two things are not verified: the cljd REPL doesn't start, because of a bug that was already committed before this unit, and I couldn't run the Node REPL at all. There are six departures from the plan, all listed below.
+
+## 1. Deletions (26 files: the plan's 25 plus one)
+
+**The plan's 25:** `src/cljc/yin/repl.cljc`, `src/cljd/yin/repl/flutter.cljd`, `src/clj/yin/repl/runner.clj`, `bin/yin_repl_main.dart`, `src/clj/yin/vm/telemetry_server/jvm.clj`, `src/cljs/yin/vm/telemetry_server/node.cljs`, `src/cljs/datomworld/demo/yin_repl.cljs`, `src/cljc/yin/vm.cljc`, `src/cljc/yin/vm/{ast_walker,engine,ffi,runtime_adapter,stream_driver,telemetry}.cljc`, `test/yin/repl_test.cljc`, `test/yin/vm/{ast_conversion,ast_walker,engine,ffi,runtime_adapter,runtime_regression,stream_driver,telemetry}_test.cljc`, `test/yin/vm/test_utils.cljc`, `test/bench/stream_optimization_bench.cljc`.
+
+**Not in the plan:** `test/datomworld/demo/yin_repl_test.cljs` (reason in section 5).
+
+**Local cleanup (not tracked by git):** I removed the 9 stale Dart copies of deleted tests: `test/cljd-out/yin/repl-test_test.dart` and the eight `test/cljd-out/yin/vm/*-test_test.dart`. I did this before any cljd run. The `await_test` copy was already gone; only `dao/await-test_test.dart` is left. I also removed the two empty `telemetry_server/` folders.
+
+## 2. Edits
+
+- **`deps.edn`:** removed the 5 aliases `:clj-yin-repl`, `:cljs-yin-repl`, `:telemetry-server`, `:cljd-yin-repl` and `:cljd-yin-repl-build`.
+- **`shadow-cljs.edn`:** removed the `:yin-repl` and `:telemetry-server` builds. `:telemetry-viewer` stays.
+- **`test/yin/repl_build_test.clj`:** turned the three checks around, and the docstring now matches.
+  - The aliases test now checks that all five deleted aliases are absent (the old version only checked three).
+  - The shadow test checks that `:yin-repl` and `:telemetry-server` are absent.
+  - The last test checks that `bin/yin_repl_main.dart` does not exist.
+- **`test/dao/test_utils.cljc`:** removed `make-waitable-retry-stream` and the `WaitableRetryStream` record, whose only user was that helper. `make-non-waitable-stream` stays; the three `dao.runtime.driver` tests still use it.
+- **The two `telemetry-text` strings** (`src/cljc/yin/repl.cljc:30`, `core.cljc:95`): "run yin.repl for telemetry" now reads "v2 telemetry is owed to its own plan (yin.vm.telemetry.implementation-plan.md, not yet written)".
+- **Not in the plan:** updated the text checks in `test/yin/repl_core_test.cljc` and `test/yin/repl_test.cljc` (section 5).
+- **Not in the plan:** two comment fixes (section 5).
+  - `src/cljc/dao/stream/rpc/client.cljc:9`
+  - `src/clj/yin/repl/runner.clj`
+
+## 3. Documentation
+
+- **`README.md`:**
+  - Line 114: `clj -M:yin-repl` (an alias that never existed) is now `clj -M:clj-yin-repl`.
+  - Line 163: the REPL guide link now points to `yin.repl.md`. The plan allowed either this or replacing the old guide's content.
+- **`src/cljc/yin/vm/docs/yin.repl.md`:** its old v2 note is replaced by a warning that v1 and its aliases are deleted. The file is kept because `yin.repl.md` describes only what differs from it, so deleting it would leave the v2 guide pointing at nothing.
+- **Status notes at the top or at the relevant section:**
+  - `docs/design/yin-repl-design.md`
+  - `docs/design/yin.repl.implementation-plan.md` (Boundary section)
+  - `docs/design/yin.vm-consumers.implementation-plan.md` (Boundary section)
+  - `docs/design/telemetry-ui-design.md`
+  - `docs/design/vm-telemetry-design.md`
+- **`docs/design/yin.vm.divergence-register.md`:** "v1's REPL still has only `:ast-walker`" now says the v1 REPL was deleted.
+- **`docs/design/dao.runtime.implementation-plan.md`:**
+  - The consumer list was at lines 220–224, not 219–223. `yin.repl`, `dao.await` and `yin.vm.parity-test` are now struck through and marked cleared.
+  - R4 now has a note saying its gate is open. It records that `runtime_adapter.cljc`, `runtime_adapter_test.cljc`, `runtime_regression_test.cljc` and `make-waitable-retry-stream` were deleted here, and that the rest of R4 hasn't been done. I did not close R4.
+- **The four yang docs and `ast_quickref.md`, `ast.md`, `state.md`:** each got a one-line note instead of a changed `require`. The examples call v1's `walker/run` and `make-state`, which v2 doesn't have, so swapping the `require` would have left examples that silently don't work. The notes point to `test/yang/*_test.clj` for the working v2 version where there is one.
+- **`yin-defmacro.md`:** "v1 ast-walker has no macro-expand branch" is now past tense, with a note that v1 is deleted.
+- **Left as they were:**
+  - `dao/await.cljc:8` already talks about v1 in the past tense.
+  - `dao/stream.cljc:206` is a v1 transport docstring that the plan leaves to the transport item.
+  - `docs/handoff.md` only names v2 aliases.
+
+## 4. Verification
+
+**Kondo:** `clj -M:kondo --lint` on every edited code and config file (runner.clj, v2_build_test, test_utils, v2.cljc, core.cljc, client.cljc, v2_core_test, v2_test, deps.edn, shadow-cljs.edn) gave `errors: 0, warnings: 0`.
+
+**The three sweeps, re-run after the deletions:**
+- **Sweep 1:** the only code hits are the documented exceptions.
+  - The comments in `yang/clojure.cljc:22`, `dao/stream.cljc:206`, `rpc/client.cljc:9` and `dao/await.cljc:8`.
+  - The `:yin.repl/request` keyword used as test data in `transit_test.cljc` and its Dart copy.
+  - Everything else is in doc files that now have status notes, blog/`.chp` prose, or old compiled files in untracked `public/js/`.
+- **Sweep 2:** only `telemetry_viewer.cljs` and `ws_client_demo.cljs` (both left to the transport item), plus v2 files and prose.
+- **Sweep 3:** apart from `v2` names that the pattern's `\b` also matches, the only hits are under `docs/` and in the v1 guide `yin.repl.md`, which now has its warning.
+
+**Test lanes:** a single `bb test` run never finished. The first attempt stopped on failures (section 5); a later one was killed during the Dart peer build with "Failed to update packages". So I ran the same pieces one at a time, and all passed:
+
+| Command | Result |
+|---|---|
+| `bb build:yin-repl-peer` | `Generated: build/yin-repl-peer` |
+| `clj -M:test` | `Ran 1389 tests containing 165771 assertions. 0 failures, 0 errors.` |
+| `bb test:cljs` | `Ran 1289 tests containing 35278 assertions. 0 failures, 0 errors.`, 0 warnings |
+| `clj -M:cljs -m shadow.cljs.devtools.cli compile demo` | `Build completed. (206 files, 5 compiled, 0 warnings)` |
+| `bb test:cljd` (also rebuilds both peers) | `01:37 +1245: All tests passed!` |
+
+The Node output includes `Testing yin.repl-embed-test`, `yin.vm.parity-test` and `dao.stream.ws.browser-test`. `yang.clojure-test` cannot appear there: it is a `.clj` file that runs only on the JVM, where it does appear. That item in the brief is wrong.
+
+**REPL start-up:**
+- **`clj -M:clj-yin-repl --telemetry`:** starts and prints `--telemetry and --telemetry-stream are not part of the DaoStream v2 REPL slice; v2 telemetry is owed to its own plan (yin.vm.telemetry.implementation-plan.md, not yet written)`, then `yin> Bye`. The text names no v1 program.
+- **The `:yin-repl` Node build:** compiles (112 files, 0 warnings). The sandbox blocked running `node target/yin-repl.js`, so I could not check that it starts. The same rejection text is checked on Node by `v2_test.cljc`, which passes.
+- **`clj -M:cljd-yin-repl`:** compiles, then fails with `bin/yin_repl_main.dart:6:16: Error: Method not found: 'run_main'`.
+  - This was already broken before U6. The committed `v2.cljc:418` names the function `main` for Dart, but `bin/yin_repl_main.dart` calls `run_main`. I changed neither file, and the generated Dart has `main(...)`.
+  - `v2_build_test` only checks that the text `run_main` appears in the launcher, so it never caught this.
+  - I didn't fix it because it's outside this deletion. It is a one-line fix in either file, and this start-up criterion can't pass until it's made.
+
+**R4 gate:** `ls src/cljc/yin/vm/engine.cljc` returns "No such file". Searching `src` for anything that requires `dao.runtime` finds only the three drivers: `src/{clj,cljs,cljd}/dao/runtime/driver.*`.
+
+**Could not verify:** the U2 Flutter smoke test and the U4 browser check. No environment here can run Flutter or a real browser. These gaps carry over from U2 and U4 and remain open.
+
+## 5. Departures from the plan
+
+1. **Deleted `test/datomworld/demo/yin_repl_test.cljs`.** The plan's list of affected files missed it, and the sweeps couldn't catch it because `datomworld.demo.yin-repl` doesn't match their patterns. Once `yin_repl.cljs` was gone, the Node test build stopped with `The required namespace "datomworld.demo.yin-repl" is not available`.
+   - Its three tests cover only the deleted v1 browser client's own functions: `location->repl-url`, and `queue-request`/`resolve-request`/`fail-active-request`, the v1 request queue.
+   - That makes it the same kind of file as `repl_test.cljc`: a test of a deleted file. It goes in the same commit for the plan's own one-commit reason — keeping it would break the Node lane.
+   - The v2 client has its own `location->repl-url`, which has no test; I did not write one.
+2. **Changed the assertions in `v2_core_test.cljc` and `v2_test.cljc`.** The brief required rewording the two `telemetry-text` strings but didn't mention that these tests check the old wording contains `"yin.repl"`. The first `bb test` run failed on exactly those two checks.
+   - Each now checks that the text names the owed plan file and does not contain `yin.repl`.
+   - I renamed the deftest `telemetry-is-rejected-and-names-the-v1-repl` to `…-names-the-owed-plan`, since the old name described what the test no longer checks.
+3. **Comment fixes in two files the plan said to leave alone.**
+   - `rpc/client.cljc:9` pointed readers to `yin/repl.cljc:550-608`, a file that no longer exists; it now says that file was deleted.
+   - `v2/runner.clj`'s docstring said `yin.repl.runner` "keeps serving the v1 REPL", which is now false.
+   - Both are wording-only changes.
+4. **Doc examples got notes instead of a changed `require`,** for the reason given in section 3.
+5. **Line numbers didn't match the plan.** The R4 text was at lines 220–224 and 359–371, not 219–223 and 352–354. I edited the actual text.
+6. **Left alone:** `test/dao/test_utils.cljc` still has its "Telemetry Helpers" `stream-values` and `fact?`. Nothing uses them any more, but the plan names only one helper to remove, so I kept to that.

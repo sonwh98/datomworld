@@ -1,0 +1,44 @@
+S5 is built and every required check passed after the last source change. Per the owner's amendment, join / load-index / query now live in a plain CLJC namespace, `dao.space.dht`, which the REPL reuses. Nothing is staged or committed.
+
+**What changed**
+- **`dao.space.dht`** (new, no `yin.repl` dependency):
+  - `join` starts a DHT node over a local store or a directory. With no peers it is solo and opens no socket.
+  - `step` advances the node and returns events, including whether each publication was acknowledged or why not.
+  - `load-index` fetches a remote index by manifest address; `q` queries it with `dao.space.query/q`.
+  - I put it under `dao.space` because it connects the DHT to the index and query layers; under `dao.jing` it would make the storage layer aware of index structure.
+- **`yin.repl.dht`** (new, thin): opens `dht:<dir>` as the locked durable store, joins a node through `dao.space.dht`, and turns its events into REPL lines.
+- **Loading a remote index into the REPL** goes through the same API in both ways:
+  - At startup, `--dht-manifest` loads the remote index before any evaluation is admitted.
+  - At the prompt, `(require 'dao.space.dht)` gives host functions `load-index`, `load-status` and `q` over the shell's node. `load-index` answers at once; `q` is refused until the index is loaded.
+- **New flags:** `--dht-peer`, `--dht-publish`, `--dht-bind` (loopback by default), `--dht-port`, `--dht-max-inbound-bytes` (default 64 MiB) and `--dht-manifest`. Any of them without `dht:<dir>` is refused.
+- **Startup banner:** states what will be shared before anything is.
+- **Docs:** both design docs are updated.
+
+**Evidence**
+- **Real processes:** four JVM REPLs, each with its own locked directory, exchange content over real loopback UDP.
+  - The publisher prints its round result before its "acknowledged: sent to 2 peers" line.
+  - A reader hydrates the publisher's index and queries it.
+  - A Node REPL process does the same (JVM↔Node).
+  - Plain Clojure in the test JVM loads the same index over UDP. The REPL's `dao.space.dht/q` prints exactly the same result.
+- **Tests first:** the first test namespace failed against a stub (19 failures, 18 errors) before the fix. For the tests written after your amendment, the red evidence is 14 deliberate code mutations, one per core property. Each was applied, run and reverted, and each made at least one test fail.
+
+**Checks, all run in the foreground**
+
+| Check | Result |
+|---|---|
+| kondo, 13 changed files | 0 errors, 0 warnings |
+| `clojure -M:test` | 2537 tests, 186154 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | 2451 tests, 52411 assertions, 0 failures |
+| `bb build:yin-repl-peer` | builds |
+| `bb test:cljd` (after deleting `test/cljd-out`) | "All tests passed!" at +2406 |
+
+The Dart log is too compact to show every file, so I also ran the two new Dart test files directly: all 19 pass.
+
+**Things you should know**
+- **Browser build fix outside the brief's files.** Adding the DHT to the REPL broke the browser `demo` build, through two Node-only modules: `node:crypto` and `dgram`. I changed both to load when first used, the same approach `yin.repl.store` already uses for `fs`. The files are `dao.jing.dht` (S4) and `dao.stream.datagram.node` (S1). `demo` and `yin-repl` now both build.
+- **One failure I can't fully explain.** One full JVM run failed 3 assertions in the Dart-client test in `main-test`, using a Dart peer binary built before the restructure. After I rebuilt the binary, that test and the full lane both passed. It was either the stale binary or a timing flake.
+- **"No peers means solo" is read literally.** `--dht-port` or `--dht-bind` without a peer is refused, so a first node has to list its peers' addresses in advance.
+- **`join {:dir …}` takes no directory lock.** The lock code lives in `yin.repl.store.fs`. The REPL passes its locked store instead; moving the lock under `dao.*` is an open decision.
+- **Node leg needs a manual build.** The Node part of the process test needs `target/yin-repl.js`, which no bb task builds. When the file is absent the test skips that part and prints a notice.
+
+Report: `/Users/sto/workspace/datomworld/collab/1790795000000-repl-engineer-dht-s5-repl-integration.claude-opus-5-5.report.md`

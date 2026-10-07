@@ -1,0 +1,11 @@
+I couldn't start the task because I can't find the brief.
+
+- **Not in this worktree:** `collab/1790969285000-compiler-engineer-python-safepoint-s2.prompt.md` doesn't exist here. The only file in `collab/` is `1790849347715-architect-safepoint-interpreter.claude-fable-5-1.findings.md`, and searching the whole worktree for `*safepoint-s2*` found nothing.
+- **Blocked in the main checkout:** I tried to read the same path under `/Users/sto/workspace/datomworld/collab/`, but permission was denied. This session can only read and write inside the worktree.
+
+I haven't changed anything. Either of these will unblock it:
+
+1. Copy the brief into this worktree, e.g. `cp /Users/sto/workspace/datomworld/collab/1790969285000-compiler-engineer-python-safepoint-s2.prompt.md /Users/sto/workspace/datomworld-py-safepoint2/collab/`, then re-dispatch. If the brief names a report path in the main `collab/`, point it inside the worktree too, since I can't write there either.
+2. Grant this session read and write access to `/Users/sto/workspace/datomworld/collab/`.
+
+Separately, the Gmail, Google Calendar and Google Drive connectors need authorizing in your claude.ai connector settings before they'll work. This task doesn't need them.

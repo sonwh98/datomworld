@@ -1,0 +1,25 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Phase 3 is complete. Report written to `collab/1788959908204-storage-space-index-phase3.glm-5.3.findings.md`; nothing staged or committed.
+
+## What landed
+
+**`dao.space.index` is v1-free.** `PublishedIndexStream`, `ds/defopen :dao.space.index/published`, and the `dao.stream`/`dao.jing.coordinate` requires are deleted; the require list is exactly the five the plan names. `published-index` stays — it's the coordinate `query/open-published!` validates through. There was no `require-macros` clause to remove (confirmed, not assumed).
+
+**`schema/published` rewritten** on `jing-coordinate/open!` → `index/read-datoms` → `finally` close → a private `PublishedSchemaRows` record (positional `next`, `close!` → `{:woke []}`, `closed?` → true). Validation is verbatim, so W40's throw is unchanged. Nothing in §5.3's do-not-touch list was touched.
+
+**The eleven read paths (§5.4):** #1/#5/#7/#8 moved to `query_test` (modernized per spec — #8 keeps the `pr-str` round-trip with a v2 ringbuffer carrier and asserts the complete exact coordinate map); #2/#3/#4 deleted with their named covering survivors; #6 split (structural cases verbatim and fixture-free, opened-value assertion now sits on `open-published!`'s value); #9 `sources` migrated with `current-state-seq` and `try`/`finally` kept; **P5 added** — a close-counting store whose manifest read fails after open succeeds, asserting the identical error propagates and the store closed exactly once.
+
+## Verification
+
+| Lane | Result |
+|---|---|
+| `timeout 900 bb test:clj` | **exit 0** — 1434 tests, 165341 assertions, 0 failures/errors |
+| `bb test:cljs` | exit 0 — 1344 tests, 0 failures, 1 **pre-existing** error (`wasm-eval-emits-telemetry-test`, in base history `78b5262`); `index-test` + `schema-test` confirmed in Node output |
+| `bb test:cljd` | **exit 0** — "All tests passed!", 1297 Dart tests, all six `dao.space` namespaces |
+| demo compile | exit 0, 0 warnings |
+| kondo / cljstyle | 0 errors, 0 warnings; formatting clean |
+
+Focused re-runs confirmed W38–W41 pass **unmodified** and every moved/new deftest actually executes. Residue greps: `index_test` 35→**0**, `stigmergy_test` 3→**0**; `jing-coordinate/|ds/|observe/` in `index.cljc` → no matches. `dao.space.schema` is now the only `dao.space` namespace on v1 — exactly the §6 end state.
+
+Two things worth naming: cljstyle caught a short closing-paren in my first `sources` edit (the same `cond->`-tail trap as prior rounds — fixed before any test ran), and kondo's four "Redundant ignore" infos in schema.cljc sit on ignore forms unchanged from HEAD — cache-clear artifacts, left alone deliberately.

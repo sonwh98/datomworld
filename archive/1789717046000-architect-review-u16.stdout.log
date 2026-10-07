@@ -1,0 +1,3 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+The observer tests run against a real ring-buffer medium attachment — the staging/retry/draining coverage exercises the actual stream boundary, not a mock. My direct verification is now complete; I'm waiting on the background extraction of the master design-doc invariants to cross-check my invariant sweep before finalizing the plan. Once that lands I'll finalize the plan file and present the verdict for approval.

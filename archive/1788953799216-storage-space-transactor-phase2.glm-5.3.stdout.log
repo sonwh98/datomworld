@@ -1,0 +1,29 @@
+[33mWarning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.[39m
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Phase 2 is complete. The findings report is at `collab/1788953799216-storage-space-transactor-phase2.glm-5.3.findings.md`; nothing staged or committed.
+
+## What landed (one coherent swap, as the plan required)
+
+**Source (3 files)**
+- `transactor.cljc` — rewritten: `DaoStreamLog`/`ds/defopen`/v1 require all deleted; `create!` (surfaces-never-retention validation, `derive-next-t`, returns the value or throws), `append-packet!` per D3 (`valid-outcome?` before interpreting, advance-on-ok-only, non-ok as data, non-outcome folded to `transport-error`), `append!`/`transact!`/`close!` as plain functions answering `closed` as data, no `next`/`closed?`
+- `index.cljc` — `snapshot-datoms` is D6's loop: `checked` (validate-outcome) on the mint and every read, incremental `element-datoms`, no gap branch, totality throw
+- `schema.cljc` — D8's seven edits: `tx/create!`, wrapper-owned `:closed` flag, install-state-only-on-ok + D10 re-wrap to `{:result :ok :t … :datoms …}`, `publish!` guard under the wrapper lock
+
+**Tests** — all five doubles + 22 local opens migrated; the gap fixtures deleted (§7); three new `MalformedResultStream` sub-cases (ok-without-cursor throws-not-spins, conforming `gap`/`cursor-mismatch` hit the totality throw); two new schema tests (T19/T20 state-unchanged-on-`full`, T8 publish/close lock extension). Also fixed a latent v1 bug: `ThrowingAppendStream`'s retry was appending `#'clojure.core/val` (unbound `val`) — invisible because no assertion read the stream.
+
+**Docs** — 7 files including the new permanent `docs/design/dao.space.transactor.md` (T-table, D3 outcome table, T18, durability placement, O(history) open item).
+
+## Verification
+
+| lane | result |
+|---|---|
+| `bb test:clj` | 1433 tests, 165353 assertions, **0 failures, 0 errors** |
+| `bb test:cljs` | 1343 tests, 34920 assertions, **0 failures**, 1 pre-existing error (the `wasm` one from base history); transactor/index/schema-test confirmed in node output |
+| `bb test:cljd` | **All tests passed!** (+1296) |
+| demo compile | Build completed, 0 warnings |
+| kondo (8 files) | 0 errors; 4 warnings all verified pre-existing at HEAD (transactor.cljc itself went 3 warnings → 0) |
+| cljstyle | fix + check clean; lanes re-run after the reformat |
+
+**Residue greps** — `transactor_test` **135 → 0**, `stigmergy_test` **6 → 3** (exactly `sources`, Phase 3's), `query_test` 2 → 0, `index_test` 41 → 35 (0 is Phase 3's criterion).
+
+Left owing (Phase 3 scope, none of it mine to take): the published-adapter deletion, the eleven adapter read paths, the P5 test — plus one inherited gap worth naming: D3's non-outcome→`transport-error` fold has no test, since no double answers a non-map from `append!`.

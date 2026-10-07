@@ -1,0 +1,61 @@
+Completed-GMT: 2026-09-02 18:11:26 GMT
+Completed-Local: 2026-09-03 02:11:26 Asia/Shanghai
+
+# Round 4 — re-confirmation after the telemetry deferral
+
+Read: both plans in full, `telemetry.cljc`, `ffi.cljc`, and every telemetry call site in `engine.cljc`, `ast_walker.cljc`, `vm.cljc`, `stream_driver.cljc`, plus a repo-wide grep for `yin.vm.telemetry` consumers.
+
+## 1. Is the stub sound?
+
+**Yes, with one gap in the stub's specification.**
+
+The closure reaches exactly four telemetry functions, and nothing else:
+
+| function | sites | guarded? |
+|---|---|---|
+| `emit-snapshot` | `engine.cljc:297,301,363,372,551`; `ffi.cljc:118`; `ast_walker.cljc:147,717,743,752,795` | yes, `enabled?` short-circuit |
+| `enabled?` | `ast_walker.cljc:715,741` | selects step-fn; false means plain `vm-step` |
+| `install` | `ast_walker.cljc:794` | **unconditional** |
+| `type-tag` | `ffi.cljc:121` | **unconditional**, as the plan states |
+
+`next-telemetry-state`, `snapshot-datoms`, `event-datoms` and the `summarize-*` family are referenced only inside `telemetry.cljc` and `telemetry_test.cljc`, both deferred. The other evaluators that call telemetry (`register`, `stack`, `semantic`, `space`, `wasm`) are all outside the slice.
+
+Two things run before the guard besides `type-tag`, and both are harmless:
+
+- `engine.cljc:551` evaluates `(assoc result-state :value (:value result))` as the argument. v1 with telemetry disabled also returns that assoc'd state, so an identity `emit-snapshot` preserves v1's evaluation result exactly. No divergence.
+- `ast_walker.cljc:147` and `engine.cljc:363` thread state through `emit-snapshot` then `assoc` onto the result. Identity is transparent to both.
+
+`type-tag`'s only v1 coupling is `(satisfies? ds/IDaoStreamReader value)` at `telemetry.cljc:124`. Dropping that clause and returning `:opaque` for handles is correct and requires no v1 namespace. The result is discarded, so the stub's answer cannot affect evaluation. Both arities of `emit-snapshot` must survive, since `ffi.cljc:118` and `ast_walker.cljc:795` use different ones.
+
+**The gap: `install` and the `:telemetry` opt.** v1's `install` (`telemetry.cljc:41-48`) does two things: records the model, and *validates* a supplied telemetry config, throwing on a missing `:stream`. The plan says the stub's `install` "records the model" and stops there. But `create-vm` (`ast_walker.cljc:779`) and `empty-state` (`vm.cljc:551`) still plumb `(:telemetry opts)` into state. An implementer following the plan literally will accept `{:telemetry {:stream s}}` and produce nothing, silently. The REPL plan is explicit that `--telemetry` is *rejected with an error naming the v1 REPL* (line 64-65). The VM layer should be equally loud: a non-nil `:telemetry` opt on `create-vm` is an error in this slice. One sentence in *Telemetry is a stub* closes it.
+
+## 2. Does the deferral leave a hole a later phase cannot close?
+
+**No.** I checked each decision the slice makes against what the real emit path needs:
+
+- **Cursor-ref shape** `{:stream-id id :cursor <opaque>}` is decided here. The emit path will classify it by key set rather than by `:position`, which the plan already names as the deferred `cursor-map?` problem. That is a constraint the later phase inherits, not one it must undo.
+- **No stream, no capacity, no snapshot id base** are chosen. Nothing persists, so nothing is committed.
+- **`type-tag` returning `:opaque` for handles** is discarded output. The later phase replaces it freely.
+- **Record fields** `telemetry`, `telemetry-step`, `telemetry-t` on `ASTWalkerVM` (`ast_walker.cljc:54-56`, positional constructor at 75-90) are internal shape. Keep or drop them; either is reversible. `:vm-model` must stay, since `stream_driver.cljc:42,46` reads it for error data independent of telemetry.
+- **The REPL** loses `:telemetry-cursor`, `:telemetry-mode` and the sink machinery. All additive later.
+
+The deferral is clean.
+
+## 3. Consistency between the two plans
+
+Two residues of the edit, both editorial, one of them a real cross-plan mismatch:
+
+- **Four versus five.** VM plan line 44-47 still says "there are **four** user-visible changes, not one, and both plans state all four." The REPL plan line 79 says "All five are scope decisions in the VM plan." Your own summary of this round says five. The VM plan's *Scope* paragraph was not updated when telemetry's absence became user-visible. The register at line 339-342 lists it separately from "the four", so the VM plan is internally coherent but disagrees with its consumer on the count.
+- **A rule for a path the slice does not build.** VM plan line 246-249 states "Telemetry sites read the append outcome for `closed` and `transport-error`, not for `full`." Under the stub there are no telemetry append sites. This belongs in the *What this defers* list, which already covers "reading `append!` outcomes in the emit path", or should be marked as binding on the later phase.
+
+Two nits, not blocking: the census at line 121-122 still cites `telemetry.cljc:133,171` among the 36 `:position` sites that "all become" opaque, though those two are no longer ported, so the count and "9 of 10 files" are slightly high. And the REPL plan's bullet list at lines 61 and 77 states telemetry's absence twice.
+
+## Verdict
+
+The stub is the right cut, the guard analysis in the plan is correct, and the deferral commits nothing the emit path must unmake. What is missing is the stub's behaviour on a supplied config, which the plan's wording currently implies is silent acceptance, and the count mismatch the reduction introduced.
+
+SIGN-OFF: WITHHELD
+
+1. In *Telemetry is a stub*, state that a non-nil `:telemetry` opt to `create-vm` or `empty-state` is rejected with an error in this slice, matching the REPL plan's rejection of `--telemetry`. Silent acceptance of a stream that is never written is the one way the stub can mislead.
+2. Update VM plan line 44-47 to five user-visible changes, or have the REPL plan say "four plus telemetry's absence", so both plans give the same count.
+3. Move the "Telemetry sites read the append outcome" sentence at line 246-249 into the deferred list, or mark it as a rule for the later emit phase.

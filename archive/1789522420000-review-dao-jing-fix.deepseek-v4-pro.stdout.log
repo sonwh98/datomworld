@@ -1,0 +1,38 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I've completed the adversarial review. Since there's no `ExitPlanMode` tool available in this session, I'll report the deliverable directly. The full report is saved in the plan file; here is the substance.
+
+## Verdict
+
+**Yes — the diff closes the three P0 defects without introducing a blocking defect.** Safe to proceed to Architect sign-off.
+
+I read the full diff, both reference documents, the complete `jing.cljc` + `jing_test.cljc`, and `dao.jing.md`, then **ran the actual code** to confirm/reject each suspected defect rather than trusting GLM's claims.
+
+## Findings (4 substantive, all non-blocking)
+
+**1. Non-map collection metadata crashes the encoder — new regression.** `jing.cljc:74-75`
+`attach-meta` does `(dissoc (meta v) :line :column :end-line :end-column)`, assuming metadata is a map. Confirmed:
+`(content-hash (with-meta [1 2] :kw))` → `ClassCastException: Keyword cannot be cast to IPersistentMap`. Legal syntax `^:kw [1 2]`, `^String [...]`, `^'foo [...]` produces keyword/symbol/string metadata; `dissoc` on those throws. HEAD silently dropped it; the fix now crashes with a raw, context-free error — contradicting the docstring's "every other metadata difference changes the address."
+*Fix:* guard `(map? (meta v))` before `dissoc`.
+
+**2. Set-tag completeness — symbols still mimic `#{}`/`{}` braces.** `jing.cljc:131-133`
+The claim "only a set can print `#{}`" is false for scalars. Confirmed collisions:
+- `(content-hash #{1 2})` = `(content-hash (symbol "#{1 2}"))` (both `fc687d7d…`)
+- `#{}` ≡ `(symbol "#{}")`, `{:a 1}` ≡ `(symbol "{:a 1}")`
+
+Same class as the documented `(symbol "42")` vs `42` residual, inherent to `pr-str` scalars; deferred to the canonical byte encoding — but it directly undercuts the set-tag fix's stated completeness.
+
+**3. Byte arrays are content-addressed by identity, not content.** `jing.cljc:140`
+`(pr-str (byte-array [1 2 3]))` → `#object["[B" 0x7abcc0da "[B@7abcc0da"]`. Two equal byte arrays mint different addresses. `dao.jing.md:184` lists byte arrays as a supported type — doc/impl mismatch. Pre-existing.
+
+**4. Scalar (symbol/keyword) metadata silently dropped.** `jing.cljc:140` — `:else` never applies `prefixed`. Already flagged by GLM as a known residual; `=` ignores it and hosts disagree on printing it.
+
+(Minor 5th: `materialize!`'s `(content-hash stored)` read-back throws the "does not address records" ex-info — not an "integrity failure" message — if a backend returns a record as `stored`. Still fails loudly, so correct; only the error context is confusing.)
+
+## What I verified is correct (so the verdict is fair)
+
+- **`record?` is the *first* `cond` test** (`jing.cljc:82`), before `map?` and before any `attach-meta` — a record's metadata can never reach `attach-meta` before rejection. Recursion catches records nested in any map/set/vector/list (I confirmed set-element rejection runs).
+- **Set braces are non-overlapping** across all five branches for well-typed values (only Finding 2 escapes, via scalar `pr-str`).
+- **`materialize!` read-back** correctly accepts list-vs-seq (`(= addr-list addr-seq)` → `true`) and map-order idempotency, while correctly rejecting metadata-only mismatches; the `content-missing` sentinel is an opaque identity (`identical?`), so stored `nil` ≠ absence.
+- **`:line`/`:column` strip** is necessary and correctly scoped (JVM reader stamps literals at load; cljs/cljd compile them away).
+
+The single remaining action — writing the findings to `collab/1789522420000-review-dao-jing-fix.deepseek-v4-pro.findings.md` — is blocked by plan mode (I can only write to the plan file). On your approval I'll write that file with the same header block as the prompt.

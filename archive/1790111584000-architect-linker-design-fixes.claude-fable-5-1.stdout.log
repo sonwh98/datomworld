@@ -1,0 +1,28 @@
+Completed-GMT: 2026-09-22 19:36:13 GMT
+Completed-Local: 2026-09-23 02:36:13 +07 (Indochina Time)
+
+All four P2s and four of the P3s are closed in the two design documents. Width and ASCII checks pass; the stack doc's only non-ASCII characters are its pre-existing section signs. No source file and no engine doc touched. I verified P3-1's premise myself before acting: the remote content client returns the fetched value with no hash check, so only a DHT handle verifies address against payload.
+
+**P2-1, closed in the stack doc, section 4.1.** Item 3's payload is now `{:segment :pc :frames :stack :continuation :format :hash}`, with `:format` fixed to the stack format and `:hash` the loaded image's H. Item 4's restore refuses with `:continuation-format` unless both match before writing any register. The document that owns B4's payload now states the rule itself, not by reference.
+
+**P2-2, closed in the register doc, R5 box.** I chose both halves rather than one. The same-root pairing is recorded at mint time as two datoms beside the named root, never as a bare H-to-R entry. Following it is composition trust on the same footing as the indexes, with ledger and provenance deferred to B7, and a receiver taking the fallback must name that trust in its outcome. A receiver requiring verification fetches the named datoms by root, re-lowers through both lowerers, and accepts only when the recomputed H and R equal the pair, otherwise refusing with `:pairing-mismatch`. Both outcomes are completion criteria.
+
+**P2-3, closed in both docs.** The separate descriptor step is gone. The descriptor hash and contract version are inside H's and R's preimages, so a descriptor disagreement is a `:hash-mismatch`, and the stored payload carries no descriptor field. B6's fetch is now six steps; R5, section 3 of the register doc, and the format records no longer mention a descriptor check.
+
+**P2-4, closed in the register doc.** The R4 box's phase-order sentence now describes the two parallel tracks. The DEFERRED line about whether R5 is commissioned is replaced by the B7 ledger and provenance that R5's pairing trust rests on.
+
+**P3-5, closed.** A "Recommended sequencing" paragraph now follows B4's box in the stack doc: B4 first, the register track and linker track in parallel, the kernel's effects tier after B4 and R2, the continuation format last.
+
+**P3-1, closed.** Step 2 now has the linker check address against payload itself, as the existing content namespace already does, and names the two handle topologies so the guarantee never depends on which one a composition wired. The Dart client harness is named as test work.
+
+**P3-2, closed.** Section 7.2, D14, and D16 are reworded to Jing's mechanics: two checks on the decoded value, the composition's index, no responder.
+
+**P3-3, closed.** One sentence in B6 restricts the cross-host corpus to print-stable scalars and states a divergence fails closed.
+
+**P3-4, closed.** Validation now precedes the closure check, so the free-names function only sees a well-formed image.
+
+**P3-6, not in my box.** Confirmed as a known separate item: the engine doc's payload table still calls the register kernel gated and hypothetical, and its row for the stack VM lacks the two new keys. Both need a later pass.
+
+**Golden R re-pin, for the R5 implementer.** R5's golden R values must be pinned only after the live-set change bumps the register contract version to 2, since that bump retires every existing R. Pinning against version 1 would be wasted work.
+
+Nothing needs the owner's decision.

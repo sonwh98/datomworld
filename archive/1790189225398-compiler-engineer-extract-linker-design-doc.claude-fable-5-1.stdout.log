@@ -1,0 +1,17 @@
+Completed-GMT: 2026-09-23 18:52:07 GMT
+Completed-Local: 2026-09-24 01:52:07 +0700 ICT
+Session-ID: 53d6f7ea-2cd0-4dba-b2d7-a28e13add857
+
+The B6 and R5 linker material is now extracted into one standalone design document, and both parent designs point to it.
+
+**Files written**
+
+- `docs/design/yin.vm.debruijn.linker.md` is new. It has 530 lines and covers all eleven required topics: purpose and the one-function-two-formats decision, what dao.jing provides versus what the linker adds and does not add, the address/H distinction with why steps 2 and 3 are both necessary, the six-step fetch protocol with a refusal table, the stack and register format records with concrete function names, the H and R indexes with the B7 deferral, same-root pairing with both fallback paths, the transitional content-hash risk, both file boxes with must-not-change lists, a merged sixteen-item completion checklist tagged per format, non-goals, and inherited decisions.
+- `docs/design/yin.vm.debruijn.stack.md` has the B6 body replaced with a cross-reference paragraph. The B6 header, file box, depends-on, and must-not-change table are preserved, and B7 still follows it.
+- `docs/design/yin.vm.debruijn.register.md` has the R5 body replaced the same way, with its header and file-box table intact.
+
+**Verification**
+
+All three docs pass the width check with zero lines over 80 columns and contain zero non-ASCII characters. No `.cljc` files were touched. The only tracked changes are the two design docs plus the pre-existing orchestrator-log modification that was already in the working tree.
+
+**One thing worth flagging.** The old B6 text said `segment-key` is SHA-256 over the print. The source now defaults `default-hash-algorithm` to BLAKE3, so the new doc describes the address as the address-carried algorithm's digest over the order-normalized print, which matches both the code and D14's "H does not change when DaoJing defaults to BLAKE3". The register image is described as the `{:bodies ... :instructions ...}` map, matching R5's wording. Nothing is committed.

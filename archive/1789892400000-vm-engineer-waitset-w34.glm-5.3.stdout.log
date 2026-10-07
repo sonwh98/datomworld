@@ -1,0 +1,51 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-20 08:55:30 GMT
+Completed-Local: 2026-09-20 15:55:30 +07
+
+# W3+W4 done — cadence containers built, consumers adopted, every adoption deletes what it replaced
+
+**Note on inputs:** the consensus report file the prompt names (`collab/1789842300000-architect-dao-stream-waitset-consensus-report.md`) does not exist in this worktree or anywhere in its git history — I built from the plan verbatim (its *Revision — 2026-09-20 consensus reconciliation* section records the closed disputes, items 4/5/9 covering everything the prompt cites).
+
+## W3 — what was built
+
+**`src/cljc/dao/stream/waitset/cadence.cljc`** (pure, requires nothing): `init` (validates `{:poll-ms … :backoff {:factor :ceiling-ms …}}` at composition time) and `(cadence-step cadence-state moved?) → {:cadence-state … :sleep-ms …}`. Semantics: an idle round arms the current interval and climbs the curve; a moved round resets fully to `:poll-ms` (no pre-climb); the ceiling caps both directions. Never calls `check`, reads no clock, touches no stream — tested on all hosts with no fixture.
+
+**Three host drivers, one namespace `dao.stream.waitset.driver`, each docstring-labelled *host policy*, holding zero interpreter state:**
+- **clj** (`make-wake`/`nudge!`/`sleep!`): a `LinkedBlockingQueue` of contentless Booleans; `sleep!` polls with the timeout and drains surplus, so nudges coalesce into one wake. *select* with the wakeup pipe.
+- **cljs / cljd** (`make-wake tick`/`arm!`/`disarm!`/`nudge!`): exactly one timer, cancel-and-rearm (Node timers unref'ed); firing calls the composition root's own zero-arg tick; `nudge!` cancels and schedules the tick once on a microtask, with a pending flag that stays up *through* the tick (cleared in a `finally` after it), so repeated nudges coalesce and an in-tick nudge is swallowed — never re-enters.
+
+No `make-driver` container, no atom holding a waitset, no `:budget`, no external parks, no `run-loop!`.
+
+## W4 — the adoption table as implemented
+
+| Site | What changed |
+|---|---|
+| `yin.vm.engine` | done in W2 (committed `45bfcc16`) |
+| `yin.repl.serve` sessions | Probes `{:reason :next :attachment a}` on each session's request medium; store = the endpoint, `:advance` identity, resolver reads the session's **current** cursor. `advance-sessions`' unconditional read **deleted** — reads are selection-gated by probe wakes. One active waiter: pending-response ⇒ host-cadence retry, no probe; terminal/departed ⇒ probe retired; joined ⇒ parked before the same step's sweep (first requests still answer in one step). New `serve/moved?` (probe wake ∨ notice ∨ outstanding pending response). |
+| `yin.repl` shell tick owners | Fixed 25 ms tick **deleted** on all three hosts → `cadence/init default-cadence` ({:poll-ms 25 :backoff factor 2, ceiling 200}) + `sleep!`/`arm!`. clj `poll-loop!` gained a wake arity (old 4-arity intact for tests); cljs `run-node!`/cljd `run-dart!` now arm per round and **return the wake**. Read-line/stdin handlers and `request-stop!` (new 2-arity) are composition-wired `nudge!` callers. `repl/moved?` = lines ∨ `driver/pending-write?` (new: outstanding/retrying/unsent) ∨ `serve/moved?` — a pending write never waits out the ceiling. Shutdown drains stay at base interval (a budget, not a curve). |
+| `dao.stream.serving/step!` | unchanged as a step (zero diff); its tick owners (the shell, below) and the daemon adopted cadence |
+| `dao.jing.remote` daemon | optional swap taken: `Thread/sleep` → `sleep!` on a wake, nothing else (`call!`/`connect-content!` sleeps are the documented blocking host policy, untouched) |
+| ws ack sweep, GUI pump, `rpc/poll!`, `observe/step`, all single-stream rows | **unchanged** — asserted by substrate zero-diff below + their suites green |
+
+**Deletion-rule greps (empty = deleted):** `setInterval`/`Timer.periodic`/`Thread/sleep` no longer appear in `yin.repl.cljc`; serve's read exists only in `session-step`'s `selected?` branch. **Substrate zero-diff:** `git diff` over `dao.stream`, `dao.stream/` (all hosts) shows only the four new waitset files — no transport, codec, or composition change.
+
+## Tests added (existing tests untouched except appended deftests)
+
+W3 verbatim list, over ring buffers and test-owned owner loops/ticks: parked set polled with no nudges (clj+cljs+cljd); nudge beats the timer (all); repeated nudges coalesce (all); in-tick nudge never re-enters (cljs+cljd — the shape is meaningless on the JVM token model); idle owner alive at the ceiling with wake reset (pure cadence on all three hosts + a recording clj owner loop); composition-wrapped deposit nudges while the adapter holds no driver reference (all). W4: pending-response retried while source blocked (gated reified writer); terminal/departed session leaves no probe; probes carry no cursor state and wake on the committed position; `driver/pending-write?`; `repl/moved?`.
+
+## Lane outcomes (exact)
+
+| Lane | Result |
+|---|---|
+| `clojure -M:test -n dao.stream.waitset.cadence-test` | **6 tests / 17 assertions, 0 failures** |
+| `clojure -M:test` (full JVM) | **1557 tests / 168773 assertions, 0 failures, 0 errors** (pre-W34 baseline 1541/168704 — growth is all additive) |
+| CLJS (Node, via the authorized mise-Java-21 ProcessBuilder workaround + `npm ci`) | **1474 tests / 38636 assertions, 0 failures, 0 errors**; `Testing dao.stream.waitset.cadence-test` and `Testing dao.stream.waitset.driver-test` confirmed in Node output, plus all `yin.repl` suites |
+| CLJD | not run here — orchestrator owns it, per the prompt |
+
+Nothing staged, nothing committed: 7 modified files (serve/repl/driver/remote + 3 test files) and 8 new files.
+
+## Unresolved
+
+1. **The cljd lane has not executed my Dart files** — `driver.cljd`'s one-shot `Timer.` constructor, `scheduleMicrotask`, and the `await`-based driver test follow the tree's ClojureDart idioms but are unverified until the orchestrator's run.
+2. The consensus report named in the prompt is absent (noted above); if it contains constraints beyond the plan's reconciliation table, they were unavailable to me.
+3. Two deliberate readings, flagged for review: `serve/moved?` counts a delivering round as moved (a probe woke) — only a fully idle round reports false; and the shell's shutdown drain steps at the flat base interval rather than the backoff curve (bounded budget, documented in the docstrings).

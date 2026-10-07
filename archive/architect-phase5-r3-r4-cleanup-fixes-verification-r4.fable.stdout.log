@@ -1,0 +1,25 @@
+Completed-GMT: 2026-09-04 07:50:00 GMT
+Completed-Local: 2026-09-04 14:50:00 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: fde8b517-9c3f-48c6-a4d9-c455489fbebc
+
+## Scope and method
+
+Read-only review of the round-4 delta to `driver.cljc` and `v2_connect_test.cljc`, traced against the committed `rpc` and `v2-adapter` publication path and the untouched `ws_test.cljc` forms the prompt names. No suites were rerun.
+
+## Findings
+
+Severity | file:line | evidence | correction
+---|---|---|---
+Low (test coverage) | `test/yin/repl_connect_test.cljc:547-564` | The test does not drive the seam it names. It seeds an rpc completion and a `/transport-error` terminal, then pumps one tick. In that tick `poll-remote` runs before `handle-line`, and `adapter/poll-responses` calls `publish-completions` unconditionally even when `rpc/poll!` short-circuits on the terminal, so the seeded completion reaches the driver outbox *before* the `(connect …)` line is handled. The round-3 conditional code would pass this test unchanged. The seam is a completion created after `poll-remote` in the same tick, which only `handle-line` can produce. | Drive it honestly: from `backpressured` with a forced non-queueable terminal, submit `(disconnect)` and `(connect "…9999")` in the same tick. The disconnect abandons the unsent envelope into rpc `:completed` after the poll, the connect takes `open-connection`, and the assertion that `operator-disconnect` appears in that tick's lines then distinguishes the unconditional publish from the old gated one.
+
+## Disposition of both LOW findings
+
+1. **Unconditional publication before adapter replacement.** Code closed. `abandon-unsent-now` now runs whenever an adapter exists: abandonment stays conditional on `remote-unsent?`, then `publish-completions` and `publish-adapter-events` move every unpublished completion RPC → adapter → driver outbox through the two existing take-once operations, and only then does `attach-remote` install the new adapter. Nothing is published twice: the old adapter is emptied before it is discarded and the new one starts empty. The regression test is weaker than the claim, per the finding above; the behaviour itself is verified by reading.
+2. **Discarded-queue notice on a fresh connection.** Closed. `dropped` is counted before anything changes, the notice with the exact count is published only on a successful `open`, before `attach-remote` clears the queue, and a failed open leaves the queue intact with no notice. Same-URL reattachment does not touch `:queued`, so `release-queue` still drains it afterwards. The test drives a real uninvited drop, a genuinely queued line, and a different-URL connect, and asserts the count text and the emptied queue.
+
+## Effect of the baseline CLJD test compile failure
+
+None on this delta. The two forms at `test/dao/stream/ws_test.cljc:77` and `:139` are `#?(:clj (Object.) :cljs (js-obj))` with no `:cljd` branch, committed in `f12e39e` and untouched here, so under cljd they read as nothing and produce a one-argument `append!`. This is the already-recorded standing risk that no cljd test has ever executed, now with its concrete cause. It should be fixed in that file under its own change, with a `:cljd`-first branch supplying a non-portable Dart value, before the cljd column of the host matrix is claimed. It does not bear on the correctness of these two corrections, which are pure `.cljc` and compile under cljd per the reported source generation.
+
+SIGN-OFF: GRANTED

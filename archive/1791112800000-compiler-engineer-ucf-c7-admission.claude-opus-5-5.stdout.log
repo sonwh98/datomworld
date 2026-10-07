@@ -1,0 +1,1 @@
+The draft report is written. The Node lane is still running; it passed the harness's 600 s foreground cap, so the harness moved it to the background. I'll fill in the Node numbers when it finishes.

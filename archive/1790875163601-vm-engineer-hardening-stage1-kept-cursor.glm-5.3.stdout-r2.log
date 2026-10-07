@@ -1,0 +1,12 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+I've completed the full design read-through (section 14, UCF 7.11.1, the section-8 ruling, and the landed machinery in `yin.vm.ucf.remote`, `yin.vm.completion`, `yin.vm.engine`), and I have the stage-1 implementation planned — but I'm blocked on tooling: **every write to the worktree is being denied** (`Edit` on `src/cljc/yin/vm/ucf.cljc`, even `touch`/`rm` probes). The session appears to be in a read-only permission mode.
+
+To proceed I need write access to the worktree. Could you either approve the edit prompts as they appear, or restart/adjust the session's permission mode (e.g. accept-edits or plan-free) and re-send? 
+
+For when you do, here is the plan I'll execute immediately:
+
+1. **Mechanism** — migrate `yin.vm.ucf` to `:yin.safepoint/kinds` (ruling section 8: `[:explicit-park] [:blocked-read] [:blocked-write] [:ffi-sent :ffi-retained] [:effectful-call]`), then a new `src/cljc/yin/vm/ucf/handoff.cljc`: the 14.1.2 lift/lower steps (safepoint + quiescence gates, ordered waits unpollled, one shared cell map across frames/waits/store/closures/parked records via the landed encoder discipline, dynamic reason + pending variant from observed evidence cross-checked against static kinds, requires closed through `yin.vm.completion`, canonical CBOR bytes + content address; lower checks stamp/hash/grammar/refs/closure, attaches each identity once, fresh keys per cell, isolated restore, install-child completeness or refusal, halt-as-result).
+2. **Tests** — `test/yin/vm/ucf/handoff_test.cljc` (all three lanes: the three same-host pair controls over actual canonical bytes, with the 14.1.3 aliasing, safepoint-variant, eviction/route-loss, and refusal rows) plus cross-process pairs (JVM→Node, Node→JVM, JVM→Dart, Node→Dart) via a peer program on the landed slice-peer/ws pattern, loud-skipping when peer builds are absent; Dart-source process legs recorded separately per 14.1.3.
+3. **UCF record** — stage-2 amendment obligations recorded in `yin.vm.ucf-revisions.md` section 6, plus the per-pair coverage note in linker-dht 14.1.3.
+
+Nothing has been modified yet — the tree is untouched.

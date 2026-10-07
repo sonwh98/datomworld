@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a0f878-281b-7253-ac44-ff2402583d35"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll make an explicit scope ruling that separates D10’s custody checks from the pre-existing kernel generalization, while retaining successful four-kernel restoration as a required gate.\n"}}
+{"type":"error","message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 7:28 AM."}
+{"type":"turn.failed","error":{"message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 7:28 AM."}}

@@ -1,0 +1,298 @@
+Completed-GMT: 2026-09-01 16:32:37 GMT
+Completed-Local: 2026-09-01 23:32:37 Asia/Ho_Chi_Minh
+
+# 1. Is the parallel real or superficial?
+
+**Real.** Not real by table-shaped analogy but real structurally: `jit-design.md` and the lease are the same authority pattern instantiated twice — call it *advisory streams with possessor-scheduled application*. Its clauses: evidence is datoms on a stream, never a callback; the party without possession is advisory and only appends data; the party with possession acts only at points it already passes through, on its own schedule, never preempted; the negotiation is itself queryable status data; and a judged failure is recorded as an appended fact followed by fallback to a baseline state.
+
+Every clause carries over, and one carries over more deeply than the task's table shows. A JIT patch carries `:yin.jit/guard` — a predicate that must keep holding for the optimized block to remain valid, checked at safe points, whose failure emits a deopt datom and restores baseline. **The lease's duration is its guard.** "A renewal was observed within the duration" is a predicate on the accepted grant, checked at the grantor's judgment points, whose failure emits a reclaim fact and restores baseline — the resource unheld. That is not resemblance; it is the same clause with a different predicate. The mapping also has a structural refinement worth making explicit: the lease contains *both* of jit-design's streams in one vocabulary. Renewals are the **trace** half — high-frequency execution evidence, emitted by the running party, carrying no proposal. The proposal/grant/refusal statuses are the **patch** half — low-frequency negotiation, advisory until the possessor's own fact makes them live. My previous draft had only the trace half; that is the substantive thing the precedent corrects (see §3).
+
+Now the two candidate differences, tested rather than assumed.
+
+**Time.** The safe-point model survives, because of a distinction the project already made once, in The IO Model: the clock is **read, never armed**. A timer that fires is a callback; a clock read at a judgment point is a question about now. jit-design never needed a clock because its trigger condition — "an accepted patch exists" — is presence on a stream, checkable whenever a safe point is reached. The lease's condition is judged against elapsed time, but the judging still happens only at points the grantor already passes through: its interpreter reads the medium, reads its own clock, compares. Time never becomes an interrupt; it becomes an input to a poll. The cost is the same one jit-design already pays — a patch waits for the next safe point; a lapse waits for the next judgment run — and it is bounded the same way: reclamation latency is duration plus judgment cadence.
+
+What time *does* force, which the JIT never needed, is the **observed-window discipline**. A patch is a positive fact: however lazy the VM's cadence, it eventually observes the patch, and lateness only delays a benefit. Lapse is judged from *absence*, and silence is evidence only over a window the judge was actually in a position to hear. A JIT with amnesia loses hotness counters and merely re-warms; a judge with amnesia — a restart, a `gap` spanning its watch — cannot distinguish "no renewal appended" from "no renewal observed," and must wait one full duration from resumed observation before concluding anything. The deeper reason this discipline exists in one pattern and not the other: **every JIT mistake is recoverable by deopt; a false lapse has no deopt.** A wrong hotness call costs performance; a wrong reclaim costs a live holder its grant, and you cannot roll back a repossession. This is also exactly why the two vocabularies diverge at one status (see §3).
+
+**Advisory under unbounded consequence.** "Advisory" holds — but notice *where* it held in jit-design: on the JIT, the party without possession. The VM was never advisory about its own execution. Likewise the lease: the holder is the advisory party (its proposals and renewals bind nothing), and the grantor is never advisory about its own resource. The unbounded consequence of never judging lands on the *possessor's own resource* — the grantor leaks what the grantor owns — so obligation and authority sit in the same place, which is the only place a no-callbacks architecture can put an obligation at all. What changes is the modality of the possessor's checking. In jit-design, checking the patch stream is optional: a VM that never checks is a correct, slower VM. For a lease, judging is **not** optional: a composition that grants leases and wires no judging interpreter has not built a slow lease, it has built a leak — and the right home for that rule already exists in this project's shape: it is a **host assembly defect**, the same class as wiring a reject-mode deposit destination in `dao.stream.ws.md` — refused at composition time, because at runtime there is nobody left to refuse it. The vocabulary carries the obligation by stating it; possession carries it by self-interest; assembly enforces it. So the pattern carries over with one clause upgraded: *may apply at safe points* becomes *must judge at some declared cadence*, and the lease's promise — eventual reclamation within duration plus cadence — makes that cadence a declared bound rather than a mood.
+
+# 2. Should `dao.lease.md` adopt the pattern explicitly?
+
+**Yes.** Same pattern, adopted by name — a Precedent section citing `jit-design.md`, the same status-as-data discipline, the same possessor-scheduled application, with the two divergences (absence-evidence, obligatory judgment) stated as divergences rather than papered over. It is not a different pattern that resembles it; it is the second instance of a pattern the project should now recognize as its standard answer to "how does one party influence what another party possesses" — the JIT influences execution it doesn't own, the holder influences a resource it doesn't own, and both do it the only way the invariants permit: append facts, and let the possessor apply them at its own points.
+
+Adopting explicitly also buys something concrete: the negotiation becomes queryable. My previous draft "began at the grant" and pushed request and refusal out as domain vocabulary. Under the precedent that was wrong — jit-design puts `:proposed` and `:rejected` *in* the patch schema because the negotiation is the pattern's queryable core. A refusal that leaves no fact is invisible history; a pending request that isn't data can't be replayed, audited, or judged by a perspective nobody has taken yet.
+
+# 3. Revised `docs/design/dao.lease.md`
+
+**What changed from the previous draft and why, first:**
+
+1. **New Precedent section** naming `jit-design.md` and the shared pattern. The doc now derives its discipline from an existing instance instead of only from the axioms.
+2. **The negotiation is pulled into the vocabulary** as status facts: `:proposed` (holder), `:accepted` (grantor, carrying the terms), `:rejected` (grantor). Previously out of scope as "domain vocabulary around the grant." Changed because the precedent shows negotiation-as-data is the core of the pattern, and because a refusal should be a fact.
+3. **Status vocabulary: the pattern's words are reused where the meaning is shared, and diverge where it is not.** `:proposed | :accepted | :rejected` are taken verbatim — a grant *is* an acceptance, and minting `:requested/:granted/:refused` beside them would be exactly the parallel-vocabulary sin. The divergences, each with a reason: the lease needs **`:released`**, which a patch does not have — the JIT never withdraws a patch because an unapplied patch costs nothing, which is precisely the optionality difference from §1; and the lease needs **`:lapsed`** where the patch has `:rolled-back`, because rollback *undoes* an application and restores the world as if it hadn't happened, while a lapse ends a tenure whose past remains valid — nothing is undone, and nothing could be: a reclaim has no deopt. `:rolled-back` is therefore excluded, with that reason.
+4. **Duration is named as the guard**, making the deopt≅reclaim correspondence explicit rather than implicit.
+5. **Judgment points are named as the safe-point analog**, and the clock rule is stated in IO-Model terms: read, never armed.
+6. **The obligation clause is added**: a grantor composed without a judging interpreter is a host assembly defect; the lease's promise is eventual reclamation bounded by duration plus declared judgment cadence. This is the stated divergence from the pattern's optionality.
+7. **Renewal is explicitly the trace half**, kept under `:dao.lease/event` rather than `:dao.lease/status` — it changes no negotiation state; it is evidence, the analog of `:yin.trace/*`, distinguished by key exactly as jit-design distinguishes its two streams by namespace.
+8. **Unsolicited grants are permitted** (a lease's first fact may be `:accepted`), because the canonical case — a server leasing a per-connection composition — asks nobody first.
+9. Retained unchanged in substance: clock discipline, possession-resolves-disagreement, observed-window/restart discipline, no-callbacks/no-registry prohibitions, renewal-forever analysis, out-of-scope list.
+
+---
+
+# DaoLease — Leases as Facts
+
+Status: proposed design target, derived from and subordinate to
+[`datom.world.md`](./datom.world.md). This document defines a vocabulary and
+a judging discipline, not a mechanism: it adds no operation to any contract,
+no component to any host, and no key to any DaoStream result map.
+`dao.stream.md` is unchanged by its existence.
+
+## Precedent
+
+This document is the second instance of a pattern this project already holds,
+whose first instance is [`jit-design.md`](./jit-design.md): **advisory streams
+with possessor-scheduled application.** There, execution facts are emitted as
+trace datoms, never as callbacks; the JIT is advisory — it appends patch
+datoms proposing changes and mutates nothing; the VM applies patches only at
+explicit safe points it already passes through, on its own schedule; the
+negotiation carries an explicit status, so it is itself queryable data; and a
+failed guard emits a deopt datom and falls back to baseline.
+
+A lease is that pattern with a different predicate. Renewals are its trace
+half: high-frequency evidence emitted by the running party, proposing
+nothing. Proposal, acceptance, refusal, and release are its patch half:
+negotiation as status facts, advisory until the possessor's own fact makes
+them binding. The grantor is the VM: all application happens at points it
+already passes through. And the accepted grant's **duration is its guard** —
+the predicate *a renewal was observed within the duration* must keep holding,
+is checked only at the grantor's judgment points, and its failure is recorded
+as a fact followed by fallback to baseline: the resource unheld.
+
+Two things do not carry over, and this document diverges from the precedent
+exactly there:
+
+- **A patch is presence; a lapse is absence.** A VM observes a patch
+  eventually however lazy its cadence, and lateness only delays a benefit.
+  Silence is evidence only over a window the judge actually observed, so this
+  document adds an observed-window discipline (see Judging lapse) that the
+  JIT never needed — because every JIT mistake is recoverable by deopt, and a
+  false lapse has no deopt.
+- **Checking the patch stream is optional; judging leases is not.** A VM that
+  never applies a patch is a correct, slower VM. A grantor that never judges
+  leaks its resource without bound. The obligation lands where possession is
+  (see Whose obligation).
+
+## Purpose
+
+A recurring shape in this system is the question *how do I stop caring about
+something that may never answer*. A holder is granted something — a pause, a
+connection's server-side composition, an entry in a table — and then dies,
+hangs, or partitions away without saying so. The grantor must eventually take
+the grant back, without detecting death, which is undetectable in general;
+without consensus, which an unreachable peer cannot give; and without a stuck
+state, which any switch left on becomes.
+
+Java Jini solved this class of problem with the lease, and this document
+keeps its insight while rejecting its design. The insight: a grant that
+lapses unless renewed inverts the problem — instead of the grantor proving a
+holder dead, the holder must keep proving itself interested, and the absence
+of proof is the reclaim condition. Silence, the one thing a dead holder
+reliably produces, becomes the signal. The design rejected: a lease as a live
+object with methods, a synchronous remote `renew`, expiry as absolute time in
+the holder's milliseconds, and a background `LeaseRenewalManager` thread —
+respectively a value that cannot travel a stream, a host boundary worn as a
+function call, two clocks bound that share nothing, and a callback in a
+thread. What survives is the concept: time-bounded tolerance, renewed by the
+holder, lapsing by silence.
+
+## A lease is facts, accreted
+
+No lease object exists. The record of a lease is its trace on a medium: at
+most one fact per negotiation status, any number of renewals, and — in the
+common case this vocabulary exists for — no terminal fact from the holder at
+all. Each fact is a plain-data value on an ordinary stream; which stream is
+the composition's choice, as for every deposited value. Keys live under
+`:dao.lease/…`; maps are open in the usual way — a consumer ignores qualified
+keys it does not understand.
+
+Following the precedent, the negotiation carries an explicit status, and the
+status values whose meaning is shared with `:yin.jit/status` are the same
+words. Each status is authored exactly once, by the only party with the
+authority to say it:
+
+| Fact | `:dao.lease/status` | Author | Required keys beside `:dao.lease/lease` |
+|---|---|---|---|
+| Proposal | `:dao.lease/proposed` | holder | — (`:dao.lease/duration` optional: an ask, never a term) |
+| Grant | `:dao.lease/accepted` | grantor | `:dao.lease/duration`; `:dao.lease/max` optional |
+| Refusal | `:dao.lease/rejected` | grantor | — |
+| Release | `:dao.lease/released` | holder | — |
+| Reclaim | `:dao.lease/lapsed` | grantor | — (`:dao.lease/cause` optional: silence, cap, policy) |
+
+- `:dao.lease/lease` is the lease's identity: plain data, minted by whichever
+  party authors the lease's first fact, unique among that party's leases. A
+  grantor may grant unsolicited — a lease whose first fact is `:accepted` —
+  because the canonical case, a server leasing a per-connection composition,
+  asks nobody first.
+- **Only grantor-authored facts establish terms.** A proposal may carry a
+  desired duration; it is advisory, exactly as a patch's replacement block is
+  advisory until the VM accepts it. The grant's `:dao.lease/duration` — the
+  silence tolerated after each observed renewal — is the grantor's declared
+  tolerance, a statement of its nature like a transport's retention policy.
+  `:dao.lease/max` optionally caps total consecutive tenure.
+- `:dao.lease/lapsed` is appended **when the grantor acts**, never when lapse
+  "happens" — it is the deopt datom: the record of a judgment applied, after
+  which baseline holds. It also records a grantor ending the lease for
+  reasons of its own (shutdown, the cap, policy); a lease is never a promise
+  to the holder, only a bound on the grantor's tolerance of silence.
+- There is no `:rolled-back` here, deliberately. Rollback undoes an
+  application and restores the world as if it had not happened; a lapse ends
+  a tenure whose entire past remains valid, and undoes nothing — a reclaim
+  has no deopt, which is why the judging discipline below is conservative.
+  Conversely `:released` has no patch analog: the JIT never withdraws a
+  patch because an unapplied patch costs nothing, whereas a holder done early
+  can save the grantor up to one duration of waiting. Release is courtesy,
+  not obligation; a system in which no release is ever appended is fully
+  correct and merely slower.
+
+**Renewal** is not a status — it is the trace half, distinguished by key as
+the precedent distinguishes its streams by namespace:
+
+```clojure
+{:dao.lease/event :dao.lease/renewal
+ :dao.lease/lease <id>}
+```
+
+A renewal carries no time and proposes nothing. It says one thing — *I still
+want this* — and the fact of it, that it was appended and when it is
+observed, is its entire content. A renewal that asked for a new duration
+would be negotiating; renegotiation, where a composition wants it, is a new
+proposal, not a fat renewal.
+
+## Expiry is an interpretation, applied at the grantor's own points
+
+Nothing fires when a lease lapses. The grantor runs an interpreter that reads
+the medium through its own cursor, notes on its own clock when it observes
+each renewal, and judges: when now minus the last observed renewal exceeds
+the granted duration plus whatever tolerance this judge chooses, the guard
+has failed.
+
+The judgment points are the safe-point model of the precedent: points the
+grantor's composition **already passes through** — the runs of an interpreter
+its runtime already drives. The clock is **read there, never armed**. A timer
+that fires is a callback; a clock read at a judgment point is a question
+about now, which is the IO Model's third way applied to time. The cost is
+the precedent's cost: as a patch waits for the next safe point, a lapse
+becomes actionable at the next judgment run, so reclamation latency is
+duration plus judgment cadence — eventual, bounded, never instantaneous.
+
+Two interpreters with different tolerances may disagree about whether a
+lease has lapsed, and neither is wrong. What resolves the disagreement is
+possession, not truth: the interpreter composed with the resource — the one
+that can actually close the socket, stop the forwarder, free the entry — is
+the one whose judgment becomes a `:lapsed` fact, and that fact records which
+judgment prevailed. Authority follows the resource and never needs the
+holder's agreement; that is what reclaiming *without consensus* means.
+
+## Whose clock decides
+
+No absolute time crosses a boundary. A grant carries a duration, a renewal
+carries nothing, and an expiry timestamp appears in no fact. The judge's
+clock measures intervals between its own observations, so the comparison
+happens entirely on one clock and skew cannot enter it. Skew becomes transit
+delay, and delay errs safe: a renewal is observed at or after it was
+appended, so the grantor tolerates at least as long as the holder expects.
+The dangerous direction — reclaim earlier than the holder expects — needs no
+clock error, only a slow pipe under the last renewal; a holder therefore
+renews at a fraction of the duration (half, as DHCP does) and treats the
+duration as its safety bound, never its cadence.
+
+## Judging lapse
+
+A judge keeps, as private interpreter state, the newest renewal observed per
+lease and its observation time on the judge's own clock — the analog of the
+JIT's profile state: derived from the stream, rebuildable from it, consulted
+by nothing else. It is not a registry.
+
+Absence is evidence **only over a window the judge actually observed** — the
+discipline the precedent never needed, because a patch is presence and a
+lapse is absence, and because a false lapse cannot be deopted. Concretely:
+on a `gap`, the judge recovers its cursor and re-reads before renewing any
+conclusion — eviction is oldest-first, so if any renewal for a lease is
+retained, the newest is. After losing its state — a restart, or a gap
+spanning the watched window — a judge knows nothing about silence: it must
+wait one full duration from resumed observation before concluding lapse.
+The asymmetry is deliberate: a late reclaim costs patience; a false one
+costs a live holder its grant. The cap is judged under the same discipline
+from the judge's own observation of the grant, with the same conservative
+restart.
+
+## Whose obligation
+
+Here this document diverges from its precedent on purpose. A VM that never
+checks the patch stream is a correct, slower VM; a grantor that never judges
+leaks its resource without bound. The obligation to judge cannot be a
+callback and cannot be a component, so it lives in the only two places the
+architecture has: **possession** — the leak lands on the grantor's own
+resource, so the party with the incentive is the party with the authority —
+and **assembly**: a composition that grants leases and wires no judging
+interpreter over the medium has not built a slow lease but a leak, and that
+is a host assembly defect, refused when the composition is built, exactly as
+`dao.stream.ws.md` refuses a reject-mode deposit destination. A grantor's
+declared judgment cadence completes the lease's one promise: reclamation
+within duration plus cadence.
+
+## What a lease may never do
+
+A lease is never a live object: everything one can do about a lease is
+appending a fact or judging one. It never fires: no timer holds a callback,
+no notification marks a lapse; a composition that wants to observe reclaims
+reads the medium like any other interpreter. It never has a registry: a
+shared lease table is hidden global state, and the judge's private derived
+view is as far as accounting goes. It never puts absolute time on the wire.
+It never erases: a reclaim frees the resource, not the record; the medium's
+retention policy is the only eraser, here as everywhere. And it is never
+renewed by machinery: a holder renews from its own control flow, at a
+cadence its driver chooses, because renewal is evidence the holder is alive,
+and a background renewer that outlives its holder's purpose — Jini's
+`LeaseRenewalManager` — manufactures exactly the false liveness the lease
+exists to end.
+
+## Renewal forever
+
+A hostile holder gains little by renewing forever, and what it gains is
+priced. Renewal buys tolerance for silence and nothing else; renewing
+forever holds the lease forever, which `:dao.lease/max` bounds — past it the
+grantor lapses the lease regardless of renewals, and an honest long-lived
+holder proposes anew. Renewal costs presence, the honest price, and a holder
+able to pay it indefinitely is indistinguishable from a legitimately
+long-lived one; distinguishing them is admission policy — who gets
+`:accepted` at all, eventually gated by Shibi — never lease vocabulary.
+Whether a leased grant is *dangerous* is judged where it is granted: a
+paused DaoStream forwarder retains nothing extra, so that pause harms only
+the pauser, while a lease over a genuinely scarce resource needs its cap.
+The vocabulary carries the cap; the composition decides it.
+
+## Out of scope
+
+What is leasable is the domain's business. Carriage — which frames or files
+carry these facts across a particular boundary — belongs to the transport
+documents, beginning with `dao.stream.ws.md`. Cancellation of in-flight work
+is untouched: a lease reclaims what silence abandons and cannot retract a
+request already made. Transfer or delegation of a lease between holders
+waits for a real need. Authorization is Shibi's, reserved. A renewal service
+is forbidden above, not deferred.
+
+---
+
+# 4. Does the parallel change the seam?
+
+**No — it explains it.** The placement I proposed before stands, and the precedent supplies the reason it is right rather than merely permitted.
+
+jit-design's seam: the trace *surface* lives with the possessor's substrate (the VM emits trace and checks the patch stream at its own safe points), while the JIT's vocabulary lives entirely outside the VM — the VM never learns patch semantics, only "check the stream at safe points." Mapped across:
+
+- **`dao.stream.md`: zero changes**, as before. A lease fact is a stream element; the contract cannot even tell.
+- **The evidence channel already exists, and it is the trace stream.** The serving host's deposit medium in `dao.stream.ws.md` — every inbound event, enveloped with attachment identity, judged by nothing — is precisely the boundary's `run-traced`: the possessor-side record of the other party's execution facts. Renewals arrive there as ordinary `:ws/payload` values, correlated by attachment like all traffic. Nothing new is wired for the lease's trace half; that is the strongest confirmation the seam was already in the right place.
+- **The transport never learns lease vocabulary**, exactly as the VM never learns JIT vocabulary. `dao.stream.ws.md` owns carriage only: which frames carry `:dao.lease/…` payloads (ordinary ones), and the one wire shadow of a reclaim — the application-range close code with which an endpoint that reclaims a connection closes it, a sibling of the ended-stream code, settled at the existing handshake wire-format gate in its Deferred list. That close code is the deopt datom reaching the wire, and it is the *only* lease-shaped thing the ws document ever mentions.
+- **The judge lives in the serving composition** — the VM-analog, the layer that already owns safe points: the interpreters the host composes over the deposit medium. Not in the transport, not in the contract, not in a lease component (there is none).
+
+One refinement the parallel does add: since the deposit medium is the trace stream, what counts as renewal evidence is the judge's interpretation, per Axiom 2 — a composition may legitimately treat any attributed traffic from an attachment as evidence of life, with the explicit `:dao.lease/renewal` fact as the portable, transport-independent form. The vocabulary defines the explicit fact; the judge owns the judgment. That stays a composition choice, stated in `dao.lease.md`, and moves nothing between documents.
+
+*(Per the task: propose only — no files were edited. The document content above is the full proposed revision of `docs/design/dao.lease.md`.)*

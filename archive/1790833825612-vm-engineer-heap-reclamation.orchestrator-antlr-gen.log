@@ -1,0 +1,7 @@
+Loading initial Timbre config from: :default
+fetched Java/Python3LexerBase.java f8d057a0cbd0fa0d895d1aa27aa8914c3e85a1eaa95f7161da9a6e617c65f5ec
+fetched Java/Python3ParserBase.java 2ae0ab2905c50c2675f1b827bc6ba4bc3d01d78cafcd92ad8e0d36f15682b773
+vendored Python3Lexer.g4 58c4dfa0b12dfb856b7348b99199bf1a3fdc7901d7fc4575ddf9584aeb831c19
+vendored Python3Parser.g4 74fa61c519832b694718c8006741a045a687725a9f0a06645dfdfa4c7ebce65d
+generated 4 java files; classes in build/antlr/python3/classes
+antlr gen exit 0

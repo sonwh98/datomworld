@@ -1,0 +1,83 @@
+Completed-GMT: 2026-10-03 17:17:24 GMT
+Completed-Local: 2026-10-04 00:17:24 +07
+Coding-Agent: claude
+Session-ID: 65b24574-4b26-45d4-993a-cfccf0b2604a
+
+# C3-S2 round 4: reconciled with float-fix, all lanes green
+
+Steps 2 to 4 are done, and every lane passed in the foreground.
+
+One thing must happen before anyone commits: the git index still marks `prelude.cljc` and `safepoint_test.cljc` as unmerged (UU), left over from the stash pop. Three other files have staged entries from that pop too. I'm not allowed to stage, so whoever commits needs to `git add` those paths. The working-tree files are final and have no conflict markers.
+
+## Lanes
+
+| Lane | Result | Time |
+|---|---|---|
+| Focused runs before 23:45 (float-address, prelude-parity, data) | 46 tests, 536 assertions, 0 failures | — |
+| Focused run: the 4 new e2e tests | 4 tests, 48 assertions, 0 failures | — |
+| JVM `bb test:clj` | 2906 tests, 226619 assertions, 0 failures, 0 errors | 6:27 |
+| Node `bb test:cljs` | 2720 tests, 91647 assertions, 0 failures, 0 errors | 4:31 |
+| Dart `bb test:cljd` | 2675 tests, "All tests passed!" | 7:15 |
+| Slow JVM: `recursion-test`, `keyboard-interrupt-test` | 2 tests, 37 assertions, 0 failures | 0:55 |
+| Slow JVM: `tail-preservation-test`, `long-generator-with-break-test`, `resume-continuation-length-is-stable-test` | 3 tests, 42 assertions, 0 failures | 2:54 |
+| kondo and cljstyle (fix, then check) on all 8 changed files | 0 errors, 0 warnings; clean | — |
+
+- **Dart ran twice.** The first run (9:28) finished, but I cut the output too short and lost the pass/fail line, so I reran rather than claim a result.
+- **Dart runner rule.** Before 23:45 a Dart run was active in the main tree. That was the orchestrator's verification, so I left it alone. It had exited before my runs, so there were no orphans to kill.
+- **`long-loops-test`** was left out of the slow runs, as instructed.
+
+## Changed files
+
+- **`prelude.cljc`:**
+  - Conflicts resolved.
+  - Numeric dict keys now use the exact-fraction form from ruling 6.
+  - Float keys and `hash()` read the float's value through `data/float-value`, so the JS float carrier is never coerced implicitly.
+  - `data/numeric-key` is removed from the prelude's host-name list.
+  - No float literals added.
+- **`data.cljc` and `data_test.cljc`:** `numeric-key` deleted (details below).
+- **`float_address_test.cljc`:** installs the integer module, re-pins `dict-keys-test` to the new key form, and re-mints six goldens.
+- **`prelude_parity_test.cljc`:** my test cases now follow master's float conventions (`with-float64`, literals through `data/float-value`) and the NaN pin.
+- **`safepoint_test.cljc`:** master's version, with its `^:slow` tag and guard wrapper, plus my integer-module require and registration.
+- **`e2e_test.clj` and `e2e_c2_test.clj`:** merged cleanly; master's `^:slow` tags are intact.
+- **`yang.antlr.md`:** three edits: the NaN bullet in §8.5.4, the sentence at about line 2288 in §8.5.5, and the C3 status bullet.
+
+## NaN-key decision
+
+Every NaN now shares one key, `[:py.numeric/nan]`; this is recorded in §8.5.4.
+- A float here is a plain value with no object identity, so one NaN can't be told apart from another.
+- Jing already stores every NaN as one canonical value, so a per-object key couldn't survive addressing.
+- The old key (the host double) wasn't deterministic: on the JVM, comparing a NaN with itself returns true for the same boxed object and false for two boxes.
+
+This differs from CPython, where two different NaN objects are two keys, but `x = nan; d[x] = 1; d[x]` still works. It needs Architect confirmation.
+
+## Deleted
+
+- `data/numeric-key` and its export in `data.cljc`.
+- Its entry in the prelude's host-name list.
+- The `numeric-key` testing block (7 assertions) and its entry in the export-set test in `data_test.cljc`.
+
+## Re-minted goldens
+
+Re-minted in `float_address_test.cljc` on the JVM. Node and Dart pass the same assertions.
+
+| Golden | Old | New |
+|---|---|---|
+| Prelude root | 38a0e750… | d5ce18b6… |
+| A root | f941b996… | eb847184… |
+| A′ root | f05a91d4… | 612c10c4… |
+| Derivation record | 39bfcf1e… | 078367c1… |
+| Prelude subtree in A/A′ | f976da2e… | baf96f13… |
+| Hook prelude root | 76e1cfe8… | unchanged |
+
+- **Why they moved:** the first five all contain the prelude, so changing the prelude moves them.
+- **`dict-keys-test`:** its expected keys and its canonical-bytes golden were also re-pinned to the new key form.
+
+## Unfinished and open concerns
+
+- The index cleanup described at the top.
+- Big integers still can't come from Python source; literals past 2^53 and operator promotion are later slices. The bignum key, hash and `is` checks are pinned at prelude level on all four VMs and all three hosts.
+- `hash()` of inf, NaN, str, None or a tuple raises NotImplementedError; `hash()` of any object raises TypeError.
+- No mutation evidence was recorded.
+- The paragraph near line 2268 of §8.5.5 still lists `numeric-key` among the data exports. The brief said not to rewrite landed §8.5.5 text, so only the sentence near line 2288 records the deletion.
+
+The findings are written to `collab/1791045188000-compiler-engineer-python-c3-s2-r4.claude-opus-5-5.findings.md`.

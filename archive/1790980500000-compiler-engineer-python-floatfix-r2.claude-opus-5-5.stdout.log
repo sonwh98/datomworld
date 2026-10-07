@@ -1,0 +1,35 @@
+Completed-GMT: 2026-10-02 23:26:55 GMT
+Completed-Local: 2026-10-03 06:26:55 +0700
+
+Round 2 is done and all three lanes pass with 0 failures. Node's `+ - * / < > <= >=` now refuse a float64 carrier, and `data/numeric-key` is marked as interim. I had to change one existing test, `completion_test`, explained below. Nothing is staged or committed.
+
+## Changes this round
+- **`src/cljc/yin/vm.cljc`:**
+  - New `carrier-refusing` set (`+ - * / < > <= >=`) and a `refuse-carrier` wrapper, applied once in `primitives`' `pure` builder.
+  - On Node, any argument that is a float64 carrier (not a bare Number) is refused with `ex-info "Primitive <op> refuses a float64 carrier"`. Its data is `{:yin.k/status :yin.k/non-portable, :yin.k/kind :float64-carrier, :yin.k/name op}`.
+  - Nothing is unwrapped. `=`, `==` and `!=` are untouched. On the JVM and Dart the function is returned unchanged.
+- **`src/cljc/yin/vm/data.cljc`:** comment only. `numeric-key` is interim per the converged ruling; C3-S2 replaces it with ruling-6 decimal-string keys built from exact typed inputs, pins one NaN-key behaviour, and deletes it.
+- **`test/yang/python/antlr/float_address_test.cljc`:** new `generic-yin-refuses-the-carrier-test`.
+  - It builds a generic yin row `(+ 2.0 1)` with `cbor/float64`, encodes it to canonical bytes, decodes it, and runs it on all four VMs.
+  - On Node it asserts the shaped refusal; on the JVM and Dart it asserts the result is 3.0.
+- **`test/yin/vm/completion_test.cljc` (test change):** `host-functions-in-values` put the host's own `+` in the environment and expected reverse lookup to name it `'+`.
+  - On Node the registry's `+` is now the guarded wrapper, so the host's `+` is correctly no longer a registered primitive, and the test failed.
+  - The test now takes `+` from `vm/primitives`, which keeps what it checks: a primitive reached as a value is named.
+  - **Decision for you:** the alternative is adding a canonical-name alias for the host `+`. I chose not to, because a raw `+` would then bypass the guard.
+- The UCF scalar-carrier note from round 1 is kept unchanged.
+
+## Lanes
+| Lane | Tests | Assertions | Failures | Errors | Skips |
+|---|---|---|---|---|---|
+| `bb test:cljs` (rerun after the completion-test fix) | 2711 | 91937 | 0 | 0 | 0 |
+| `bb test:clj` (ran `gen:python-antlr` and `build:yin-repl-node` as dependencies) | 2905 | 227049 | 0 | 0 | 1 (ws-project Dart peer absent) |
+| `bb test:cljd` | 2666 passed | — | 0 | — | — |
+
+The first Node run of this round had 2 failures, both in `completion_test` `host-functions-in-values`; the second run above is after the fix.
+
+I ran the order as Node, then JVM, then Dart, so the new Node-only behaviour was checked first. As in round 1, each lane was launched through the harness's background option because of the 10-minute foreground cap. I kept the turn open with blocking waits, and ran them one at a time.
+
+kondo reports 0 errors on the touched files; the 4 `vm.cljc` warnings were already there. cljstyle is clean.
+
+## Open concerns
+None new. The round-1 items you ruled on (`portable-scalar?`, reliance on no capture in the seam) were not touched.

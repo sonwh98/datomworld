@@ -1,0 +1,10 @@
+Task complete. Summary:
+
+- Added `engine/bind-params` (nil-fills missing params, drops extra args) and used it at all four sites in `ast_walker.cljc` (`apply-function`, and the two hot-loop closure branches) and `semantic.cljc` (`apply-call`), replacing bare `zipmap`.
+- Added tests in `engine_test.cljc` (direct unit test), `ast_walker_test.cljc`, and `semantic_test.cljc` covering under-arity nil-fill (including the fallthrough-to-outer-scope case §7.7.2 forbids) and over-arity truncation (unchanged behavior).
+- Verified the fix is load-bearing by temporarily reverting `apply-function` back to `zipmap` and confirming both new under-arity tests fail exactly as predicted, then restored the fix.
+- Full `clj -X:test` run on the four named namespaces: 84 tests, 420 assertions, 0 failures. Full CLJS suite: 1370 tests, 2 pre-existing unrelated failures (a JS `1/0 → Infinity` vs JVM `ArithmeticException` platform difference in `yin.repl-core-test`, nothing to do with this change).
+- No `:global` arm added; `:variable`/`:var` resolution logic untouched everywhere; only the specified files touched; nothing staged or committed.
+- Noted in the findings file that the "hot loop" function containing two of the four sites (`ast-walker-run-active-continuation`) appears to be dead code — not currently called from `ast-walker-run-scheduler` — so I fixed it per the prompt's instruction but flagged that no test exercises it.
+
+Findings written to `collab/1789562276000-vmruntime-nil-fill-param-binding.claude-sonnet-5.findings.md`.

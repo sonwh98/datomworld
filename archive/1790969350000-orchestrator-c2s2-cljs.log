@@ -1,0 +1,418 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing dao.await-test
+
+Testing dao.data-test
+
+Testing dao.data.btree-async-test
+
+Testing dao.data.btree-durability-test
+
+Testing dao.data.btree-protocols-test
+
+Testing dao.data.btree-test
+
+Testing dao.data.btree-transients-test
+
+Testing dao.gui.compiler-cljs-test
+
+Testing dao.gui.event.arena-test
+
+Testing dao.gui.event.bind-test
+"dao.gui.event output gone; dropping pending" {:destination :gesture, :outcome :dao.stream/closed}
+
+Testing dao.gui.event.core-test
+
+Testing dao.gui.event.fixture-test
+
+Testing dao.gui.event.longpress-test
+
+Testing dao.gui.event.machine-test
+
+Testing dao.gui.event.pan-test
+
+Testing dao.gui.event.pointer-test
+
+Testing dao.gui.event.policy-test
+
+Testing dao.gui.event.terminal-test
+
+Testing dao.gui.event.transform-test
+
+Testing dao.jing-test
+
+Testing dao.jing.cbor-conformance-test
+CONFORMANCE node cases=372 run=366 skipped=["coll/map-both-slash-keywords" "coll/map-nan-payload-duplicate" "coll/set-nan-payload-duplicate" "coll/set-vector-list-collapse" "host/character" "host/nested-in-vector"]
+CONFORMANCE-DIGEST node canonical n=208 6d1c64719d96c11f79d575bd3122ad1bba1ba9efcc56dce63b195423575cf2cb
+CONFORMANCE-DIGEST node refusal n=154 1b929147af85f703c700a1f0d9cfbe74c55e5e28302a862086516fe749ec1b82
+
+Testing dao.jing.cbor-content-equality-test
+
+Testing dao.jing.cbor-fixtures-test
+
+Testing dao.jing.cbor-test
+SKIP node coll/map-both-slash-keywords: ClojureScript keyword equality compares the joined name, so (keyword nil "a/b") and (keyword "a" "b") are one map key: the host cannot hold this value (reported as a J1 finding)
+SKIP node coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP node coll/set-nan-payload-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP node coll/map-nan-payload-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP node host/character: ClojureScript has no character type: a char literal is a string
+SKIP node host/nested-in-vector: its unsupported member is a character; ClojureScript has none
+
+Testing dao.jing.content-test
+
+Testing dao.jing.content.step-test
+
+Testing dao.jing.dht-test
+
+Testing dao.jing.dht.kad-test
+
+Testing dao.jing.file-test
+
+Testing dao.jing.hash-registry-contract-test
+
+Testing dao.jing.mem-test
+
+Testing dao.jing.stream-test
+
+Testing dao.lease-composition-test
+
+Testing dao.lease-test
+
+Testing dao.postgraphics.lowering-test
+
+Testing dao.postgraphics.math-test
+
+Testing dao.postgraphics.packing-test
+
+Testing dao.postgraphics.raster-test
+
+Testing dao.postgraphics.terminal-test
+
+Testing dao.postgraphics.web-test
+
+Testing dao.postgraphics.web.canvas-test
+
+Testing dao.postgraphics.web.gpu-test
+
+Testing dao.pretty-test
+
+Testing dao.space.dht-test
+
+Testing dao.space.index-numeric-test
+
+Testing dao.space.index-test
+
+Testing dao.space.positional-query-test
+
+Testing dao.space.query-numeric-test
+
+Testing dao.space.query-test
+
+Testing dao.space.schema-test
+
+Testing dao.space.transact-test
+
+Testing dao.space.transactor-test
+
+Testing dao.stream-test
+
+Testing dao.stream.apply-test
+
+Testing dao.stream.base64-test
+
+Testing dao.stream.cbor-test
+
+Testing dao.stream.chunks-test
+
+Testing dao.stream.datagram-test
+
+Testing dao.stream.datagram.node-test
+
+Testing dao.stream.forward-test
+
+Testing dao.stream.memory-log-test
+
+Testing dao.stream.middleware-test
+
+Testing dao.stream.observe-test
+
+Testing dao.stream.observer-test
+
+Testing dao.stream.remote-meet-test
+
+Testing dao.stream.remote-pair-test
+
+Testing dao.stream.remote-test
+
+Testing dao.stream.ringbuffer-test
+
+Testing dao.stream.rpc-test
+
+Testing dao.stream.transit-test
+
+Testing dao.stream.udp-raw-test
+
+Testing dao.stream.udp-test
+
+Testing dao.stream.waitset-test
+
+Testing dao.stream.waitset.cadence-test
+
+Testing dao.stream.waitset.driver-test
+
+Testing dao.stream.ws-codec-test
+
+Testing dao.stream.ws-project-cross-node-test
+
+Testing dao.stream.ws-project-test
+
+Testing dao.stream.ws-test
+
+Testing dao.stream.ws.browser-test
+
+Testing dao.stream.ws.node-test
+
+Testing datomworld.demo.artifact-runner-test
+
+Testing datomworld.demo.artifact-scene-test
+
+Testing datomworld.demo.continuation-handoff-test
+
+Testing datomworld.demo.earth-moon-scene-test
+
+Testing datomworld.demo.responsive-test
+
+Testing datomworld.demo.solar-system-scene-test
+
+Testing datomworld.demo.voxel-controls-test
+
+Testing datomworld.demo.voxel-input-test
+
+Testing datomworld.demo.voxel-runner-test
+
+Testing datomworld.demo.voxel-scene-test
+
+Testing yang.clojure.stream-eval-test
+
+Testing yang.python.antlr.lower-portable-test
+
+Testing yang.python.antlr.prelude-parity-test
+
+Testing yang.python.antlr.safepoint-test
+
+Testing yang.safepoint-test
+
+Testing yin.repl-test
+
+Testing yin.repl.adapter-test
+
+Testing yin.repl.ast-index-test
+
+Testing yin.repl.ast-query-e2e-test
+
+Testing yin.repl.connect-test
+
+Testing yin.repl.dht-test
+
+Testing yin.repl.driver-test
+
+Testing yin.repl.embed-test
+
+Testing yin.repl.host-node-test
+
+Testing yin.repl.index-test
+
+Testing yin.repl.main-test
+
+Testing yin.repl.query-test
+
+Testing yin.repl.require-test
+
+Testing yin.repl.serve-test
+
+Testing yin.repl.store-test
+
+Testing yin.vm-test
+
+Testing yin.vm.ast-walker-test
+
+Testing yin.vm.attach-image-test
+
+Testing yin.vm.cell-test
+
+Testing yin.vm.code-test
+
+Testing yin.vm.completion-test
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.data-test
+
+Testing yin.vm.debruijn-code-test
+
+Testing yin.vm.debruijn-linearize-test
+
+Testing yin.vm.debruijn-register-benchmark-test
+
+[R3] de Bruijn stack VM vs register VM (informational)
+
+[R3] tail-countdown (10 timed runs, value 0)
+  stack    run=10.371ms lower=0.509ms load=0.827ms instrs=56 bytes=998 steps=10518 peak-frames=1 peak-cont=0
+  register run=9.987ms lower=0.698ms load=1.706ms instrs=35 bytes=4295 steps=6012 peak-frames=1 peak-cont=0
+  register/stack: run=0.962 lower=1.371 load=2.062 steps=0.571 bytes=4.303
+
+[R3] fibonacci (10 timed runs, value 144)
+  stack    run=12.199ms lower=0.788ms load=1.131ms instrs=92 bytes=1618 steps=11850 peak-frames=1 peak-cont=11
+  register run=12.954ms lower=1.096ms load=2.847ms instrs=53 bytes=7059 steps=6740 peak-frames=1 peak-cont=11
+  register/stack: run=1.061 lower=1.39 load=2.516 steps=0.568 bytes=4.362
+
+[R3] lexical-binding (50 timed runs, value 36)
+  stack    run=1.197ms lower=0.871ms load=1.122ms instrs=92 bytes=1541 steps=84 peak-frames=8 peak-cont=0
+  register run=2.983ms lower=1.205ms load=2.833ms instrs=55 bytes=7702 steps=46 peak-frames=8 peak-cont=0
+  register/stack: run=2.492 lower=1.382 load=2.523 steps=0.547 bytes=4.998
+
+[R3] corpus: literal map (50 timed runs, value {:x 10, :y 20})
+  stack    run=0.38ms lower=0.013ms load=0.373ms instrs=2 bytes=128 steps=2 peak-frames=0 peak-cont=0
+  register run=0.418ms lower=0.028ms load=0.407ms instrs=2 bytes=359 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=1.099 lower=2.064 load=1.091 steps=1 bytes=2.804
+
+[R3] corpus: addition (50 timed runs, value 30)
+  stack    run=0.379ms lower=0.05ms load=0.396ms instrs=8 bytes=127 steps=8 peak-frames=0 peak-cont=0
+  register run=0.544ms lower=0.084ms load=0.53ms instrs=5 bytes=614 steps=5 peak-frames=0 peak-cont=0
+  register/stack: run=1.432 lower=1.659 load=1.338 steps=0.625 bytes=4.834
+
+[R3] corpus: nested application (50 timed runs, value 6)
+  stack    run=0.425ms lower=0.09ms load=0.415ms instrs=14 bytes=224 steps=14 peak-frames=0 peak-cont=0
+  register run=0.68ms lower=0.179ms load=0.71ms instrs=8 bytes=1019 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=1.599 lower=1.992 load=1.708 steps=0.571 bytes=4.549
+
+[R3] corpus: if true branch (50 timed runs, value 100)
+  stack    run=0.422ms lower=0.084ms load=0.418ms instrs=12 bytes=219 steps=11 peak-frames=0 peak-cont=0
+  register run=0.619ms lower=0.137ms load=0.602ms instrs=9 bytes=942 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=1.467 lower=1.621 load=1.44 steps=0.727 bytes=4.301
+
+[R3] corpus: if false branch (50 timed runs, value 200)
+  stack    run=0.421ms lower=0.087ms load=0.418ms instrs=12 bytes=219 steps=10 peak-frames=0 peak-cont=0
+  register run=0.616ms lower=0.167ms load=0.657ms instrs=9 bytes=942 steps=7 peak-frames=0 peak-cont=0
+  register/stack: run=1.462 lower=1.912 load=1.572 steps=0.7 bytes=4.301
+
+[R3] corpus: lambda application (50 timed runs, value 11)
+  stack    run=0.45ms lower=0.096ms load=0.428ms instrs=14 bytes=231 steps=14 peak-frames=1 peak-cont=1
+  register run=0.711ms lower=0.152ms load=0.677ms instrs=9 bytes=1167 steps=9 peak-frames=1 peak-cont=1
+  register/stack: run=1.579 lower=1.589 load=1.583 steps=0.642 bytes=5.051
+
+[R3] corpus: closure value (50 timed runs, value {:type :closure, :arity 1})
+  stack    run=0.357ms lower=0.033ms load=0.333ms instrs=4 bytes=72 steps=2 peak-frames=0 peak-cont=0
+  register run=0.541ms lower=0.061ms load=0.488ms instrs=4 bytes=583 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=1.514 lower=1.852 load=1.462 steps=1 bytes=8.097
+
+[R3] corpus: higher order (50 timed runs, value 15)
+  stack    run=0.514ms lower=0.146ms load=0.54ms instrs=20 bytes=335 steps=20 peak-frames=1 peak-cont=2
+  register run=0.881ms lower=0.226ms load=0.824ms instrs=13 bytes=1720 steps=13 peak-frames=1 peak-cont=2
+  register/stack: run=1.712 lower=1.551 load=1.526 steps=0.65 bytes=5.134
+
+[R3] corpus: collection primitives (50 timed runs, value 9)
+  stack    run=0.387ms lower=0.046ms load=0.381ms instrs=6 bytes=163 steps=6 peak-frames=0 peak-cont=0
+  register run=0.497ms lower=0.067ms load=0.491ms instrs=4 bytes=567 steps=4 peak-frames=0 peak-cont=0
+  register/stack: run=1.282 lower=1.444 load=1.286 steps=0.666 bytes=3.478
+
+Testing yin.vm.debruijn-register-compile-test
+
+Testing yin.vm.debruijn-register-contract-test
+
+Testing yin.vm.debruijn-register-effects-test
+
+Testing yin.vm.debruijn-resolve-test
+
+Testing yin.vm.debruijn-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.debruijn.register-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.effect-forgery-test
+
+Testing yin.vm.encoder-test
+
+Testing yin.vm.engine-test
+
+Testing yin.vm.ffi-test
+
+Testing yin.vm.ffi.remote-serve-test
+
+Testing yin.vm.ffi.remote-serve.responder-test
+
+Testing yin.vm.heap-reclamation-test
+
+Testing yin.vm.host-typed-values-test
+
+Testing yin.vm.integer-test
+
+Testing yin.vm.ledger-test
+
+Testing yin.vm.linearize-test
+
+Testing yin.vm.linker-authority-ingestion-test
+
+Testing yin.vm.linker-authority-test
+
+Testing yin.vm.linker-manifest-test
+
+Testing yin.vm.linker-require-test
+
+Testing yin.vm.linker-step-test
+
+Testing yin.vm.linker-test
+
+Testing yin.vm.linker.closure-test
+
+Testing yin.vm.linker.dht-end-to-end-test
+
+Testing yin.vm.linker.dht-test
+
+Testing yin.vm.linker.publish-test
+
+Testing yin.vm.linker.remote-transfer-test
+
+Testing yin.vm.linker.sign-test
+
+Testing yin.vm.macro-test
+
+Testing yin.vm.mint-test
+
+Testing yin.vm.module-test
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.pipeline-test
+
+Testing yin.vm.rule-r-test
+
+Testing yin.vm.semantic-engine-test
+
+Testing yin.vm.semantic-ffi-test
+
+Testing yin.vm.semantic-stream-observer-test
+
+Testing yin.vm.semantic-test
+
+Testing yin.vm.stream-poll-test
+
+Testing yin.vm.telemetry-test
+
+Testing yin.vm.ucf-test
+
+Testing yin.vm.ucf.remote-test
+
+Ran 2704 tests containing 91888 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (426 files, 2 compiled, 0 warnings, 416.94s)

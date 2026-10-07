@@ -1,0 +1,1221 @@
+OpenAI Codex v0.159.3
+--------
+[1mworkdir:[0m /Users/sto/workspace/datomworld
+[1mmodel:[0m gpt-6-astra
+[1mprovider:[0m openai
+[1mapproval:[0m on-request
+[1msandbox:[0m workspace-write [workdir, /tmp, $TMPDIR]
+[1mreasoning effort:[0m low
+[1mreasoning summaries:[0m none
+[1msession id:[0m 01a0f878-281b-7253-ac44-ff2402583d35
+--------
+[36muser[0m
+Read /Users/sto/workspace/datomworld/collab/1791097000000-architect-linker-m-next-c-plan-review.prompt.md and complete it now. Read-only.
+[35m[3mcodex[0m[0m
+I’ll read the review brief and referenced plan, then check it against the converged UCF rules. I won’t edit files or run suites.
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc 'cat collab/1791097000000-architect-linker-m-next-c-plan-review.prompt.md'[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+Created-GMT: 2026-10-04 06:52:00 GMT
+Coding-Agent: codex (gpt-6-astra, resume of thread 01a0f878-281b-7253-ac44-ff2402583d35)
+
+# Task: review fable's M-next C implementation plan (read-only; final response is the deliverable)
+
+Role: Architect (reviewer)
+
+Plan under review: /Users/sto/workspace/datomworld/collab/1791096045000-architect-linker-m-next-c-implementation-plan.claude-fable-5-1.findings.md
+Sources: docs/design/yin.vm.linker.dht.md section 14; docs/design/yin.vm.universal-continuation-format.md 7.7 to 7.11.1 (as amended in 0c7ee4ee); docs/design/yin.vm.ucf-revisions.md; src/cljc/dao/space/transactor.cljc, src/cljc/dao/lease*.cljc, src/cljc/dao/jing/file.cljc, src/cljc/dao/space/store/fs.cljc; docs/design/datom.world.md invariants.
+
+Judge independently:
+1. Is "dao.space transactor over a durable journal stream, enrolled targets as ledger projections" sound against UCF 7.7.2/7.7.3 and the invariants (no privileged node, dao.stream is the complexity boundary, derive-don't-persist, peer observers)? Is a new `dao.stream.journal` transport justified versus the transactor's own stated position that a durable stream transport is not the answer? Any hidden atomicity hole (judge :seen/:answered rebuild, reclaim vs admission race, poison rule)?
+2. Does the slice order C1..C8 cover every stage-C clause of 7.11.1 per astra's own stage-ownership table (ucf-revisions section 6)? Name any clause unowned or double-owned, and any slice too large for one engineer round.
+3. The owner question (enrolled target = authority-minted stream, exactly-once only inside that boundary): agree with the recommendation, or give the alternative.
+4. Boundary with D and E: anything C builds that belongs to D/E, or needs from D that is unstated.
+One-line verdict per item first, then specifics. Decisive, no survey.
+Begin the final response exactly with:
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc 'cat collab/1791096045000-architect-linker-m-next-c-implementation-plan.claude-fable-5-1.findings.md'[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+Completed-GMT: 2026-10-04 06:48:53 GMT
+Completed-Local: 2026-10-04 13:48:53 +07
+
+**Summary: the arbitration space is a `dao.space` transactor over a new durable, complete-retention journal stream, with enrolled targets as projections of that same ledger; 8 slices, C1 to C8.**
+
+Read-only; no suites run and no repo file edited. The same text is saved at `/Users/sto/.claude/plans/read-users-sto-workspace-datomworld-coll-lucky-willow.md`, because the session was in plan mode.
+
+## 1. The substrate
+
+### What exists today (verified in the tree)
+
+- **Transactor:** `dao.space.transactor/transact!` writes exactly one record `{:dao.space/transaction {:t n :datoms [...]}}` through one local append (T1) and advances `t` only on `:dao.stream/ok` (T5). Its local stream is `dao.stream.memory-log`: complete retention, process lifetime, a new identity per process.
+- **Durable frames:** `dao.jing.file/create-content-file` is a framed append-only file with an fsync per put and torn-tail truncation at open, on JVM, Node and Dart. `dao.jing.file/records` returns every validated frame in order.
+- **Lock:** `dao.space.store.fs` gives an exclusive directory lock on the three hosts. Dart cannot fsync a directory.
+- **Lease judge:** `dao.lease/judge-step` commits a grant or a `:lapsed` only when its `:writer` answers ok. `make-judge` already demands `:durable-judge`, `:incarnation-rule` and `:fencing` for `:durable? true`.
+- **No custody code yet:** a grep for occurrence, custody and lease in `src/cljc/yin/vm/ucf/` and `yin/repl/` finds only docstrings. `handoff-version` is 0.
+
+### Recommendation
+
+**The authority is a `dao.space` transactor whose local stream is a durable journal, plus one pure interpreter over that stream.**
+
+- **Journal (`dao.stream.journal`, new transport).** A complete-retention DaoStream. `append!` canonical-CBOR-encodes the value, writes it as one durable frame, and only then makes it visible through an inner `memory-log`. Frame 0 persists the stream identity, so the identity in `:yin.k/arbitration` survives restart. The backend is a plain-data seam with two implementations:
+  - `memory`: a byte-frame vector the caller holds, with named crash cuts. This is the portable transactional seam 14.2.4 demands; it runs on all three hosts.
+  - `file`: a `dao.jing.file` content file in a directory locked by `dao.space.store.fs/lock!`. Each transaction record is one content frame. No new framing or fsync code is written.
+- **Atomic admission.** One transition is one pure decision over the projection, then exactly one `transactor/transact!`, so one frame. Effect, result and dedup record are datoms of that one record. Durability precedes visibility. Any non-ok or thrown durable write poisons the handle, and every later admission answers `:suspended` until reopen.
+- **The effect is inside the boundary.** An enrolled target is a stream minted by the authority at enrollment and read as a projection of the ledger: the committed `:yin.k/append` values for that target identity, in `t` order. This is the only way "effect, result and dedup record commit together" holds without a two-phase protocol. Anything downstream of the projection is at-least-once and says so.
+- **Lease judge unchanged.** `judge-step` runs as is. Its `:writer` is a ledger adapter:
+  - an `:accepted` becomes one transaction holding the grant and its `:yin.k/bound` fact;
+  - a `:lapsed` becomes one transaction holding the lapse and the epoch increment, or the completion;
+  - `:reclaim` reports whether the ledger is writable, so the act and the record are the same transaction.
+- **Reopen, per host.**
+  1. Take the directory lock.
+  2. Replay validated frames, with the torn tail truncated.
+  3. Require contiguous `t` from 0, or refuse to open.
+  4. Rebuild the memory-log; `transactor/create!` derives the next `t`.
+  5. Fold the projection.
+  6. Reclaim every live tenure (epoch + 1, cause `:policy`) before any grant or admission.
+  
+  Browser CLJS has no file backend, so it is process-scoped and offers fork only.
+- **No privileged node.** An authority is per arbitration space and is named in the value. Any peer may open one for the occurrences it mints, and holders read it through an ordinary served stream. Nothing is global and there is no server role.
+- **Cost.** One fsync per transition, O(history) replay at open (the transactor's existing open item), and the whole ledger held in memory.
+
+### Alternatives rejected
+
+| Candidate | Why rejected |
+|---|---|
+| File log with compare-and-append, outside dao.space | Violates UCF 7.7.2 and 7.7.3 (facts are datoms; the grantor is the transactor) and duplicates `t` allocation. Kept only as the transport under the transactor. |
+| dao.lease facts plus a separate authority store | Two durable things: a grant and its binding cannot share a transaction, and the judge ledger is not rebuildable from a stream. |
+| dao.space publication (covered index into dao.jing, HEAD rename as commit) | Rebuilds the index per admission; two fsyncs and a rename per commit; the rename is not durable on Dart; unpublished state is lost, which reuses an epoch. |
+| DHT-replicated or quorum ledger | Availability is not authority; 14.3 rules it out. |
+| `dao.space.transact/prepare-tx` with `:db/unique` for dedup | Throws instead of answering data, mints gensym tempids, and scans the base several times per transaction. |
+
+### Owner question (does not block the plan)
+
+Is it acceptable that an enrolled target is, by construction, a stream minted by and projected from the authority's ledger, so existing streams get exactly-once only through a forwarder that is at-least-once past the boundary?
+
+Recommendation: yes. It is what UCF 7.7.8 already implies with "a consumer that cannot join that atomic resource".
+
+## 2. Slices
+
+All new code is `.cljc` and requires no `yin.vm` engine namespace. Tests are `.cljc` on the memory backend, so each runs on JVM, Node and Dart; file-backend and process-kill coverage is stated per slice. All paths are under `src/cljc/` unless they start with `test/`.
+
+| Slice | Scope | Files | 7.11.1 clauses | Depends on |
+|---|---|---|---|---|
+| C1 | Journal transport with both backends; authority open, close and reopen; projection fold; `enroll!`; dedup-only `admit!`; enrolled-target reader | new `dao/stream/journal.cljc`, `yin/vm/ucf/ledger.cljc`, `yin/vm/ucf/authority.cljc`; tests `test/dao/stream/journal_test.cljc`, `test/yin/vm/ucf/authority_test.cljc` | 8 (equal intent, different intent, fresh commit) | none |
+| C2 | Custody fact constructors and validators; occurrence id form; offer admission; judge writer adapter (grant and bound in one transaction); reader-side `binding-evidence` | new `yin/vm/ucf/custody.cljc`, `yin/vm/ucf/authority/grant.cljc`; tests beside them | 7 (first grant binds 0; invalid bindings) | C1 |
+| C3 | Lapse and epoch in one transaction; reopen reclaims before grant; exhaustion at 2^52-1 | `authority/grant.cljc`, `ledger.cljc` | 7 (reclaim, reopen), 9 (epoch) | C2 |
+| C4 | Full admission order; the five outcomes; defective-envelope diagnostics; quarantine; cross-target conflict; outcome and diagnostic delivery | new `yin/vm/ucf/authority/admission.cljc` | 6 (consumer), 8 (consumer, minus inherited ids and variants) | C3 |
+| C5 | Resumed evidence; release as completion; closed occurrences; successor eligibility; orphans | new `yin/vm/ucf/authority/completion.cljc` | 4 (ancestry, orphan) | C3 |
+| C6 | Accepted-checkpoint content store; `carried-ops`; scope check; unreadable checkpoint suspends; snapshot-variant baseline | `custody.cljc`, `admission.cljc`, `authority.cljc` | 4 (membership), 8 (inherited, unreadable, variant) | C4, C5 |
+| C7 | Durable input records and ordered replay | new `yin/vm/ucf/authority/input.cljc` | 3 (durable input replay) | C3 |
+| C8 | Generated crash-cut matrix over every transition; file-backend reopen on three hosts; cross-host ledger fixture; `exclusive-capable?` gate | tests, `authority.cljc` | re-runs 6 to 9 on the file backend | C1 to C7 |
+
+Order: C1, C2, C3, then C4 and C5 (separate namespaces, may run concurrently), C7 (may run with them), C6, C8.
+
+### C1, the thin vertical
+
+This is also the cheapest proof of the substrate, end to end.
+
+- **Flow:** open an authority, enroll one target, admit one envelope, crash at each cut, reopen.
+- **Cuts:**
+  - before the durable frame: zero commits, and a retry commits once;
+  - after the frame and before visibility: reopen shows one commit, and a retry answers `:replayed` with the recorded result;
+  - after visibility and before the outcome is returned: same.
+- **Also asserted:** the journal identity and next `t` survive reopen; a torn tail is dropped; a gap in `t` refuses the open; a poisoned handle answers `:suspended`.
+- **File backend:** the same test on JVM, Node and Dart, by dropping the handle without close and reopening the path, plus a hand-torn tail. A kill -9 of a real process is JVM-only here; otherwise it is E.
+- **Size:** if production code passes about 400 lines, split the file backend into its own round.
+
+### C2, attributed grant and binding
+
+- **Fact shape:** facts are entity maps with an authority-allocated `:db/id`, one entity per fact.
+- **Authorship:** holder-authored facts (proposal, release, renewal, offer, resumed) arrive on per-author inbound media and are admitted with the resolver's author recorded. The ledger stream has one writer, the transactor.
+- **Occurrence id (Q9):** a UUID string minted once at park, compared by canonical bytes. The authority refuses a known occurrence offered with a different origin or operation baseline. A duplicate offer is idempotent by occurrence and snapshot address.
+- **Reader-side evidence (Q7):** `binding-evidence` is a pure function over records read from the stream the resolver attributes to the authority. The grant and the binding must sit in the same transaction record, with the same lease, holder and subject, one binding per lease, and an integer epoch in range. The transaction identity is `{arbitration identity, t}` of that record.
+- **Tests:**
+  - two candidates, one grant;
+  - a binding by another author, in a different record, duplicated, or with a float epoch establishes nothing;
+  - the evidence survives canonical CBOR and a `dao.stream.remote` reflection on each host.
+
+### C3, reclaim epochs
+
+- Initial epoch is 0. Every lapse raises it by one in the lapse's transaction. A grant binds the current epoch. A successor starts at 0.
+- Reopen recovers the epoch and raises it before granting; it is never reset.
+- At 2^52-1 the grant is valid and its effects commit. The next reclaim records the lapse, leaves the epoch unchanged, and exhausts the occurrence.
+- The values 2^52 and -1 are refused on the bytes.
+
+### C4, admission
+
+- **Order:** exactly as 7.7.8: authority, binding, tenure, scope, dedup. This slice handles current-occurrence ids only. Stale wins over an existing record.
+- **Enrollment schema (Q3):** `{:yin.k/custody :yin.k/enrolled :yin.k/target i :yin.k/effect-kinds #{:yin.k/append}}`, authority-authored and add-only. The target identity is minted by the enrollment transaction, so a stream never exists unenrolled and protection cannot change under a retained id.
+- **Dedup namespace:** one, keyed by op id, with target identity in the intent. A second target with the same id answers `:intent-conflict` and quarantines.
+- **Conflict and defect:** an intent conflict commits one transaction, the quarantine fact. A defective envelope commits nothing and appends one diagnostic to the composition-supplied stream. A failed diagnostic append is returned as data and admits nothing.
+- **Serialization:** admission and reclaim share one lock on the JVM. The test asserts commit-before-reclaim or refusal-after, never both.
+
+### C5, completion
+
+- A release closes the occurrence and records one edge, in the lapse's transaction, when it comes with accepted resumed evidence from the holder and a readable, valid successor body. A release without that returns the occurrence to offered through reclaim.
+- The chain allows one successor per predecessor and one predecessor per successor, with the same arbitration identity and an origin naming the predecessor and its lease. A successor offer is admitted only after that completion.
+- Crash cuts: after the successor append, after the resumed report, after the release append, after closure. Before closure no successor is eligible and the last checkpoint is regranted. After closure the occurrence never grants again.
+
+### C6, inherited ids and variants
+
+- The authority stores each admitted body in a `content.jing` beside the ledger, before the offer fact references it.
+- `custody/carried-ops` reads a version-1 body map (frames and install children) and returns the retained op ids and their encoded intents. Membership and ancestry are derived at admission; no index is stored.
+- An unreadable accepted checkpoint answers `:suspended` after the tenure check and changes nothing.
+- A variant that keeps an id and changes its intent or the root counter is refused.
+
+### C7, input records
+
+- `record-input!` admits `{occurrence, lease, k, input}` under a tenure check, dense in `k` per occurrence. Equal content at a known `k` replays; different content is refused.
+- `inputs` returns them in order for a regranted holder.
+- The test uses a scripted holder made of plain functions. Recovery with inputs reproduces intent and result; without them the script fails closed; a divergent intent at the same id is `:intent-conflict`.
+
+### C8, the gate
+
+- For every transition and every cut, the reopened projection equals either the pre-state or the post-state, and a retry converges.
+- A ledger file written on the JVM and checked in as a fixture reopens to the same projection on Node and Dart.
+- `exclusive-capable?` is true only for a file-backed, lock-held, cleanly reopened authority.
+
+## 3. Boundary with D and E
+
+**C must not build:**
+- the handoff driver;
+- the fenced writer (sequence assign and retain, envelope construction);
+- version-1 body validation in `handoff.cljc` (`handoff-version` stays 0);
+- the REPL composition;
+- a remote front for admission over `dao.stream.apply`;
+- forwarders from enrolled streams to external IO;
+- the host matrices and the crash/partition suite.
+
+**C needs from D:**
+- the version-1 body grammar, implemented against the same byte fixtures `carried-ops` reads;
+- a driver that records each input before any effect that depends on it, and that persists the occurrence and export progress;
+- holder-side `:yin.k/not-holder` and release on an invalid binding, using C's `binding-evidence`;
+- routing of every protected write to an enrolled stream, or an `:unprotected-pending` refusal.
+
+**C needs from E:** both host matrices and real process kills through the wired composition, and a per-host durability record.
+
+Every C function is a plain function over an authority value and streams. None requires the REPL.
+
+## 4. Risks, riskiest first
+
+1. **C4 and C1: the effect lives in the ledger.** Programs' real targets (FFI call-out, link streams, string-backed streams) are not ledger projections. If the owner expects exactly-once into those, this design does not give it. This is the owner question above.
+2. **C5: completion through the judge.** The reclaim hook only reports writability and the writer does the act. The judge's `:seen` and `:answered` must be rebuilt at reopen so an old `:accepted` cannot reseed tenure.
+3. **C6: fixture drift against D.** C reads a body grammar D has not implemented yet. Shared canonical byte fixtures land in C6 and D must pass them.
+4. **Dart durability.** With no directory fsync, a newly created ledger file is safe against process death but not proven against power loss. Record it per host and claim no more.
+5. **Cost.** An fsync per admission and O(history) reopen. Acceptable for C; checkpointing the ledger is a later item.
+
+## 5. Document text implementation will force (listed, not written)
+
+- **`dao.space.transactor.md`, *Where durability lives* and T18:** admit the journal as a complete-retention durable local stream for authority ledgers, and scope "a durable stream transport is not the answer" to the code index.
+- **New `dao.stream.journal.md`:** the transport's spec, excluded outcomes, poison rule and identity persistence.
+- **UCF 7.7.8 *Enrollment*:** the schema, the add-only rule, and that an enrolled target is minted by and projected from the ledger.
+- **UCF 7.7.8 binding evidence:** the transaction identity is the record `{arbitration identity, t}` on the authority-attributed stream.
+- **UCF 7.2.1:** the concrete occurrence form.
+- **UCF 7.7.2 fact table:** the authority-authored facts C adds (enrolled, quarantined, completed, input, admitted offer), and how holder facts carry their resolved author.
+- **UCF 7.7.7 and 7.7.8 *Restart*:** reopen reclaims with cause `:policy` and does not regrant automatically; `dao.lease/restart` is not used.
+- **UCF 7.9:** `:suspended` for a poisoned ledger, and where outcomes are delivered and how they are attributed.
+- **Linker-dht 14.2.2:** the input record schema.
+- **Linker-dht 14.2.4 row 6:** "partition the consumer from authority" means the remote admission front, which is D.
+- **`dao.lease.md` or its rationale:** a composition whose reclaim act and `:lapsed` record are one transaction.
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "rg -n 'durab|T18' docs/design/dao.space.transactor.md; cat src/cljc/dao/space/transactor.cljc | head -210; rg -n 'seen|answered|reclaim|writer|restart' src/cljc/dao/lease.cljc | tail -45; rg -n 'fsync|sync|truncate|append|records' src/cljc/dao/jing/file.cljc | tail -35; rg -n 'lock|sync' src/cljc/dao/space/store/fs.cljc | tail -15"[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+6:invariants its tests pin, where durability lives, and the one wiring
+83:| T18 | The local stream is on a transport declaring complete retention (below) |
+110:## T18: the local-log wiring requirement
+125:  reject a future correct transport — a durable append-only log, a spilling
+142:## Where durability lives
+146:and it is **not durable**: `memory-log` is process-lifetime, and a restarted
+156:**The durable record is what publication puts in `dao.jing`.** Un-published
+157:writes are not durable, and never were — v1's local streams were in-memory
+160:disk-index, and a memory index is not durable either. A durable *stream*
+162:put a second durable record beside the content store, which is exactly the
+(ns dao.space.transactor
+  "The agent-side transactor: a plain value with explicit named operations
+   over an explicit local dao.stream handle plus an explicit intake pool
+   of dao.stream writers (docs/design/dao.jing.md, Publication from an
+   agent; docs/design/dao.space.transactor.md).
+
+   A transactor is not a stream in v2 — it is an interpreter over one
+   (dao.stream.md, Composition): append!/transact! allocate transaction time
+   and write transaction records through the local stream's writer surface,
+   and reads go through the caller's own local handle, which the transactor
+   never owns.
+
+   Spec (create!):
+
+     {:local-stream s   ; must satisfy stream/reader? and stream/writer?;
+                        ; supplied, never created, registered, or closed
+      :intake-pool [p]  ; non-empty; every member satisfies stream/writer?;
+                        ; supplied, never created, registered, or closed
+      :name n}          ; optional, diagnostic only
+
+   create! validates surfaces, never retention: stream/reader? and
+   stream/writer? do not establish the complete retention the history scan
+   requires. The host composition supplies a handle created by
+   dao.stream.memory-log/create!; supplying an evicting transport is a
+   host-assembly defect (detectable, deliberately not checked — T18,
+   docs/design/dao.space.transactor.md).
+
+   The transactor owns transaction time. Every append! or transact! writes
+   exactly ONE atomic transaction record to the local stream
+
+     {:dao.space/transaction {:t <nonnegative-integer> :datoms [...]}}
+
+   through exactly one local append, so no reader can ever observe a torn
+   transaction. t is allocated from a per-value watermark: on create! the
+   retained history is read from its origin (index/snapshot-datoms) and the
+   next t is derived as 0 for an empty history or 1 + the maximum integer
+   datom t otherwise. A malformed history throws. The scan is the causality
+   boundary; a caller-supplied next-t is never accepted.
+
+   Operational outcomes are data; argument defects keep throwing. The
+   watermark advances if and only if the local append answered
+   :dao.stream/ok, so retrying the identical call re-attempts the identical
+   t. publish! builds the covered indexes over the local stream and
+   enqueues them into the intake pool (dao.space.index/publish-index!).
+   Publication is explicit and acknowledges enqueuing only, never observer
+   materialization.
+
+   Closing is per value: it rejects further appends/transacts with
+   {:dao.stream/outcome :dao.stream/closed} but neither closes nor erases
+   the local stream or the intake pool."
+  (:require [dao.datom :as datom]
+            [dao.space.index :as index]
+            [dao.stream :as stream]))
+
+
+(defn- entity->datoms
+  "One datom per k/v pair, all sharing transaction time `t`. `:db/id` is
+   required: a durable log cannot mint per-batch tempids without colliding
+   across appends. Attribute order within one entity's own datoms is
+   whatever the host's map iteration yields — unspecified across platforms."
+  [m t]
+  (when-not (contains? m :db/id)
+    (throw (ex-info "entity map requires :db/id" {:entity m})))
+  (let [e (:db/id m)]
+    (mapv (fn [[a v]]
+            (let [d [e a v t datom/default-op]]
+              (when-not (datom/local-datom? d)
+                (throw (ex-info "invalid persistent local datom"
+                                {:datom d, :entity m})))
+              d))
+          (remove (fn [[a _v]] (= a :db/id)) m))))
+
+
+(defn- pad-datom
+  "Pad [e a v] / [e a v t m] to the canonical 5-tuple. The transactor owns
+   transaction time: a non-nil explicit t is rejected, a nil t is stamped
+   with the allocated `t`. A nil m takes the default assertion op; an
+   explicit m (0, a retraction) is preserved."
+  [d t]
+  (let [[e a v dt dm] d]
+    (when-not (nil? dt)
+      (throw
+        (ex-info
+          "the transactor owns transaction time: explicit datom t is rejected"
+          {:datom d})))
+    (let [padded [e a v t (if (nil? dm) datom/default-op dm)]]
+      (when-not (datom/local-datom? padded)
+        (throw (ex-info "invalid persistent local datom"
+                        {:datom padded, :input d})))
+      padded)))
+
+
+(defn- val->datoms
+  [val t]
+  (cond
+    (map? val) (entity->datoms val t)
+    (and (vector? val) (<= 3 (count val) 5)) [(pad-datom val t)]
+    :else
+    (throw
+      (ex-info
+        "a value must be an entity map or datom vector [e a v] / [e a v nil m]"
+        {:val val}))))
+
+
+#_{:clj-kondo/ignore [:unused-binding]}
+
+
+(defn- with-write-lock
+  "Serialize timestamp allocation and append on hosts with shared-memory
+   threads. ClojureScript and ClojureDart calls are synchronous within one
+   isolate, so the direct call has the same single-writer semantics."
+  [lock f]
+  #?(:clj (locking lock (f))
+     :default (f)))
+
+
+(defn- derive-next-t
+  "Derive the next transaction time from a flattened retained history: 0 for
+   an empty history, else 1 + the maximum datom t. A datom t that is not a
+   non-negative integer is a malformed history and throws — this scan is the
+   causality boundary of the value."
+  [datoms]
+  (if (empty? datoms)
+    0
+    (let [ts (mapv index/datom-t datoms)]
+      (when-not (every? #(and (integer? %) (<= 0 %)) ts)
+        (throw
+          (ex-info
+            "malformed retained history: datom t must be a non-negative integer"
+            {:history datoms})))
+      (inc (reduce max ts)))))
+
+
+(defn- append-packet!
+  "Append one atomic transaction record to the local stream. The answer is
+   validated with the contract's own validator before it is interpreted:
+   :dao.stream/ok advances the watermark and returns the v2 receipt; any
+   other conforming outcome is returned as data with the watermark
+   unchanged, so the same t is still pending and retrying the identical
+   call re-attempts it; a non-outcome answer is folded to
+   :dao.stream/transport-error with the raw answer retained under
+   :dao.stream/answer."
+  [local-stream next-t t datoms]
+  (let [record {:dao.space/transaction {:t t, :datoms datoms}}
+        answer (stream/append! local-stream record)]
+    (if-not (stream/valid-outcome? :append! answer)
+      {:dao.stream/outcome :dao.stream/transport-error
+       :dao.stream/answer answer}
+      (do (when (= :dao.stream/ok (:dao.stream/outcome answer))
+            (swap! next-t inc))
+          (if (= :dao.stream/ok (:dao.stream/outcome answer))
+            {:dao.stream/outcome :dao.stream/ok
+             :dao.space/t t
+             :dao.space/datoms datoms}
+            answer)))))
+
+
+(defn create!
+  "Create a transactor value from a spec — the value, or a throw: the
+   failure modes are a malformed spec and a malformed retained history,
+   both of which a caller can only abort on.
+
+   Validates surfaces, never retention (D2/T18): stream/reader? and
+   stream/writer? check the dao.stream reader and writer surfaces, and
+   neither establishes the complete-retention transport the history scan
+   requires. The host composition supplies a handle created by
+   dao.stream.memory-log/create!; supplying an evicting transport is a
+   host-assembly defect — detectable, deliberately not checked, because a
+   type check would couple dao.space to memory-log by name and reject a
+   future correct complete-retention transport."
+  [spec]
+  (when-not (map? spec)
+    (throw
+      (ex-info
+        "transactor spec must be a map"
+        {:spec spec})))
+  (let [{:keys [local-stream intake-pool name]} spec]
+    (when (contains? spec :next-t)
+      (throw
+        (ex-info
+          "the transactor derives transaction time from retained history; :next-t is not accepted"
+          {:spec spec})))
+    (when-not (and (stream/reader? local-stream)
+                   (stream/writer? local-stream))
+      (throw
+        (ex-info
+          "transactor spec requires a :local-stream satisfying the dao.stream reader and writer surfaces"
+          {:spec spec})))
+    (when-not (and (coll? intake-pool) (seq intake-pool))
+      (throw
+        (ex-info
+          "transactor spec requires a non-empty :intake-pool of streams satisfying the dao.stream writer surface"
+          {:spec spec})))
+    (doseq [intake intake-pool]
+      (when-not (stream/writer? intake)
+        (throw
+          (ex-info
+            "transactor :intake-pool members must satisfy IDaoStreamWriter"
+            {:intake-pool intake-pool}))))
+    (let [t (derive-next-t (index/snapshot-datoms local-stream))]
+      {:dao.space/transactor true
+       :local-stream local-stream
+       :intake-pool intake-pool
+       :name (or name "transactor")
+       :next-t (atom t)
+       :state (atom {:closed false})})))
+
+
+(defn append!
+  "Append one entity map or datom vector as a single atomic transaction.
+1471:  before step 4: an aborted pass reclaims nothing, so a broken reader is
+1485:          (reclaim-and-record judge))))))
+1488:(defn restart
+1489:  "A grantor that has lost its ledger reclaims and re-grants: for each
+1491:  optionally :max -- it performs the reclaim first, then grants afresh,
+1493:  seeds with its now. The reclaim ends the prior tenure; a new grant alone
+1496:  Returns `{:judge ... :unreclaimed [item...] :discarded-queue [fact...]}`.
+1497:  Items whose reclaim did not report success (or threw) are returned under
+1498:  `:unreclaimed` and are not re-granted -- a possessed resource that cannot
+1499:  be reclaimed is reported, not skipped silently. The stale queue of grants
+1501:  `:discarded-queue`. `:seen` and `:answered` SURVIVE the restart: an
+1510:        reclaim (:reclaim judge)
+1511:        {:keys [reclaimed unreclaimed]}
+1513:                  (if (nil? reclaim)
+1514:                    (throw (ex-info "dao.lease: restart needs a reclaim procedure"
+1517:                          (boolean (reclaim (get item :subject)))
+1520:                      (update acc :reclaimed conj item)
+1521:                      (update acc :unreclaimed conj item))))
+1522:                {:reclaimed [] :unreclaimed []}
+1538:                      reclaimed)]
+1540:     :unreclaimed unreclaimed
+1554:;; a renewal advances a bound only as an append that answered
+1746:  assembly by a holder that proposed), the grant's subject and answered
+1810:  have reclaimed. An undersized grant is at the bound from observation on.
+1839:  activity basis advances to that reading only when the append answered
+1889:  `:lapsed`, and there is no reclaim here to perform: the grantor still
+1890:  reclaims and records), and the holder with its own activity stopped --
+1911:  "The one \"may I act?\" predicate, answered for the reading supplied:
+2060:  judge, nor the rule for which incarnation may reclaim, nor fencing --
+2131:  :drain-budget :resolver :reclaim :policy :writer :self :answer -- of
+2204:    (check-assembly! (fn? (get config :reclaim))
+2205:                     "the judge needs a reclaim procedure per subject: (fn [subject] -> success?), idempotent, reporting"
+2206:                     {:reclaim (get config :reclaim) :refused :reclaim})
+2207:    (check-assembly! (some? (get config :writer))
+2209:                     {:writer (get config :writer) :refused :writer})
+2275:  :writer            required: `{:handle :medium declaration}`, the
+2285:  Returns `{:holder state :tick ... :fact ... :writer ... :scope
+2288:  resolver, appends renewals and releases to `(:handle (:writer v))`,
+2295:        writer (get config :writer)]
+2308:    (check-assembly! (and (map? writer)
+2309:                          (some? (:handle writer)))
+2311:                     {:writer writer :refused :writer})
+2312:    (check-medium-declaration! "the holder's outbound medium" (get writer :medium))
+2313:    (check-derived-medium-refusals! [fact writer]
+2324:       :writer writer
+2:  "Content-addressed segment store backed by a private framed append-only
+25:   with the file untouched. Only then is an incomplete tail truncated. No
+38:   records (F5) is the test's view of a path: every decoded frame in order,
+160:  "Open or create the file at path for reading and appending, creating
+178:             (.openSync f .mode dart-io/FileMode.append))))
+216:(defn- truncate-file!
+219:     :cljs (.ftruncateSync ^js (:fs f) (:fd f) offset)
+220:     :cljd (.truncateSync ^dart-io/RandomAccessFile f offset)))
+223:(defn- append-frame!
+246:(defn- sync-file!
+250:  #?(:clj (.sync (.getFD ^java.io.RandomAccessFile f))
+251:     :cljs (.fsyncSync ^js (:fs f) (:fd f))
+263:;; Validate-then-truncate replay (F3, F2, F4)
+283:   [address payload-bytes], with the incomplete tail truncated afterwards.
+289:        records (loop [offset 0, acc []]
+298:    (when (and (pos? end) (empty? records))
+301:    (when (< cut end) (truncate-file! f cut))
+302:    records))
+305:(defn- replay-records
+306:  "Accumulate validated records into the content map. An equal duplicate
+318:  [records]
+328:          records))
+370:                  (append-frame! f frame)
+371:                  (sync-file! f)
+407:   truncate any incomplete tail (F3), replay every record into an
+416:    (try (let [recovered (replay-records (recover! f))
+441:(defn records
+444:   same validate-then-truncate pass as create-content-file, reads and
+282:   (defn- sync-directory!
+288:     (when (directory-sync-supported?)
+290:              (try (.fsyncSync ^js fs fd)
+294:              (throw (sync-failure dir e)))))))
+299:   (defn- sync-directory!
+305:     (when (directory-sync-supported?)
+314:              (throw (sync-failure dir e)))))))
+337:   to a temp file beside it, sync the temp, rename it over the target,
+338:   and sync the directory where the host supports it — a failed
+339:   directory sync fails the replacement. A reader observes either the
+343:   can interrupt — after the temp is synced, before the rename — so a
+360:                    (.sync (.getFD out)))
+368:                  (sync-directory! dir)
+376:                            (.fsyncSync ^js fs fd)
+381:                     (sync-directory! fs dir)
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "sed -n '142,170p' docs/design/dao.space.transactor.md; sed -n '1250,1345p' src/cljc/dao/lease.cljc; sed -n '1380,1486p' src/cljc/dao/lease.cljc; sed -n '340,380p' src/cljc/dao/jing/file.cljc; sed -n '2520,2640p' docs/design/yin.vm.universal-continuation-format.md"[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+## Where durability lives
+
+The local stream is the **authoritative record for the logical stream's
+lifetime** — the watermark and every published index are derived from it —
+and it is **not durable**: `memory-log` is process-lifetime, and a restarted
+process sees a new, empty logical stream with a new identity. That is the
+correct shape, not a shortfall:
+
+- **Stage 1, append** — the write lands in the agent's local stream and no
+  storage handle is touched.
+- **Stage 2, publish** — the covered indexes and manifest are appended to an
+  intake stream and a DaoJing observer materializes them into content
+  storage.
+
+**The durable record is what publication puts in `dao.jing`.** Un-published
+writes are not durable, and never were — v1's local streams were in-memory
+ring buffers, so this was equally true before the migration; the design
+merely claimed otherwise. The pipeline mirrors Datomic's memory-index →
+disk-index, and a memory index is not durable either. A durable *stream*
+transport is not the answer and should not be proposed as the fix: it would
+put a second durable record beside the content store, which is exactly the
+`dao.stream`/`dao.jing` unification `dao.space.query.md`'s *Decisions*
+already ruled out.
+
+## Open items
+
+- **The O(history) watermark replay.** `create!` derives `t` by reading the
+  whole retained history (`index/snapshot-datoms`), and `publish!` rebuilds
+  the indexes from the origin — both correct today *because the transport
+      (assoc judge :queue kept)
+      (let [fact (first remaining)
+            [judge' disposition] (deliver-authored judge
+                                                   fact
+                                                   (get fact :dao.lease/holder))]
+        (recur judge' (rest remaining)
+               (if (= :retry disposition)
+                 (conj kept fact)
+                 kept))))))
+
+
+(defn- answer-and-grant
+  "Step 3: flush queued grants, then let the composition's :answer hook
+  answer the proposals drained this pass and author grants afresh. The hook
+  returns `{:grants [grant-fact...] :refusals [{:proposer author
+  :refusal refusal-fact}...]}` -- a grant answers the proposal of the
+  holder it carries, whose id it echoes, while a refusal names no proposer
+  of its own, so the hook names the proposal's author it refuses. Both are
+  delivered and seeded stamped with this pass's now. A hook-authored fact
+  that is rejected is dropped with a count; one whose append does not
+  answer ok is lost to this pass -- the hook runs again next pass and may
+  re-decide, and nothing queued exists for it."
+  [judge]
+  (let [judge (flush-queue judge)]
+    (if-some [answer (:answer judge)]
+      (let [answers (answer judge (:drained-proposals judge))]
+        (reduce (fn [judge fact]
+                  (let [refusal-entry? (contains? fact :refusal)
+                        proposer (if refusal-entry?
+                                   (get fact :proposer)
+                                   (get fact :dao.lease/holder))
+                        authored (if refusal-entry?
+                                   (get fact :refusal)
+                                   fact)]
+                    (first (deliver-authored judge authored proposer))))
+                judge
+                (concat (get answers :grants) (get answers :refusals))))
+      judge)))
+
+
+(defn- duration-plus-tolerance
+  [units duration tolerance]
+  (if (nil? tolerance) duration (add-duration units duration tolerance)))
+
+
+(defn- silence-suppressed
+  "The leases whose :silence clause is suppressed this pass: when any fact
+  medium's drain was truncated, the leases registered on a truncated medium
+  plus the leases registered on no medium at all -- a lease whose holder's
+  medium the judge has not yet learned cannot have its absence judged while
+  some window was cut short. With no truncated medium nothing is
+  suppressed: a clean drain to quiescence IS an observed window, and a
+  holder who sent nothing observable is silent in it. (A GAPPED medium
+  needs no suppression: the gap's marking already turns the leases it could
+  carry, registered or not, :unknown.) Suppression is sound against
+  untrusted authors because registration requires an authoritative fact, so
+  no one can claim another holder's lease onto a medium they then flood.
+  :release, :cap, :policy and pending retries are never suppressed: a
+  truncated observation window bars silence, not the conditions the ledger
+  already knows."
+  [judge]
+  (if (some :truncated? (:facts judge))
+    (let [on-truncated-medium (fn [lease-id]
+                                (boolean (some (fn [entry]
+                                                 (and (:truncated? entry)
+                                                      (contains? (:leases entry)
+                                                                 lease-id)))
+                                               (:facts judge))))]
+      (set (filter (fn [lease-id]
+                     (or (on-truncated-medium lease-id)
+                         (not (on-any-medium judge lease-id))))
+                   (keys (:ledger judge)))))
+    #{}))
+
+
+(defn- classify-entry
+  "Step 4: why a lease is due for reclaim, or nil when it is not. The first
+  clause that holds in this order is the cause: already pending, keeping the
+  cause it carries -- a pending lease is never reclassified; released by its
+  holder; tenure start further back than :dao.lease/max, which binds within
+  one ledger lifetime and is moved by no renewal or gap; the grantor's own
+  policy; interval since the last relevant observation exceeding duration
+  plus tolerance, in silence. A lease whose evidence is unknown is due for
+  :silence only once a full duration has passed since its resumed reading;
+  every other condition applies to it unchanged. `suppressed?` bars the
+  :silence clauses only (see `silence-suppressed`), and an unknown entry
+  with no resumed reading is never due for silence -- there is no window to
+  measure, and no malformed ledger entry may throw mid-pass."
+  [judge now entry suppressed?]
+  (let [units (:units judge)]
+    (cond
+      (= :pending (get-in entry [:reclaim :state]))
+      (get-in entry [:reclaim :cause])
+
+      (:released? entry)
+      :release
+
+
+(defn- reclaim-one
+  "Steps 5 and 6 for one due lease, as explicit sequencing: mark the lease
+  `pending` with its classified cause FIRST, then invoke the injected
+  reclaim and record whether it reported success -- a throw counts as \"did
+  not report\" and leaves the lease pending -- then append `:lapsed`, and
+  remove the lease from the ledger only when the append answered
+  :dao.stream/ok. A reclaim that fails or does not report leaves the lease
+  pending and unrecorded; a non-`ok` append leaves it pending for the next
+  pass, reached through classification's first clause with its original
+  cause. The record follows the act and never precedes it, and the absence
+  of a `:lapsed` fact is never evidence of tenure."
+  [judge lease-id cause]
+  (let [reclaim (:reclaim judge)
+        entry (get-in judge [:ledger lease-id])]
+    (when (nil? reclaim)
+      (throw (ex-info "dao.lease: the judge needs a reclaim procedure to reclaim"
+                      {:lease lease-id :subject (:subject entry)})))
+    (let [judge (assoc-in judge [:ledger lease-id :reclaim]
+                          {:state :pending :cause cause :success nil})
+          success? (try
+                     (boolean (reclaim (:subject entry)))
+                     (catch #?(:cljd Object :clj Exception :cljs :default) _
+                       false))
+          judge (assoc-in judge [:ledger lease-id :reclaim :success] success?)]
+      (if-not success?
+        judge
+        (let [fact (lapsed lease-id cause)
+              append (append-authored judge fact)]
+          (if (= :dao.stream/ok (:dao.stream/outcome append))
+            (mark-seen (update judge :ledger dissoc lease-id)
+                       lease-id :dao.lease/lapsed)
+            judge))))))
+
+
+(defn- reclaim-and-record
+  [judge]
+  (let [suppressed (silence-suppressed judge)]
+    (loop [judge judge
+           remaining (keys (:ledger judge))]
+      (if (empty? remaining)
+        judge
+        (let [lease-id (first remaining)
+              cause (classify-entry judge
+                                    (:now judge)
+                                    (get-in judge [:ledger lease-id])
+                                    (contains? suppressed lease-id))]
+          (if (nil? cause)
+            (recur judge (rest remaining))
+            (recur (reclaim-one judge lease-id cause) (rest remaining))))))))
+
+
+(defn judge-step
+  "One pass of the judge: the composition's driver calls this at its declared
+  cadence -- a maximum interval between *completed* passes -- and threads the
+  returned judge into the next call. The step is effectful and
+  state-threaded; it owns no scheduler, callback or registry, and reads no
+  clock. The pass, in order:
+
+  1. drain every wired tick cursor, each within the `:drain-budget`; the
+     newest reading drained, or the newest previously observed, is *now* for
+     the whole pass. A tick-cursor gap makes the pass late, not wrong, and
+     marks nothing unknown.
+  2. drain every wired lease-fact cursor, each within the budget, stamping
+     each structurally valid, admissible fact with that same *now* and
+     applying it -- eligible renewals first, whatever a policy may later
+     decide about the lease. A :dao.stream/gap marks every lease
+     authoritatively observed on that medium -- and, conservatively, every
+     lease not yet observed on any -- unknown with *now* as its resumed
+     reading. A cursor whose budget runs out while elements remain is
+     recorded `:truncated?`.
+  3. answer and grant -- queued grants are delivered, and the composition's
+     :answer hook may answer the proposals drained this pass -- both seeded
+     and stamped with this pass's *now*.
+  4. classify: each lease is due for reclaim by the first cause that holds,
+     in order pending (keeping its carried cause), :release, :cap, :policy,
+     :silence. The :silence clauses are barred for leases on truncated
+     media and on no medium yet: absence is evidence only over a window the
+     judge observed, and a cut-short drain is not one.
+  5. reclaim each due lease by the injected procedure, marking it pending
+     with its cause first and recording whether the procedure reported
+     success.
+  6. record :lapsed; on :dao.stream/ok the lease leaves the ledger.
+
+  A pass before any tick has ever been observed performs nothing: there is
+  no *now* to stamp with, and the contract bars classification until a first
+  tick is observed. A drain ending in :dao.stream/end retires that cursor
+  for subsequent passes -- later passes do not call it again. A drain ending
+  in :dao.stream/transport-error, :dao.stream/cursor-mismatch or
+  :dao.stream/invalid-cursor is recorded under :abort and ends the pass
+  before step 4: an aborted pass reclaims nothing, so a broken reader is
+  never mistaken for silence. A throw from the READ itself is folded into
+  the same abort, its message under :abort-error; a throw while PROCESSING
+  a drained value drops that one element -- counted in :dropped, cursor
+  advanced past it -- and judging continues."
+  [judge]
+  (let [judge (assoc judge :abort nil :abort-error nil)
+        judge (drain-ticks judge)]
+    (if (nil? (:now judge))
+      judge
+      (let [judge (drain-facts judge)
+            judge (answer-and-grant judge)]
+        (if (some? (:abort judge))
+          judge
+          (reclaim-and-record judge))))))
+
+
+
+(defn- make-put
+  [state f lock]
+  (fn content-put!
+    [address bs]
+    ;; copy first: the caller owns bs and may change it at any moment, so
+    ;; validation, framing and every comparison see only the snapshot
+    (let [snapshot (cbor/copy-bytes bs)]
+      (when-not (jing/segment-address? address)
+        (throw (ex-info "Not a segment content address" {:address address})))
+      (when-not (jing/segment-bytes-match? address snapshot)
+        (throw (ex-info "Segment address does not match the bytes"
+                        {:address address})))
+      (let [frame (frame-bytes address snapshot)]
+        (with-lock
+          lock
+          (fn []
+            (let [{:keys [closed? content]} @state]
+              (when closed?
+                (throw (ex-info "Content file is closed" {:address address})))
+              (if (contains? content address)
+                (if (cbor/bytes= (clojure.core/get content address) snapshot)
+                  :present
+                  (throw
+                    (ex-info
+                      (str "Collision: address already holds a "
+                           "different payload")
+                      {:address address})))
+                (do
+                  (append-frame! f frame)
+                  (sync-file! f)
+                  (swap! state assoc-in [:content address] snapshot)
+                  :inserted)))))))))
+
+
+(defn- make-get
+  [state]
+  (fn content-get
+    [address not-found]
+    (let [{:keys [closed? content]} @state]
+  cannot append, and retry preserves the occurrence. With arbitration,
+  only a granted holder runs; competitors get `:yin.k/not-holder` or
+  `:yin.k/awaiting-grant`. Reclaim advances the epoch; stale effects fail
+  at commitment. At the enrolled consumer, epoch check, operation-intent
+  check, dedup record, and side-effect commitment share one atomic
+  boundary: equal id and intent return the stored result without a second
+  commit; equal id with divergent intent refuses and commits nothing.
+  A re-grant either replays durable inputs or fails closed on divergence.
+  The grantor's ledger alone completes the occurrence. A partitioned
+  protected consumer suspends admission. Without enrollment, the stream
+  declares at-least-once or fail-stop behavior; without a durable
+  transactable authority the composition offers `:yin.k/fork` only.
+- Landing and order: M4 must land and test exporting before any lift
+  publishes. Exclusive custody, epoch admission, crash recovery, and the
+  `yin.repl.core` handoff composition close in post-M5 hardening, after
+  code, state, and pending waits can round-trip. Until then an unfenced
+  stream declares at-least-once delivery, not exclusive custody.
+
+**Dependency closure (7.6; blocker 3).**
+
+- Invariant: A resumer runs only when every reachable dependency is
+  declared and satisfied, using an isolated store that cannot inherit a
+  receiver task's bindings.
+- Setup: Make code that reaches names through `:store-get` and
+  `:store-put`, a dynamically called closure, two activations of one
+  address with different captured environments, a transitive module
+  closure, and a parked-id reference. Give the receiver a conflicting
+  store binding and a different FFI pair. Omit in turn a segment, module
+  footprint, primitive profile, stream attachment, and parked record.
+- Action and expected outcome: Lift computes the fixed point over
+  address-context pairs and the reachable store slice; lowering checks
+  every requirement before restoring. The resumed task reads the carried
+  binding, uses the receiver's pair only for future calls, routes pending
+  calls to their carried endpoints, and shares no task-local module store.
+  A missing segment reports `:blocked`; an undeclared footprint reports
+  `:incomplete`; missing requirements yield `:yin.k/unsatisfied` with
+  the computed discovery state and missing set. A missing active-value
+  parked ref refuses lift as `:yin.k/non-portable` with
+  `:yin.k/kind :foreign-parked-ref`. No partial lower occurs.
+- Landing and order: M4 must test linker obligations, manifest store
+  footprints, transitive child-install slices, and isolated lowering
+  after encoding and code identity; linker section 11 criteria 15 and 23
+  are the minimum module cases. The full UCF fixed point, scheduler
+  parked records and fresh-name state, and all missing-dependency modes
+  close in post-M5 hardening. M2 format records verify link payloads;
+  they do not prove the task's transitive runtime closure.
+
+**Fenced custody, version 1 (7.2.1, 7.4.3, 7.7.8, 7.9; amendment r5).**
+
+This block adds obligations; it changes no row above. The safepoint
+and portable-encoding rows keep their M4 kept-cursor and reflection
+gate with its meaning and its evidence as written. The stage-1
+handoff tests that landed with M-next A (80b59233,
+`test/yin/vm/ucf/handoff_test.cljc`) are recorded by
+`yin.vm.linker.dht.md` 14.1.3 and by `yin.vm.ucf-revisions.md` I-5;
+they are not moved here and nothing below relies on them as custody
+evidence. The ownership row keeps its own contract; the rows below
+are the wire-level clauses that row's tests must also exercise.
+
+- Invariant: A version-1 body, envelope, binding, and admission
+  outcome mean the same on JVM, Node, and Dart, and every breach of
+  their grammar is a data outcome before a machine is restored or an
+  effect is committed.
+- What M-next B claims: the grammar is published. It lands no code,
+  passes no test, and closes no row. `handoff-version` is still 0.
+- How each clause is tested on three hosts: by canonical byte
+  fixtures decoded on each host, so a rule about integer kind or key
+  presence is checked on the bytes and not on a host number type;
+  and by the ordered host pairs of `yin.vm.linker.dht.md` 14.1.1
+  where a value crosses. Outcomes are compared as data.
+
+Clauses, with the stage that owes the evidence
+(`yin.vm.linker.dht.md` 14.3):
+
+1. Version gate (7.2.1). Fixtures: version 2, absent, a float `1.0`,
+   a version-0 child in a version-1 root. Assert
+   `:yin.k/profile-mismatch` with the found and supported versions,
+   or `:yin.k/undecodable` for the mixed tree, with zero attach
+   calls, zero proposals, and no machine: recursive validation has
+   no side effect. The integral float is refused on Node as on the
+   others. A version-0-only reader refuses a version-1 body. A
+   version-0 body still lowers as a fork on a reader that speaks
+   both; a composition requiring exclusive refuses it. Stage: D.
+2. Custody header (7.2.1). Fixtures omit each required key, give a
+   fork policy, a nil occurrence, an origin equal to the body's
+   occurrence, and header keys other than the origin on a halted
+   root. Root and embedded child are distinguished: any header key
+   on a child, a halted child with an origin included, is refused,
+   and a halted child without one validates. Assert
+   `:yin.k/undecodable` with the path. Stage: D.
+3. Sequence state (7.7.8). Assign-before-append, one increment,
+   retention across `full`, unknown effect, and `:suspended`; the
+   counter restored exactly; children drawing from the root.
+   Stage: D for assignment and restoration; C for durable input
+   replay; E for crash and regrant through the composition.
+4. Carried ids (7.4.3, 7.7.8). An id crosses park, bytes, and lower
+   unchanged on `:put`, `:ffi-request`, and `:link-request`, and the
+   retry is fenced. Fixtures: an id on `:next`, a sequence at or
+   above the counter, a duplicate id, an id in a body without an
+   origin, an id naming the body's own occurrence. Assert
+   `:yin.k/undecodable`. Protection mismatch in each direction is
+   `:yin.k/unsatisfied` naming the stream; a first exclusive export
+   over an attempted write is `:unprotected-pending`. Stage: D for
+   these structural checks. Stage: C for authoritative membership
+   and ancestry: an ancestor id the granted checkpoint never
+   carried is refused, a carried one is admitted, a child's carried
+   id counts, and an orphan successor gives no ancestry.
+5. Explicit park and install completeness (7.4.3), both versions.
+   A `:park` or `:call-effect` reason and an `:install` pending
+   without its entry refuse at decode; a `:parked` body's frames
+   restore in order; a response that fails verification and a phase
+   outside `:running` and `:parked` refuse; each of the two phases
+   crosses with each child kind `:blocked`, `:parked` and `:halted`,
+   a `:running` phase over a blocked child and an explicitly parked
+   child included, and lower preserves both fields; a runnable
+   child refuses export; a restored child continues from its saved
+   state without rerunning initialization or replaying the link
+   request. Version 1 adds: phase and parent required, and a
+   child's carried ids checked in the root's context. The two
+   version-0 defects of `yin.vm.linker.dht.md` 14.3 are fixed with
+   version-0 tests. Stage: D.
+
+[35m[3mcodex[0m[0m
+The ledger-projection approach gives the effect and dedup record a genuine shared commit boundary. But the plan needs an explicit exception to the transactor’s current durability ruling. It also needs stronger reopen semantics and a precise reclaim adapter: reporting “writable” is not the reclaim action the existing lease judge expects.
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "rg -n 'defn.*lock|FileLock|tryLock|mkdir|exclusive|delete|stale' src/cljc/dao/space/store/fs.cljc | head -30; nl -ba collab/1791096045000-architect-linker-m-next-c-implementation-plan.claude-fable-5-1.findings.md | rg 'Journal|poison|reclaim|C1 \\||C7|dedup-only|entity maps|exclusive-capable|remote front|host matrices'; sed -n '110,135p' docs/design/dao.space.transactor.md; sed -n '2650,2698p' docs/design/yin.vm.universal-continuation-format.md"[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+4:   durable-store design's host section): an exclusive directory lock held by the one process
+9:   Lock ownership is an operating-system fact on the JVM — an exclusive
+26:   the directory, then delete the named `<dir>/lock.<pid>.<nonce>`
+65:(defn- refuse-locked
+110:   (defn- node-lock!
+191:(defn- host-lock!
+192:  "Take the host's exclusive lock on `path`, answering its release
+208:              (let [fl (try (.tryLock (.getChannel f))
+209:                            (catch java.nio.channels.OverlappingFileLockException _
+215:                    (try (.release ^java.nio.channels.FileLock fl)
+225:(defn lock!
+226:  "Acquire the exclusive lock of the durable store directory, or refuse
+254:(defn unlock!
+    22	- **Journal (`dao.stream.journal`, new transport).** A complete-retention DaoStream. `append!` canonical-CBOR-encodes the value, writes it as one durable frame, and only then makes it visible through an inner `memory-log`. Frame 0 persists the stream identity, so the identity in `:yin.k/arbitration` survives restart. The backend is a plain-data seam with two implementations:
+    25	- **Atomic admission.** One transition is one pure decision over the projection, then exactly one `transactor/transact!`, so one frame. Effect, result and dedup record are datoms of that one record. Durability precedes visibility. Any non-ok or thrown durable write poisons the handle, and every later admission answers `:suspended` until reopen.
+    30	  - `:reclaim` reports whether the ledger is writable, so the act and the record are the same transaction.
+    65	| C1 | Journal transport with both backends; authority open, close and reopen; projection fold; `enroll!`; dedup-only `admit!`; enrolled-target reader | new `dao/stream/journal.cljc`, `yin/vm/ucf/ledger.cljc`, `yin/vm/ucf/authority.cljc`; tests `test/dao/stream/journal_test.cljc`, `test/yin/vm/ucf/authority_test.cljc` | 8 (equal intent, different intent, fresh commit) | none |
+    66	| C2 | Custody fact constructors and validators; occurrence id form; offer admission; judge writer adapter (grant and bound in one transaction); reader-side `binding-evidence` | new `yin/vm/ucf/custody.cljc`, `yin/vm/ucf/authority/grant.cljc`; tests beside them | 7 (first grant binds 0; invalid bindings) | C1 |
+    67	| C3 | Lapse and epoch in one transaction; reopen reclaims before grant; exhaustion at 2^52-1 | `authority/grant.cljc`, `ledger.cljc` | 7 (reclaim, reopen), 9 (epoch) | C2 |
+    71	| C7 | Durable input records and ordered replay | new `yin/vm/ucf/authority/input.cljc` | 3 (durable input replay) | C3 |
+    72	| C8 | Generated crash-cut matrix over every transition; file-backend reopen on three hosts; cross-host ledger fixture; `exclusive-capable?` gate | tests, `authority.cljc` | re-runs 6 to 9 on the file backend | C1 to C7 |
+    74	Order: C1, C2, C3, then C4 and C5 (separate namespaces, may run concurrently), C7 (may run with them), C6, C8.
+    85	- **Also asserted:** the journal identity and next `t` survive reopen; a torn tail is dropped; a gap in `t` refuses the open; a poisoned handle answers `:suspended`.
+    91	- **Fact shape:** facts are entity maps with an authority-allocated `:db/id`, one entity per fact.
+   100	### C3, reclaim epochs
+   104	- At 2^52-1 the grant is valid and its effects commit. The next reclaim records the lapse, leaves the epoch unchanged, and exhausts the occurrence.
+   113	- **Serialization:** admission and reclaim share one lock on the JVM. The test asserts commit-before-reclaim or refusal-after, never both.
+   117	- A release closes the occurrence and records one edge, in the lapse's transaction, when it comes with accepted resumed evidence from the holder and a readable, valid successor body. A release without that returns the occurrence to offered through reclaim.
+   128	### C7, input records
+   138	- `exclusive-capable?` is true only for a file-backed, lock-held, cleanly reopened authority.
+   147	- a remote front for admission over `dao.stream.apply`;
+   149	- the host matrices and the crash/partition suite.
+   157	**C needs from E:** both host matrices and real process kills through the wired composition, and a per-host durability record.
+   164	2. **C5: completion through the judge.** The reclaim hook only reports writability and the writer does the act. The judge's `:seen` and `:answered` must be rebuilt at reopen so an old `:accepted` cannot reseed tenure.
+   172	- **New `dao.stream.journal.md`:** the transport's spec, excluded outcomes, poison rule and identity persistence.
+   177	- **UCF 7.7.7 and 7.7.8 *Restart*:** reopen reclaims with cause `:policy` and does not regrant automatically; `dao.lease/restart` is not used.
+   178	- **UCF 7.9:** `:suspended` for a poisoned ledger, and where outcomes are delivered and how they are attributed.
+   181	- **`dao.lease.md` or its rationale:** a composition whose reclaim act and `:lapsed` record are one transaction.
+## T18: the local-log wiring requirement
+
+> The host composition supplies `dao.space` a local handle created by
+> `dao.stream.memory-log/create!`. Its declared complete retention makes
+> fresh `:oldest` cursors true origin cursors for `derive-next-t` and
+> `publish-index!`; supplying an evicting transport is a host-assembly defect.
+
+A **declaration, not a check**. `create!` does not and must not verify
+retention, although the misassembly is detectable at least twice over:
+`stream/descriptor` exposes `:dao.stream/type`, so a type check would catch a
+ring buffer today, and the contract's *Complete history* names the kept
+origin cursor as a detection mechanism in its own right. Neither is done,
+on purpose:
+
+- **A type check would couple `dao.space` to `memory-log` by name** and
+  reject a future correct transport — a durable append-only log, a spilling
+  log — that declares the same complete retention. That is precisely what
+  "declared, never interrogated" exists to prevent, and why `dao.stream.md`
+  lists a retention predicate as *Explicitly Absent*.
+- **A kept origin cursor buys nothing here.** On a complete-retention
+  transport a fresh `:oldest` *is* the origin, and the transactor does not
+  create the local stream, so it could not mint at origin even if it wanted
+  to. The mechanism is for consumers on transports that can evict.
+
+So the residual risk is real and accepted deliberately: a wrongly wired
+evicting transport's surviving suffix would be read and reported as the
+   appears in any body. Stage: C for the consumer, D for the writer.
+7. Epoch binding (7.7.8). First grant binds 0; each reclaim raises
+   the epoch by one in the lapse's transaction; a successor starts
+   at 0. A binding by another author, without authenticated
+   common-transaction evidence, duplicated for one lease, or with a
+   float epoch establishes nothing. Reopen the ledger and assert
+   the epoch is recovered and raised, never reset. Stage: C for the
+   authority facts and their atomic provenance, including through a
+   remote reflection; D for the holder, which answers
+   `:yin.k/not-holder` and releases on an invalid binding.
+8. Admission order and outcomes (7.7.8, 7.9). One fixture per check
+   in order: unreadable authority, wrong author, stale epoch, stale
+   lease, closed occurrence, a foreign id, an inherited id from a
+   closed ancestor, equal intent, different intent, fresh commit.
+   Add a cross-target conflict: one id sent to a second enrolled
+   target answers `:intent-conflict` from the shared namespace and
+   quarantines the occurrence. Add forged outcomes: a `:committed`
+   and an `:intent-conflict` from an unattributed author discharge
+   nothing and quarantine nothing. Add an unknown-effect transport
+   error, cut both before and after the remote commit: the id is
+   retained, the retry goes through the fenced boundary, and it
+   commits once or replays the result already held. Add an
+   unreadable accepted checkpoint: an inherited id answers
+   `:suspended` with tenure, quarantine, and dedup state unchanged,
+   and a stale holder still answers `:stale`. Add a snapshot
+   variant that keeps an id and changes its intent or the root
+   counter: the authority refuses it. Assert the exact
+   outcome map of 7.9 for each and that stale wins over an existing
+   record. Stage: C for the consumer, D for the driver.
+9. Bounds (7.7.8). A counter at 2^52-1 assigns nothing and refuses
+   export. An epoch at 2^52-1 is tested twice: while valid, its
+   grant activates and its effects commit; after the reclaim that
+   would increment it, the lapse is recorded, nothing is granted,
+   no successor is eligible, and admission answers `:suspended`
+   before tenure. The values 2^52 and -1 are refused on the bytes.
+   Stage: C for the epoch, D for the sequence.
+10. Composition (linker 14.2.4). The crash, partition, reclaim, and
+    successor-completion contracts run through the wired handoff
+    composition on both host matrices, with crash cuts around
+    completion and around result delivery. Stage: E.
+
+Canonical fixtures prove grammar parity. They do not prove
+atomicity, attribution, or recovery; those need the durable
+transactional seam of `yin.vm.linker.dht.md` 14.2.4.
+
+Not claimed by this amendment, and still owed by the ownership row:
+exclusive custody itself, atomic admission, crash recovery, input
+replay, and the `yin.repl.core` handoff composition. Governance
+recovery, after quarantine, exhaustion, or lost authority state,
+
+[35m[3mcodex[0m[0m
+Completed-GMT: 2026-10-04 06:51:45 GMT
+Completed-Local: 2026-10-04 13:51:45 +07
+
+**1. ACCEPT-WITH-CHANGES — the ledger-projection substrate is sound; the journal, reclaim adapter, and reopen contract need explicit corrections before implementation.**
+
+A target projection makes the effect, its result, and dedup record interpretations of one committed transaction. That satisfies the atomic boundary required by UCF §7.7.5. Other observers can read the same ledger independently; the authority has no privileged global role. Its authority comes from possession of this admission resource, not from being a DHT node.
+
+However, the journal is **an architectural amendment**, not already permitted merely because the transactor accepts a supplied stream. [Transactor T18](/Users/sto/workspace/datomworld/docs/design/dao.space.transactor.md:110) permits future complete-retention transports, while [“Where durability lives”](/Users/sto/workspace/datomworld/docs/design/dao.space.transactor.md:142) explicitly rejects a second durable stream record. Approve a narrowly scoped exception:
+
+> An arbitration ledger may use a durable local stream as its sole authoritative transaction history. Its memory projection and published indexes are derived views, not separately committed authorities. This does not change the ordinary publication pipeline’s durability contract.
+
+The plan must then resolve these concrete issues:
+
+- **Serialize the whole decision.** One lock—or equivalent single-owner step discipline—must cover reading the current projection, checking tenure/scope/dedup, allocating transaction data, appending, and installing the resulting projection. The transactor’s internal timestamp lock alone does not prevent two decisions based on the same stale projection. Grants, reclaim, completion, quarantine, input recording, and admission all participate.
+- **Do not call writability “reclaim.”** The existing [lease reclaim procedure](/Users/sto/workspace/datomworld/src/cljc/dao/lease.cljc:1380) expects the reclaim callback to perform the act before reporting success. The plan’s callback only checks writability. Specify the specialized adapter explicitly: the lapse transaction is the resource’s revocation linearization point, and no judge state claiming successful revocation may escape before that transaction commits. If preserving `judge-step` requires this interpretation, document and test it as a composition contract rather than claiming the existing callback already does it.
+- **Poison the entire authority.** After uncertain durable append or failure between persistence and projection installation, block grants, reclaim decisions, completion, input admission, and protected effects—not merely `admit!`. No stale projection may remain an authoritative reader. Reopen must reconcile persisted frames before reopening service.
+- **Rebuild the judge, not just epochs.** Recover `:seen`, `:answered`, accepted proposal identities, terminal lease history, and unresolved delivery state from authoritative records. Old accepted facts must not reseed tenure; old proposals must not obtain another grant. Rebuild while admission is disabled, then reclaim every recovered live tenure.
+- **Adapt the content file rather than assuming it is a stream journal.** [Jing file puts deduplicate identical content](/Users/sto/workspace/datomworld/src/cljc/dao/jing/file.cljc:340). A general journal must preserve repeated equal appends as separate occurrences. Frame an explicit journal position with each value, or restrict and name the transport as a transaction journal. Persisted identity, positions, duplicate handling, and torn-tail recovery need a transport contract.
+- **Define deterministic transaction ordering.** The transactor explicitly leaves entity-map attribute order host-dependent ([transactor.cljc:64](/Users/sto/workspace/datomworld/src/cljc/dao/space/transactor.cljc:64)). Authority transactions should supply deterministically ordered datom vectors. Define portable bounds for transaction time, input positions, and generated entity counters too.
+- **Keep the durability claim precise.** File-backed, lock-held, and cleanly reopened is insufficient by itself for `exclusive-capable?`. The predicate must include the declared failure model, durable identity/content-reference persistence, and supported locking semantics. Dart’s directory durability limitation cannot disappear behind a boolean.
+
+The accepted-checkpoint content file is not a second commit authority: durable immutable content may precede a ledger reference. An orphan blob is harmless; an acknowledged ledger reference to lost content is not.
+
+**2. REVISE THE SLICING — stage-C obligations are broadly covered, but C1 is oversized and several dependencies are missing.**
+
+C1 currently combines a transport, two backends, recovery, authority projection, enrollment, admission, and a target reader. Split it by contracts, not a 400-line threshold:
+
+1. Journal grammar, memory backend, poison/reopen semantics.
+2. File backend, identity/position persistence, locks and crash recovery.
+3. Authority fold, enrollment, target projection, atomic dedup test seam.
+
+A “dedup-only `admit!`” must remain an internal substrate test helper. It cannot be an exposed protected-admission entry point before binding and tenure checks exist.
+
+The stage-C matrix is otherwise allocated reasonably:
+
+| UCF clause | Plan owner | Required correction |
+|---|---|---|
+| 3: durable input replay | C7 | Define recovery frontier and input delivery acknowledgment. |
+| 4: authoritative ancestry/membership | C5/C6 | Include child operations and unavailable checkpoint behavior. |
+| 6: consumer envelope/diagnostics | C4 | Test diagnostic delivery failure and unauthenticated requests. |
+| 7: grants, binding, reclaim, reopen | C2/C3 | Assign judge reconstruction explicitly to C3. |
+| 8: admission and outcomes | C4/C6 | Add authenticated result redelivery after reopen. |
+| 9: epoch bounds | C3 | Cover exhaustion blocking completion as well as admission/grant. |
+| 10: wired composition | E | C8 proves substrate cuts, not E’s completion. |
+
+Two sequencing changes are necessary:
+
+- **C2 offer admission depends on C6’s baseline validation.** Either extract checkpoint verification and operation-baseline derivation before C2, or make early offers explicitly provisional and ineligible for grants. Do not admit variants first and discover conflicting pending intents later.
+- **C5 depends on successor validation.** It cannot authoritatively close a predecessor using a merely readable map. It needs verified successor content, role/version validation, origin, arbitration identity, fresh occurrence, and operation baseline.
+
+C7 needs more than dense `k` records. Specify when input recording is durably acknowledged, the replay prefix a regranted holder must consume, how it recognizes the end of that prefix, and how new observations extend it. Otherwise “missing replay evidence” is indistinguishable from “no input was recorded yet.” Include reads, gaps, FFI/link results, and ordering across child work.
+
+C8’s repetition is intentional integration coverage, not double ownership. Its statement that C does not build “the host matrices” should be narrowed: C owns its three-host authority/consumer seam tests; E owns the wired holder/candidate matrices.
+
+**3. AGREE — use authority-minted ledger-projection targets for the first enrolled boundary.**
+
+This is a valid concrete realization of the already-approved atomic-resource restriction. The architect pair can settle it now; it does not require a new owner decision unless broader external-effect guarantees are requested.
+
+State the guarantee precisely:
+
+> Exactly-once commitment applies to insertion into the enrolled ledger-projection stream. It does not extend automatically to effects performed by downstream readers.
+
+Forwarding from that stream to an existing FFI or link service remains at-least-once or fail-stop unless that service independently supplies the required transactional admission.
+
+The target reader still needs a complete stream contract: stable identity, opaque positions stable across reopen, ordering, retention, and the exact append receipt stored in the admission result. Define these in the early substrate slices. An enrollment record alone is not a usable stream implementation.
+
+Do not generalize the implementation choice into “all conforming enrolled targets must be newly minted.” A future target that genuinely joins the same atomic resource may conform without this construction.
+
+**4. CLARIFY C/D/E — preserve the separation, but publish the shared interfaces before either side implements them.**
+
+C should own the authority transition functions, durable input/result records, attributed binding evidence, enrollment, and pure checkpoint-baseline inspection. D owns runtime sequence assignment, retained pending state, body restoration, input delivery discipline, and fenced-writer behavior. E owns the wired end-to-end composition and its failure matrix.
+
+Four interfaces are currently underspecified:
+
+- **Checkpoint validation:** C cannot trust a handwritten `carried-ops` traversal while full validation waits for D. Extract a shared pure validator/inspector and common canonical fixtures. D adds restoration; C adds authoritative offer/completion checks.
+- **Result delivery:** C must define durable result enumeration and redelivery with attribution. D supplies correlation and wait discharge. A crash after commitment must not require an ephemeral callback or a lost reply route.
+- **Input replay:** C and D need an explicit request/record/acknowledge/deliver protocol, including replay frontier and child ordering.
+- **Remote admission:** the plan excludes this front from C but later assigns it to D without a clear slice. Assign protocol and attribution contracts in C, driver integration in D, and partition/crash execution in E. Do not postpone the protocol itself to E.
+
+The plan is ready to revise into implementation briefs. It is **not yet ready to hand C1 to an engineer unchanged**.
+
+Read-only review; no files changed or suites run.
+[2mtokens used[0m
+1,539,503
+Completed-GMT: 2026-10-04 06:51:45 GMT
+Completed-Local: 2026-10-04 13:51:45 +07
+
+**1. ACCEPT-WITH-CHANGES — the ledger-projection substrate is sound; the journal, reclaim adapter, and reopen contract need explicit corrections before implementation.**
+
+A target projection makes the effect, its result, and dedup record interpretations of one committed transaction. That satisfies the atomic boundary required by UCF §7.7.5. Other observers can read the same ledger independently; the authority has no privileged global role. Its authority comes from possession of this admission resource, not from being a DHT node.
+
+However, the journal is **an architectural amendment**, not already permitted merely because the transactor accepts a supplied stream. [Transactor T18](/Users/sto/workspace/datomworld/docs/design/dao.space.transactor.md:110) permits future complete-retention transports, while [“Where durability lives”](/Users/sto/workspace/datomworld/docs/design/dao.space.transactor.md:142) explicitly rejects a second durable stream record. Approve a narrowly scoped exception:
+
+> An arbitration ledger may use a durable local stream as its sole authoritative transaction history. Its memory projection and published indexes are derived views, not separately committed authorities. This does not change the ordinary publication pipeline’s durability contract.
+
+The plan must then resolve these concrete issues:
+
+- **Serialize the whole decision.** One lock—or equivalent single-owner step discipline—must cover reading the current projection, checking tenure/scope/dedup, allocating transaction data, appending, and installing the resulting projection. The transactor’s internal timestamp lock alone does not prevent two decisions based on the same stale projection. Grants, reclaim, completion, quarantine, input recording, and admission all participate.
+- **Do not call writability “reclaim.”** The existing [lease reclaim procedure](/Users/sto/workspace/datomworld/src/cljc/dao/lease.cljc:1380) expects the reclaim callback to perform the act before reporting success. The plan’s callback only checks writability. Specify the specialized adapter explicitly: the lapse transaction is the resource’s revocation linearization point, and no judge state claiming successful revocation may escape before that transaction commits. If preserving `judge-step` requires this interpretation, document and test it as a composition contract rather than claiming the existing callback already does it.
+- **Poison the entire authority.** After uncertain durable append or failure between persistence and projection installation, block grants, reclaim decisions, completion, input admission, and protected effects—not merely `admit!`. No stale projection may remain an authoritative reader. Reopen must reconcile persisted frames before reopening service.
+- **Rebuild the judge, not just epochs.** Recover `:seen`, `:answered`, accepted proposal identities, terminal lease history, and unresolved delivery state from authoritative records. Old accepted facts must not reseed tenure; old proposals must not obtain another grant. Rebuild while admission is disabled, then reclaim every recovered live tenure.
+- **Adapt the content file rather than assuming it is a stream journal.** [Jing file puts deduplicate identical content](/Users/sto/workspace/datomworld/src/cljc/dao/jing/file.cljc:340). A general journal must preserve repeated equal appends as separate occurrences. Frame an explicit journal position with each value, or restrict and name the transport as a transaction journal. Persisted identity, positions, duplicate handling, and torn-tail recovery need a transport contract.
+- **Define deterministic transaction ordering.** The transactor explicitly leaves entity-map attribute order host-dependent ([transactor.cljc:64](/Users/sto/workspace/datomworld/src/cljc/dao/space/transactor.cljc:64)). Authority transactions should supply deterministically ordered datom vectors. Define portable bounds for transaction time, input positions, and generated entity counters too.
+- **Keep the durability claim precise.** File-backed, lock-held, and cleanly reopened is insufficient by itself for `exclusive-capable?`. The predicate must include the declared failure model, durable identity/content-reference persistence, and supported locking semantics. Dart’s directory durability limitation cannot disappear behind a boolean.
+
+The accepted-checkpoint content file is not a second commit authority: durable immutable content may precede a ledger reference. An orphan blob is harmless; an acknowledged ledger reference to lost content is not.
+
+**2. REVISE THE SLICING — stage-C obligations are broadly covered, but C1 is oversized and several dependencies are missing.**
+
+C1 currently combines a transport, two backends, recovery, authority projection, enrollment, admission, and a target reader. Split it by contracts, not a 400-line threshold:
+
+1. Journal grammar, memory backend, poison/reopen semantics.
+2. File backend, identity/position persistence, locks and crash recovery.
+3. Authority fold, enrollment, target projection, atomic dedup test seam.
+
+A “dedup-only `admit!`” must remain an internal substrate test helper. It cannot be an exposed protected-admission entry point before binding and tenure checks exist.
+
+The stage-C matrix is otherwise allocated reasonably:
+
+| UCF clause | Plan owner | Required correction |
+|---|---|---|
+| 3: durable input replay | C7 | Define recovery frontier and input delivery acknowledgment. |
+| 4: authoritative ancestry/membership | C5/C6 | Include child operations and unavailable checkpoint behavior. |
+| 6: consumer envelope/diagnostics | C4 | Test diagnostic delivery failure and unauthenticated requests. |
+| 7: grants, binding, reclaim, reopen | C2/C3 | Assign judge reconstruction explicitly to C3. |
+| 8: admission and outcomes | C4/C6 | Add authenticated result redelivery after reopen. |
+| 9: epoch bounds | C3 | Cover exhaustion blocking completion as well as admission/grant. |
+| 10: wired composition | E | C8 proves substrate cuts, not E’s completion. |
+
+Two sequencing changes are necessary:
+
+- **C2 offer admission depends on C6’s baseline validation.** Either extract checkpoint verification and operation-baseline derivation before C2, or make early offers explicitly provisional and ineligible for grants. Do not admit variants first and discover conflicting pending intents later.
+- **C5 depends on successor validation.** It cannot authoritatively close a predecessor using a merely readable map. It needs verified successor content, role/version validation, origin, arbitration identity, fresh occurrence, and operation baseline.
+
+C7 needs more than dense `k` records. Specify when input recording is durably acknowledged, the replay prefix a regranted holder must consume, how it recognizes the end of that prefix, and how new observations extend it. Otherwise “missing replay evidence” is indistinguishable from “no input was recorded yet.” Include reads, gaps, FFI/link results, and ordering across child work.
+
+C8’s repetition is intentional integration coverage, not double ownership. Its statement that C does not build “the host matrices” should be narrowed: C owns its three-host authority/consumer seam tests; E owns the wired holder/candidate matrices.
+
+**3. AGREE — use authority-minted ledger-projection targets for the first enrolled boundary.**
+
+This is a valid concrete realization of the already-approved atomic-resource restriction. The architect pair can settle it now; it does not require a new owner decision unless broader external-effect guarantees are requested.
+
+State the guarantee precisely:
+
+> Exactly-once commitment applies to insertion into the enrolled ledger-projection stream. It does not extend automatically to effects performed by downstream readers.
+
+Forwarding from that stream to an existing FFI or link service remains at-least-once or fail-stop unless that service independently supplies the required transactional admission.
+
+The target reader still needs a complete stream contract: stable identity, opaque positions stable across reopen, ordering, retention, and the exact append receipt stored in the admission result. Define these in the early substrate slices. An enrollment record alone is not a usable stream implementation.
+
+Do not generalize the implementation choice into “all conforming enrolled targets must be newly minted.” A future target that genuinely joins the same atomic resource may conform without this construction.
+
+**4. CLARIFY C/D/E — preserve the separation, but publish the shared interfaces before either side implements them.**
+
+C should own the authority transition functions, durable input/result records, attributed binding evidence, enrollment, and pure checkpoint-baseline inspection. D owns runtime sequence assignment, retained pending state, body restoration, input delivery discipline, and fenced-writer behavior. E owns the wired end-to-end composition and its failure matrix.
+
+Four interfaces are currently underspecified:
+
+- **Checkpoint validation:** C cannot trust a handwritten `carried-ops` traversal while full validation waits for D. Extract a shared pure validator/inspector and common canonical fixtures. D adds restoration; C adds authoritative offer/completion checks.
+- **Result delivery:** C must define durable result enumeration and redelivery with attribution. D supplies correlation and wait discharge. A crash after commitment must not require an ephemeral callback or a lost reply route.
+- **Input replay:** C and D need an explicit request/record/acknowledge/deliver protocol, including replay frontier and child ordering.
+- **Remote admission:** the plan excludes this front from C but later assigns it to D without a clear slice. Assign protocol and attribution contracts in C, driver integration in D, and partition/crash execution in E. Do not postpone the protocol itself to E.
+
+The plan is ready to revise into implementation briefs. It is **not yet ready to hand C1 to an engineer unchanged**.
+
+Read-only review; no files changed or suites run.

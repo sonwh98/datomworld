@@ -1,0 +1,19 @@
+Completed-GMT: 2026-09-24 12:21:24 GMT
+Completed-Local: 2026-09-24 19:21:24 +07
+Coding-Agent: claude
+Session-ID: f9328487-72e9-44e8-a216-0fbb81bf6a2e
+
+`docs/design/yin.vm.linker.md` is now revision r3, 1616 lines, pure ASCII, no line over 80 columns, uncommitted. The named round-2 findings file is not present in `collab/`, so I worked from the eight items in the task and cited the reviewer thread in the status line. Section 13.1 carries the r3 register and section 13.2 keeps the r2 one.
+
+**Per item, all agreed**
+
+1. **Wire request purity.** The example is now two mutually exclusive shapes, by name and by identity. Both present or neither is an invalid request, and that reason is in the refusal table at step 0.
+2. **Module-local definitions.** The format record gains a definitions scanner that yields the constant store keys the image itself binds. It is subtracted from the free names before the join with the manifest, so `(def x 1) x` owes nothing. It also gives an early export-missing check before any child runs.
+3. **Correlation ids.** A link id is now the pair of a task origin tag and the task's counter. The scheduler that owns the link pair mints the origin tag per task, root and each install child, and never reuses it. Multiplexed schedulers need distinct prefixes as composition data.
+4. **Closure relocation.** The `linked` transition is three acts. The parent loads the same verified image through its own loader, the child's export slice is lifted to UCF closure markers relative to the image identity, and the parent lowers them against its alias column or append offset. Executing exports inside the owning child was rejected because it would be a function call across a VM boundary.
+5. **Derivation verification.** The policy is now `:verifying` or `:trusted`, with no path between them. Verifying fetches the tree, re-lowers under the exact per-format profile, and refuses with a new unverified-derivation reason when it cannot recompute. Trusted checks input and output addresses only and names its trust in the outcome.
+6. **Authority.** A bare asserter datom is never honored. An assertion needs a proof: a signature over canonical bytes checked by a composition-supplied verify function, or an attested one-writer log bound to the principal at attachment. Unproven assertions are refused as unauthenticated, retractions need matching proof, and M4's entry tests cover each case. Key acquisition and rotation remain open in section 12.
+7. **Host module boundary.** Section 8.3 now states that the host module is the trusted composition boundary and the profile check is a declaration check, not a proof. Run-time confinement is the capability-token discipline from the advanced-concepts guide, outside the linker.
+8. **Validation ordering.** The contract check is now step 0 at admission, before any fetch or validator, and is repeated against the manifest's declared contract before any derivation or image is fetched. The text names the r2 placement as an ordering defect.
+
+Completion criteria 15 through 19 add tests for each of these.

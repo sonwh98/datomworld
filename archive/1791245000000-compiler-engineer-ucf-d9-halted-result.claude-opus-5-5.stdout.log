@@ -1,0 +1,40 @@
+Completed-GMT: 2026-10-06 20:25:00 GMT
+Completed-Local: 2026-10-07 03:25:00 +0700
+
+The halted result is now encoded before the dependencies are finalized, in both version 0 and version 1. The JVM lanes I ran are green, but I didn't run the Node or Dart lanes. I couldn't print the three fixture-anchor digests directly, so the "fresh cross-process" check is the pin tests in fresh JVM processes. Direct printing was sandbox-blocked.
+
+**Fix.** In `src/cljc/yin/vm/ucf/handoff.cljc`, `export-task` now encodes `:yin.k/result` right after the task store. That is ahead of the module-store snapshot, the installs, the cells/profiles read, the segments read and the code fetch. The body reuses the encoded value. Nothing else in `src` moved.
+
+**Tests.** I wrote five rows first, each over version 0 and version 1, in `test/yin/vm/ucf/lift_v1_test.cljc` with two fixtures in `lift_support.cljc`:
+- a result-only cursor reference
+- repeated aliases
+- distinct cells
+- a result-only module closure
+- repeatable bytes
+
+Each row checks that the cells and profile declarations are complete, that the lift succeeds, and that validation and restoration succeed. The closure row also checks that the module store and its two cells travel, and that the required segments equal the code keys.
+
+**Red.** With the fix removed, `lift-v1-test` gave 35 failures and 6 errors. The cursor rows were refused `:yin.k/undecodable` (`:cell :yin.k/c-1`). The first closure fixture used the wrong segment key, which I corrected before the green run.
+
+**Green.**
+- `yin.vm.ucf.lift-v1-test`: 26 tests, 221 assertions, 0 failures.
+- Surrounding suites (lift, handoff, checkpoint, holder.export, authority, ledger-fixture, custody, remote): 169 tests, 1499 assertions, 0 failures.
+- All `yin.vm.ucf.*-test` namespaces: 324 tests, 3138 assertions, 0 failures.
+- `checkpoint-test` and `ledger-fixture-test`, run twice in separate JVM processes: 21 tests, 298 assertions, 0 failures each time.
+- No fixture pin or D7/D8 byte-for-byte pin moved, and none needed to.
+- kondo: 0 errors, 0 warnings. cljstyle was not run.
+
+I made no git writes. The full report is in `collab/1791245000000-compiler-engineer-ucf-d9-halted-result.findings.md`.
+Restoration is now exercised in all five D9 halted-result rows, for both versions. The JVM suites are green, but I didn't run the Node or Dart lanes. I left the source correction untouched.
+
+- **`restored!` helper.** In `test/yin/vm/ucf/lift_v1_test.cljc`, `accepted-for!` now also calls a new `restored!`. It lowers the emitted bytes through `resume-task` into a fresh receiver, with an attach seam that answers one stream per distinct descriptor. It passes `{:address ...}` for version 1 only, since a version-0 resume is a fork. It asserts `:status :ok` and returns the resumed machine.
+- **Cursor rows.** Result cursor references are authentic under the receiver. Repeated aliases restore to one cursor id, and distinct cursors restore to two.
+- **Closure row.** The result restores as a closure, and its restored `host.mod` module store has two entries. Their cursor references are authentic and distinct.
+- **Fixture fix.** The new restore step exposed a fixture defect: the hand-built closure in `halted-result-closure` failed restoration with `:marker-mismatch`. It now copies the real closure payload and changes only `:env`. This does not affect the lift itself.
+
+Results:
+- **`yin.vm.ucf.lift-v1-test`:** 26 tests, 251 assertions, 0 failures.
+- **All `yin.vm.ucf.*-test` namespaces:** 324 tests, 3168 assertions, 0 failures, 0 errors.
+- **kondo on the two test files:** 0 errors, 0 warnings.
+
+I appended this round to `collab/1791245000000-compiler-engineer-ucf-d9-halted-result.findings.md`. I made no git writes.

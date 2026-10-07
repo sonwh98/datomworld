@@ -1,0 +1,32 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-10-02 16:14:55 GMT
+Completed-Local: 2026-10-02 23:14:55 +07
+
+## Round 5: the four blocking P1s, fixed and covered
+
+All four changes are confined to `src/cljc/yin/vm/ucf/handoff.cljc` and `test/yin/vm/ucf/handoff_test.cljc`, as the brief requires.
+
+### P1-1 — referenced-cells traversal
+`referenced-cells` now draws from one shared root set: a new `reachable-values` returns the cell table, **every frame's registers**, every pending (whose own values include the retained `:put` datom, the `:ffi-request` envelope, and the link envelope), the store, the module stores, the parked records, and the halt result — and `tagged-of` walks map **keys and values both**, so a sealed reference sitting as a store key or literal entry is found too. The pendings' own `:yin.k/cell`/`:yin.k/response-cell` fields still count directly. A cell the encoder minted inside wait-frame registers or an envelope is therefore no `:extra-cell`.
+
+### P1-2 — stream markers across the complete graph
+`resume-task` now attaches `body-markers`: every `:yin.k/stream` marker in that same `reachable-values` set (replacing the old cells-plus-selected-pendings collection), deduplicated by identity inside `attach-all!`. A stream carried solely in a store, closure, register, parked record or the halt result is attached exactly like one a pending names, so the decoder's re-sealed reference resolves.
+
+### P1-3 — child install validation and refusal propagation
+`validate-body`'s installs pass now recursively validates each `:yin.k/child` with `validate-body` itself (decoded CBOR is a tree, so the recursion terminates), before any attachment or restoration. `resume-installs` checks the child's `resume-task` outcome and throws the child's refusal — the parent's `call!` converts it to that data outcome, and since the throw lands before any machine value is assembled, the parent never answers `:ok` over a child that did not lower.
+
+### P1-4 — frame and register validation
+`validate-body` enforces non-empty frames on `:blocked`; `validate-registers` checks field types (`:yin.k/pc` a non-negative integer inside the segment's length, `:yin.k/env` a map, `:yin.k/stack` and `:yin.k/k` vectors) beside presence and segment membership; and the new `check-frame-pc` re-proves on the bytes what the lift proved on the live entry — the resume pc must sit at a static safepoint (`ucf/safepoint-at`) whose `:yin.safepoint/kinds` admit the pending's wire reason, refusing `:yin.k/undecodable` (kind `:reason-mismatch` for an inadmissible reason).
+
+### New test coverage (4 deftests, 17→21 tests, 107→131 assertions)
+- A cell reachable **only** through a wait frame's captured environment, and one reachable only through a retained FFI envelope's argument, both export without `:extra-cell`, appear in the body, and lower `:ok`.
+- A stream reference carried only in a register and the store attaches at the lower, and the re-sealed reference resolves to a live reflection in the receiver's resources.
+- A refused install child aborts the parent both ways: a grammar-broken child (empty child code) is caught by the recursive validation before attachment (`:yin.k/undecodable`), and a child whose cell's route cannot attach propagates `:yin.k/unsatisfied` with the parent not `:ok`.
+- The frame battery: `:blocked` without frames (missing and empty), out-of-bounds pc (9999), negative pc, a resume pc at no safepoint (pc 0 of the reader program), a reason the pc's kinds do not admit (`:reason-mismatch`), and register fields of the wrong type (env as a vector, stack as a map).
+
+### Verification
+- **JVM:** `Ran 2860 tests containing 225982 assertions. 0 failures, 0 errors.` (2,856/225,947 before this round; +4 tests/+35 assertions are the new coverage)
+- **Node:** `Ran 2677 tests containing 91397 assertions. 0 failures, 0 errors.` (2,673/91,370 before)
+- clj-kondo 0 errors / 0 warnings and cljstyle clean on both touched files; every line ≤ 80 columns, pure ASCII, no em dashes. Nothing committed or staged; the tree still carries only the stage-1 files plus this round's edits to the two permitted files.
+
+Status: COMPLETE

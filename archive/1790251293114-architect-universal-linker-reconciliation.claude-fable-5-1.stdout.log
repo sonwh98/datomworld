@@ -1,0 +1,27 @@
+Completed-GMT: 2026-09-24 12:08:01 GMT
+Completed-Local: 2026-09-24 19:08:01 +07
+
+`docs/design/yin.vm.linker.md` is rewritten as revision r2. It stays pure ASCII with every line at most 80 columns, now 1342 lines, still uncommitted. Section 13 of the document carries a reconciliation table, and the substance of each ruling follows.
+
+**P1 findings, all agreed**
+
+- **AST hash drops the tag.** Agreed. The format record now hashes the body exactly as fetched. The address is prepended only when the tree is assembled for whole-tree validation in step 4.
+- **Link request carries functions.** Agreed. The wire request has a closed key set of id, format, contract, and one of name or identity. Formats, indexes, and the name environment live in linker-local state built once by the composition. Anything else on the wire is refused as an invalid request. One divergence: the receiver's capabilities are not sent either. Discharge runs at the receiver against live state, because a snapshot on the wire is stale by construction. A remote index is observed into local state through the linker's own cursor, so step 1 never queries inline.
+- **Names, not profiles.** Agreed. Step 5 splits into two halves. At the linker, free names are joined with the manifest's declared primitives and required modules to form obligations. At the receiver, each obligation is discharged only by exact profile address or manifest address equality. A free name the manifest never declares is a new refusal.
+- **Wait entry incomplete.** Agreed. The entry now has two states, one for an unsent request retaining the full envelope and both stream descriptors, and one awaiting the reply. The response cursor is minted before the append, per the stream contract's rule for observing caused events.
+- **Correlation unspecified.** Agreed. Restoration requires an exact id match. Duplicate, late, unknown, and abandoned ids each have a fixed handling. Divergence: I chose per-entry kept cursors that advance past non-matching responses rather than one router cursor, so a parked entry remains a UCF cell and can migrate.
+- **Install cannot be synchronous.** Agreed, and the earlier "no new machinery" claim is withdrawn in the text. Installation is a scheduler child task with explicit phases, its own isolated store and wait-set, and a waiter set for other tasks requiring the same module. A cycle through the install ancestry is refused rather than deadlocking.
+- **Four-way pairing unverified.** Agreed. The manifest pins one canonical tree address and one content-addressed derivation record per lowered format, in the shape the ledger already mints. The linker checks each record's input and output, and either re-lowers under a matching profile or names the trust it extended. Swapped-image tests for all four formats are in M4.
+- **Manifest name unchecked.** Agreed. The declared name is compared with the requested one right after manifest validation.
+- **Authority open at M4.** Agreed. A fail-closed policy is now an M4 entry criterion: assertions need an asserter datom, only accepted principals count, the linker reads one fixed snapshot, retractions are honored, and more than one surviving address is an ambiguity refusal. How principals authenticate stays open and is named as such.
+
+**P2 findings, all agreed**
+
+- Strict address decoupling is now stated plainly as holding for H and R only, with the pinning amendment recorded as a UCF and code-as-tuples decision.
+- Storage-derived identities verify with address-directed matching so a value minted under another registered algorithm cannot fail spuriously.
+- Row-local validation runs before any child is enqueued, and composition bounds on parts, depth, and bytes produce a refusal.
+- The synchronous fetch now takes a link runtime with a driver and holds no content handle. M3 includes a traffic-equivalence test with a call-counting server handle.
+- The DHT handle sits behind the served content boundary. Equivalence is claimed only at the linker's boundary, and a stepped DHT client is listed as out of scope.
+- Host-module registration enforces UCF profile classes, refusing host-state functions and requiring effectful exports to return plain effect data.
+
+The file is not committed, and both collab prompt files remain untracked.

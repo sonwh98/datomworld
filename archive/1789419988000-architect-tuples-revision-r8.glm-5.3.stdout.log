@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+r8 is complete. `docs/design/yin.vm.code-as-tuples.md` is now revision 8 (1955 lines, 413+/370− vs r7), uncommitted in the working tree, ready for astra's re-review.
+
+**What changed, per the charter's delta map:**
+
+- **Header** — eight rulings, ruling 1 marked clarified 2026-09-15, round-trip law as ruling 8; re-verify date updated.
+- **§1** — the Content example is now the row `[A :lambda [x] B]`; a "where the semantic layer lives" paragraph pins the map AST as a presentation, not a fourth layer; flat rows moved out of Query into Content.
+- **§2.1** — inverted: map AST = semantic layer (walker's exact form, `ast_walker.cljc:359-469`/`600-626` verified today); rows = canonical artifact. The merkle circularity is resolved explicitly: a row's id is `segment-key` of its **body** (tag + slots, children as ids); the stored row prepends the id. DAG-vs-packed stated as an open implementation note. Erlang citation withdrawn.
+- **§2.2/§2.3** — the grammar table gained a **Slots** column (map key names: `value`, `params body`, `operator operands tail?`, …) and a Row body column; the arity ↔ key-set correspondence is stated as the dictionary of both directions.
+- **§2.4/§2.5** — restated as one-directional boundary rules (strip/saturate happen map→rows, never reverse).
+- **§2.6** — frame re-scheme withdrawn; reduced to a walker-local note keeping the reasoning.
+- **§4** — per-row merkle ids, tree address = root row id; §4.2 untouched verbatim; §4.3 dissolved (every node addressed by construction); §4.4 sharing is structural in the stored DAG.
+- **§6.1** — direction inverted: rows are storage; `map → rows` is the standing frontend contract, `rows → map` is load-time reconstruction with `datoms->ast` (`v2.cljc:494-559`, verified) as precedent.
+- **§7.1/§7.2/§7.4** — walker loads by validate → reconstruct → set `:program`; §7.2 now has four parts with the round-trip law as part 1; §7.4 gained `:id-resolves`, `:acyclic`, `:root-reachable` mirroring `:target-bounds` (with the note that acyclicity is also implied by the per-row address check).
+- **§9.1** — shrank to the boundary: walker/tests untouched, loader + projection new, linearizer reads the row relation (same `get-attr` shape it has today), codec = rows⇄datoms pair, the r7 adapter rules became the standing contract; test-count table and §2.6 sweep rows deleted.
+- **§10** — blockers stand; item 12 dissolved; item 13 adds the round-trip law.
+
+**Not changed**, as mandated: §5 substance (one uniformity sentence added per constraint 4), §6.3/§6.5, §7.5–§7.7 mechanisms, §8, §4.2 verbatim. Two description-level fixes were required by the ruling itself: §7.6's `(nth node 0)` walker-dispatch claim (now false — corrected to `(:type node)`) and §7.7's "flat projection" phrase.
+
+**House format**: all tables regenerated programmatically and verified — 19 tables, uniform width ≤170 chars, aligned pipes. This also normalized pre-existing 171-char irregular rows r7 had shipped in §2.2 and §7.1. All newly-cited line anchors (`ast_walker`, `v2.cljc`, `linearize.cljc`, `jing.cljc`) were re-read today.

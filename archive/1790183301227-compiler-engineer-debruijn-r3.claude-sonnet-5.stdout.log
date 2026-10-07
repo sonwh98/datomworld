@@ -1,0 +1,31 @@
+```text
+Completed-GMT: 2026-09-23 17:25:00 GMT
+Completed-Local: 2026-09-24 00:25:00 +07 (Indochina Time)
+Coding-Agent: claude
+Session-ID: 1ff9efa8-f088-467a-8507-c94697603dc5
+```
+
+The contract version is back to 1, the CLJS classification fix is in, and the JVM tests pass. CLJS and cljstyle are still unverified, and the line-length and ASCII checks for the changed files were not run this round.
+
+**1. Changed files** (nothing staged or committed)
+```
+docs/design/yin.vm.debruijn-projection.md |  40 ++++++----
+public/chp/blog/yin-vm-vs-unison.blog     |  18 ++++-
+src/cljc/yin/vm/debruijn.cljc             | 119 ++++++++++++------------------
+test/yin/vm/debruijn_test.cljc            |  65 ++++++++--------
+```
+The stat is cumulative against HEAD, so it includes last round's edits.
+
+- **Contract version:** `contract-version` is 1 and is in `descriptor`. The docstrings, the projection doc and the blog now say Version 1. The doc no longer describes a withdrawn "Version 1 folded integral doubles" rule. It says an earlier draft did and the unreleased contract never shipped it.
+- **CLJS fix (P1):** I removed the `>= 2^63 -> :double` clause from `js-number-class`, so any integral number outside the safe range now returns nil. In the tests, `9.3e18 :double` is gated off CLJS. New CLJS-only assertions check that `(d/canonical-class 9.3e18)` and `(d/canonical-class 9223372036854775808)` are nil. Those two assertions have not run.
+- **Blog line length (P3):** I split line 40 into short Hiccup elements, all under 80 columns. Text and rendering are unchanged. The neighbouring `<li>` lines are still long. I did not touch them because the prompt only named line 40.
+
+**2. New pins under Contract Version 1**
+- Descriptor hash: `90a5235794c9eac968490d343633e30c68d1a96093125df7ad1ac3c7398a43d4`
+- Essay fingerprint: `dca760e0b5e2416fbb8e88f41539f6bdcb8708c19079e26f5cbec3fd1c93c3ad`
+
+**3. Tests and lint**
+- `clojure -M:test -n yin.vm.debruijn-test -n yin.vm.pipeline-test`: 97 tests, 457 assertions, 0 failures, 0 errors.
+- Kondo on the source and test files: 0 errors, 0 warnings.
+- `cljstyle check` was blocked pending approval last round, and I did not re-run it. Please run it yourself or approve it.
+- CLJS and CLJD were not re-run this round. Last round CLJD passed, but CLJS could not start because `node_modules` was missing.

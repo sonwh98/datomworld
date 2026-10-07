@@ -1,0 +1,26 @@
+Completed-GMT: 2026-09-16 14:52:00 GMT
+Completed-Local: 2026-09-16 21:52:00 +07 (Asia/Ho_Chi_Minh)
+
+# Architect sign-off — U4: browser REPL client on the v2 wire
+
+## Verdict: APPROVE-WITH-FINDINGS
+
+## Findings
+
+1. **The stated host-isolation rationale is inaccurate, though currently harmless.** `yin_repl.cljs`'s docstring and plan D3 both claim that composing `browser-adapter` directly — instead of going through `yin.repl.host` — is what keeps Node's `ws` package (and `js/require`) out of the browser bundle. That's not actually what protects it. `yin_repl.cljs` requires `yin.repl.driver` (it has to, to call `driver/create-state`), and `driver.cljc:21` requires `yin.repl.host` unconditionally. For the `:demo` build (`:target :browser`, `shadow-cljs.edn:9`), that resolves to the Node shadow `src/cljs/yin/repl/host.cljs`, which requires `dao.stream.ws.node` (`host.cljs:9`), which requires the npm `ws` package (`node.cljs:28`) — a real dependency (`package.json:18`). So the browser bundle *does* transitively pull in the Node host chain regardless of how the demo composes its own adapter — the "compose directly" pattern doesn't avoid what it claims to. It compiles and runs clean today only because `ws` ships a `browser` field in its own `package.json` remapping to `browser.js`, a stub that throws only if *called* (confirmed: `node.cljs` never calls `ws-package` at module scope, only inside `connect!`/`listen!` bodies, which the demo never invokes). Real host isolation here is accidental, resting on an external package's convention that nothing in this codebase names, tests, or seems aware of — not on the architecture the code and plan credit. Not a functional defect; the orchestrator's clean `:demo` build already proves it works today. But the documented reasoning should be corrected, and the fragility is real: a future host adapter without a safe `browser` stub would break the browser bundle with no compile-time signal, and nobody would think to check because the comment says this was already handled. This is a gap the adversarial review missed — it took the same rationale at face value in its finding 4.
+
+2. **Adapter contract compliance — confirmed by direct reading.** `browser.cljs:75-87`'s `connect!` starts the DOM `WebSocket` and synchronously returns `{:send! :close!}`, matching `dao.stream.ws/make-attacher`'s host contract. `browser-adapter` (`{:connect! browser/connect!}`) satisfies `yin.repl.host.common/adapter?` and correctly not `binder?` (`host/common.cljc:26-32`) — matches the review's claim.
+
+3. **Single state-owner discipline — confirmed.** One `setInterval`, started once via `defonce ticker-started?` at namespace load, is the sole writer of driver state. `eval!`/`connect!`/`disconnect!` only call `driver/submit-line!` (append-only to the input medium), never touch driver state directly.
+
+4. **Test quality — confirmed solid.** `browser_test.cljs`'s deterministic DOM `WebSocket` shim proves synchronous return, the exact `{"message" "close" "error"}` subscription set (no `open`), full-while-establishing backpressure, binary-frame classification into the fixed marker, and terminal `:ws/opened`/`:ws/error`/`:ws/closed` deposits — a real behavioral proof, not a smoke test.
+
+5. **Diff minimalism — confirmed.** `git diff demo.cljs` is exactly the one-line require repoint (`yin-repl` → `yin-repl`); v1 `yin_repl.cljs` is untouched.
+
+## The unverified manual check — explicit position
+
+**Not a blocker. Record it as a condition the user must separately confirm before the unit is truly done.**
+
+The automated coverage here is unusually strong for what it can reach: the adapter's DOM translation is proven deterministically (finding 4), and the contract is structurally verified end to end (findings 2–3). The only thing nobody has verified is a live round-trip through a real OS-level browser socket plus a real long-running server process — no environment available here (or plausibly any headless agent sandbox) can exercise that. This is the same shape of gap U2's Flutter widget smoke test already has in this same plan, and the plan itself treats that as an accepted manual gate rather than a hold on the unit. Treating U4's manual check the same way is applying an existing precedent, not inventing a new exception for this unit.
+
+So: this diff can land as-is. Before the unit is considered fully done, the user (or anyone with a browser and the ability to run a long-lived process) needs to run the plan's stated U4 manual check: `clj -M:clj-yin-repl --port 8080 --headless`, connect from `/demo.html#yin-repl`, `(+ 1 2)` → `3`, kill the server and confirm a detached notice appears (not a timeout), then restart the server and confirm reconnection works. That confirmation is owed, not optional — but it does not gate committing this diff.

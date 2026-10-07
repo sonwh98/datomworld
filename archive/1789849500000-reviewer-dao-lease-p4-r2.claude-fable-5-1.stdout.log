@@ -1,0 +1,53 @@
+Completed-GMT: 2026-09-19 20:07:22 GMT
+Completed-Local: 2026-09-20 03:07:22 +07
+
+# Phase 4 r2 confirmation
+
+**Phase 4 is not ready for commit.** One of the two new derived refusals, the capacity rule, is wrong, and the mistake was mine. The sketches also exposed a real composition gap, F2 below. The P1 and the five other fixes hold. I edited nothing and did not rerun suites.
+
+| Finding | Disposition | Evidence | Remaining action |
+|---|---|---|---|
+| P1 nil `:self` | **Fixed** | `initial-judge` refuses it (`lease.cljc:678-680`). A matrix row was added. `nil-resolver-answer-never-counts-as-grantor-test` forges an `:accepted` on an unknown medium, and only `:l1` holds tenure (test:419-453). | None. |
+| P2 medium declaration | **Partly fixed; one derived refusal is wrong** | `:medium` stays on the wired entry (2098-2109). The `:durable?` with `:host-values` refusal is sound (2086-2089). | See F1. |
+| P2 explicit tolerance | **Fixed** | `make-judge` refuses a missing tolerance (2185-2187). `initial-judge` still treats nil as zero. | None. |
+| P2 holder outbound | **Fixed** | `:writer` and its declaration are required and returned (2251-2255, 2268). | None. |
+| P2 both halves end to end | **Fixed** | `composed-both-halves-cycle-test` observes the grant, renews through `(:writer …)`, stops, and gets a `:release` lapse (test:456-545). | See F3. |
+| P2 sketches | **Improved; one still flattens the real envelope** | The carriage step filters `:lapsed`, and the test would fail without the filter, because the writer holds a `:lapsed` and only the grant arrives (test:659-727). The JVM test drives a real `serving` session, and one real step retires it (729-799). | See F2. |
+| P3s | **Fixed** | Check order (2159-2160). `:complete` needs no capacity. `:refused` keys. Docstrings softened. | None; I did not re-read the tick driver or its reader-conditional order. |
+
+## Remaining defects
+
+**F1 (P2; fix before commit) | `lease.cljc:2090-2095` | The refusal "`:evict-oldest` capacity below `:drain-budget`" refuses sound configurations, and it was my example.**
+- The rule has no safety content in either direction.
+  - A budget larger than the capacity means a single pass can drain the whole medium. That is the safe case.
+  - A budget smaller than the capacity truncates the drain. The `:silence` suppression already covers that case.
+- S3's actual relation is the retention window against how many facts are appended per cadence interval. The budget has no part in it.
+- With the default budget of 256, every small per-holder medium is now refused.
+- The test tree shows the cost. `standard-medium` was changed to declare `:capacity 512` (test:81-89). The handles behind it are `(new-buffer 8)` and `(new-buffer 16)` (test:94-96, 460-464). The rule forced false declarations across the suite, and nothing can detect them.
+- A budget that is not an integer also reaches `<=` here before `initial-judge` validates it, so the throw is a raw host error.
+- Remaining action:
+  - Delete the capacity refusal and its matrix row.
+  - Restore honest capacities in the fixtures.
+  - Keep the `:host-values` refusal.
+  - If an S3 check is wanted, it needs a declared append rate per cadence interval. That belongs to a later plan.
+
+**F2 (P2; decide before commit) | test:705-708, 783-784; `ws.cljc:166-169` | The judge cannot read the real `:ws/attachment` envelope.**
+- The transport deposits `{:ws/attachment a :ws/event e :ws/value payload}`.
+- A lease fact would sit under `:ws/value`, so `lease-fact?` sees no dispatch key on the envelope and ignores it. The judge has no unwrap seam.
+- Both sketches work around this.
+  - They `assoc` `:ws/attachment` onto the renewal itself.
+  - They append it straight to the buffer, bypassing the transport.
+  - In that shape the key is set by the holder. A holder could write `:ws/attachment :grantor`.
+- D4 names `:envelope-key` attribution, and it is currently unusable against the one envelope this codebase has.
+- Remaining action, one of two options:
+  - Add an optional per-medium `:unwrap` function, `(fn [value] -> fact)`, applied in `process-fact-value` before `lease-fact?`. The resolver then receives the whole envelope. Have the JVM sketch deposit a real envelope.
+  - Or record this in §6 as owed, and add a comment to the sketches saying that the flattened shape is not the transport's and that the key, as modelled, is self-asserted.
+
+**F3 (P3) | test:545 | One assertion cannot fail.**
+- `(is (empty? (get @judge [:ledger])))` looks up the vector `[:ledger]` as a key, gets `nil`, and passes.
+- It should be `get-in`.
+- In the same test, `holder-ticks` is appended to but never drained. The readings are passed as literals, so the holder's `:tick` wiring is not exercised.
+
+**F4 (P3) | `lease.cljc:2256-2258` | `make-holder` demands `:durable-judge` from a holder.**
+- This stands from r1.
+- No action is required for commit.

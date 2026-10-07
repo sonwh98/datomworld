@@ -1,0 +1,7 @@
+**Verdict: APPROVE.** The r8 body does not contradict either clarification. Both were already the document's substance in §1, §2.1, §6.5, §7.1, §7.6, §9.1, §9.2, and §9.3. The staged intro only names them more directly.
+
+Findings, most substantive first:
+- **How `dao.space.index` indexes rows must be stated.** The intro says the index observes the row stream and indexes it into `dao.jing`, but by its own design in `docs/design/dao.space.index.as-observer.md` the index admits only d5 datoms. The document already holds the reconciling mechanism, the pure datom projection of §6.5. It needs one sentence saying the composition applies that projection in front of the index fold, and blocker 9 should absorb this as part of the observer-lane batch contract. Non-blocking.
+- **Two senses of "canonical" now collide.** The new intro calls the map AST canonical. §2.1 says none of the maps is canonical and the rows are the canonical artifact. Qualify both: canonical semantic representation for the map, canonical stored form for the rows.
+- **"Act like bytecode… the semantic VM can execute it"** reads as if the VM executes AST rows. §5 and §7.1 say it lowers them to the instruction vector first. A short parenthetical fixes it. Also "linearization" in the intro names map to rows, while the body reserves that word for AST to instruction vector.
+- **Smaller items.** "Universal AST" appears only in the intro and needs one gloss in §2.1. §9.2 cites a stale batch key name against §8.5. The §1 layer table's query-layer keeper could name `dao.space.index`.

@@ -1,0 +1,22 @@
+**Verdict: REJECT.** F1 through F6 and §10 item 14 are applied correctly where they land, but six residuals remain. Three are the same class of defect the last review rejected: environment-based name discharge surviving in later sections. The full review is written to the plan file at `/Users/sto/.claude/plans/read-collab-1789421900000-fable-rereview-greedy-squirrel.md`. ExitPlanMode is not available in this session, so the findings are summarized here.
+
+I verified two code facts the review depends on. The mnemonics `:var` and `:closure` already exist in `src/cljc/yin/vm/code.cljc`, so only `:global` is new. Today's `:var` resolves by name through store, primitives, and modules, so the no-fallthrough rule changes resolution precedence, which UCF §7.3.3 says the contract stamp versions.
+
+**Required fixes**
+
+- **R1, §7.7.3 line 1240.** "every obligation was discharged in its own context" contradicts §7.7.2. Replace with "every `:global` obligation was discharged by the store slice by key or retained as a profiled primitive or module requirement".
+- **R2, §10 item 8 line 1879.** "replaced by the per-context rule" is the pre-De Bruijn formulation. Replace with the store-slice-by-key / profile rule of §7.7.2.
+- **R3, §7.7.3 lines 1209-1212.** "each enters the segment with its own environment and so carries different obligations" is false once name obligations are static per address. Reword: different environments reach different values and so contribute different work items, while the segment's name obligations are identical.
+- **R4, contract stamp.** §5.1 says the grammar changes "under a new execution contract", yet §5.2, §7.7.1, and §8.2 still write `"v2"`. Either name a new stamp and use it everywhere, or state once in §5.1 that the unpublished `"v2"` is amended in place. The document currently does neither.
+- **R5, §7.4 `:variable-bounds`.** It is listed before `:id-resolves`, `:acyclic`, and `:root-reachable`, but computing enclosing lambda arities along a path needs all three to have held first, and §7.3 says rules may assume earlier ones. Also, rows form a DAG, so one `:variable` row can sit under different binder depths at different paths. Move the rule last and scope it per path, not per row. Optionally add a vector counterpart in §7.5.
+- **R6, De Bruijn convention line 304.** "A `:lambda` of arity `n` contributes slots `0..n-1`" holds only for the innermost binder. State the offset for outer lambdas explicitly.
+
+**Minor, same pass**
+
+- §9.1 preamble claims no arm or corpus test changes, contradicting its own table and §2.1 line 156. Qualify it.
+- §9.1 codec row adds `:yin/index` but omits `:yin/arity`.
+- §7.7.2 hedges "nil (or traps)". Pick one.
+- §7.5 `:operand-kind` should say non-negative integer to match the `int` kind.
+- §2.5 "names are stripped in favor of indices" implies the projection resolves names, but §6.1 has no such step. Say the frontend resolves before emitting the map AST.
+
+Verification after edits: grep §7.7 and §10 for "context" and "environment" and confirm no sentence lets an environment discharge a `:global`; grep for `"v2"` and confirm one stamp story; confirm §7.4 rule order matches §7.3's dependency claim.

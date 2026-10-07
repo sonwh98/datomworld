@@ -1,0 +1,46 @@
+Completed-GMT: 2026-10-05 21:41:49 GMT
+Completed-Local: 2026-10-06 04:41:49 +07
+Coding-Agent: claude
+Session-ID: 820fb1cc-b82c-4ee6-96c7-7a170107243d
+
+# head-h2 round 4 report
+
+Both rulings are applied and the 21-namespace JVM run passes: 302 tests, 2985 assertions, 0 failures. I checked the item-2 citation before changing anything, and it holds. `dao.stream/valid-descriptor?` only requires the identity *key* to be present, so a descriptor with `{:dao.stream/identity nil}` attaches. The identity branch of `absorb!` then compared a missing identity (`nil`) with the reflection's `nil`, so an answer with no identity could consume that reflection's probe.
+
+## 1. The unsendable memory is gone
+
+**Code (`remote.cljc`):**
+- `:unsendable` is removed; `grep` finds no occurrence left.
+- In `resolve-name`, `ok` and `full` still answer retry. Every other refusal returns the writer's own outcome, leaves nothing outstanding and is remembered nowhere.
+- The `resolve-name` docstring now says the same.
+
+**Contract (`dao.stream.remote.md` 2.4):** the old text, from "A send the channel writer refuses" through "until channel loss.", is replaced with the sentence verbatim. The paragraph is rewrapped.
+
+**Tests (`remote_test.cljc`):**
+- `an-uncarryable-name-is-a-terminal-resolve` is the one test reworked, as instructed.
+  - For `invalid-value` and for `closed`, three calls give the same writer outcome and **three** sends are attempted.
+  - `:outstanding` and `:filed` stay `{}`.
+  - A new case resolves 100 distinct refused names. Afterwards `:outstanding` and `:filed` are `{}`, and no name appears anywhere in the link's value (checked with `tree-seq` over the whole link map).
+  - The `full` case is unchanged.
+- The tests reach the link through a reflection attached on the same `links`, via its `:link`. That needed no new API. I left the field access without a type hint so ClojureDart has nothing to resolve.
+
+## 2. An answer with no identity completes no identity request
+
+**Code:** the identity branch of `absorb!` now requires `(contains? v :dao.stream/identity)` before comparing. The `absorb!` docstring says so. The named branch is untouched.
+
+**Contract:** the sentence is inserted verbatim after "it echoes the name asked."
+
+**Tests:** `an-answer-with-no-identity-completes-no-identity-request`.
+- For a reflection with a `nil` identity, an answer with no identity key is dropped, the reflection is not gone (`cursor` answers retry), and probe id 0 stays outstanding. This holds for both `not-found` and `oversize`.
+- A separate case covers an explicit `nil` identity. It still matches as before H2, and `not-found` marks the reflection gone.
+- Without the fix, the absent-identity `not-found` case would mark the reflection gone, and the `oversize` case would consume the probe.
+
+## Commands and outcomes (foreground)
+- **The 21-namespace combined run** (the same command as rounds 2 and 3) gave **302 tests, 2985 assertions, 0 failures, 0 errors**.
+- **`clj -M:test -n dao.stream.remote-test`:** 33 tests, 337 assertions, 0 failures.
+- **`clj -M:kondo --lint src/cljc/dao/stream/remote.cljc test/dao/stream/remote_test.cljc`:** 0 errors. There is 1 warning, the unused `peer2` at `remote_test.cljc:661`, which predates H2.
+- **`dao.stream.remote.md`:** no line over 80 columns and no non-ASCII character. Both new sentences are present verbatim, at lines 325-328 and 330.
+
+## Unresolved
+- **Follow-up, outside H2 and unchanged:** whether a reflection may have a `nil` identity at all. `valid-descriptor?` accepts `{:dao.stream/identity nil}` today, and the explicit-`nil` test documents the behaviour as it stands.
+- Node and Dart lanes were not run, per the brief.

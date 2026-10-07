@@ -1,0 +1,23 @@
+Port complete. Summary:
+
+## Files
+- **`src/cljc/dao/await.cljc`** (ns `dao.await`) — v1 surface (`go`/`go*`, `cursor`, `<!`, `>!`, `run`, `resume`) on `yin.vm` + `dao.stream`. Requires only `dao.stream`, `yang.clojure`, `yin.vm`, `yin.vm.ast-walker`, `yin.vm.module` — zero v1 namespaces; v1 files untouched.
+- **`test/dao/await_test.cljc`** (ns `dao.await-test`) — all 14 v1 tests ported plus 3 v2-specific ones (17 total).
+
+## Port decisions (v1 → v2 divergences)
+- **Registry is a value.** v1 registered `'await`/`'dao.await` globally via a load-time `delay`. v2 exposes `(registry base)` that layers the await bindings onto any `yin.vm.module` registry; `run` supplies it to the VM (Route 1, module aliases, as in v1).
+- **Resume is a poll.** No `:woke` — no v2 transport is waitable. `(resume blocked)` is `vm/eval vm nil`: the scheduler polls the wait set (`next` for parked reads, `append!` retry for parked writers) and continues what the poll resolves.
+- **`run` opts pass through** to `ast-walker/create-vm` (`:make-stream`, `:call-in/out`, `:bridge`); `:env` comes from the process, `:modules` gets await bindings layered on the caller's registry.
+- Type keywords namespaced `:dao.await/process` / `:dao.await/result` so v1 and v2 descriptors coexist distinguishably.
+- `prepare-env` materializes handles (detected via `ds/reader?`/`ds/writer?`) into the VM store as stream-refs, as v1 did.
+- New tests cover the polling semantics: resume-without-data stays blocked, close answers `end` (nil) on the parked reader's own next, and a scripted full-once writer is resolved by the poll's retry append (ring buffer never answers `full`).
+
+## Verification
+| Lane | Result |
+|---|---|
+| JVM (`clojure -M:test`) | 1417 tests, 0 failures — v1 `dao.await-test` and v2 both green |
+| Node (`bb test:cljs`) | 1336 tests, 0 failures, 0 warnings — both await suites confirmed running |
+| Dart | `dao.await` compiles clean; `dao.await-test` **17/17 pass** (regenerated from final source, `dart test` on the generated file) |
+| kondo | 0 errors/warnings on both files |
+
+One caveat, pre-existing and verified not mine: the full `bb test:cljd` lane fails compiling the Flutter demo main chain — `array-map` at `src/cljc/dao/data/btree.cljc:1237` is unknown to ClojureDart. I reproduced the identical failure with my two files removed; the break came in via 9ee955a and also leaves 99 stale generated test files failing to load. Worth a separate fix; per the working rule I've staged/committed nothing.

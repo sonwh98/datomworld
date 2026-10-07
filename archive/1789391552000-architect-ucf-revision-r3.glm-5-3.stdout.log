@@ -1,0 +1,28 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-09-14 13:19:51 GMT
+Completed-Local: 2026-09-14 20:19:51 Asia/Ho_Chi_Minh (+07)
+Coding-Agent: glm
+Session-ID: ee3147ec-24c9-4fd7-8578-395b3282ab53
+
+**Deliverable:** `docs/design/yin.vm.universal-continuation-format.md` amended (1309 → 1331 lines); `yin.vm.semantic.md` §2.2 one word changed ("record" → "vector", same length, box alignment intact, pre-existing §7 pointer edit untouched). Nothing staged or committed.
+
+## Sections touched
+
+- **§7.3.2** — retitled *"The canonical instruction vector and its address"*; opening paragraph rewritten to carry both owner rulings with the `query.cljc:153-158` citation and the r2-precedent note (draft-1 triples → r2 attributed map → r3 tuple vector, each named so no later plan reinvents it); schema block replaced with the positional tuple vector (`[[:closure [x] 6] [:push] [:const 10] [:call 1 false] …]`); rules rewritten as *pc is the index / saturation / refs are resolved pcs / header folds away / admissible slots / ordering: none imposed*.
+- **§7.3.3** — stamp's first scope bullet now versions the **tuple grammar** (mnemonic set, per-mnemonic arity and operand kinds, saturation/defaults table) alongside the §2.6 rules and last-value-wins. The other four bullets (transitions, resolution precedence, effect outcomes, scheduler semantics) unchanged — the complete-contract scope from finding 4 stands.
+- **§7.3.4** — "the addressed object is the vector"; `:yin.k/carried` carries vectors; the two load paths specified (**projection path** with eids `0`/`(inc p)`, saturated operands emitted as attribute datoms, resolved pcs back to refs; **direct path**) with the both-paths-yield-the-same-image conformance obligation, anchored as a harness test in §7.11; verification restated as two always-both checks (hash → `:yin.k/hash-mismatch`; tuple grammar → `:yin.k/undecodable` naming the pc, consistent with §7.5.1's hash-is-not-structure rule).
+- **Status line** — records the r3 amendment and its ruling.
+
+## Wording renamed (sweep)
+
+"canonical instruction record" → "canonical instruction vector" in: the top blocker list (item 5, now also saying "positional tuples, not EAV"), §7.2's `:yin.k/carried` comment, §7.4.2 (both "function of the canonical … alone" places), §7.8 step 4 (including "the payloads *are* the vectors"), §7.10's *No assumed graphs* row ("pcs relative to an addressed vector"), §7.11's *Contract revision publication* blocker, and `yin.vm.semantic.md` §2.2. Left alone: every "export record", "ledger", "recorded result", and `:yin.k/resumed`-as-record reference — unrelated senses of the word. Verified by grep: zero leftover code-identity "record" wording.
+
+## Rule changes beyond renaming
+
+Three, all localized to §7.3:
+
+1. **Non-canonicalizable trigger changed shape.** The r2 refusal fired on an inadmissible `:yin.code/*` attribute name; with no attribute names in the form, it now fires on what the tuple grammar cannot express — a mnemonic outside the §2.4 table, an operand the mnemonic's tuple has no slot for, or a segment-entity attribute beyond the folded/excluded set. Same refusal kind (`:yin.k/non-portable` / `:non-canonicalizable`), so §7.5.4's closed kind list needed no change.
+2. **Ordering argument strengthened.** r2's "no triple sort; the encoder orders map keys" became "no sort at all — the vector's order *is* its positions; canonicalization compares no operands", with literal operands hashing as ordinary values. This also let the collision-freedom statement tighten: the vector *is* the resolved interpretation.
+3. **Verification gained an explicit grammar check on fetched/carried code.** r2 verified fetched payloads by "re-canonicalizing" (they were records derived from datoms); a fetched vector is already canonical, so a hash check alone would accept a hash-correct but grammar-invalid tuple vector. §7.3.4 now states hash + tuple-grammar as two always-both checks, routing grammar failure to the existing `:yin.k/undecodable` — no new outcome status, §7.9 untouched.
+
+One deliberate near-touch: §7.6.1's discovery walk said "instruction datoms are walked" — now "instructions are walked — as datoms where the emitter holds the batch, as canonical tuples where only a vector was fetched" — wording only; the fixed-point mechanism is unchanged, as instructed. §7.4–§7.7 mechanisms and §7.9–§7.10 content are otherwise untouched.

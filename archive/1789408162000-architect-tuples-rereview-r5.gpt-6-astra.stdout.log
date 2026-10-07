@@ -1,0 +1,966 @@
+OpenAI Codex v0.153.4
+--------
+workdir: /Users/sto/workspace/datomworld
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+--------
+user
+Created-GMT: 2026-09-14 17:49:22 GMT
+Created-Local: 2026-09-15 00:49:22 +07
+Coding-Agent: codex
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b (resume — your own review thread)
+
+# Task: Re-review the round-5 tuple code-representation design
+
+Role: Architect (reviewer)
+
+Implementers:
+- Model: gpt-6-astra | Assigned: 2026-09-15 00:49:22 +07 | Status: active | Rationale: re-review by the original reviewer; the author is claude-fable-5.1 (Anthropic family), independence preserved. The owner has directed iteration until agreement; your round-4 close said the remaining changes were narrowly scoped — the two findings have now been addressed.
+
+## Context
+
+Your round-4 review (REJECT, 2 P1s) was revised against (1465 → 1545 lines; author's mapping at the tail of `collab/1789407982000-architect-tuples-revision-r5.claude-fable-5-1.stdout.log`). The revision's shape, confirmed by the orchestrator: §8.4.1 defines `:yin.ledger/attempt` as `[incarnation counter]`, the incarnation minted by the composition at expander construction (log medium identity + log cursor, never batch-derived), retries reuse the staged ctx's identity, a restart mints a new incarnation; the harvest catalogue is now one entry per original definition as an **occurrence group** (all `[j path]` occurrences of that definition, harvested once, one ordinal per group, group-level validation), with the adapter's `datoms->ast` extension honestly flagged as not present today; and one cross-document dependency declared in §10.3 (`:incarnation` is an addition to `yin.vm.macro.md`'s `ctx` that this document cannot make there).
+
+## Task
+
+Re-review `docs/design/yin.vm.tuples.md` as it now stands:
+
+1. For each of your round-4 findings 1–2, verify actual resolution — resolved / not resolved / regressed, with line citations. Do not take the author's mapping at its word.
+2. Challenge the fresh mechanisms: the incarnation minting rule (is "log medium identity + log cursor at construction" collision-free across compositions and restarts? is the retry/restart distinction airtight?); the occurrence-group catalogue (does one-ordinal-per-group preserve the legacy contract's observable behavior, including fabricated stand-ins selecting entries? is the coverage validation complete?).
+3. New defects introduced by this revision are P1s regardless of origin. Cite file and line; run what you can.
+4. Reminder from your own round-4 close: unfinished implementation work belongs in §10 and does not by itself justify rejection. The iteration should end at genuine agreement — APPROVE or APPROVE-WITH-FINDINGS where findings are implementation-phase obligations rather than design defects.
+
+## Deliverable
+
+Verdict (`APPROVE` | `APPROVE-WITH-FINDINGS` | `REJECT`), numbered findings with severity/line/defect/fix, a per-finding 1–2 resolution table, and a short "verified sound" list. Produce the complete review in this turn — no plan-only responses, no requests for human input.
+
+Begin the final response exactly with:
+
+Completed-GMT: <actual GMT timestamp>
+Completed-Local: <actual local timestamp and named timezone>
+Coding-Agent: codex
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+codex
+I’ll check the incarnation allocation and occurrence-group rules against the two remaining findings, including concurrent construction, restart behavior, and declaration ordinals.
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.tuples.md | sed -n '1107,1340p'; nl -ba docs/design/yin.vm.tuples.md | sed -n '1455,1548p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+  1107	### 8.4 Expansion events keep their identity
+  1108	
+  1109	`yin.vm.macro.md` §4.1 records one event per attempt, successful or not,
+  1110	including repeated identical expansions, and links the event to its output
+  1111	(`yin.vm.macro.md:666-709`). This design keeps that contract: the
+  1112	`:expand` event entity **is** that event, one per attempt, and the address
+  1113	rows are attributes of it, not a replacement for it:
+  1114	
+  1115	```clojure
+  1116	[[:db/add ev :yin.ledger/op         :expand]
+  1117	 [:db/add ev :yin.ledger/input      tree-in-addr]        ; the tree containing the call
+  1118	 [:db/add ev :yin.ledger/call-root  tree-in-addr]        ; the call occurrence, as values:
+  1119	 [:db/add ev :yin.ledger/call-path  path]                ;   root address and structural path
+  1120	 [:db/add ev :yin.ledger/origin     [:source medium batch j]]   ; INITIAL expansion only: a value
+  1121	 [:db/add ev :yin.ledger/parent-event parent-ev]         ; NESTED expansion only: a declared ref, log-local
+  1122	 [:db/add ev :yin.ledger/parent     parent-record-addr]  ; NESTED expansion only: the parent's record address, portable
+  1123	 [:db/add ev :yin.ledger/output     tree-out-addr]       ; on success
+  1124	 [:db/add ev :yin.ledger/macro      lambda-addr]         ; the macro's content
+  1125	 [:db/add ev :yin.ledger/attempt    [incarnation n]]     ; portable attempt identity, §8.4.1
+  1126	 [:db/add ev :yin.ledger/record     record-addr]         ; the addressed record of §8.2
+  1127	 [:db/add ev :yin/source-batch      batch-id]            ; unchanged from §4.1
+  1128	 [:db/add ev :yin/error             {...}]               ; on failure, unchanged
+  1129	 [:db/add ev :yin/timestamp         ctx-t]]              ; unchanged
+  1130	```
+  1131	
+  1132	The split between local references and portable values follows
+  1133	`yin.vm.macro.md` §4.1 exactly (`yin.vm.macro.md:692-708`), and it is
+  1134	enforced by how the transactor resolves ids: `apply-tempid-map` replaces a
+  1135	tempid in `v` **only when the whole value is a tempid on a declared
+  1136	reference attribute** (`src/cljc/dao/space/transact.cljc:168-185`); a
+  1137	tempid nested inside a vector is left as it is. Therefore:
+  1138	
+  1139	- an **initial** expansion's call sits in admitted syntax, so it carries
+  1140	  `:yin.ledger/origin`, a value `[:source medium batch j]` including the
+  1141	  batch member index: the successor of `:yin/source-call` qualified by
+  1142	  `:yin/source-batch`, which no transactor resolves, as today;
+  1143	- a **nested** expansion's call sits in the output of the enclosing
+  1144	  expansion, so it carries **two** links to the parent: `:yin.ledger/
+  1145	  parent-event`, a declared reference attribute whose whole value is the
+  1146	  parent event's id, the successor of `:yin/source-node` and resolved by
+  1147	  the transactor within the log medium exactly as `:yin/source-node` is
+  1148	  today; and `:yin.ledger/parent`, the parent's **record address**, which
+  1149	  is a value and travels. The parent is complete before the child begins,
+  1150	  because a nested expansion's input is the enclosing expansion's output
+  1151	  (`yin.vm.macro.md:698-701`), so the parent's record address is known
+  1152	  when the child's record is minted; no staging after allocation is
+  1153	  needed, and the record (§8.2) never contains a log-local id, so it is
+  1154	  hashed once, when built.
+  1155	
+  1156	A successful event carries exactly one of `:yin.ledger/origin` and the
+  1157	parent pair; an admission failure carries neither. The chain `source →
+  1158	event → output → event → output` of §4.1 is walked locally through
+  1159	`:yin.ledger/parent-event` and portably through `:yin.ledger/parent`, and
+  1160	two attempts that produced identical output trees are two events with two
+  1161	ids and two record addresses, because their `:yin.ledger/attempt` values
+  1162	differ by construction (§8.4.1), so a child names its parent without
+  1163	ambiguity in either walk. `:yin/expansion-root` and `:yin/macro` of §4.1 are carried by
+  1164	`:yin.ledger/output` and `:yin.ledger/macro` as addresses; the other event
+  1165	attributes are unchanged. Because the *content* values are addresses, the
+  1166	cross-media identity problem of `yin.vm.macro.md` §4.2 does not arise for
+  1167	content: the same tree has the same address on `program-in`,
+  1168	`program-out`, and the log. The local event id remains log-local, as
+  1169	`:yin/source-node` is today; the record address is what leaves the log.
+  1170	
+  1171	#### 8.4.1 Attempt identity is scoped to an expander incarnation
+  1172	
+  1173	A record's address is the hash of its value, so two attempts whose records
+  1174	are value-equal are one record, whatever the encoder. A bare per-expander
+  1175	counter does not prevent that: two expanders observing one medium, batch,
+  1176	member, and call path, each at counter `0`, with one macro and one output,
+  1177	would write one record; so would one expander restarted and replaying the
+  1178	batch. The governing contract records every attempt separately
+  1179	(`yin.vm.macro.md:668-669`), so the attempt identity must be unique per
+  1180	attempt across expanders and across executions. It is:
+  1181	
+  1182	```clojure
+  1183	:yin.ledger/attempt [incarnation counter]
+  1184	```
+  1185	
+  1186	- **The incarnation** is a value held in the expander's process state
+  1187	  `ctx` (`yin.vm.macro.md:216-223`), as a new field `:incarnation`,
+  1188	  threaded through every call exactly as `:alloc` and `:t` are. It is
+  1189	  minted by the composition **when it constructs the expander** and is
+  1190	  never derived from a batch. Its shape is
+  1191	  `{:yin.expander/log <log-medium identity> :yin.expander/start <the
+  1192	  log's cursor value at construction>}`: the log medium is where this
+  1193	  expander's events go, the cursor value is a transport-minted position
+  1194	  that no two constructions against one log share, and a composition with
+  1195	  no log medium supplies a unique value of its own choosing under the same
+  1196	  uniqueness warranty. Two expanders differ in at least one field; one
+  1197	  expander constructed twice differs in `:yin.expander/start`.
+  1198	- **The counter** is a per-incarnation attempt counter in `ctx`, advanced
+  1199	  once per attempt, initial or nested, successful or failed, exactly as
+  1200	  `:alloc` advances (`yin.vm.macro.md:360-365`); admission-failure events
+  1201	  advance it too, since they are attempts under §4.1.
+  1202	- **A staged retry reuses the identity; a distinct execution receives
+  1203	  another.** The expander stages `expand-batch`'s output and log payloads
+  1204	  and retries a failed flush from the staged data without re-running the
+  1205	  expansion (`yin.vm.macro.md:364-365`, `:765-773`): the record, and the
+  1206	  attempt identity inside it, are part of what was staged, so the retry
+  1207	  writes the same record to the same address, which is the idempotent
+  1208	  re-publication the ledger wants. A restart constructs a new expander,
+  1209	  which mints a new incarnation, so replaying a batch after a restart
+  1210	  mints new attempt identities and new records: that is a distinct
+  1211	  execution and is recorded as one. What separates the two cases is
+  1212	  whether `ctx` survived: a retry runs under the `ctx` that produced the
+  1213	  staged payload; a restart does not have it.
+  1214	
+  1215	The parent-record chain of §8.4 is unchanged; it gains uniqueness from the
+  1216	attempt identity inside every record.
+  1217	
+  1218	### 8.5 Macro declarations travel beside the tree
+  1219	
+  1220	The `:macro?` flag is outside the canonical tree (§2.5). What replaces it
+  1221	is a **declaration fact bound to an occurrence**, produced by the frontend
+  1222	and consumed by the expander at admission. The governing contract admits
+  1223	and harvests **every entity in the batch, in batch order, including
+  1224	definitions disconnected from the execution root**
+  1225	(`yin.vm.macro.md:229-249`). A single rooted tree cannot carry a
+  1226	disconnected definition, so the composition between frontend and expander
+  1227	is an **ordered batch**, not a tree:
+  1228	
+  1229	```clojure
+  1230	{:yin/batch         [<tree-0> <tree-1> … <tree-n>]   ; canonical trees, one per admitted root or disconnected subgraph
+  1231	 :yin/root          i                                ; index of the tree the evaluator runs
+  1232	 :yin/declarations  #{[j path :yin.macro/definition] …}   ; the definition at path in tree j is a macro
+  1233	 :yin/harvest       [#{[j path] …} #{[j' path'] …} …]}   ; one entry per ORIGINAL definition, in admission order;
+  1234	                                                     ;   each entry is the set of [j path] occurrences of that definition
+  1235	```
+  1236	
+  1237	Rules:
+  1238	
+  1239	- **Harvest order is an explicit catalogue, not a traversal.** The
+  1240	  governing contract harvests every definition in the batch **in the
+  1241	  order its entities appeared in the admitted datom batch**
+  1242	  (`yin.vm.macro.md:242-249`), and it admits any acyclic, internally
+  1243	  resolved batch; nothing requires entity order to equal structural
+  1244	  preorder, and a root may contain definitions A then B whose entities
+  1245	  arrived as B then A. Vector order plus preorder therefore does **not**
+  1246	  preserve that contract, and this document does not claim it does. The
+  1247	  catalogue `:yin/harvest` is the preserved order: a vector with **one
+  1248	  entry per original definition**, in the original admission order, each
+  1249	  entry the set of `[j path]` occurrences at which that definition
+  1250	  appears in the canonical trees, connected or not. Initial harvest
+  1251	  (`yin.vm.macro.md` §3.1 step 2) iterates the catalogue, last wins; it
+  1252	  never iterates the trees. For a batch converted from datoms by the §9.1
+  1253	  adapter the catalogue is derived from entity order, so the legacy
+  1254	  contract is preserved exactly. For a batch a tuple-native
+  1255	  frontend emits, the frontend chooses the order it writes; the reference
+  1256	  frontends write source order, which is the **declaration order** of
+  1257	  `yin.vm.macro.md` §3.2 (`yin.vm.macro.md:298-304`: operands before the
+  1258	  body of an immediately applied lambda). That is a new contract for a
+  1259	  new producer, not a narrowing of the legacy one, and the two are kept
+  1260	  distinct: post-expansion declaration order is what the expander uses
+  1261	  for definitions its own output forms (§3.1 step 5), and it stays
+  1262	  separate from the admission catalogue.
+  1263	- **One original definition, many occurrences, one ordinal.** A legacy
+  1264	  batch may hold one definition entity reached through several
+  1265	  references: the codec emits a pre-assigned entity once and lets every
+  1266	  referring site name it (`v2.cljc:394-411`, `seen-eids`), and
+  1267	  `yang.clojure` produces exactly this for a defmacro lambda used at its
+  1268	  definition and at call sites (`clojure.cljc:418-437`). Inlining that
+  1269	  graph into canonical trees produces several `[j path]` occurrences of
+  1270	  one definition. The old harvest and declaration catalogue number the
+  1271	  **entity**, giving it one declaration ordinal `k`, and a transformer
+  1272	  may fabricate a stand-in that selects a catalogue entry by `k`
+  1273	  (`yin.vm.macro.md:254-275`), so the ordinal is observable and
+  1274	  duplicating it would be wrong. Therefore a catalogue entry is an
+  1275	  **occurrence group**: the definition is harvested once, its ordinal
+  1276	  `k` is its index in the catalogue, every occurrence in the group is
+  1277	  replaced by a stand-in carrying that same `:decl k` (§3.1 step 3), and
+  1278	  the catalogue, not the trees, is the identity of the definition. The
+  1279	  adapter derives groups from entity identity; a tuple-native frontend
+  1280	  emits singleton groups, one per definition it writes, and if it writes
+  1281	  one definition at several places it emits one group naming them all.
+  1282	- **The catalogue is validated at admission.** Every occurrence in every
+  1283	  group must name a `(yin/def <literal sym> _)` node; every such node in
+  1284	  the batch must appear in exactly one group; groups are non-empty and
+  1285	  pairwise disjoint; every occurrence in a group must have the same
+  1286	  `:literal` symbol and the same value-operand content address, since one
+  1287	  original definition cannot have two bodies; every `:yin/declarations`
+  1288	  entry must be a member of some group, and a group is declared as a whole
+  1289	  (all of its occurrences carry the declaration or none do, which is
+  1290	  automatic for a legacy entity with one flag). A violation is an
+  1291	  admission failure `{:kind :malformed-input :reason :harvest-catalogue}`
+  1292	  naming the entry.
+  1293	- **Binding.** A declaration `[j path :yin.macro/definition]` names the
+  1294	  `:application` at `path` in tree `j`, and through the catalogue the
+  1295	  original definition whose group contains `[j path]`; that node must be
+  1296	  `(yin/def <literal sym> <lambda>)`, i.e. operator `[:variable yin/def]`,
+  1297	  first operand a `:literal` symbol, second operand a `:lambda`. A
+  1298	  declaration whose coordinates do not resolve to such a node is an
+  1299	  admission failure, `{:kind :malformed-input :reason
+  1300	  :stray-macro-declaration}`, the successor of §3.1 step 1's
+  1301	  `:stray-macro-lambda`.
+  1302	- **Marks are validated before they are stripped.** A frontend or the
+  1303	  §9.1 adapter that converts a map AST carrying `:macro? true` must reject
+  1304	  a flagged lambda anywhere but the value operand of a `yin/def` as
+  1305	  `:stray-macro-lambda` **at conversion**, before the flag is removed;
+  1306	  it may never strip such a flag and emit a plain lambda. A flag in the
+  1307	  admitted position becomes the declaration at that tree and path. The
+  1308	  quiet case `yin.vm.macro.md` decision 5 exists to prevent is therefore
+  1309	  prevented at the same point it is today.
+  1310	- **Ordering of harvest.** The catalogue's order; last wins, as §3.1
+  1311	  step 2 rules. Vector order and preorder play no part in harvest.
+  1312	- **Missing fact.** A `(yin/def sym v)` with no declaration at its
+  1313	  coordinates is a plain definition. If `sym` is currently a macro, the
+  1314	  plain definition removes it, exactly as §3.1 step 2 rules.
+  1315	- **Scope.** Harvest is syntactic and whole-batch, as today; a declaration
+  1316	  in an unexecuted branch or in a tree the root never reaches is in force
+  1317	  for the batch. Declarations are per batch and never persist beyond the
+  1318	  harvest that consumed them; the harvested store is the expander's state.
+  1319	- **Redefinition.** Two batches that carry identical trees differ in
+  1320	  behaviour only through their declarations, which is the intended
+  1321	  separation: content is what the program is; being a macro is what this
+  1322	  occurrence of a definition is *for*.
+  1323	- **Evaluators see the root only.** The composition hands an evaluator
+  1324	  `(nth batch root)` after expansion; a tree outside the root is expander
+  1325	  input, never program.
+  1326	
+  1327	This replacement protocol, not the expander itself, is the blocker
+  1328	(§10.5): tuple evaluation without macros needs none of it, and the v2
+  1329	expander does not exist yet.
+  1330	
+  1331	### 8.6 As-of queries are ledger views
+  1332	
+  1333	Current value of a name uses the implemented current-state interpreter,
+  1334	which resolves the greatest `t` per `[e a v]` and then removes retractions
+  1335	(`query/current`, `query.cljc:204-212`; the fold `current-state-seq`,
+  1336	`query.cljc:76-103`):
+  1337	
+  1338	```clojure
+  1339	(q '[:find ?addr . :in $ ?name :where [?e :yin/name ?name] [?e :yin/code ?addr]]
+  1340	   (query/current refs) 'my.ns/f)
+  1455	  transactor is what possesses them.
+  1456	- **`dao.space.index` and published covered indexes**: they index datoms,
+  1457	  and the scale path of §6.5 goes through them.
+  1458	- **The macro expander's event log** (§8.4): events are entities with
+  1459	  attributes, one per attempt; only their values changed kind.
+  1460	- **The datom projection of code** (§6.5): kept for the three query classes
+  1461	  it alone serves, regenerable from the object at any time.
+  1462	- **Execution traces** (`yin.vm.semantic.md` §3.6): state over time is a
+  1463	  datom stream by design and is untouched.
+  1464	
+  1465	---
+  1466	
+  1467	## §10 Acceptance blockers and open items
+  1468	
+  1469	1. **Type-preserving canonical encoding in `dao.jing`** — declared,
+  1470	   inherited, and **blocking every identity and deduplication use**
+  1471	   (§4.2). `order-normalize` (`jing.cljc:45-64`) coerces every sequential
+  1472	   value to a vector and `pr-str` drops metadata, so lists, seqs, and
+  1473	   metadata-bearing vectors collide with plain vectors. No restricted
+  1474	   value domain is claimed; the round-2 list-rejection rule is withdrawn
+  1475	   as unsound. Trees, vectors, ledger-record maps, flat-projection
+  1476	   collapse, DAG sharing, process-local caches, object resolution by
+  1477	   address, and ledger rows are all blocked alike until `dao.jing`'s
+  1478	   encoding passes the conformance pairs of §4.2. This design does not
+  1479	   close the item.
+  1480	2. **The store-key domain is the `data` domain** (§2.2): every validator,
+  1481	   extraction query, and store-slice encoding must use that one
+  1482	   definition. This document now states it uniformly; the implementation
+  1483	   phase must not reintroduce a narrower one, and the corpus must contain
+  1484	   a numeric key beside the keyword one.
+  1485	3. **Complete occurrence identity** (§2.5, §5.3, §8.4) — design work
+  1486	   with stated mechanisms, not yet implementable. Source origins
+  1487	   `[:source medium batch j]` must be supplied to the lowering and
+  1488	   recorded in instruction provenance and initial expansion events;
+  1489	   nested expansion events must carry both the declared-ref parent link
+  1490	   and the parent record address, and the record must be minted after
+  1491	   the parent's. The medium identity coordinate is whatever the
+  1492	   composition names its program medium by; this document does not fix
+  1493	   its shape, and that shape must be fixed before an origin can be
+  1494	   written. The expander incarnation (§8.4.1) is composition-minted state
+  1495	   in `ctx`; its uniqueness across constructions is the composition's
+  1496	   warranty, and the `:incarnation` field is an addition to
+  1497	   `yin.vm.macro.md`'s `ctx` that this document cannot make there.
+  1498	4. **Macro batch and admission preservation** (§8.5) — design work with
+  1499	   stated mechanisms. The ordered batch, the admission-order harvest
+  1500	   catalogue of occurrence groups, its admission validation, the
+  1501	   validate-before-strip rule, and the adapter's path-and-entity tracking
+  1502	   during inlining must exist before any tuple program containing a macro
+  1503	   definition can be admitted. The legacy datom-batch contract is
+  1504	   preserved only through the adapter-derived catalogue; tuple-native
+  1505	   frontends operate
+  1506	   under the separate declaration-order contract stated there. The v2
+  1507	   expander itself does not exist yet (`src/cljc/yin/vm/` has no
+  1508	   `macro.cljc`) and is not a blocker for tuple evaluation without
+  1509	   macros; §8.4's event shape is specified against `yin.vm.macro.md`, not
+  1510	   against code.
+  1511	5. **Conservative dependency completion** (§7.7.2, §7.7.3) — design
+  1512	   work with stated mechanisms. Parameter discharge requires the call
+  1513	   analysis of §7.7.2 (every call site known and supplying the argument);
+  1514	   convergence is over work items and all dependency facts, with the
+  1515	   bound-name-set context abstraction. Neither analysis exists in code;
+  1516	   until they do, an emitter may only report `:incomplete`.
+  1517	6. **Effect normalization** (§7.7.1): the footprint table must be
+  1518	   published with the execution-contract stamp, and the tree/segment
+  1519	   requirement-set equality must be tested over the corpus. FFI ops are a
+  1520	   receiver capability requirement, never a store-slice requirement.
+  1521	7. **The lowering profile** (§5.2.1): `"ast-v1"` must be published as a
+  1522	   pinned document before any derivation record is written; until then
+  1523	   no derivation can be verified, only object integrity (§5.2.2).
+  1524	8. **UCF §7.6.1 needs two amendments** (§7.7.2, §7.7.3): its
+  1525	   any-carried-environment satisfaction sentence is unsound and must be
+  1526	   replaced by the per-context rule, and its address-per-segment fixed
+  1527	   point must become the work-item fixed point. This document cannot edit
+  1528	   UCF.
+  1529	9. **The observer-lane batch shape and the program-input predicate**
+  1530	   (§9.2) — integration items with no design answer in this document. The
+  1531	   §8.5 ordered batch is a candidate shape for the AST medium, not a
+  1532	   verified one.
+  1533	10. **Ledger event representation on the transactor** (§8.2): the
+  1534	    event-entity form is legal under `local-datom?` as written, but the
+  1535	    map-`m` provenance path (`transact.cljc:15-29`) and the metadata-op
+  1536	    interpreter `dao.space.schema.datomic.md` §4 names are not exercised by
+  1537	    this design's tests yet. The naming rows need neither; the provenance
+  1538	    link from a naming fact to its event does.
+  1539	11. **The primitive-profile registry** — inherited from UCF §7.11. Every
+  1540	    retained name obligation is checked by profile under UCF §7.5.2, and
+  1541	    §7.7.2 reads callable effects from profiles; until
+  1542	    `yin.vm/primitives` (`v2.cljc:100-132`) is published with profiles,
+  1543	    dependency closure reports names and `:incomplete`, not satisfiable
+  1544	    bindings.
+  1545	12. **Per-lambda subterm addressing** — a follow-up (§4.3), not a blocker.
+
+exec
+/bin/zsh -lc "rg -n 'defn.*cursor|cursor \\[|cursor-at|:position|:offset|:index' src/cljc/dao/stream.cljc src/cljc/dao/stream*.cljc src/cljc/dao/stream/*.cljc | head -50; rg -n 'cursor|position' docs/design/dao.stream.md | head -35; nl -ba docs/design/yin.vm.macro.md | sed -n '247,278p'; nl -ba docs/design/yin.vm.tuples.md | sed -n '1380,1400p'; tail -24 collab/1789407982000-architect-tuples-revision-r5.claude-fable-5-1.stdout.log" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+src/cljc/dao/stream.cljc:28:    {:position n}"
+src/cljc/dao/stream.cljc:238:      (walk {:position 0}))))
+src/cljc/dao/stream.cljc:246:  (loop [cursor {:position 0}
+src/cljc/dao/stream.cljc:283:  #?(:clj (loop [cursor {:position 0}]
+45:5. A **cursor** is immutable interpreter-owned observation state for one
+49:identity. A handle is not portable identity. A cursor is not handle-owned
+60:| `cursor`     | handle, anchor         | cursor outcome     |
+61:| `next`       | handle, cursor         | read outcome       |
+72:- Reading is non-destructive. A reader advances its own cursor, not the stream.
+73:- Multiple cursors may observe the same retained value independently.
+74:- Interpreters own cursors and decide when to call `next`.
+78:- Retention may be bounded. A cursor over evicted history receives a gap
+105:  `cursor`, whose success map carries the projected value.
+148:position holds nothing yet. `append!`'s `:dao.stream/full` is the same
+221:as composition data together with its declared surface, for example
+224:holds is meaningless. A composition may omit the wrapper only when the
+238:host, or on its own host absent a directory some composition chose to keep —
+276:  composition receives the identity. Wherever an answer or event for that
+368:transport constructor that already received whatever composition state the
+370:declaration, a directory some composition keeps. The bare vars above are
+386:honor — **reader** (`cursor`, `next`), **writer** (`append!`), **closable**
+400:answering a question this contract does not ask, such as how far a cursor
+408:composition supplies. What it may not do is *find* it — reach through a handle
+411:composition that wired it, exactly as it receives the streams it reads and the
+418:one positioned, append-only, retained sequence that cursors can observe and
+421:host's adapter onto the stream the host composition wired for that boundary
+446:evicts rather than refusing, so pressure surfaces as a `gap` to a cursor that
+458:arrived. Past that append the event holds a position in a sequence, and
+459:every reader above observes it with its own cursor, in its own control flow,
+471:A cursor is an immutable value owned by the interpreter that holds it.
+473:- Cursors are minted by the stream: `cursor` on a handle takes an **anchor**
+474:  and returns `:dao.stream/ok` with `:dao.stream/cursor`. The contract
+476:  position, and `:dao.stream/newest`, positioned after the newest appended
+482:  `cursor` yields `:dao.stream/closed`; a handle on the logical stream
+483:  itself keeps minting cursors after close, so retained history remains
+485:  retained position on a durable log is itself a read — so where a
+486:  transport's reads can fail at runtime, minting can too, and `cursor`
+489:  `cursor`'s outcome set is therefore `:dao.stream/ok` (with
+490:  `:dao.stream/cursor`), `:dao.stream/invalid-anchor`,
+   247	2. **Harvest.** `definitions` finds every `(yin/def <literal sym> v)` in the
+   248	   batch, in batch order, last wins: `v` a `:macro? true` lambda →
+   249	   `assoc` into `:store`; `v` anything else (a plain lambda, a variable, a
+   250	   literal) → `dissoc`, so a redefinition as a non-macro stops expansion of
+   251	   that name. Harvest is *syntactic* and whole-batch by policy: a definition
+   252	   in an unexecuted branch, or after its first use in the same batch, is
+   253	   still in force for the whole batch. (Clojure defines a macro only when the
+   254	   `defmacro` form executes; this design does not, and says so.)
+   255	3. **Replace.** Step 2 also numbers every source macro definition it saw,
+   256	   in harvest order, into a batch-local **catalogue** `:declared {k {:name
+   257	   sym :lambda ast}}`. Each macro definition node is then replaced by a
+   258	   **stand-in** `{:type :yin/macro-defined :name <sym> :decl k}` — an
+   259	   internal node type of the expander's working representation, not of any
+   260	   evaluator. It carries its identity by *shape and ordinal*, so it survives
+   261	   every transformation a macro can apply to it: a macro that receives it
+   262	   as an operand and returns, wraps, or reorders it hands back the same
+   263	   shape, and nothing in the pipeline needs an eid or `m` to recognise it —
+   264	   and two definitions of the same name in one batch remain distinguishable,
+   265	   so a macro that keeps one and discards the other keeps *that one's* body.
+   266	   A fabricated stand-in can only name a catalogue entry (step 5 validates
+   267	   `k` and that `:name` matches); it can therefore move a harvested
+   268	   declaration's effective position — re-asserting it after a plain
+   269	   definition, say — but never introduce an unharvested body. That is
+   270	   permitted transformer behaviour and is stated as such. Stand-ins resolve
+   271	   exclusively against the *current* batch's fresh catalogue and carry no
+   272	   cross-batch declaration identity; marker-shaped data may well survive
+   273	   outside one expansion (it is plain data), and if replayed it selects
+   274	   whatever the current catalogue holds at that ordinal and name, or
+   275	   nothing — never a previous batch's body. Step 7 lowers
+   276	   every stand-in to `{:type :literal :value <sym>}` for `program-out`, so a
+   277	   batch whose root is a definition still forwards a complete program and a
+   278	   REPL prints the name. Plain `yin/def`s are forwarded untouched.
+  1380	| Site | Change |
+  1381	|---|---|
+  1382	| walker cold syntax arms, `ast_walker.cljc:359-469` | `(:type node)` → `(nth node 0)`; field reads → slot reads; add the `:stream/close` arm (§3.2); the `:vm/store-update` arm goes with the map path (§3.1) |
+  1383	| walker cold continuation arms, `ast_walker.cljc:205-358` | `:eval-operator` (`:206-222`), `:eval-operand` (`:223-238`), `:eval-test` (`:239-244`), the FFI operand arm (`:245-260`), `:eval-stream-put-target` (`:287-296`): read `:node` and keep `:fn`/`:evaluated` in the frame per §2.6; no `assoc` into the node |
+  1384	| walker hot syntax arms, `ast_walker.cljc:600-626` | same as cold, five arms |
+  1385	| walker hot continuation arms, `ast_walker.cljc:502-599` | `:eval-operator` (`:503-541`), `:eval-operand` (`:542-582`), `:eval-test` (`:583-589`): same frame change as the cold arms |
+  1386	| linearizer, `linearize.cljc:87-148` and `:230-242` | `lower-node` reads slots from the tree instead of `get-attr` over a datom index; `ast-children` becomes a table lookup of `node`/`nodes` slot positions; `lower` takes a tree and returns a vector plus the §5.3 provenance table, and `lower-ast` goes away |
+  1387	| codec, `v2.cljc:372-559` | becomes the §6.5 projection pair `tree->datoms` / `datoms->tree`; `:yin/tail?` emitted only from `:application`; `:yin/macro?`, `:yin/root`, `:eid` handling removed; `:yin/address` added |
+  1388	| `code/well-formed?`, `code.cljc:155-180` | keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on both paths after it |
+  1389	| `semantic/load-image`, `semantic.cljc:524-596` | decodes from the vector directly on the primary path; the datom path projects first; both call the §7.5 validator |
+  1390	| frontends `src/cljc/yang/clojure.cljc`, `python.cljc`, `php.cljc` | emit the ordered batch `{:yin/batch :yin/root :yin/declarations :yin/harvest}` (§8.5); drop `:eid`, `:phase-policy`, and non-`:application` tail marks at the boundary. Until each frontend is swept, one map-to-tuple adapter at the frontend boundary saturates, converts, and handles `:macro?` in this order: first reject any `:macro? true` lambda that is not the value operand of a `yin/def` as `:stray-macro-lambda`, then turn each admitted one into a declaration at its tree index and path, then strip the flag. An adapter fed a datom batch derives `:yin/harvest` from entity order and entity identity: while inlining it records every `[j path]` at which each definition entity is emitted (the recursion of `datoms->ast`, `v2.cljc:494-559`, must be extended to carry the path and the entity id, since today it tracks neither), and one entity with several paths becomes one occurrence group. The evaluators see only tuples from the first day, and no flagged lambda ever becomes a plain one |
+  1391	
+  1392	Tests that construct map ASTs, counted by occurrences of a node-type key on
+  1393	2026-09-14 (`grep -cE ':type :(application|lambda|literal|variable|if)'`;
+  1394	the counts are matching lines, not nodes or edits):
+  1395	
+  1396	| File | Occurrences |
+  1397	|---|---|
+  1398	| `test/datomworld/demo/continuation_handoff_v2_test.cljc` | 64 |
+  1399	| `test/yin/vm/ast_walker_test.cljc` | 49 |
+  1400	| `test/yin/vm/parity_test.cljc` | 36 |
+Completed-GMT: 2026-09-14 17:48:33 GMT
+Completed-Local: 2026-09-15 00:48:33 +07 (Asia/Bangkok, UTC+7)
+Coding-Agent: claude
+Session-ID: 8677b374-bb75-4103-afab-4b65727a76c1
+
+**File:** `docs/design/yin.vm.tuples.md`, now 1545 lines (was 1465). Only this file changed; it remains untracked and `git diff --stat` is empty.
+
+**Finding-by-finding:**
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Attempt identity scoped to no expander | Fixed. New §8.4.1 defines `:yin.ledger/attempt` as `[incarnation counter]`, carried in the addressed record (§8.2) and the event (§8.4). The incarnation is a new `:incarnation` field of the expander's `ctx`, minted by the composition at construction as the log medium's identity plus the log cursor at construction, never derived from a batch. The counter is a per-incarnation attempt counter advanced like `:alloc`, including for admission failures. A staged-flush retry reuses the identity because the record is part of the staged payload under the same `ctx`; a restart constructs a new expander, mints a new incarnation, and records replay as a distinct execution. The parent-record chain is unchanged and one record per attempt is preserved. |
+| 2 | Harvest catalogue loses shared legacy definition identity | Fixed. §8.5's catalogue is now one entry per original definition, each entry the set of `[j path]` occurrences of that definition; harvested once, one ordinal `k` per group, every occurrence replaced by a stand-in with the same `:decl k`. Admission validation checks disjoint non-empty groups, exact coverage of every definition node, one symbol and one body address per group, and whole-group declaration. Tuple-native frontends emit singleton groups. §9.1's adapter derives groups from entity identity and must extend the `datoms->ast` recursion to carry path and entity id, which it does not today. §2.5's catalogue row and §10.4 were updated to match. |
+
+Neither finding required an owner ruling. One cross-document dependency is stated in §10.3: the `:incarnation` field is an addition to `yin.vm.macro.md`'s `ctx` that this document cannot make there.
+
+**Sections touched:** status line, §2.5 (harvest catalogue row), §8.2 (`:expand` record), §8.4 (attempt line and uniqueness sentence), new §8.4.1, §8.5 (envelope, catalogue rule, new occurrence-group rule, validation, binding), §9.1 (adapter row), §10 items 3 and 4.
+
+**Verified against source myself:** the codec's `seen-eids` shared-entity emission at `v2.cljc:394-411` and the recursive `datoms->ast` at `:494-559` carrying neither path nor entity id; `yang.clojure`'s shared defmacro lambda at `clojure.cljc:418-437`; the macro contract's `ctx` fields at `yin.vm.macro.md:216-223`, the catalogue and stand-in rules at `:254-275`, the one-event-per-attempt rule at `:668-669`, the staged-flush retry and allocation rule at `:360-365`, and the expander state and `ready?`/`load` shape at `:765-773`.
+
+**Taken from the review, not re-run:** the executed codec run producing one `:yin/type` row with operand refs `[-100 -23 -100]` for a definition reused twice. I verified the code path that produces it but did not execute it.
+
+exec
+/bin/zsh -lc "rg --files src | rg 'stream.*(memory|buffer|queue|transport)|dao/stream'; nl -ba docs/design/dao.stream.md | sed -n '469,485p'; nl -ba src/cljc/dao/stream.cljc | sed -n '1,78p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+src/clj/dao/stream/transit.clj
+src/clj/dao/stream/ws/jvm.clj
+src/cljd/dao/stream/ws.cljd
+src/cljd/dao/stream/transit.cljd
+src/cljs/dao/stream/ws/node.cljs
+src/cljs/dao/stream/transit.cljs
+src/cljc/dao/stream.cljc
+src/cljc/dao/stream/rpc/server.cljc
+src/cljc/dao/stream/rpc/ws.cljc
+src/cljc/dao/stream/rpc/udp.cljc
+src/cljc/dao/stream/rpc/retry.cljc
+src/cljc/dao/stream/rpc/client.cljc
+src/cljc/dao/stream/rpc/dedup.cljc
+src/cljc/dao/stream/http.cljc
+src/cljc/dao/stream/ws.cljc
+src/cljc/dao/stream/file_output_stream.cljc
+src/cljc/dao/stream/file_input_stream.cljc
+src/cljc/dao/stream/file.cljc
+src/cljd/dao/stream/ws/dart.cljd
+src/cljc/dao/stream/memory_log.cljc
+src/cljc/dao/stream/serving.cljc
+src/cljd/dao/stream/transit/cljd.cljd
+src/cljd/dao/stream/udp.cljd
+src/cljc/dao/stream/rpc/ws.cljc
+src/cljc/dao/stream/observer.cljc
+src/cljc/dao/stream/ws.cljc
+src/cljc/dao/stream/transit.cljc
+src/cljc/dao/stream/forward.cljc
+src/cljc/dao/stream/ringbuffer.cljc
+src/cljc/dao/stream/apply.cljc
+src/cljc/dao/stream/rpc.cljc
+src/cljc/dao/stream/observe.cljc
+src/cljc/dao/stream/ringbuffer.cljc
+src/cljc/dao/stream/apply.cljc
+src/cljc/dao/stream/udp.cljc
+src/cljc/dao/stream.cljc
+src/cljc/dao/stream/link.cljc
+   469	## Cursors
+   470	
+   471	A cursor is an immutable value owned by the interpreter that holds it.
+   472	
+   473	- Cursors are minted by the stream: `cursor` on a handle takes an **anchor**
+   474	  and returns `:dao.stream/ok` with `:dao.stream/cursor`. The contract
+   475	  defines two anchors — `:dao.stream/oldest`, the earliest retained
+   476	  position, and `:dao.stream/newest`, positioned after the newest appended
+   477	  value so the first `next` observes the next value to arrive. A transport
+   478	  whose medium is naturally addressable may accept additional
+   479	  transport-owned anchors (a byte offset, a timestamp). An anchor that is
+   480	  malformed or not honored by this transport yields
+   481	  `:dao.stream/invalid-anchor`. On a handle whose attachment has closed,
+   482	  `cursor` yields `:dao.stream/closed`; a handle on the logical stream
+   483	  itself keeps minting cursors after close, so retained history remains
+   484	  readable. Minting may have to consult the medium — locating the earliest
+   485	  retained position on a durable log is itself a read — so where a
+     1	(ns dao.stream
+     2	  "DaoStream: bidirectional channel with cursors.
+     3	
+     4	  Three orthogonal protocol boundaries:
+     5	
+     6	  IDaoStreamReader (canonical read model):
+     7	    Non-destructive, cursor-based reading. Multiple cursors advance independently.
+     8	    (next [stream cursor]) → {:ok val :cursor cursor'} | :blocked | :end | :daostream/gap
+     9	
+    10	  IDaoStreamWriter (canonical write model):
+    11	    Append-only writes.
+    12	    (append! [stream val]) → {:result :ok, :woke [...]} | {:result :full} (throws if closed)
+    13	
+    14	  IDaoStreamBound (lifecycle):
+    15	    (close! [stream]) → {:woke [...]}
+    16	    (closed? [stream]) → boolean
+    17	
+    18	  IDaoStreamWaitable (optional — transport-local reader and writer waking):
+    19	    (register-reader-waiter! [stream position entry])
+    20	    (register-writer-waiter! [stream entry])
+    21	
+    22	  Descriptor (serializable):
+    23	    {:dao.stream/type :ringbuffer
+    24	     :capacity nil-or-int
+    25	     :eviction-policy nil-or-:reject-or-:evict-oldest}
+    26	
+    27	  Cursor (plain map, constructed inline by caller):
+    28	    {:position n}"
+    29	  (:refer-clojure :exclude [next comparator]))
+    30	
+    31	
+    32	;; =============================================================================
+    33	;; Stream Protocols (Orthogonal Boundaries)
+    34	;; =============================================================================
+    35	
+    36	(defprotocol IDaoStreamReader
+    37	  "Non-destructive, cursor-based reading. Multiple cursors on the same stream
+    38	   advance independently without consuming values."
+    39	
+    40	  (next
+    41	    [this cursor]
+    42	    "Returns {:ok val :cursor cursor'} if value exists at cursor position.
+    43	     Returns :blocked if stream is open and position is at end.
+    44	     Returns :end if stream is closed and position is at or past end.
+    45	     Returns :daostream/gap if cursor position has been evicted by transport."))
+    46	
+    47	
+    48	(defprotocol IDaoStreamWriter
+    49	  "Append-only writes. No destructive consumption."
+    50	
+    51	  (append!
+    52	    [this val]
+    53	    "Appends val. Returns :ok if successful, :full if transport is capacity-bounded
+    54	     and full. Throws ex-info if stream is closed."))
+    55	
+    56	
+    57	(defprotocol IDaoStreamBound
+    58	  "Lifecycle: closing streams and checking closed status."
+    59	
+    60	  (close!
+    61	    [this]
+    62	    "Marks stream closed. Does not erase existing data. Returns {:woke [...]}
+    63	     with any reader-waiters that were resolved.")
+    64	
+    65	  (closed?
+    66	    [this]
+    67	    "Returns boolean. True if stream has been closed."))
+    68	
+    69	
+    70	(defprotocol IDaoStreamWaitable
+    71	  "Optional protocol: transport-local waiter registration.
+    72	   Enables readers and writers to register at the transport instead of the VM scheduler."
+    73	
+    74	  (register-reader-waiter!
+    75	    [this position entry]
+    76	    "Register a reader waiter for a specific cursor position.
+    77	     Called when ds/next returns :blocked to avoid polling.")
+    78	
+
+exec
+/bin/zsh -lc "rg -n 'defn|cursor|position' src/cljc/dao/stream/memory_log.cljc | head -50; nl -ba src/cljc/dao/stream/memory_log.cljc | sed -n '20,125p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+8:   state is one vector dense from position 0, and this namespace contains
+10:   (`:oldest` is position 0 for the life of the stream), as are `full`
+18:   so `cursor` never answers `:dao.stream/closed` and keeps minting after
+36:(defn- result
+41:(defn- permitted-key?
+55:(defn- valid-spec?
+65:(defn- fresh-state
+68:  ;; travels in descriptors and cursors — never a host UUID object.
+69:  ;; A vector, dense from 0: positions are never reused and never
+92:  (cursor
+96:      ;; attachment to be closed, and an owner keeps minting cursors
+103:               :dao.stream/cursor
+105:                :dao.stream.memory-log/position 0})
+108:               :dao.stream/cursor
+110:                :dao.stream.memory-log/position (count (:values s))})
+115:    [_ cursor-value]
+116:    ;; Total: the position is range-checked before any indexed read, so a
+117:    ;; fabricated negative position answers invalid-cursor instead of
+118:    ;; reaching nth and throwing on the JVM.  No cursor this stream can
+119:    ;; mint holds a position above the tail — positions never disappear
+120:    ;; and the tail never retreats — so an above-tail position is a
+124:        (not (map? cursor-value)) (result :dao.stream/invalid-cursor)
+125:        (not (contains? cursor-value :dao.stream.memory-log/identity))
+126:        (result :dao.stream/invalid-cursor)
+127:        (not= (:identity s) (:dao.stream.memory-log/identity cursor-value))
+128:        (result :dao.stream/cursor-mismatch)
+129:        (not (integer? (:dao.stream.memory-log/position cursor-value)))
+130:        (result :dao.stream/invalid-cursor)
+132:        (let [pos (:dao.stream.memory-log/position cursor-value)
+135:            (or (< pos 0) (> pos tail)) (result :dao.stream/invalid-cursor)
+136:            ;; Retention is complete: every position below the tail is
+142:             :dao.stream/cursor {:dao.stream.memory-log/identity (:identity s)
+143:                                 :dao.stream.memory-log/position (inc pos)}}
+178:(defn create!
+    20	   by reference and never encoded, so no value is uncarriable.
+    21	
+    22	   Creation specification: `{:dao.stream/type :dao.stream/memory-log}`.
+    23	   The transport owns the `dao.stream.memory-log` namespace and declares
+    24	   nothing in it, so any `:dao.stream.memory-log/…` key is rejected with
+    25	   `:dao.stream/invalid-spec` — most importantly a capacity, which is the
+    26	   knob this transport exists to make impossible.  Any other qualified
+    27	   key is ignored per the open-map rule."
+    28	  (:require [dao.stream :as stream]))
+    29	
+    30	
+    31	(def transport-type :dao.stream/memory-log)
+    32	
+    33	(def ^:private own-namespace "dao.stream.memory-log")
+    34	
+    35	
+    36	(defn- result
+    37	  [outcome]
+    38	  {:dao.stream/outcome outcome})
+    39	
+    40	
+    41	(defn- permitted-key?
+    42	  "The contract: `:dao.stream/type` is the dispatch key, and every other
+    43	   key is qualified (dao.stream.md, *Creation*).  So an unqualified or
+    44	   non-keyword key is a malformed specification rather than a foreign
+    45	   extension the open-map rule would have us ignore.  A key in this
+    46	   transport's own namespace names a knob that does not exist, since that
+    47	   namespace is owned and empty."
+    48	  [k]
+    49	  (and (keyword? k)
+    50	       (or (= :dao.stream/type k)
+    51	           (and (some? (namespace k))
+    52	                (not= own-namespace (namespace k))))))
+    53	
+    54	
+    55	(defn- valid-spec?
+    56	  "A map, typed as this transport, whose every key is permitted.  Foreign
+    57	   qualified keys are ignored per the open-map rule; unqualified,
+    58	   non-keyword, and own-namespace keys are rejected."
+    59	  [spec]
+    60	  (and (map? spec)
+    61	       (= transport-type (:dao.stream/type spec))
+    62	       (every? permitted-key? (keys spec))))
+    63	
+    64	
+    65	(defn- fresh-state
+    66	  []
+    67	  ;; As in the ring buffer, the logical identity is plain data — it
+    68	  ;; travels in descriptors and cursors — never a host UUID object.
+    69	  ;; A vector, dense from 0: positions are never reused and never
+    70	  ;; dropped, and the tail is (count values).
+    71	  (atom {:identity (str (random-uuid))
+    72	         :values []
+    73	         :closed? false}))
+    74	
+    75	
+    76	(deftype MemoryLogHandle
+    77	  [state]
+    78	
+    79	  stream/IDaoStreamDescriptor
+    80	
+    81	  (descriptor
+    82	    [_]
+    83	    (let [s @state]
+    84	      {:dao.stream/outcome :dao.stream/ok
+    85	       :dao.stream/descriptor {:dao.stream/type transport-type
+    86	                               :dao.stream/identity (:identity s)}
+    87	       :dao.stream/identity (:identity s)}))
+    88	
+    89	
+    90	  stream/IDaoStreamReader
+    91	
+    92	  (cursor
+    93	    [_ anchor]
+    94	    (let [s @state]
+    95	      ;; Every handle is the logical stream's owner: there is no
+    96	      ;; attachment to be closed, and an owner keeps minting cursors
+    97	      ;; after close so retained history stays readable.
+    98	      (case anchor
+    99	        ;; Complete retention: :oldest is the origin, before the first
+   100	        ;; append and after close alike.
+   101	        :dao.stream/oldest
+   102	        (assoc (result :dao.stream/ok)
+   103	               :dao.stream/cursor
+   104	               {:dao.stream.memory-log/identity (:identity s)
+   105	                :dao.stream.memory-log/position 0})
+   106	        :dao.stream/newest
+   107	        (assoc (result :dao.stream/ok)
+   108	               :dao.stream/cursor
+   109	               {:dao.stream.memory-log/identity (:identity s)
+   110	                :dao.stream.memory-log/position (count (:values s))})
+   111	        (result :dao.stream/invalid-anchor))))
+   112	
+   113	
+   114	  (next
+   115	    [_ cursor-value]
+   116	    ;; Total: the position is range-checked before any indexed read, so a
+   117	    ;; fabricated negative position answers invalid-cursor instead of
+   118	    ;; reaching nth and throwing on the JVM.  No cursor this stream can
+   119	    ;; mint holds a position above the tail — positions never disappear
+   120	    ;; and the tail never retreats — so an above-tail position is a
+   121	    ;; fabrication, invalid like a negative one.
+   122	    (let [s @state]
+   123	      (cond
+   124	        (not (map? cursor-value)) (result :dao.stream/invalid-cursor)
+   125	        (not (contains? cursor-value :dao.stream.memory-log/identity))
+
+exec
+/bin/zsh -lc "nl -ba src/cljc/dao/stream/memory_log.cljc | sed -n '178,199p'; nl -ba docs/design/yin.vm.macro.md | sed -n '760,779p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+   178	(defn create!
+   179	  "Create a memory log from a creation specification."
+   180	  [spec]
+   181	  (if-not (valid-spec? spec)
+   182	    (result :dao.stream/invalid-spec)
+   183	    (let [state (fresh-state)]
+   184	      {:dao.stream/outcome :dao.stream/ok
+   185	       :dao.stream/handle (MemoryLogHandle. state)
+   186	       :dao.stream/identity (:identity @state)})))
+   760	The expander is driven by `dao.stream.observer/run-on-stream` with
+   761	its state in the `:consumer` slot — the coordination inspects no field of
+   762	the consumer, so it drives an expander as readily as a VM:
+   763	
+   764	```
+   765	expander = {:ctx ctx
+   766	            :out writer        :out-staged  nil|datoms
+   767	            :log writer|nil    :log-staged  nil|datoms
+   768	            :forwarded 0       ; batches appended ok to :out since the last drain
+   769	            :errors []}        ; expansion failures since the last drain
+   770	
+   771	ready?       (fn [x] (and (nil? (:out-staged x)) (nil? (:log-staged x))))
+   772	load         (fn [x batch]
+   773	               (let [r (expand-batch batch (:ctx x))]
+   774	                 (-> x (assoc :ctx (:ctx r))
+   775	                       (assoc :out-staged (when (= :ok (:status r)) (:datoms r)))
+   776	                       (assoc :log-staged (when (:log x) (:log r)))
+   777	                       (cond-> (= :error (:status r)) (update :errors conj (:error r))))))
+   778	run          flush                    ; below
+   779	drain-errors (fn [x] [(assoc x :errors [] :forwarded 0) {:errors (:errors x) :forwarded (:forwarded x)}])
+
+codex
+The occurrence groups preserve shared-definition identity, but their ordinal rule currently counts plain definitions as well as macros; the governing macro catalogue numbers only macro definitions. I also found that the proposed incarnation allocator assumes cursor reads allocate unique positions. The stream contract makes cursors observation positions, so that assumption needs a source-level check.
+exec
+/bin/zsh -lc "bb -cp src/cljc -e '(require '\\''[dao.stream :as s] '\\''[dao.stream.memory-log :as ml])
+(let [r (ml/create"'! {:dao.stream/type :dao.stream/memory-log})
+      h (:dao.stream/handle r)
+      a (:dao.stream/cursor (s/cursor h :dao.stream/newest))
+      b (:dao.stream/cursor (s/cursor h :dao.stream/newest))
+      incarnation (fn [c] {:yin.expander/log (:dao.stream/identity r) :yin.expander/start c})]
+ (prn {:same-cursor (= a b)
+       :positions [(get a :dao.stream.memory-log/position) (get b :dao.stream.memory-log/position)]
+       :same-incarnation (= (incarnation a) (incarnation b))
+       :same-attempt (= [(incarnation a) 0] [(incarnation b) 0])}))'"'" in /Users/sto/workspace/datomworld
+ succeeded in 99ms:
+{:same-cursor true, :positions [0 0], :same-incarnation true, :same-attempt true}
+
+codex
+Completed-GMT: 2026-09-14 17:51:09 GMT  
+Completed-Local: 2026-09-15 00:51:09 Asia/Ho_Chi_Minh  
+Coding-Agent: codex  
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+**Verdict: REJECT**
+
+The proposed shapes are appropriate, but two concrete rules remain unsound: reading a cursor does not allocate a unique incarnation, and harvest-group indices do not preserve the macro-only declaration ordinals. Neither issue is merely unfinished implementation work.
+
+**Numbered findings**
+
+1. **P1 — The incarnation allocator assumes uniqueness that stream cursors do not provide.**
+
+   **Draft:** §8.4.1, [lines 1186–1197](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1186); §10.3, [lines 1494–1497](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1494).
+
+   The assertion that no two constructions against one log share its cursor value is false. Cursors describe observation positions. Reading `:dao.stream/newest` does not reserve or advance a position ([stream contract, lines 471–477](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:471)). The memory-log implementation returns its identity and current value count ([source, lines 92–110](/Users/sto/workspace/datomworld/src/cljc/dao/stream/memory_log.cljc:92)).
+
+   I created one memory log and requested two newest cursors without an intervening append:
+
+   ```clojure
+   {:same-cursor true
+    :positions [0 0]
+    :same-incarnation true
+    :same-attempt true}
+   ```
+
+   Thus two constructions—concurrent or sequential—can obtain identical incarnations and attempt `[incarnation 0]`. A restart before any log append has the same problem. The composition’s stated uniqueness warranty does not make this particular construction satisfy it.
+
+   **Fix:** Replace the cursor-read recipe with an explicit unique allocation mechanism. For example, allocate a durable incarnation entity through the log’s transactor and use its qualified identity, or supply a composition-minted unique incarnation token independently of the cursor. If log positions are used, they must be positions **allocated by a committed construction record**, not observed cursor values. Define retry behavior for that allocation.
+
+   The existing rule that staged flush retries reuse their attempt identity can remain.
+
+2. **P1 — Occurrence-group indices incorrectly replace macro-only declaration ordinals.**
+
+   **Draft:** §8.5, [lines 1233–1234](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1233) and [lines 1274–1278](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1274).
+
+   `:yin/harvest` contains **every definition**, including plain definitions. The new rule makes `:decl k` equal to the group’s index in that catalogue and says every occurrence is replaced by a stand-in.
+
+   The governing contract instead numbers only **source macro definitions** into `:declared`; plain definitions remain executable `yin/def` nodes ([macro design, lines 255–278](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:255)).
+
+   Consider a plain definition followed by macro definition `m`:
+
+   - Legacy behavior: `m` receives declaration ordinal `0`.
+   - Revised rule: `m` receives harvest-group index `1`.
+
+   A fabricated stand-in selecting `m` at ordinal `0` therefore changes meaning or stops resolving. Such stand-ins are explicitly permitted by the governing contract. Applying the replacement rule literally to plain groups would also remove their runtime definition behavior.
+
+   **Fix:** Keep two distinct sequences:
+
+   - The harvest catalogue contains all original definition groups in admission order.
+   - The declaration catalogue numbers only macro-declared groups, preserving their relative order.
+
+   All occurrences of one macro group receive that group’s macro-only ordinal. Plain groups participate in harvest/redefinition but remain ordinary `yin/def` syntax. This preserves the occurrence-group design without changing observable declaration behavior.
+
+**Round-4 findings 1–2**
+
+| Previous finding | Status | Verification |
+|---|---|---|
+| 1 — Attempt identity across expanders | **Not resolved** | `[incarnation counter]` is the right shape, but the prescribed cursor-based incarnation construction demonstrably permits duplicates: [§8.4.1, line 1186](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1186). |
+| 2 — Shared legacy declaration identity | **Not resolved in full** | Occurrence groups preserve entity aliases, but using the all-definition harvest index as `:decl` changes legacy ordinals: [§8.5, line 1263](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1263). |
+
+**Verified sound**
+
+- **Occurrence groups address the original aliasing problem.** One original entity can map to several `[j path]` occurrences while being harvested once. The adapter explicitly retains entity identity during inlining and honestly declares the required extension absent today ([line 1390](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1390)).
+- **The group-validation conditions are appropriate.** Nonempty, disjoint groups; exact definition coverage; consistent name/body; and whole-group declaration prevent ambiguous membership and mixed declarations ([lines 1282–1292](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1282)). Address-based body comparison remains subject to the existing encoder gate.
+- **Staged retries should reuse record identity.** Reusing the staged record without re-expansion matches the governing expander’s staging model ([macro design, lines 765–776](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:765)). Restart uniqueness becomes sound once incarnation allocation is corrected.
+- **The cross-document dependency is explicit.** Adding `:incarnation` to macro `ctx` is correctly recorded in §10.3; its absence from implementation is not itself a rejection reason.
+
+The remaining fixes are specific: allocate an incarnation rather than observe a cursor, and separate harvest order from macro declaration numbering. The other previously accepted mechanisms remain accepted.
+tokens used
+22,334
+Completed-GMT: 2026-09-14 17:51:09 GMT  
+Completed-Local: 2026-09-15 00:51:09 Asia/Ho_Chi_Minh  
+Coding-Agent: codex  
+Session-ID: 01a09fcc-3b9f-7172-b592-f15348d6c88b
+
+**Verdict: REJECT**
+
+The proposed shapes are appropriate, but two concrete rules remain unsound: reading a cursor does not allocate a unique incarnation, and harvest-group indices do not preserve the macro-only declaration ordinals. Neither issue is merely unfinished implementation work.
+
+**Numbered findings**
+
+1. **P1 — The incarnation allocator assumes uniqueness that stream cursors do not provide.**
+
+   **Draft:** §8.4.1, [lines 1186–1197](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1186); §10.3, [lines 1494–1497](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1494).
+
+   The assertion that no two constructions against one log share its cursor value is false. Cursors describe observation positions. Reading `:dao.stream/newest` does not reserve or advance a position ([stream contract, lines 471–477](/Users/sto/workspace/datomworld/docs/design/dao.stream.md:471)). The memory-log implementation returns its identity and current value count ([source, lines 92–110](/Users/sto/workspace/datomworld/src/cljc/dao/stream/memory_log.cljc:92)).
+
+   I created one memory log and requested two newest cursors without an intervening append:
+
+   ```clojure
+   {:same-cursor true
+    :positions [0 0]
+    :same-incarnation true
+    :same-attempt true}
+   ```
+
+   Thus two constructions—concurrent or sequential—can obtain identical incarnations and attempt `[incarnation 0]`. A restart before any log append has the same problem. The composition’s stated uniqueness warranty does not make this particular construction satisfy it.
+
+   **Fix:** Replace the cursor-read recipe with an explicit unique allocation mechanism. For example, allocate a durable incarnation entity through the log’s transactor and use its qualified identity, or supply a composition-minted unique incarnation token independently of the cursor. If log positions are used, they must be positions **allocated by a committed construction record**, not observed cursor values. Define retry behavior for that allocation.
+
+   The existing rule that staged flush retries reuse their attempt identity can remain.
+
+2. **P1 — Occurrence-group indices incorrectly replace macro-only declaration ordinals.**
+
+   **Draft:** §8.5, [lines 1233–1234](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1233) and [lines 1274–1278](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1274).
+
+   `:yin/harvest` contains **every definition**, including plain definitions. The new rule makes `:decl k` equal to the group’s index in that catalogue and says every occurrence is replaced by a stand-in.
+
+   The governing contract instead numbers only **source macro definitions** into `:declared`; plain definitions remain executable `yin/def` nodes ([macro design, lines 255–278](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:255)).
+
+   Consider a plain definition followed by macro definition `m`:
+
+   - Legacy behavior: `m` receives declaration ordinal `0`.
+   - Revised rule: `m` receives harvest-group index `1`.
+
+   A fabricated stand-in selecting `m` at ordinal `0` therefore changes meaning or stops resolving. Such stand-ins are explicitly permitted by the governing contract. Applying the replacement rule literally to plain groups would also remove their runtime definition behavior.
+
+   **Fix:** Keep two distinct sequences:
+
+   - The harvest catalogue contains all original definition groups in admission order.
+   - The declaration catalogue numbers only macro-declared groups, preserving their relative order.
+
+   All occurrences of one macro group receive that group’s macro-only ordinal. Plain groups participate in harvest/redefinition but remain ordinary `yin/def` syntax. This preserves the occurrence-group design without changing observable declaration behavior.
+
+**Round-4 findings 1–2**
+
+| Previous finding | Status | Verification |
+|---|---|---|
+| 1 — Attempt identity across expanders | **Not resolved** | `[incarnation counter]` is the right shape, but the prescribed cursor-based incarnation construction demonstrably permits duplicates: [§8.4.1, line 1186](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1186). |
+| 2 — Shared legacy declaration identity | **Not resolved in full** | Occurrence groups preserve entity aliases, but using the all-definition harvest index as `:decl` changes legacy ordinals: [§8.5, line 1263](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1263). |
+
+**Verified sound**
+
+- **Occurrence groups address the original aliasing problem.** One original entity can map to several `[j path]` occurrences while being harvested once. The adapter explicitly retains entity identity during inlining and honestly declares the required extension absent today ([line 1390](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1390)).
+- **The group-validation conditions are appropriate.** Nonempty, disjoint groups; exact definition coverage; consistent name/body; and whole-group declaration prevent ambiguous membership and mixed declarations ([lines 1282–1292](/Users/sto/workspace/datomworld/docs/design/yin.vm.tuples.md:1282)). Address-based body comparison remains subject to the existing encoder gate.
+- **Staged retries should reuse record identity.** Reusing the staged record without re-expansion matches the governing expander’s staging model ([macro design, lines 765–776](/Users/sto/workspace/datomworld/docs/design/yin.vm.macro.md:765)). Restart uniqueness becomes sound once incarnation allocation is corrected.
+- **The cross-document dependency is explicit.** Adding `:incarnation` to macro `ctx` is correctly recorded in §10.3; its absence from implementation is not itself a rejection reason.
+
+The remaining fixes are specific: allocate an incarnation rather than observe a cursor, and separate harvest order from macro declaration numbering. The other previously accepted mechanisms remain accepted.

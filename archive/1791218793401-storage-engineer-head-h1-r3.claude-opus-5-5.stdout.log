@@ -1,0 +1,48 @@
+Completed-GMT: 2026-10-05 16:51:48 GMT
+Completed-Local: 2026-10-05 23:51:48 +07
+Coding-Agent: claude
+Session-ID: 2e396723-5628-413b-b406-88d743d2aa93
+
+## Summary
+
+Both P2 findings are fixed. The focused JVM run is green (139 tests, 38300 assertions, 0 failures) and lint is clean. The second fix leaves one design sentence that needs a small change. I ran no git, no formatter, and no Node or Dart.
+
+## 1. `index-seq` accepts non-canonical rows: fixed
+
+**Change** (`src/cljc/yin/vm/linker/head.cljc`): `index-seq` now accepts an index only if every row passes `dao.datom/local-datom?`. That means exactly `[e a v t m]`, with `e` and `t` nonnegative integers, `a` a namespaced keyword and `m` an integer. The check is still inside its `try`, so it stays total on every host. `head.cljc` now requires `dao.datom`. The existing malformed-`t` tests stay green.
+
+**Tests** (in `test/yin/vm/linker/head_follow_test.cljc`). Each covers six cases, one bad row beside a good one: 4 slots, 6 slots, negative `e`, a string `e`, an unnamespaced attribute, and a string `m`.
+- `non-canonical-rows-are-refused-at-confirmation`: with head 10 installed, each case's trace is refused as data with `:yin.head/index-invalid` and its trace. The floor stays at 10, nothing new is installed, and head 10 is the only head ever confirmed.
+- `non-canonical-rows-refuse-follow-naming-the-principal`: restoring each case through `follow` gives exactly `{:yin.head/refused :yin.head/index-invalid :principal p}`, and nothing is installed.
+
+## 2. A loaded foreign-kind record reached confirmation: fixed
+
+**Change** (`head.cljc`):
+- `settle` now checks the record's kind before looking at its status. A record that is neither candidate kind nor index kind, whether loading, loaded or failed, is reported `:unloadable` once and otherwise left alone: not read, not forgotten, not restarted, and with no owner-set entry.
+- Once the record's owner removes it, the existing branch for a missing record acquires the address as a candidate.
+- The `:failure` carried by that event is the record's own reason when it has failed. When it is loading or loaded it has no failure, so the event carries `{:yin.head/foreign-kind k :status s}` instead.
+- `loaded-datoms-of`, the local walk the reviewer reached, is gone. The confirmation branch now only ever sees candidate or index records and reads their `:value`.
+- `walk-of`'s `nil` path can no longer be reached from `settle`. I left it in place.
+
+**Tests:**
+- `a-loaded-record-of-another-kind-is-never-read`: every blob of the index is copied into B's store, so a read of that address could confirm it. A module-kind load at the candidate's address completes. Over 60 ticks:
+  - exactly one `:unloadable` event, carrying the foreign-kind marker, and no `:confirmed`;
+  - the record is unchanged and has no owner entry;
+  - a counting store shows **zero reads** of the manifest address.
+  - After the owner calls `forget`, the candidate loads and installs, and only then is the address read.
+- The test needed a small hook: the `world` helper now passes an optional `:local` store to B. Existing callers are unaffected.
+- `a-failed-module-record-is-left-until-its-owner-forgets-it` from round 2 is still green.
+
+## Commands and outcomes
+
+- `clj -M:test -n dao.space.dht-test -n yin.repl.dht-test -n yin.vm.linker.head-test -n yin.vm.linker.head-follow-test -n yin.vm.linker.dht-test -n yin.vm.linker.sign-test`: **139 tests, 38300 assertions, 0 failures, 0 errors.**
+  - The first run had one failure, and it was in my new test, not the code. It asserted "no `:confirmed` event at all", but head 10's own confirmation is expected. I corrected it to "only head 10 was ever confirmed".
+- `clj -M:kondo --lint src/cljc/yin/vm/linker/head.cljc test/yin/vm/linker/head_follow_test.cljc`: **0 errors, 0 warnings.** No touched line is over 80 columns.
+
+## Design sentence that needs to change
+
+Section 5.5 (amended) says a foreign record's candidate is reported unloadable "with that record's failure". A loading or loaded foreign record has no failure. I suggest: "with that record's failure, or, for a record that has not failed, its kind and status".
+
+## Unresolved
+
+Node and Dart are still unverified. `local-datom?` is the existing portable predicate, so I expect no host difference, but that is untested.

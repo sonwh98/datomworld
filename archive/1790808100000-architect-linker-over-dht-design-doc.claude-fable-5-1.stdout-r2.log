@@ -1,0 +1,41 @@
+All five findings are closed in `docs/design/yin.vm.linker.dht.md`, now revision r2. Only docs changed, and nothing is staged or committed.
+
+## What changed, per finding
+
+1. **Bounded backlog (HIGH).** New section 5.5.
+   - **Mechanism:** a put now only inserts locally and records the address. The node's step admits addresses to a first-in-first-out backlog and releases them within the DHT's pending-write bound.
+   - **Bounds:** capacity is 4096 addresses. An address arriving at a full backlog is settled at once as refused with a backlog-full reason, and nothing is evicted.
+   - **Fairness:** retries go to the tail and each address gets three tries.
+   - **Cancellation:** an explicit cancel function settles a publication's unsent blobs as cancelled. Close discards the backlog silently.
+   - **Acceptance:** L1 covers pacing, sustained rounds, overflow, a peer that never accepts, fairness and cancellation.
+
+2. **Publication result (HIGH).** The published event now carries a result, the sent count and the complete list of failed blobs with reasons.
+   - **Result values:** acknowledged, partial or unacknowledged. Partial means the manifest blob was sent and some other blob was not.
+   - **Announced index:** HEAD still moves before any network result, and a failed result retracts nothing.
+   - **Address-fact contract:** restated in 5.1. The publisher always holds and serves the content. Retrieval from other peers is promised only by an acknowledged result.
+   - **Repair:** an explicit retry function. Nothing retries automatically.
+   - **Acceptance:** L1 and L4 both carry a failed-row-replication case, including the reader's side.
+
+3. **Dependency names (HIGH).** I dropped the same-index rule. Section 7.4 now reads as follows.
+   - **Resolution:** a dependency name resolves by the ordinary fold over the reader's explicit snapshot set, under any declared principal.
+   - **No copying:** nothing is copied or relayed between indexes, and a pinned address is never a name claim.
+   - **Binding check:** a new check runs after the load and before the link. It answers ok, absent, ambiguous or mismatch per requirement, and the first failure refuses the require before any install.
+   - **Acceptance:** L2 and L4 test matching, missing and conflicting bindings across two principals and two snapshots, plus same-address consensus and a direct entry.
+
+4. **Unaskable and walk defects (MEDIUM).**
+   - **Unaskable:** it now has its own link response carrying the address and the client's outcome keyword. A transient busy answer from the client is no longer a failure.
+   - **Walk defects:** every invalid outcome carries a closed defect code, including one for a throwing walk and one for a wrong-shaped answer. Text is optional and never compared.
+   - **Acceptance:** L1 and L3 assert the codes and raised data equal on JVM, Node and Dart.
+
+5. **Footprint (MEDIUM).** Section 5.2 now specifies the computation and its three inputs.
+   - **Store keys:** the tree's own store keys from the existing requirements query.
+   - **Effects:** the tree's effects, plus each declared primitive's profile effects, plus each required manifest's footprint effects.
+   - **Publisher contract:** the publisher computes the footprint and the caller no longer supplies it.
+   - **No prerequisite:** every function it reads exists on master, so there is no gate. L0 carries the acceptance.
+
+## Decisions I made while closing these
+
+- **Backlog and result moved to L1.** They live in the same file as the staged load, so L4 now only adds rows on top. L1 therefore touches two REPL files for rendering and the two new host functions.
+- **Repair is explicit, not automatic.** A partial publication leaves the listed rows served by the publisher only until someone retries. This is the honest reading of the owner's retrieval contract under a no-waiting write path, and the owner may want automatic retry instead.
+- **Modules with FFI calls or parked ids are refused at publish.** The schema-1 manifest has no way to declare them. This is listed under deferrals, along with relaying a foreign assertion and automatic repair.
+- **The cross-reference in `dao.jing.dht.md`** now mentions the changed published-event shape.

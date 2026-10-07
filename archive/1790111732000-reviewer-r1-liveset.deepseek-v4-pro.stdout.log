@@ -1,0 +1,51 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"auto_mode"}
+I have completed the review. I've read all seven specified files in full and traced the liveness dataflow, allocator, validator, and lift against the spec. Here is my report.
+
+---
+
+Completed-GMT: 2026-09-22 19:42:06 GMT
+Completed-Local: 2026-09-23 02:42:06 +07 (Indochina Time)
+Coding-Agent: deepseek
+Session-ID: 1790111732000-reviewer-r1-liveset
+
+# Verdict: READY WITH CHANGES
+
+No P1 code defect was found. The lowering, allocation, liveness dataflow, validator, and lift are correct and internally consistent; I hand-re-derived every live-set fixture and confirmed each asserted value is right. Two should-fix gaps (P2) and two minor notes (P3) follow.
+
+## P1 — none.
+
+## P2 — the design document has no section 4.5, yet the code and tests cite it as their spec
+
+`docs/design/yin.vm.debruijn.register.md` jumps straight from §4.4 to §5. There is no §4.5 anywhere in the file (confirmed by grep: the word "live" appears only at lines 71, 311, 321, in unrelated senses). The entire live-register-set feature this commit is titled for — contract version 1→2, `:call`'s sixth `live` operand, `body-liveness`, the four live-set validator rules, and the §4.5 "work list" the five fixtures implement — is implemented and tested but absent from the authoritative spec.
+
+Concretely, the spec and the shipped format now diverge:
+- §4.4 (line 339) lists `:call [op rd fn-reg arg-regs tail?]` — five operands. The code's `opcode-table` (`src/cljc/yin/vm/debruijn_register_code.cljc:125-129`) ships six, adding `[:yin.debruijn.register/live :data]`.
+- §3's descriptor "Validation" row (line 238) reads `Shape, targets, body scope, register bounds` — no live-set rules, no version-2 note.
+- The code's `contract-version` docstring (lines 63-74) and `body-liveness` docstring (line 245) both cite "design section 4.5" as if it existed.
+
+This is a genuine spec/implementation divergence on a format that the project treats as design-first ("non-negotiable invariants"). It is the one place a single-session implementer could have silently moved the spec without the owner noticing — and here the spec was *not* updated at all. The commit touches only `src/` and `test/` (4 files), no `docs/` edit.
+
+## P2 — the validator does not reject a cross-body `:jump`/`:branch-false`
+
+`body-scope-rule` (`debruijn_register_code.cljc:427-466`) checks body shape, contiguity, coverage, and closure targets — but never checks that a `:jump` or `:branch-false` target lies inside its own body's `[start end]`. `target-bounds-rule` (413-424) only bounds targets against the whole vector length. So a hand-built image with a `:jump` from body 0 into body 1's interior passes every rule, and `body-liveness` then silently computes wrong liveness (it reads the cross-body successor's `live-in`, which is empty because each body's pass updates only its own pcs). The wrong value is consistent, so `:live-exact` does not catch it either.
+
+This diverges from B1's direct precedent: the stack-image validator rejects the same malformation via `scope-defect`/`all-body-chains`'s `:scope-conflict` (a pc reached under two different scope chains). The register validator has the body ranges (`owner-of`) available and should check each control-transfer target is within its own body. Latent today — the lowerer never emits such an image and there is no receive/kernel path yet — but the validator is explicitly positioned as the sole admitter for a future kernel, which would otherwise jump into another body's register file.
+
+## P3 — a docstring overstates test coverage
+
+`debruijn_register_code.cljc:100-106` states that "`:move` is also declared but never emitted … Both facts are asserted by this phase's own tests, not left as a silent absence." No test in `test/yin/vm/debruijn_register_compile_test.cljc` asserts the absence of `:move`/`:store-get`/`:store-put` in any emitted image (the only `store-get`/`store-put` hits are the *deferred node-type* refusal tests, lines 165-166). The claim is unsubstantiated.
+
+## P3 — fixture E's comment has off-by-one register numbers
+
+`test/yin/vm/debruijn_register_compile_test.cljc:500-507` says the lambda body (`locals 1`) puts "`f` … into reg1, `x` … into reg2". The actual lowerer reserves temp 0 for the body's return register (reg 1, since `+locals 1`), so `f` → reg 2 and `x` → reg 3, and the call is `[:call 1 2 [3] true …]`. The test itself is correct — it locates the tail call by `(true? (nth t 4))` and asserts only `live = []` — so this is a comment-only inaccuracy that could mislead a future reader of the hand derivation.
+
+## Confirmed correct (the substance of the review)
+
+1. **`body-liveness`** (`debruijn_register_code.cljc:302-334`) matches §4.4's use/def table exactly, including the subtle cases: a tail `:call` neither defines `rd` nor has a successor (so its `live` is empty by construction); `:move` uses `rs`/defines `rd`; `:store-put` uses `value-reg`; `:store-get` uses nothing. The successor rule handles `:jump` (target only), `:branch-false` (target + fall-through), `:return`/`:halt` (none), and tail/non-tail `:call` correctly. The fixpoint iterates to convergence with a correct `changed?` flag; the transfer functions are monotone over a finite lattice, so it terminates and yields the unique least fixpoint — including for a hand-built backward `:jump` loop (the lowerer never emits one, but the dataflow handles it). `live = live-out − {rd}` is applied correctly for both tail and non-tail calls.
+2. **The four live-set rules** are all wired into `body-rules` (lines 574-582) and each is exercised by a hand-built malformed fixture in test section 11 (`:live-shape`, `:live-bounds`, `:live-tail`, `:live-exact` — the last also asserts `:expected`/`:actual`). Ordering is deliberate and safe: `terminator-rule` runs before the live rules so `body-liveness`'s fall-through never reads past a malformed body's end.
+3. **Fixtures A–D are correct** by independent derivation: A → `[]`; B → `[1 2]` (reg1 `+` and reg2 `a` live across the branch to the outer call); C → `[1]` (consequent) and `[]` (alternate); D → `[1 3]` / `[1]` / `[]` (innermost/middle/outer). E → `[]`.
+4. **Allocator determinism** (§4.3) holds: `free` is a `sorted-set` (`allocate-temp!` takes lowest freed), `next-temp` is monotonic and only advances when `free` is empty (so `peak` = peak simultaneous temporaries), and `reg-of = locals + temp-index` keeps the two banks disjoint. No host map/set iteration order reaches the emitted vector or the hash.
+5. **The lift trust rule** mirrors B2's `lift` exactly (`debruijn_register_compile.cljc:645-663` vs `debruijn_linearize.cljc:388-412`): synthesized names by default, a supplied side table trusted only after arity match, capture-freedom, and round-trip verification via `resolve-name` (`register-round-trips?`), else full synthesis. The `enclosing`/`chain-of-body` indirection correctly adapts B2's pc-keyed chain to body-index keys; I confirmed `var-name-at` and `register-round-trips?` use identical index arithmetic, so the round-trip guard makes `lift-image-with` safe.
+6. **The CLJD `#'` fix is complete**: no `#'` remains in either test file (grep clean), and `resolved-addresses-of` / `stack-addresses-of` / `address-law-extra-fixtures` are now public and called normally, with nothing private inadvertently exposed.

@@ -1,0 +1,105 @@
+Completed-GMT: 2026-09-03 09:53:46 GMT
+Completed-Local: 2026-09-03 16:53:46 Asia/Ho_Chi_Minh
+Coding-Agent: agy
+Session-ID: 6805C0C2-A138-46D9-AB5D-E40296588FF2
+
+### 1. Files Changed
+
+All changes were made exclusively within the Phase 1 source/test scope in the isolated worktree `/private/tmp/datom-phase1`:
+
+- [`src/cljc/dao/stream.cljc`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc) — The DaoStream v2 protocol and data surface core:
+  - Universal descriptor projection protocol [`IDaoStreamDescriptor`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L125-L134) and function [`descriptor`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L128-L134)
+  - Reader surface protocol [`IDaoStreamReader`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L136-L148) with [`cursor`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L139-L144) and [`next`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L145-L148)
+  - Writer surface protocol [`IDaoStreamWriter`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L150-L157) with [`append!`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L153-L157)
+  - Closable surface protocol [`IDaoStreamClosable`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L159-L167) with [`close!`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L163-L167)
+  - Constants: [`operations`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L27-L29), [`surfaces`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L31-L33), standard anchors ([`anchor-oldest`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L36-L38), [`anchor-newest`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L40-L42), [`standard-anchors`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L44-L46)), exhaustive closed outcome sets [`operation-outcomes`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L84-L92), and required outcome keys [`outcome-required-keys`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L94-L102)
+  - Surface inspection predicates: [`reader?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L173-L176), [`writer?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L178-L181), [`closable?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L183-L186), [`descriptor?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L188-L191), and [`declared-surfaces`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L193-L200)
+  - Result map validation and open map constructors: [`outcome-map?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L210-L213), [`validate-outcome`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L215-L248), [`valid-outcome?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L250-L253), [`ok-result`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L300-L305), [`outcome-result`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L307-L312)
+  - Generic envelope validation: [`valid-envelope?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L254-L260), [`valid-creation-spec?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L262-L266), [`valid-descriptor?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L268-L275), [`descriptor-identity-consistent?`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L277-L293)
+  - Functional host-composed dispatch entry helpers without ambient registries or side-effects: [`host-dispatch-create!`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L341-L352) and [`host-dispatch-attach!`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L354-L365)
+- [`test/dao/stream/conformance.cljc`](file:///private/tmp/datom-phase1/test/dao/stream/conformance.cljc) — Declaration-driven conformance harness and concurrency oracle:
+  - Manifest validation ([`validate-manifest`](file:///private/tmp/datom-phase1/test/dao/stream/conformance.cljc#L24-L97)) enforcing complete outcome partitions (`produces` + `exclusions` with non-empty reasons)
+  - Licensed conformance law blocks ([`run-conformance-suite`](file:///private/tmp/datom-phase1/test/dao/stream/conformance.cljc#L210-L253)): outcome induction coverage, descriptor identity laws, reader laws, writer laws, and close laws
+  - Concurrency oracle ([`check-linearizability`](file:///private/tmp/datom-phase1/test/dao/stream/conformance.cljc#L294-L327)) performing bounded offline linearizability checking with happens-before precedence
+  - Pure abstract sequential stream model ([`make-abstract-stream-model`](file:///private/tmp/datom-phase1/test/dao/stream/conformance.cljc#L334-L350), [`abstract-stream-step`](file:///private/tmp/datom-phase1/test/dao/stream/conformance.cljc#L352-L435)) for linearizing stream operations
+- [`test/dao/stream_test.cljc`](file:///private/tmp/datom-phase1/test/dao/stream_test.cljc) — Focused unit tests for result shapes, closed outcome sets, descriptor equality, generic envelope validation, surface gating, host dispatch, conformance manifest validation, full harness run on a mock transport, and concurrency oracle linearizability verification.
+
+No files were staged, committed, or modified outside the Phase 1 source and test scope.
+
+---
+
+### 2. API Decisions
+
+1. **Protocol Structure & Universal Handle Projection**:
+   - The five handle operations are split into four protocols:
+     - [`IDaoStreamDescriptor`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L125-L134) (universal, belongs to no surface, implemented by every handle)
+     - [`IDaoStreamReader`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L136-L148) ([`cursor`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L139-L144), [`next`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L145-L148))
+     - [`IDaoStreamWriter`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L150-L157) ([`append!`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L153-L157))
+     - [`IDaoStreamClosable`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L159-L167) ([`close!`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L163-L167))
+   - `descriptor` belongs to no surface because reachability and logical stream identity outlive any attachment; `IDaoStreamDescriptor` is never bundled into `IDaoStreamReader` or `IDaoStreamWriter`.
+
+2. **Transport Entry Functions & Avoidance of Ambient Registries**:
+   - In strict compliance with the plan, `create!` and `attach!` are **not** placed on any protocol or multimethod. DaoStream ships no ambient registry, no multimethod, and no load-time side effects.
+   - Entry functions are per-transport, host-composed functions. Dynamic dispatch is documented as an ordinary host-owned map from `:dao.stream/type` to `{:dao.stream/create ... :dao.stream/attach ...}`, and transparent helper functions ([`host-dispatch-create!`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L341-L352), [`host-dispatch-attach!`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L354-L365)) take that explicit table without consulting any global state.
+
+3. **Result Convention & Open Maps**:
+   - Every operation yields an open map with `:dao.stream/outcome` using a qualified keyword.
+   - All qualified contract keywords are rooted under `:dao.stream/…`.
+   - Result maps are validated with open semantics: undeclared extra keys (e.g. metadata, telemetry) are allowed and never rejected.
+   - Closed outcome sets strictly match the contract tables in [`docs/design/dao.stream.md`](file:///private/tmp/datom-phase1/docs/design/dao.stream.md).
+
+4. **Surface Gating**:
+   - Calling an undeclared operation on a handle (such as calling [`append!`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc#L153-L157) on a reader-only handle) fails directly at protocol dispatch and does not return an outcome map, preserving the invariant that an undeclared operation does not exist on that handle.
+
+5. **Declaration-Driven Conformance Harness**:
+   - Transports provide a pure data manifest specifying `:dao.stream/type`, `:surfaces`, `:operations` with exact `:produces` and `:exclusions` (each exclusion mapped to a non-empty rationale string), and fixtures.
+   - The harness enforces that `(set/union produces (keys exclusions))` strictly equals the contract's outcome set, and that every outcome in `:produces` is actually induced during test execution.
+
+6. **Bounded Concurrency Oracle**:
+   - Offline linearizability checker searches bounded execution histories for legal sequentializations accepted by [`abstract-stream-step`](file:///private/tmp/datom-phase1/test/dao/stream/conformance.cljc#L352-L435), respecting happens-before real-time order ($A \prec B$ if `(:end A) < (:start B)`).
+
+---
+
+### 3. Tests / Commands and Results
+
+1. **Linting via clj-kondo**:
+   - Command: `clj -M:kondo --lint src/cljc/dao/stream.cljc test/dao/stream/conformance.cljc test/dao/stream_test.cljc`
+   - Result: `linting took 387ms, errors: 0, warnings: 0` (clean pass).
+
+2. **DaoStream v2 Test Suite**:
+   - Command: `clj -M:test -n dao.stream-test`
+   - Result:
+     ```text
+     Running tests in #{"test"}
+     Testing dao.stream-test
+     Ran 9 tests containing 107 assertions.
+     0 failures, 0 errors.
+     ```
+
+3. **Legacy DaoStream v1 Test Suite (Regression Verification)**:
+   - Command: `clj -M:test -n dao.stream-test`
+   - Result:
+     ```text
+     Running tests in #{"test"}
+     Testing dao.stream-test
+     Ran 35 tests containing 140 assertions.
+     0 failures, 0 errors.
+     ```
+
+---
+
+### 4. Unresolved Risks
+
+- **Cross-Host Tooling Prerequisites**: Pure `.cljc` code was written without host-specific branching (`qualified-keyword?*` handles namespace checking portably across CLJ, CLJS, CLJD). Running shadow-cljs Node tests in this worktree currently requires `node_modules` (e.g. `react` for Reagent in the shared dev setup) which is external to Phase 1.
+- **Phase 2 Demonstration**: Per the plan, the conformance harness authored in Phase 1 is designed to be demonstrated against the concrete ring buffer implementation in Phase 2.
+
+---
+
+### 5. Readiness for Integration
+
+Phase 1 is complete, fully tested, lint-clean, and ready for integration and cherry-picking by the Lead Orchestrator. Working tree status in `/private/tmp/datom-phase1`:
+- Untracked files ready for review:
+  - [`src/cljc/dao/stream.cljc`](file:///private/tmp/datom-phase1/src/cljc/dao/stream.cljc)
+  - [`test/dao/stream/conformance.cljc`](file:///private/tmp/datom-phase1/test/dao/stream/conformance.cljc)
+  - [`test/dao/stream_test.cljc`](file:///private/tmp/datom-phase1/test/dao/stream_test.cljc)
+- No files staged or committed.

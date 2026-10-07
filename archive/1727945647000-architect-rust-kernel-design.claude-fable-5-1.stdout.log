@@ -1,0 +1,42 @@
+Completed-GMT: 2026-10-03 09:01:43 GMT
+Completed-Local: 2026-10-03 16:01:43 +07
+
+The design document is written to `docs/design/yin.vm.rust-kernel.md` (design only, revision 1; nothing committed, no `.cljc` touched, no lanes run).
+
+## Findings
+
+Severity | file:line | invariant / evidence | recommended correction
+
+- **HIGH** | `docs/design/yin.vm.debruijn.targets.md:1090-1097` (T-D2) | Design contradiction: emitters "never consume the register image", while the brief makes the register kernel the LLVM integration point. A standalone Rust node holds no resolved tuples, so the image is all it could translate. | Add a clause to T-D2: translating an admitted register image inside a kernel is an execution strategy, not an emitter. The same file already draws this line for the JVM at `:861-863`. Needs owner ratification (doc §2.7 C1, §11 A3).
+- **HIGH** | `docs/design/yin.vm.debruijn.targets.md:515-538` (T-D5) | Design contradiction: native artifacts never cross `dao.stream` as code, while the brief has LLVM as a downstream worker on `dao.stream`. | The doc makes the worker's request and outcome streams node-local within one trust domain; only images by R and continuations as data cross nodes. Owner should ratify, and decide whether a shared compile farm under a `:trusted` policy is ever wanted (§8.3, §8.4).
+- **HIGH** | `test/resources/yin/debruijn/conformance/` (absent), `targets.md:908-944` | The T0 host conformance kit does not exist, so a Rust port has no oracle. | Make the kit phase K0, exported from the real R4 kernel. That makes the test-only reference interpreter (T-D14) unnecessary.
+- **HIGH** | `src/cljc/yin/vm/debruijn/register.cljc:536-735` | Explicit state transitions: a Clojure step that throws leaves the old VM intact; a Rust `&mut Machine` step would not. | Check-then-commit rule for `step1` (all fallible reads before the first write), with atomicity fixtures in the kit (§5.3).
+- **HIGH** | LLVM function calls vs "everything is a continuation" | Lowering a yin `:call` to an LLVM `call` would put the continuation on the native stack, unserializable. | LLVM `call` is used for runtime helpers only; a yin call is a data transition plus a return to the driver, and resume labels are register pcs (§7.3).
+- **MEDIUM** | `docs/design/yin.vm.debruijn.targets.md:3-15`, `:654-684` | Stale status: R1 and R4 are described as unbuilt and unauthorized, but `register.cljc` implements all 23 opcodes at contract `"r2"`. | Update the status header and §3.7.1 (§11 A1).
+- **MEDIUM** | `docs/design/yin.vm.debruijn.targets.md:304-352` | The Rust type sketch is out of date against the code: whole-file frame saves, opaque `StreamRef`/`CursorRef`, no owner tag, no `store-of`, no offset table. The code has sparse live-only frames (`register.cljc:602-613`) and plain-data refs (`values.cljc:23-24`). | Superseded by §4 of the new doc (§11 A2).
+- **MEDIUM** | `docs/design/yin.vm.debruijn.register.md:789-803` | Doc drift: return frames are specified with `:segment` and `:hash`, but the code's frames carry no code space and restore keys on `:image` (`register.cljc:315-321`, `:360-366`). | Update register design §5.2.2 to the linker §7.3 r6/r7 shape.
+- **MEDIUM** | `src/cljc/yin/vm/debruijn/register.cljc:44-69` vs `:273-306` | Explicit state: `create-vm` sets seven keys the defrecord does not declare (`:heap`, `:owner`, `:capability-secret`, `:secret-source`, `:attach-stream`, `:ffi-caller-id`, `:callable-effects`), and the namespace docstring (`:12-15`) lists fewer still. | Declare them in the record or document the full inventory; §4.5 of the new doc gives one grouped by owner.
+- **MEDIUM** | Rust layout across an LTO boundary | Two separately compiled copies of the kernel are not guaranteed the same layout for non-`repr(C)` types, so an artifact carrying kernel code could corrupt a machine. | LTO only for a small `repr(C)`-only inline tier; everything else through a function table passed as an argument (§7.4).
+- **LOW** | `src/cljc/yin/vm/debruijn/register.cljc:81-86`, used at `:327`, `:592` | `body-of-pc` is a linear scan on every closure call and return. | Rust precomputes a dense pc-to-body index (§4.2); the Clojure kernel could do the same.
+- **LOW** | `docs/design/yin.vm.debruijn.targets.md:222-224` | Says a host hashes "received bytes", but the linker recomputes R from the decoded value (`linker.cljc:684`, `:1224`), and B1 has no decode path (`debruijn_code.cljc:34-40`). | The new doc specifies decode, contract check, validate, then recompute R (§8.1); align the targets wording.
+
+## Requested properties that passed review
+
+- **No hidden global state**: primitives, modules, resources, the native code cache and the runtime function table are constructor or call arguments; artifacts resolve no symbols against the process.
+- **No implicit control flow**: `step1` never recurses or unwinds, errors are `Next::Refuse` values, and native stack depth is constant.
+- **Everything is a stream**: program ingress is by observer and loader, effects are handle operations with exhaustive outcomes, and the LLVM worker is a request/outcome stream pair with no callback and no blocking compile.
+- **Explicit state transitions**: one `Machine` struct mirrors the Clojure state, all 23 transitions are tabulated, and installing an artifact is an explicit transition at a boundary.
+- **Values over RPC handles**: no pointer, handle or artifact address is a `Value`, and wait entries and payloads are plain data that round-trip and restore on a JVM node.
+- **Ownership boundaries**: immutable `Arc<Image>` for code, exclusively owned `Machine`, composition-owned host resources; the kernel/engine key-set split is kept.
+- **Concurrency and linearization**: one machine is one task; `Rc` makes cross-thread sharing a compile error; the deterministic heap-collection trigger is preserved as semantic.
+- **Dynamic extension**: `attach-image` follows the same append law, and artifacts are keyed per offset-table row so attaching never invalidates native code.
+- **Host isolation**: the kernel crates forbid `unsafe`, link no LLVM and use no async runtime; the unsafe surface is three optional crates.
+- **Requested content**: memory layout is §4, the CESK loop §5, the LLVM bridging strategy (LTO and function calls) §7, and the Rust node on `dao.stream` §8.
+
+## Owner decisions requested (§11)
+
+1. Ratify that a register kernel may translate the image it holds (first finding).
+2. Ratify node-local worker streams (second finding).
+3. Should the worker's request/outcome vocabulary reuse `dao.stream.apply` envelopes? I recommend yes, but it gives that vocabulary a second, non-VM user.
+4. The benchmark threshold for commissioning the LLVM phase. Free-name resolution stays dynamic and arithmetic stays boxed, so the first translator removes dispatch and decoding but does not turn `(+ x 1)` into a machine add; the doc gates the LLVM work behind a benchmark for that reason.
+5. Initial scalar classes for the Rust host: the eleven-class common domain first, with bigint, ratio and the float64 kind following?

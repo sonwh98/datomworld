@@ -1,0 +1,30 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Round 4 complete. Report: `collab/1789016321024-stream-jing-remote-phase2-r4.glm-5.3.findings.md`; nothing staged or committed.
+
+## P1 — the tenth exit
+
+New private `validate-timing-options!` (positive-integer-of-ms gate, `ex-info` naming the option), wired at **both** entries:
+
+- `connect-content!` — over all three defaulted options, before `content-descriptor`/`attach!` (a bad `:connect-timeout-ms` was the ninth exit's door);
+- `call!` — over `:request-timeout-ms`/`:poll-interval-ms` read once at entry, before the lock and before `rpc/request!`, because the client is a value a caller can `assoc`.
+
+The eighth/ninth catches remain `InterruptedException`-only, now safely: argument defects throw at the gate, before the wire.
+
+**Proof**: the discriminator is the **wire** — a recording handler, since client state can't distinguish "never sent" from "sent and abandoned". Both broken options throw the gate's message; allocator unchanged; after a 100 ms grace the handler saw nothing; the intact client's next call round-trips on a fresh id. **Mutation check was decisive**: gate deleted → six failures, including the defect live — the wire saw both `:refused` requests, and the *second* broken call **returned the first's answer** through the reused id. Restored: green twice.
+
+## P2 — the wrap is impossible for this var
+
+I implemented the reviewer's suggested `with-redefs` wrap of `stream/close!` — and it **counted zero while the exit demonstrably ran**, in-runner and out. Cause: `close!` is a `defprotocol` method, and Clojure links protocol calls at compiled sites directly to the interface method, bypassing the var. Per the pre-authorized alternative, the test keeps its three valid assertions and the comment now says precisely what is and isn't covered: the close is **statically reviewed, not tested** — no claim of coverage it lacks remains. (Recorded in memory alongside the other measured gotchas.)
+
+## Verification
+
+| lane | result | r3 baseline |
+|---|---|---|
+| `clojure -M:test` | **1458 / 165526, 0 failures** | 1457 / 165515 |
+| `bb test:cljs` | **1360 / 35026, 0 failures**; remote-test confirmed | 1359 / 35025 |
+| `bb test:cljd` | **+1314, all passed** | +1313 |
+| demo | **212 files, 0 warnings** | 212 / 0 |
+| kondo | **0 / 0** | 0 / 0 |
+
+Greps at zero; `reset! (:rpc` exactly once, inside `settle!`. Scope held — plan and design docs untouched (I can see your plan reconciliation in the working tree); the report flags one wording thought for your N11 reconciliation: the tenth exit is an entry gate rather than an exit, since the fix makes it throw before there is any state to settle.

@@ -1,0 +1,23 @@
+Completed-GMT: 2026-09-06 02:47:14 GMT
+Completed-Local: 2026-09-06 09:47:14 Asia/Ho_Chi_Minh
+Coding-Agent: claude
+Session-ID: pending (provider-generated)
+
+**Verdict: approved for commit as the V7 implementation.** Do not report V7 complete yet, because the CLJD lane has not been run. Details below.
+
+**Verified findings**
+
+- **Ownership boundary holds.** The observer owns handle, cursor, and gap count. `ASTWalkerVM` has no program fields, and an obsolete `:in-stream` option throws before `vm/empty-state` runs, so FFI resources are never allocated. The engine keeps only the readiness predicate, moved byte for byte.
+- **Observer contract matches the spec.** It requires only `dao.stream`, exports exactly three functions, mints through `stream/cursor` at oldest, validates the reader surface, and never creates, appends, or closes. All throws preserve the original outcome.
+- **Coordination is generic.** The plain-value consumer test proves `run-on-stream` inspects no walker fields. Run-first-when-not-ready, gap-continue, blocked and end return, and loader-throw-retains-cursor all match the plan text.
+- **No transport leakage.** The REPL composes writer, descriptor, ring attacher, observer, and VM in one `make-session`, rebuilt on reset and VM selection. The shell's `eval-input` catches observer throws and renders them as error text, so transport errors do not escape to the driver.
+- **Core contract untouched.** No file under `docs/design/dao.stream.md` or `src/cljc/dao/` is in the staged set.
+- **JVM suites re-run by me.** Observer, walker, engine, FFI, parity, and REPL core suites pass: 91 tests, 348 assertions, 0 failures.
+
+**Unresolved architectural risks**
+
+1. **CLJD lane not run.** The generated Dart under `lib/cljd-out/yin/vm/` still contains `stream-driver.dart` and has no observer file. The plan's V7 acceptance requires the CLJD lane and fresh generated-code inspection. The prompt's claim covers JVM and Node only.
+2. **Plan status text is now false.** The VM plan still says V7 is "awaiting implementation" and that "the current port still stores program-observation state in the AST walker". These should flip in the same commit.
+3. **Minor stale citation.** The REPL plan's historical fallback note still cites the removed engine guard line. Low priority since it is marked as history.
+
+The review record and suggested follow-ups are written to the plan file at `/Users/sto/.claude/plans/read-collab-architect-stream-observer-re-composed-frog.md`. Plan mode blocked writing the findings file into `collab/`, so that file was not created.
