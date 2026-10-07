@@ -1,0 +1,25 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+Sign-off review complete. Report written to `collab/1791363075116-architect-ucf-d10b-b-signoff.deepseek-v4-pro.findings.md`.
+
+## Summary of the ruling
+
+**Verdict: GRANT** — formal sign-off for staging and committing Stage D10b-B.
+
+I independently re-verified each architectural invariant against the spec (not just relying on the reviewer's trace):
+
+| # | Invariant | Ruling |
+|---|---|---|
+| 1 | Closed execution profile registry | **CONFIRMED** — `ucf/profiles` holds the exact four closed `:yin.k/contract` maps; contracts resolve to `"v3"/"b2"/"r2"/"v3"`, and `profile-engine` compares the inner version on CBOR integer kind |
+| 2 | Custody & structural dispatch | **CONFIRMED** — fork/exclusive derived from the empty/non-empty intersection with the five header keys (`header-keys`), with `check-root-header!` enforcing the role-specific table |
+| 3 | Four-kernel lowering & resumption | **CONFIRMED** — `stack/compose`/`register/compose` do prefix-sum relocation of `:pc`-only operands, rebuild aggregate hash, preserve the register nil-hash empty-base convention, refuse `:layout-overflow` |
+| 4 | Verification | **PARTIALLY DISCHARGED** — JVM 1197/13596 + Dart core four-profile round trips pass; Node outstanding |
+| 5 | F1/F2/F3 | See below |
+
+**Notable correction to the reviewer:** F2's premise ("only JVM is evidenced") is inaccurate — `collab/cljd-v2.log` shows a Dart (ClojureDart) run of the core four-profile round-trip tests (`engines = [:semantic :stack :register :walker]`), 9/9 passing. Node remains unproven.
+
+**Advisory rulings:**
+- **F1** (`v1?` naming) — rename to `jing-codec?`/`exclusive-lift?`; it's load-bearing (correctly routes v2 through the jing codec + non-portable catch), so a naive "fix" would break it. Not a commit blocker.
+- **F2** — still a D16 gate: Node + full 12-row matrix on all three hosts (row 10 canonical bytes especially).
+- **F3** — require a 12-row → test-name traceability map before D16; rows 5/9/10/12 need explicit confirmation.
+
+**Conditions:** D10b-B may commit now; D16 and stage-D remain gated on F2/F3.

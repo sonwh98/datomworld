@@ -1,0 +1,209 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ast-walker-test
+
+Testing yin.vm.attach-image-test
+
+Testing yin.vm.completion-test
+
+Testing yin.vm.debruijn.register-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.debruijn-code-test
+
+Testing yin.vm.debruijn-linearize-test
+
+Testing yin.vm.debruijn-register-benchmark-test
+
+[R3] de Bruijn stack VM vs register VM (informational)
+
+[R3] tail-countdown (10 timed runs, value 0)
+  stack    run=34.457ms lower=0.251ms load=1.558ms instrs=56 bytes=998 steps=10518 peak-frames=1 peak-cont=0
+  register run=30.014ms lower=5.03ms load=5.118ms instrs=35 bytes=4295 steps=6012 peak-frames=1 peak-cont=0
+  register/stack: run=0.871 lower=20.014 load=3.282 steps=0.571 bytes=4.303
+
+[R3] fibonacci (10 timed runs, value 144)
+  stack    run=33.311ms lower=1.217ms load=1.97ms instrs=92 bytes=1618 steps=11850 peak-frames=1 peak-cont=11
+  register run=32.145ms lower=2.01ms load=12.249ms instrs=53 bytes=7059 steps=6740 peak-frames=1 peak-cont=11
+  register/stack: run=0.964 lower=1.652 load=6.215 steps=0.568 bytes=4.362
+
+[R3] lexical-binding (50 timed runs, value 36)
+  stack    run=6.078ms lower=2.542ms load=3.753ms instrs=92 bytes=1541 steps=84 peak-frames=8 peak-cont=0
+  register run=10.201ms lower=2.235ms load=8.564ms instrs=55 bytes=7702 steps=46 peak-frames=8 peak-cont=0
+  register/stack: run=1.678 lower=0.879 load=2.281 steps=0.547 bytes=4.998
+
+[R3] corpus: literal map (50 timed runs, value {:x 10, :y 20})
+  stack    run=1.319ms lower=0.042ms load=1.559ms instrs=2 bytes=128 steps=2 peak-frames=0 peak-cont=0
+  register run=3.438ms lower=0.343ms load=2.769ms instrs=2 bytes=359 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=2.605 lower=8.052 load=1.775 steps=1.0 bytes=2.804
+
+[R3] corpus: addition (50 timed runs, value 30)
+  stack    run=0.952ms lower=0.068ms load=3.753ms instrs=8 bytes=127 steps=8 peak-frames=0 peak-cont=0
+  register run=4.33ms lower=0.357ms load=2.024ms instrs=5 bytes=614 steps=5 peak-frames=0 peak-cont=0
+  register/stack: run=4.547 lower=5.24 load=0.539 steps=0.625 bytes=4.834
+
+[R3] corpus: nested application (50 timed runs, value 6)
+  stack    run=0.538ms lower=0.175ms load=0.402ms instrs=14 bytes=224 steps=14 peak-frames=0 peak-cont=0
+  register run=0.698ms lower=0.171ms load=1.302ms instrs=8 bytes=1019 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=1.297 lower=0.977 load=3.24 steps=0.571 bytes=4.549
+
+[R3] corpus: if true branch (50 timed runs, value 100)
+  stack    run=1.304ms lower=0.068ms load=0.814ms instrs=12 bytes=219 steps=11 peak-frames=0 peak-cont=0
+  register run=2.133ms lower=0.387ms load=1.864ms instrs=9 bytes=942 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=1.635 lower=5.644 load=2.289 steps=0.727 bytes=4.301
+
+[R3] corpus: if false branch (50 timed runs, value 200)
+  stack    run=1.601ms lower=0.148ms load=0.671ms instrs=12 bytes=219 steps=10 peak-frames=0 peak-cont=0
+  register run=0.833ms lower=0.171ms load=1.075ms instrs=9 bytes=942 steps=7 peak-frames=0 peak-cont=0
+  register/stack: run=0.52 lower=1.155 load=1.601 steps=0.7 bytes=4.301
+
+[R3] corpus: lambda application (50 timed runs, value 11)
+  stack    run=2.366ms lower=0.085ms load=0.698ms instrs=14 bytes=231 steps=14 peak-frames=1 peak-cont=1
+  register run=2.993ms lower=0.236ms load=1.547ms instrs=9 bytes=1167 steps=9 peak-frames=1 peak-cont=1
+  register/stack: run=1.265 lower=2.776 load=2.216 steps=0.642 bytes=5.051
+
+[R3] corpus: closure value (50 timed runs, value {:type :closure, :arity 1})
+  stack    run=1.655ms lower=0.017ms load=0.648ms instrs=4 bytes=72 steps=2 peak-frames=0 peak-cont=0
+  register run=1.824ms lower=0.052ms load=1.634ms instrs=4 bytes=583 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=1.102 lower=3.07 load=2.518 steps=1.0 bytes=8.097
+
+[R3] corpus: higher order (50 timed runs, value 15)
+  stack    run=2.147ms lower=0.313ms load=1.12ms instrs=20 bytes=335 steps=20 peak-frames=1 peak-cont=2
+  register run=1.707ms lower=0.124ms load=2.759ms instrs=13 bytes=1720 steps=13 peak-frames=1 peak-cont=2
+  register/stack: run=0.794 lower=0.398 load=2.461 steps=0.65 bytes=5.134
+
+[R3] corpus: collection primitives (50 timed runs, value 9)
+  stack    run=0.755ms lower=0.238ms load=1.671ms instrs=6 bytes=163 steps=6 peak-frames=0 peak-cont=0
+  register run=1.353ms lower=0.248ms load=1.872ms instrs=4 bytes=567 steps=4 peak-frames=0 peak-cont=0
+  register/stack: run=1.792 lower=1.041 load=1.119 steps=0.666 bytes=3.478
+
+Testing yin.vm.debruijn-register-compile-test
+
+Testing yin.vm.debruijn-register-contract-test
+
+Testing yin.vm.debruijn-register-effects-test
+
+Testing yin.vm.debruijn-resolve-test
+
+Testing yin.vm.debruijn-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.engine-gate-test
+
+Testing yin.vm.engine-test
+
+Testing yin.vm.linker.closure-test
+
+Testing yin.vm.linker.cross-host-transfer-test
+
+Testing yin.vm.linker.dht-end-to-end-test
+
+Testing yin.vm.linker.dht-test
+
+Testing yin.vm.linker.head-follow-test
+
+Testing yin.vm.linker.head-test
+
+Testing yin.vm.linker.head-ws-test
+
+Testing yin.vm.linker.publish-test
+
+Testing yin.vm.linker.remote-transfer-test
+
+Testing yin.vm.linker.sign-test
+
+Testing yin.vm.linker-authority-ingestion-test
+
+Testing yin.vm.linker-authority-test
+
+Testing yin.vm.linker-manifest-test
+
+Testing yin.vm.linker-require-test
+
+Testing yin.vm.linker-step-test
+
+Testing yin.vm.linker-test
+
+Testing yin.vm.module-test
+
+Testing yin.vm.ucf.authority.admission-test
+
+Testing yin.vm.ucf.authority.completion-fold-test
+
+Testing yin.vm.ucf.authority.completion-test
+
+Testing yin.vm.ucf.authority.front-test
+
+Testing yin.vm.ucf.authority.grant-test
+
+Testing yin.vm.ucf.authority.inherited-test
+
+Testing yin.vm.ucf.authority.input-test
+
+Testing yin.vm.ucf.authority.reclaim-test
+
+Testing yin.vm.ucf.authority-test
+
+Testing yin.vm.ucf.checkpoint-test
+
+Testing yin.vm.ucf.crash-cut-test
+
+Testing yin.vm.ucf.custody-test
+
+Testing yin.vm.ucf.durability-test
+
+Testing yin.vm.ucf.handoff-test
+
+Testing yin.vm.ucf.handoff-v1-test
+
+Testing yin.vm.ucf.handoff-v2-authority-test
+
+Testing yin.vm.ucf.handoff-v2-census-test
+
+Testing yin.vm.ucf.handoff-v2-custody-test
+
+Testing yin.vm.ucf.handoff-v2-gates-test
+
+Testing yin.vm.ucf.handoff-v2-holder-test
+
+Testing yin.vm.ucf.handoff-v2-layout-test
+
+Testing yin.vm.ucf.handoff-v2-test
+
+Testing yin.vm.ucf.handoff-v2-validity-test
+
+Testing yin.vm.ucf.handoff-v2-values-test
+
+Testing yin.vm.ucf.handoff-v2-walker-test
+
+Testing yin.vm.ucf.holder.driver-test
+
+Testing yin.vm.ucf.holder.evidence-test
+
+Testing yin.vm.ucf.holder.export-test
+
+Testing yin.vm.ucf.holder.reader-test
+
+Testing yin.vm.ucf.holder.writer-test
+
+Testing yin.vm.ucf.ledger-fixture-test
+
+Testing yin.vm.ucf.ledger-test
+
+Testing yin.vm.ucf.lift-v1-test
+
+Testing yin.vm.ucf.remote-test
+
+Testing yin.vm.ucf-test
+
+Ran 1197 tests containing 13596 assertions.
+0 failures, 0 errors.

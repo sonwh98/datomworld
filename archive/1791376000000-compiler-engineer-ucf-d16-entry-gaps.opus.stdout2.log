@@ -1,0 +1,40 @@
+All five F3 gaps and the row-12 nuance now have tests, and they pass on the JVM and on Node. I changed no production code, made no git writes, and did not touch `driver.cljc`, `driver_test.cljc` or the UCF design doc.
+
+**What each gap now checks:**
+- **(A) Row 3** (`handoff_v2_test.cljc`): a new four-profile test.
+  - The lowered explicit park keeps the source's park id and parked-record keys.
+  - Re-lifting the lowered machine gives the same body as the source's export, ignoring served stream identities.
+  - Delivering the controlled `:vm/resume` gives the same result as the source's own resume (`"back"`).
+  - Stack and register attach the resume program's image beside the existing code. A plain load replaces the layout, and the parked record then points at rows that no longer exist.
+- **(B) Row 5** (`handoff_v2_layout_test.cljc`): the unused poisoned machine is gone. The grown `[A B C]` body is now lowered into a receiver whose own layout really is `[C A]`. The test checks that the result has the source's layout, offset table and hash, and then runs on to the source's result.
+- **(C) Row 9** (`handoff_v2_holder_test.cljc`): `:link-cursor-not-installed` is the fifth entry in the holds matrix. Entering export and the version-2 lift both refuse it, in root and child, across all four profiles.
+- **(D) Row 10** (`handoff_v2_census_test.cljc`):
+  - A new four-profile test parks the task before a `[1.0, -0.0, 1]` literal runs, so the floats exist only in the code. The 1.0 and −0.0 floats are found inside the body's code and survive into the resumed value, compared by their encoded bytes rather than numeric equality.
+  - The new golden file `test/resources/yin/vm/ucf/handoff-v2.txt` pins one stack-profile body's bytes and address.
+  - To make those bytes repeatable I replaced two sources of randomness: the default ring-buffer stream (which puts a random UUID in the cursor position) and the served-stream names (which used gensym). Two separate JVM processes and the Node lane produced the same bytes.
+- **(E) Row 11** (`handoff_v2_holder_test.cljc`): the test now runs a parked reader and an explicit park, each as fork and exclusive, in all four profiles.
+  - **Fresh process:** documented as in-process equivalence in a comment above the test. The frozen snapshot crosses only as hex and an address string, into a new machine that shares nothing with the source.
+  - **Zero program IO:** no stream is served after `prepare`, and the task's stream reads the same before and after.
+  - **Full contents:** waits and parked records are compared in full, after resolving each stream or cursor reference to the handle and position it names. Plain equality can't work because the receiver assigns its own resource ids and seals. Extra checks make sure that comparison isn't passing on missing values.
+- **Row 12:** the poisoned receiver now also holds its own program, and under stack and register a second attached image. The lowered machine's code matches a clean receiver's.
+
+**Test counts:**
+
+| Run | Tests | Assertions | Failures |
+|---|---|---|---|
+| JVM, all ten v2 suites | 45 | 1956 | 0 |
+| Node, v2 suites only | 45 | 1956 | 0 |
+| Node, full fast lane | 3509 | 102692 | 3 |
+
+None of the three full-lane failures is in a file this round touched:
+- Two assertions in `yin/repl/store_test.cljc:704` and `:709`.
+- One in `driver_test.cljc:918` (`post-cycle-inbox-refusal-survives-result-normalization-test`, expected `:yin.k/unsatisfied`, got `:yin.k/ok`). That is the other session's in-flight file.
+
+Lint is clean on the four edited test files. I did not run the Dart lane, since it wasn't requested.
+
+**Java version:** in this shell `clj` uses Java 17, and the Node build needs 21, so I ran it with `mise exec java@21 -- …`. I couldn't run `mise trust` because it needs your approval, which is probably why the worktree's `mise.toml` (Java 21 first) isn't active here.
+
+Scratch logs and the Node shard config are in `collab/` (`d16-node-full.log`, `d16-node-v2.log`, `d16-v2-node.edn`).
+
+Files are in `collab/`:
+- 1791376000000-compiler-engineer-ucf-d16-entry-gaps.findings.md

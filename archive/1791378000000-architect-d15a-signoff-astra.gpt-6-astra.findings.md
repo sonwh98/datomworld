@@ -1,0 +1,6 @@
+The positional inbox code retains each record before advancing its position, and the crash-cut tests cover both persisted and absent uncertain appends. I’m checking the remaining boundaries: whether deferred records stop applying after a run-end, and whether shutdown and activation preserve tenure and prevent new execution.
+
+Completed-GMT: 2026-10-07 14:58:04 GMT
+Completed-Local: 2026-10-07 21:58:04 Asia/Ho_Chi_Minh
+
+SIGN-OFF (ready to land). The split preserves control-only progress, independent program tenure checks, deferred grant activation without refreshing its observation basis, shutdown cleanup and owed-write cadence. Positional inbox retention precedes advancement and dispatch; journal reconciliation preserves attributed merge order, stalls uncertain appends and prevents old-binding program receipts from authorizing a new run. The regression rows cover the required isolation, recovery, tenure and shutdown contracts. The documentation reflects both rulings; the additional v2 tests strengthen restoration, isolation and byte-preservation assertions without widening runtime semantics. Production inbox adapters and REPL integration remain D15 obligations. Static review only; no files edited or suites run.

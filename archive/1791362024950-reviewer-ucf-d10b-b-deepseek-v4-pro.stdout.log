@@ -1,0 +1,21 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I've completed the independent code review and written the report to `collab/1791362024950-reviewer-ucf-d10b-b-deepseek-v4-pro.findings.md`.
+
+## Summary
+
+**Verdict: ACCEPT** (no correctness defect found; three advisory findings).
+
+I read the full v2-amendment spec and traced the entire 2,384-line diff (handoff.cljc +1,992, the four kernels, checkpoint, export, driver, and the new `handoff_v2_*` suites) against it.
+
+**What I verified holds:**
+1. **Profiles** — `ucf/profiles` is a closed four-entry registry with exact `:yin.k/contract` maps; the contract strings resolve to `"v3"`/`"b2"`/`"r2"`/`"v3"` via `vm/*-contract`; `profile-engine` compares on canonical integer kind; lift emits the canonical contract from the kernel's own `link-format` (never inferred from image shape).
+2. **Layout & custody** — fork/exclusive dispatch is structural (header-key intersection), not a mode flag; legacy v0/v1 paths are untouched (only the supported-set literal changed `#{1}`→`#{1 2}`); `codec-versions` now `{:stream #{0} :jing #{1 2}}`.
+3. **Lowering parity** — stack/register `compose` derive offset tables by prefix sums and relocate exactly the `:pc` operands; register payloads run through the existing `continuation-defect`; the walker Kw chain is closed and FFI bookkeeping is correlated against live pending call-ids.
+4. **Evidence** — `jvm-final.log` reads exactly "1197 tests / 13596 assertions / 0 failures, 0 errors".
+
+**The three findings (all non-blocking):**
+- **F1 (Low)** — `v1?` is now `(or header ::v1 v2?)`, silently conflating v1 and v2 under a flag that really means "jing codec / exclusive lift". Correct in behavior (because `tree-fork?`/`version-one?` are computed separately) but a rename-inviting footgun, and the exact conflation §10 warns against.
+- **F2 (Medium)** — only the JVM run is evidenced; §11 mandates Node and Dart for all profiles/modes before D16.
+- **F3 (Medium)** — 52 v2 tests cover a large surface thinly; several of the 12 §11 acceptance rows have no obviously dedicated namespace.
+
+The one near-miss I investigated carefully — the missing non-canonicalizable `try/catch` on the v2 `encode-bytes` path — turned out *not* to be a bug, because the overloaded `v1?` flag correctly routes v2 through the jing codec *and* its refusal handler. That's precisely why F1 is a rename, not a mechanical one-line "fix."

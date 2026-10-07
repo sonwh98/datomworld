@@ -1,0 +1,85 @@
+Completed-GMT: 2026-10-07 15:01:30 GMT Completed-Local: 2026-10-07 22:01:30 +07
+
+# D15a gate review: holder-driver control/program split
+
+## Verdict: NOT READY
+
+Two findings block landing. Both are small fixes. Most of the work matches the ruling.
+
+**What passes:**
+- **Public contracts.** The four public functions exist with the required contracts.
+- **Control isolation.** `control-step` never calls `lower`, `vm/run`, `reader/replay`, `writer/emit`, `observe!` or `serve!`. `serve!` and `attach!` are reachable only from the program side:
+  - export preparation and fencing run only while the address is still nil (`driver.cljc:2232-2236`, `2109-2110`);
+  - activation runs only on the program side (`:activating` → `activate`, `driver.cljc:2235-2236`).
+- **Accept tail split.** `accept` now journals the grant acknowledgment and enters `:activating` with no machine (`driver.cljc:1603-1611`).
+- **Lowering bound.** `lower`'s bound matches dao.lease's own rule: the later of the last renewal and the grant observation, plus the duration, capped by the maximum from the grant observation (`driver.cljc:1504-1509`, lease.cljc:1715 and 1828). The original observation basis is never refreshed.
+- **Program-step checks.** `program-step` rechecks evidence, binding and fresh tenure through `binding-check` before activation and before each deferred result is applied. A new tenure recheck sits between the run and the replay (`driver.cljc:2012`).
+- **Inbox contract:**
+  - descriptors are versioned;
+  - results are the closed `:record`/`:empty`/`:unavailable` union with an exact-position check (inbox.cljc:30-47);
+  - the retention record is journaled before the position advances or the record is dispatched;
+  - journal order is the merge order;
+  - an uncertain append stalls the driver;
+  - reopen rereads and reconciles retained records against the sources;
+  - the old reader-only assembly is rejected;
+  - no "applied" bit is stored, and records from an old lease are dropped by a binding comparison (`driver.cljc:1904-1907`).
+- **Stop latch.** `stop` sets a latch; `program-step` returns immediately once it is set. A stopped driver releases a late grant without lowering, re-proposal is suppressed (`driver.cljc:2160`), a fresh proposal is not started (`driver.cljc:1440-1442`), and a running holder with no established exit ends and releases.
+- **`step` reimplementation.** `step` runs the same shared code in a combined mode, with one renewal and one program cycle per tick. Renewal is skipped in program mode, so nothing renews twice.
+- **Scope.** No engine, authority, lease or wire source changed.
+
+## Findings
+
+**1. BLOCKING: `owed-control-write?` reports an owed write for candidates that are only waiting on the ledger.**
+- `driver.cljc:2278-2281`: in `:proposing` with no proposal and no stop latch, the predicate returns `true`.
+- Three paths stay in `:proposing` with a nil proposal and never write anything:
+  - the occurrence is held by another lease (`driver.cljc:1822-1824`, not-holder);
+  - the occurrence can never be granted again (same lines);
+  - the ledger is unavailable (`:no-arbitration`, `driver.cljc:1814`).
+- The ruling's §2 requires such passive ledger waits to be false.
+- `owed-control-write-families-test` pins a bare `{:phase :proposing}` as `true` and never tests these waiting states.
+- Consequence: D15's `moved?` would see the predicate permanently true for every losing candidate, so the REPL loop never goes idle.
+- Fix: in `:proposing` with no proposal, return `true` only when a proposal can actually be sent. Exclude the not-holder and unsatisfied/ledger-wait statuses, or the never-granted-again condition. Add a test for each of the three paths.
+
+**2. BLOCKING, or needs an explicit Architect ruling: an unavailable inbox stops renewal, including when only the program-result (outcome) lane is unavailable.**
+- In `collect-inbox`, an `:unavailable` answer from the outcome lane sets `:inbox-unavailable?` (`driver.cljc:1756+`).
+- `step-active-held` in control mode then returns at `driver.cljc:2100` (`(:inbox-unavailable? drained) drained`), before `renew`.
+- So a gap in the program-side source stops custody renewal, and the lease runs to its bound and ends the run. A reply-lane gap does the same.
+- The ruling's §2 allows control records to overtake deferred program records precisely so that program records cannot block renewal. This is the same failure by another route.
+- Safety holds (the lease only lapses); liveness is lost, and no test covers renewal while an inbox is unavailable.
+- Fix options:
+  - let control-mode renewal and established control brackets proceed while either inbox is unavailable, and suspend only program application and new admissions; or
+  - get the Architect to rule that refusing progress on missing history includes renewal.
+
+**3. Non-blocking, efficiency: the inbox journal grows without bound and the fold is quadratic.**
+- The fold is O(n²): `inbox/retain` runs `filterv` over every earlier record for each new one (inbox.cljc:69). Keeping per-lane counts and the first identity would make it linear.
+- Reopen calls `reconcile!`, which rereads every retained position (inbox.cljc:95). It also requeues every retained program record from all history and redispatches every retained control record.
+- In the test world the outcome lane is the shared outcome projection, so each holder retains every other holder's outcomes in its own journal.
+- `apply-program-inbox` runs a full `binding-check` (ledger read, fold, evidence) for each record (`driver.cljc:1910`).
+- The ruling requires complete retention, so this is not a correctness defect. D15's production adapters should know about it.
+
+**4. Non-blocking, test coverage of row 4 (replaced binding).**
+- `independent-program-tenure-test` covers the "replaced" case with `lapse-direct! ... :release`, which ends the old lease but never installs a competing binding.
+- The stale-binding path in `binding-check` (`driver.cljc:1890-1895`) would benefit from a real regrant to another holder between `control-step` and `program-step`.
+- Rows 1–3 and 5–10 are each pinned:
+  - **Control isolation:** `control-isolation-and-renewal-test`, `control-does-not-apply-a-real-regrant-prefix-test`
+  - **Mixed inbox:** `mixed-inbox-defers-…`, `deferred-program-order-does-not-block-renewal-test`
+  - **Grant while paused:** `paused-grant-and-delayed-activation-test`, `paused-grant-renewal-keeps-the-original-observation-basis-test`
+  - **Shutdown race:** `shutdown-before-grant-never-lowers-test`
+  - **Full-stream drain:** `bounded-stop-drain-and-recovery-test`
+  - **Journal uncertainty:** `split-brackets-stop-on-uncertain-journal-append-test`, `positional-inbox-retention-cuts-test`
+  - **Exit continuity:** `split-exit-preserves-control-order-test`, `split-terminal-report-cleanup-test`
+  - **Cadence:** `owed-control-write-families-test`, apart from the gap in finding 1
+  - **Compatibility:** `split-and-convenience-program-cycles-agree-test` plus the migrated existing tests
+- The seven inbox-ruling rows are covered by the retention-cut, reproducibility, dedup/conflict, reopen-reconcile, exhaustion/descriptor, old-run and legacy-assembly tests.
+
+**5. Non-blocking, landing hygiene: the worktree contains another round's work.**
+- The changes to `handoff_v2_census_test`, `handoff_v2_holder_test`, `handoff_v2_layout_test`, `handoff_v2_test` and the untracked `test/resources/yin/vm/ucf/handoff-v2.txt` belong to the parallel F3 round. None of them references the driver's seams.
+- They must be left out of the D15a commit, or landed separately as the F3 commit.
+
+**6. Non-blocking, leftover destructive helper.**
+- `writer.cljc:522-534` still provides a fold over a destructive `read-outcome!`.
+- The driver no longer calls it. The inbox ruling's §1 forbids automatic wrappers around destructive readers, so it is worth deleting or marking test-only so D15 adapters don't pick it up.
+
+You told me the three-lane run on the settled tree is green, so I don't count the earlier `driver_test.cljc:918` and `store_test` failures against this slice. Per the brief, I ran no suites and edited nothing in the repo; the only file written is the plan file this session requires (`/Users/sto/.claude/plans/gate-review-for-m-next-kind-wreath.md`).
+
+The Gmail, Google Calendar and Google Drive connectors need authorization in your claude.ai connector settings before they can be used. This review didn't need them.

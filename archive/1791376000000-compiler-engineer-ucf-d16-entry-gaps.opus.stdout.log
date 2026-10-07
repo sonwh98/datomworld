@@ -1,0 +1,15 @@
+I couldn't do any of this round. This session can only read and run commands inside `/Users/sto/workspace/datomworld`, and every attempt to reach `/Users/sto/workspace/datomworld-d10b` was blocked:
+
+- **`ls`** of the worktree's test directory was refused: the session may only list files in its allowed directory.
+- **Reading** `test/yin/vm/ucf/handoff_v2_test.cljc` failed because permission for that path hasn't been granted.
+- **`git status`/`git log`** in the worktree needed approval this non-interactive session can't get.
+
+So nothing was read, edited or run in the worktree, and the findings report at `collab/1791376000000-compiler-engineer-ucf-d16-entry-gaps.findings.md` was not written. I made no changes to any file in either directory, including the three D15a files.
+
+I didn't work around this by making the changes in the main checkout. The test files there may differ from branch `ucf-d15a-driver-split`, and the Node lane setup (`npm ci`) was done only in the worktree.
+
+To unblock it, either:
+1. **Launch the session from the worktree:** run the delegate with `/Users/sto/workspace/datomworld-d10b` as its working directory (or add it with `--add-dir`), with acceptEdits allowing Bash for `clj`/`bb`/`npm`.
+2. **Use a delegate already running there:** send the same brief to one started from the worktree.
+
+The five test additions (A–E) and the row-12 poison-set change are all still to do, along with the check that none of them touches the D15a files.
