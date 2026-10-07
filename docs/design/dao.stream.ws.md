@@ -692,12 +692,16 @@ Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` i
   `dao.stream.remote.md`) its second, and neither can close it from where
   it stands.
 - Exact envelope key set (tracks the contract's descriptor TBD).
-- Liveness: whether an idle connection is probed with the protocol's own
-  ping/pong frames or with ordinary deposited values, how often, how many
-  unanswered probes end a connection, and — if the probe is not a protocol
-  frame — which component is obliged to answer it. For a connection used as
-  a `dao.stream.remote.md` channel, a `descriptor` request is the probe and
-  the mirror step answers it; cadence stays the composition's.
+- Liveness: for a connection used as a `dao.stream.remote.md` channel,
+  request liveness is decided there (2.4, Expiry): a request unanswered
+  past `:dao.stream.remote/give-up-after`, against the `now` a driver hands
+  the link's step, loses the channel, and the dial closes this handle.
+  Probing an *idle* connection is still open: whether with the protocol's
+  own ping/pong frames or with ordinary deposited values, how often, and —
+  if the probe is not a protocol frame — which component is obliged to
+  answer it. Over a remote channel a `descriptor` request is the natural
+  probe, the mirror step answers it, and its deadline bounds it; cadence
+  stays the composition's.
 - Resumption protocol: stream identity is stable across reconnects, so
   resumption is possible by design; what history a rejoining dialer receives
   (and how it states where it left off) is not yet specified for the copy

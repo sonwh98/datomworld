@@ -756,3 +756,78 @@
     (is (= [1] (mapv :dao.stream.remote/id
                      (answers (:handle (project/channel dial)))))
         "and was answered once")))
+
+
+(defn- dial-with
+  "A dial like `dialed`, its fake attacher handing out `sock`, with
+   `opts` merged into its composition."
+  [medium channel-ring sock opts]
+  (project/dial
+    (merge {:attach! (fn [_]
+                       {:dao.stream/outcome :dao.stream/ok
+                        :dao.stream/handle sock
+                        :dao.stream/attachment "sock-1"})
+            :traffic {:dao.stream/handle medium
+                      :dao.stream/surface #{:writer}}
+            :cursor (newest-cursor medium)
+            :ring channel-ring
+            :table {}}
+           opts)))
+
+
+(def ^:private toy-cd
+  (:dao.stream/channel (remote-descriptor "any")))
+
+
+(deftest dial-step-with-now-closes-the-handle-on-expiry
+  (let [{:keys [medium channel]} (composed)
+        sock (ring 8)
+        dial (dial-with medium channel sock
+                        {:dao.stream.remote/give-up-after 10})]
+    (project/dial-step! dial 0)
+    (project/dial-attach! dial (remote-descriptor "str-1"))
+    (project/dial-step! dial 9)
+    (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! sock :probe)))
+        "before the deadline the handle stays open")
+    (project/dial-step! dial 10)
+    (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! sock :x)))
+        "the unanswered probe expired: the dial closed the ws handle")
+    (deposit! medium (event "sock-1" :ws/closed))
+    (project/dial-step! dial 11)
+    (is (project/closed? (:project (project/channel dial)))
+        "the host's :ws/closed closed the projection")
+    (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! channel :x)))
+        "and the ring")
+    (is (= {:dao.stream/outcome :dao.stream/transport-error
+            :dao.stream.remote/reason :dao.stream.remote/channel-gone}
+           (project/dial-resolve! dial toy-cd "nm")))))
+
+
+(deftest the-one-arity-dial-step-never-expires
+  (let [{:keys [medium channel]} (composed)
+        sock (ring 64)
+        dial (dial-with medium channel sock
+                        {:dao.stream.remote/give-up-after 10})]
+    (project/dial-attach! dial (remote-descriptor "str-1"))
+    (dotimes [_ 5] (project/dial-step! dial))
+    (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! sock :x)))
+        "the handle stays open")
+    (is (= {:dao.stream/outcome :dao.stream/transport-error
+            :dao.stream/retry? true}
+           (project/dial-resolve! dial toy-cd "nm")))))
+
+
+(deftest dial-propagates-link-options
+  (let [{:keys [medium channel]} (composed)
+        dial (dial-with medium channel (ring 8)
+                        {:dao.stream.remote/drain-budget 3
+                         :dao.stream.remote/max-outstanding 4
+                         :dao.stream.remote/max-filed 5
+                         :dao.stream.remote/give-up-after 6})
+        r (:dao.stream/handle
+            (project/dial-attach! dial (remote-descriptor "str-1")))]
+    (is (= {:drain-budget 3 :max-outstanding 4 :max-filed 5
+            :give-up-after 6}
+           (select-keys @(:link @(.-state r))
+                        [:drain-budget :max-outstanding :max-filed
+                         :give-up-after])))))

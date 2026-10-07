@@ -453,8 +453,8 @@
    resolves a name through the dialed channel before any reflection
    exists. :dao.stream.remote/events, :dao.stream.remote/resend-after,
    :dao.stream.remote/budget, :dao.stream.remote/drain-budget,
-   :dao.stream.remote/max-outstanding and :dao.stream.remote/max-filed
-   pass to the attacher as its policy.
+   :dao.stream.remote/max-outstanding, :dao.stream.remote/max-filed and
+   :dao.stream.remote/give-up-after pass to the attacher as its policy.
    `:step-budget`, `:mirror-budget` and `:chase-budget`, optional
    positive integers or nil, bound `dial-step!`'s projection and
    mirror per tick, as for make-acceptor."
@@ -483,7 +483,8 @@
                                   :dao.stream.remote/budget
                                   :dao.stream.remote/drain-budget
                                   :dao.stream.remote/max-outstanding
-                                  :dao.stream.remote/max-filed])]
+                                  :dao.stream.remote/max-filed
+                                  :dao.stream.remote/give-up-after])]
     (atom {:attach! attach! :traffic traffic :cursor cursor :ring ring
            :table table :names names :channel channel
            :mirror-cursor mirror-cursor :policy policy
@@ -496,9 +497,11 @@
    projection onto the ring, and the remote links over the channel end
    {:reader ring :writer handle}, recorded as the dial's one channel.
    Nil once established; a channel attach that fails answers the ws
-   attacher's own outcome and records nothing."
+   attacher's own outcome and records nothing. A dial already stepped
+   at a `now` steps the new link at it first, so the requests the
+   attachment sends at once carry deadlines."
   [dial cd]
-  (let [{:keys [attach! traffic cursor ring channel policy]} @dial
+  (let [{:keys [attach! traffic cursor ring channel policy now]} @dial
         r (attach! cd)]
     (if-not (= :dao.stream/ok (:dao.stream/outcome r))
       r
@@ -507,7 +510,10 @@
                  (merge policy
                         {:dao.stream.remote/channels
                          {cd {:reader ring :writer handle}}}))]
-        (reset! channel {:attachment (:dao.stream/attachment r)
+        (when (some? now)
+          ((:step ls) cd now))
+        (reset! channel {:cd cd
+                         :attachment (:dao.stream/attachment r)
                          :handle handle
                          :project (projection
                                     {:attachment (:dao.stream/attachment r)
@@ -515,7 +521,8 @@
                                      :cursor cursor
                                      :ring ring})
                          :reflect! (:attach ls)
-                         :resolve! (:resolve ls)})
+                         :resolve! (:resolve ls)
+                         :step! (:step ls)})
         nil))))
 
 
@@ -581,20 +588,35 @@
    deposited reaches the ring, then this end's own mirror step over
    the projected reader and the socket handle, answering the other
    direction's requests against this end's table, each bounded by the
-   dial's :step-budget, :mirror-budget and :chase-budget. Returns the
-   mirror's advanced reading cursor."
-  [dial]
-  (let [{:keys [ring table names channel mirror-cursor step-budget]
-         :as d} @dial]
-    (when-some [project (:project @channel)]
-      (step! project step-budget))
-    (when-some [handle (:handle @channel)]
-      ;; The mirror's effects run once, outside any atom update: the
-      ;; driver alone steps the dial, as accept-step! does.
-      (reset! mirror-cursor
-              (remote/mirror-step table names ring @mirror-cursor handle
-                                  (mirror-bounds d))))
-    @mirror-cursor))
+   dial's :step-budget, :mirror-budget and :chase-budget. Given the
+   driver's `now`, the link is stepped at it between the two
+   (dao.stream.remote.md 2.4, Expiry); when a request is past its
+   deadline the channel is lost and the dial, which owns the
+   connection, closes the ws handle -- the host then deposits
+   :ws/closed and the projection closes the ring. Without `now`
+   nothing expires. Returns the mirror's advanced reading cursor."
+  ([dial]
+   (dial-step! dial nil))
+  ([dial now]
+   (when (some? now)
+     (swap! dial assoc :now now))
+   (let [{:keys [ring table names channel mirror-cursor step-budget]
+          :as d} @dial
+         ch @channel]
+     (when-some [project (:project ch)]
+       (step! project step-budget))
+     (let [stepped (when (and (some? now) (:step! ch))
+                     ((:step! ch) (:cd ch) now))]
+       (when-some [handle (:handle ch)]
+         ;; The mirror's effects run once, outside any atom update: the
+         ;; driver alone steps the dial, as accept-step! does.
+         (reset! mirror-cursor
+                 (remote/mirror-step table names ring @mirror-cursor handle
+                                     (mirror-bounds d)))
+         (when (and (:dao.stream.remote/channel-gone? stepped)
+                    (stream/closable? handle))
+           (stream/close! handle))))
+     @mirror-cursor)))
 
 
 (defn channel

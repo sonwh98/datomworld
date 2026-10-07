@@ -359,7 +359,8 @@ the retry cases above, `blocked` for `next`.
 
 **Channel loss.** A channel ends when its reader answers `end`: the
 projection closed it (3.1), the pair adapter closed it on an `in` gap or
-end (3.3), or the medium is gone. The link then abandons its outstanding
+end (3.3), or the medium is gone; or a driver step finds a request past
+its deadline (Expiry, below). The link then abandons its outstanding
 ids and reports each
 abandoned `append!` on the event writer as `append-unknown` (2.5), and
 answers later `cursor` and `next` `transport-error` with
@@ -367,6 +368,31 @@ answers later `cursor` and `next` `transport-error` with
 `append!` keeps answering the channel writer's own outcome, `closed` once
 the channel is down. Filed answers are still returned. Reattachment is the
 caller's policy, by `attach!` on the same descriptor.
+
+**Expiry.** `links` also gives `:step`, `(step channel-descriptor now)`:
+the driver's step of that channel's link at `now`, nil for a channel this
+peer does not reach. It records `now` on the link, drains (within the drain
+budget), and then, if an outstanding or kept request has `:deadline <=
+now`, appends `{:dao.stream.remote/event
+:dao.stream.remote/channel-expired :dao.stream.remote/id id
+:dao.stream.remote/op op}` for the least such id to the event writer and
+loses the channel as above. It answers `{:dao.stream.remote/channel-gone?
+bool :dao.stream.remote/expired id-or-nil}`. With
+`:dao.stream.remote/give-up-after ms`, a request's deadline is the last
+stepped `now` plus `ms`, stamped the first moment the request exists on
+the link: its accepted send, or its keeping as a refused attach probe, a
+kept probe carrying that deadline into its later send. A probe waiting on
+its reflection has none until the link admits it. A resend never moves a
+deadline, and an answer clears the request with its deadline. Without
+`give-up-after`, or before any step with `now`, nothing is stamped and
+nothing expires. `give-up-after` is a liveness statement about the channel,
+not the request: on an ordered reliable channel an unanswered request past
+it means the peer is not serving. A flood of unrelated values cannot defer
+it, because the drain budget bounds each step's reads while `now`
+advances; under such a flood the loss may be false, which costs a
+reattachment and invalidates nothing. Whatever owns the connection closes
+it on loss: `dao.stream.ws-project`'s `dial-step!` given `now` closes its
+ws handle.
 
 **Resolve.** A link also answers `resolve` `name`, for no reflection. It
 drains, then returns and forgets a filed answer for the name: `ok` with
@@ -406,7 +432,9 @@ the event writer.
 
 ### 2.5 Loss and resend
 
-The reflection reads no clock. A link's `:dao.stream.remote/resend-after k`
+The reflection reads no clock: the only time a link knows is the `now` a
+driver hands its `:step` (2.4, Expiry). A link's
+`:dao.stream.remote/resend-after k`
 means: an outstanding `descriptor`, `cursor` or `next` request is re-sent
 when the caller has asked `k` further times and it is still unanswered.
 `k` is unbounded on an ordered reliable channel and small on UDP. Those
@@ -415,7 +443,9 @@ or a later, equally true answer. `append!` is never re-sent:
 deduplication and correlation are the payload's (OD-2, accepted), and an
 append whose answer never arrives has unknown effect, reported on the
 event writer as `{:dao.stream.remote/event :dao.stream.remote/append-unknown
-:dao.stream.remote/id n}` when the reflection is closed or the channel ends.
+:dao.stream.remote/id n}` when the reflection is closed or the channel ends
+or expires. On UDP (3.2) compose `resend-after` small and `give-up-after`
+generous or nil.
 There are no sessions, no acknowledgement vectors, no windows and no result
 retention at the answering peer: the cursor is the sequence number for
 reads, and `gap` remains the source's declaration, never a channel artifact.
@@ -469,6 +499,13 @@ contract:
   the requests in flight or kept, and the answers and prefetched outcomes
   retained per link. A dialing composition passes them to its link with the
   rest of its `:dao.stream.remote/*` policy.
+- **Request liveness (`give-up-after`)**: `:dao.stream.remote/give-up-after`,
+  a positive integer of milliseconds or nil, bounds how long a request may
+  stay unanswered, measured against the `now` a driver hands the link's
+  `:step` (2.4, Expiry); past it the channel is lost. A dialing composition
+  passes it to its link, and `(dial-step! dial now)` steps the link at
+  `now` and closes the ws handle on loss; the 1-arity `dial-step!` hands no
+  `now` and never expires.
 - **Session failure isolation**: An unhandled exception or malformed payload
   in one session's projection or mirror step is isolated and caught; its
   resources are closed and marked for reaping without crashing the acceptor

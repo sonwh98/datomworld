@@ -333,7 +333,8 @@
    optional event writer; and the policy data -- the resend-after k,
    the budget k stamped on next requests, and the bounds on reads per
    drain, on outstanding plus kept requests and on filed plus
-   installed answers, all composition data."
+   installed answers, and the give-up-after liveness bound, all
+   composition data; and the last `now` a driver stepped it at."
   [cd chan policy]
   (atom {:channel cd
          :reader (:reader chan)
@@ -351,6 +352,8 @@
          :drain-budget (:dao.stream.remote/drain-budget policy)
          :max-outstanding (:dao.stream.remote/max-outstanding policy)
          :max-filed (:dao.stream.remote/max-filed policy)
+         :give-up-after (:dao.stream.remote/give-up-after policy)
+         :now nil
          :next-id 0
          :channel-gone? false}))
 
@@ -371,13 +374,25 @@
     (stream/append! w v)))
 
 
+(defn- new-deadline
+  "The deadline of a request that first exists on the link now: the
+   last stepped `now` plus give-up-after. Nil without either -- a
+   clock-less composition stamps nothing and nothing expires."
+  [link]
+  (let [{:keys [now give-up-after]} @link]
+    (when (and (some? now) (some? give-up-after))
+      (+ now give-up-after))))
+
+
 (defn- register!
   "Record `req` as outstanding under its id, with the request it was
-   sent for, its ask count, and the reflection that sent it."
-  [link refl req]
+   sent for, its ask count, the reflection that sent it, and its
+   deadline when it has one."
+  [link refl req deadline]
   (let [id (:dao.stream.remote/id req)]
     (swap! link assoc-in [:outstanding id]
-           {:req req :asks 0 :reflection refl})
+           (cond-> {:req req :asks 0 :reflection refl}
+             (some? deadline) (assoc :deadline deadline)))
     (swap! refl update :ids conj id)))
 
 
@@ -438,13 +453,20 @@
    kept on the link instead, unsent, one retry per drain until a send
    is accepted -- when the link has room for it; otherwise it waits on
    its own reflection, unadmitted, and that reflection's next operation
-   offers it again (admit-probe!). Returns the writer's outcome."
+   offers it again (admit-probe!). A request's deadline is stamped
+   the first moment it exists on the link, accepted or kept; a kept
+   probe carries its deadline into its later accepted send, and a
+   probe waiting on its reflection has none until admitted. Returns
+   the writer's outcome."
   [link refl req]
   (let [r (send! link req)
-        id (:dao.stream.remote/id req)]
+        id (:dao.stream.remote/id req)
+        deadline (if-some [kept (get (:pending @link) id)]
+                   (:deadline kept)
+                   (new-deadline link))]
     (cond
       (= :dao.stream/ok (:dao.stream/outcome r))
-      (do (register! link refl req)
+      (do (register! link refl req deadline)
           (swap! link update :pending dissoc id)
           (swap! refl dissoc :probe))
 
@@ -452,7 +474,8 @@
            (= :dao.stream/descriptor (:dao.stream.remote/op req)))
       (if (room? link id)
         (do (swap! link assoc-in [:pending id]
-                   {:req req :reflection refl})
+                   (cond-> {:req req :reflection refl}
+                     (some? deadline) (assoc :deadline deadline)))
             (swap! refl dissoc :probe))
         (swap! refl assoc :probe req)))
     r))
@@ -901,7 +924,7 @@
       (let [req (wire-request link refl :dao.stream/append! [v])
             r (send! link req)]
         (when (= :dao.stream/ok (:dao.stream/outcome r))
-          (register! link refl req))
+          (register! link refl req (new-deadline link)))
         r))))
 
 
@@ -965,7 +988,9 @@
         r (send! link req)]
     (when (= :dao.stream/ok (:dao.stream/outcome r))
       (swap! link assoc-in [:outstanding (:dao.stream.remote/id req)]
-             {:req req :asks 0 :reflection nil}))
+             (cond-> {:req req :asks 0 :reflection nil}
+               (some? (new-deadline link))
+               (assoc :deadline (new-deadline link)))))
     r))
 
 
@@ -1077,9 +1102,36 @@
        (contains? d :dao.stream/channel)))
 
 
+(defn- link-step!
+  "One driver step of the link at `now`: record `now`, drain (within
+   the drain budget), then, when an outstanding or kept request is
+   past its deadline, emit channel-expired for the least such id and
+   lose the channel (channel-loss!). The link reads no clock: `now` is
+   the driver's. Answers whether the channel is gone and the id that
+   expired, if any."
+  [link now]
+  (swap! link assoc :now now)
+  (drain! link)
+  (let [{:keys [outstanding pending channel-gone?]} @link
+        overdue (when-not channel-gone?
+                  (->> (concat outstanding pending)
+                       (filter (fn [[_ e]]
+                                 (some-> (:deadline e) (<= now))))
+                       (sort-by key)
+                       first))]
+    (when-some [[id e] overdue]
+      (emit! link {:dao.stream.remote/event
+                   :dao.stream.remote/channel-expired
+                   :dao.stream.remote/id id
+                   :dao.stream.remote/op (:dao.stream.remote/op (:req e))})
+      (channel-loss! link))
+    {:dao.stream.remote/channel-gone? (:channel-gone? @link)
+     :dao.stream.remote/expired (first overdue)}))
+
+
 (defn links
   "The asking side over one set of per-channel links: {:attach f
-   :resolve g}. `f` is `attacher`'s entry. `(g channel-descriptor
+   :resolve g :step h}. `f` is `attacher`'s entry. `(g channel-descriptor
    name)` is the link's resolve over the link `f` keeps for that
    channel, created here when none exists yet: a filed answer for the
    name is returned and forgotten -- ok with the remote descriptor of
@@ -1090,9 +1142,14 @@
    outstanding and the answer is transport-error with
    :dao.stream/retry? true, as cursor answers. After channel loss the
    answer is transport-error naming channel-gone. A channel this peer
-   does not reach is not-found. `opts` is `attacher`'s; a bound among
-   them (:dao.stream.remote/drain-budget, max-outstanding, max-filed)
-   that is neither nil nor a positive integer is a composition error."
+   does not reach is not-found. `(h channel-descriptor now)` is the
+   driver's step of that channel's link at `now` (link-step!): nil for
+   a channel this peer does not reach, otherwise
+   {:dao.stream.remote/channel-gone? bool :dao.stream.remote/expired
+   id-or-nil}. Without a stepped `now` nothing expires. `opts` is
+   `attacher`'s; a bound among them (:dao.stream.remote/drain-budget,
+   max-outstanding, max-filed, give-up-after) that is neither nil nor a
+   positive integer is a composition error."
   [opts]
   (let [channels (:dao.stream.remote/channels opts)
         policy (select-keys opts [:dao.stream.remote/events
@@ -1100,11 +1157,13 @@
                                   :dao.stream.remote/budget
                                   :dao.stream.remote/drain-budget
                                   :dao.stream.remote/max-outstanding
-                                  :dao.stream.remote/max-filed])
+                                  :dao.stream.remote/max-filed
+                                  :dao.stream.remote/give-up-after])
         _ (when-not (every? #(pos-int-or-nil? (get policy %))
                             [:dao.stream.remote/drain-budget
                              :dao.stream.remote/max-outstanding
-                             :dao.stream.remote/max-filed])
+                             :dao.stream.remote/max-filed
+                             :dao.stream.remote/give-up-after])
             (throw (ex-info "invalid DaoStream remote link policy"
                             {:policy policy})))
         by-channel (atom {})
@@ -1143,7 +1202,11 @@
      (fn [cd n]
        (if-not (contains? channels cd)
          (result :dao.stream/not-found)
-         (resolve-name (link-for! cd) n)))}))
+         (resolve-name (link-for! cd) n)))
+     :step
+     (fn [cd now]
+       (when (contains? channels cd)
+         (link-step! (link-for! cd) now)))}))
 
 
 (defn attacher
@@ -1160,8 +1223,11 @@
    on udp; :dao.stream.remote/budget is the budget stamped on every
    next request; :dao.stream.remote/drain-budget bounds the reads per
    drain, :dao.stream.remote/max-outstanding the requests outstanding
-   or kept per link, and :dao.stream.remote/max-filed the filed answers
-   and installed outcomes per link, each nil for unbounded. One link is kept per channel descriptor, shared by
+   or kept per link, :dao.stream.remote/max-filed the filed answers
+   and installed outcomes per link, and
+   :dao.stream.remote/give-up-after the ms after a request's first send
+   at which a driver step at `now` declares its channel lost, each nil
+   for unbounded. One link is kept per channel descriptor, shared by
    every reflection through that channel. attach! answers ok at once
    with a reflection handle and a local, opaque
    :dao.stream/attachment -- the contract's deferred remote

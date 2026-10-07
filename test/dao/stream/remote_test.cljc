@@ -2050,3 +2050,202 @@
     (serve! peer)
     (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r 3)))
         "the source's own blocked at its end")))
+
+
+;; =============================================================================
+;; Request liveness: deadlines over a driver-stepped now (S2c)
+;; =============================================================================
+
+(defn- stepped-links
+  "Links over the toy's channel whose writer is `writer` (the toy's own
+   ab buffer when nil), with event writer `events` and policy `opts`."
+  ([t events opts] (stepped-links t events opts nil))
+  ([t events opts writer]
+   (remote/links (merge {:dao.stream.remote/channels
+                         {(:channel t) {:reader (:ba t)
+                                        :writer (or writer (:ab t))}}
+                         :dao.stream.remote/events events}
+                        opts))))
+
+
+(defn- attach-via
+  [ls t identity]
+  (:dao.stream/handle
+    ((:attach ls) {:dao.stream/type :dao.stream/remote
+                   :dao.stream/identity identity
+                   :dao.stream/channel (:channel t)})))
+
+
+(defn- step-at
+  [ls t now]
+  ((:step ls) (:channel t) now))
+
+
+(def ^:private gone
+  {:dao.stream/outcome :dao.stream/transport-error
+   :dao.stream.remote/reason :dao.stream.remote/channel-gone})
+
+
+(deftest a-request-past-its-deadline-is-channel-loss
+  (let [t (toy)
+        ev (ring 16)
+        ls (stepped-links t ev {:dao.stream.remote/give-up-after 10})
+        _ (step-at ls t 0)
+        r (attach-via ls t "n")
+        link (link-state r)]
+    (stream/next r 0)
+    (let [append-id (:dao.stream.remote/id
+                      (do (stream/append! r :v)
+                          (last (op-requests (:ab t) :dao.stream/append!))))]
+      (is (every? #(= 10 (:deadline %)) (vals (:outstanding @link)))
+          "probe, next and append! each carry now 0 plus 10")
+      (is (= {:dao.stream.remote/channel-gone? false
+              :dao.stream.remote/expired nil}
+             (step-at ls t 9))
+          "before the deadline nothing changes")
+      (is (= {:dao.stream.remote/channel-gone? true
+              :dao.stream.remote/expired 0}
+             (step-at ls t 10))
+          "the least overdue id, the probe")
+      (is (= [{:dao.stream.remote/event :dao.stream.remote/channel-expired
+               :dao.stream.remote/id 0
+               :dao.stream.remote/op :dao.stream/descriptor}
+              {:dao.stream.remote/event :dao.stream.remote/append-unknown
+               :dao.stream.remote/id append-id}]
+             (values ev)))
+      (is (:channel-gone? @link))
+      (is (= {} (:outstanding @link)))
+      (is (= gone (stream/next r 0)) "not retryable")
+      (is (= gone (stream/cursor r :dao.stream/oldest)))
+      (is (= gone ((:resolve ls) (:channel t) "nm")))
+      (is (= :dao.stream/ok (:dao.stream/outcome (stream/descriptor r)))
+          "a name outlives what it named"))))
+
+
+(deftest a-resend-does-not-move-the-deadline
+  (let [t (toy)
+        ls (stepped-links t nil {:dao.stream.remote/give-up-after 10
+                                 :dao.stream.remote/resend-after 1})
+        _ (step-at ls t 0)
+        r (attach-via ls t "n")]
+    (stream/next r 0)
+    (doseq [now [3 6 9]]
+      (step-at ls t now)
+      (stream/next r 0))
+    (is (< 1 (count (op-requests (:ab t) :dao.stream/next)))
+        "the next request was re-sent")
+    (is (= 10 (:deadline (get (:outstanding @(link-state r)) 1))))
+    (is (:dao.stream.remote/channel-gone? (step-at ls t 10))
+        "expiry stays at the first send plus give-up-after")))
+
+
+(deftest an-answer-before-the-deadline-clears-it
+  (let [t (toy)
+        peer (served-peer {"n" (entry (list-stream "n" [:a]) #{:reader})} t)
+        ls (stepped-links t nil {:dao.stream.remote/give-up-after 10})
+        _ (step-at ls t 0)
+        r (attach-via ls t "n")]
+    (serve! peer)
+    (step-at ls t 5)
+    (stream/next r 0)
+    (serve! peer)
+    (step-at ls t 12)
+    (is (= {} (:outstanding @(link-state r))) "both answered in time")
+    (is (= {:dao.stream.remote/channel-gone? false
+            :dao.stream.remote/expired nil}
+           (step-at ls t 20)))
+    (is (= :a (:dao.stream/value (stream/next r 0))))))
+
+
+(deftest a-kept-probe-has-a-deadline
+  (let [t (toy)
+        attempts (atom 0)
+        ls (stepped-links t nil {:dao.stream.remote/give-up-after 10}
+                          (counting-writer attempts :dao.stream/full))
+        _ (step-at ls t 0)
+        r (attach-via ls t "n")
+        link (link-state r)]
+    (is (= 10 (:deadline (get (:pending @link) 0))) "kept, with a deadline")
+    (step-at ls t 5)
+    (is (= 10 (:deadline (get (:pending @link) 0)))
+        "a refused retry keeps the first deadline")
+    (is (= {:dao.stream.remote/channel-gone? true
+            :dao.stream.remote/expired 0}
+           (step-at ls t 10))
+        "a writer that only answers full is bounded")))
+
+
+(deftest without-a-stepped-now-nothing-expires
+  (let [t (toy)
+        ls (stepped-links t nil {:dao.stream.remote/give-up-after 10
+                                 :dao.stream.remote/resend-after 1})
+        r (attach-via ls t "n")
+        link (link-state r)]
+    (dotimes [_ 5]
+      (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r 0)))))
+    (is (not-any? :deadline (vals (:outstanding @link)))
+        "nothing stamped without a now")
+    (is (not (:channel-gone? @link)))
+    (is (< 1 (count (op-requests (:ab t) :dao.stream/next)))
+        "the reflection keeps retrying")))
+
+
+(deftest flood-cannot-defer-expiry
+  (let [t (toy)
+        ls (stepped-links t nil {:dao.stream.remote/give-up-after 10
+                                 :dao.stream.remote/drain-budget 2})
+        _ (step-at ls t 0)
+        r (attach-via ls t "n")
+        link (link-state r)]
+    (dotimes [i 60]
+      (stream/append! (:ba t) {:unrelated i}))
+    (step-at ls t 5)
+    (is (not (:channel-gone? @link)))
+    (is (= {:dao.stream.remote/channel-gone? true
+            :dao.stream.remote/expired 0}
+           (step-at ls t 10))
+        "two reads per step, and the deadline still passes")))
+
+
+(deftest an-invalid-give-up-after-is-a-composition-error
+  (let [t (toy)]
+    (doseq [bad [0 -1 1.5]]
+      (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+            (stepped-links t nil {:dao.stream.remote/give-up-after bad}))
+          (pr-str bad)))))
+
+
+(deftest a-step-of-an-unreached-channel-is-nil
+  (let [t (toy)
+        ls (stepped-links t nil {})]
+    (is (nil? ((:step ls) {:dao.stream/type :dao.stream.test/channel
+                           :dao.stream/identity "elsewhere"}
+                          0)))))
+
+
+(deftest drain-budget-counts-malformed-values-and-a-gap
+  (let [ab (ring 64)
+        ba (ring 2)
+        cd {:dao.stream/type :dao.stream.test/channel
+            :dao.stream/identity "toy-channel"}
+        ls (remote/links {:dao.stream.remote/channels
+                          {cd {:reader ba :writer ab}}
+                          :dao.stream.remote/drain-budget 2})
+        r (:dao.stream/handle
+            ((:attach ls) {:dao.stream/type :dao.stream/remote
+                           :dao.stream/identity "n"
+                           :dao.stream/channel cd}))
+        confirmed? #(some? (:surface @(.-state r)))]
+    (doseq [v [:junk-1 :junk-2 {:not :an-answer}]]
+      (stream/append! ba v))
+    (stream/descriptor r)
+    (is (not (confirmed?)) "the first drain met the gap")
+    (stream/descriptor r)
+    (is (not (confirmed?)) "the second read two malformed values")
+    (stream/append! ba {:dao.stream.remote/id 0
+                        :dao.stream/identity "n"
+                        :dao.stream/outcome :dao.stream/ok
+                        :dao.stream/descriptor {}
+                        :dao.stream.remote/surface #{:reader}})
+    (stream/descriptor r)
+    (is (confirmed?) "the probe's answer, after the junk and the gap")))
