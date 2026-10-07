@@ -451,8 +451,10 @@
    attachment. `:names`, optional, is the name map beside `:table`
    that this end's mirror answers named requests from. `dial-resolve!`
    resolves a name through the dialed channel before any reflection
-   exists. :dao.stream.remote/events, :dao.stream.remote/resend-after
-   and :dao.stream.remote/budget pass to the attacher as its policy.
+   exists. :dao.stream.remote/events, :dao.stream.remote/resend-after,
+   :dao.stream.remote/budget, :dao.stream.remote/drain-budget,
+   :dao.stream.remote/max-outstanding and :dao.stream.remote/max-filed
+   pass to the attacher as its policy.
    `:step-budget`, `:mirror-budget` and `:chase-budget`, optional
    positive integers or nil, bound `dial-step!`'s projection and
    mirror per tick, as for make-acceptor."
@@ -478,7 +480,10 @@
                               (stream/cursor ring stream/anchor-oldest)))
         policy (select-keys opts [:dao.stream.remote/events
                                   :dao.stream.remote/resend-after
-                                  :dao.stream.remote/budget])]
+                                  :dao.stream.remote/budget
+                                  :dao.stream.remote/drain-budget
+                                  :dao.stream.remote/max-outstanding
+                                  :dao.stream.remote/max-filed])]
     (atom {:attach! attach! :traffic traffic :cursor cursor :ring ring
            :table table :names names :channel channel
            :mirror-cursor mirror-cursor :policy policy

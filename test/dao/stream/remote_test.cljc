@@ -1810,3 +1810,243 @@
         (remote/mirror-step table nil rd c1 wr nil)
         (is (= [:v] (values target)) "the source append ran once")
         (is (= [] (answer-ids out)) "its answer was not re-sent")))))
+
+
+;; =============================================================================
+;; Link-side drain and retained-state bounds (S2b)
+;; =============================================================================
+
+(defn- link-state
+  "The link a reflection handle drains through."
+  [r]
+  (:link @(.-state r)))
+
+
+(defn- listed-reflection
+  "A reflection of a list-stream source holding `vs`, served by peer B
+   over a fresh toy, its attach probe already answered and drained.
+   The source's cursors are the positions 0, 1, 2, ..."
+  [vs opts]
+  (let [t (toy)
+        peer (served-peer {"n" (entry (list-stream "n" vs) #{:reader})} t)
+        r (:dao.stream/handle (attach (:a-end t) "n" opts))]
+    (serve! peer)
+    (stream/descriptor r)
+    {:t t :peer peer :r r :link (link-state r)}))
+
+
+(deftest drain-budget-bounds-reads-per-operation
+  (let [{:keys [t peer r link]}
+        (listed-reflection [:a :b :c :d :e :f]
+                           {:dao.stream.remote/drain-budget 2})]
+    (is (= {} (:outstanding @link)) "the probe was drained")
+    (doseq [c (range 6)]
+      (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r c)))))
+    (serve! peer)
+    (testing "one next files two of the six queued answers"
+      (is (= :a (:dao.stream/value (stream/next r 0))))
+      (is (= 1 (count (:filed @link))) "the answer for 1 is filed")
+      (is (= 4 (count (:outstanding @link)))))
+    (testing "three calls file all, the cursor kept between drains"
+      (is (= :b (:dao.stream/value (stream/next r 1))))
+      (is (= :c (:dao.stream/value (stream/next r 2))))
+      (is (= {} (:outstanding @link)))
+      (is (= [:d :e :f]
+             (mapv #(:dao.stream/value (stream/next r %)) [3 4 5]))))
+    (is (= 6 (count (op-requests (:ab t) :dao.stream/next)))
+        "nothing was asked twice")))
+
+
+(deftest max-outstanding-refuses-a-send-as-full
+  (let [t (toy)
+        attempts (atom 0)
+        ls (remote/links {:dao.stream.remote/channels
+                          {(:channel t)
+                           {:reader (:ba t)
+                            :writer (counting-writer attempts
+                                                     :dao.stream/ok)}}
+                          :dao.stream.remote/max-outstanding 2})
+        r (:dao.stream/handle
+            ((:attach ls) {:dao.stream/type :dao.stream/remote
+                           :dao.stream/identity "n"
+                           :dao.stream/channel (:channel t)}))
+        link (link-state r)]
+    (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r 0))))
+    (is (= 2 @attempts) "the probe and one next are outstanding")
+    (is (= 2 (count (:outstanding @link))))
+    (testing "at the bound nothing more is sent"
+      (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r 1))))
+      (is (= {:dao.stream/outcome :dao.stream/transport-error
+              :dao.stream/retry? true}
+             (stream/cursor r :dao.stream/oldest)))
+      (is (= {:dao.stream/outcome :dao.stream/full} (stream/append! r :v))
+          "nothing crossed: the append's effect is known")
+      (is (= {:dao.stream/outcome :dao.stream/transport-error
+              :dao.stream/retry? true}
+             ((:resolve ls) (:channel t) "nm")))
+      (is (= 2 @attempts))
+      (is (= 2 (count (:outstanding @link)))))
+    (testing "an answer frees a place"
+      (stream/append! (:ba t) {:dao.stream.remote/id 1
+                               :dao.stream/identity "n"
+                               :dao.stream/outcome :dao.stream/blocked})
+      (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r 1))))
+      (is (= 3 @attempts) "the next for 1 was sent"))))
+
+
+(deftest max-filed-evicts-the-oldest-and-the-reflection-re-asks
+  (let [{:keys [t peer r link]}
+        (listed-reflection [:a :b :c] {:dao.stream.remote/max-filed 2})]
+    (doseq [c (range 3)]
+      (stream/next r c))
+    (serve! peer)
+    (stream/descriptor r)
+    (is (= 2 (count (:filed @link))) "three filed, the oldest evicted")
+    (is (= [:b :c] (mapv #(:dao.stream/value (stream/next r %)) [1 2]))
+        "the kept answers are returned")
+    (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r 0)))
+        "the evicted answer is asked again")
+    (serve! peer)
+    (is (= :a (:dao.stream/value (stream/next r 0))))
+    (is (= {} (:filed @link)) "each answer returned once")
+    (is (= 4 (count (op-requests (:ab t) :dao.stream/next)))
+        "only the evicted request was sent twice")))
+
+
+(deftest more-is-clamped-to-the-links-own-budget
+  (doseq [[opts filed installed] [[{:dao.stream.remote/budget 2} 1 1]
+                                  [{} 1 0]
+                                  ;; prefetch only fills free retained
+                                  ;; capacity: the answer itself stays
+                                  [{:dao.stream.remote/budget 4
+                                    :dao.stream.remote/max-filed 2} 1 1]]]
+    (testing (pr-str opts)
+      (let [t (toy)
+            r (:dao.stream/handle (attach (:a-end t) "n" opts))
+            link (link-state r)]
+        (stream/next r 0)
+        (stream/append! (:ba t)
+                        {:dao.stream.remote/id 1
+                         :dao.stream/identity "n"
+                         :dao.stream/outcome :dao.stream/ok
+                         :dao.stream/value :a
+                         :dao.stream/cursor 1
+                         :dao.stream.remote/more
+                         (mapv (fn [i]
+                                 {:dao.stream/outcome :dao.stream/ok
+                                  :dao.stream/value i
+                                  :dao.stream/cursor (inc i)})
+                               (range 1 6))})
+        (stream/descriptor r)
+        (is (= filed (count (:filed @link))))
+        (is (= installed (count (:filed-cursors @link)))
+            "the surplus a peer sends is dropped")))))
+
+
+(deftest an-invalid-link-policy-is-a-composition-error
+  (let [t (toy)]
+    (doseq [k [:dao.stream.remote/drain-budget
+               :dao.stream.remote/max-outstanding
+               :dao.stream.remote/max-filed]
+            bad [0 -1 1.5 :x]]
+      (let [opts {:dao.stream.remote/channels {(:channel t) (:a-end t)}
+                  k bad}]
+        (is (= {:policy (dissoc opts :dao.stream.remote/channels)}
+               (try (remote/links opts) nil
+                    (catch #?(:clj Exception :cljs :default :cljd Object) e
+                      (ex-data e))))
+            (pr-str k bad))))))
+
+
+(defn- held
+  "Requests the link holds: outstanding plus kept unsent."
+  [link]
+  (+ (count (:outstanding @link)) (count (:pending @link))))
+
+
+(defn- capped-reflections
+  "Three reflections, of \"a\", \"b\" and \"c\", attached through one
+   links value over the toy's channel whose writer is `writer`, with
+   max-outstanding `cap`; peer B serves all three."
+  [cap writer]
+  (let [t (toy)
+        src (fn [] (entry (ring 4) #{:reader}))
+        peer (served-peer {"a" (src) "b" (src) "c" (src)} t)
+        ls (remote/links {:dao.stream.remote/channels
+                          {(:channel t) {:reader (:ba t)
+                                         :writer (writer (:ab t))}}
+                          :dao.stream.remote/max-outstanding cap})
+        attach! #(:dao.stream/handle
+                   ((:attach ls) {:dao.stream/type :dao.stream/remote
+                                  :dao.stream/identity %
+                                  :dao.stream/channel (:channel t)}))
+        [ra rb rc] (mapv attach! ["a" "b" "c"])]
+    {:t t :peer peer :ra ra :rb rb :rc rc :link (link-state ra)}))
+
+
+(defn- confirmed?
+  [r]
+  (some? (:surface @(.-state r))))
+
+
+(deftest attach-probes-share-a-capped-link
+  (testing "an accepting writer: probes wait on their reflections and
+            are admitted as answers free room"
+    (let [{:keys [t peer ra rb rc link]} (capped-reflections 1 identity)
+          probes #(count (op-requests (:ab t) :dao.stream/descriptor))]
+      (is (= 1 (held link)) "one probe sent, none kept past the cap")
+      (is (= 1 (probes)))
+      (serve! peer)
+      (stream/descriptor rb)
+      (is (confirmed? ra) "the first probe's answer was filed")
+      (is (= 2 (probes)) "b's waiting probe was admitted")
+      (stream/descriptor rc)
+      (is (= 2 (probes)) "c's waits while b's is outstanding")
+      (is (= 1 (held link)))
+      (serve! peer)
+      (stream/descriptor rc)
+      (is (= 3 (probes)))
+      (serve! peer)
+      (stream/descriptor rc)
+      (is (every? confirmed? [ra rb rc]))
+      (is (= 0 (held link)))))
+  (testing "a writer refusing full: kept probes stay within the cap and
+            each retry makes progress"
+    (let [{:keys [peer ra rb rc link]}
+          (capped-reflections 2 #(full-then-forward-writer % 3))]
+      (is (= 2 (count (:pending @link))) "two kept, at the cap")
+      (is (some? (:probe @(.-state rc))) "the third waits on its reflection")
+      (stream/descriptor ra)
+      (is (<= (held link) 2))
+      (stream/descriptor rc)
+      (is (= 2 (count (:outstanding @link)))
+          "both kept probes were sent, neither blocking the other")
+      (is (some? (:probe @(.-state rc))))
+      (serve! peer)
+      (stream/descriptor rc)
+      (is (nil? (:probe @(.-state rc))) "admitted once room was freed")
+      (serve! peer)
+      (stream/descriptor rc)
+      (is (every? confirmed? [ra rb rc]))
+      (is (= 0 (held link))))))
+
+
+(deftest a-prefetch-never-evicts-its-own-answer
+  (let [{:keys [t peer r link]}
+        (listed-reflection [:a :b :c]
+                           {:dao.stream.remote/budget 2
+                            :dao.stream.remote/max-filed 1})]
+    (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r 0))))
+    (is (= 1 (:dao.stream.remote/budget
+               (first (op-requests (:ab t) :dao.stream/next))))
+        "the stamped budget is no more than the link can retain")
+    (doseq [[c v] [[0 :a] [1 :b] [2 :c]]]
+      (when (pos? c)
+        (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r c)))
+            "nothing prefetched past the retained capacity"))
+      (serve! peer)
+      (is (= v (:dao.stream/value (stream/next r c))) (str "reads " v))
+      (is (<= (+ (count (:filed @link)) (count (:filed-cursors @link))) 1)))
+    (serve! peer)
+    (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next r 3)))
+        "the source's own blocked at its end")))

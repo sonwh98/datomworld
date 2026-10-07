@@ -273,8 +273,33 @@ The host-composed attach closure keeps one link per channel descriptor,
 shared by every reflection through that channel. A link holds: the channel
 writer; the channel reader and the link's own cursor on it; the set of
 outstanding request ids with the request each was sent for; filed answers
-keyed by id; an optional event writer; and the policy datum
-`:dao.stream.remote/resend-after`.
+keyed by id; the `more` outcomes installed at the cursor that precedes
+each; an optional event writer; and the policy data
+`:dao.stream.remote/resend-after`, `:dao.stream.remote/budget` and the
+three bounds below, each a positive integer or nil for unbounded, any other
+value a composition error at `links`
+(`ex-info "invalid DaoStream remote link policy" {:policy policy}`):
+
+- `:dao.stream.remote/drain-budget`: the most channel reads one drain takes.
+- `:dao.stream.remote/max-outstanding`: the most requests the link holds
+  outstanding or kept unsent. A send that would pass it is refused locally
+  as though the writer answered `full`, nothing crossing: `cursor` and
+  `resolve` answer `transport-error` with `:dao.stream/retry? true`, `next`
+  answers `blocked`, and `append!` answers `{:dao.stream/outcome
+  :dao.stream/full}`, its effect known. A refused attach probe is kept on
+  the link only while there is room under the same bound, so outstanding
+  plus kept never exceeds it and each kept probe's retry, which does not
+  count itself, always has room. A probe without room waits on its own
+  reflection, and that reflection's next operation offers it again.
+- `:dao.stream.remote/max-filed`: the most filed answers plus installed
+  `more` outcomes the link retains. Past it the oldest retained is evicted,
+  in the order the link retained them, so filing an answer never evicts
+  that answer. A prefetch only fills free capacity and never evicts: no
+  more outcomes are installed than fit beside what is retained, and a
+  `next` request's stamped budget is at most `max-filed`.
+  Everything filed is idempotent-recomputable and `append!` answers are
+  never filed, so the operation an evicted entry answered asks again and
+  no outcome is invented.
 
 On attach the link sends one `descriptor` request for the identity. Its
 answer is the reflection's confirmation. The `not-found` error marks the
@@ -282,10 +307,16 @@ reflection **gone**; `ok` records the source's descriptor and declared
 surface. Either is appended to the event writer when one is composed.
 
 **Drain.** Every operation on any reflection first reads the link's channel
-reader to `blocked`, filing each answer whose id is outstanding, installing
-each `:dao.stream.remote/more` outcome at the cursor that precedes it, and
-filing each protocol error under its id. Answers whose id is not
-outstanding are dropped. Non-answer values are dropped as diagnostics.
+reader to `blocked`, or until `drain-budget` reads (`ok` and `gap` alike),
+filing each answer whose id is outstanding, installing each
+`:dao.stream.remote/more` outcome at the cursor that precedes it, and
+filing each protocol error under its id. A drain the budget stops keeps
+the link's cursor where it stopped: this operation answers from what was
+filed so far, and the next operation's drain continues. At most the link's
+own budget `k` less one `more` outcomes are installed per answer, none when
+the link stamped no budget; a peer's surplus is dropped. Answers whose id
+is not outstanding are dropped. Non-answer values are dropped as
+diagnostics.
 This is where the asynchrony goes (`dao.stream.md`, Where the asynchrony
 goes): the caller's own polling is the cadence, and no driver step exists.
 
@@ -432,6 +463,12 @@ contract:
   integer or nil), passed to each session's `mirror-step` as its `bounds`
   (2.3). A dialing composition takes the same three keys for its
   `dial-step!` projection and mirror.
+- **Link bounds**: the asking side's link takes
+  `:dao.stream.remote/drain-budget`, `:dao.stream.remote/max-outstanding`
+  and `:dao.stream.remote/max-filed` (2.4), bounding the reads per drain,
+  the requests in flight or kept, and the answers and prefetched outcomes
+  retained per link. A dialing composition passes them to its link with the
+  rest of its `:dao.stream.remote/*` policy.
 - **Session failure isolation**: An unhandled exception or malformed payload
   in one session's projection or mirror step is isolated and caught; its
   resources are closed and marked for reaping without crashing the acceptor

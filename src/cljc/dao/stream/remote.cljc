@@ -330,8 +330,10 @@
    writer has refused, kept unsent with the reflection each was sent
    for; filed answers keyed by id; the more outcomes installed at
    their served identity and the cursor that precedes each; an
-   optional event writer; and the policy data -- the resend-after k
-   and the budget k stamped on next requests, both composition data."
+   optional event writer; and the policy data -- the resend-after k,
+   the budget k stamped on next requests, and the bounds on reads per
+   drain, on outstanding plus kept requests and on filed plus
+   installed answers, all composition data."
   [cd chan policy]
   (atom {:channel cd
          :reader (:reader chan)
@@ -342,9 +344,13 @@
          :pending {}
          :filed {}
          :filed-cursors {}
+         :filed-seq 0
          :events (:dao.stream.remote/events policy)
          :resend-after (:dao.stream.remote/resend-after policy)
          :budget (:dao.stream.remote/budget policy)
+         :drain-budget (:dao.stream.remote/drain-budget policy)
+         :max-outstanding (:dao.stream.remote/max-outstanding policy)
+         :max-filed (:dao.stream.remote/max-filed policy)
          :next-id 0
          :channel-gone? false}))
 
@@ -375,16 +381,51 @@
     (swap! refl update :ids conj id)))
 
 
+(defn- stamped-budget
+  "The budget a next request carries: the link's budget, no more than
+   max-filed when both are composed -- the link could retain no more
+   outcomes than that, so asking for more would only be dropped."
+  [link]
+  (let [{:keys [budget max-filed]} @link]
+    (if (and (integer? budget) max-filed)
+      (min budget max-filed)
+      budget)))
+
+
 (defn- wire-request
   "One request map for the channel, its id asker-minted; a next
-   request carries the link's budget when one is composed."
+   request carries the link's stamped budget when one is composed."
   [link refl op args]
-  (cond-> {:dao.stream/identity (:identity @refl)
-           :dao.stream.remote/op op
-           :dao.stream.remote/args args
-           :dao.stream.remote/id (mint-id! link)}
-    (and (= :dao.stream/next op) (some? (:budget @link)))
-    (assoc :dao.stream.remote/budget (:budget @link))))
+  (let [k (stamped-budget link)]
+    (cond-> {:dao.stream/identity (:identity @refl)
+             :dao.stream.remote/op op
+             :dao.stream.remote/args args
+             :dao.stream.remote/id (mint-id! link)}
+      (and (= :dao.stream/next op) (some? k))
+      (assoc :dao.stream.remote/budget k))))
+
+
+(defn- room?
+  "True when the link holds fewer than max-outstanding requests,
+   outstanding or kept, not counting `id` itself, or has no such bound.
+   Sends and kept probes are both admitted only with room, so
+   outstanding plus kept never exceeds the bound, and a kept probe's
+   own retry -- which excludes itself -- always has room."
+  [link id]
+  (let [{:keys [max-outstanding outstanding pending]} @link]
+    (or (nil? max-outstanding)
+        (< (+ (count outstanding) (count (dissoc pending id)))
+           max-outstanding))))
+
+
+(defn- send!
+  "Append `req` to the channel writer, unless the link has no room
+   for it: that send is refused locally as though the writer answered
+   full, nothing crossing."
+  [link req]
+  (if (room? link (:dao.stream.remote/id req))
+    (stream/append! (:writer @link) req)
+    {:dao.stream/outcome :dao.stream/full}))
 
 
 (defn- send-request!
@@ -392,21 +433,28 @@
    outstanding only when the writer accepted the send: a send the
    writer refuses with full leaves the request unsent and nothing
    outstanding, so the operation answers as though unanswered and the
-   next ask sends again. An attach descriptor probe the writer
-   refuses with full is kept on the link instead, unsent, one retry
-   per drain until a send is accepted. Returns the writer's outcome."
+   next ask sends again. A send over max-outstanding is refused the
+   same way (send!). An attach descriptor probe refused with full is
+   kept on the link instead, unsent, one retry per drain until a send
+   is accepted -- when the link has room for it; otherwise it waits on
+   its own reflection, unadmitted, and that reflection's next operation
+   offers it again (admit-probe!). Returns the writer's outcome."
   [link refl req]
-  (let [r (stream/append! (:writer @link) req)
+  (let [r (send! link req)
         id (:dao.stream.remote/id req)]
     (cond
       (= :dao.stream/ok (:dao.stream/outcome r))
       (do (register! link refl req)
-          (swap! link update :pending dissoc id))
+          (swap! link update :pending dissoc id)
+          (swap! refl dissoc :probe))
 
       (and (= :dao.stream/full (:dao.stream/outcome r))
            (= :dao.stream/descriptor (:dao.stream.remote/op req)))
-      (swap! link assoc-in [:pending id]
-             {:req req :reflection refl}))
+      (if (room? link id)
+        (do (swap! link assoc-in [:pending id]
+                   {:req req :reflection refl})
+            (swap! refl dissoc :probe))
+        (swap! refl assoc :probe req)))
     r))
 
 
@@ -490,20 +538,71 @@
                         :closable)))
 
 
+(defn- next-age!
+  "The next arrival age on the link: filed answers and installed
+   outcomes are aged in the order the link retained them."
+  [link]
+  (let [n (:filed-seq @link)]
+    (swap! link assoc :filed-seq (inc n))
+    n))
+
+
+(defn- evict-filed!
+  "Bound the link's filed answers and installed outcomes together by
+   max-filed, evicting the oldest retained until within the bound. The
+   entry just filed is the newest, so filing an answer never evicts
+   that answer. Everything filed is idempotent-recomputable, so the
+   operation an evicted entry answered asks again; no outcome is
+   invented."
+  [link]
+  (when-some [m (:max-filed @link)]
+    (loop []
+      (let [{:keys [filed filed-cursors]} @link]
+        (when (< m (+ (count filed) (count filed-cursors)))
+          (let [aged (concat (map (fn [[id e]] [(:age e) :filed id]) filed)
+                             (map (fn [[k e]] [(:age e) :filed-cursors k])
+                                  filed-cursors))
+                [_ where k] (apply min-key first aged)]
+            (swap! link update where dissoc k)
+            (recur)))))))
+
+
+(defn- file!
+  "File answer `v` under `id` with the request it was sent for and the
+   reflection that sent it, as the newest retained entry, then bound
+   the retained entries by max-filed."
+  [link id req v refl]
+  (swap! link assoc-in [:filed id]
+         {:req req :ans v :reflection refl :age (next-age! link)})
+  (evict-filed! link))
+
+
 (defn- install-more!
   "Install each more outcome under the answer's served identity and at
    the cursor that precedes it, so a later next at that cursor by a
    reflection of the same stream returns the source's own outcome
    without a request. The identity is half of the key: two served
    identities can carry equal cursor values, and an outcome belongs to
-   its own stream."
+   its own stream. At most the link's stamped budget k less one are
+   installed -- the answer itself is the first of k -- and none when
+   the link stamped no budget: the surplus a peer sends is dropped.
+   Prefetch only fills free retained capacity: with max-filed, no more
+   are installed than fit beside what is already retained, so a
+   prefetch never evicts anything, its own answer included."
   [link answer]
-  (let [identity (:dao.stream/identity answer)]
+  (let [identity (:dao.stream/identity answer)
+        k (stamped-budget link)
+        asked (if (and (integer? k) (pos? k)) (dec k) 0)
+        {:keys [max-filed filed filed-cursors]} @link
+        fits (if max-filed
+               (max 0 (- max-filed (count filed) (count filed-cursors)))
+               asked)]
     (loop [cur (:dao.stream/cursor answer)
-           more (:dao.stream.remote/more answer)]
+           more (take (min asked fits) (:dao.stream.remote/more answer))]
       (when (and cur (seq more))
         (let [[o & further] more]
-          (swap! link assoc-in [:filed-cursors [identity cur]] o)
+          (swap! link assoc-in [:filed-cursors [identity cur]]
+                 {:outcome o :age (next-age! link)})
           (recur (:dao.stream/cursor o) further))))))
 
 
@@ -519,8 +618,7 @@
                (= (:dao.stream.remote/name req)
                   (:dao.stream.remote/name v)))
       (swap! link update :outstanding dissoc id)
-      (swap! link assoc-in [:filed id]
-             {:req req :ans v :reflection nil}))))
+      (file! link id req v nil))))
 
 
 (defn- absorb!
@@ -570,8 +668,7 @@
                 (emit! link v)
 
                 :else
-                (do (swap! link assoc-in
-                           [:filed id] {:req req :ans v :reflection refl})
+                (do (file! link id req v refl)
                     (install-more! link v))))))))))
 
 
@@ -600,6 +697,17 @@
     (send-request! link (:reflection e) (:req e))))
 
 
+(defn- admit-probe!
+  "Offer `refl`'s unadmitted attach probe to its link again: a probe
+   the link had no room to keep waits on its own reflection, so the
+   link's kept state stays within max-outstanding, and is sent, kept,
+   or left waiting by send-request! as on attach."
+  [refl]
+  (let [{:keys [probe link closed?]} @refl]
+    (when (and probe (not closed?) (not (:channel-gone? @link)))
+      (send-request! link refl probe))))
+
+
 (defn- drain!
   "Read the link's channel reader to blocked, filing each answer: the
    caller's own polling is the cadence and no driver step exists. An
@@ -609,7 +717,9 @@
    caller never asks it remotely, where a named request's caller asks
    by calling resolve again -- so resend-after re-sends it, and
    one more try of each probe the writer has refused, until a send
-   is accepted."
+   is accepted. With a drain-budget, at most that many reads -- ok and
+   gap alike -- are taken per drain, the link's cursor kept where it
+   stopped for the next operation's drain."
   [link]
   (when-not (:channel-gone? @link)
     (doseq [[_ e] (:outstanding @link)]
@@ -617,18 +727,19 @@
                  (not (named? (:req e))))
         (count-ask! link (:dao.stream.remote/id (:req e)))))
     (retry-pending! link)
-    (loop []
-      (let [r (stream/next (:reader @link) (:cursor @link))]
-        (case (:dao.stream/outcome r)
-          :dao.stream/ok
-          (do (absorb! link (:dao.stream/value r))
-              (swap! link assoc :cursor (:dao.stream/cursor r))
-              (recur))
-          :dao.stream/blocked nil
-          :dao.stream/end (channel-loss! link)
-          :dao.stream/gap
-          (do (swap! link assoc :cursor (:dao.stream/cursor r)) nil)
-          nil)))))
+    (loop [remaining (:drain-budget @link)]
+      (when-not (and remaining (zero? remaining))
+        (let [r (stream/next (:reader @link) (:cursor @link))]
+          (case (:dao.stream/outcome r)
+            :dao.stream/ok
+            (do (absorb! link (:dao.stream/value r))
+                (swap! link assoc :cursor (:dao.stream/cursor r))
+                (recur (when remaining (dec remaining))))
+            :dao.stream/blocked nil
+            :dao.stream/end (channel-loss! link)
+            :dao.stream/gap
+            (do (swap! link assoc :cursor (:dao.stream/cursor r)) nil)
+            nil))))))
 
 
 ;; =============================================================================
@@ -648,6 +759,7 @@
    channel loss."
   [refl]
   (drain! (:link @refl))
+  (admit-probe! refl)
   {:dao.stream/outcome :dao.stream/ok
    :dao.stream/descriptor (:descriptor @refl)
    :dao.stream/identity (:identity @refl)})
@@ -690,7 +802,7 @@
   (let [k [(:identity @refl) c]]
     (or (when-some [o (get (:filed-cursors @link) k)]
           (swap! link update :filed-cursors dissoc k)
-          (filed-answer-outcome o))
+          (filed-answer-outcome (:outcome o)))
         (when-some [[id entry]
                     (filed-for link refl :dao.stream/next c)]
           (swap! link update :filed dissoc id)
@@ -725,6 +837,7 @@
   [refl a]
   (let [link (:link @refl)]
     (drain! link)
+    (admit-probe! refl)
     (cond
       (:closed? @refl) (result :dao.stream/closed)
       (:gone? @refl) (translated :dao.stream.remote/not-found)
@@ -748,6 +861,7 @@
   [refl c]
   (let [link (:link @refl)]
     (drain! link)
+    (admit-probe! refl)
     (cond
       (:closed? @refl)
       (or (filed-next! link refl c) (result :dao.stream/end))
@@ -772,10 +886,12 @@
    toward a stream elsewhere. The source's outcome is emitted on the
    event writer when it is filed, correlated by id; append! never
    answers the source's full. Only an accepted send is in flight: a
-   refused append! never crossed, so its effect is not unknown."
+   refused append! never crossed, so its effect is not unknown; a send
+   over max-outstanding answers full, nothing crossing."
   [refl v]
   (let [link (:link @refl)]
     (drain! link)
+    (admit-probe! refl)
     (cond
       (:closed? @refl) (result :dao.stream/closed)
       (:gone? @refl) (translated :dao.stream.remote/not-found)
@@ -783,7 +899,7 @@
       (translated :dao.stream.remote/no-surface)
       :else
       (let [req (wire-request link refl :dao.stream/append! [v])
-            r (stream/append! (:writer @link) req)]
+            r (send! link req)]
         (when (= :dao.stream/ok (:dao.stream/outcome r))
           (register! link refl req))
         r))))
@@ -805,6 +921,7 @@
                    (remove (fn [[_ e]]
                              (= refl (:reflection e)))
                            kept))))
+    (swap! refl dissoc :probe)
     (drain! link)
     (when-not (:closed? @refl)
       (doseq [id (:ids @refl)]
@@ -845,7 +962,7 @@
              :dao.stream.remote/op :dao.stream/descriptor
              :dao.stream.remote/args []
              :dao.stream.remote/id (mint-id! link)}
-        r (stream/append! (:writer @link) req)]
+        r (send! link req)]
     (when (= :dao.stream/ok (:dao.stream/outcome r))
       (swap! link assoc-in [:outstanding (:dao.stream.remote/id req)]
              {:req req :asks 0 :reflection nil}))
@@ -973,12 +1090,23 @@
    outstanding and the answer is transport-error with
    :dao.stream/retry? true, as cursor answers. After channel loss the
    answer is transport-error naming channel-gone. A channel this peer
-   does not reach is not-found. `opts` is `attacher`'s."
+   does not reach is not-found. `opts` is `attacher`'s; a bound among
+   them (:dao.stream.remote/drain-budget, max-outstanding, max-filed)
+   that is neither nil nor a positive integer is a composition error."
   [opts]
   (let [channels (:dao.stream.remote/channels opts)
         policy (select-keys opts [:dao.stream.remote/events
                                   :dao.stream.remote/resend-after
-                                  :dao.stream.remote/budget])
+                                  :dao.stream.remote/budget
+                                  :dao.stream.remote/drain-budget
+                                  :dao.stream.remote/max-outstanding
+                                  :dao.stream.remote/max-filed])
+        _ (when-not (every? #(pos-int-or-nil? (get policy %))
+                            [:dao.stream.remote/drain-budget
+                             :dao.stream.remote/max-outstanding
+                             :dao.stream.remote/max-filed])
+            (throw (ex-info "invalid DaoStream remote link policy"
+                            {:policy policy})))
         by-channel (atom {})
         link-for! (fn [cd]
                     (swap! by-channel
@@ -1030,7 +1158,10 @@
    links emit on; :dao.stream.remote/resend-after is the links'
    resend-after k, unbounded on an ordered reliable channel and small
    on udp; :dao.stream.remote/budget is the budget stamped on every
-   next request. One link is kept per channel descriptor, shared by
+   next request; :dao.stream.remote/drain-budget bounds the reads per
+   drain, :dao.stream.remote/max-outstanding the requests outstanding
+   or kept per link, and :dao.stream.remote/max-filed the filed answers
+   and installed outcomes per link, each nil for unbounded. One link is kept per channel descriptor, shared by
    every reflection through that channel. attach! answers ok at once
    with a reflection handle and a local, opaque
    :dao.stream/attachment -- the contract's deferred remote
