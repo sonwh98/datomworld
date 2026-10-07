@@ -10590,3 +10590,42 @@ Next:
   - Python C3 Track: Finalize Slice S7 verification in `datomworld-s7` (rebase on S6 `c681ca24`, run C3 gate suite, generate fixtures, review with DeepSeek/cmd, land).
   - Stream Track: Prepare and dispatch Slice S2d (ws byte/frame bounds & adoption isolation).
   - UCF Track: Rebase `ucf-d10b-kernel-lift-lower` onto latest master and prepare Stage D15/D16.
+
+## 2026-10-07 16:25:30 +07 — Orchestrator Seat Handoff: AGY -> zcode glm-5.3-flash
+
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b (AGY orchestrator seat)
+Tree: master@3307110c (clean)
+
+Done:
+1. Python C3 Track (Slice S7 in `/Users/sto/workspace/datomworld-s7`, branch `yang-python-c3-s7`):
+   - Successfully rebased on landed S6 (`c681ca24` / `master` @ `3307110c`).
+   - Reconciled goldens: `c3-corpus-v1.txt` (10 programs) and `int-conv-v1.txt` (1021 measured rows) verified byte-identical against CPython 3.9.6 generators (`python3 -I`).
+   - Fixed float address golden hashes in `test/yang/python/antlr/float_address_test.cljc` matching the updated prelude AST.
+   - Clean style: `cljstyle check` passed across all modified source and test namespaces.
+   - 3-Lane `mise exec -- bb test:changed` gate ran and passed 100% GREEN:
+     - JVM (`bb test:changed:clj`): 23 ns / 254 tests, 7,831 assertions, 0 failures, 0 errors (199s).
+     - Node CLJS (`bb test:changed:cljs`): 16 ns / 227 tests, 3,124 assertions, 0 failures, 0 errors (177s).
+     - ClojureDart (`bb test:changed:cljd`): 16 ns / 207 tests, all tests passed, 0 failures (110s).
+   - Provisional review by GLM 5.3 already on disk (`collab/1791274000000-reviewer-s7-early-gate.glm.findings.md`), rulings settled (`collab/1791275000000-orchestrator-s7-gate-rulings.md`).
+   - State: Ready for final review / architect sign-off via `/Users/sto/.local/bin/deepseek` (or `cmd -m qwen/qwen3.8-max`), followed by commit to `master`.
+
+2. Cross-Machine Stream Track (Slice S2d in `/Users/sto/workspace/datomworld-stream-s2`, branch `stream-crossmachine-s2`):
+   - Successfully rebased onto `master` @ `3307110c`. Head commit: `913a740b` (S2c).
+   - Slice S2d spec analyzed (`collab/1791353752491-architect-stream-s2-spec.claude-fable-5-1.findings.md` §1.4, §1.5, §3, §4):
+     - Scope: WebSocket byte/frame bounds (`:ws/max-frame-bytes`, `:ws/max-pending-frames`, `:ws/max-pending-bytes`, `:ws/outbound-high-water`, `:ws/max-outbound-bytes`), seam `:queued-bytes` accounting, and adoption-path isolation (`adopt!` try/catch).
+     - State: Ready for dispatch.
+
+3. UCF Track (Stage D15 in `/Users/sto/workspace/datomworld-d10b`, branch `ucf-d10b-kernel-lift-lower`):
+   - Successfully rebased onto `master` @ `3307110c` (resolved clean merge in `handoff.cljc` preserving D10b-B kernel lift/lower and S6 big-carrier/numeric? additions).
+   - Head commit: `d0080e5a` (D10b-B).
+   - State: Ready for D15 dispatch.
+
+Next for Incoming Orchestrator (zcode glm-5.3-flash):
+- **Python C3 Track**: Dispatch final code review / architect sign-off for S7 using `/Users/sto/.local/bin/deepseek` (or `cmd -m qwen/qwen3.8-max`), stage, commit with sign-off, and fast-forward `master`.
+- **Stream Track**: Dispatch implementation of Slice S2d in `datomworld-stream-s2`.
+- **UCF Track**: Prepare and dispatch Stage D15 in `datomworld-d10b`.
+- Remember user routing rules:
+  - Do NOT route to `claude` (out of credits).
+  - Do NOT route to `codex` (quota depleted).
+  - Do NOT invoke deepseek via `cmd` — always use the standalone binary `/Users/sto/.local/bin/deepseek`.
+  - Untracked `collab/` files must remain untracked and never added to `.gitignore`. Move completed artifacts to `archive/`.
