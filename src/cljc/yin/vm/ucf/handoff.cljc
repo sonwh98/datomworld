@@ -210,7 +210,8 @@
         (if (some? (portable-cursor kept))
           (let [cid (if (:ordering @found)
                       key
-                      (keyword "yin.k" (str "c-" (count (:cells @found)))))]
+                      (or (get-in @found [:recovery-cell-ids key])
+                          (keyword "yin.k" (str "c-" (count (:cells @found))))))]
             (swap! found
                    (fn [acc]
                      (-> acc
@@ -634,7 +635,12 @@
          :yin.k/value (encode (:datom entry))})
 
     :ffi-request
-    (let [route (call-out-cell (:resources vm))]
+    (let [route (if (and (:response-cursor entry)
+                         (:response-stream entry)
+                         (:yin.k/recovery-cell-ids vm))
+                  {:id (:response-cursor entry)
+                   :stream-id (:response-stream entry)}
+                  (call-out-cell (:resources vm)))]
       (if (nil? route)
         (unsatisfied!)
         (let [envelope (:datom entry)]
@@ -773,17 +779,28 @@
 (defn- snapshot-module-stores
   "The encoded store snapshot of every module the encoding reached,
    exactly as it stands in the task at export, mutations included,
-   walked in the same canonical order the task store is."
+   walked in the same canonical order the task store is. Version 1's
+   fixed point corrects omitted transitive stores; canonical-order's
+   scratch census never populated this export's found map. Published
+   version 0 retains its one-pass bytes; only recovery closes its graph."
   [vm encode found]
   (when-some [m (first (remove #(contains? (:module-stores vm) %)
                                (sort-by str (:stores @found))))]
     (non-portable! :missing-module-store {engine/store-of-key m}))
-  (into {}
-        (map (fn [m]
-               [m (into {}
-                        (map (fn [[k v]] [(encode k) (encode v)]))
-                        (ordered found key (get (:module-stores vm) m)))]))
-        (sort-by str (:stores @found))))
+  (let [snapshot (fn [module-id]
+                   (when-not (contains? (:module-stores vm) module-id)
+                     (non-portable! :missing-module-store {engine/store-of-key module-id}))
+                   (into {}
+                         (map (fn [[key value]] [(encode key) (encode value)]))
+                         (ordered found key (get (:module-stores vm) module-id))))]
+    (if (or (:v1 @found) (:full-census @found))
+      (loop [stores {}]
+        (if-some [module-id (first (sort-by str (set/difference (:stores @found)
+                                                                (set (keys stores)))))]
+          (recur (assoc stores module-id (snapshot module-id)))
+          stores))
+      (into {} (map (fn [module-id] [module-id (snapshot module-id)]))
+            (sort-by str (:stores @found))))))
 
 
 (defn- bytes-address
@@ -934,6 +951,8 @@
                                   {:yin.k/pc (:pc active-rec)}))
                found (atom (cond-> (assoc (new-found)
                                           :v1 v1?
+                                          :full-census (::recovery opts)
+                                          :recovery-cell-ids (:yin.k/recovery-cell-ids vm)
                                           :enrolled (::enrolled opts))
                              v1? (assoc :order
                                         (canonical-order vm serve!))))
@@ -1452,7 +1471,7 @@
    7.3): nothing of the receiver's state but its composition values,
    a fresh origin tag, and the secret the composition's source mints
    for it."
-  [recv response module-name]
+  [recv response module-name fenced?]
   (let [n (or (:origins recv) 0)
         origin (keyword (str (name (or (:origin recv) :t0)) "." n))
         registry (reduce (fn [r [m e]]
@@ -1461,13 +1480,13 @@
                          (module/module-entries (:modules recv)))
         source (:secret-source recv)
         child (module/spawn-module
-                recv
+                (cond-> recv fenced? (assoc :make-stream nil :resources {}))
                 (:value (:image response))
                 {:modules registry
                  :origin origin
                  :ancestry (conj (vec (:ancestry recv)) module-name)
                  :capability-secret (when (fn? source) (source origin))})]
-    (assoc child :origins (inc n))))
+    (assoc child :origins (inc n) :make-stream (:make-stream recv))))
 
 
 (defn- child-bytes
@@ -1490,26 +1509,30 @@
    :ok over a child that did not lower.  The child is resumed as an
    install child, not a custody root: its own reader pass skips the
    custody step the root already ran over it."
-  [recv body attach! opts]
+  [recv body attach! opts fenced?]
   (into {}
-        (map (fn [[m inst]]
-               (let [response (:yin.k/response inst)
-                     child-body (:yin.k/child inst)
-                     resumed (resume-task*
-                               (if-some [spawn (:child-of opts)]
-                                 (spawn recv response m)
-                                 (spawn-child-template recv response m))
-                               (child-bytes child-body)
-                               attach!
-                               opts
-                               true)]
-                 (when (not= :ok (:status resumed))
-                   (refuse! (:yin.k/status resumed)
-                            (dissoc resumed :yin.k/status)))
-                 [m {:phase (or (:yin.k/phase inst) :running)
-                     :parent (:yin.k/parent inst)
-                     :response response
-                     :vm (:vm resumed)}])))
+        (map-indexed (fn [index [m inst]]
+                       (let [response (:yin.k/response inst)
+                             child-body (:yin.k/child inst)
+                             resumed (resume-task*
+                                       (if-some [spawn (:child-of opts)]
+                                         (spawn recv response m)
+                                         (spawn-child-template
+                                           (cond-> recv
+                                             fenced? (assoc :origins (+ (or (:origins recv) 0) index)))
+                                           response m fenced?))
+                                       (child-bytes child-body)
+                                       attach!
+                                       opts
+                                       true
+                                       fenced?)]
+                         (when (not= :ok (:status resumed))
+                           (refuse! (:yin.k/status resumed)
+                                    (dissoc resumed :yin.k/status)))
+                         [m {:phase (or (:yin.k/phase inst) :running)
+                             :parent (:yin.k/parent inst)
+                             :response response
+                             :vm (:vm resumed)}])))
         (:yin.k/installs body)))
 
 
@@ -1776,7 +1799,8 @@
           (-> recv
               (assoc :store {} :module-stores {} :parked {} :installs {})
               (assoc-in [:modules :modules] {})
-              (dissoc :yin.k/custody :yin.k/gate :yin.k/closes :yin.k/issued))
+              (dissoc :yin.k/custody :yin.k/gate :yin.k/closes :yin.k/issued
+                      :yin.k/recovery-cell-ids :yin.k/recovery-waits))
           (filter (fn [[_ entry]] (nil? (:address entry)))
                   (module/module-entries (:modules recv)))))
 
@@ -1816,6 +1840,8 @@
   ([recv bytes attach!]
    (resume-task recv bytes attach! nil))
   ([recv bytes attach! opts install-child?]
+   (resume-task* recv bytes attach! opts install-child? false))
+  ([recv bytes attach! opts install-child? fenced?]
    (call!
      (fn []
        (let [{:keys [codec body]} (decode-two bytes)
@@ -1831,14 +1857,14 @@
                           {:yin.k/contract (:yin.k/contract body)}))
              kind (:yin.k/kind body)
              version-one? (= 1 (:yin.k/version body))
-             custody-state (when (and version-one? (not install-child?)
+             custody-state (when (and version-one? (not install-child?) (not fenced?)
                                       (not= :halted kind))
                              (accept-grant! body opts))
              cells (:yin.k/cells body)
              pendings (mapv :yin.k/pending
                             (or (:yin.k/frames body) []))
              recv' (reduce (fn [r [_a v]] (module/attach-module r v))
-                           (if version-one? (isolated-receiver recv) recv)
+                           (if (or version-one? fenced?) (isolated-receiver recv) recv)
                            (:yin.k/code body))
              handles (attach-all! attach! (body-markers body))
              used (atom (into fixed-resource-keys
@@ -1892,7 +1918,7 @@
                                         :type :parked-continuation
                                         :id pid)]))
                           (:yin.k/parked body))
-             installs (resume-installs recv' body attach! opts)
+             installs (resume-installs recv' body attach! opts fenced?)
              registers (mapv (fn [frame]
                                (decode-registers decode aliases
                                                  (:yin.k/registers frame)))
@@ -1920,6 +1946,18 @@
                                         :resources (merge (:resources recv')
                                                           resources
                                                           cell-resources
+                                                          (when fenced?
+                                                            (reduce (fn [acc pending]
+                                                                      (if (= :ffi-request (:yin.k/reason pending))
+                                                                        (assoc acc
+                                                                               vm/call-in-stream-key
+                                                                               (get resources (streams (get-in pending [:yin.k/request :dao.stream/identity])))
+                                                                               vm/call-out-stream-key
+                                                                               (get resources (streams (get-in pending [:yin.k/response :dao.stream/identity])))
+                                                                               vm/call-out-cursor-key
+                                                                               (get cell-resources (cell-keys (:yin.k/response-cell pending))))
+                                                                        acc))
+                                                                    {} pendings))
                                                           (link-pair-resources
                                                             streams resources
                                                             pendings))
@@ -1934,28 +1972,86 @@
                               :yin.k/gate (if (and (not install-child?)
                                                    (= :halted kind))
                                             :ended :running))
+                       fenced? (assoc :yin.k/gate :exporting
+                                      :yin.k/recovery-cell-ids
+                                      (into (into {} (map (fn [[cell-id resource-id]]
+                                                            [resource-id cell-id])) cell-keys)
+                                            (keep (fn [pending]
+                                                    (when (contains? #{:link-request :link-response}
+                                                                     (:yin.k/reason pending))
+                                                      [[module/link-response-resource
+                                                        (get-in cells [(:yin.k/cell pending) :yin.k/position])]
+                                                       (:yin.k/cell pending)])))
+                                            pendings)
+                                      :id-counter (or (:yin.k/id-counter body) 0))
                        custody-state (assoc :yin.k/custody custody-state))]
-         {:status :ok
-          :kind kind
-          :vm (case kind
-                :halted
-                (assoc machine
-                       :halted? true :blocked? false
-                       :value (decode (:yin.k/result body))
-                       :wait-set [])
+         (cond-> {:status :ok
+                  :kind kind
+                  :vm (case kind
+                        :halted
+                        (assoc machine
+                               :halted? true :blocked? false
+                               :value (decode (:yin.k/result body))
+                               :wait-set [])
 
-                ;; the parked activation waits on nothing; every other
-                ;; carried frame is still an ordered wait (UCF 7.4.3)
-                :parked
-                (assoc machine
-                       :halted? true :blocked? false
-                       :value (get parked (:yin.k/parked-id body))
-                       :wait-set entries)
+                        ;; the parked activation waits on nothing; every other
+                        ;; carried frame is still an ordered wait (UCF 7.4.3)
+                        :parked
+                        (assoc machine
+                               :halted? true :blocked? false
+                               :value (get parked (:yin.k/parked-id body))
+                               :wait-set entries)
 
-                (assoc machine
-                       :halted? false :blocked? true
-                       :value :yin/blocked
-                       :wait-set entries))})))))
+                        (assoc machine
+                               :halted? false :blocked? true
+                               :value :yin/blocked
+                               :wait-set entries))}
+           fenced? (update :vm (fn [restored]
+                                 (assoc restored
+                                        :yin.k/recovery-waits (:wait-set restored)
+                                        :wait-set [])))))))))
+
+
+(defn rehydrate-fenced-body
+  "Administrative reconstruction of a validated handoff snapshot.
+   Unlike resume-task, never admits execution or restores custody. Root
+   and install children remain exporting with waits outside the scheduler."
+  [receiver bytes attach! address]
+  (resume-task* receiver bytes attach! {:address address} false true))
+
+
+(defn inspect-recovery-body
+  "Validate an embedded export snapshot before administrative attachment."
+  ([bytes address header]
+   (inspect-recovery-body bytes address header true))
+  ([bytes address header complete?]
+   (call!
+     (fn []
+       (let [{:keys [codec body]} (decode-two bytes)]
+         (require-tag! body)
+         (version-gate! codec body nil)
+         (when (= 1 (:yin.k/version body))
+           (custody-inspect! bytes {:address address}))
+         (when-not (jing/segment-bytes-match? address bytes)
+           (refuse! :yin.k/hash-mismatch {}))
+         (validate-body body)
+         (doseq [task (task-bodies body)
+                 root (reachable-values task)
+                 closure (tagged-of :yin.k/closure root)
+                 :let [store-of (:yin.k/store-of closure)]
+                 :when (and complete? (some? store-of))]
+           (when-not (contains? (:yin.k/module-stores task) store-of)
+             (non-portable! :missing-module-store {engine/store-of-key store-of})))
+         (when-not (and (= ucf/contract-stamp (:yin.k/contract body))
+                        (= (some? header) (= 1 (:yin.k/version body)))
+                        (or (nil? header)
+                            (and (map? header) (set? (:yin.k/enrolled header))
+                                 (every? (fn [[key value]] (= value (get body key)))
+                                         (header-of header (:yin.k/kind body))))))
+           (undecodable! {:yin.k/reason :recovery-header}))
+         {:status :ok :body body
+          :descriptors (set (map :dao.stream/descriptor
+                                 (mapcat body-markers (task-bodies body))))})))))
 
 
 (defn resume-task

@@ -1,13 +1,15 @@
 (ns yin.vm.ucf.holder.driver-test
-  "D13: the candidate half of the custody driver (UCF 7.7.2 to 7.7.8,
-   7.8, 7.9; r3 1.5, 1.6 and 1.7's D13 row; the D10 lower-inputs
-   ruling).  Every checkpoint is a real lift of a real machine the
-   engine parked; every offer, grant, binding, input and admission is
-   the real authority's, reached through the real front over the memory
-   substrate; every lease the driver accepts was granted by the real
-   judge or recorded by the real ledger writer.  The composition the
-   driver owes -- the front streams, the ledger reader, the lease clock
-   -- is supplied as functions over that world."
+  "D13 and D14: the custody driver (UCF 7.7.2 to 7.7.8, 7.8, 7.9; r3
+   1.5 to 1.10; the D9 header and D10 lower-inputs rulings; linker-dht
+   14.2.4 rows 2 and 7).  Every checkpoint is a real lift of a real
+   machine the engine parked; every offer, grant, binding, input and
+   admission is the real authority's, reached through the real front
+   over the memory substrate; every lease the driver accepts was
+   granted by the real judge or recorded by the real ledger writer.
+   The composition the driver owes -- the front streams, the ledger
+   reader, the lease clock and, since D14, the progress journal, the
+   content store and the exporter's server -- is supplied as functions
+   and handles over that world."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
             [dao.jing :as jing]
@@ -31,6 +33,74 @@
             [yin.vm.ucf.holder.export :as export]
             [yin.vm.ucf.ledger :as ledger]
             [yin.vm.ucf.lift-support :as s]))
+
+
+(deftest stalled-public-entries-do-not-progress-test
+  (let [state {:phase :stalled :status :yin.k/unsatisfied}]
+    (is (= state (driver/abort state)))
+    (is (= state (driver/enroll state)))
+    (is (= state (driver/hand-off state)))))
+
+
+(deftest journal-fold-keeps-unmatched-retry-intents-test
+  (let [intent {:yin.k/journal :yin.k/intent :yin.k/action :yin.k/offer
+                :yin.k/occurrence "source"
+                :yin.k/request {:yin.k/request-id "offer"}}
+        attempt {:yin.k/journal :yin.k/attempt :yin.k/action :yin.k/offer
+                 :yin.k/occurrence "source" :yin.k/append :dao.stream/full}
+        folded (driver/fold-journal [intent attempt intent])]
+    (is (= [{:append :dao.stream/full} {}] (get-in folded [:attempts "source"])))
+    (is (= [intent intent] (:ordered-intents folded)))))
+
+
+(deftest journal-transport-failure-is-not-end-of-history-test
+  (let [handle (reify stream/IDaoStreamReader
+                 (cursor [_ _] {:dao.stream/outcome :dao.stream/ok :dao.stream/cursor 0})
+
+                 (next [_ _] {:dao.stream/outcome :dao.stream/transport-error}))
+        failure (try (driver/journal-records handle) nil
+                     (catch #?(:cljd Object :clj Throwable :cljs :default) failure failure))]
+    (is (some? failure))))
+
+
+(deftest journal-gap-and-malformed-records-refuse-test
+  (doseq [value [{:yin.k/journal :unknown} :not-a-record]]
+    (let [reads (atom 0)
+          handle (reify stream/IDaoStreamReader
+                   (cursor
+                     [_ _]
+                     {:dao.stream/outcome :dao.stream/ok
+                      :dao.stream/cursor {:dao.stream.memory-log/identity "journal"
+                                          :dao.stream.memory-log/position 0}})
+
+                   (next
+                     [_ _]
+                     (swap! reads inc)
+                     {:dao.stream/outcome :dao.stream/ok
+                      :dao.stream/cursor {:dao.stream.memory-log/identity "journal"
+                                          :dao.stream.memory-log/position 2}
+                      :dao.stream/value value}))
+          failure (try (driver/journal-records handle) nil
+                       (catch #?(:cljd Object :clj Throwable :cljs :default) failure failure))]
+      (is (some? failure))
+      (is (= 1 @reads)))))
+
+
+(deftest a-known-journal-tag-with-missing-fields-is-not-a-valid-frame-test
+  (let [reads (atom 0)
+        handle (reify stream/IDaoStreamReader
+                 (cursor [_ _] {:dao.stream/outcome :dao.stream/ok :dao.stream/cursor 0})
+
+                 (next
+                   [_ _]
+                   (if (= 1 (swap! reads inc))
+                     {:dao.stream/outcome :dao.stream/ok :dao.stream/cursor 1
+                      :dao.stream/value {:yin.k/journal :yin.k/intent}}
+                     {:dao.stream/outcome :dao.stream/blocked})))
+        failure (try (driver/journal-records handle) nil
+                     (catch #?(:cljd Object :clj Throwable :cljs :default) failure failure))]
+    (is (some? failure))
+    (is (= 1 @reads))))
 
 
 (def ^:private arb "arb-d13")
@@ -417,12 +487,52 @@
     [(fn [& args] (swap! n inc) (apply f args)) n]))
 
 
+(defn- fresh-journal
+  "A composition-supplied progress journal over fresh frames; the atom
+   is kept, so the same frames reopen."
+  []
+  (let [frames (atom [])]
+    {:frames frames
+     :journal (:dao.stream/handle
+                (journal/open! (journal/memory-backend frames nil)))}))
+
+
+(defn- reopened-journal
+  "A fresh handle over `frames` -- the reopen after a crash."
+  [frames]
+  (:dao.stream/handle (journal/open! (journal/memory-backend frames nil))))
+
+
+(defn- cut-backend
+  "A memory journal backend whose one write at `position` (a frame
+   count) suffers `cut` -- :before-frame or :after-frame-before-visible
+   -- exactly once, the crash windows of an uncertain append."
+  [frames position cut]
+  (let [inner (journal/memory-backend frames nil)
+        armed (atom true)]
+    (assoc inner
+           :dao.stream.journal/write-frame!
+           (fn [bs]
+             (if (and @armed (= position (count @frames)))
+               (do (reset! armed false)
+                   (case cut
+                     :before-frame
+                     (throw (ex-info "cut before the frame" {}))
+                     :after-frame-before-visible
+                     (do (swap! frames conj bs)
+                         (throw (ex-info "cut after the frame" {})))))
+               ((:dao.stream.journal/write-frame! inner) bs))))))
+
+
 (defn- driver-for
   "The candidate's step state for `holder` over variant `v` of
   `sources` (or the raw {:keys bytes address]} of `:raw`).  `:ledger`
   overrides the ledger read, `:protection-as` the protection
-  declaration."
-  [w holder sources v & {:keys [ledger protection-as raw attach-table]}]
+  declaration.  D14's seams -- the journal (fresh frames, kept for a
+  reopen), the world's content store, the exporter's server and the
+  carrier medium -- ride along."
+  [w holder sources v & {:keys [ledger protection-as raw attach-table
+                                journal-as]}]
   (let [{:keys [bytes address]} (or raw (get sources v))
         _ (assert (some? bytes) "the variant's bytes")
         prog (int-stream "prog-r")
@@ -434,7 +544,8 @@
                                     (case op
                                       :next (stream/next h arg)
                                       :cursor (stream/cursor h arg))))
-        diagnostics (log)]
+        diagnostics (log)
+        j (or journal-as (fresh-journal))]
     {:state (driver/initial
               {:me holder
                :bytes bytes
@@ -453,12 +564,17 @@
                                  (if ledger (ledger rs) rs)))
                :clock (fn [] @clock)
                :observe! observe!
-               :append-diagnostic! (fn [d] (stream/append! diagnostics d))})
+               :append-diagnostic! (fn [d] (stream/append! diagnostics d))
+               :serve! (serve-as "prog-r")
+               :journal (:journal j)
+               :store (:store w)
+               :medium "carrier"})
      :clock clock
      :prog prog
      :attaches attaches
      :observations observations
-     :diagnostics diagnostics}))
+     :diagnostics diagnostics
+     :journal-frames (:frames j)}))
 
 
 (defn- drive
@@ -478,7 +594,7 @@
   (loop [d d k 0]
     (let [d' (drive w d :judge judge)]
       (if (or (pred (:state d')) (>= (inc k) n))
-        (do (is (pred (:state d')) "the driver reached the expected phase")
+        (do (is (pred (:state d')) (pr-str (select-keys (:state d') [:phase :status :detail])))
             d')
         (recur d' (inc k))))))
 
@@ -1094,6 +1210,10 @@
         "one renewal through D2's front request")
     (is (= {:s 11} (:last-renewal-at (:holder st)))
         "authenticated carriage advances to the retained pre-send reading")
+    (is (= [:yin.k/intent :yin.k/attempt :yin.k/ack]
+           (mapv :yin.k/journal
+                 (filter #(= :yin.k/renewal (:yin.k/action %))
+                         (driver/journal-records (get-in st [:seams :journal]))))))
     (is (= 1 (count (requests-of w "holder-a" :yin.k/renewal))))
     (is (< (:s (:last-renewal-at (:holder st)))
            (+ 1 (quot (:s duration) 2)))
@@ -1446,6 +1566,30 @@
           (is (= {:s 11} (get-in settled [:holder :last-renewal-at]))))))))
 
 
+(deftest renewal-journal-ack-cannot-cross-the-existing-bound-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        running (to-running world' (driver-for world' "holder-a" sources "v1"))
+        _ (reset! (:clock running) {:s 11})
+        queued (driver/step (:state running))
+        _ (carry! world')
+        _ (reset! (:clock running) {:s 12})
+        progress (get-in queued [:seams :journal])
+        wrapped (reify stream/IDaoStreamWriter
+                  (append!
+                    [_ record]
+                    (let [answer (stream/append! progress record)]
+                      (when (and (= :yin.k/ack (:yin.k/journal record))
+                                 (= :yin.k/renewal (:yin.k/action record)))
+                        (reset! (:clock running) {:s 31}))
+                      answer)))
+        settled (driver/step (assoc-in queued [:seams :journal] wrapped))]
+    (is (= :releasing (:phase settled)))
+    (is (= :lease-bound (:cause (:detail settled))))
+    (is (nil? (get-in settled [:holder :last-renewal-at])))
+    (is (= :ended (vm/gate-mode (:machine settled))))))
+
+
 (deftest restarted-drivers-mint-distinct-proposals-test
   (let [{:keys [sources]} (reader-source)
         w (world :holders ["holder-a"] :sources sources)
@@ -1752,3 +1896,1325 @@
       (let [continued (drive w (assoc running :state st))]
         (is (= :releasing (:phase (:state continued))))
         (is (= 1 @calls))))))
+
+
+;; =============================================================================
+;; D14: the source half -- mint once, journal before prepare, fence,
+;; offer, then candidacy (14.2.4 row 2)
+;; =============================================================================
+
+(defn- source-config
+  "The source's config over `machine` (kept, so a reopen reuses it) and
+   the pieces the driver record carries: the clock, the program stream,
+   the diagnostics."
+  [w holder machine attach-table]
+  (let [prog (int-stream "prog-r")
+        clock (atom {:s 1})
+        [attach! attaches] (counting
+                             (attach-over (merge {"prog-r" prog}
+                                                 attach-table)))
+        diagnostics (log)]
+    {:config {:me holder
+              :machine machine
+              :arbitration (arbitration-map)
+              :protection {"prog-r" :at-least-once}
+              :renewal-interval interval
+              :receiver (s/new-machine)
+              :attach! attach!
+              :append-request! (fn [request]
+                                 (stream/append!
+                                   (get (:inbounds w) holder) request))
+              :read-reply! (reader-over (get (:replies w) holder) arb)
+              :read-outcome! (reader-over (:outcomes w) arb)
+              :read-ledger! (fn [] (attributed (:frames w)))
+              :clock (fn [] @clock)
+              :observe! (fn [h op arg]
+                          (case op
+                            :next (stream/next h arg)
+                            :cursor (stream/cursor h arg)))
+              :append-diagnostic! (fn [d] (stream/append! diagnostics d))
+              :serve! (serve-as "prog-r")
+              :store (:store w)
+              :medium "carrier"}
+     :clock clock
+     :prog prog
+     :attaches attaches
+     :diagnostics diagnostics}))
+
+
+(defn- source-driver
+  "The source record over `machine`, with fresh journal frames."
+  [w holder machine attach-table]
+  (let [rec (source-config w holder machine attach-table)
+        j (fresh-journal)]
+    (assoc rec
+           :state (driver/source (assoc (:config rec)
+                                        :journal (:journal j)))
+           :journal-frames (:frames j))))
+
+
+(defn- step-source
+  "Step the source once and carry the fronts; with `:judge reading`
+  also run one judge step at that reading."
+  [w d & {:keys [judge]}]
+  (let [state (driver/step (:state d))]
+    (carry! w)
+    (when judge (judge! w judge))
+    (assoc d :state state)))
+
+
+(defn- journal-of
+  "The driver's journal records, decoded."
+  [frames]
+  (mapv #(:dao.stream.journal/value (cbor/decode %)) (rest @frames)))
+
+
+(defn- kinds-of
+  "The :yin.k/journal dispatch keys, in order."
+  [frames]
+  (mapv :yin.k/journal
+        (remove #(contains? #{:yin.k/serve :yin.k/store} (:yin.k/action %))
+                (journal-of frames))))
+
+
+(defn- source-machine
+  "A real machine parked on its first read of a fresh program stream."
+  []
+  (parked-reader-over (int-stream "prog-r")))
+
+
+(deftest fenced-source-recovery-does-not-need-original-machine-test
+  (let [world' (world :holders ["holder-a"])
+        source (source-machine)
+        prepared (nth (iterate #(step-source world' %)
+                               (source-driver world' "holder-a" source nil)) 3)
+        restored (driver/reopen (-> (:config prepared)
+                                    (dissoc :machine)
+                                    (assoc :journal (reopened-journal (:journal-frames prepared)))))
+        encoded (export/encode (get-in restored [:export :m])
+                               (get-in restored [:export :record]))]
+    (is (= :exporting (:phase restored)))
+    (is (= :exporting (vm/gate-mode (get-in restored [:export :m]))))
+    (is (empty? (get-in restored [:export :m :wait-set])))
+    (is (= 1 (count (get-in restored [:export :record :wait-set]))))
+    (is (= (vec (get-in prepared [:state :export :bytes])) (vec (:bytes encoded))))))
+
+
+(deftest enrollment-reconciles-before-retry-and-survives-reopen-test
+  (let [world' (world :holders ["holder-a"])
+        configured (source-driver world' "holder-a" (source-machine) nil)
+        available (atom true)
+        calls (atom 0)
+        config (assoc (:config configured)
+                      :journal (get-in configured [:state :seams :journal])
+                      :read-ledger! (fn [] (when @available (attributed (:frames world'))))
+                      :enroll! (fn []
+                                 (swap! calls inc)
+                                 (authority/enroll! (:a world'))
+                                 (reset! available false)
+                                 {:yin.k/status :suspended}))
+        intended (driver/enroll (driver/source config))
+        attempted (driver/enroll intended)
+        waiting (driver/enroll attempted)]
+    (is (= 1 @calls))
+    (is (= :yin.k/unsatisfied (:status waiting)))
+    (reset! available true)
+    (let [recovered (driver/reopen (assoc config :journal
+                                          (reopened-journal (:journal-frames configured))))
+          reconciled (driver/enroll recovered)]
+      (is (= 1 @calls))
+      (is (= (get-in intended [:enroll :derived]) (get-in reconciled [:enroll :target]))))))
+
+
+(deftest incomplete-preparation-recovery-stays-non-runnable-test
+  (let [world' (world :holders ["holder-a"])
+        minted (step-source world' (source-driver world' "holder-a" (source-machine) nil))
+        restored (driver/reopen (assoc (:config minted)
+                                       :journal (reopened-journal (:journal-frames minted))))]
+    (is (= :stalled (:phase restored)))
+    (is (nil? (:machine restored)))
+    (is (= restored (driver/step restored)))))
+
+
+(deftest an-empty-source-journal-does-not-revive-the-config-machine-test
+  (let [world' (world :holders ["holder-a"])
+        configured (source-driver world' "holder-a" (source-machine) nil)
+        recovered (driver/reopen (assoc (:config configured) :journal
+                                        (reopened-journal (:journal-frames configured))))]
+    (is (= :stalled (:phase recovered)))
+    (is (nil? (:machine recovered)))
+    (is (nil? (:export recovered)))
+    (is (= recovered (driver/step recovered)))))
+
+
+(deftest serving-and-storage-have-write-ahead-brackets-test
+  (let [world' (world :holders ["holder-a"])
+        configured (source-driver world' "holder-a" (source-machine) nil)
+        frames (:journal-frames configured)
+        observed (atom [])
+        original-serve (get-in configured [:state :seams :serve!])
+        original-store (get-in configured [:state :seams :content-store])
+        wrapped (-> configured
+                    (assoc-in [:state :seams :serve!]
+                              (fn [handle]
+                                (swap! observed conj :serve)
+                                (is (= :yin.k/intent (:yin.k/journal (last (journal-of frames)))))
+                                (is (= :yin.k/serve (:yin.k/action (last (journal-of frames)))))
+                                (original-serve handle)))
+                    (assoc-in [:state :seams :content-store :put-bytes-fn]
+                              (fn [address bytes]
+                                (swap! observed conj :store)
+                                (is (= :yin.k/intent (:yin.k/journal (last (journal-of frames)))))
+                                (is (= :yin.k/store (:yin.k/action (last (journal-of frames)))))
+                                ((:put-bytes-fn original-store) address bytes))))
+        fenced (nth (iterate #(step-source world' %) wrapped) 3)
+        acknowledgments (filter #(and (= :yin.k/ack (:yin.k/journal %))
+                                      (contains? #{:yin.k/serve :yin.k/store} (:yin.k/action %)))
+                                (journal-of frames))]
+    (is (= [:serve :store :store] @observed))
+    (is (= 3 (count acknowledgments)))
+    (is (= :yin.k/fenced (:yin.k/journal (last (journal-of frames)))))
+    (is (some? (get-in fenced [:state :export :address])))))
+
+
+(deftest uncertain-successful-retry-cannot-abort-test
+  (let [world' (world :holders ["holder-a"])
+        frames (atom [])
+        progress (:dao.stream/handle (journal/open! (cut-backend frames 12 :before-frame)))
+        sends (atom 0)
+        config (assoc (:config (source-config world' "holder-a" (source-machine) nil))
+                      :journal progress
+                      :append-request! (fn [_]
+                                         {:dao.stream/outcome
+                                          (if (= 1 (swap! sends inc))
+                                            :dao.stream/full :dao.stream/ok)}))
+        fenced (nth (iterate driver/step (driver/source config)) 3)
+        full (driver/step fenced)
+        uncertain (driver/step full)
+        occurrence (get-in fenced [:export :occurrence])
+        attempts (get-in (driver/fold-journal (journal-of frames)) [:attempts occurrence])]
+    (is (= 2 @sends))
+    (is (= :stalled (:phase uncertain)))
+    (is (= uncertain (driver/abort uncertain)))
+    (is (= [{:append :dao.stream/full} {}] attempts))
+    (let [recovered (driver/reopen (assoc config :journal (reopened-journal frames)))
+          refused (driver/abort recovered)]
+      (is (= :exporting (:phase recovered)))
+      (is (= :exporting (:phase refused)))
+      (is (= :yin.k/refused (:status refused))))))
+
+
+(deftest source-journal-cuts-stay-fenced-at-every-boundary-test
+  (doseq [position (range 1 12)
+          cut [:before-frame :after-frame-before-visible]]
+    (testing (pr-str [position cut])
+      (let [world' (world :holders ["holder-a"])
+            frames (atom [])
+            progress (:dao.stream/handle (journal/open! (cut-backend frames position cut)))
+            configured (source-config world' "holder-a" (source-machine) nil)
+            config (assoc (:config configured) :journal progress)
+            crashed (loop [state (driver/source config) remaining 6]
+                      (if (or (= :stalled (:phase state)) (zero? remaining))
+                        state
+                        (let [next-state (driver/step state)]
+                          (carry! world')
+                          (recur next-state (dec remaining)))))
+            recovered (driver/reopen (-> config
+                                         (dissoc :machine)
+                                         (assoc :receiver (s/new-machine)
+                                                :journal (reopened-journal frames))))]
+        (is (= :stalled (:phase crashed)))
+        (is (nil? (:machine recovered)))
+        (is (<= (count (filter #(= :yin.k/minted (:yin.k/journal %))
+                               (journal-of frames))) 1))
+        (if (some #(= :yin.k/fenced (:yin.k/journal %)) (journal-of frames))
+          (do (is (= :exporting (vm/gate-mode (get-in recovered [:export :m]))))
+              (is (empty? (get-in recovered [:export :m :wait-set])))
+              (is (= 1 (count (get-in recovered [:export :record :wait-set])))))
+          (do (is (= :stalled (:phase recovered)))
+              (is (nil? (:export recovered)))
+              (is (= recovered (driver/step recovered)))))))))
+
+
+(deftest mismatched-fence-body-refuses-before-attachment-test
+  (let [world' (world :holders ["holder-a"])
+        configured (source-driver world' "holder-a" (source-machine) nil)
+        fenced (nth (iterate #(step-source world' %) configured) 3)
+        cell (get-in fenced [:state :export])
+        wrong-bytes (cbor/encode :not-the-body)
+        wrong-address (jing/segment-key :not-the-body)
+        _ ((:put-bytes-fn (:store world')) wrong-address wrong-bytes)
+        _ (stream/append! (get-in fenced [:state :seams :journal])
+                          {:yin.k/journal :yin.k/fenced :yin.k/occurrence (:occurrence cell)
+                           :yin.k/address wrong-address :yin.k/record (:record-address cell)})
+        failure (try (driver/reopen (assoc (:config configured) :journal
+                                           (reopened-journal (:journal-frames configured)))) nil
+                     (catch #?(:cljd Object :clj Throwable :cljs :default) failure failure))]
+    (is (some? failure))
+    (is (zero? @(get configured :attaches)))))
+
+
+(deftest the-source-half-mints-fences-and-offers-before-candidacy-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a"])
+        d (source-driver w "holder-a" machine nil)
+        minted (nth (iterate #(step-source w %) d) 1)
+        prepared (step-source w minted)
+        fenced (step-source w prepared)
+        offered (step-source w fenced)
+        ;; the front admitted the offer; the next step reads the reply,
+        ;; journals the acknowledgment and becomes a candidate
+        candidacy (step-source w offered)
+        st (:state candidacy)]
+    (testing "the journal brackets in order"
+      (is (= [:yin.k/minted :yin.k/fenced :yin.k/intent
+              :yin.k/attempt :yin.k/ack]
+             (kinds-of (:journal-frames candidacy)))
+          "mint before prepare, fence before offer, intent before the
+           send, attempt after it, the acknowledgment after evidence")
+      (let [[mint fence intent _ ack] (remove #(contains? #{:yin.k/serve :yin.k/store}
+                                                          (:yin.k/action %))
+                                              (journal-of (:journal-frames candidacy)))]
+        (is (= (:yin.k/occurrence mint) (:yin.k/occurrence fence)))
+        (is (= (:yin.k/occurrence mint)
+               (:yin.k/occurrence intent)
+               (:yin.k/occurrence ack)))
+        (is (= :yin.k/first (:yin.k/role mint)))
+        (is (= 0 (get-in mint [:yin.k/header :yin.k/next-op-seq]))
+            "a first export carries next-op-seq 0")
+        (is (nil? (get-in mint [:yin.k/header :yin.k/origin]))
+            "and no origin")
+        (is (= #{(:target w)}
+               (get-in mint [:yin.k/header :yin.k/enrolled]))
+            "the enrolled set is the ledger fold's")
+        (is (some? (:yin.k/bytes-at intent))
+            "the offer intent names where the bytes stand")))
+    (testing "the fenced record's projection and the body bytes are in
+              the store"
+      (let [[mint fence] (take 2 (filter #(contains? #{:yin.k/minted :yin.k/fenced}
+                                                     (:yin.k/journal %))
+                                         (journal-of (:journal-frames candidacy))))
+            rec-bytes ((:get-bytes-fn (:store w)) (:yin.k/record fence)
+                                                  ::absent)
+            body ((:get-bytes-fn (:store w)) (:yin.k/address fence)
+                                             ::absent)
+            stored (cbor/decode rec-bytes)]
+        (is (not= ::absent rec-bytes))
+        (is (not= ::absent body))
+        (is (= (get-in mint [:yin.k/header :yin.k/occurrence])
+               (get-in stored [:yin.k/header :yin.k/occurrence])))
+        (is (set? (:yin.k/descriptors stored))
+            "the recovery object retains portable descriptors")))
+    (testing "the source became a candidate over its own bytes"
+      (is (= :proposing (:phase st)))
+      (is (= (:yin.k/occurrence (first (journal-of
+                                         (:journal-frames candidacy))))
+             (:occurrence st)))
+      (is (= (:yin.k/address
+               (first (filter #(= :yin.k/fenced (:yin.k/journal %))
+                              (journal-of (:journal-frames candidacy)))))
+             (:address st)))
+      (is (contains? (get-in (authority/projection (:a w))
+                             [:occurrences (:occurrence st)
+                              :yin.k/variants])
+                     (:address st))
+          "the offer was admitted: the address is an admitted variant"))
+    (testing "the candidacy wins its own grant and runs"
+      (let [run (drive-to w candidacy (phase-of :running) 8 :judge {:s 2})]
+        (is (= :running (:phase (:state run))))
+        (is (= (:occurrence st) (get-in run [:state :occurrence])))))))
+
+
+(deftest a-fork-lift-answers-the-bytes-without-a-journal-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a"])
+        d (source-driver w "holder-a" machine nil)
+        ;; the composition's fork decision: no arbitration
+        d (update-in d [:state :export] assoc :role nil :arbitration nil)
+        lifted (drive-to w d (fn [st] (= :lifted (:phase st))) 5)]
+    (is (= :lifted (:phase (:state lifted))))
+    (is (= :yin.k/ok (:status (:state lifted))))
+    (is (some? (get-in lifted [:state :detail :bytes])))
+    (is (= [] (journal-of (:journal-frames lifted)))
+        "no occurrence, no offer, no journal bracket")))
+
+
+(defn- same-recovery?
+  "Reopen the durable fenced snapshot and compare its carried state."
+  [_world d]
+  (let [machine (get-in d [:state :export :machine])
+        reopened (driver/reopen (assoc (:config d)
+                                       :machine machine
+                                       :journal (reopened-journal
+                                                  (:journal-frames d))))
+        d' (assoc d :state reopened)]
+    (is (some? reopened))
+    (is (= (get-in d [:state :export :occurrence])
+           (get-in d' [:state :export :occurrence]))
+        "the same occurrence, never reminted")
+    (is (= (set (map #(select-keys % [:dao.stream/identity :dao.stream/channel])
+                     (vals (get-in d [:state :export :record :served]))))
+           (set (map #(select-keys % [:dao.stream/identity :dao.stream/channel])
+                     (vals (get-in d' [:state :export :record :served])))))
+        "the same descriptors under fresh private resource ids")
+    (when (nil? (get-in d [:state :export :address]))
+      (is (= (get-in d [:state :export :record :wait-set])
+             (get-in d' [:state :export :record :wait-set]))
+          "the same waits, re-entered from the composition's machine"))
+    d'))
+
+
+(deftest a-crash-at-each-source-boundary-reopens-fenced-test
+  (testing "after the mint, before prepare"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"])
+          d (step-source w (source-driver w "holder-a" machine nil))
+          _ (is (= [:yin.k/minted] (kinds-of (:journal-frames d))))
+          recovered (driver/reopen (assoc (:config d) :journal
+                                          (reopened-journal (:journal-frames d))))]
+      (is (= :stalled (:phase recovered)))
+      (is (nil? (:machine recovered)))
+      (is (= recovered (driver/step recovered)))
+      (is (= 1 (count (filter #(= :yin.k/minted %)
+                              (kinds-of (:journal-frames d)))))
+          "incomplete preparation never remints or manufactures waits")))
+  (testing "after the fence, before the offer"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"])
+          d (nth (iterate #(step-source w %)
+                          (source-driver w "holder-a" machine nil))
+                 3)
+          _ (is (= [:yin.k/minted :yin.k/fenced]
+                   (kinds-of (:journal-frames d))))
+          d' (same-recovery? w d)
+          run (drive-to w d' (phase-of :running) 10 :judge {:s 2})]
+      (is (= :running (:phase (:state run))))
+      (is (= 1 (count (filter #(= :yin.k/minted %)
+                              (kinds-of (:journal-frames run))))))))
+  (testing "after the offer send, before the acknowledgment"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"])
+          d (nth (iterate #(step-source w %)
+                          (source-driver w "holder-a" machine nil))
+                 4)
+          _ (is (= [:yin.k/minted :yin.k/fenced :yin.k/intent
+                    :yin.k/attempt]
+                   (kinds-of (:journal-frames d))))
+          ;; the front already answered; the reply waits unread, as a
+          ;; crash between send and acknowledgment leaves it
+          d' (same-recovery? w d)
+          run (drive-to w d' (phase-of :running) 10 :judge {:s 2})]
+      (is (= :running (:phase (:state run))))
+      (is (= 1 (count (distinct (map :yin.k/request-id
+                                     (requests-of w "holder-a"
+                                                  :yin.k/offer)))))
+          "the resent offer request is the identical one")
+      (is (= 1 (count (filter #(= :yin.k/offered (:yin.k/custody %))
+                              (frame-facts (:frames w)))))
+          "the ledger holds one offer fact: the resend replayed"))))
+
+
+(deftest a-crash-between-proposal-send-and-answer-resends-the-stable-id-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a"])
+        d (source-driver w "holder-a" machine nil)
+        candidacy (nth (iterate #(step-source w %) d) 6)
+        _ (is (= :proposing (:phase (:state candidacy))))
+        pid (get-in candidacy [:state :proposal :id])
+        _ (is (some? pid))
+        ;; the judge grants on the sent proposal; the reply and the
+        ;; grant are unread by the crashed process
+        _ (judge! w {:s 2})
+        reopened (driver/reopen (assoc (:config candidacy)
+                                       :journal (reopened-journal
+                                                  (:journal-frames candidacy))))
+        d' (assoc candidacy :state reopened)]
+    (is (= :proposing (:phase reopened)))
+    (is (= pid (get-in reopened [:proposal :id]))
+        "the unanswered proposal keeps its stable id")
+    (is (= pid (:dao.lease/proposal
+                 (first (requests-of w "holder-a" :yin.k/proposal))))
+        "and it is the one that was sent")
+    (let [run (drive-to w d' (phase-of :running) 8)]
+      (is (= :running (:phase (:state run))))
+      (is (= 1 (count (filter #(= :dao.lease/accepted
+                                  (:dao.lease/status %))
+                              (frame-facts (:frames w)))))
+          "no second grant resulted: the resend was the same proposal
+           and the occurrence was already held by it"))))
+
+
+(deftest candidate-without-source-mint-restores-proposal-carriage-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        configured (driver-for world' "holder-a" sources "v1")
+        proposed (nth (iterate #(drive world' %) configured) 2)
+        original-id (get-in proposed [:state :proposal :id])
+        state (:state proposed)
+        config (merge (select-keys state [:me :bytes :address :receiver :protection
+                                          :renewal-interval :units])
+                      (:seams state) {:store (get-in state [:seams :content-store])})
+        recovered (driver/reopen (assoc config :journal
+                                        (reopened-journal (:journal-frames proposed))))]
+    (is (some? original-id))
+    (is (= :proposing (:phase recovered)))
+    (is (= arb (:arbitration recovered)))
+    (is (= original-id (get-in recovered [:proposal :id])))
+    (let [running (drive-to world' (assoc proposed :state recovered)
+                            (phase-of :running) 8 :judge {:s 2})]
+      (is (= :running (:phase (:state running)))))))
+
+
+(deftest accepted-grant-is-durable-before-lower-attachment-test
+  (let [{:keys [sources]} (reader-source)
+        world' (world :holders ["holder-a"] :sources sources)
+        frames (atom [])
+        progress (:dao.stream/handle (journal/open! (cut-backend frames 4 :after-frame-before-visible)))
+        configured (driver-for world' "holder-a" sources "v1"
+                               :journal-as {:journal progress :frames frames})
+        stalled (drive-to world' configured (phase-of :stalled) 8 :judge {:s 2})]
+    (is (zero? @(:attaches configured)))
+    (is (nil? (get-in stalled [:state :machine])))
+    (is (some #(= :yin.k/grant (:yin.k/action %)) (journal-of frames)))))
+
+
+(deftest an-uncertain-journal-append-stalls-the-driver-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a"])
+        frames (atom [])
+        j (:dao.stream/handle
+            (journal/open! (cut-backend frames 9
+                                        :after-frame-before-visible)))
+        rec (source-config w "holder-a" machine nil)
+        d (assoc rec
+                 :state (driver/source (assoc (:config rec) :journal j))
+                 :journal-frames frames)
+        ;; header is frame 0; the mint frame 1; the fence frame 2; the
+        ;; offer intent's write cuts after the frame, before visibility
+        d1 (step-source w d)
+        d2 (step-source w d1)
+        d3 (step-source w d2)
+        _ (is (= [:yin.k/minted :yin.k/fenced] (kinds-of frames)))
+        stalled (step-source w d3)
+        st (:state stalled)
+        before (inbound w "holder-a")]
+    (testing "everything stops"
+      (is (= :stalled (:phase st)))
+      (is (= :yin.k/unsatisfied (:status st)))
+      (is (= :journal-uncertain (:yin.k/reason (:detail st))))
+      (let [again (step-source w stalled)
+            again' (step-source w again)]
+        (is (= st (:state again)))
+        (is (= st (:state again')))
+        (is (= before (inbound w "holder-a"))
+            "no send of any kind left the stalled driver")))
+    (testing "only a reopen unstalls it"
+      (let [reopened (driver/reopen (assoc (:config stalled)
+                                           :machine machine
+                                           :journal (reopened-journal
+                                                      frames)))
+            d' (assoc stalled :state reopened)]
+        (is (= :exporting (:phase reopened)))
+        (is (= 10 (count @frames))
+            "the cut frame stands: the intent is durable")
+        (let [run (drive-to w d' (phase-of :running) 10 :judge {:s 2})]
+          (is (= :running (:phase (:state run))))
+          (is (= [:yin.k/minted :yin.k/fenced :yin.k/intent :yin.k/intent
+                  :yin.k/attempt :yin.k/ack]
+                 (take 6 (kinds-of frames)))
+              "the reopened journal continues from the standing intent"))))))
+
+
+(deftest a-restarted-holder-releases-and-re-proposes-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a"])
+        d (source-driver w "holder-a" machine nil)
+        running (drive-to w d (phase-of :running) 10 :judge {:s 2})
+        _ (is (= :running (:phase (:state running))))
+        ;; the crash: the process died with its machine
+        reopened (driver/reopen (assoc (:config running)
+                                       :journal (reopened-journal
+                                                  (:journal-frames running))))
+        d' (assoc running :state reopened)]
+    (testing "the restarted driver never runs"
+      (is (= :releasing (:phase reopened)))
+      (is (= :yin.k/ended (:status reopened)))
+      (is (= :restarted (:cause (:detail reopened))))
+      (is (nil? (:machine reopened))))
+    (testing "it releases, then re-enters as a candidate"
+      (let [proposing (drive-to w d' (phase-of :proposing) 8 :judge {:s 3})
+            st (:state proposing)]
+        (is (= 1 (count (distinct (requests-of w "holder-a"
+                                               :yin.k/release)))))
+        (is (= :proposing (:phase st)))
+        (is (nil? (:machine st)))
+        (let [run (drive-to w proposing (phase-of :running) 10
+                            :judge {:s 4})
+              run-st (:state run)]
+          (is (= :running (:phase run-st)))
+          (is (= (get-in running [:state :occurrence])
+                 (:occurrence run-st))
+              "the regrant is of the same occurrence")
+          (is (= 0 (get-in run-st [:machine :yin.k/custody :input :next]))
+              "a regrant replays its input from zero"))))))
+
+
+;; =============================================================================
+;; D14: the exit half -- successor, report, release, closure
+;; (14.2.4 row 7)
+;; =============================================================================
+
+(defn- to-halted-run
+  "Drive a source through its own grant to a run whose machine has
+   halted (the program stream fed one value), past the safepoint
+   arming."
+  [w d]
+  (let [candidacy (nth (iterate #(step-source w %) d) 5)
+        run (drive-to w candidacy (phase-of :running) 8 :judge {:s 2})
+        _ (stream/append! (:prog run) "B")
+        halted (drive-to w run (phase-of :safepoint) 8)]
+    halted))
+
+
+(defn- hand-off-run
+  "Drive a source to a run parked on its read, then hand the park off:
+   the composition's explicit export of a parked continuation."
+  [w d]
+  (let [candidacy (nth (iterate #(step-source w %) d) 5)
+        run (drive-to w candidacy (phase-of :running) 8 :judge {:s 2})
+        _ (is (= :running (:phase (:state run))))
+        handed (driver/hand-off (:state run))]
+    (is (= :safepoint (:phase handed)))
+    (assoc run :state handed)))
+
+
+(deftest a-halt-completes-its-exit-with-a-result-body-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a"])
+        d (to-halted-run w (source-driver w "holder-a" machine nil))
+        o (:occurrence (:state d))
+        l (:lease (:state d))
+        exited (drive-to w d (phase-of :exited) 20 :judge {:s 3})
+        st (:state exited)
+        projection (authority/projection (:a w))
+        closed (get-in projection [:occurrences o :yin.k/closed])
+        [mint fence] (take-last 2 (filter #(contains?
+                                             #{:yin.k/minted :yin.k/fenced}
+                                             (:yin.k/journal %))
+                                          (journal-of (:journal-frames exited))))]
+    (is (= :exited (:phase st)))
+    (is (= :yin.k/ok (:status st)))
+    (is (= :yin.k/result (:yin.k/role mint)))
+    (is (= (:yin.k/result (:detail st)) (:yin.k/address fence)))
+    (is (not= ::absent
+              ((:get-bytes-fn (:store w)) (:yin.k/result (:detail st))
+                                          ::absent))
+        "the result body stands in the content store")
+    (is (= l (:dao.lease/lease closed)))
+    (is (= (:yin.k/result (:detail st)) (:yin.k/result closed))
+        "the closure's edge is terminal to the result's address")
+    (is (nil? (:yin.k/successor closed)))
+    (is (= 1 (count (filter #(= :yin.k/resumed (:yin.k/custody %))
+                            (frame-facts (:frames w)))))
+        "one report, carrying the result body")
+    (is (nil? (get-in projection [:occurrences o :dao.lease/lease]))
+        "the occurrence is closed and unheld")))
+
+
+(deftest a-parked-continuation-completes-its-exit-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a" "holder-b"])
+        d (hand-off-run w (source-driver w "holder-a" machine nil))
+        o (:occurrence (:state d))
+        exited (drive-to w d (phase-of :exited) 24 :judge {:s 3})
+        st (:state exited)
+        projection (authority/projection (:a w))
+        closed (get-in projection [:occurrences o :yin.k/closed])
+        mints (filter #(= :yin.k/minted (:yin.k/journal %))
+                      (journal-of (:journal-frames exited)))
+        successor (:yin.k/successor (:detail st))]
+    (is (= :exited (:phase st)))
+    (is (= :yin.k/successor (:yin.k/role (last mints))))
+    (is (= 2 (count mints))
+        "the occurrence and its successor, one mint each")
+    (is (some? successor))
+    (is (= successor (:yin.k/successor closed))
+        "the closure's edge names the reported successor")
+    (testing "the successor's offer was admitted once"
+      (is (contains? (get-in projection [:occurrences successor
+                                         :yin.k/variants])
+                     (:yin.k/address (:detail st))))
+      (is (= 1 (count (filter #(and (= :yin.k/offered (:yin.k/custody %))
+                                    (= successor (:yin.k/occurrence %)))
+                              (frame-facts (:frames w)))))))
+    (testing "the chain continues: a candidate runs the successor"
+      (let [bytes ((:get-bytes-fn (:store w))
+                   (:yin.k/address (:detail st)) ::absent)
+            _ (is (not= ::absent bytes))
+            b (driver-for w "holder-b" nil nil
+                          :raw {:bytes bytes
+                                :address (:yin.k/address (:detail st))})
+            run (drive-to w b (phase-of :running) 10 :judge {:s 4})]
+        (is (= :running (:phase (:state run))))
+        (is (= successor (:occurrence (:state run))))))))
+
+
+(deftest exit-cuts-at-each-boundary-recover-from-the-journal-test
+  (testing "cut after the successor append, before the report"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"])
+          d (hand-off-run w (source-driver w "holder-a" machine nil))
+          ;; mint, prepare, fence, the offer send
+          cut (nth (iterate #(step-source w %) d) 4)
+          _ (is (= [:yin.k/minted :yin.k/fenced :yin.k/intent
+                    :yin.k/attempt]
+                   (take-last 4 (kinds-of (:journal-frames cut)))))
+          successor (get-in cut [:state :exit :occurrence])
+          reopened (driver/reopen (assoc (:config cut)
+                                         :journal (reopened-journal
+                                                    (:journal-frames cut))))
+          d' (assoc cut :state reopened)
+          exited (drive-to w d' (phase-of :proposing) 8 :judge {:s 3})
+          st (:state exited)]
+      (is (= :proposing (:phase st)))
+      (is (nil? (:machine st)))
+      (is (= successor (get-in reopened [:exit :occurrence])))
+      (is (empty? (requests-of w "holder-a" :yin.k/resumed))
+          "restart cannot mint fresh report authority from a saved clock")
+      (is (= 0 (count (filter #(= :yin.k/succeeded (:yin.k/custody %))
+                              (frame-facts (:frames w)))))
+          "release alone is not completion")))
+  (testing "cut after the report, before the release"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"])
+          d (hand-off-run w (source-driver w "holder-a" machine nil))
+          ;; to the report: mint, prepare, fence, offer, report
+          cut (nth (iterate #(step-source w %) d) 5)
+          _ (is (some #(and (= :yin.k/intent (:yin.k/journal %))
+                            (= :yin.k/resumed (:yin.k/action %)))
+                      (journal-of (:journal-frames cut))))
+          reopened (driver/reopen (assoc (:config cut)
+                                         :journal (reopened-journal
+                                                    (:journal-frames cut))))
+          d' (assoc cut :state reopened)
+          exited (drive-to w d' (phase-of :exited) 24 :judge {:s 3})]
+      (is (= :exited (:phase (:state exited))))
+      (is (= 1 (count (filter #(= :yin.k/resumed (:yin.k/custody %))
+                              (frame-facts (:frames w)))))
+          "the resent report replayed")))
+  (testing "cut after the release, before the closure"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"])
+          d (hand-off-run w (source-driver w "holder-a" machine nil))
+          ;; through the release send and its reply
+          cut (nth (iterate #(step-source w %) d) 7)
+          reopened (driver/reopen (assoc (:config cut)
+                                         :journal (reopened-journal
+                                                    (:journal-frames cut))))
+          d' (assoc cut :state reopened)
+          exited (drive-to w d' (phase-of :exited) 24 :judge {:s 4})]
+      (is (= :exited (:phase (:state exited))))
+      (is (= 1 (count (distinct (map :yin.k/request-id
+                                     (requests-of w "holder-a"
+                                                  :yin.k/release)))))
+          "the release left once, the resend the identical request"))))
+
+
+(deftest delayed-original-report-carriage-after-restart-keeps-the-exit-test
+  (let [world' (world :holders ["holder-a"])
+        original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+        offered (nth (iterate #(step-source world' %) original) 4)
+        sent (driver/step (:state offered))
+        reopened (driver/reopen (-> (:config offered)
+                                    (dissoc :machine)
+                                    (assoc :clock (constantly {:s 100})
+                                           :journal (reopened-journal (:journal-frames offered)))))
+        cleanup (driver/step reopened)
+        _ (carry! world')
+        _ (judge! world' {:s 3})
+        completed (drive-to world' (assoc offered :state cleanup) (phase-of :exited) 24 :judge {:s 3})]
+    (is (some? (get-in sent [:exit :report])))
+    (is (nil? (:machine cleanup)))
+    (is (= :exited (:phase (:state completed))))
+    (is (= (get-in sent [:exit :occurrence]) (:yin.k/successor (:detail (:state completed)))))
+    (is (= 1 (count (filter #(= :yin.k/resumed (:yin.k/custody %))
+                            (frame-facts (:frames world'))))))))
+
+
+(deftest exit-journal-cuts-never-restore-execution-test
+  (let [reference-world (world :holders ["holder-a"])
+        reference (hand-off-run reference-world
+                                (source-driver reference-world "holder-a" (source-machine) nil))
+        initial-count (count @(:journal-frames reference))
+        completed (drive-to reference-world reference (phase-of :exited) 24 :judge {:s 3})
+        delta (- (count @(:journal-frames completed)) initial-count)]
+    (is (pos? delta))
+    (doseq [offset (range delta)
+            cut [:before-frame :after-frame-before-visible]]
+      (testing (pr-str [offset cut])
+        (let [world' (world :holders ["holder-a"])
+              original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+              frames (atom (vec @(:journal-frames original)))
+              progress (:dao.stream/handle
+                         (journal/open! (cut-backend frames (+ (count @frames) offset) cut)))
+              initial (assoc-in (:state original) [:seams :journal] progress)
+              crashed (loop [state initial remaining 30]
+                        (if (or (= :stalled (:phase state)) (zero? remaining))
+                          state
+                          (let [next-state (driver/step state)]
+                            (carry! world')
+                            (judge! world' {:s 3})
+                            (recur next-state (dec remaining)))))
+              recovered (driver/reopen (-> (:config original)
+                                           (dissoc :machine)
+                                           (assoc :receiver (s/new-machine)
+                                                  :clock (constantly {:s 100})
+                                                  :journal (reopened-journal frames))))]
+          (is (= :stalled (:phase crashed)))
+          (is (nil? (:machine recovered)))
+          (is (not (contains? #{:running :safepoint} (:phase recovered))))
+          (when (get-in recovered [:exit :m])
+            (is (= :exporting (vm/gate-mode (get-in recovered [:exit :m]))))
+            (is (empty? (get-in recovered [:exit :m :wait-set]))))
+          (is (nil? (:machine (driver/step recovered)))))))))
+
+
+(deftest a-later-grant-outranks-an-earlier-completed-exit-test
+  (let [world' (world :holders ["holder-a"])
+        handed (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+        completed (drive-to world' handed (phase-of :exited) 24 :judge {:s 3})
+        address (get-in completed [:state :detail :yin.k/address])
+        bytes ((:get-bytes-fn (:store world')) address nil)
+        journal-as {:journal (get-in completed [:state :seams :journal])
+                    :frames (:journal-frames completed)}
+        next-candidate (driver-for world' "holder-a" nil nil
+                                   :raw {:bytes bytes :address address}
+                                   :journal-as journal-as)
+        next-run (drive-to world' next-candidate (phase-of :running) 10 :judge {:s 4})
+        state (:state next-run)
+        config (merge (select-keys state [:me :bytes :address :receiver :protection
+                                          :renewal-interval :units])
+                      (:seams state) {:store (get-in state [:seams :content-store])})
+        recovered (driver/reopen (assoc config :journal (reopened-journal (:journal-frames completed))))]
+    (is (= :releasing (:phase recovered)))
+    (is (= (:lease state) (:lease recovered)))
+    (is (= (:lease state) (get-in recovered [:release :request :dao.lease/lease])))
+    (is (nil? (:machine recovered)))))
+
+
+;; =============================================================================
+;; D14 residual 2: a release never closes without accepted completion
+;; evidence (14.2.4 row 7)
+;; =============================================================================
+
+(deftest a-release-without-accepted-evidence-never-closes-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a" "holder-b"])
+        d (drive-to w (source-driver w "holder-a" machine nil)
+                    (phase-of :running) 10 :judge {:s 2})
+        o (:occurrence (:state d))
+        l (:lease (:state d))
+        ;; the tenure is reclaimed under the holder: the run ends stale
+        ;; and the driver releases -- cleanup, with no report standing
+        _ (lapse-direct! w l :policy)
+        ended (drive-to w d (phase-of :failed) 8)
+        projection (authority/projection (:a w))]
+    (is (= :failed (:phase (:state ended))))
+    (is (= :stale (:cause (:detail (:state ended)))))
+    (is (nil? (get-in projection [:occurrences o :yin.k/closed]))
+        "no accepted completion evidence, no closure")
+    (testing "the occurrence is regrantable under the ordinary policy"
+      (let [_ (judge! w {:s 4})
+            b (driver-for w "holder-b" nil nil
+                          :raw {:bytes (:bytes (:state d))
+                                :address (:address (:state d))})
+            run (drive-to w b (phase-of :running) 10 :judge {:s 5})]
+        (is (= :running (:phase (:state run))))
+        (is (= o (:occurrence (:state run))))))))
+
+
+(deftest after-a-replay-divergence-the-released-occurrence-is-regrantable-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a" "holder-b"])
+        d (drive-to w (source-driver w "holder-a" machine nil)
+                    (phase-of :running) 10 :judge {:s 2})
+        o (:occurrence (:state d))
+        _ (stream/append! (:prog d) "B")
+        ;; tenure 1 records its read as an input
+        _ (loop [x d k 0]
+            (if (or (seq (requests-of w "holder-a" :yin.k/input))
+                    (>= k 6))
+              x
+              (recur (step-source w x) (inc k))))
+        _ (is (seq (requests-of w "holder-a" :yin.k/input)))
+        ;; the holder crashes; the regrant replays under the prefix
+        _ (judge! w {:s 40})
+        b (driver-for w "holder-b" nil nil
+                      :raw {:bytes (:bytes (:state d))
+                            :address (:address (:state d))})
+        b (drive-to w b (phase-of :running) 10 :judge {:s 41})
+        ;; the replayed record matches no waiting entry: the machine's
+        ;; one wait names a stream the record's source does not
+        [different-stream changed] (engine/attach-resource
+                                     (get-in b [:state :machine]) (int-stream "different-input"))
+        cursor-id (get-in changed [:wait-set 0 :cursor-ref :id])
+        diverged (assoc-in b [:state :machine]
+                           (assoc-in changed [:resources cursor-id :stream-id]
+                                     (:id different-stream)))
+        ended (drive-to w (assoc b :state (driver/step
+                                            (assoc-in (:state diverged)
+                                                      [:seams :read-ledger!]
+                                                      (fn []
+                                                        (attributed
+                                                          (:frames w))))))
+                        (phase-of :failed) 8)
+        detail (:detail (:state ended))]
+    (is (= :divergence (:cause detail)) "genuine portable-input mismatch")
+    (is (nil? (get-in (authority/projection (:a w))
+                      [:occurrences o :yin.k/closed]))
+        "no report ever stood")
+    (testing "the occurrence is regrantable"
+      (let [_ (judge! w {:s 45})
+            c (driver-for w "holder-a" nil nil
+                          :raw {:bytes (:bytes (:state d))
+                                :address (:address (:state d))})
+            run (drive-to w c (phase-of :running) 10 :judge {:s 46})]
+        (is (= :running (:phase (:state run))))))))
+
+
+(deftest after-an-intent-conflict-the-released-occurrence-stays-quarantined-test
+  (let [w (world :holders ["holder-a" "holder-b"] :sources {})
+        target-stream (int-stream (:target w))
+        source (int-stream "prog-r")
+        base (s/load-ast (s/new-machine)
+                         (s/then {:type :stream/next :source (s/v 'c)}
+                                 {:type :stream/put :target (s/v 'w) :val (s/lit "v")}))
+        [source-ref base] (engine/attach-resource base source)
+        [cursor-ref base] (engine/handle-cursor base {:stream source-ref} :k1)
+        [target-ref base] (engine/attach-resource base target-stream)
+        machine (vm/run (assoc base :store {'c cursor-ref 'w target-ref} :yin.k/gate :running))
+        lifted (lift-under machine
+                           (header-of 0 #{(:target w)} false)
+                           (fn [h]
+                             {:dao.stream/identity (stream-id h)
+                              :dao.stream/channel
+                              {:dao.stream/type :dao.stream.test/channel
+                               :dao.stream/identity (stream-id h)}}))
+        _ (grant/offer! (:a w) (:store w) (:address lifted)
+                        (:bytes lifted) "carrier")
+        d (driver-for w "holder-a" nil nil
+                      :raw {:bytes (:bytes lifted)
+                            :address (:address lifted)}
+                      :protection-as {"prog-r" :at-least-once
+                                      (:target w) :enrolled}
+                      :attach-table {(:target w) target-stream})
+        d (drive-to w d (phase-of :running) 10 :judge {:s 2})
+        o (:occurrence (:state d))
+        captured (atom nil)
+        append-request (get-in d [:state :seams :append-request!])
+        armed (assoc-in (assoc-in d [:state :seams :read-outcome!] (constantly nil))
+                        [:state :seams :append-request!]
+                        (fn [request]
+                          (if (= :yin.k/admit (:yin.k/request request))
+                            (do (reset! captured request) {:dao.stream/outcome :dao.stream/ok})
+                            (append-request request))))
+        _ (stream/append! (:prog armed) "input")
+        attempted (loop [x armed k 0]
+                    (if (or @captured
+                            (>= k 6))
+                      x
+                      (recur (drive w x) (inc k))))
+        admit @captured
+        _ (is (some? admit) "the writer assigned an id and sent")
+        conflict (admission/admit! (:a w) (:store w) (:target w)
+                                   "holder-a"
+                                   (assoc (get admit :yin.k/fenced-envelope)
+                                          :yin.k/value :other-value)
+                                   (log))
+        _ (is (= :committed (:yin.k/admission conflict))
+              "the conflicting intent committed first")
+        _ (append-request admit)
+        ended (drive-to w (assoc-in attempted [:state :seams :append-request!] append-request)
+                        (phase-of :failed) 10)
+        projection (authority/projection (:a w))]
+    (is (= :intent-conflict (:cause (:detail (:state ended)))))
+    (is (true? (get-in projection [:occurrences o :yin.k/quarantined]))
+        "the occurrence is quarantined")
+    (is (nil? (get-in projection [:occurrences o :yin.k/closed]))
+        "a quarantined occurrence never closes")
+    (testing "and it is never granted again"
+      (let [_ (judge! w {:s 45})
+            b (driver-for w "holder-b" nil nil
+                          :raw {:bytes (:bytes lifted)
+                                :address (:address lifted)}
+                          :protection-as {"prog-r" :at-least-once
+                                          (:target w) :enrolled}
+                          :attach-table {(:target w) target-stream})
+            refused (drive-to w b (fn [st]
+                                    (= :yin.k/not-holder
+                                       (:status st))) 8
+                              :judge {:s 46})]
+        (is (true? (get-in (:state refused) [:detail :yin.k/quarantined]))
+            "the state observed carries the quarantine")
+        (is (nil? (get-in (authority/projection (:a w))
+                          [:occurrences o :dao.lease/lease]))
+            "no lease was ever granted")))))
+
+
+;; =============================================================================
+;; D14: abort over the journaled attempts; the enrollment discipline
+;; =============================================================================
+
+(deftest abort-reads-the-journaled-offer-attempts-test
+  (testing "before any offer attempt: local execution restored"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"])
+          d (nth (iterate #(step-source w %)
+                          (source-driver w "holder-a" machine nil))
+                 3)
+          _ (is (= [:yin.k/minted :yin.k/fenced]
+                   (kinds-of (:journal-frames d))))
+          aborted (driver/abort (:state d))]
+      (is (= :aborted (:phase aborted)))
+      (is (= :yin.k/ok (:status aborted)))
+      (is (= (:wait-set machine)
+             (:wait-set (:machine aborted))))
+      (is (= :running (vm/gate-mode (:machine aborted)))
+          "the old local machine, as it was")))
+  (testing "a provably unappended attempt may still abort"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"]
+                   :inbound {"holder-a" (bounded-stream "in-a" 1)})
+          d (source-driver w "holder-a" machine nil)
+          _ (stream/append! (get (:inbounds w) "holder-a") :blocked)
+          prepared (nth (iterate #(step-source w %) d) 3)
+          _ (stream/append! (get (:inbounds w) "holder-a") :blocked)
+          d4 (assoc prepared :state (driver/step (:state prepared)))
+          _ (is (= [:dao.stream/full]
+                   (mapv :yin.k/append
+                         (filter #(= :yin.k/attempt (:yin.k/journal %))
+                                 (journal-of (:journal-frames d4))))))
+          aborted (driver/abort (:state d4))]
+      (is (= :aborted (:phase aborted)))
+      (is (= (:wait-set machine) (:wait-set (:machine aborted)))))))
+
+
+(testing "an admitted offer never restores local execution"
+  (let [machine (source-machine)
+        w (world :holders ["holder-a"])
+        d4 (nth (iterate #(step-source w %)
+                         (source-driver w "holder-a" machine nil))
+                4)
+        ;; the send left and the front admitted the offer; the reply
+        ;; is unread, exactly the uncertain window abort refuses
+        _ (is (= [:dao.stream/ok]
+                 (mapv :yin.k/append
+                       (filter #(= :yin.k/attempt (:yin.k/journal %))
+                               (journal-of (:journal-frames d4))))))
+        offered-facts (count (filter #(= :yin.k/offered (:yin.k/custody %))
+                                     (frame-facts (:frames w))))
+        _ (is (= 1 offered-facts) "the offer was admitted")
+        refused (driver/abort (:state d4))]
+    (is (= :exporting (:phase refused)) "the source stays fenced")
+    (is (= :yin.k/refused (:status refused)))
+    (is (= :offer-possibly-accepted (:yin.k/reason (:detail refused))))))
+
+
+(deftest a-holder-aborts-a-hand-off-only-with-tenure-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a"])
+        d (hand-off-run w (source-driver w "holder-a" machine nil))
+        ;; the successor is minted, fenced and offered; the authority
+        ;; refuses the offer :awaiting-completion until the closure
+        d3 (nth (iterate #(step-source w %) d) 3)
+        _ (is (= [:yin.k/minted :yin.k/fenced]
+                 (take-last 2 (kinds-of (:journal-frames d3)))))
+        aborted (driver/abort (:state d3))]
+    (is (= :running (:phase aborted)) "the run continues")
+    (is (= :running (vm/gate-mode (:machine aborted))))
+    (is (= :exporting (vm/gate-mode (get-in d3 [:state :machine])))
+        "the pre-abort machine stays fenced, untouched")
+    (testing "past the lease bound the old machine is never restored"
+      (let [past (assoc (:state d3) :seams
+                        (assoc (:seams (:state d3))
+                               :clock (constantly {:s 100})))]
+        (is (= :yin.k/refused
+               (:status (driver/abort past))))))))
+
+
+(deftest enrollment-follows-the-identity-discipline-test
+  (testing "an uncertain answer whose attempt committed is not retried"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"])
+          d (source-driver w "holder-a" machine nil)
+          calls (atom 0)
+          ;; the enrollment commits but its answer never arrives
+          seam (fn []
+                 (swap! calls inc)
+                 (authority/enroll! (:a w))
+                 {:yin.k/status :suspended :yin.k/reason :uncertain})
+          armed (assoc-in d [:state :seams :enroll!] seam)
+          ;; one step journals the derived intent; the next attempts;
+          ;; the next reconciles
+          s1 (driver/enroll (:state armed))
+          derived (get-in s1 [:enroll :derived])
+          _ (is (some? derived))
+          _ (is (zero? @calls) "no blind attempt before the intent")
+          s2 (driver/enroll s1)
+          _ (is (= 1 @calls))
+          _ (is (= :yin.k/ok (:status s2)))
+          s3 (driver/enroll s2)
+          _ (is (= 1 @calls)
+                "the reread found the derived identity: no second attempt")
+          _ (is (= derived (get-in s3 [:enroll :target])))
+          _ (is (= :yin.k/ok (:status s3)))
+          _ (is (= derived (:yin.k/enrolled (:detail s3))))
+          enrolled (count (filter #(= :yin.k/enrolled (:yin.k/custody %))
+                                  (frame-facts (:frames w))))]
+      (is (= 2 enrolled)
+          "the world's own target and this one, never a second mint")))
+  (testing "an uncertain answer that did not commit retries once"
+    (let [machine (source-machine)
+          w (world :holders ["holder-a"])
+          d (source-driver w "holder-a" machine nil)
+          calls (atom 0)
+          seam (fn []
+                 (swap! calls inc)
+                 ;; never commits, always uncertain
+                 {:yin.k/status :suspended :yin.k/reason :poisoned})
+          armed (assoc-in d [:state :seams :enroll!] seam)
+          s1 (driver/enroll (:state armed))
+          s2 (driver/enroll s1)
+          _ (is (= 1 @calls))
+          _ (is (= :yin.k/unsatisfied (:status s2)))
+          _ (is (= :enroll-uncertain (:yin.k/reason (:detail s2))))
+          _retried (driver/enroll s2)
+          _ (is (= 2 @calls) "absent, so exactly one more attempt")
+          enrolled (count (filter #(= :yin.k/enrolled
+                                      (:yin.k/custody %))
+                                  (frame-facts (:frames w))))]
+      (is (= 1 enrolled) "only the world's own enrollment stands"))))
+
+
+(defn- exit-with-report-answer
+  [world' answer]
+  (let [original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+        append-request (get-in original [:state :seams :append-request!])
+        read-reply (get-in original [:state :seams :read-reply!])
+        replies (atom [])
+        reports (atom [])
+        state (-> (:state original)
+                  (assoc-in [:seams :append-request!]
+                            (fn [request]
+                              (if (= :yin.k/resumed (:yin.k/request request))
+                                (do (swap! reports conj request)
+                                    (swap! replies conj
+                                           [arb {:yin.k/reply :yin.k/resumed
+                                                 :yin.k/request-id (:yin.k/request-id request)
+                                                 :yin.k/answer answer}])
+                                    {:dao.stream/outcome :dao.stream/ok})
+                                (append-request request))))
+                  (assoc-in [:seams :read-reply!]
+                            (fn []
+                              (if-some [reply (first @replies)]
+                                (do (swap! replies #(vec (rest %))) reply)
+                                (read-reply)))))
+        sent (nth (iterate #(step-source world' %) (assoc original :state state)) 5)]
+    {:driver sent :reports reports}))
+
+
+(deftest suspended-report-retries-the-identical-request-test
+  (let [world' (world :holders ["holder-a"])
+        {:keys [driver reports]} (exit-with-report-answer world' {:yin.k/status :suspended})
+        retried (step-source world' driver)]
+    (is (= 2 (count @reports)))
+    (is (= (first @reports) (second @reports)))
+    (is (= :safepoint (:phase (:state retried))))
+    (is (empty? (requests-of world' "holder-a" :yin.k/release)))
+    (is (empty? (read-all (:diagnostics retried))))))
+
+
+(deftest refused-report-ends-the-run-and-releases-test
+  (doseq [answer (conj (mapv (fn [reason] {:yin.k/status :refused :yin.k/reason reason})
+                             [:ended-lease :quarantined :report-conflict :counter-regression])
+                       {:yin.k/status :closed})]
+    (let [world' (world :holders ["holder-a"])
+          {:keys [driver reports]} (exit-with-report-answer world' answer)
+          ended (drive-to world' driver (phase-of :failed) 8 :judge {:s 3})]
+      (is (= :failed (:phase (:state ended))) (pr-str answer))
+      (is (= :ended (vm/gate-mode (get-in ended [:state :machine]))))
+      (is (= 1 (count @reports)))
+      (is (= 1 (count (read-all (:diagnostics ended)))))
+      (is (seq (requests-of world' "holder-a" :yin.k/release)))
+      (is (nil? (get-in (authority/projection (:a world'))
+                        [:occurrences (get-in ended [:state :occurrence]) :yin.k/closed]))))))
+
+
+(deftest aborted-source-is-durable-and-never-reoffered-on-reopen-test
+  (let [world' (world :holders ["holder-a"])
+        prepared (nth (iterate #(step-source world' %)
+                               (source-driver world' "holder-a" (source-machine) nil)) 3)
+        aborted (driver/abort (:state prepared))
+        reopened (driver/reopen (-> (:config prepared)
+                                    (dissoc :machine)
+                                    (assoc :journal (reopened-journal (:journal-frames prepared)))))
+        advanced (driver/step reopened)]
+    (is (= :aborted (:phase aborted)))
+    (is (= :yin.k/aborted (:yin.k/journal (last (journal-of (:journal-frames prepared))))))
+    (is (= :aborted (:phase reopened)))
+    (is (nil? (:machine reopened)))
+    (is (= reopened advanced))
+    (is (zero? @(:attaches prepared)))
+    (is (empty? (requests-of world' "holder-a" :yin.k/offer)))))
+
+
+(deftest aborted-hand-off-reopen-closes-the-export-and-reenters-candidacy-test
+  (let [world' (world :holders ["holder-a"])
+        original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+        prepared (nth (iterate #(step-source world' %) original) 3)
+        successor (get-in prepared [:state :exit :occurrence])
+        aborted (driver/abort (:state prepared))
+        reopened (driver/reopen (assoc (:config prepared)
+                                       :journal (reopened-journal (:journal-frames prepared))))
+        recovered (drive-to world' (assoc prepared :state reopened)
+                            (phase-of :proposing) 8 :judge {:s 3})]
+    (is (= :running (:phase aborted))
+        "the live holder took its machine back before the crash")
+    (is (= :releasing (:phase reopened)))
+    (is (nil? (:machine reopened))
+        "a journaled grant never restores execution")
+    (is (= :proposing (:phase (:state recovered))))
+    (is (seq (requests-of world' "holder-a" :yin.k/release)))
+    (is (empty? (filter #(= successor (second (:yin.k/request-id %)))
+                        (requests-of world' "holder-a" :yin.k/offer)))
+        "the aborted successor's export is closed, never reoffered")))
+
+
+(deftest abort-uncertain-journal-record-never-hands-back-execution-test
+  (doseq [cut [:before-frame :after-frame-before-visible]]
+    (let [world' (world :holders ["holder-a"])
+          prepared (nth (iterate #(step-source world' %)
+                                 (source-driver world' "holder-a" (source-machine) nil)) 3)
+          frames (atom (vec @(:journal-frames prepared)))
+          progress (:dao.stream/handle (journal/open! (cut-backend frames (count @frames) cut)))
+          result (driver/abort (assoc-in (:state prepared) [:seams :journal] progress))]
+      (is (= :stalled (:phase result)))
+      (is (nil? (:machine result)))
+      (is (= :exporting (vm/gate-mode (get-in result [:export :m]))))
+      (let [reopened (driver/reopen (assoc (:config prepared) :journal (reopened-journal frames)))]
+        (is (nil? (:machine reopened)))
+        (when (= :after-frame-before-visible cut)
+          (is (= :aborted (:phase reopened))))))))
+
+
+(deftest incomplete-holder-exit-releases-and-reenters-candidacy-test
+  (doseq [role [:yin.k/successor :yin.k/result]]
+    (let [world' (world :holders ["holder-a"])
+          original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+          armed (assoc-in original [:state :exit :role] role)
+          minted (step-source world' armed)
+          reopened (driver/reopen (-> (:config minted)
+                                      (dissoc :machine)
+                                      (assoc :journal (reopened-journal (:journal-frames minted)))))
+          recovered (drive-to world' (assoc minted :state reopened) (phase-of :proposing) 8 :judge {:s 3})]
+      (is (= :releasing (:phase reopened)))
+      (is (nil? (:machine reopened)))
+      (is (= :proposing (:phase (:state recovered))))
+      (is (seq (requests-of world' "holder-a" :yin.k/release)))
+      (is (= (:occurrence (:state original)) (:occurrence (:state recovered))))
+      (is (= (get-in original [:state :address]) (get-in recovered [:state :address])))
+      (is (nil? (get-in recovered [:state :exit]))))))
+
+
+(deftest holder-abort-respects-cap-latches-and-stopped-state-test
+  (let [world' (world :holders ["holder-a"])
+        original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+        prepared (nth (iterate #(step-source world' %) original) 3)
+        capped (-> (:state prepared)
+                   (assoc-in [:holder :grant :dao.lease/max] {:s 5})
+                   (assoc-in [:holder :last-renewal-at] {:s 4})
+                   (assoc-in [:seams :clock] (constantly {:s 6})))
+        latched (mapv #(assoc-in (:state prepared) [:holder %] true)
+                      [:bound-reached? :undersized? :released?])]
+    (doseq [state (into [capped] latched)]
+      (is (false? (lease/holding? (:holder state) ((get-in state [:seams :clock])))))
+      (let [refused (driver/abort state)]
+        (is (= :yin.k/refused (:status refused)))
+        (is (= :exporting (vm/gate-mode (:machine refused))))))))
+
+
+(deftest first-proposal-send-has-exactly-one-intent-test
+  (let [world' (world :holders ["holder-a"])
+        sent (nth (iterate #(step-source world' %)
+                           (source-driver world' "holder-a" (source-machine) nil)) 6)
+        records (filter #(= :yin.k/proposal (:yin.k/action %))
+                        (journal-of (:journal-frames sent)))]
+    (is (= [:yin.k/intent :yin.k/attempt] (mapv :yin.k/journal records)))))
+
+
+(deftest restarted-exit-keeps-its-cell-until-release-is-visible-test
+  (let [world' (world :holders ["holder-a"])
+        original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+        offered (nth (iterate #(step-source world' %) original) 4)
+        before-release (attributed (:frames world'))
+        reopened (driver/reopen (assoc (:config offered) :journal (reopened-journal (:journal-frames offered))))
+        sent (driver/step reopened)
+        _ (carry! world')
+        delayed (assoc-in sent [:seams :read-ledger!] (constantly before-release))
+        waiting (driver/step delayed)
+        _ (judge! world' {:s 3})
+        visible (assoc-in waiting [:seams :read-ledger!] (get-in original [:state :seams :read-ledger!]))
+        recovered (drive-to world' (assoc offered :state visible) (phase-of :proposing) 8)]
+    (is (true? (get-in waiting [:release :carried])))
+    (is (= :exiting (:phase waiting)))
+    (is (= (get-in reopened [:exit :occurrence]) (get-in waiting [:exit :occurrence])))
+    (is (nil? (:machine waiting)))
+    (is (= :proposing (:phase (:state recovered))))))
+
+
+(deftest failed-recovery-store-does-not-attempt-the-body-store-test
+  (let [world' (world :holders ["holder-a"])
+        prepared (nth (iterate #(step-source world' %)
+                               (source-driver world' "holder-a" (source-machine) nil)) 2)
+        calls (atom 0)
+        state (assoc-in (:state prepared) [:seams :content-store :put-bytes-fn]
+                        (fn [_address _bytes] (swap! calls inc) :refused))
+        refused (driver/step state)]
+    (is (= 1 @calls))
+    (is (= :yin.k/unsatisfied (:status refused)))
+    (is (not-any? #(= :yin.k/fenced (:yin.k/journal %))
+                  (journal-of (:journal-frames prepared))))))
+
+
+(deftest abort-rechecks-tenure-after-its-durable-terminal-record-test
+  (let [world' (world :holders ["holder-a"])
+        original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+        prepared (nth (iterate #(step-source world' %) original) 3)
+        progress (get-in prepared [:state :seams :journal])
+        wrapped (reify
+                  stream/IDaoStreamReader
+                  (cursor [_ mode] (stream/cursor progress mode))
+
+                  (next [_ cursor] (stream/next progress cursor))
+
+
+                  stream/IDaoStreamWriter
+
+                  (append!
+                    [_ record]
+                    (let [answer (stream/append! progress record)]
+                      (when (= :yin.k/aborted (:yin.k/journal record))
+                        (reset! (:clock prepared) {:s 100}))
+                      answer)))
+        refused (driver/abort (assoc-in (:state prepared) [:seams :journal] wrapped))]
+    (is (= :yin.k/ended (:status refused)))
+    (is (= :releasing (:phase refused)))
+    (is (= :ended (vm/gate-mode (:machine refused))))
+    (is (= :yin.k/aborted (:yin.k/journal (last (journal-of (:journal-frames prepared))))))
+    (testing "the deferred cleanup release opens with the next step and leaves"
+      (let [finished (drive-to world' (assoc prepared :state refused)
+                               (phase-of :failed) 8 :judge {:s 3})]
+        (is (= :failed (:phase (:state finished))))
+        (is (seq (requests-of world' "holder-a" :yin.k/release)))
+        (is (= 1 (count (read-all (:diagnostics prepared))))
+            "one diagnostic, the run end's own")))))

@@ -1784,7 +1784,59 @@ exclusive, in the canonical codec, with `:yin.k/policy
 the driver and persisted before prepare is called; `:yin.k/enrolled`
 is the composition's declaration from the ledger reader; it is never
 encoded into the UCF body, but the header stays in the retained export
-record, which is plain data and supports serialization. Kind and
+record. The live record can contain authentic closures and is not itself
+a canonical data object. `holder.export/freeze [machine prepared-record]`
+encodes a separate content-addressed export-recovery object, tagged
+`:yin.k/export-recovery` with format version 1, using the handoff value/cell
+codec. It returns recovery bytes/address beside the exact handoff body
+bytes/address; both are stored durably before the journal's fenced event.
+Recovery retains the local enrolled declaration, prior gate, ordered waits,
+parked continuations, issue stamps, descriptors and dependency closure.
+The enrolled declaration still never travels in a published handoff body.
+
+`holder.export/rehydrate-fenced` validates the recovery object and its
+embedded body before administrative attachment. It creates authentic
+fresh-receiver-owned values and preserves resource aliases and distinct
+cells without program reads, cursor minting, writes, closes, initialization
+or execution. Every task stays exporting, with waits outside scheduler
+queues. The prior gate is retained only as data; recovery is neither grant
+admission nor permission to abort back into execution. Runtime composition
+functions and handles are the environment, not the canonical journal.
+Incomplete preparations cannot manufacture a missing snapshot on restart.
+Recovery also retains a complete codec snapshot when legacy fork bytes
+omit transitive dependencies; the published version-0 bytes stay unchanged.
+For version 1, the module-store fixed point is a correctness repair:
+canonical ordering uses a separate scratch census and did not populate
+the emitted dependency table. Bodies that previously omitted transitive
+module stores now contain them and have different content addresses; this
+is not a new handoff version or closure format. The transitive-store test
+pins the old one-pass body and corrected body bytes by their addresses.
+
+The driver's exit persists recovery and body, journals the fence, attempts
+the stable successor offer, reports that exact successor/body, carries
+release of the matching origin lease, observes the authoritative closure
+and successor edge, then retries the same offer until admitted. The
+recovery object is stored first and a store that refuses stops the step
+before the body is attempted; a retry re-brackets from the recovery
+object, idempotent through the store. An
+`:awaiting-completion` offer answer does not block reporting. A halt reports
+its result body and observes the terminal edge, with no successor offer.
+Every external attempt has a durable intent before delivery and an
+acknowledgment afterward; an unmatched intent retains unknown delivery.
+A non-admitted report answer either retries -- `:suspended` resends the
+identical request -- or ends the run (r3 1.6): the terminal refusals
+gate the machine `:ended`, append one diagnostic and carry the cleanup
+release, which closes nothing by itself. A legal abort journals
+one terminal `:aborted` record before local execution is handed back,
+and the journal fold treats that record as closing the export. A holder
+rechecks tenure across that append -- dao.lease's own `holding?`, with
+the grant's max cap and its stopped latches -- and tenure that died
+under it ends the run instead of restoring the machine; the cleanup
+release opens with the next step, after the terminal record.
+Reopened holders do not regain tenure from persisted clock readings:
+they reconcile, release and re-enter candidacy, never resume execution.
+
+Kind and
 header agree at lift: blocked and parked roots carry occurrence,
 arbitration, counter and policy, and origin when present; a halted
 root carries origin only, and a header-bearing halt without an origin

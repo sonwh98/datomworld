@@ -23,6 +23,8 @@
 
    Nothing here knows a transport, a driver or a journal."
   (:require [yin.vm :as vm]
+            [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [yin.vm.completion :as completion]
             [yin.vm.module :as module]
             [yin.vm.ucf.handoff :as handoff]))
@@ -164,7 +166,10 @@
   "`machine`, an exporting machine, carrying `record`'s waits and
    parked records again: the value the lift reads."
   [machine record]
-  (-> machine
+  (-> (reduce-kv (fn [restored module-name child-record]
+                   (update-in restored [:installs module-name :vm]
+                              reinstated child-record))
+                 machine (or (:children record) {}))
       (assoc :wait-set (:wait-set record))
       (update :parked merge (:parked record))))
 
@@ -215,8 +220,9 @@
    still identify.
 
    The served table is keyed by `[task-path resource-id]` and holds the
-   descriptor `serve!` answered, so the record is plain data that a
-   journal can store; a handle is asked at most once, across the calls
+   descriptor `serve!` answered. This table is plain data, but the live
+   waits can contain authentic values: `freeze` is the persistence seam.
+   A handle is asked at most once, across the calls
    of one retained record, even when two resources hold it.  `header`
    is nil for the version-0 fork lift, or the version-1 custody header
    (`handoff/export-task`), kept in the record as `:header`.  Prepare
@@ -252,7 +258,8 @@
                      served))))
         record (assoc record :header header)
         r (handoff/export-task (reinstated machine record) nil
-                               {:header header :serve-keyed once})]
+                               {:header header :serve-keyed once
+                                :yin.vm.ucf.handoff/recovery true})]
     (if (= :ok (:status r))
       {:status :ok :record (assoc record :served @table)}
       (assoc r :record (assoc record :served @table)))))
@@ -276,6 +283,206 @@
                         (get served k)
                         (throw (ex-info "Encode of an unprepared record"
                                         {:yin.k/hint :unprepared-stream}))))})))
+
+
+(defn- recovery-address
+  [bytes]
+  (let [algorithm jing/default-hash-algorithm]
+    (keyword "segment"
+             (str (get-in jing/registry [algorithm :address-id]) "-"
+                  (jing/digest-bytes algorithm bytes)))))
+
+
+(defn- recovery-metadata
+  [machine record]
+  {:gate (:gate record)
+   :origins (:origins machine)
+   :issues (mapv :yin.k/issue (:wait-set record))
+   :issued (:yin.k/issued machine)
+   :children (into {}
+                   (map (fn [[module-name install]]
+                          [module-name
+                           (recovery-metadata
+                             (:vm install)
+                             (or (get-in record [:children module-name])
+                                 {:gate (vm/gate-mode (:vm install))
+                                  :wait-set (:wait-set (:vm install))}))]))
+                   (:installs machine))})
+
+
+(defn freeze
+  "Canonical complete export recovery, distinct from the published body.
+   Both returned objects must be stored durably before recording a fence."
+  [machine prepared-record]
+  (let [body (encode machine prepared-record)
+        snapshot (when (= :ok (:status body))
+                   (handoff/export-task
+                     (reinstated machine prepared-record) nil
+                     {:header (:header prepared-record)
+                      :yin.vm.ucf.handoff/recovery true
+                      :serve-keyed (fn [key _handle] (get (:served prepared-record) key))}))
+        inspected (when (= :ok (:status snapshot))
+                    (handoff/inspect-recovery-body (:bytes snapshot) (:address snapshot)
+                                                   (:header prepared-record)))]
+    (if (or (not= :ok (:status body)) (not= :ok (:status snapshot))
+            (not= :ok (:status inspected)))
+      (cond (not= :ok (:status body)) body
+            (not= :ok (:status snapshot)) snapshot
+            :else inspected)
+      (let [recovery {:yin.k/export-recovery true
+                      :yin.k/version 1
+                      :yin.k/body-bytes (jing/bytes->base64 (:bytes body))
+                      :yin.k/body-address (:address body)
+                      :yin.k/snapshot-bytes (jing/bytes->base64 (:bytes snapshot))
+                      :yin.k/snapshot-address (:address snapshot)
+                      :yin.k/header (:header prepared-record)
+                      :yin.k/descriptors (into #{}
+                                               (map #(assoc (select-keys % [:dao.stream/identity
+                                                                            :dao.stream/channel])
+                                                            :dao.stream/type :dao.stream/remote))
+                                               (vals (:served prepared-record)))
+                      :yin.k/state (recovery-metadata machine prepared-record)}
+            bytes (cbor/encode recovery)]
+        {:status :ok :bytes bytes :address (recovery-address bytes)
+         :body-bytes (:bytes body) :body-address (:address body)
+         :kind (:kind body)}))))
+
+
+(defn- extract-recovered
+  [machine metadata]
+  (let [children (into {}
+                       (map (fn [[module-name install]]
+                              [module-name
+                               (extract-recovered
+                                 (:vm install)
+                                 (get-in metadata [:children module-name]))]))
+                       (:installs machine))
+        waits (mapv (fn [entry issue]
+                      (cond-> entry
+                        (some? issue) (assoc :yin.k/issue issue)))
+                    (:yin.k/recovery-waits machine)
+                    (:issues metadata))
+        record {:wait-set waits :parked (:parked machine) :recovered? true
+                :gate (:gate metadata) :served {}
+                :children (into {} (map (fn [[module-name recovered]]
+                                          [module-name (:record recovered)])) children)}
+        fenced (reduce-kv (fn [parent module-name recovered]
+                            (assoc-in parent [:installs module-name :vm]
+                                      (:machine recovered)))
+                          (-> machine
+                              (dissoc :yin.k/recovery-waits :yin.k/custody)
+                              (assoc :wait-set [] :parked {} :yin.k/gate :exporting
+                                     :origins (:origins metadata) :yin.k/issued (:issued metadata)))
+                          children)]
+    {:machine fenced :record record}))
+
+
+(defn- valid-recovery-state?
+  [body state]
+  (and (map? state)
+       (contains? #{nil :running :exporting :ended} (:gate state))
+       (vector? (:issues state))
+       (= (count (:issues state)) (count (:yin.k/frames body)))
+       (every? #(or (nil? %) (and (integer? %) (<= 0 %))) (:issues state))
+       (or (nil? (:issued state))
+           (and (integer? (:issued state)) (<= 0 (:issued state))))
+       (or (nil? (:origins state))
+           (and (integer? (:origins state)) (<= 0 (:origins state))))
+       (map? (:children state))
+       (= (set (keys (:children state))) (set (keys (:yin.k/installs body))))
+       (every? (fn [[module-name install]]
+                 (valid-recovery-state? (:yin.k/child install)
+                                        (get-in state [:children module-name])))
+               (:yin.k/installs body))))
+
+
+(defn- snapshot-extends-body?
+  [body snapshot]
+  (and (= (dissoc body :yin.k/module-stores :yin.k/cells :yin.k/code
+                  :yin.k/requires :yin.k/installs)
+          (dissoc snapshot :yin.k/module-stores :yin.k/cells :yin.k/code
+                  :yin.k/requires :yin.k/installs))
+       (every? (fn [field]
+                 (every? (fn [[key value]]
+                           (= value (get-in snapshot [field key])))
+                         (get body field)))
+               [:yin.k/module-stores :yin.k/cells :yin.k/code])
+       (every? (fn [field]
+                 (every? #(contains? (get-in snapshot [:yin.k/requires field]) %)
+                         (get-in body [:yin.k/requires field])))
+               [:yin.k/segments :yin.k/cursor-profiles])
+       (= (set (keys (:yin.k/installs body))) (set (keys (:yin.k/installs snapshot))))
+       (every? (fn [[module-name install]]
+                 (let [other (get-in snapshot [:yin.k/installs module-name])]
+                   (and (= (dissoc install :yin.k/child) (dissoc other :yin.k/child))
+                        (snapshot-extends-body? (:yin.k/child install) (:yin.k/child other)))))
+               (:yin.k/installs body))))
+
+
+(defn rehydrate-fenced
+  "Restore a complete recovery object into fresh receiver-owned values.
+   Attachment reconstructs resources only; it must not perform program IO.
+   Never restores tenure, custody, scheduler waits or a runnable gate."
+  [receiver recovery-bytes {:keys [address attach]}]
+  (try
+    (let [recovery (cbor/decode recovery-bytes)]
+      (cond
+        (not (and (true? (:yin.k/export-recovery recovery))
+                  (integer? (:yin.k/version recovery))
+                  (= 1 (:yin.k/version recovery))))
+        {:yin.k/status :yin.k/profile-mismatch}
+
+        (not (jing/segment-bytes-match? address recovery-bytes))
+        {:yin.k/status :yin.k/hash-mismatch}
+
+        :else
+        (let [body-bytes (jing/base64->bytes (:yin.k/body-bytes recovery))
+              body-address (:yin.k/body-address recovery)
+              snapshot-bytes (jing/base64->bytes (:yin.k/snapshot-bytes recovery))
+              snapshot-address (:yin.k/snapshot-address recovery)
+              published (handoff/inspect-recovery-body body-bytes body-address
+                                                       (:yin.k/header recovery) false)
+              inspected (handoff/inspect-recovery-body snapshot-bytes snapshot-address
+                                                       (:yin.k/header recovery))
+              _ (when-not (and (= :ok (:status published))
+                               (= :ok (:status inspected))
+                               (snapshot-extends-body? (:body published) (:body inspected))
+                               (= (:descriptors inspected) (:yin.k/descriptors recovery))
+                               (valid-recovery-state? (:body inspected) (:yin.k/state recovery)))
+                  (throw (ex-info "Invalid export recovery"
+                                  (or (when (:yin.k/status inspected) inspected)
+                                      {:yin.k/status :yin.k/undecodable}))))
+              handles (atom {})
+              restored (handoff/rehydrate-fenced-body
+                         receiver snapshot-bytes
+                         (fn [descriptor]
+                           (let [identity (:dao.stream/identity descriptor)]
+                             (if (contains? @handles identity)
+                               (get @handles identity)
+                               (let [answer (attach descriptor)]
+                                 (swap! handles assoc identity answer)
+                                 answer))))
+                         snapshot-address)]
+          (if (not= :ok (:status restored))
+            restored
+            (let [{:keys [machine record]} (extract-recovered
+                                             (:vm restored) (:yin.k/state recovery))
+                  by-handle (into {}
+                                  (map (fn [descriptor]
+                                         [(get-in @handles [(:dao.stream/identity descriptor)
+                                                            :dao.stream/handle]) descriptor]))
+                                  (:yin.k/descriptors recovery))
+                  prepared (prepare machine record by-handle (:yin.k/header recovery))
+                  reproduced (when (= :ok (:status prepared))
+                               (encode machine (:record prepared)))]
+              (if (and (= :ok (:status reproduced))
+                       (= (vec body-bytes) (vec (:bytes reproduced))))
+                {:status :ok :machine machine :record (assoc (:record prepared) :recovered? true)}
+                {:yin.k/status :yin.k/undecodable
+                 :yin.k/reason :recovery-inconsistent}))))))
+    (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+      (or (when (:yin.k/status (ex-data failure)) (ex-data failure))
+          {:yin.k/status :yin.k/undecodable}))))
 
 
 ;; =============================================================================
@@ -317,6 +524,9 @@
    (no ledger evidence) or `:offer-possibly-accepted`."
   [machine record attempts tenure]
   (cond
+    (:recovered? record)
+    (refused :restarted)
+
     (not= :exporting (vm/gate-mode machine))
     (refused :not-exporting)
 

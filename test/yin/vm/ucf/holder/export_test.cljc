@@ -3,15 +3,109 @@
    (UCF 7.7.4; r3 1.8 and 1.9).  Every machine is parked by the real
    engine; counting handles show what the gate and the encode touch."
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.stream :as stream]
+            [dao.stream.cbor :as legacy-cbor]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
+            [yin.vm.values :as values]
             [yin.vm.test-utils :as tu]
             [yin.vm.ucf.holder.export :as export]))
+
+
+(declare parked-machine parked-explicit parked-installer served-table new-machine)
+
+
+(defn- content-address
+  [bytes]
+  (keyword "segment"
+           (str (get-in jing/registry [jing/default-hash-algorithm :address-id])
+                "-" (jing/digest-bytes jing/default-hash-algorithm bytes))))
+
+
+(deftest recovery-validation-precedes-attachment-test
+  (let [{:keys [machine record]} (export/enter (parked-machine))
+        {:keys [serve!]} (served-table)
+        prepared (export/prepare machine record serve! nil)
+        frozen (export/freeze machine (:record prepared))
+        recovery (cbor/decode (:bytes frozen))
+        changed-snapshot (legacy-cbor/encode
+                           (update (legacy-cbor/decode (jing/base64->bytes (:yin.k/snapshot-bytes recovery)))
+                                   :yin.k/id-counter inc))
+        other-entered (export/enter (parked-explicit))
+        other-prepared (export/prepare (:machine other-entered) (:record other-entered) serve! nil)
+        other-recovery (cbor/decode (:bytes (export/freeze (:machine other-entered) (:record other-prepared))))
+        attachments (atom 0)]
+    (doseq [invalid [(assoc recovery :yin.k/version 2)
+                     (assoc recovery :yin.k/header {:yin.k/enrolled #{}})
+                     (assoc recovery :yin.k/descriptors #{})
+                     (assoc-in recovery [:yin.k/state :issues] [])
+                     (assoc recovery :yin.k/snapshot-bytes (jing/bytes->base64 changed-snapshot)
+                            :yin.k/snapshot-address (content-address changed-snapshot))
+                     (merge recovery (select-keys other-recovery [:yin.k/snapshot-bytes :yin.k/snapshot-address]))]]
+      (let [bytes (cbor/encode invalid)
+            restored (export/rehydrate-fenced (new-machine) bytes
+                                              {:address (content-address bytes)
+                                               :attach (fn [_] (swap! attachments inc) nil)})]
+        (is (not= :ok (:status restored)))
+        (is (nil? (:machine restored)))
+        (is (zero? @attachments))))))
+
+
+(deftest complete-export-recovery-is-fenced-and-reproducible-test
+  (doseq [source [(parked-machine) (parked-explicit) (parked-installer)]]
+    (let [{machine :machine record :record} (export/enter source)
+          {:keys [serve! table]} (served-table)
+          prepared (export/prepare machine record serve! nil)
+          frozen (export/freeze machine (:record prepared))
+          by-identity (into {} (map (fn [[handle descriptor]]
+                                      [(:dao.stream/identity descriptor) handle])) @table)
+          restored (export/rehydrate-fenced (new-machine) (:bytes frozen)
+                                            {:address (:address frozen)
+                                             :attach (fn [descriptor]
+                                                       {:dao.stream/outcome :dao.stream/ok
+                                                        :dao.stream/handle
+                                                        (by-identity (:dao.stream/identity descriptor))})})
+          encoded (when (= :ok (:status restored))
+                    (export/encode (:machine restored) (:record restored)))]
+      (is (= :ok (:status frozen)) (pr-str frozen))
+      (is (= :ok (:status restored)) (pr-str restored))
+      (is (= :exporting (vm/gate-mode (:machine restored))))
+      (is (empty? (:wait-set (:machine restored))))
+      (is (= (count (:wait-set record)) (count (get-in restored [:record :wait-set]))))
+      (is (= :yin.k/refused
+             (:yin.k/status (export/abort (:machine restored) (:record restored) [] nil))))
+      (is (= (vec (:body-bytes frozen)) (vec (:bytes encoded)))))))
+
+
+(deftest recovery-restores-fresh-name-state-without-receiver-contamination-test
+  (let [source (assoc (parked-machine) :origins 42 :id-counter 88 :yin.k/issued 77)
+        {:keys [machine record]} (export/enter source)
+        {:keys [serve! table]} (served-table)
+        prepared (export/prepare machine record serve! nil)
+        frozen (export/freeze machine (:record prepared))
+        by-identity (into {} (map (fn [[handle descriptor]]
+                                    [(:dao.stream/identity descriptor) handle])) @table)
+        restored (export/rehydrate-fenced
+                   (assoc (new-machine) :origins 99 :id-counter 100
+                          :store {'receiver-local :wrong} :yin.k/issued 33
+                          :yin.k/closes [{:receiver-local true}])
+                   (:bytes frozen)
+                   {:address (:address frozen)
+                    :attach (fn [descriptor]
+                              {:dao.stream/outcome :dao.stream/ok
+                               :dao.stream/handle (by-identity (:dao.stream/identity descriptor))})})]
+    (is (= :ok (:status restored)) (pr-str restored))
+    (is (= 42 (:origins (:machine restored))))
+    (is (= 88 (:id-counter (:machine restored))))
+    (is (= 77 (:yin.k/issued (:machine restored))))
+    (is (not (contains? (:store (:machine restored)) 'receiver-local)))
+    (is (empty? (:yin.k/closes (:machine restored))))))
 
 
 ;; =============================================================================
@@ -548,3 +642,271 @@
         restored (:machine (export/abort m record [] nil))]
     (is (= :yin.k/refused
            (:yin.k/status (export/abort restored record [] nil))))))
+
+
+(deftest recovery-preserves-aliases-distinct-cells-and-authentic-closures-test
+  (let [source (vm/run
+                 (load-ast (new-machine)
+                           (let1 's (make-stream-ast)
+                                 (let1 'c (cursor-of (v 's))
+                                       (let1 'd (cursor-of (v 's))
+                                             (then (def! 'first-c (v 'c))
+                                                   (then (def! 'alias-c (v 'c))
+                                                         (then (def! 'distinct-c (v 'd))
+                                                               (then (def! 'closure (lam [] (next-of (v 'c))))
+                                                                     (next-of (v 'c)))))))))))
+        {:keys [machine record]} (export/enter source)
+        {:keys [serve!]} (served-table)
+        prepared (export/prepare machine record serve! nil)
+        frozen (export/freeze machine (:record prepared))
+        calls (atom 0)
+        attachments (atom 0)
+        restored (export/rehydrate-fenced
+                   (new-machine {:origin :fresh :capability-secret "recovery-secret"})
+                   (:bytes frozen)
+                   {:address (:address frozen)
+                    :attach (fn [_]
+                              (swap! attachments inc)
+                              {:dao.stream/outcome :dao.stream/ok
+                               :dao.stream/handle (counting-handle calls)})})
+        machine' (:machine restored)
+        store (:store machine')
+        closure (get store 'closure)]
+    (is (= :ok (:status frozen)))
+    (is (= :ok (:status restored)) (pr-str restored))
+    (is (= 1 @attachments))
+    (is (zero? @calls) "no read, mint, append or close during reconstruction")
+    (is (= (get store 'first-c) (get store 'alias-c)))
+    (is (not= (get store 'first-c) (get store 'distinct-c)))
+    (is (engine/authentic-ref? machine' :cursor-ref (get store 'first-c)))
+    (is (values/closure? closure))
+    (is (values/owned-by? closure (:owner machine')))
+    (is (not (values/owned-by? closure (:owner source))))
+    (is (= (vec (:body-bytes frozen))
+           (vec (:bytes (export/encode machine' (:record restored))))))))
+
+
+(deftest halted-module-closure-is-a-recovery-root-test
+  (let [request (ring 32)
+        response (ring 32)
+        blocked (vm/run (load-ast (new-machine {:link-request request :link-response response})
+                                  (then (app (v 'require) (lit 'host.mod)) (v 'host.mod/f))))
+        _ (stream/append! response
+                          (assoc (module-response)
+                                 :image {:value (semantic-vector (def! 'f (lam [] (lit 42))))}
+                                 :yin.link/id (:link-id (first (:wait-set blocked)))))
+        source (vm/run blocked)
+        {:keys [machine record]} (export/enter source)
+        {:keys [serve!]} (served-table)
+        prepared (export/prepare machine record serve! nil)
+        frozen (export/freeze machine (:record prepared))
+        calls (atom 0)
+        restored (export/rehydrate-fenced
+                   (new-machine {:origin :fresh :capability-secret "fresh-secret"})
+                   (:bytes frozen)
+                   {:address (:address frozen)
+                    :attach (fn [_]
+                              {:dao.stream/outcome :dao.stream/ok
+                               :dao.stream/handle (counting-handle calls)})})]
+    (is (values/closure? (:value source)))
+    (is (= :ok (:status frozen)) (pr-str frozen))
+    (is (= :ok (:status restored)) (pr-str restored))
+    (is (values/closure? (:value (:machine restored))))
+    (is (= :exporting (vm/gate-mode (:machine restored))))
+    (is (zero? @calls))
+    (is (= (vec (:body-bytes frozen))
+           (vec (:bytes (export/encode (:machine restored) (:record restored))))))))
+
+
+(deftest module-store-dependencies-are-censused-to-a-fixed-point-test
+  (let [request (ring 32)
+        response (ring 32)
+        root (new-machine {:link-request request :link-response response})
+        first-wait (vm/run (load-ast root
+                                     (then (app (v 'require) (lit 'host.mod))
+                                           (then (app (v 'require) (lit 'other.mod))
+                                                 (v 'host.mod/f)))))
+        _ (stream/append! response
+                          (assoc (module-response)
+                                 :image {:value (semantic-vector (def! 'f (lam [] (lit 42))))}
+                                 :yin.link/id (:link-id (first (:wait-set first-wait)))))
+        second-wait (vm/run first-wait)
+        _ (stream/append! response
+                          (assoc (module-response)
+                                 :manifest {:yin.module/name 'other.mod :yin.module/exports #{'g}}
+                                 :image {:value (semantic-vector (def! 'g (lam [] (lit 7))))}
+                                 :yin.link/id (:link-id (first (:wait-set second-wait)))))
+        halted (vm/run second-wait)
+        other-id (first (keep (fn [[identity store]] (when (contains? store 'g) identity))
+                              (:module-stores halted)))
+        host-id (first (keep (fn [[identity store]] (when (contains? store 'f) identity))
+                             (:module-stores halted)))
+        other (get-in halted [:module-stores other-id 'g])
+        source (assoc-in halted [:module-stores host-id 'dependency] other)
+        {:keys [machine record]} (export/enter source)
+        {:keys [serve!]} (served-table)
+        prepared (export/prepare machine record serve!
+                                 {:yin.k/arbitration {} :yin.k/next-op-seq 0 :yin.k/enrolled #{}
+                                  :yin.k/origin {:yin.k/occurrence "00000000-0000-0000-0000-000000000001"
+                                                 :dao.lease/lease "lease" :yin.k/emitter "holder"}})
+        encoded (export/encode machine (:record prepared))]
+    (is (values/closure? other) (pr-str (:module-stores halted)))
+    (is (= :ok (:status prepared)) (pr-str prepared))
+    (is (= #{host-id other-id} (set (keys (get-in encoded [:body :yin.k/module-stores])))))
+    (let [old-body (update (:body encoded) :yin.k/module-stores dissoc other-id)
+          old-address (content-address (cbor/encode old-body))]
+      (is (= :segment/blake3-2500853acb568f9a6b944c3bdefe4fdcd59a9799b0ce5c75b77ad5ccf2a00188 old-address))
+      (is (= :segment/blake3-382606673b257f528b9cf233cf05e00af66cdbb073940f7c14bb98a97e945590 (:address encoded)))
+      (is (not= old-address (:address encoded))))
+    (let [legacy (export/prepare machine record serve! nil)
+          published (export/encode machine (:record legacy))
+          frozen (export/freeze machine (:record legacy))
+          restored (when (= :ok (:status frozen))
+                     (export/rehydrate-fenced (new-machine) (:bytes frozen)
+                                              {:address (:address frozen)
+                                               :attach (constantly nil)}))
+          reproduced (when (= :ok (:status restored))
+                       (export/encode (:machine restored) (:record restored)))]
+      (is (= :ok (:status frozen)) (pr-str frozen))
+      (is (= :ok (:status restored)) (pr-str restored))
+      (is (= #{host-id other-id} (set (keys (:module-stores (:machine restored))))))
+      (is (= (vec (:bytes published)) (vec (:bytes reproduced)))
+          "complete recovery must not alter the published version-0 bytes"))))
+
+
+(deftest closure-in-blocked-environment-survives-fenced-recovery-test
+  (let [source (vm/run (load-ast (new-machine)
+                                 (let1 'f (lam [] (lit 42))
+                                       (let1 'input (make-stream-ast)
+                                             (then (next-of (cursor-of (v 'input)))
+                                                   (app (v 'f)))))))
+        source-closure (get-in source [:wait-set 0 :env 'f])
+        {:keys [machine record]} (export/enter source)
+        {:keys [serve!]} (served-table)
+        prepared (export/prepare machine record serve! nil)
+        frozen (export/freeze machine (:record prepared))
+        calls (atom 0)
+        restored (export/rehydrate-fenced
+                   (new-machine {:origin :fresh :capability-secret "fresh-secret"}) (:bytes frozen)
+                   {:address (:address frozen)
+                    :attach (fn [_descriptor]
+                              {:dao.stream/outcome :dao.stream/ok
+                               :dao.stream/handle (counting-handle calls)})})
+        closure (get-in restored [:record :wait-set 0 :env 'f])]
+    (is (values/closure? source-closure) (pr-str (:wait-set source)))
+    (is (= :ok (:status restored)) (pr-str restored))
+    (is (values/closure? closure))
+    (is (values/owned-by? closure (:owner (:machine restored))))
+    (is (not (values/owned-by? closure (:owner source))))
+    (is (zero? @calls))
+    (is (= :exporting (vm/gate-mode (:machine restored))))
+    (is (empty? (:wait-set (:machine restored))))
+    (is (= (vec (:body-bytes frozen))
+           (vec (:bytes (export/encode (:machine restored) (:record restored))))))))
+
+
+(deftest version-one-recovery-retains-operation-ids-issues-and-local-enrollment-test
+  (let [sink (ring 1)
+        [reference base] (engine/attach-resource (new-machine) sink)
+        source (vm/run (load-ast (assoc base :store {'sink reference} :yin.k/gate :running)
+                                 {:type :stream/put :target (v 'sink) :val (lit 42)}))
+        occurrence "00000000-0000-0000-0000-000000000001"
+        op-id {:yin.k/occurrence "00000000-0000-0000-0000-000000000002" :yin.k/seq 0}
+        source (-> source
+                   (assoc :yin.k/issued 10)
+                   (assoc-in [:wait-set 0 :yin.k/issue] 9)
+                   (assoc-in [:wait-set 0 :op-id] op-id))
+        {:keys [machine record]} (export/enter source)
+        {:keys [serve!]} (served-table)
+        header {:yin.k/occurrence occurrence :yin.k/arbitration
+                {:dao.stream/identity "arb" :dao.stream/descriptor {}}
+                :yin.k/next-op-seq 1 :yin.k/enrolled #{"s0"}
+                :yin.k/origin {:yin.k/occurrence "00000000-0000-0000-0000-000000000002"
+                               :dao.lease/lease "lease" :yin.k/emitter "holder"}}
+        prepared (export/prepare machine record serve! header)
+        frozen (export/freeze machine (:record prepared))
+        calls (atom 0)
+        restored (export/rehydrate-fenced
+                   (new-machine) (:bytes frozen)
+                   {:address (:address frozen)
+                    :attach (fn [_]
+                              {:dao.stream/outcome :dao.stream/ok
+                               :dao.stream/handle (counting-handle calls)})})
+        encoded (when (= :ok (:status restored))
+                  (export/encode (:machine restored) (:record restored)))]
+    (is (= :ok (:status prepared)) (pr-str prepared))
+    (is (= :ok (:status restored)) (pr-str restored))
+    (is (= op-id (get-in restored [:record :wait-set 0 :op-id])))
+    (is (= 9 (get-in restored [:record :wait-set 0 :yin.k/issue])))
+    (is (= 10 (get-in restored [:machine :yin.k/issued])))
+    (is (= #{"s0"} (get-in restored [:record :header :yin.k/enrolled])))
+    (is (not (contains? (:body encoded) :yin.k/enrolled)))
+    (is (nil? (get-in restored [:machine :yin.k/custody])))
+    (is (zero? @calls))
+    (is (= (vec (:body-bytes frozen)) (vec (:bytes encoded))))))
+
+
+(deftest rehydrating-an-install-child-does-not-repeat-initialization-or-io-test
+  (let [initializations (atom 0)
+        request (ring 64)
+        response (ring 64)
+        make-stream (fn [capacity]
+                      (swap! initializations inc)
+                      (make-ring-stream capacity))
+        blocked (vm/run (load-ast (new-machine {:make-stream make-stream
+                                                :link-request request :link-response response})
+                                  (then (app (v 'require) (lit 'host.mod)) (app (v 'host.mod/f)))))
+        _ (stream/append! response (assoc (module-response)
+                                          :yin.link/id (:link-id (first (:wait-set blocked)))))
+        source (vm/run blocked)
+        receiver (new-machine {:make-stream make-stream})
+        carried @initializations
+        {:keys [machine record]} (export/enter source)
+        {:keys [serve!]} (served-table)
+        prepared (export/prepare machine record serve! nil)
+        frozen (export/freeze machine (:record prepared))
+        calls (atom 0)
+        restored (export/rehydrate-fenced
+                   receiver (:bytes frozen)
+                   {:address (:address frozen)
+                    :attach (fn [_]
+                              {:dao.stream/outcome :dao.stream/ok
+                               :dao.stream/handle (counting-handle calls)})})]
+    (is (pos? carried))
+    (is (= :ok (:status restored)) (pr-str restored))
+    (is (= carried @initializations))
+    (is (zero? @calls))
+    (is (= :exporting (vm/gate-mode (get-in restored [:machine :installs 'host.mod :vm]))))
+    (is (empty? (get-in restored [:machine :installs 'host.mod :vm :wait-set])))
+    (is (= 1 (count (get-in restored [:record :children 'host.mod :wait-set]))))))
+
+
+(deftest recovery-retains-a-blocked-ffi-request-and-its-response-route-test
+  (let [inbound (reify stream/IDaoStreamWriter
+                  (append! [_ _] {:dao.stream/outcome :dao.stream/full}))
+        outbound (ring 8)
+        source (vm/run (load-ast
+                         (new-machine {:call-in inbound :call-out outbound
+                                       :call-out-cursor (vm/mint-oldest outbound :test)})
+                         {:type :dao.stream.apply/call :op :op/echo :operands [(lit "hello")]}))
+        _ (is (true? (:request-sent (first (:wait-set source)))) (pr-str (:wait-set source)))
+        {:keys [machine record]} (export/enter source)
+        {:keys [serve!]} (served-table)
+        prepared (export/prepare machine record serve! nil)
+        frozen (export/freeze machine (:record prepared))
+        calls (atom 0)
+        restored (export/rehydrate-fenced
+                   (new-machine) (:bytes frozen)
+                   {:address (:address frozen)
+                    :attach (fn [_]
+                              {:dao.stream/outcome :dao.stream/ok
+                               :dao.stream/handle (counting-handle calls)})})]
+    (is (= :ok (:status prepared)) (pr-str prepared))
+    (is (= :ffi-request (get-in (export/encode machine (:record prepared))
+                                [:body :yin.k/frames 0 :yin.k/pending :yin.k/reason])))
+    (is (= :ok (:status restored)) (pr-str restored))
+    (is (= (get-in record [:wait-set 0 :call-id])
+           (get-in restored [:record :wait-set 0 :call-id])))
+    (is (= (get-in record [:wait-set 0 :datom])
+           (get-in restored [:record :wait-set 0 :datom])))
+    (is (zero? @calls))))
