@@ -2442,7 +2442,7 @@
             (undecodable! {:yin.k/segment a :yin.k/defect defect})))
       :walker
       (when-not (and (vector? v) (< 1 (count v)) (= a (first v))
-                     (= a (jing/segment-key (subvec v 1))))
+                     (jing/segment-matches? a (subvec v 1)))
         (refuse! :yin.k/hash-mismatch {:yin.k/segment a}))
       (undecodable! {:yin.k/kind :unsupported-profile}))))
 

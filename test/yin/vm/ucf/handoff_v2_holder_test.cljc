@@ -78,8 +78,12 @@
     (testing (name engine)
       (let [[m _] (s/parked-reader engine)
             make (fn [store] (assoc m :store store))
-            a (make (into (array-map) [['a 1] ['b 2] ['c 3] ['d 4]]))
-            b (make (into (array-map) [['d 4] ['c 3] ['b 2] ['a 1]]))
+            ;; zipmap keeps small-map insertion order on the hosts that
+            ;; have it (so a and b iterate differently there) and
+            ;; compiles on every host -- array-map does not exist on
+            ;; ClojureDart
+            a (make (zipmap '[a b c d] [1 2 3 4]))
+            b (make (zipmap '[d c b a] [4 3 2 1]))
             lift #(handoff/export-task % (:serve! (served-table))
                                        {:version 2})
             ea (lift a)
