@@ -1,0 +1,11 @@
+**Verdict: ACCEPTED.** Report written to `collab/1791384500000-architect-s7-signoff-r2.claude-fable-5-1.findings.md`.
+
+What I verified against the tree, not just the pack:
+
+- **S7-1 closed.** The full-gate log has the exact JVM and Node summary lines at the cited line numbers, Dart ends with all tests passed, and the log contains zero "SKIP slow" lines. The gate test appears as an executed namespace on all three hosts. The log postdates every source mtime, so it reflects the post-revert tree. Four-VM coverage is structural in the runner map the gate iterates. Corpus fixtures were last modified before the round-1 review that hashed them, so those hashes still apply.
+- **S7-2 closed.** All seven mutations are documented with host, detector, and observed failure. The three mutation-target files outside the S7 diff show an empty git diff, confirming restoration. The prelude mutation is covered by the final green gate run on the exact row it would corrupt.
+- **S7-3 closed.** The heap test now registers the data limit and calls admit. Every Python composition under the test tree that registers the integer module also calls admit.
+
+Three non-blocking documentation follow-ups are listed in the report: correct the design's tag-3 detector name, point the design ledger at the sign-off pack instead of the in-progress report, and let "S7 landed" become true at commit time.
+
+Next step is the orchestrator's: commit S7 under the project convention, fold the two doc one-liners in if convenient, and fast-forward master.

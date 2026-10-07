@@ -130,12 +130,19 @@
    renderer. `print` checks the digit limit of every integer it shows
    before it appends anything.
 
+   Sequence repetition (C3 slice S7, ruling 11) checks the exact size of
+   its result against the composition's `data/max-items` before it
+   builds anything; a larger one raises MemoryError. A composition
+   proves it supplies every host name, `data/max-items` and the version
+   4 `integer` exports included, through `admit` before a program runs.
+
    Host names the prelude depends on and does not define: `host-names`
    (the cell module from yin.vm.module, the integer module from
    yin.vm.integer, the rest from yin.vm.data)."
   (:require
     [yang.python.antlr.uast :as u]
-    [yin.vm.integer :as integer]))
+    [yin.vm.integer :as integer]
+    [yin.vm.module :as module]))
 
 
 (def host-names
@@ -150,7 +157,7 @@
      integer/bit-or integer/bit-xor integer/bit-not integer/from-float
      integer/floor-div-mod integer/shift-left integer/format integer/parse
      integer/float-digits integer/decimal->float integer/max-digits
-     data/substring})
+     data/substring data/max-items})
 
 
 (def ^:private core-definitions
@@ -1012,8 +1019,10 @@
     [py/repeat-str
      (fn [s n acc] (if (< 0 n) (py/repeat-str s (- n 1) (data/str-concat acc s)) acc))]
     [py/repeat
-     ;; CPython checks Py_ssize_t even for empty/negative repeats. The
-     ;; portable allocation bound is 2^53-1 items, before host allocation.
+     ;; CPython checks Py_ssize_t even for empty/negative repeats. Then
+     ;; the exact size of the result against the composition's
+     ;; data/max-items (ruling 11): a larger one is a MemoryError before
+     ;; anything is built.
      (fn [s n]
        (if (py/int? n)
          (let [k (py/num n)
@@ -1029,17 +1038,19 @@
                              (if (= (py/kind s) :list)
                                (get (cell/get s) :items) (get s :items)))
                    size (if (py/str? s) (data/str-length items)
-                            (data/count items))]
-               (if (if (= size 0) false
-                       (> (integer/compare k 9007199254740991) 0))
+                            (data/count items))
+                   count (if (if (= size 0) true
+                                 (< (integer/compare k 0) 0)) 0 k)]
+               (if (> (integer/compare
+                        (py/int-result (integer/mul size count))
+                        (data/max-items))
+                      0)
                  (py/int-result :yin.vm.integer/bit-limit)
-                 (let [count (if (if (= size 0) true
-                                     (< (integer/compare k 0) 0)) 0 k)]
-                   (if (py/str? s)
-                     (py/str (py/repeat-str items count ""))
-                     (if (= (py/kind s) :list)
-                       (py/list (py/repeat-items items count []))
-                       (py/tuple (py/repeat-items items count [])))))))))
+                 (if (py/str? s)
+                   (py/str (py/repeat-str items count ""))
+                   (if (= (py/kind s) :list)
+                     (py/list (py/repeat-items items count []))
+                     (py/tuple (py/repeat-items items count []))))))))
          (py/type-error {:py/str "can't multiply sequence by non-int"})))]
     [py/sequence?
      (fn [x]
@@ -2726,12 +2737,16 @@
                    (integer/pow 10 (py/int-result
                                      (integer/neg (py/num ndigits)))))))
              (py/index-type-error ndigits)))
+         ;; CPython finds __round__ on x first, then float.__round__
+         ;; converts ndigits: a non-int is the index TypeError
          (if (py/float? x)
            (if (= ndigits :py/None)
              (py/round-float x)
-             (py/raise-new
-               py.b/NotImplementedError
-               {:py/str "round(float, ndigits) is not supported"}))
+             (if (py/int? ndigits)
+               (py/raise-new
+                 py.b/NotImplementedError
+                 {:py/str "round(float, ndigits) is not supported"})
+               (py/index-type-error ndigits)))
            (py/type-error
              (py/type-text "type " x " doesn't define __round__ method")))))]
 
@@ -3012,3 +3027,28 @@
                       {:yang.python.antlr/refusal :yang.python.antlr/max-bits,
                        ::integer/max-bits b}))))
   (integer/register-integer-module registry limits))
+
+
+(defn admit
+  "Return `registry` when it supplies every one of `host-names`, else
+   refuse it before any program runs, naming each missing export in
+   `:yang.python.antlr/missing`: a version-3 `integer` module (no
+   `float-digits`, `decimal->float`, `max-digits`) or a `data` module
+   registered without `:yin.vm.data/max-items` is a profile mismatch, not a
+   failure of the program that first calls the export. A Python
+   composition calls this after its registrars. Linking replaces it with
+   requirement discovery (yang.antlr.md 8.5.4)."
+  [registry]
+  (let [missing (vec (sort-by str
+                              (remove #(some? (module/resolve-module
+                                                registry
+                                                (symbol (str (namespace %)
+                                                             "."
+                                                             (name %)))))
+                                      host-names)))]
+    (when (seq missing)
+      (throw (ex-info "the composition lacks host names the prelude calls"
+                      {:yang.python.antlr/refusal
+                       :yang.python.antlr/host-names,
+                       :yang.python.antlr/missing missing})))
+    registry))

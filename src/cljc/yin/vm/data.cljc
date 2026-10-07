@@ -7,7 +7,8 @@
    part of `yin.vm/primitives`: a composition whose language runtime
    profile names it installs it explicitly with `register-data-module`,
    and Yin source reaches the exports as `data/count`, `data/substring`
-   and so on.
+   and so on. Under explicit limits it also exports `max-items`, the
+   composition's sequence-size limit (`register-data-module`).
 
    Results are identical on CLJ, CLJS and CLJD:
 
@@ -538,9 +539,38 @@
         exports))
 
 
+(defn- check-limits!
+  "Refuse `limits` unless `::max-items` is a positive native integer: the
+   limit has no default."
+  [limits]
+  (let [v (get limits ::max-items)]
+    (when-not (and (integer-host/exact-integer? v)
+                   (not (integer-host/big-carrier? v))
+                   (pos? v))
+      (throw (ex-info "data module needs an explicit max-items"
+                      {::reason :limits, ::limit ::max-items})))))
+
+
 (defn register-data-module
   "Return registry with the `data` module installed. Composition-only:
-   the module is never in `yin.vm/primitives`."
-  [registry]
-  (module/register-host-module registry module-name data-module
-                               data-profiles))
+   the module is never in `yin.vm/primitives`.
+
+   Under `limits`, the module also exports `max-items`, of no arguments,
+   answering the composition's `::max-items`: the largest item or
+   character count one sequence repetition may produce (a language
+   profile checks it before it builds). `::max-items` must be a positive
+   native integer; there is no default, and without `limits` the export
+   is absent."
+  ([registry]
+   (module/register-host-module registry module-name data-module
+                                data-profiles))
+  ([registry limits]
+   (check-limits! limits)
+   (let [n (::max-items limits)]
+     (module/register-host-module
+       registry module-name
+       (assoc data-module
+              'max-items (arity-checked 'max-items [0] (fn [] n)))
+       (assoc data-profiles
+              'max-items (vm/primitive-profile 'max-items :pure [0] #{}
+                                               :none))))))

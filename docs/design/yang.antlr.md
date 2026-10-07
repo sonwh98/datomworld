@@ -1974,8 +1974,9 @@ cross-ruling's fourteen converged rulings. Of its slices S0 to S7 below,
 S1 (the exact-integer module, `54536317`) has landed, and so has the
 numeric-key, `hash()` and `is` work of rulings 6 to 8 (`be1f8d06`,
 orchestrated as C3-S2, the S5 row's scope), with its S2b follow-up
-(content `is` and hex keys), as have S3 and S4 (conversions and the
-eleven conversion builtins); S6 and S7 are pending. C1
+(content `is` and hex keys), as have S3, S4 (conversions and the
+eleven conversion builtins), S6 (heap and portability) and S7 (the
+integration gate, profile admission and the sequence-size limit). C1
 bounded integer arithmetic at +/-2^53; S3-A replaces that bound with
 exact promotion.
 
@@ -2064,7 +2065,20 @@ migration.
 A separately installed, versioned `:pure` integer module carries the
 exact kernels (ruling 5). It follows `yin.vm.data` (section 9.3): the
 composition installs it explicitly, the Python runtime profile requires
-it, and a composition without it is refused at admission. It declares
+it, and a composition without it is refused at admission. Admission is
+`prelude/admit` (S7): it checks every `prelude/host-names` symbol
+against the registry and refuses, before any program runs, with
+`:yang.python.antlr/refusal :yang.python.antlr/host-names` and the
+missing names in `:yang.python.antlr/missing`, so a version-3 `integer`
+module is refused naming `integer/decimal->float`,
+`integer/float-digits` and `integer/max-digits`, and a `data` module
+without limits naming `data/max-items`. Every Python composition calls
+it after its registrars; linking replaces it with requirement discovery
+(section 8.5.6), refusing by the same names. An image carries no
+profile: a version-1 lift of a halted 2^100 under the wide composition
+resumes under `small` with the value intact, and what that value then
+does under `small` is the S0 `small` column. Profile identity in a
+checkpoint record is L-a's to add. It declares
 arities, raises no effects, holds no host state, never calls back into
 Python, and never touches the heap or store; expected arithmetic
 failures are returned as qualified data for the prelude to translate.
@@ -2204,6 +2218,13 @@ Conversions are acceptance conditions (ruling 9):
   `hex`, `oct` and `bin` format the magnitude in base 16, 8 or 2 with no
   digit limit. `round(x)` of a float is exact half to even; `round(n,
   k)` of an int with negative `k` is half to even through exact powers.
+  As in CPython 3.9.6, `round` first finds `__round__` on the number,
+  so `round('a', 1.5)` is "type str doesn't define __round__ method",
+  and then converts `ndigits`, so `round(1.5, 'x')` is the index
+  `TypeError` before the `round(float, n)` deferral (S7). `pow` and
+  `round` take keywords (`pow(base=2, exp=10)`, `round(number=x,
+  ndigits=k)`), as CPython 3.9.6's do; `int(x=...)` is the recorded
+  divergence. The int-conv-v1 rows measure both (S7).
 - The digit-limit `ValueError` reads "Exceeds the limit (N digits) for
   integer string conversion", N from `integer/max-digits`, for `str`,
   `repr`, `print` and `int(str)` alike. `print` checks every integer it
@@ -2298,6 +2319,28 @@ exhaustion, timeout, and cancellation stay operational (section 11).
 Calling a large synchronous kernel `:pure` does not make it
 interruptible, so C3 makes no mid-primitive safepoint or latency claim.
 
+The sequence-size limit is the same kind of datum (S7, item j): the
+`data` module's `:yin.vm.data/max-items`, a positive native integer, the
+largest item or character count one repetition may produce, exported
+as `data/max-items` only by the two-arity `register-data-module`; there
+is no default, and the one-arity registration, which exports no
+`max-items`, is refused by `admit`. Python test compositions use
+1048576. `py/repeat` (`*` and `*=` on str, list and tuple) keeps
+CPython's order: a non-int count is `TypeError`, a count outside
+Py_ssize_t `OverflowError` ("cannot fit 'int' into an index-sized
+integer"), a negative count is 0; then the exact size `len * count`,
+through `integer/mul`, is compared with `data/max-items`, and a larger
+one is `MemoryError` with empty args before anything is built (a size
+past the bit limit is the same `MemoryError`). Only repetition is
+checked: `list(range(n))`, appends and comprehensions grow
+incrementally, are interruptible at safepoints, and stay operational.
+Three divergences are accepted: a left shift past allocation scale is
+`MemoryError` where CPython raises `OverflowError` or fails to allocate
+(the profile's bit limit is the allocation model); `float('-nan')` is
+the one NaN, its sign unset (revisited only with a bits-to-float `data`
+export); and CPython's Unicode printable escapes in `repr` are later,
+beside ruling 13's unclaimed `format`, `%` and `round(x, n)`.
+
 The stream codec is not widened and C3 builds no new adapter (ruling
 12). A raw remote put of a bignum refuses with a qualified outcome;
 canonical Jing bytes through the existing `dao.jing.stream` adapter are
@@ -2352,7 +2395,8 @@ claimed for `repr`, `str` and `print` of every double, as amended in S4
 |        | cell-lift and raw-transport refusals, version-0 refusal. Landed.    |
 +--------+---------------------------------------------------------------------+
 | S7     | Integration gate over the full C1 and C3 corpus, profile mismatch,  |
-|        | and resource-limit fixtures.                                        |
+|        | and resource-limit fixtures: corpus `c3-corpus-v1`, `admit`,        |
+|        | `data/max-items`, the `round` argument order. Landed.               |
 +--------+---------------------------------------------------------------------+
 ```
 
@@ -2374,6 +2418,20 @@ C3 is complete only with (ruling 14):
   demotion, double-coerced keys, omitted floor adjustment, `abs(n)` for
   tag 3, host `number?` as the only scalar gate, and a prematurely
   narrowed shift count.
+
+The detectors are source programs (S7): `c3_programs.cljc` holds ten,
+one per theme (promotion, demotion, keys, divmod, shifts, power,
+conversions, signed zero, and the `wide` and `small` limits), as CST
+packets the JVM parser makes, and `c3-corpus-v1.txt` their stdout,
+CPython 3.9.6's from `c3-corpus-v1.generate.py` except the two limit
+programs, which are labelled hand pins. `c3_gate_test` runs every packet
+on the four VMs on every host; `c3_gate_parser_test` binds each packet
+to the parser and its docstring to the corpus source, and runs every
+source naive and under no-op hooks. The mutation evidence is in the S7
+engineer's sign-off pack (`collab/1791379500000-engineer-s7-signoff-pack.md`,
+archived with the slice); S6's report holds the scalar-gate and decoder
+mutations (with codec-level tag-3 detection verified by S6 T4 `scalar-round-trip-test`
+and the int-contract recompute and round-trip tests).
 
 The module slices S0 and S1 may run alongside C2; the prelude and
 lowering slices land after C2 and audit its arithmetic sites. The

@@ -57,18 +57,31 @@
   (prelude/register-integer-module registry integer-limits))
 
 
+(def data-limits
+  "The `data` limit the Python compositions here install (C3 ruling 11)."
+  {::data/max-items 1048576})
+
+
+(defn register-data-module
+  "Install the `data` module under `data-limits`."
+  [registry]
+  (data/register-data-module registry data-limits))
+
+
 (def host-registrars
   "Registry steps the lowered programs need."
-  '[yin.vm.module/register-cell-module yin.vm.data/register-data-module
+  '[yin.vm.module/register-cell-module
+    yang.python.antlr.e2e-test/register-data-module
     yang.python.antlr.e2e-test/register-integer-module])
 
 
 (defn host-registry
-  "The registry with the cell and data modules installed."
+  "The registry with the cell, data and integer modules installed,
+   admitted by the Python profile."
   []
-  (reduce (fn [reg sym] ((requiring-resolve sym) reg))
-          (module/empty-registry)
-          host-registrars))
+  (prelude/admit (reduce (fn [reg sym] ((requiring-resolve sym) reg))
+                         (module/empty-registry)
+                         host-registrars)))
 
 
 ;; =============================================================================
@@ -590,9 +603,10 @@
             exception"
     (let [registry (-> (module/empty-registry)
                        module/register-cell-module
-                       data/register-data-module
+                       (data/register-data-module {::data/max-items 1048576})
                        (integer/register-integer-module
-                         {::integer/max-bits 60, ::integer/max-digits 5}))
+                         {::integer/max-bits 60, ::integer/max-digits 5})
+                       prelude/admit)
           source (str "d = {1: 'a'}\n"
                       "s = {1, 2}\n"
                       "try:\n"

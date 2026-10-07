@@ -98,6 +98,96 @@
      ['(py/truthy (py/list [])) false]]))
 
 
+(deftest round-argument-order-test
+  ;; CPython 3.9.6 looks up __round__ on the number before it converts
+  ;; ndigits (int-conv-v1 measures these): a non-int ndigits is the
+  ;; index TypeError for a number, never the round(float, n) deferral
+  (check-cases*
+    ops/runners
+    [['(args-of (fn [] (py/round-conv (py/float 1.5) (py/str "x"))))
+      [{:py/str "'str' object cannot be interpreted as an integer"}]]
+     ['(args-of (fn [] (py/round-conv (py/float 1.5) (py/float 1.5))))
+      [{:py/str "'float' object cannot be interpreted as an integer"}]]
+     ['(args-of (fn [] (py/round-conv (py/str "a") (py/float 1.5))))
+      [{:py/str "type str doesn't define __round__ method"}]]
+     ['(caught (fn [] (py/round-conv (py/float 2.5) true)))
+      "NotImplementedError"]
+     ['(py/round-conv 7 :py/None) 7]]))
+
+
+(deftest sequence-repetition-limit-test
+  ;; Hand pins, not CPython 3.9.6 (C3 S7, ruling 11): this composition's
+  ;; data/max-items is 1048576; a larger result is a MemoryError with
+  ;; empty args before anything is built
+  (check-cases*
+    ops/runners
+    [['(args-of (fn []
+                  (py/mul (py/str "a")
+                          (integer/sub (integer/pow 2 53) 1))))
+      []]
+     ['(caught (fn []
+                 (py/mul (py/str "a")
+                         (integer/sub (integer/pow 2 53) 1))))
+      "MemoryError"]
+     ['(caught (fn [] (py/mul (py/list (py/conj [] 0)) (integer/pow 2 62))))
+      "MemoryError"]
+     ['(caught (fn [] (py/mul (py/list (py/conj (py/conj [] 1) 2)) 524289)))
+      "MemoryError"]
+     ['(caught (fn [] (py/mul 524289 (py/tuple (py/conj (py/conj [] 1) 2)))))
+      "MemoryError"]
+     ['(caught (fn [] (py/mul (py/str "ab") 524289))) "MemoryError"]
+     ['(py/mul (py/str "") (integer/pow 2 62)) {:py/str ""}]
+     ['(py/mul (py/str "ab") 3) {:py/str "ababab"}]
+     ['(py/mul (py/str "ab") true) {:py/str "ab"}]
+     ['(py/mul (py/str "ab") -3) {:py/str ""}]
+     ['(get (py/mul (py/tuple (py/conj [] 1)) 3) :items) [1 1 1]]
+     ['(args-of (fn [] (py/mul (py/str "a") (integer/pow 2 63))))
+      [{:py/str "cannot fit 'int' into an index-sized integer"}]]
+     ['(py/mul (py/str "") (integer/neg (integer/pow 2 63))) {:py/str ""}]
+     ['(caught (fn []
+                 (py/mul (py/str "a")
+                         (integer/sub (integer/neg (integer/pow 2 63))
+                                      1))))
+      "OverflowError"]
+     ['(caught (fn [] (py/mul (py/str "a") (py/float 2.5)))) "TypeError"]
+     ['(let [x (py/list (py/conj [] 1))]
+         (py/conj (py/conj [] (py/is (py/imul x 3) x)) (py/len x)))
+      [true 3]]
+     ['(let [x (py/list (py/conj [] 1))]
+         (py/conj (py/conj [] (caught (fn [] (py/imul x 1048577))))
+                  (py/len x)))
+      ["MemoryError" 1]]]))
+
+
+(deftest ^:slow sequence-repetition-boundary-test
+  ;; Hand pins: exactly data/max-items items build; one more is refused
+  (slow/guard
+    "sequence-repetition-boundary-test"
+    (fn []
+      (check-cases*
+        ops/runners
+        [['(py/len (py/mul (py/list (py/conj (py/conj [] 1) 2)) 524288))
+          1048576]
+         ['(caught (fn []
+                     (py/mul (py/list (py/conj (py/conj [] 1) 2))
+                             524289)))
+          "MemoryError"]]))))
+
+
+(deftest small-profile-repetition-test
+  ;; Hand pins under the `small` profile (60 bits): the exact size breaches
+  ;; the bit limit or max-items first, one class either way
+  (check-cases*
+    ops/small-runners
+    [['(caught (fn [] (py/mul (py/str "a") (integer/pow 2 59))))
+      "MemoryError"]
+     ['(caught (fn []
+                 (py/mul (py/list (py/conj (py/conj [] 1) 2))
+                         (integer/pow 2 59))))
+      "MemoryError"]
+     ['(py/mul (py/str "ab") 3) {:py/str "ababab"}]]))
+
+
 (deftest deferred-items-test
   (check-cases*
     ops/runners
@@ -266,6 +356,10 @@
 
 
 (deftest string-literal-lint-test
+  "Scope: prelude/function-definitions, the core helpers only. The
+   builtin function definitions are private and are not walked: that
+   every {:py/str x} literal there holds a string rests on review, not
+   on this test."
   (let [bad (atom [])]
     (walk/postwalk
       (fn [x]
@@ -289,13 +383,27 @@
                                (py/divmod a z))))))))))
 
 
+(def ^:private keyword-op
+  ;; pow(base=a, exp=b) and round(number=a, ndigits=b), through the
+  ;; builtins' own binding
+  '(fn [op a b]
+     (let [kw (fn [k x] (py/conj (py/conj [] k) x))]
+       (if (= op "pow_kw")
+         (py/call-kw py.b/pow [] (py/conj (py/conj [] (kw "base" a))
+                                          (kw "exp" b)))
+         (py/call-kw py.b/round [] (py/conj (py/conj [] (kw "number" a))
+                                            (kw "ndigits" b)))))))
+
+
 (def ^:private number-op
   '(fn [op a b]
      (if (= op "abs") (py/abs-conv a)
          (if (= op "round1") (py/round-conv a :py/None)
              (if (= op "round_int") (py/round-conv a b)
                  (if (= op "pow_float") (py/pow a b)
-                     (radix-op op a b)))))))
+                     (if (if (= op "pow_kw") true (= op "round_kw"))
+                       (keyword-op op a b)
+                       (radix-op op a b))))))))
 
 
 (def ^:private conversion-op
@@ -315,7 +423,7 @@
   [rows]
   (list 'let
         ['decode-number ops/decode-number 'radix-op radix-op
-         'number-op number-op 'operate conversion-op
+         'keyword-op keyword-op 'number-op number-op 'operate conversion-op
          'rows rows 'loop
          '(fn [self i acc]
             (if (< i (data/count rows))

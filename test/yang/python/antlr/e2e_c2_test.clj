@@ -11,6 +11,7 @@
     [yang.python.antlr.e2e-test :as e2e]
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.parser :as parser]
+    [yang.python.antlr.prelude :as prelude]
     [yin.vm :as vm]
     [yin.vm.data :as data]
     [yin.vm.debruijn-linearize :as dl]
@@ -1129,9 +1130,10 @@
    :primitives vm/primitives,
    :modules (-> (module/empty-registry)
                 module/register-cell-module
-                data/register-data-module
+                (data/register-data-module {::data/max-items 1048576})
                 (integer/register-integer-module
-                  {::integer/max-bits 100000, ::integer/max-digits 4300}))})
+                  {::integer/max-bits 100000, ::integer/max-digits 4300})
+                prelude/admit)})
 
 
 (def ^:private load-semantic

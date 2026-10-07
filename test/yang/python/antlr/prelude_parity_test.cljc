@@ -36,8 +36,9 @@
    :primitives vm/primitives,
    :modules (-> (module/empty-registry)
                 module/register-cell-module
-                data/register-data-module
-                (prelude/register-integer-module limits))})
+                (data/register-data-module {::data/max-items 1048576})
+                (prelude/register-integer-module limits)
+                prelude/admit)})
 
 
 (def ^:private load-semantic-ast

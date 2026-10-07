@@ -1010,3 +1010,14 @@ zdiv	f:7ff8000000000000	0	!ZeroDivisionError	float division by zero
 zdiv	f:7ff8000000000000	1	!ZeroDivisionError	float floor division by zero
 zdiv	f:7ff8000000000000	2	!ZeroDivisionError	float modulo
 zdiv	f:7ff8000000000000	3	!ZeroDivisionError	float divmod()
+pow_float	f:3fe0000000000000	-2000	!OverflowError	(34, 'Result too large')
+round_int	f:3ff8000000000000	s:78	!TypeError	'str' object cannot be interpreted as an integer
+round_int	s:61	f:3ff8000000000000	!TypeError	type str doesn't define __round__ method
+round_int	f:3ff8000000000000	f:3ff8000000000000	!TypeError	'float' object cannot be interpreted as an integer
+round_int	2	s:78	!TypeError	'str' object cannot be interpreted as an integer
+round_int	2	f:3ff8000000000000	!TypeError	'float' object cannot be interpreted as an integer
+round_int	s:61	s:78	!TypeError	type str doesn't define __round__ method
+pow_kw	2	10	1024
+pow_kw	f:4000000000000000	-1	f:3fe0000000000000
+round_kw	1250	-2	1200
+round_kw	7	0	7

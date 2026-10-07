@@ -27,7 +27,9 @@
     [yin.vm.linearize :as linearize]
     [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]))
+    [yin.vm.test-utils :as tu]
+    [yin.vm.ucf.handoff :as handoff]
+    [yin.vm.ucf.lift-support :as s]))
 
 
 (def ^:private fixture (delay (f/read-file)))
@@ -148,8 +150,9 @@
    :primitives vm/primitives,
    :modules (-> (module/empty-registry)
                 module/register-cell-module
-                data/register-data-module
-                (integer/register-integer-module limits))})
+                (data/register-data-module {::data/max-items 1048576})
+                (integer/register-integer-module limits)
+                prelude/admit)})
 
 
 (def ^:private load-semantic-ast
@@ -387,6 +390,111 @@
 (deftest ^:slow guest-limit-reasons-on-every-vm-test
   (slow/guard "guest-limit-reasons-on-every-vm-test"
               guest-limit-reasons-on-every-vm))
+
+
+;; =============================================================================
+;; Profile mismatch (C3 S7, PM1 and PM2)
+;; =============================================================================
+
+(defn- registry-under
+  "The Python composition: cell, `data` with `data-limits` (nil: none),
+   and `integer` installed by `register-integer` under `limits`."
+  [data-limits register-integer limits]
+  (-> (module/empty-registry)
+      module/register-cell-module
+      (cond-> (some? data-limits) (data/register-data-module data-limits)
+              (nil? data-limits) data/register-data-module)
+      (register-integer limits)))
+
+
+(def ^:private wide-limits
+  {::integer/max-bits 100000, ::integer/max-digits 4300})
+
+
+(def ^:private items {::data/max-items 1048576})
+
+
+(defn- version-3-integer
+  "The `integer` module as version 3 had it: no `float-digits`,
+   `decimal->float` or `max-digits`."
+  [registry limits]
+  (module/register-host-module
+    registry 'integer
+    (dissoc (integer/integer-module limits)
+            'float-digits 'decimal->float 'max-digits)
+    integer/integer-profiles))
+
+
+(defn- refusal-of
+  [thunk]
+  (try (thunk)
+       :admitted
+       (catch #?(:cljd Object :clj Exception :cljs :default) e
+         (ex-data e))))
+
+
+(deftest profile-mismatch-is-refused-by-name-test
+  (testing "a version-3 integer module is refused naming exactly the three
+            exports version 4 added"
+    (is (= {:yang.python.antlr/refusal :yang.python.antlr/host-names,
+            :yang.python.antlr/missing '[integer/decimal->float
+                                         integer/float-digits
+                                         integer/max-digits]}
+           (refusal-of #(prelude/admit
+                          (registry-under items version-3-integer
+                                          wide-limits))))))
+  (testing "a data module registered without limits is refused naming
+            data/max-items"
+    (is (= {:yang.python.antlr/refusal :yang.python.antlr/host-names,
+            :yang.python.antlr/missing '[data/max-items]}
+           (refusal-of #(prelude/admit
+                          (registry-under nil integer/register-integer-module
+                                          wide-limits))))))
+  (testing "the full composition is admitted, unchanged"
+    (let [r (registry-under items prelude/register-integer-module
+                            wide-limits)]
+      (is (identical? r (prelude/admit r)))))
+  (testing "under 52 bits the profile's own registrar refuses first"
+    (is (= :yang.python.antlr/max-bits
+           (:yang.python.antlr/refusal
+             (refusal-of #(prelude/admit
+                            (registry-under items
+                                            prelude/register-integer-module
+                                            {::integer/max-bits 52,
+                                             ::integer/max-digits 4300}))))))))
+
+
+(deftest an-image-carries-no-profile-test
+  (testing "a halted result holding 2^100, lifted under the wide
+            composition with a version-1 header, resumes under `small`
+            intact: the body names no limit, and under `small` the value
+            meets the S0 `small` column"
+    (let [wide (prelude/admit (registry-under items
+                                              prelude/register-integer-module
+                                              wide-limits))
+          small (prelude/admit (registry-under items
+                                               prelude/register-integer-module
+                                               {::integer/max-bits 60,
+                                                ::integer/max-digits 5}))
+          m (vm/run (s/load-ast (s/new-machine {:modules wide})
+                                (s/app (s/v 'integer/pow) (s/lit 2)
+                                       (s/lit 100))))
+          r (s/lift m (s/header 0 s/origin #{}))
+          out (handoff/resume-task (s/new-machine {:modules small})
+                                   (:bytes r) (fn [_] nil))
+          resumed? (= :ok (:status out))]
+      (is (= :ok (:status r)) (pr-str (dissoc r :bytes)))
+      (is (= 1 (:yin.k/version (:body r))))
+      (is (not-any? #{::integer/max-bits ::integer/max-digits
+                      ::data/max-items}
+                    (tree-seq coll? seq (:body r))))
+      (is resumed? (pr-str (dissoc out :vm)))
+      (when resumed?
+        (let [n (vm/value (:vm out))]
+          (is (= (f/column @fixture "2^100" "dec")
+                 (f/call (f/module 128 64) 'format n)))
+          (is (= (f/column @fixture "2^100" "small")
+                 (f/outcomes "small" n))))))))
 
 
 ;; =============================================================================

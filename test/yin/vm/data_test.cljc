@@ -381,6 +381,47 @@
                             (get data/data-module 'str-split)]))))))
 
 
+(defn- limit-refusal
+  "`[message ex-data]` of a two-arity registration under `limits`, or
+   `:registered`."
+  [limits]
+  (try
+    (data/register-data-module (module/default-registry) limits)
+    :registered
+    (catch #?(:cljd Object :clj Exception :cljs :default) e
+      [(ex-message e) (ex-data e)])))
+
+
+(deftest max-items-is-a-composition-datum-test
+  (testing "the one-arity registration exports no max-items"
+    (let [r (data/register-data-module (module/default-registry))]
+      (is (nil? (module/resolve-module r 'data.max-items)))
+      (is (not (contains? data/data-module 'max-items)))))
+  (testing "the two-arity registration adds max-items, answering the
+            composition's limit, a pure export of no arguments"
+    (let [r (data/register-data-module (module/default-registry)
+                                       {::data/max-items 1048576})
+          f (module/resolve-module r 'data.max-items)]
+      (is (= 1048576 (f)))
+      (is (identical? (get data/data-module 'count)
+                      (module/resolve-module r 'data.count)))
+      (is (= #{} (get-in r [:callable-effects f])))
+      (is (= [data/refusal-message
+              {::data/op 'max-items, ::data/reason :arity, ::data/argc 1}]
+             (try [:returned (f 1)]
+                  (catch #?(:cljd Object :clj Exception :cljs :default) e
+                    [(ex-message e) (ex-data e)]))))))
+  (testing "no default: the limit must be a positive native integer"
+    (doseq [limits [{} {::data/max-items 0} {::data/max-items -1}
+                    {::data/max-items 1.5} {::data/max-items nil}
+                    {::data/max-items "1"}]]
+      (is (= ["data module needs an explicit max-items"
+              {::data/reason :limits, ::data/limit ::data/max-items}]
+             (limit-refusal limits))
+          (pr-str limits)))
+    (is (= :registered (limit-refusal {::data/max-items 1})))))
+
+
 ;; =============================================================================
 ;; The four VMs
 ;; =============================================================================
@@ -492,6 +533,15 @@
     (doseq [[k result] (on-every-vm with-data
                                     (d 'nth (lit [1]) (lit 5)))]
       (is (= (into [:thrown] (out-of-range 'nth 5 0 0)) result) (str k)))))
+
+
+(deftest max-items-on-every-vm-test
+  (doseq [[k result] (on-every-vm
+                       {:modules (data/register-data-module
+                                   (module/default-registry)
+                                   {::data/max-items 1048576})}
+                       (d 'max-items))]
+    (is (= 1048576 (vm/value result)) (str k))))
 
 
 (deftest absent-without-registration-on-every-vm-test

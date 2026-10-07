@@ -33,9 +33,10 @@
    :gc-threshold 2,
    :modules (-> (module/empty-registry)
                 module/register-cell-module
-                data/register-data-module
+                (data/register-data-module {::data/max-items 1048576})
                 (prelude/register-integer-module
-                  {::integer/max-bits 100000, ::integer/max-digits 4300}))})
+                  {::integer/max-bits 100000, ::integer/max-digits 4300})
+                prelude/admit)})
 
 
 (defn- boundaries

@@ -6,7 +6,8 @@ from pathlib import Path
 
 assert sys.version_info[:3] == (3, 9, 6), sys.version
 OPS = ('int_str', 'int_float', 'float_int', 'str_int', 'hex', 'oct',
-       'bin', 'round1', 'round_int', 'abs', 'pow_float', 'zdiv')
+       'bin', 'round1', 'round_int', 'abs', 'pow_float', 'zdiv',
+       'pow_kw', 'round_kw')
 rows = []
 
 
@@ -43,6 +44,8 @@ def measure(op, a, b=None):
                 2: lambda: a % 0.0,
                 3: lambda: divmod(a, 0.0),
             }[b](),
+            'pow_kw': lambda: pow(base=a, exp=b),
+            'round_kw': lambda: round(number=a, ndigits=b),
         }[op]()
         tail = [token(result)]
     except Exception as e:
@@ -113,6 +116,16 @@ for x in (2, 2.0):
 for x in (1.0, -1.0, math.inf, math.nan):
     for op in range(4):
         measure('zdiv', x, op)
+# C3 S7: 0.5 ** -2000; round() finds __round__ on the number before it
+# converts ndigits; pow and round take keywords.
+measure('pow_float', 0.5, -2000)
+for x, nd in ((1.5, 'x'), ('a', 1.5), (1.5, 1.5), (2, 'x'), (2, 1.5),
+              ('a', 'x')):
+    measure('round_int', x, nd)
+for x, e in ((2, 10), (2.0, -1)):
+    measure('pow_kw', x, e)
+for x, nd in ((1250, -2), (7, 0)):
+    measure('round_kw', x, nd)
 Path('test/resources/yang/python/int-conv-v1.txt').write_text(
     'int-conv-v1\nCPython 3.9.6\n' + '\n'.join(dict.fromkeys(rows)) + '\n')
 print(len(set(rows)), 'measured rows')
