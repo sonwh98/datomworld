@@ -154,7 +154,7 @@
   (install-image vm segment))
 
 
-(defn- relocate
+(defn relocate
   "Shift every `:pc`-kind operand of `inst` by `offset`."
   [offset inst]
   (reduce (fn [inst [i [_ kind]]]
@@ -188,7 +188,7 @@
                              [ident offset (count image)]))))))
 
 
-(defn- row-at
+(defn row-at
   "The offset-table row whose range holds `pc`; a pc one past the end of
    the last row (the pc after a final instruction) falls in that row."
   [images pc]
@@ -197,6 +197,151 @@
             images)
       (let [[_ off len :as row] (peek images)]
         (when (and row (= pc (+ off len))) row))))
+
+
+;; =============================================================================
+;; Layouts: the ordered image list a code space is built from (UCF v2, 4.1)
+;; =============================================================================
+
+(def max-layout-length
+  "2^52-1: the largest length sum a layout may name."
+  4503599627370495)
+
+
+(defn unrelocate
+  "The inverse of `relocate`: shift every `:pc`-kind operand of `inst`
+   down by `offset`."
+  [offset inst]
+  (relocate (- offset) inst))
+
+
+(defn layout
+  "The ordered identities of `vm`'s offset table: its current layout."
+  [vm]
+  (mapv #(nth % 0) (:images vm)))
+
+
+(defn compose
+  "The code space `images`, the component images in layout order,
+   build: `{:segment :hash :images}` where `:segment` is the relocated
+   concatenation, `:images` the offset table derived by prefix sums, and
+   `:hash` the concatenation's H.  A length sum beyond 2^52-1 refuses
+   with `:layout-overflow`; nothing here validates an image."
+  [images]
+  (let [{:keys [segment rows]}
+        (reduce (fn [{:keys [segment rows]} image]
+                  (let [offset (count segment)
+                        total (+ offset (count image))]
+                    (when (> total max-layout-length)
+                      (throw (ex-info "Layout length overflow"
+                                      {:rule :layout-overflow})))
+                    {:segment (into segment (map #(relocate offset %)) image)
+                     :rows (conj rows [(dcode/image-hash image) offset
+                                       (count image)])}))
+                {:segment [] :rows []}
+                images)]
+    {:segment segment :hash (dcode/image-hash segment) :images rows}))
+
+
+(defn layout-images
+  "The component image of each row of the offset table `images` over
+   `segment`, unrelocated, in table order; nil unless the table is
+   contiguous from zero, covers the whole segment, and every slice
+   rehashes to its row's identity."
+  [segment images]
+  (loop [rows (seq images), expected 0, out []]
+    (if-let [[ident off len] (first rows)]
+      (let [slice (when (and (= off expected) (<= (+ off len) (count segment)))
+                    (mapv #(unrelocate off %) (subvec segment off (+ off len))))]
+        (when (and slice (= ident (dcode/image-hash slice)))
+          (recur (next rows) (+ off len) (conj out slice))))
+      (when (= expected (count segment)) out))))
+
+
+(defn rebuild
+  "`vm` over the code space `images` (the component images in layout
+   order) build, as `load-image` would admit them: each non-empty image
+   is admitted alone under the stack contract; the registers are reset
+   and the machine stays whatever the caller makes it.  The store, the
+   parked map, the queues and the composition values survive."
+  [vm images]
+  (doseq [image images]
+    (admit! image vm/stack-contract))
+  (let [{:keys [segment hash images]} (compose images)]
+    (assoc vm
+           :segment segment
+           :hash hash
+           :images images
+           :pc 0
+           :frames []
+           :stack []
+           :continuation []
+           :store-of nil)))
+
+
+(def boundary-ops
+  "The mnemonics whose successor may be a resume pc: `:call`,
+   `:stream-put`, `:stream-next`, `:ffi-call`, `:current-continuation`
+   and `:park`."
+  #{:call :stream-put :stream-next :ffi-call :current-continuation :park})
+
+
+(defn continuation-defect
+  "The first defect of a native stack payload, or nil: the format, the
+   code space (an unrelocated slice per row, each rehashing to its
+   identity and image-valid, the concatenation rehashing to `:hash`),
+   `:image` equal to the row of the resume pc in its own table, a resume
+   pc strictly inside the captured code space whose site (the pc before)
+   is one of `sites`, and every return frame resuming strictly inside
+   after a non-tail `:call`, with stack bases nondecreasing and no
+   deeper than the saved operand stack.  Pure data: nothing runs."
+  [payload sites]
+  (let [{:keys [segment images pc stack frames continuation]} payload
+        n (count segment)
+        defect (fn [rule & kvs] (apply hash-map :rule rule kvs))]
+    (cond
+      (not= format-tag (:format payload)) (defect :continuation-format)
+      (not (and (vector? segment) (vector? images)))
+      (defect :continuation-segment)
+
+      :else
+      (let [slices (layout-images segment images)]
+        (cond
+          (nil? slices) (defect :continuation-segment)
+          (some (fn [slice]
+                  (and (seq slice) (dcode/image-defect slice)))
+                slices)
+          (defect :continuation-segment)
+          (not= (dcode/image-hash segment) (:hash payload))
+          (defect :continuation-hash)
+          (not (and (nat-int? pc) (< 0 pc n)))
+          (defect :continuation-pc :pc pc)
+          (not (contains? sites (nth (nth segment (dec pc)) 0)))
+          (defect :continuation-site :pc pc)
+          (not= (:image payload) (nth (row-at images pc) 0 nil))
+          (defect :continuation-image)
+          (not (and (vector? stack) (vector? frames)
+                    (every? vector? frames) (vector? continuation)))
+          (defect :continuation-shape)
+          :else
+          (let [r (reduce
+                    (fn [base frame]
+                      (let [rp (:return-pc frame)
+                            b (:stack-base frame)
+                            site (when (and (nat-int? rp) (< 0 rp n))
+                                   (nth segment (dec rp)))]
+                        (if (and (map? frame)
+                                 (= :call (first site))
+                                 (false? (nth site 2))
+                                 (vector? (:frames frame))
+                                 (every? vector? (:frames frame))
+                                 (nat-int? b)
+                                 (<= base b (count stack)))
+                          b
+                          (reduced (defect :return-frame :return-pc rp)))))
+                    0
+                    continuation)]
+            (when (map? r) r)))))))
 
 
 (defn image-pc

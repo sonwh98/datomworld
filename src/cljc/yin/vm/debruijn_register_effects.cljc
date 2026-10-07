@@ -210,7 +210,7 @@
                                :frame-index frame-idx})))))))))))
 
 
-(defn- unrelocate
+(defn unrelocate
   "Shift every `:pc`-kind operand of `inst` back by `offset`."
   [offset inst]
   (reduce (fn [inst [i [_ kind]]]
@@ -219,7 +219,7 @@
           (map-indexed vector (get rcode/opcode-table (nth inst 0)))))
 
 
-(defn- image-slice
+(defn image-slice
   "The image an offset-table row `[identity offset length]` names inside
    the concatenated `segment`, relocated back to its own pc 0."
   [{:keys [bodies instructions]} [_ off len]]
@@ -234,7 +234,7 @@
                        (subvec instructions off (+ off len)))})
 
 
-(defn- table-defect
+(defn table-defect
   "The first defect of offset table `images` as a description of a code
    space of `n` instructions: every row is `[identity offset length]`,
    the rows are in offset order, each starts where the one before it

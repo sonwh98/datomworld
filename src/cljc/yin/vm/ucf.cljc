@@ -27,6 +27,7 @@
    Content addressing is delegated entirely to `dao.jing`; nothing here
    knows how a vector is serialized."
   (:require [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [yin.vm :as vm]
             [yin.vm.code :as code]))
 
@@ -45,6 +46,49 @@
    before lowering; a code index is keyed per stamp."
   {:yin.code/contract vm/semantic-contract,
    :yin.k/version 0})
+
+
+(def profiles
+  "The version-2 execution profile registry (UCF v2 amendment, section 1):
+   the closed set of exact `:yin.k/contract` maps a version-2 body may
+   carry, by engine.  The engine names are literal unqualified keywords,
+   not the kernels' runtime `:format`s; walker and semantic share the
+   contract string `v3` and differ by engine alone.  `contract-stamp`
+   stays the frozen version-0/1 stamp."
+  {:semantic {:yin.k/engine :semantic
+              :yin.code/contract vm/semantic-contract
+              :yin.k/version 1}
+   :stack {:yin.k/engine :stack
+           :yin.code/contract vm/stack-contract
+           :yin.k/version 1}
+   :register {:yin.k/engine :register
+              :yin.code/contract vm/register-contract
+              :yin.k/version 1}
+   :walker {:yin.k/engine :walker
+            :yin.code/contract vm/ast-contract
+            :yin.k/version 1}})
+
+
+(def supported-profiles
+  "Every profile map a version-2 reader of this composition accepts."
+  (set (vals profiles)))
+
+
+(defn profile-engine
+  "The engine of `profile` when it is exactly one registry entry, the
+   inner version compared on the canonical integer kind so a float
+   carrier never equals its integral value; nil otherwise."
+  [profile]
+  (when (and (map? profile) (= 3 (count profile)))
+    (let [engine (:yin.k/engine profile)
+          p (get profiles engine)
+          v (:yin.k/version profile)]
+      (when (and p
+                 (= (:yin.code/contract p) (:yin.code/contract profile))
+                 (cbor/numeric? v)
+                 (= :integer (cbor/numeric-kind v))
+                 (cbor/num= v (:yin.k/version p)))
+        engine))))
 
 
 ;; =============================================================================

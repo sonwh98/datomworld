@@ -3218,3 +3218,24 @@
         (is (seq (requests-of world' "holder-a" :yin.k/release)))
         (is (= 1 (count (read-all (:diagnostics prepared))))
             "one diagnostic, the run end's own")))))
+
+
+(deftest a-version-two-fork-lift-is-the-composition-choice-test
+  (let [machine (source-machine)
+        w (world :holders ["holder-a"])
+        d (source-driver w "holder-a" machine nil)
+        d (-> d
+              (update-in [:state :export] assoc :role nil :arbitration nil)
+              (assoc-in [:state :export-version] 2))
+        lifted (drive-to w d (fn [st] (= :lifted (:phase st))) 5)
+        bytes (get-in lifted [:state :detail :bytes])
+        body (cbor/decode bytes)]
+    (is (= :lifted (:phase (:state lifted))))
+    (is (= :yin.k/ok (:status (:state lifted))))
+    (is (= 2 (:yin.k/version body))
+        "the version-2 lift is selected by the composition, never inferred")
+    (is (not-any? #(contains? body %)
+                  [:yin.k/policy :yin.k/occurrence :yin.k/arbitration
+                   :yin.k/origin :yin.k/next-op-seq])
+        "a fork carries no custody header")
+    (is (= [] (journal-of (:journal-frames lifted))))))

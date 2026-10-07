@@ -211,6 +211,7 @@
    :renewal-interval (:renewal-interval config)
    :units units
    :receiver (:receiver config)
+   :export-version (:export-version config)
    :seams (-> (select-keys config (into seams optional-seams))
               (assoc :journal (:journal config)
                      :content-store (:store config)
@@ -971,7 +972,7 @@
    ledger fold."
   [state]
   (let [cell (:export state)
-        e (export/enter (:machine cell))]
+        e (export/enter (:machine cell) {:version (:export-version state)})]
     (if (not= :ok (:status e))
       (failed state e)
       (let [[enrolled reason] (enrolled-of state)]
@@ -1007,7 +1008,7 @@
   (let [cell (:export state)]
     (cond
       (nil? (:m cell))
-      (let [e (export/enter (:machine cell))]
+      (let [e (export/enter (:machine cell) {:version (:export-version state)})]
         (if (= :ok (:status e))
           (assoc state :export (assoc cell
                                       :m (:machine e)
@@ -1073,7 +1074,7 @@
    :machine and travels in the cell; the answer is the armed state or
    the refusal, never both."
   [state role]
-  (let [e (export/enter (:machine state))]
+  (let [e (export/enter (:machine state) {:version (:export-version state)})]
     (if (= :ok (:status e))
       {:state (-> state
                   (assoc :machine (:machine e))

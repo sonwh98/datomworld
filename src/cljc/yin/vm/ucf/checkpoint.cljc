@@ -43,13 +43,21 @@
    nothing here throws on any input."
   (:require [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
+            [yin.vm.ucf :as ucf]
             [yin.vm.ucf.custody :as custody]))
 
 
 (def supported-versions
-  "The body versions this inspector speaks: version 1 alone, because
-   version 0 is fork only and names no custody (7.2.1)."
+  "The body versions the version-1 grammar of this inspector speaks:
+   version 1 alone, because version 0 is fork only and names no custody
+   (7.2.1).  A version-2 body (UCF v2 amendment) is dispatched to its
+   own grammar by `inspect-body` before this gate runs."
   #{1})
+
+
+(def v2-version
+  "The version-2 body version, dispatched by exact integer kind."
+  2)
 
 
 (def ^:private known-versions
@@ -276,7 +284,9 @@
 
 
 (defn- pending-ops
-  "The `[path op-id intent]` of every id the frames of `body` carry."
+  "The `[path op-id intent]` of every id the frames of `body` carry.  A
+   `ctx` marked `::fork` carries none: a fork tree forbids carried
+   custody operation ids."
   [ctx body path]
   (let [frames (get body :yin.k/frames [])]
     (when-not (vector? frames)
@@ -295,6 +305,9 @@
                                            (get pending :yin.k/name))))
                   (undecodable! p {:yin.k/kind :incomplete-install
                                    :yin.k/name (get pending :yin.k/name)}))
+                (when (and (contains? pending :yin.k/op-id) (::fork ctx))
+                  (undecodable! (conj p :yin.k/op-id)
+                                {:yin.k/kind :fork-op-id}))
                 (when (contains? pending :yin.k/op-id)
                   (when-not (contains? #{:put :ffi-request :link-request}
                                        reason)
@@ -335,7 +348,8 @@
                 (when-not (and (map? child)
                                (true? (get child :yin.k/handoff)))
                   (undecodable! p {:yin.k/kind :body}))
-                (check-child-version! child version p)
+                (when (some? version)
+                  (check-child-version! child version p))
                 (check-kind! child p)
                 (check-child-header! child p)
                 (tree-ops ctx version child p))))
@@ -361,6 +375,104 @@
            {:yin.k/kind kind :yin.k/ops (:ops ops)})))
 
 
+;; =============================================================================
+;; Version 2 (UCF v2 amendment, sections 2, 3 and 8)
+;; =============================================================================
+
+(defn- body-version-kind
+  "The `[found-version kind]` of `body`'s version: `:two`, `:other-known`
+   (an integer of another published version) or `:unsupported`."
+  [body]
+  (let [v (get body :yin.k/version)]
+    (cond
+      (not (integer-kind? v)) :unsupported
+      (cbor/num= v v2-version) :two
+      (some #(cbor/num= v %) [0 1]) :other-known
+      :else :unsupported)))
+
+
+(defn- profile-mismatch!
+  [path found]
+  (refuse! :yin.k/profile-mismatch
+           (merge {:yin.k/path path
+                   :yin.k/supported ucf/supported-profiles}
+                  found)))
+
+
+(defn- task-bodies
+  "Every `[path body]` of the task rooted at `body`, the root first and
+   every install child in canonical module-name order, depth first.  A
+   malformed install container, or a child that is no body, is
+   undecodable: a non-body is never profile-checked."
+  [body path]
+  (let [installs (get body :yin.k/installs {})]
+    (when-not (map? installs)
+      (undecodable! (conj path :yin.k/installs) {:yin.k/kind :installs}))
+    (into [[path body]]
+          (mapcat
+            (fn [m]
+              (let [p (conj path :yin.k/installs m :yin.k/child)
+                    child (get-in installs [m :yin.k/child])]
+                (when-not (and (map? child)
+                               (true? (get child :yin.k/handoff)))
+                  (undecodable! p {:yin.k/kind :body}))
+                (task-bodies child p))))
+          (sort cbor/encoded-compare (keys installs)))))
+
+
+(defn- check-v2-gates!
+  "The version and profile gates of a version-2 task, before any other
+   rule (section 8, step 2): every body version, then every profile
+   declaration against the supported registry, and only then that all
+   versions are 2 and all profiles equal the root's.  Answers the root's
+   engine."
+  [body]
+  (let [bodies (task-bodies body [])]
+    (doseq [[path b] bodies]
+      (when (= :unsupported (body-version-kind b))
+        (profile-mismatch! (conj path :yin.k/version)
+                           {:yin.k/version (get b :yin.k/version)})))
+    (doseq [[path b] bodies
+            :when (= :two (body-version-kind b))]
+      (when (nil? (ucf/profile-engine (get b :yin.k/contract)))
+        (profile-mismatch! (conj path :yin.k/contract)
+                           {:yin.k/contract (get b :yin.k/contract)})))
+    (doseq [[path b] (rest bodies)
+            :when (not= :two (body-version-kind b))]
+      (undecodable! (conj path :yin.k/version)
+                    {:yin.k/kind :mixed-version
+                     :yin.k/version (get b :yin.k/version)}))
+    (let [engine (ucf/profile-engine (get body :yin.k/contract))]
+      (doseq [[path b] (rest bodies)
+              :when (not= engine (ucf/profile-engine (get b :yin.k/contract)))]
+        (undecodable! (conj path :yin.k/contract)
+                      {:yin.k/kind :mixed-profile
+                       :yin.k/contract (get b :yin.k/contract)}))
+      engine)))
+
+
+(defn- inspect-v2
+  "The baseline of a version-2 root.  The role is structural: the
+   intersection of the body's keys with the five header keys decides
+   fork (empty), exclusive custody subject, or exclusive result, and
+   every other intersection is undecodable.  A fork tree forbids carried
+   operation ids and its baseline names none."
+  [body]
+  (check-v2-gates! body)
+  (let [kind (check-kind! body [])
+        fork? (not-any? #(contains? body %) header-keys)]
+    (when-not fork? (check-root-header! body kind []))
+    (cond-> (baseline body kind
+                      (tree-ops (cond-> (select-keys body [:yin.k/occurrence
+                                                           :yin.k/origin
+                                                           :yin.k/next-op-seq])
+                                  fork? (assoc ::fork true))
+                                nil body []))
+      ;; a fork is no custody checkpoint: the baseline says so, and an
+      ;; authority refuses it as such rather than adding header keys
+      fork? (assoc :yin.k/fork true))))
+
+
 (defn inspect-body
   "The operation baseline of a decoded version-1 root `body`, or the
    first refusal: `:yin.k/undecodable` naming its `:yin.k/path`, or
@@ -372,14 +484,16 @@
     (fn []
       (when-not (and (map? body) (true? (get body :yin.k/handoff)))
         (undecodable! [] {:yin.k/kind :body}))
-      (let [version (check-version! body)
-            kind (check-kind! body [])]
-        (check-root-header! body kind [])
-        (baseline body kind
-                  (tree-ops (select-keys body [:yin.k/occurrence
-                                               :yin.k/origin
-                                               :yin.k/next-op-seq])
-                            version body []))))))
+      (if (= :two (body-version-kind body))
+        (inspect-v2 body)
+        (let [version (check-version! body)
+              kind (check-kind! body [])]
+          (check-root-header! body kind [])
+          (baseline body kind
+                    (tree-ops (select-keys body [:yin.k/occurrence
+                                                 :yin.k/origin
+                                                 :yin.k/next-op-seq])
+                              version body [])))))))
 
 
 (defn- computed-address
@@ -405,6 +519,16 @@
   [address bytes]
   (answer
     (fn []
+      ;; a version-2 body is gated on its execution profiles before the
+      ;; address is looked at: an unsupported profile is never reported as
+      ;; a hash error first (v2 amendment, section 8)
+      (when (cbor/byte-payload? bytes)
+        (let [body (try (cbor/decode bytes)
+                        (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                          nil))]
+          (when (and (map? body) (true? (get body :yin.k/handoff))
+                     (= :two (body-version-kind body)))
+            (check-v2-gates! body))))
       (when-not (and (cbor/byte-payload? bytes)
                      (jing/segment-bytes-match? address bytes))
         (refuse! :yin.k/hash-mismatch

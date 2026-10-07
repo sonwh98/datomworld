@@ -730,7 +730,7 @@
             never retried through the other codec"
     (refused (jing.cbor/encode (blocked-v0))
              :yin.k/profile-mismatch
-             {:yin.k/version 0 :yin.k/supported #{1}}))
+             {:yin.k/version 0 :yin.k/supported #{1 2}}))
   (testing "a version-1 structural failure is not reinterpreted as
             version 0: the custody refusal stands"
     (refused (jing.cbor/encode (assoc (blocked-v1) :yin.k/policy :yin.k/fork))
@@ -747,7 +747,7 @@
     (refused (:bytes @blocked-export)
              {:exclusive true}
              :yin.k/profile-mismatch
-             {:yin.k/version 0 :yin.k/supported #{1}
+             {:yin.k/version 0 :yin.k/supported #{1 2}
               :yin.k/policy :yin.k/exclusive})))
 
 
@@ -761,17 +761,17 @@
       (refused (jing.cbor/encode (assoc (blocked-v1) :yin.k/version 2))
                {:address wrong}
                :yin.k/profile-mismatch
-               {:yin.k/version 2 :yin.k/supported #{1}}))
+               {:yin.k/path [:yin.k/contract]}))
     (testing "an absent version"
       (refused (jing.cbor/encode (dissoc (blocked-v1) :yin.k/version))
                :yin.k/profile-mismatch
-               {:yin.k/version nil :yin.k/supported #{1}}))
+               {:yin.k/version nil :yin.k/supported #{1 2}}))
     (testing "an integral float is no version, on any host"
       (let [[r n] (read! (jing.cbor/encode
                            (assoc (blocked-v1)
                                   :yin.k/version (jing.cbor/float64 1))))]
         (is (= :yin.k/profile-mismatch (:yin.k/status r)) (pr-str r))
-        (is (= #{1} (:yin.k/supported r)))
+        (is (= #{1 2} (:yin.k/supported r)))
         (is (jing.cbor/float64? (:yin.k/version r)))
         (is (zero? n))
         (is (not (contains? r :vm)))))

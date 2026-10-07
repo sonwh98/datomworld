@@ -70,7 +70,8 @@
           known (get-in p [:occurrences o])
           succession (when-not known (completion/offer-refusal p address b))]
       (cond
-        (not (contains? #{:blocked :parked} (:yin.k/kind b)))
+        (or (:yin.k/fork b)
+            (not (contains? #{:blocked :parked} (:yin.k/kind b))))
         (reply :refused :not-offerable nil)
         (not (custody/occurrence? o))
         (reply :refused :malformed-occurrence nil)

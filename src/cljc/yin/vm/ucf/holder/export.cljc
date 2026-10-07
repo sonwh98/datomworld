@@ -25,8 +25,6 @@
   (:require [yin.vm :as vm]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
-            [yin.vm.completion :as completion]
-            [yin.vm.module :as module]
             [yin.vm.ucf.handoff :as handoff]))
 
 
@@ -106,22 +104,16 @@
 
 (defn- reachable-parked
   "The ids of the parked records the lift would carry, by the same
-   completion walk the lift runs; a walk refusal answers data."
+   census the lift runs (`handoff/reachable-parked`); a walk refusal
+   answers data."
   [vm]
-  (let [walked (completion/complete
-                 {:vm vm
-                  :cursor-profile (constantly :dao.stream.remote/v1)
-                  :modules (into {}
-                                 (map (fn [[m entry]]
-                                        [m {:yin.k/manifest (:address entry)}]))
-                                 (module/module-entries (:modules vm)))})]
-    (if-some [r (first (:yin.k/refusals walked))]
-      {::refusal (if (= :yin.k/not-quiescent (:kind r))
-                   {:yin.k/status :yin.k/not-quiescent}
-                   (assoc (dissoc r :kind)
-                          :yin.k/status :yin.k/non-portable
-                          :yin.k/kind (:kind r)))}
-      {::ids (set (keys (:yin.k/parked (:yin.k/scheduler walked))))})))
+  (let [r (handoff/reachable-parked vm)]
+    (if (contains? r :refusal)
+      {::refusal (:refusal r)}
+      {::ids (:ids r)})))
+
+
+(declare enter*)
 
 
 (defn enter
@@ -135,7 +127,12 @@
    `:yin.k/non-portable` of kind `:reason-mismatch` (naming the hold
    and the task path) or the lift's own, or `:yin.k/refused` for a
    machine that is already exporting or ended."
-  [machine]
+  ([machine] (enter* machine nil))
+  ([machine opts] (enter* machine opts)))
+
+
+(defn- enter*
+  [machine opts]
   (cond
     (contains? #{:exporting :ended} (vm/gate-mode machine))
     (refused :not-running)
@@ -156,10 +153,12 @@
                               (assoc :yin.k/gate :exporting
                                      :wait-set [])
                               (assoc :parked (apply dissoc parked ids)))
-                 :record {:wait-set (vec (:wait-set machine))
-                          :parked taken
-                          :gate (vm/gate-mode machine)
-                          :served {}}}))))))
+                 :record (cond-> {:wait-set (vec (:wait-set machine))
+                                  :parked taken
+                                  :gate (vm/gate-mode machine)
+                                  :served {}}
+                           (some? (:version opts))
+                           (assoc :version (:version opts)))}))))))
 
 
 (defn- reinstated
@@ -258,8 +257,10 @@
                      served))))
         record (assoc record :header header)
         r (handoff/export-task (reinstated machine record) nil
-                               {:header header :serve-keyed once
-                                :yin.vm.ucf.handoff/recovery true})]
+                               (cond-> {:header header :serve-keyed once
+                                        :yin.vm.ucf.handoff/recovery true}
+                                 (:version record)
+                                 (assoc :version (:version record))))]
     (if (= :ok (:status r))
       {:status :ok :record (assoc record :served @table)}
       (assoc r :record (assoc record :served @table)))))
@@ -277,12 +278,14 @@
     (handoff/export-task
       (reinstated machine record)
       nil
-      {:header (:header record)
-       :serve-keyed (fn [k _h]
-                      (if (contains? served k)
-                        (get served k)
-                        (throw (ex-info "Encode of an unprepared record"
-                                        {:yin.k/hint :unprepared-stream}))))})))
+      (cond-> {:header (:header record)
+               :serve-keyed (fn [k _h]
+                              (if (contains? served k)
+                                (get served k)
+                                (throw (ex-info "Encode of an unprepared record"
+                                                {:yin.k/hint
+                                                 :unprepared-stream}))))}
+        (:version record) (assoc :version (:version record))))))
 
 
 (defn- recovery-address
@@ -318,9 +321,12 @@
         snapshot (when (= :ok (:status body))
                    (handoff/export-task
                      (reinstated machine prepared-record) nil
-                     {:header (:header prepared-record)
-                      :yin.vm.ucf.handoff/recovery true
-                      :serve-keyed (fn [key _handle] (get (:served prepared-record) key))}))
+                     (cond-> {:header (:header prepared-record)
+                              :yin.vm.ucf.handoff/recovery true
+                              :serve-keyed (fn [key _handle]
+                                             (get (:served prepared-record) key))}
+                       (:version prepared-record)
+                       (assoc :version (:version prepared-record)))))
         inspected (when (= :ok (:status snapshot))
                     (handoff/inspect-recovery-body (:bytes snapshot) (:address snapshot)
                                                    (:header prepared-record)))]
@@ -349,13 +355,14 @@
 
 
 (defn- extract-recovered
-  [machine metadata]
+  [machine metadata version]
   (let [children (into {}
                        (map (fn [[module-name install]]
                               [module-name
                                (extract-recovered
                                  (:vm install)
-                                 (get-in metadata [:children module-name]))]))
+                                 (get-in metadata [:children module-name])
+                                 version)]))
                        (:installs machine))
         waits (mapv (fn [entry issue]
                       (cond-> entry
@@ -465,14 +472,21 @@
                          snapshot-address)]
           (if (not= :ok (:status restored))
             restored
-            (let [{:keys [machine record]} (extract-recovered
-                                             (:vm restored) (:yin.k/state recovery))
+            (let [version (when (= 2 (:yin.k/version (:body inspected)))
+                            2)
+                  {:keys [machine record]} (extract-recovered
+                                             (:vm restored)
+                                             (:yin.k/state recovery)
+                                             version)
                   by-handle (into {}
                                   (map (fn [descriptor]
                                          [(get-in @handles [(:dao.stream/identity descriptor)
                                                             :dao.stream/handle]) descriptor]))
                                   (:yin.k/descriptors recovery))
-                  prepared (prepare machine record by-handle (:yin.k/header recovery))
+                  prepared (prepare machine
+                                    (cond-> record
+                                      (some? version) (assoc :version version))
+                                    by-handle (:yin.k/header recovery))
                   reproduced (when (= :ok (:status prepared))
                                (encode machine (:record prepared)))]
               (if (and (= :ok (:status reproduced))

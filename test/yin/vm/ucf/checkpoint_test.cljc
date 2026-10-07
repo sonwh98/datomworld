@@ -9,6 +9,7 @@
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.jing.cbor-fixtures :as fx]
+            [yin.vm.ucf :as ucf]
             [yin.vm.ucf.checkpoint :as checkpoint]
             [yin.vm.ucf.handoff :as handoff]
             [yin.vm.ucf.checkpoint-fixtures :as f]))
@@ -167,7 +168,12 @@
 
 
 (deftest the-version-gate-checks-the-integer-kind
-  (doseq [[n found] [["version-2" 2] ["version-absent" nil]
+  (testing "version 2 is the v2 grammar: a version-1 stamp is no profile"
+    (let [r (inspect "version-2")]
+      (is (= :yin.k/profile-mismatch (:yin.k/status r)))
+      (is (= [:yin.k/contract] (:yin.k/path r)))
+      (is (= ucf/supported-profiles (:yin.k/supported r)))))
+  (doseq [[n found] [["version-absent" nil]
                      ["version-0" 0]]]
     (is (= {:yin.k/status :yin.k/profile-mismatch
             :yin.k/version found

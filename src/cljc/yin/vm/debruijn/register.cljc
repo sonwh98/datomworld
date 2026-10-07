@@ -181,7 +181,7 @@
   (install-image vm segment))
 
 
-(defn- relocate
+(defn relocate
   "Shift every `:pc`-kind operand of `inst` by `offset`."
   [offset inst]
   (reduce (fn [inst [i [_ kind]]]
@@ -225,6 +225,94 @@
                :images (conj (:images vm)
                              [ident offset
                               (count (:instructions image))]))))))
+
+
+;; =============================================================================
+;; Layouts: the ordered image list a code space is built from (UCF v2, 4.1)
+;; =============================================================================
+
+(def max-layout-length
+  "2^52-1: the largest instruction-count sum a layout may name."
+  4503599627370495)
+
+
+(defn layout
+  "The ordered identities of `vm`'s offset table: its current layout."
+  [vm]
+  (mapv #(nth % 0) (:images vm)))
+
+
+(defn compose
+  "The code space `images`, the component register images in layout
+   order, build: `{:segment :hash :images}` where `:segment` is the
+   relocated concatenation (bodies shifted likewise), `:images` the
+   offset table derived by prefix sums, and `:hash` its R -- nil while
+   no instruction is held, the empty base's convention.  A length sum
+   beyond 2^52-1 refuses with `:layout-overflow`; nothing here validates
+   an image."
+  [images]
+  (let [{:keys [bodies instructions rows]}
+        (reduce (fn [{:keys [bodies instructions rows]} image]
+                  (let [offset (count instructions)
+                        n (count (:instructions image))]
+                    (when (> (+ offset n) max-layout-length)
+                      (throw (ex-info "Layout length overflow"
+                                      {:rule :layout-overflow})))
+                    {:bodies (into bodies
+                                   (map #(-> %
+                                             (update :start + offset)
+                                             (update :end + offset)))
+                                   (:bodies image))
+                     :instructions (into instructions
+                                         (map #(relocate offset %))
+                                         (:instructions image))
+                     :rows (conj rows [(rcode/register-hash image) offset n])}))
+                {:bodies [] :instructions [] :rows []}
+                images)
+        segment {:bodies bodies :instructions instructions}]
+    {:segment segment
+     :hash (when (seq instructions) (rcode/register-hash segment))
+     :images rows}))
+
+
+(defn layout-images
+  "The component image of each row of the offset table `images` over
+   `segment`, relocated back to its own pc 0, in table order; nil
+   unless the table covers the segment exactly and every slice rehashes
+   to its row's identity."
+  [segment images]
+  (when (and (map? segment) (nil? (effects/table-defect
+                                    (count (:instructions segment)) images)))
+    (let [slices (mapv #(effects/image-slice segment %) images)]
+      (when (every? true?
+                    (map (fn [[ident _ _] slice]
+                           (= ident (rcode/register-hash slice)))
+                         images slices))
+        slices))))
+
+
+(defn rebuild
+  "`vm` over the code space `images` (the component images in layout
+   order) build, each non-empty one admitted alone under the register
+   contract; the registers are reset.  The store, the parked map, the
+   queues and the composition values survive."
+  [vm images]
+  (doseq [image images
+          :when (not (empty-segment? image))]
+    (when-let [defect (rcode/register-image-defect image)]
+      (throw (ex-info (str "Invalid register image: " (:rule defect))
+                      defect))))
+  (let [{:keys [segment hash images]} (compose images)
+        body0 (first (:bodies segment))]
+    (assoc vm
+           :segment segment
+           :hash hash
+           :images images
+           :pc 0
+           :frames []
+           :registers (vec (repeat (or (:registers body0) 0) nil))
+           :continuation []
+           :store-of nil)))
 
 
 (defn image-pc

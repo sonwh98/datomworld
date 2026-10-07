@@ -971,6 +971,27 @@
   (hold-rows vm (:rows bc)))
 
 
+(defn attach-rows
+  "Extend the code space of `vm` with the flat addressed `rows`
+   (`{id [id tag & slots]}`), however many roots they serve: the rows
+   join the held rows by id, each decoded once into `:row-nodes` and
+   every `:lambda` row indexed by `[body-node params]`.  The caller has
+   validated each row (`vm/validate-rows` over each root); nothing here
+   runs a program, and the current node, environment, continuation and
+   store are unchanged.  `contract` is compared with `vm/ast-contract`
+   first."
+  [^ASTWalkerVM vm rows contract]
+  (vm/check-contract! vm/ast-contract contract)
+  (hold-rows vm rows))
+
+
+(defn clear-code
+  "`vm` holding no rows at all: the kernel's code layout, emptied before
+   a lower rebuilds it."
+  [^ASTWalkerVM vm]
+  (assoc vm :rows {} :row-nodes {} :row-index {}))
+
+
 (defn row-node
   "The node the walker's row decoder built for held row `id`, or nil when
    no such row is held. A lower reconstructs a closure's body this way.
