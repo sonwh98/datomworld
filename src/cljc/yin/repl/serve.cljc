@@ -2,37 +2,40 @@
   "The server side of the DaoStream Yin REPL, over the request-and-response
    service of docs/design/dao.stream.remote.md section 5.
 
-   `serve!` composes an endpoint and returns immediately with one explicit
-   value: the shared `\"yin.repl/requests\"` and `\"yin.repl/answers\"`
-   media a `dao.stream.remote` mirror table names, the boundary control
-   medium, the bounded acceptance handoff pool, the composition-owned
-   lifecycle medium with its already-minted cursor, and the one shared
-   shell every request evaluates against (D4).  Binding a listener is host
-   policy, injected through `yin.repl.host`; every fact about it —
-   `:bind-succeeded`, `:bind-failed`, `:upgrade-failed`, `:listener-error`,
-   `:stopped` — arrives as plain data on the lifecycle medium, and no host
-   error object crosses the boundary.
+   `serve!` composes the REPL's two shared media -- `\"yin.repl/requests\"`,
+   entered with surface #{:writer} so no remote party reads another
+   caller's requests, and `\"yin.repl/answers\"`, entered #{:reader} so no
+   remote party forges an answer -- and the one shared shell every request
+   evaluates against, and hands the two-entry table to
+   `dao.stream.remote-channel/serve` with a portable endpoint specification
+   and the host assembly, opaquely.  Endpoint, sessions, mirror, lifecycle
+   and stop are the channel composition's, below dao.stream; nothing here
+   names a transport.
 
-   `step` is the single server driver: it observes lifecycle, drives
-   `dao.stream.ws-project/accept-step!` (which itself adopts every accepted
-   connection's own private wire channel and runs `dao.stream.remote`'s
-   mirror over it, answering every `:dao.stream/cursor`, `/next`,
-   `/append!`, and `/descriptor` a connected client's reflections ask), and
-   advances the one shared requests/answers pair against a single serially
-   threaded REPL state.  It never loops on `blocked`, never waits, and
-   never schedules itself.  There is no per-attachment session pool here
-   any more: correlation is by the self-minted random id every request and
-   answer value carries (`dao.stream.rpc`), not by which WebSocket
-   connection carried it, so one shared pair serves every connected client
-   exactly as the service convention's toy peer S does."
+   `step` is the single server driver: it steps the channel server at the
+   driver's `now`, derives this endpoint's status and its notices from the
+   server's transitions (bind, refusal, diagnostics, lifecycle gaps,
+   departed attachments, stop), and, while running, advances the one
+   shared requests/answers pair against a single serially threaded REPL
+   state.  It never loops on `blocked`, never waits, and never schedules
+   itself.  Correlation is by the self-minted random id every request and
+   answer value carries (`dao.stream.rpc`), not by which connection carried
+   it, so one shared pair serves every connected client exactly as the
+   service convention's toy peer S does.
+
+   `stop!` closes the two media and stops the channel server as ended: a
+   connected client's outstanding read of answers is answered with the
+   medium's own `end` during the composed 500 ms drain (`repl-bounds`),
+   which its RPC client reads as `:ended`, before its connection closes.
+   A client whose process is suspended past the profile's idle timeout
+   (60 s) is reaped and observes `:detached` on resume."
   (:require [dao.data :as data]
             [dao.stream :as stream]
+            [dao.stream.remote-channel :as remote-channel]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
-            [dao.stream.ws :as ws]
-            [dao.stream.ws-project :as ws-project]
-            [yin.repl.connect :as connect]
             [yin.repl :as repl]
+            [yin.repl.connect :as connect]
             [yin.repl.host.common :as host-common]))
 
 
@@ -40,12 +43,8 @@
 ;; Composition constants
 ;; =============================================================================
 
-(def control-capacity 1024)
 (def request-capacity 8192)
-(def lifecycle-capacity 256)
-(def default-slot-count 8)
 (def default-bind-host "127.0.0.1")
-(def lifecycle-budget 64)
 (def request-budget 64)
 
 
@@ -68,30 +67,20 @@
 (def wildcard-hosts #{"0.0.0.0" "::" "[::]" "*"})
 
 
-(def event-key :yin.repl.endpoint/event)
-(def value-key :yin.repl.endpoint/value)
-
-
-(def event-kinds
-  "The fixed lifecycle event set.  An unknown kind is surfaced as a diagnostic
-   rather than silently ignored or trusted."
-  #{:bind-succeeded :bind-failed :upgrade-failed :listener-error :stopped})
-
-
 (def outbox-event-key :yin.repl.serve/event)
 (def text-key :yin.repl.serve/text)
-
-
-(def portable-admission
-  {:retention :evict-oldest :capacity control-capacity :value-domain :portable-values})
 
 
 (def request-admission
   {:retention :evict-oldest :capacity request-capacity :value-domain :portable-values})
 
 
-(def handoff-admission
-  {:retention :evict-oldest :capacity 1 :value-domain :host-values})
+(def repl-bounds
+  "The REPL's overrides of dao.stream.remote-channel/production-bounds:
+   a 500 ms drain so a connected client reads the ended answers medium
+   before its connection closes (two polls at the shell's 200 ms backoff
+   ceiling plus a round trip)."
+  {:drain-grace-ms 500})
 
 
 ;; =============================================================================
@@ -112,11 +101,6 @@
       (:dao.stream/cursor result))))
 
 
-(defn- writer-target
-  [handle]
-  {:dao.stream/handle handle :dao.stream/surface #{:writer}})
-
-
 (defn- publish
   [endpoint kind text]
   (update endpoint :outbox conj {outbox-event-key kind text-key text}))
@@ -128,293 +112,207 @@
   [(:outbox endpoint) (assoc endpoint :outbox [])])
 
 
-(defn- deposit-fn
-  [lifecycle]
-  (fn deposit!
-    [kind value]
-    (stream/append! lifecycle {event-key kind value-key value})))
+(defn- bind-failed-text
+  [value]
+  (str ";; endpoint bind failed: "
+       (pr-str (data/summarize value diagnostic-bounds))))
 
 
 ;; =============================================================================
 ;; serve!
 ;; =============================================================================
 
-(defn- make-slots
-  [n]
-  (mapv (fn [_]
-          (let [offer (buffer 1)
-                ack (buffer 1)]
-            {:offer offer :ack ack
-             :offer-cursor (mint offer stream/anchor-newest)
-             :ack-cursor (mint ack stream/anchor-newest)}))
-        (range n)))
-
-
-(defn- endpoint-slots
-  [slots]
-  (mapv (fn [slot]
-          {:offer (writer-target (:offer slot))
-           :offer-admission handoff-admission
-           :ack (writer-target (:ack slot))
-           :ack-admission handoff-admission
-           :ack-cursor (:ack-cursor slot)})
-        slots))
-
-
-(defn- serving-slots
-  [slots]
-  (mapv (fn [slot]
-          {:offer-reader (:offer slot)
-           :offer-cursor (:offer-cursor slot)
-           :ack-writer (writer-target (:ack slot))})
-        slots))
-
-
-(defn- make-media
-  "One request medium per accepted attachment, capacity 8192, with its
-   cursor minted before the acknowledgement is deposited, plus the fresh
-   channel ring `dao.stream.ws-project/accept-step!` projects deposited
-   payload onto and mirror-steps against.  One client's eviction pressure
-   therefore cannot create another client's request gap."
-  [_offer]
-  (let [traffic (buffer request-capacity)]
-    {:traffic (writer-target traffic)
-     :admission request-admission
-     :reader traffic
-     :cursor (mint traffic stream/anchor-newest)
-     :ring (buffer request-capacity)}))
+(defn url
+  "The endpoint as an operator would type it into `(connect …)`."
+  [endpoint]
+  (let [{:keys [host port path]} (:spec endpoint)]
+    (str connect/url-prefix connect/ws-scheme host ":" port path)))
 
 
 (defn- inert
-  "An endpoint value that owns its media and reports why it never bound."
-  [base kind value text]
-  (let [deposit! (deposit-fn (:lifecycle base))]
-    (deposit! kind value)
-    (assoc base :status :failed :bind-note text)))
+  "An endpoint value that owns its media and reports why it never bound:
+   `:failed`, its notice already in the outbox for the first `step`."
+  [base value text]
+  (-> base
+      (assoc :status :failed :bind-note text)
+      (publish :yin.repl.serve/notice (bind-failed-text value))))
+
+
+(defn- server-seen
+  "What `step` derives notices from: the channel server's status,
+   diagnostic count, lifecycle gaps and live session set."
+  [server]
+  {:status (:status server)
+   :diagnostic-count (:diagnostic-count server 0)
+   :gaps (:lifecycle-gaps server 0)
+   :sessions (set (keep (fn [[id s]] (when-not (:closed? s) id))
+                        (remote-channel/sessions server)))})
+
+
+(defn- refused
+  "The endpoint of a channel server `serve` refused synchronously."
+  [base server]
+  (let [spec (:spec base)]
+    (case (:reason server)
+      ::remote-channel/no-transport
+      (inert base {:code host-common/missing-code :message host-common/missing-text}
+             (host-common/missing-message "--port is not served"))
+
+      ::remote-channel/no-port
+      (inert base {:code :yin.repl.endpoint/invalid-descriptor
+                   :message "bind/advertised configuration does not name a servable stream"}
+             (str "cannot serve " (pr-str (data/summarize (:path spec) diagnostic-bounds))
+                  " on port " (pr-str (data/summarize (:port spec) diagnostic-bounds))))
+
+      ::remote-channel/bind-failed
+      (inert base (or (:detail server)
+                      {:code :yin.repl.endpoint/bind-threw
+                       :message "the host listener failed to bind"})
+             "the host listener failed to bind")
+
+      (inert base {:code :yin.repl.endpoint/composition-refused
+                   :message (str "programming error: the endpoint composition was refused as "
+                                 (pr-str (:reason server)))
+                   :detail (:detail server)}
+             "the endpoint composition was refused"))))
 
 
 (defn serve!
   "Compose a REPL endpoint and return immediately.
 
-   Every medium and every cursor exists before any binding is attempted:
-   the shared requests and answers media, the boundary control medium,
-   each handoff slot's offer and acknowledgement media, and the lifecycle
-   medium.  The returned value is the whole of the endpoint's observable
-   state; `step` is the only thing that changes it."
-  [{:keys [bind-host bind-port advertised-host advertised-port path slots host
-           repl identity expiry-ms]
-    :or {bind-host default-bind-host slots default-slot-count}}]
+   The two shared media and their cursor exist before any binding is
+   attempted; the channel server is composed over them and asked to bind.
+   The returned value is the whole of the endpoint's observable state;
+   `step` is the only thing that changes it."
+  [{:keys [bind-host bind-port advertised-host advertised-port path host repl]
+    :or {bind-host default-bind-host}}]
   (let [path (connect/repl-target (or path ""))
-        control (buffer control-capacity)
-        lifecycle (buffer lifecycle-capacity)
-        lifecycle-cursor (mint lifecycle stream/anchor-newest)
-        control-cursor (mint control stream/anchor-newest)
-        pool (make-slots (max 1 slots))
         advertised-host (or advertised-host
                             (when-not (contains? wildcard-hosts bind-host) bind-host))
         advertised-port (or advertised-port bind-port)
-        descriptor {:dao.stream/type ws/transport-type
-                    :dao.stream/identity (or identity connect/service-identity)
-                    :ws/host (str advertised-host)
-                    :ws/port (if (integer? advertised-port) advertised-port 0)
-                    :ws/path path}
         requests (buffer request-capacity)
         answers (buffer request-capacity)
-        requests-cursor (mint requests stream/anchor-oldest)
-        table {connect/requests-identity {:handle requests :surface #{:writer}}
-               connect/answers-identity {:handle answers :surface #{:reader}}}
-        base {:control control
-              :control-cursor control-cursor
-              :lifecycle lifecycle
-              :lifecycle-cursor lifecycle-cursor
-              :lifecycle-ledger :untried
-              :slots pool
+        base {:status :new
+              :spec {:host (str advertised-host) :port advertised-port :path path
+                     :bind-host bind-host :bind-port bind-port}
               :path path
-              :descriptor descriptor
-              :bind-host bind-host
-              :bind-port bind-port
-              :resolution nil
+              :server nil
+              :server-seen nil
               :requests requests
               :answers answers
-              :requests-cursor requests-cursor
+              :requests-cursor (mint requests stream/anchor-oldest)
               :pending-answer nil
               :pending-successor nil
-              :host host
-              :resources (atom nil)
               :repl (or repl (repl/create-state))
-              :status :new
-              :stop-initiated? false
+              :bind-note nil
               :step-moved? false
               :outbox []}]
     (cond
       (nil? advertised-host)
-      (inert base :bind-failed
+      (inert base
              {:code :yin.repl.endpoint/advertised-host-required
               :message "a wildcard bind requires an explicit advertised host"}
              (str "binding " bind-host " needs an explicit advertised host"))
 
       ;; Known limit of this slice, stated rather than hidden behind the
-      ;; descriptor gate: the advertised descriptor is fixed at `serve!`, so a
-      ;; bind to port zero has no advertised port to name.  Serving an
-      ;; ephemeral port means constructing the endpoint after `:bind-succeeded`,
-      ;; which is a design change to the R4 composition, not a local fix.
+      ;; channel's port refusal: the advertised descriptor is fixed at
+      ;; `serve`, so a bind to port zero has no advertised port to name.
       (= 0 advertised-port)
-      (inert base :bind-failed
+      (inert base
              {:code :yin.repl.endpoint/ephemeral-port-unsupported
               :message (str "an ephemeral bind has no advertised port until it "
                             "binds, and this slice fixes the descriptor at serve!")}
              "--port 0 needs an explicit advertised port in this slice")
 
-      (not (ws/descriptor? descriptor))
-      (inert base :bind-failed
-             {:code :yin.repl.endpoint/invalid-descriptor
-              :message "bind/advertised configuration does not name a servable stream"}
-             (str "cannot serve " (pr-str (data/summarize path diagnostic-bounds))
-                  " on port " (pr-str (data/summarize bind-port diagnostic-bounds))))
-
       (not (host-common/binder? host))
-      (inert base :bind-failed
-             {:code host-common/missing-code :message host-common/missing-text}
+      (inert base {:code host-common/missing-code :message host-common/missing-text}
              (host-common/missing-message "--port is not served"))
 
       :else
-      (let [ws-endpoint (ws/make-endpoint {:descriptor descriptor
-                                           :control (writer-target control)
-                                           :control-admission portable-admission
-                                           :slots (endpoint-slots pool)
-                                           :expiry-ms expiry-ms})
-            deposit! (deposit-fn lifecycle)
-            resources (:resources base)
-            acceptor (ws-project/make-acceptor
-                       {:endpoint ws-endpoint
-                        :slots (serving-slots pool)
-                        :table table
-                        :make-media make-media})
-            bind-result
-            (try
-              (let [bound ((:bind! host)
-                           {:endpoint ws-endpoint
-                            :bind-host bind-host
-                            :bind-port bind-port
-                            :path path
-                            ;; Exactly the 3-arity `yin.repl.host/websocket`
-                            ;; documents.  A clock-omitting arity would let
-                            ;; host glue stamp a pending acceptance with
-                            ;; nil and silently disable expiry; the host
-                            ;; owns the reading, so it must supply it.
-                            :accept! (fn accept!
-                                       [request-path socket now]
-                                       (ws/accept-connection! ws-endpoint
-                                                              request-path
-                                                              socket now))
-                            :deposit! deposit!})]
-                (reset! resources bound)
-                {:dao.stream/outcome :dao.stream/ok})
-              (catch #?(:cljd Object :clj Throwable :cljs :default) _
-                ;; A synchronous host bind failure is classified and
-                ;; deposited here; no host error object crosses over.
-                (deposit! :bind-failed
-                          {:code :yin.repl.endpoint/bind-threw
-                           :message "the host listener failed to bind"})
-                {:dao.stream/outcome :dao.stream/transport-error}))
-            endpoint (assoc base
-                            :ws-endpoint ws-endpoint
-                            :acceptor acceptor
-                            :deposit! deposit!
-                            :resolution {path descriptor}
-                            :status (if (= :dao.stream/ok
-                                           (:dao.stream/outcome bind-result))
-                                      :starting :failed))]
-        endpoint))))
-
-
-(defn url
-  "The descriptor as an operator would type it into `(connect …)`."
-  [endpoint]
-  (let [d (:descriptor endpoint)]
-    (str connect/url-prefix connect/ws-scheme (:ws/host d) ":" (:ws/port d) (:ws/path d))))
+      (let [server (remote-channel/serve
+                     {:spec (:spec base)
+                      :host host
+                      :table {connect/requests-identity
+                              {:handle requests :surface #{:writer}}
+                              connect/answers-identity
+                              {:handle answers :surface #{:reader}}}
+                      :bounds repl-bounds})]
+        (if (= :starting (:status server))
+          (assoc base :status :starting :server server :server-seen (server-seen server))
+          (refused base server))))))
 
 
 ;; =============================================================================
-;; Lifecycle observation
+;; Observing the channel server
 ;; =============================================================================
 
-(defn- lifecycle-transition
-  [endpoint kind value]
-  (case kind
-    :bind-succeeded
-    (-> endpoint
-        (assoc :status (if (= :stopping (:status endpoint)) :stopping :running))
-        (publish :yin.repl.serve/notice
-                 (str "Serving " (url endpoint)
-                      (when (map? value)
-                        (str " (bound " (pr-str (data/summarize value diagnostic-bounds)) ")")))))
-
-    :bind-failed
-    (-> endpoint
-        (assoc :status :failed)
-        (publish :yin.repl.serve/notice
-                 (str ";; endpoint bind failed: "
-                      (pr-str (data/summarize value diagnostic-bounds)))))
-
-    :upgrade-failed
-    (publish endpoint :yin.repl.serve/notice
-             (str ";; upgrade refused: " (pr-str (data/summarize value diagnostic-bounds))))
-
-    :listener-error
-    (publish endpoint :yin.repl.serve/notice
-             (str ";; listener error: " (pr-str (data/summarize value diagnostic-bounds))))
-
-    :stopped
-    (-> endpoint
-        (assoc :status :stopped :resolution nil)
-        (publish :yin.repl.serve/notice
-                 (str "Endpoint stopped: " (pr-str (data/summarize value diagnostic-bounds)))))
-
-    (publish endpoint :yin.repl.serve/diagnostic
-             (str ";; unknown endpoint event " (pr-str kind)))))
+(defn- repl-status
+  [channel-status]
+  (case channel-status
+    :starting :starting
+    :serving :running
+    :stopping :stopping
+    :stopped :stopped
+    :refused :failed))
 
 
-(declare stop!)
+(defn- diagnostic-text
+  [{:keys [kind value]}]
+  (str (if (= :upgrade-failed kind) ";; upgrade refused: " ";; listener error: ")
+       (pr-str (data/summarize value diagnostic-bounds))))
 
 
-(defn- drain-lifecycle
-  "Read the lifecycle medium, total over every `next` outcome.  A gap is a fatal
-   endpoint-observability failure and triggers shutdown, per R4."
-  [endpoint]
-  (loop [remaining lifecycle-budget
-         endpoint endpoint]
-    (if (or (zero? remaining) (nil? (:lifecycle-cursor endpoint)))
-      endpoint
-      (let [result (stream/next (:lifecycle endpoint) (:lifecycle-cursor endpoint))
-            outcome (:dao.stream/outcome result)]
-        (case outcome
-          :dao.stream/ok
-          (let [envelope (:dao.stream/value result)
-                kind (get envelope event-key)
-                endpoint (assoc endpoint
-                                :lifecycle-cursor (:dao.stream/cursor result)
-                                :lifecycle-ledger outcome)]
-            (recur (dec remaining)
-                   (lifecycle-transition endpoint
-                                         (when (contains? event-kinds kind) kind)
-                                         (get envelope value-key))))
+(defn- stopped-text
+  [outcome]
+  (if (= ::remote-channel/unbind-failed outcome)
+    "Endpoint stopped without host completion: unbind-failed"
+    (str "Endpoint stopped: " (name outcome))))
 
-          :dao.stream/gap
-          (-> endpoint
-              (assoc :lifecycle-cursor (:dao.stream/cursor result)
-                     :lifecycle-ledger outcome)
-              (publish :yin.repl.serve/notice
-                       ";; endpoint lifecycle lost: observability failed, stopping")
-              stop!)
 
-          :dao.stream/blocked
-          (assoc endpoint :lifecycle-ledger outcome)
+(defn- refused-text
+  [server]
+  (if (= ::remote-channel/bind-failed (:reason server))
+    (bind-failed-text (:detail server))
+    (str ";; endpoint refused: " (name (:reason server)))))
 
-          (-> endpoint
-              (assoc :lifecycle-ledger outcome)
-              (publish :yin.repl.serve/notice
-                       (str ";; endpoint lifecycle " (name outcome)))))))))
+
+(defn- notice
+  [endpoint text]
+  (publish endpoint :yin.repl.serve/notice text))
+
+
+(defn- observe-server
+  "Take `server`, the REPL status it maps to, and publish the notices of
+   the transition from what was last seen to it."
+  [endpoint server]
+  (let [seen (:server-seen endpoint)
+        now-seen (server-seen server)
+        fresh (- (:diagnostic-count now-seen) (:diagnostic-count seen 0))
+        departed (sort (remove (:sessions now-seen) (:sessions seen)))
+        changed? (not= (:status seen) (:status now-seen))
+        endpoint (assoc endpoint
+                        :server server
+                        :server-seen now-seen
+                        :status (repl-status (:status server)))
+        endpoint (cond-> endpoint
+                   (and changed? (= :serving (:status server)))
+                   (notice (str "Serving " (url endpoint))))
+        endpoint (reduce (fn [endpoint fact] (notice endpoint (diagnostic-text fact)))
+                         endpoint
+                         (take-last (min fresh (count (:diagnostics server)))
+                                    (:diagnostics server)))
+        endpoint (cond-> endpoint
+                   (> (:gaps now-seen) (:gaps seen 0))
+                   (notice ";; endpoint lifecycle gap"))
+        endpoint (reduce (fn [endpoint attachment]
+                           (notice endpoint (str ";; attachment " attachment " left")))
+                         endpoint departed)]
+    (cond-> endpoint
+      (and changed? (= :refused (:status server)))
+      (notice (refused-text server))
+
+      (and changed? (= :stopped (:status server)))
+      (notice (stopped-text (get-in server [:stop :outcome]))))))
 
 
 ;; =============================================================================
@@ -555,120 +453,42 @@
 ;; =============================================================================
 
 (defn stopped?
-  "True when nothing more is owed to this endpoint's shutdown: it reported
-   `:stopped`, or it never composed an acceptor at all.
-
-   A refused bind configuration or a missing host package leaves an endpoint
-   that owns its media and its reason and nothing else.  No host close
-   completion exists to deposit `:stopped` for it, so a shutdown that waited for
-   one would spend its whole budget and then report a timeout for a listener
-   that never bound."
+  "True when nothing more is owed to this endpoint's shutdown: it stopped,
+   it failed (a refused bind configuration, a missing host package, a bind
+   the host refused: nothing listens, or the channel already released it),
+   or it never composed a channel server at all.  No host close completion
+   exists for those, so a shutdown that waited for one would spend its
+   whole budget and then report a timeout for a listener that never bound."
   [endpoint]
   (or (nil? endpoint)
-      (= :stopped (:status endpoint))
-      (nil? (:acceptor endpoint))))
+      (contains? #{:stopped :failed} (:status endpoint))
+      (nil? (:server endpoint))))
 
 
 (defn stop!
   "Initiate stop, claiming nothing about completion.
 
-   Closing the shared requests and answers media is what makes a connected
-   client observe `:dao.stream/end` -- the bare source outcome the mirror
-   relays verbatim -- on its next read, translated by its RPC client to
-   `:dao.stream.rpc/ended`: a permanent conclusion, never a reattachable detach.  Every
-   accepted session's own socket closes later, in `finish-stop`, once this
-   step's mirror pass has had the chance to deliver that answer over the
-   wire; closing it here would race that delivery.  Only the host close
-   completion deposits `:stopped`, and only `step` consuming it marks the
-   stop complete and releases the resolution-table entry.
+   Closing the shared answers then requests media is what makes a
+   connected client observe `:dao.stream/end` -- the bare source outcome
+   the mirror relays verbatim -- on its next read, translated by its RPC
+   client to `:dao.stream.rpc/ended`: a permanent conclusion, never a
+   reattachable detach.  The channel server is stopped as ended, so it
+   keeps every session answering for the drain grace before it closes
+   them with the ended signal; `step` completes the stop.
 
-   An endpoint with no acceptor is left exactly as it is: it holds no
-   listener and no attachment, so there is nothing to initiate, and marking it
-   `:stopping` would both claim a stop nobody can complete and erase the status
-   that says why it never started."
+   An endpoint with no channel server, or one already stopping, stopped
+   or failed, is left exactly as it is: there is nothing to initiate, and
+   marking it `:stopping` would claim a stop nobody can complete."
   [endpoint]
-  (if (or (contains? #{:stopping :stopped} (:status endpoint))
-          (nil? (:acceptor endpoint)))
+  (if (or (nil? (:server endpoint))
+          (contains? #{:stopping :stopped :failed} (:status endpoint)))
     endpoint
     (do
       (stream/close! (:answers endpoint))
       (stream/close! (:requests endpoint))
-      (assoc endpoint :status :stopping))))
-
-
-(def stop-grace-ms
-  "How long, in the caller's clock domain, `finish-stop` waits after
-   `stop!` closed the shared requests/answers media before it closes any
-   accepted session's socket.  Closing the socket too soon would race the
-   wire answer a client's outstanding read of the now-ended media is
-   owed: that read answers with the media's own `:dao.stream/end`, and
-   the client must see that -- `:ended`, never reattachable -- before its
-   socket also reports `:ws/closed`, which alone would read as a
-   reattachable detach.  A fixed step count cannot bound this: it says
-   nothing about the client's own independent poll cadence or the network
-   round trip its read takes."
-  500)
-
-
-(defn- finish-stop*
-  [endpoint]
-  (if (:stop-initiated? endpoint)
-    endpoint
-    (let [endpoint (assoc endpoint :stop-initiated? true)
-          endpoint (do (doseq [[_ session] (ws-project/sessions (:acceptor endpoint))]
-                         (stream/close! (:handle session)))
-                       endpoint)
-          bound @(:resources endpoint)
-          result
-          (if bound
-            (try
-              ((:unbind! (:host endpoint)) bound (:deposit! endpoint))
-              {:dao.stream/outcome :dao.stream/ok}
-              (catch #?(:cljd Object :clj Throwable :cljs :default) _
-                (let [reason {:code :yin.repl.endpoint/unbind-threw
-                              :message "the host listener failed to release"}]
-                  ((:deposit! endpoint) :listener-error reason)
-                  {:dao.stream/outcome :dao.stream/transport-error
-                   :dao.stream/diagnostic reason})))
-            {:dao.stream/outcome :dao.stream/transport-error
-             :dao.stream/diagnostic
-             {:code :yin.repl.endpoint/never-bound
-              :message "the host listener never returned a resource"}})]
-      (if (= :dao.stream/transport-error (:dao.stream/outcome result))
-        ;; A synchronous release failure has no later host completion to
-        ;; observe.  The composition owns that fact and resolves locally,
-        ;; retaining the structured reason in the ordinary notice stream.
-        (-> endpoint
-            (assoc :status :stopped :resolution nil)
-            (publish :yin.repl.serve/notice
-                     (str "Endpoint stopped without host completion: "
-                          (pr-str (data/summarize (:dao.stream/diagnostic result)
-                                                  diagnostic-bounds)))))
-        endpoint))))
-
-
-(defn- finish-stop
-  [endpoint now]
-  (cond
-    (not= :stopping (:status endpoint)) endpoint
-    (nil? (:acceptor endpoint)) endpoint
-
-    ;; Nothing to wait for: skip the grace period entirely rather than
-    ;; delay a stop with no accepted session to deliver anything to.
-    (empty? (ws-project/sessions (:acceptor endpoint))) (finish-stop* endpoint)
-
-    ;; Real elapsed time, not a step count: a fixed number of this
-    ;; endpoint's own ticks says nothing about whether a client's
-    ;; independent poll cadence -- and the network round trip its own
-    ;; read takes -- has actually had the chance to run in that time.
-    (nil? (:stop-requested-at endpoint))
-    (assoc endpoint :stop-requested-at now)
-
-    (< (- now (:stop-requested-at endpoint)) stop-grace-ms)
-    endpoint
-
-    :else
-    (finish-stop* endpoint)))
+      (-> endpoint
+          (update :server remote-channel/stop! {:ended? true})
+          (assoc :status :stopping)))))
 
 
 ;; =============================================================================
@@ -678,35 +498,26 @@
 (defn step
   "Advance the endpoint once at `now`, returning the next endpoint value.
 
-   Ordering is intentional: lifecycle first, so a bind result is known before
-   anything claims to be serving; then the accepting composition's own
-   transport/offer/mirror step; then one bounded sweep of the shared
-   requests/answers pair against the single shared REPL state."
+   Ordering is intentional: the channel server first, so a bind result is
+   known before anything claims to be serving and its notices are
+   published; then, only while running, one bounded sweep of the shared
+   requests/answers pair against the single shared REPL state.  Once
+   stopping the media are closed, and advancing them would only answer
+   end on every tick."
   [endpoint now]
-  (if-not endpoint
+  (if (or (nil? endpoint) (nil? (:server endpoint)))
     endpoint
     (let [outbox-before (count (:outbox endpoint))
-          endpoint (drain-lifecycle endpoint)]
-      (if-not (:acceptor endpoint)
-        ;; An endpoint that never composed an acceptor -- a refused bind
-        ;; configuration or a missing host package -- still owns and reports
-        ;; its lifecycle medium; it simply has no requests to advance.
-        endpoint
-        (let [before (set (keys (ws-project/sessions (:acceptor endpoint))))
-              _ (ws-project/accept-step! (:acceptor endpoint) now)
-              departed (remove (ws-project/sessions (:acceptor endpoint)) before)
-              endpoint (reduce (fn [endpoint attachment]
-                                 (publish endpoint :yin.repl.serve/notice
-                                          (str ";; attachment " attachment " left")))
-                               endpoint departed)
-              cursor-before (:requests-cursor endpoint)
-              endpoint (advance-requests endpoint)]
-          (-> endpoint
-              (assoc :step-moved?
-                     (boolean (or (some? (:pending-answer endpoint))
-                                  (not= cursor-before (:requests-cursor endpoint))
-                                  (> (count (:outbox endpoint)) outbox-before))))
-              (finish-stop now)))))))
+          endpoint (observe-server endpoint
+                                   (remote-channel/serve-step (:server endpoint) now))
+          cursor-before (:requests-cursor endpoint)
+          endpoint (if (= :running (:status endpoint))
+                     (advance-requests endpoint)
+                     endpoint)]
+      (assoc endpoint :step-moved?
+             (boolean (or (some? (:pending-answer endpoint))
+                          (not= cursor-before (:requests-cursor endpoint))
+                          (> (count (:outbox endpoint)) outbox-before)))))))
 
 
 (defn moved?
@@ -721,13 +532,11 @@
   "A serializable summary of endpoint state, for `(repl-state)` and tests."
   [endpoint]
   (when endpoint
-    {:status (:status endpoint)
-     :url (url endpoint)
-     :path (:path endpoint)
-     :identity (:dao.stream/identity (:descriptor endpoint))
-     :serving? (some? (:resolution endpoint))
-     :sessions (if (:acceptor endpoint)
-                 (vec (sort (keys (ws-project/sessions (:acceptor endpoint)))))
-                 [])
-     :lifecycle {:cursor (:lifecycle-cursor endpoint)
-                 :last-outcome (:lifecycle-ledger endpoint)}}))
+    (let [server (:server endpoint)]
+      {:status (:status endpoint)
+       :url (url endpoint)
+       :path (:path endpoint)
+       :serving? (contains? #{:starting :running :stopping} (:status endpoint))
+       :sessions (vec (sort (keys (remote-channel/sessions server))))
+       :lifecycle {:gaps (:lifecycle-gaps server 0)
+                   :diagnostics (:diagnostic-count server 0)}})))

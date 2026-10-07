@@ -53,7 +53,7 @@
   [connection adapter-state]
   (await-pred
     (fn []
-      (connect/step! @connection)
+      (swap! connection connect/step! (System/currentTimeMillis))
       (let [polled (adapter/poll-responses @adapter-state 8)]
         (reset! adapter-state (:yin.repl.adapter/state polled))
         (not= :dao.stream/newest
@@ -70,7 +70,7 @@
   [connection adapter-state input]
   (await-pred
     (fn []
-      (connect/step! @connection)
+      (swap! connection connect/step! (System/currentTimeMillis))
       (let [result (adapter/submit-input @adapter-state input)]
         (reset! adapter-state (:yin.repl.adapter/state result))
         (not= :yin.repl.adapter/pending-request
@@ -82,7 +82,7 @@
   (let [events (atom [])]
     (await-pred
       (fn []
-        (connect/step! @connection)
+        (swap! connection connect/step! (System/currentTimeMillis))
         (let [polled (adapter/poll-responses @adapter-state 8)]
           (reset! adapter-state (:yin.repl.adapter/state polled))
           (swap! events into (:yin.repl.adapter/events polled))
@@ -96,7 +96,8 @@
     (try
       (is (await-pred #(= :running (:status @state))))
       (let [url (str "daostream:ws://127.0.0.1:" port "/repl")
-            opened (connect/open {:url url :host (host/websocket)})]
+            opened (connect/open {:url url :host (host/websocket)
+                                  :now (System/currentTimeMillis)})]
         (is (= :yin.repl.connect/attached (get opened connect/outcome-key)))
         (let [connection (atom (get opened connect/connection-key))
               adapter-state (atom (adapter/state (get opened connect/client-key)))]
@@ -109,17 +110,18 @@
                    (:yin.repl.adapter/event (first events))))
             (is (= "3" (:yin.repl.adapter/value (first events)))))
 
-          (connect/close! @connection)
+          (swap! connection connect/close!)
           (is (await-pred
                 #(do
-                   (connect/step! @connection)
+                   (swap! connection connect/step! (System/currentTimeMillis))
                    (let [polled (adapter/poll-responses @adapter-state 8)]
                      (reset! adapter-state (:yin.repl.adapter/state polled))
                      (= :dao.stream.rpc/detached
                         (:terminal (:yin.repl.adapter/rpc @adapter-state)))))))
 
           (let [reattached (connect/reattach
-                             @connection (:yin.repl.adapter/rpc @adapter-state))]
+                             @connection (:yin.repl.adapter/rpc @adapter-state)
+                             (System/currentTimeMillis))]
             (is (= :yin.repl.connect/reattached
                    (get reattached connect/outcome-key)))
             (reset! connection (get reattached connect/connection-key))

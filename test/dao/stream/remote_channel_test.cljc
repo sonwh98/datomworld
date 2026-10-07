@@ -200,7 +200,7 @@
         endpoint (:endpoint server)
         d (rc/dial {:spec spec :host (host-of lnet) :name n})
         p rc/production-bounds]
-    (is (= 20 (count p)))
+    (is (= 21 (count p)))
     (is (= {:max-sessions 64 :idle-timeout 60000 :step-budget 64
             :mirror-budget 64 :chase-budget 32}
            (select-keys @(:acceptor server)
@@ -224,9 +224,10 @@
     (testing "an invalid bound is the validating layer's composition error"
       (let [lnet (net/loopback-net)]
         (doseq [b [{:max-sessions 0} {:ws/max-frame-bytes -1}
-                   {:dao.stream.remote/give-up-after 0}]]
+                   {:dao.stream.remote/give-up-after 0}
+                   {:drain-grace-ms -1} {:drain-grace-ms nil}]]
           (is (thrown? #?(:cljd Object :clj Exception :cljs :default)
-                       (serve lnet (toy) b))
+                (serve lnet (toy) b))
               (pr-str b)))
         (is (empty? (:listeners @lnet)) "nothing listened")))))
 
@@ -337,7 +338,8 @@
         _ (swap! lnet assoc-in [:listeners (:port spec)]
                  {:accept! (fn [& _] {}) :deposit! (fn [& _] nil)})
         d (atom (dial lnet liveness nil))
-        step! (fn [now] (net/pump! lnet) (swap! d rc/dial-step now)
+        step! (fn [now]
+                (net/pump! lnet) (swap! d rc/dial-step now)
                 (net/pump! lnet))]
     (step! 1000)
     (step! 1149)
@@ -385,7 +387,8 @@
     (net/pump! lnet)
     (swap! (:server w) rc/stop!)
     (is (= :stopping (:status @(:server w))))
-    (is (= {:since nil :outcome nil} (:stop @(:server w))))
+    (is (= {:since nil :outcome nil}
+           (select-keys (:stop @(:server w)) [:since :outcome])))
     (is (= 0 @calls) "stop! performs no I/O")
     (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! reader-ws :still-open)))
         "the reader's connection is still open")
@@ -409,7 +412,9 @@
         "the pending connection's :ws/closed reached the control medium")
     (swap! (:server w) rc/serve-step 20)
     (is (= :stopped (:status @(:server w))))
-    (is (= {:since 10 :outcome :confirmed} (:stop @(:server w))))
+    (is (= {:since 10 :outcome :confirmed}
+           (select-keys (:stop @(:server w)) [:since :outcome])))
+    (is (= 10 (get-in @(:server w) [:stop :released])))
     (is (empty? (rc/sessions @(:server w))))
     (is (= 1 @calls))))
 
@@ -425,7 +430,9 @@
     (is (= :stopping (:status (rc/serve-step server 1099))) "never earlier")
     (let [s (rc/serve-step server 1100)]
       (is (= :stopped (:status s)))
-      (is (= {:since 1000 :outcome ::rc/unconfirmed} (:stop s)))))
+      (is (= {:since 1000 :outcome ::rc/unconfirmed}
+             (select-keys (:stop s) [:since :outcome])))
+      (is (= 1000 (get-in s [:stop :released])))))
   (testing "an unbind! that fails is stopped at once"
     (let [lnet (net/loopback-net)
           host (assoc (host-of lnet) :unbind! (fn [_ _] (throw (ex-info "no" {}))))
@@ -590,3 +597,445 @@
       (is (= ::rc/no-transport (:reason d)))
       (is (= d (rc/dial-step d 0)))
       (is (nil? (rc/handle d))))))
+
+
+;; =============================================================================
+;; S3b: writer-surface tables, identities dials, detach, drain
+;; =============================================================================
+
+(def ^:private req-id "req")
+
+
+(def ^:private ans-id "ans")
+
+
+(defn- read-only
+  "A handle with the reader surface only."
+  [identity]
+  (let [r (ring 4)]
+    (reify
+      stream/IDaoStreamDescriptor
+      (descriptor
+        [_]
+        {:dao.stream/outcome :dao.stream/ok
+         :dao.stream/identity identity})
+
+
+      stream/IDaoStreamReader
+
+      (cursor [_ anchor] (stream/cursor r anchor))
+
+      (next [_ c] (stream/next r c)))))
+
+
+(defn- pair-world
+  "A served requests ring (#{:writer}) and answers ring (#{:reader})
+   unless `:table-of` composes another table from them, and one
+   identities dial dialed at `:now` (0 by default)."
+  ([] (pair-world {}))
+  ([{:keys [bounds table-of identities now]
+     :or {table-of (fn [req ans]
+                     {req-id {:handle req :surface #{:writer}}
+                      ans-id {:handle ans :surface #{:reader}}})
+          identities [req-id ans-id]
+          now 0}}]
+   (let [lnet (net/loopback-net)
+         req (ring 16)
+         ans (ring 16)
+         calls (atom 0)
+         host (assoc (host-of lnet) :unbind! (counting-unbind lnet calls))]
+     {:net lnet :req req :ans ans :calls calls
+      :server (atom (rc/serve {:spec spec :host host
+                               :table (table-of req ans)
+                               :bounds bounds}))
+      :dials [(atom (rc/dial {:spec spec :host (host-of lnet)
+                              :identities identities :now now
+                              :bounds bounds}))]})))
+
+
+(defn- settle-append
+  "Append `v` through `h` until it answers anything but full, ticking
+   the world at `now` between attempts."
+  [w now h v]
+  (loop [left 50]
+    (let [r (stream/append! h v)]
+      (if (and (pos? left) (= :dao.stream/full (:dao.stream/outcome r)))
+        (do (tick! w now) (recur (dec left)))
+        r))))
+
+
+(deftest a-writer-entry-is-validated-against-its-handle
+  (let [lnet (net/loopback-net)
+        host (host-of lnet)
+        serve-table (fn [t] (rc/serve {:spec spec :host host :table t}))
+        ro (read-only "ro")]
+    (is (stream/reader? ro))
+    (is (not (stream/writer? ro)))
+    (let [s (serve-table {"ro" {:handle ro :surface #{:writer}}})]
+      (is (= :refused (:status s)))
+      (is (= ::rc/invalid-table (:reason s)))
+      (is (= {:identity "ro" :surface #{:writer}} (:detail s))))
+    (is (= :starting (:status (serve-table {"ro" {:handle ro :surface #{:reader}}})))
+        "a surface within the handle's natures is accepted")
+    (net/unlisten! lnet (:port spec))
+    (is (= :starting
+           (:status (serve-table {"rw" {:handle (ring 4) :surface #{:reader :writer}}})))
+        "#{:reader :writer} over a ring is accepted")
+    (doseq [surface [#{} [:reader] nil #{:reader :other}]]
+      (is (= ::rc/invalid-table
+             (:reason (serve-table {"s" {:handle (ring 4) :surface surface}})))
+          (pr-str surface)))))
+
+
+(deftest an-identities-dial-attaches-both-at-once
+  (let [w (pair-world)
+        d (first-dial w)
+        wh (rc/handle @d req-id)
+        rh (rc/handle @d ans-id)]
+    (is (= :attached (:status @d)) "before any step")
+    (is (nil? (rc/handle @d)) "no one handle")
+    (is (= #{req-id ans-id} (set (keys (rc/handles @d)))))
+    (is (stream/writer? wh))
+    (is (stream/reader? rh))
+    (is (= :dao.stream/ok (:dao.stream/outcome (settle-append w 0 wh :hello))))
+    (run-until w 1 1 10 #(seq (values (:req w))))
+    (is (= [:hello] (values (:req w))) "the write landed on the served ring")
+    (stream/append! (:ans w) :answer)
+    (let [c (settle w 20 #(stream/cursor rh stream/anchor-oldest))
+          r (settle w 20 #(stream/next rh (:dao.stream/cursor c)))]
+      (is (= :answer (:dao.stream/value r)) (pr-str r)))))
+
+
+(deftest an-identities-dial-for-an-absent-identity-is-gone-not-found
+  (let [w (pair-world {:table-of (fn [req _]
+                                   {req-id {:handle req :surface #{:writer}}})})
+        d (first-dial w)
+        wh (rc/handle @d req-id)
+        rh (rc/handle @d ans-id)]
+    (is (= :attached (:status @d)) "confirmation is deferred")
+    (let [r (settle w 0 #(stream/cursor rh stream/anchor-oldest))]
+      (is (= :dao.stream/transport-error (:dao.stream/outcome r)))
+      (is (= :dao.stream.remote/not-found (:dao.stream.remote/reason r))))
+    (is (= :dao.stream/ok (:dao.stream/outcome (settle-append w 1 wh :still))))
+    (run-until w 2 1 10 #(seq (values (:req w))))
+    (is (= [:still] (values (:req w))) "the writer still works")))
+
+
+(deftest an-identities-dial-attaches-exactly-the-requested-identities
+  (let [w (pair-world {:identities [req-id ans-id "absent"]})
+        d (first-dial w)]
+    (is (= :attached (:status @d)))
+    (is (= [req-id ans-id "absent"] (:identities @d)))
+    (is (= #{req-id ans-id "absent"} (set (keys (rc/handles @d))))
+        "every requested identity, the last one included")
+    (is (= 1 (count (:conns @(:net w)))) "one shared channel")))
+
+
+(deftest dial-target-refusals
+  (let [lnet (net/loopback-net)
+        host (host-of lnet)]
+    (doseq [target [{:name n :identities [req-id]}
+                    {}
+                    {:identities []}
+                    {:identities [req-id req-id]}
+                    {:identities (list req-id)}
+                    {:identities [nil]}
+                    {:identities [nil ans-id]}
+                    {:identities [req-id nil ans-id]}
+                    {:identities [req-id ans-id nil]}]]
+      (let [d (rc/dial (merge {:spec spec :host host} target))]
+        (is (= :refused (:status d)) (pr-str target))
+        (is (= ::rc/invalid-target (:reason d)) (pr-str target))
+        (is (= d (rc/dial-step d 0)))))
+    (is (empty? (:conns @lnet)) "nothing connected")))
+
+
+(deftest detach-leaves-the-reflections-to-observe-channel-gone
+  (let [w (pair-world)
+        d (first-dial w)
+        wh (rc/handle @d req-id)
+        rh (rc/handle @d ans-id)
+        c (:dao.stream/cursor (settle w 0 #(stream/cursor rh stream/anchor-oldest)))
+        a (rc/attachment @d)]
+    (is (string? a))
+    (swap! d rc/detach!)
+    (is (true? (:detaching? @d)))
+    (is (= :attached (:status @d)) "steppable until the loss is observed")
+    (is (= @d (rc/detach! @d)) "detach! twice is identity")
+    (run-until w 1 1 10 #(= :lost (:status @d)))
+    (is (= :lost (:status @d)))
+    (is (= channel-gone (:outcome @d)))
+    (let [r (stream/next rh c)]
+      (is (= :dao.stream/transport-error (:dao.stream/outcome r)))
+      (is (= :dao.stream.remote/channel-gone (:dao.stream.remote/reason r))))
+    (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! wh :x))))
+    (is (= a (rc/attachment @d)) "the attachment id outlives the loss")
+    (let [closed (rc/close! @d)]
+      (is (= :closed (:status closed)))
+      (is (nil? (rc/attachment closed))))))
+
+
+(defn- served-reader-world
+  "One served ring `src` (#{:reader}), one identities dial of it, and a
+   reader with an outstanding `next` on it that reached the server.
+   `unbind`, given, stands in for the host's unbind (counted all the
+   same)."
+  ([bounds] (served-reader-world bounds nil))
+  ([bounds unbind]
+   (let [lnet (net/loopback-net)
+         src (ring 16)
+         calls (atom 0)
+         host (assoc (host-of lnet) :unbind!
+                     (if unbind
+                       (fn [l dep] (swap! calls inc) (unbind l dep))
+                       (counting-unbind lnet calls)))
+         id (identity-of src)
+         w {:net lnet :src src :calls calls
+            :server (atom (rc/serve {:spec spec :host host
+                                     :table {id {:handle src :surface #{:reader}}}
+                                     :bounds bounds}))
+            :dials [(atom (rc/dial {:spec spec :host (host-of lnet)
+                                    :identities [id] :now 0 :bounds bounds}))]}
+         h (rc/handle @(first-dial w) id)
+         c (:dao.stream/cursor (settle w 0 #(stream/cursor h stream/anchor-oldest)))]
+     (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next h c))))
+     (tick! w 1)
+     (assoc w :h h :c c))))
+
+
+(defn- conns-open?
+  [w]
+  (not-any? (comp deref :closed?) (:conns @(:net w))))
+
+
+(deftest an-ended-stop-drains-before-it-closes
+  (let [w (served-reader-world {:drain-grace-ms 500})
+        {:keys [h c calls]} w
+        server (:server w)
+        d (first-dial w)
+        t0 100]
+    (is (= 1 (count (rc/sessions @server))))
+    (stream/close! (:src w))
+    (swap! server rc/stop! {:ended? true})
+    (is (true? (get-in @server [:stop :ended?])))
+    (tick! w t0)
+    (is (= :stopping (:status @server)))
+    (is (= {:since t0 :released nil}
+           (select-keys (:stop @server) [:since :released])))
+    (is (conns-open? w) "the reader's connection is still open")
+    (is (= {:dao.stream/outcome :dao.stream/end}
+           (loop [now (inc t0)]
+             (tick! w now)
+             (let [r (stream/next h c)]
+               (if (and (= :dao.stream/blocked (:dao.stream/outcome r))
+                        (< now (+ t0 10)))
+                 (recur (inc now))
+                 r))))
+        "the medium's own end, not channel-gone, within the drain")
+    (is (= :attached (:status @d)))
+    (tick! w (+ t0 499))
+    (is (conns-open? w) "still open inside the drain")
+    (is (= 0 @calls) "not yet released")
+    (tick! w (+ t0 500))
+    (is (= (+ t0 500) (get-in @server [:stop :released])))
+    (is (every? :closed? (vals (rc/sessions @server))) "every session closed")
+    (is (= 1 @calls) "unbind! called once")
+    (is (= [4000] (mapv (comp deref :close-code) (:conns @(:net w))))
+        "closed with the ws ended code")
+    (tick! w (+ t0 501))
+    (is (= :stopped (:status @server)))
+    (is (= :confirmed (get-in @server [:stop :outcome])))
+    (is (= :lost (:status @d)))
+    (is (= 1 @calls))))
+
+
+(deftest a-drain-ends-early-when-the-last-session-leaves
+  (let [w (served-reader-world {:drain-grace-ms 500})
+        server (:server w)
+        d (first-dial w)
+        t0 100]
+    (stream/close! (:src w))
+    (swap! server rc/stop! {:ended? true})
+    (tick! w t0)
+    (is (nil? (get-in @server [:stop :released])))
+    (swap! d rc/detach!)
+    (tick! w (+ t0 11))
+    (is (empty? (rc/sessions @server)) "the departed session is reaped")
+    (is (= (+ t0 11) (get-in @server [:stop :released])))
+    (is (= 1 @(:calls w)))))
+
+
+(deftest no-sessions-means-no-drain
+  (let [w (pair-world {:bounds {:drain-grace-ms 500}})
+        server (:server w)]
+    (swap! server rc/serve-step 0)
+    (is (= :serving (:status @server)))
+    (swap! server rc/stop! {:ended? true})
+    (swap! server rc/serve-step 5)
+    (is (= {:since 5 :released 5}
+           (select-keys (:stop @server) [:since :released])))
+    (is (= 1 @(:calls w)))))
+
+
+(deftest the-host-stopping-under-a-drain-is-host-stopped
+  (let [w (served-reader-world {:drain-grace-ms 500})
+        server (:server w)]
+    (stream/close! (:src w))
+    (swap! server rc/stop! {:ended? true})
+    (tick! w 100)
+    (is (= :stopping (:status @server)))
+    ((:deposit! @server) :stopped {:reason :under-us})
+    (swap! server rc/serve-step 101)
+    (is (= :stopped (:status @server)))
+    (is (= ::rc/host-stopped (get-in @server [:stop :outcome])))
+    (is (every? :closed? (vals (rc/sessions @server))) "sessions closed")))
+
+
+(defn- draining
+  "A served-reader world stopped at 100 and draining (grace 500)."
+  ([] (draining nil))
+  ([unbind]
+   (let [w (served-reader-world {:drain-grace-ms 500} unbind)]
+     (stream/close! (:src w))
+     (swap! (:server w) rc/stop! {:ended? true})
+     (tick! w 100)
+     (is (= {:since 100 :released nil}
+            (select-keys (:stop @(:server w)) [:since :released])))
+     w)))
+
+
+(deftest a-lifecycle-gap-under-a-drain-releases-once
+  (let [w (draining)
+        server (:server w)]
+    (dotimes [i 70] ((:deposit! @server) :listener-error {:i i}))
+    (swap! server rc/serve-step 101)
+    (is (= :stopped (:status @server)))
+    (is (= {:since 100 :released 101 :outcome ::rc/unconfirmed}
+           (select-keys (:stop @server) [:since :released :outcome])))
+    (is (every? :closed? (vals (rc/sessions @server))) "sessions closed")
+    (is (= 1 @(:calls w)) "unbind! called once")
+    (let [s @server]
+      (tick! w 102)
+      (tick! w 2000)
+      (is (= s @server) "later steps tear nothing down again")
+      (is (= 1 @(:calls w))))))
+
+
+(deftest a-lifecycle-end-under-a-drain-releases-once
+  (let [w (draining)
+        server (:server w)]
+    (stream/close! (:lifecycle @server))
+    (swap! server rc/serve-step 101)
+    (is (= :stopped (:status @server)))
+    (is (= {:released 101 :outcome ::rc/unconfirmed}
+           (select-keys (:stop @server) [:released :outcome])))
+    (is (every? :closed? (vals (rc/sessions @server))) "sessions closed")
+    (is (= 1 @(:calls w)) "unbind! called once")
+    (swap! server rc/serve-step 102)
+    (is (= 1 @(:calls w)))))
+
+
+(deftest an-unbind-refused-under-a-drain-gap-is-unbind-failed
+  (let [w (draining (fn [_ _] {:dao.stream/outcome :dao.stream/transport-error}))
+        server (:server w)]
+    (dotimes [i 70] ((:deposit! @server) :listener-error {:i i}))
+    (swap! server rc/serve-step 101)
+    (is (= :stopped (:status @server)))
+    (is (= {:released 101 :outcome ::rc/unbind-failed}
+           (select-keys (:stop @server) [:released :outcome])))
+    (is (every? :closed? (vals (rc/sessions @server))) "sessions closed")
+    (is (= 1 @(:calls w)))
+    (swap! server rc/serve-step 102)
+    (is (= 1 @(:calls w)) "no second unbind")))
+
+
+(deftest bind-host-binds-while-host-is-advertised
+  (let [seen (atom nil)
+        s (assoc spec :host "10.0.0.5" :bind-host "0.0.0.0")
+        server (rc/serve {:spec s
+                          :host {:bind! (fn [opts]
+                                          (reset! seen opts)
+                                          {:dao.stream/outcome :dao.stream/ok})}
+                          :table {"t" {:handle (toy) :surface #{:reader}}}})]
+    (is (= :starting (:status server)))
+    (is (= "10.0.0.5" (:ws/host (rc/descriptor-of s))))
+    (is (= "ws://10.0.0.5:9/x" (:dao.stream/identity (:descriptor server))))
+    (is (= "0.0.0.0" (:bind-host @seen)))
+    (is (= 9 (:bind-port @seen)))))
+
+
+(deftest bind-port-binds-while-port-is-advertised
+  (let [seen (atom nil)
+        s (assoc spec :port 9090 :bind-port 8080)
+        server (rc/serve {:spec s
+                          :host {:bind! (fn [opts]
+                                          (reset! seen opts)
+                                          {:dao.stream/outcome :dao.stream/ok})}
+                          :table {"t" {:handle (toy) :surface #{:reader}}}})]
+    (is (= :starting (:status server)))
+    (is (= 9090 (:ws/port (rc/descriptor-of s))))
+    (is (= 8080 (:bind-port @seen)) "the listener binds the bind port")))
+
+
+(deftest diagnostic-count-is-monotonic
+  (let [w (world)]
+    (tick! w 0)
+    (is (= 0 (:diagnostic-count @(:server w))))
+    (dotimes [i 10] ((:deposit! @(:server w)) :upgrade-failed {:i i}))
+    (tick! w 1)
+    (is (= 8 (count (:diagnostics @(:server w)))))
+    (is (= 10 (:diagnostic-count @(:server w))))))
+
+
+;; =============================================================================
+;; Writing through a reflection (dao.stream.remote.md 3.1)
+;; =============================================================================
+
+(deftest writing-through-a-reflection-answers-acceptance-only
+  (testing "establishing: full, then the identical value ok"
+    (let [w (pair-world)
+          wh (rc/handle @(first-dial w) req-id)]
+      (is (= :dao.stream/full (:dao.stream/outcome (stream/append! wh :v))))
+      (tick! w 0)
+      (is (= :dao.stream/ok (:dao.stream/outcome (settle-append w 0 wh :v))))
+      (run-until w 1 1 10 #(seq (values (:req w))))
+      (is (= [:v] (values (:req w))))))
+  (testing "ok is not evaluation: the value lands only at the server's tick"
+    (let [w (pair-world)
+          wh (rc/handle @(first-dial w) req-id)]
+      (tick! w 0)
+      (is (= :dao.stream/ok (:dao.stream/outcome (settle-append w 0 wh :v))))
+      (is (empty? (values (:req w))) "accepted for the wire only")
+      (tick! w 1)
+      (is (= [:v] (values (:req w))))))
+  (testing "closed after detach!"
+    (let [w (pair-world)
+          d (first-dial w)
+          wh (rc/handle @d req-id)]
+      (tick! w 0)
+      (swap! d rc/detach!)
+      (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! wh :v))))))
+  (testing "no-surface once the probe is answered"
+    (let [w (pair-world)
+          rh (rc/handle @(first-dial w) ans-id)]
+      (run-until w 0 1 5 (constantly false))
+      (let [r (stream/append! rh :forged)]
+        (is (= :dao.stream/transport-error (:dao.stream/outcome r)))
+        (is (= :dao.stream.remote/no-surface (:dao.stream.remote/reason r))))
+      (is (empty? (values (:ans w))) "no answer was forged")))
+  (testing "a dropped answer expires the channel although the value crossed"
+    (let [w (pair-world {:bounds liveness})
+          d (first-dial w)
+          wh (rc/handle @d req-id)]
+      (tick! w 0)
+      (net/blackhole! (:net w) :client)
+      (is (= :dao.stream/ok (:dao.stream/outcome (settle-append w 0 wh :v))))
+      (tick! w 10)
+      (is (= [:v] (values (:req w))) "the source append ran")
+      (tick! w 149)
+      (is (= :attached (:status @d)) "not before the deadline")
+      (tick! w 150)
+      (tick! w 160)
+      (is (= :lost (:status @d)))
+      (is (= channel-gone (:outcome @d)))
+      (is (= [:v] (values (:req w))) "the loss is false: the value crossed"))))

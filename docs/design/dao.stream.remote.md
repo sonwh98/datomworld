@@ -520,7 +520,11 @@ contract:
   rejected, closes the sessions, then the pending connections, then asks
   the host to release its listener. Completion is the host's `stopped`
   fact or, failing a callback, a composed grace measured against the
-  driver's `now`; release bookkeeping never depends on the callback.
+  driver's `now`; release bookkeeping never depends on the callback. A
+  serving composition may hold its sessions open and answering for a
+  composed drain grace after the first stopping tick, so that readers of a
+  medium the consumer ended observe `end` before their connection closes;
+  the board composes none, the REPL composes 500 ms.
 - **Lifecycle observation**: the listener's lifecycle medium is a bounded
   ring written only by the host. While starting, `bind-succeeded` serves
   and `bind-failed` refuses, and a gap or end refuses as lifecycle-lost
@@ -531,7 +535,8 @@ contract:
   diagnostics were lost; `stopped` without a stop, or an end, is a
   host-stopped stop after closing sessions and pending connections. While
   stopping, `stopped` confirms the stop, and a gap or end completes it
-  unconfirmed. A channel drop on either side is never a source gap.
+  unconfirmed; one that cuts a drain short releases first, so the stop
+  never completes owing a session or the listener. A channel drop on either side is never a source gap.
 
 ### 3.1 WebSocket
 
@@ -561,13 +566,28 @@ keeps the events whose `:ws/attachment` names this channel, appends the
 loss is then the link's `end` observation (2.4). `ws-project` is a step the
 composition drives at its own cadence, as it drives `endpoint-step`.
 `dao.stream.remote-channel` is the stepped composition over this channel:
-`serve`/`serve-step`/`stop!` and `dial`/`dial-step`/`close!` over a
+`serve`/`serve-step`/`stop!` and `dial`/`dial-step`/`detach!`/`close!` over a
 portable endpoint specification it formats into the ws descriptor itself,
-with its `production-bounds` profile as the composition data of 3.0. A
+with its `production-bounds` profile as the composition data of 3.0. The
+specification's `:host` and `:port` are what the descriptor advertises; its
+optional `:bind-host` and `:bind-port` are where the listener binds, each
+defaulting to the advertised one and passed to the host's bind unvalidated
+(port 0 is the host's ephemeral bind behind an explicit advertised port). A
 connection that never opens refuses every send (`full`), so the link holds
 no outstanding request to stamp a deadline on; the dial bounds its whole
 resolving phase by the same `give-up-after` from its first step and is then
-lost as `channel-gone`, the connect half of the same liveness.
+lost as `channel-gone`, the connect half of the same liveness. A dial by
+distinct, non-nil identities rather than a name attaches every reflection at
+once with the driver's `now` recorded first, so its probes carry that deadline
+instead.
+The table is validated at `serve` against the handles' natures, and an
+entry may declare any non-empty subset of `#{:reader :writer}`. A
+reflection's `append!` answers the channel writer's acceptance only (ok is
+accepted for the wire, full is retried, closed and transport-error never
+crossed), and an append whose answer the peer could not send stays
+outstanding until `give-up-after` loses the channel although the value
+crossed; a consumer that needs confirmation correlates an answer on a medium
+it reads, never the append's own wire answer.
 
 Direction is establishment, not authority. A WebSocket has a dialer and an
 acceptor because TCP does. Once established the channel is symmetric and

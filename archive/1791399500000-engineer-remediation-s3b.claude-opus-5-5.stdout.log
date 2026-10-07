@@ -1,0 +1,20 @@
+I've fixed review items R1, R2, R3 and the drain-gap teardown, but not R4: I couldn't run `cljstyle` because it needs approval this session can't get. Nothing is committed. The focused JVM tests pass (92 tests, 0 failures), and so does the full JVM lane apart from one error that is also on the base revision. The remediation section is appended to `collab/1791398000000-engineer-stream-s3b.claude-opus-5-5.findings.md`.
+
+- **R1, bind port vs advertised port:** `serve!` now passes `:bind-port` alongside `:bind-host`, and the channel server binds `(or (:bind-port spec) (:port spec))`. The descriptor and URL still name the advertised port. As on the base revision, the bind port goes to the host unchecked, so port 0 with an explicit advertised port is an ephemeral bind. New tests cover binding 8080 while advertising 9090, and binding 0 while advertising 9090.
+- **R2, nil identity:** the attach loop now stops when the list runs out, not when it reads a nil. A nil identity is now refused as `::invalid-target` before any connection is made. New tests cover nil first, middle and last, and check that a three-identity dial gets exactly the three requested handles over one connection.
+- **R3, test boundary:**
+  - `dht_head_test.cljc` drops its private copy of the loopback net (about 95 lines) and uses `dao.stream.loopback-net`. I added `:dialed` recording to that shared net, since the DHT tests check it.
+  - I moved `host_node_test.cljs` to `test/yin/repl/host/node_test.cljs`, next to `jvm_test.clj`. It is the Node host-adapter test, so it gets the same exemption as the JVM one.
+  - Both grep checks (the REPL tests, and `serve.cljc`/`connect.cljc`) now find nothing.
+  - D10's wording still says "JVM host-adapter tests" and the Architect should widen it to all host-adapter tests under `test/yin/repl/host/`.
+- **Drain-gap teardown:** a lifecycle gap or end during the drain now closes the sessions, unbinds once and records `:released now`. The stop then ends as `::unconfirmed`, or `::unbind-failed` if the host refuses the unbind. Three new tests cover the gap, the end and the refused unbind, and check that later steps don't tear anything down again.
+- **Design doc:** `docs/design/dao.stream.remote.md` now states the bind/advertised contract, the non-nil identity rule and the drain-gap release.
+
+**Verification:**
+- **Focused JVM tests** (the four requested namespaces plus `dht-head-test`): 92 tests, 667 assertions, 0 failures.
+- **`bb test:clj`:** 3774 tests, 0 failures, 1 error. The error is the missing `handoff-v2.txt` fixture, which is also missing on the base revision.
+- **kondo:** the files I changed are clean. Linting `src/cljc/yin/repl` reports one error at `src/cljc/yin/repl/host.cljc:15`, a file I didn't touch. The full-tree run shows 27 errors and 67 warnings outside the changed files. I didn't compare that count against the base.
+
+**Still to do before landing:**
+1. **Formatting (R4):** run `cljstyle fix` on the changed files, then `cljstyle check`. The exact command is in the report. I indented my own additions by hand, but the spots the reviewer flagged in `remote_channel_test.cljc` are untouched.
+2. **Node and Dart lanes:** not run in this pass, including the renamed `yin.repl.host.node-test`.

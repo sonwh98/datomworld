@@ -302,7 +302,8 @@
 
 (defn- reattach
   [state url]
-  (let [result (connect/reattach (:connection state) (rpc-client state))]
+  (let [result (connect/reattach (:connection state) (rpc-client state)
+                                 (:last-tick state))]
     (if-not (= :yin.repl.connect/reattached (get result connect/outcome-key))
       (connect-failure state result)
       (-> state
@@ -322,7 +323,8 @@
 
 (defn- open-connection
   [state url]
-  (let [result (connect/open {:url url :host (:host state)})
+  (let [result (connect/open {:url url :host (:host state)
+                              :now (:last-tick state)})
         dropped (count (:queued state))]
     (if-not (= :yin.repl.connect/attached (get result connect/outcome-key))
       (connect-failure state result)
@@ -514,14 +516,14 @@
 
 
 (defn- poll-remote
-  [state]
-  (when-let [connection (:connection state)]
-    (connect/step! connection))
-  (if-not (:adapter state)
-    state
-    (let [result (adapter/poll-responses (:adapter state) response-budget)]
-      (publish-adapter-events (assoc state :adapter
-                                     (:yin.repl.adapter/state result))))))
+  [state now]
+  (let [state (cond-> state
+                (:connection state) (update :connection connect/step! now))]
+    (if-not (:adapter state)
+      state
+      (let [result (adapter/poll-responses (:adapter state) response-budget)]
+        (publish-adapter-events (assoc state :adapter
+                                       (:yin.repl.adapter/state result)))))))
 
 
 (defn- observe-connection
@@ -582,7 +584,7 @@
         ;; handled, so a `(connect …)` typed in the same tick as the drop that
         ;; makes it legal sees the terminal fact rather than being told the
         ;; shell is already connected.
-        state (poll-remote state)
+        state (poll-remote state now)
         state (observe-connection state)
         [state lines] (drain-input state)
         state (reduce handle-line state lines)]

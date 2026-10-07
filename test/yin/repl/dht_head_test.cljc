@@ -19,7 +19,7 @@
             [dao.space.store :as durable]
             [dao.space.store.fs :as fs]
             [dao.stream :as stream]
-            [dao.stream.ws :as ws]
+            [dao.stream.loopback-net :as net]
             [yin.repl :as repl]
             [yin.repl.dht :as repl.dht]
             [yin.repl.main :as main]
@@ -30,105 +30,17 @@
 
 
 ;; =============================================================================
-;; An in-process loopback WebSocket net
+;; The in-process loopback net (dao.stream.loopback-net)
 ;; =============================================================================
 
-(defn- ws-net
-  []
-  (atom {:listeners {} :queue [] :conns []}))
-
-
-(defn- enqueue!
-  [net f]
-  (swap! net update :queue conj f)
-  nil)
-
-
-(defn- pump!
-  [net]
-  (loop []
-    (let [q (:queue @net)]
-      (when (seq q)
-        (swap! net assoc :queue [])
-        (doseq [f q] (f))
-        (recur)))))
-
-
-(defn- deliver!
-  [adapter payload]
-  (if (string? payload)
-    ((:message! adapter) payload)
-    ((:binary! adapter) payload)))
-
-
-(defn- close-conn!
-  [conn code reason]
-  (when-not @(:closed? conn)
-    (reset! (:closed? conn) true)
-    (when-some [s @(:server conn)] ((:closed! s) code reason))
-    ((:closed! (:client conn)) code reason)))
-
-
-(defn- listen-on
-  [net]
-  (fn [{:keys [bind-host bind-port accept! deposit!]}]
-    (when (contains? (:listeners @net) bind-port)
-      (throw (ex-info "address in use" {:port bind-port})))
-    (swap! net assoc-in [:listeners bind-port]
-           {:accept! accept! :deposit! deposit!})
-    (deposit! :bind-succeeded {:host bind-host :port bind-port})
-    {:dao.stream/outcome :dao.stream/ok :port bind-port}))
-
-
-(defn- unlisten!
-  [net port]
-  (let [conns (filterv #(= port (:port %)) (:conns @net))]
-    (swap! net update :listeners dissoc port)
-    (doseq [c conns] (close-conn! c 1001 "going away"))))
-
-
-(defn- connect-on
-  [net]
-  (fn [descriptor client]
-    (let [conn {:port (:ws/port descriptor)
-                :client client
-                :server (atom nil)
-                :closed? (atom false)}]
-      (swap! net update :conns conj conn)
-      (swap! net update :dialed (fnil conj []) [(:ws/host descriptor)
-                                                (:ws/port descriptor)])
-      (enqueue! net
-                (fn []
-                  (if-some [l (get-in @net [:listeners (:ws/port descriptor)])]
-                    (let [socket {:send! (fn [p]
-                                           (enqueue! net
-                                                     #(when-not @(:closed? conn)
-                                                        (deliver! client p))))
-                                  :close! (fn [code reason]
-                                            (enqueue! net
-                                                      #(close-conn!
-                                                         conn code reason)))}
-                          r ((:accept! l) (:ws/path descriptor) socket 0)]
-                      (when-some [h (:ws/handle r)]
-                        (reset! (:server conn) (ws/adapter h))
-                        ((:opened! client))))
-                    (close-conn! conn 1006 "connection refused"))))
-      {:send! (fn [p]
-                (enqueue! net #(when-not @(:closed? conn)
-                                 (when-some [s @(:server conn)]
-                                   (deliver! s p)))))
-       :close! (fn [code reason]
-                 (enqueue! net #(close-conn! conn code reason)))})))
-
-
 (defn- ws-host
-  "The host WebSocket seam over `net`, as yin.repl.host answers it."
-  [net]
-  {:bind! (listen-on net)
-   :connect! (connect-on net)
-   :unbind! (fn [listener deposit!]
-              (unlisten! net (:port listener))
-              (deposit! :stopped {}))})
+  "The host WebSocket seam over `net`, as yin.repl.host answers it: an
+   unbind closes what the listener accepted and deposits `:stopped`."
+  [lnet]
+  {:bind! (net/listen-on lnet)
+   :connect! (net/connect-on lnet)
+   :unbind! (fn [listener _]
+              (net/unlisten! lnet (:port listener)))})
 
 
 ;; =============================================================================
@@ -207,18 +119,18 @@
   "A world whose clock advances `:dt` ms per tick (10 by default)."
   ([] (world {}))
   ([{:keys [dt] :or {dt 10}}]
-   {:mesh (mesh/mesh) :ws (ws-net) :now 0 :dt dt
+   {:mesh (mesh/mesh) :ws (net/loopback-net) :now 0 :dt dt
     :lines {:a [] :b [] :c []}}))
 
 
 (defn- tick
   [w]
-  (pump! (:ws w))
+  (net/pump! (:ws w))
   (let [now (:now w)
         step (fn [w k]
                (if-some [s (get w k)]
                  (let [[s _ lines] (main/step-all s nil now)]
-                   (pump! (:ws w))
+                   (net/pump! (:ws w))
                    (-> w (assoc k s) (update-in [:lines k] into lines)))
                  w))]
     (-> w (step :a) (step :b) (step :c) (assoc :now (+ now (:dt w))))))
@@ -312,8 +224,8 @@
   (testing "a TCP port already in use: no board, no token, the port named"
     (let [key (sign/generate)
           w (world)
-          _ ((listen-on (:ws w)) {:bind-host "127.0.0.1" :bind-port pub-port
-                                  :deposit! (fn [& _] nil)})
+          _ ((net/listen-on (:ws w)) {:bind-host "127.0.0.1" :bind-port pub-port
+                                      :deposit! (fn [& _] nil)})
           w (assoc w :a (publisher w key (temp-dir)))
           w (run w 20 (fn [_] false))]
       (is (empty? (lines-with w :a "dht: join token:")))
@@ -794,7 +706,7 @@
     (is (seq (:listeners @(:ws w))))
     (is (some #(not @(:closed? %)) (:conns @(:ws w))) "a live connection")
     (close! w)
-    (pump! (:ws w))
+    (net/pump! (:ws w))
     (is (empty? (:listeners @(:ws w))) "no listener")
     (is (every? #(deref (:closed? %)) (:conns @(:ws w)))
         "every connection closed")))

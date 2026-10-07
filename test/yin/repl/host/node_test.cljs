@@ -1,4 +1,4 @@
-(ns yin.repl.host-node-test
+(ns yin.repl.host.node-test
   "Real-loopback checks for the Node composition of the Yin REPL host seam."
   (:require [cljs.test :refer [async deftest is]]
             [yin.repl.host :as host]

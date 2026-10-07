@@ -1,0 +1,37 @@
+S3b is implemented in the worktree and nothing is committed, but it isn't fully verified. The Node lane and `cljstyle` never ran because both needed approval this non-interactive session couldn't get.
+
+**Lane results**
+
+| Lane | Result |
+|---|---|
+| JVM `bb test:clj` | 3767 tests, 0 failures, 1 error |
+| Dart `bb test:cljd` | 3574 passed, 1 failed; every S3b namespace ran on Dart and passed |
+| Node `bb test:cljs` | **Ran no tests.** `npm ci` was blocked, so it died with `MODULE_NOT_FOUND`, yet still exited 0. Don't read that exit code as a pass. |
+| `^:slow` main_test (incl. fact 4) | 2 tests passed |
+| JVM wire test | passed |
+| kondo | zero findings in every touched file |
+| `cljstyle` | **Not run** (needed approval) |
+
+The single JVM error and the single Dart failure are the same test, `yin.vm.ucf.handoff-v2-census-test`. Its fixture `test/resources/yin/vm/ucf/handoff-v2.txt` is not tracked on master `802d9ee2` either, so it fails without this slice.
+
+The tree-wide kondo total (27 errors, 67 warnings) is all in untouched files, so the spec's "0/0 tree-wide" can't hold on this base.
+
+**What changed**
+- **`remote_channel.cljc`:**
+  - Tables are validated against each handle's natures (D1).
+  - `dial` accepts `:identities` with `:now` and attaches both reflections immediately (D2).
+  - A stop can now keep sessions open for a drain period and close them with the "ended" code 4000 (D4).
+  - New `detach!` and `attachment`, the bind-host option, and a diagnostic counter (D5–D7).
+- **`connect.cljc` / `serve.cljc`:** both are now thin layers over `remote-channel`, and the boundary grep finds no transport references in either. `step!` and `reattach` now take `now`, and the driver threads it through.
+- **Tests:** a new shared `test/yin/repl/net_fixture.cljc` connects real clients over the in-process loopback net. `serve_test`, `connect_test`, `embed_test`, `main_test`, `slice_peer` and the wire test are migrated, and the new §4.1/§4.2 tests are added.
+- **Docs:** `dao.stream.remote.md` §3.0 and §3.1 are amended as specified.
+
+**Deviations worth review** (full list in the report)
+- **Four existing assertions amended, not two.** Adding `:drain-grace-ms` changed the bounds count from 20 to 21, and the shape of `stop!`'s initial `:stop` map changed too.
+- **`stopping-after-bind-threw` now expects `:failed`, not `:stopped`.** The spec's `stop!` rule leaves a failed endpoint unchanged. The test's real claims still hold: `stopped?` is true and unbind is never called.
+- **A lifecycle gap during a drain** now releases the sessions and unbinds before completing as unconfirmed. Otherwise sessions would stay open and the listener bound. The spec didn't cover this case.
+- **The boundary gate's second grep isn't empty.** It lists `dht_head_test.cljc` (the head board's fake net) and `host_node_test.cljs` (a Node host-adapter test). I left both untouched; this is an open question for the Architect.
+
+**Before landing:** run `npm ci` then `bb test:cljs`, and confirm the remote-channel, serve and connect test namespaces appear in its output. Also run `cljstyle check` on the changed files.
+
+The completion report, with per-file changes, per-test evidence, all deviations and four open questions, is at `collab/1791398000000-engineer-stream-s3b.claude-opus-5-5.findings.md`.

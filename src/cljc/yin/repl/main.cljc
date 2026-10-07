@@ -1049,8 +1049,8 @@
      (defn- drain-server!
        "The shell has quit, so the endpoint stops before the host exits: ask it
         once, then keep stepping until it reports `:stopped` or the bounded
-        budget runs out.  A connected client must observe `:ws/ended`, not the
-        `:ws/closed` a process exit would leave behind.  The bounded drain
+        budget runs out.  A connected client must observe the ended answer, not
+        the bare close a process exit would leave behind.  The bounded drain
         sleeps the base interval; it is a budget, not a cadence."
        [server w]
        (when server

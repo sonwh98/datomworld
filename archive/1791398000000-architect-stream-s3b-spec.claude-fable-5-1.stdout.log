@@ -1,0 +1,18 @@
+The specification is complete and verified against the code. No further lookups are needed.
+
+**Written:** `collab/1791398000000-architect-stream-s3b-spec.claude-fable-5-1.findings.md` (the five requested sections plus a decision table, a deferred list and a risk list).
+
+**What the spec decides**
+
+- `remote-channel/serve` validates each table entry's declared surface against the handle's own natures, so writer entries and `#{:reader :writer}` are first-class. The REPL enters requests as `#{:writer}` and answers as `#{:reader}`, the least surface for each.
+- `remote-channel/dial` gains `:identities` beside `:name`, attaching every reflection inside `dial` so `open` can return an RPC client at once. It answers `:handles` by identity and `:handle nil`, which is the resolution of "which handle is the handle" for a writable dial.
+- The writable-append ambiguity is resolved by contract: a reflection's append outcome is channel acceptance only, evaluation is confirmed solely by the correlated RPC answer, and the dropped-answer case falls under `give-up-after` and reads as `:detached`. No events writer is composed.
+- A new bound `:drain-grace-ms` (production default 0, REPL 500) keeps sessions open and answering after the first stopping tick so a client's outstanding read of the ended answers medium is answered `end` before its connection closes. An `:ended?` stop closes sessions with the ws ended code through the existing but unused `ws/close-ended!`.
+- A new `detach!` closes the connection only and leaves the dial steppable until it observes the loss. That is what keeps an operator disconnect reattachable; the existing `close!` would have turned it into `:ended` or silence.
+- The spec gains `:bind-host` so the REPL can bind the wildcard while advertising a LAN address.
+
+**One defect caught while specifying.** An attach probe kept while the connection is establishing gets its deadline from the link's last stepped `now`, which is nil before any step, and that deadline is never re-stamped. An identities dial attached before its first step would therefore never expire over a host that never answers. The fix is in the spec: `dial` takes `:now`, steps the fresh dial at it before attaching, and the driver passes `:last-tick`, which it already records. A test pins both the expiring and the clock-less behaviour.
+
+**Deferred, with reasons recorded:** recording the ws terminal cause above the projection (would refine `:detached` to `:ended` or `:transport-error`; parity does not need it and it touches `ws_project.cljc`), the single-tick `yin.repl.dht/close!` note from the S3a-2 sign-off, `wss://`, and ephemeral ports.
+
+**Next:** dispatch the Implementation Engineer (Claude Opus 5.5) with the spec path. Section 5 gives the reading order, a seven-step work order where each step leaves `bb test:clj` green, the files it must not touch, the boundary grep gate, the three-lane landing gate, the commit summary line under format.md, and the report path inside the worktree.

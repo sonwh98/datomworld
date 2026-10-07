@@ -2,21 +2,23 @@
   "The server side of the DaoStream Yin REPL, over the request-and-response
    service of docs/design/dao.stream.remote.md section 5.
 
-   `:bind!` and `:unbind!` are ordinary functions that deposit lifecycle data;
-   a connection is made by calling the transport's own upgrade entry with a
-   captured socket, exactly as a real host adapter would.  Nothing here binds
-   a port.  The requests/answers round trip is tested at the level serve.cljc
-   itself owns -- the shared buffers `serve!` composes, never the wire -- since
-   the wire and the mirror answering it are dao.stream.ws-project's and
-   dao.stream.remote's own, already proven by their own test suites, and the
+   The host is the in-process loopback net (yin.repl.net-fixture): its
+   `:bind!` and `:unbind!` deposit lifecycle data, and a real
+   `yin.repl.connect` client attaches through its `:connect!`, so the
+   endpoint's sessions, drain and stop are observed from a client on every
+   host.  Nothing here binds a port.  The requests/answers interpreter is
+   tested at the level serve.cljc itself owns -- the shared buffers
+   `serve!` composes -- since the wire and the mirror answering it are
+   dao.stream.remote-channel's own, already proven by its test suite; the
    demo REPL flow over a real socket is proven end to end in
    yin.repl.serve-connect-wire-test (JVM)."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is]]
+            [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.rpc :as rpc]
-            [dao.stream.ws :as ws]
             [yin.repl :as repl]
+            [yin.repl.connect :as connect]
+            [yin.repl.net-fixture :as fixture]
             [yin.repl.serve :as serve]))
 
 
@@ -24,40 +26,10 @@
 ;; An injected host listener
 ;; =============================================================================
 
-(defn- host
-  []
-  (let [bound (atom [])
-        released (atom [])]
-    {:bound bound
-     :released released
-     :adapter {:bind! (fn [config]
-                        (swap! bound conj config)
-                        ((:deposit! config) :bind-succeeded
-                                            {:host (:bind-host config) :port (:bind-port config)})
-                        {:listener :injected})
-               :unbind! (fn [resources deposit!]
-                          (swap! released conj resources)
-                          ;; The host close completion is what deposits
-                          ;; `:stopped`; the driver, not `stop!`, marks it done.
-                          (deposit! :stopped {:reason :requested})
-                          nil)}}))
-
-
-(defn- socket
-  "A captured socket: every frame the endpoint sends and every close it makes."
-  []
-  (let [sent (atom [])
-        closed (atom [])]
-    {:sent sent
-     :closed closed
-     :socket {:send! (fn [text] (swap! sent conj text) nil)
-              :close! (fn [code reason] (swap! closed conj [code reason]) nil)}}))
-
-
 (defn- endpoint!
   ([] (endpoint! {}))
   ([extra]
-   (let [h (host)]
+   (let [h (fixture/host)]
      {:host h
       :endpoint (serve/serve! (merge {:bind-port 8080
                                       :host (:adapter h)}
@@ -69,31 +41,44 @@
   (mapv :yin.repl.serve/text (first (serve/take-outbox endpoint))))
 
 
+(defn- tick
+  "One server turn at `now` with the net pumped around it."
+  [h endpoint now]
+  (fixture/pump! h)
+  (let [endpoint (serve/step endpoint now)]
+    (fixture/pump! h)
+    endpoint))
+
+
 (defn- connect!
-  "Make one connection through the transport's upgrade entry and drive the
-   composition until the session is accepted.  Returns [endpoint socket]."
-  [endpoint s now]
-  (ws/accept-connection! (:ws-endpoint endpoint) (:path endpoint) (:socket s) now)
-  (let [endpoint (serve/step endpoint now)
-        endpoint (serve/step endpoint (inc now))]
-    [endpoint s]))
+  "Open one client to the endpoint and drive both until its answers cursor
+   is minted.  Returns [endpoint client now]."
+  [h endpoint now]
+  (let [c (fixture/open h (serve/url endpoint) now)]
+    (is (some? c) "the client attached")
+    (loop [endpoint endpoint now now left 50]
+      (let [endpoint (tick h endpoint now)]
+        (fixture/client-step! c now)
+        (if (and (pos? left) (rpc/cursor-pending? @(:client c)))
+          (recur endpoint (inc now) (dec left))
+          [endpoint c (inc now)])))))
 
 
 ;; =============================================================================
 ;; Composition data ownership
 ;; =============================================================================
 
-(deftest serve-returns-immediately-with-its-lifecycle-medium-and-cursor
+(deftest serve-returns-immediately-with-its-media-and-channel-server
   (let [{:keys [endpoint host]} (endpoint!)]
-    (is (some? (:lifecycle endpoint)))
-    (is (some? (:lifecycle-cursor endpoint)))
+    (is (some? (:server endpoint)))
     (is (some? (:requests endpoint)))
     (is (some? (:answers endpoint)))
     (is (= "/repl" (:path endpoint)))
-    (is (= {"/repl" (:descriptor endpoint)} (:resolution endpoint)))
     (is (= :starting (:status endpoint))
         "serve! claims nothing about a bind it has not observed")
     (is (= 1 (count @(:bound host))))
+    (is (nil? (:ws-endpoint endpoint)) "no transport internals above the boundary")
+    (is (nil? (:acceptor endpoint)) "no transport internals above the boundary")
     (let [endpoint (serve/step endpoint 1)]
       (is (= :running (:status endpoint)))
       (is (str/includes? (str/join " " (texts endpoint))
@@ -106,6 +91,28 @@
     (is (empty? @(:bound host)) "nothing was bound")
     (let [endpoint (serve/step endpoint 1)]
       (is (str/includes? (str/join " " (texts endpoint)) "advertised-host-required")))))
+
+
+(deftest a-wildcard-bind-with-an-advertised-host-binds-the-wildcard
+  (let [{:keys [endpoint host]} (endpoint! {:bind-host "0.0.0.0"
+                                            :advertised-host "10.0.0.5"})]
+    (is (= :starting (:status endpoint)))
+    (is (= "0.0.0.0" (:bind-host (first @(:bound host)))))
+    (is (= "daostream:ws://10.0.0.5:8080/repl" (serve/url endpoint)))))
+
+
+(deftest the-listener-binds-the-bind-port-while-the-url-names-the-advertised-port
+  (let [{:keys [endpoint host]} (endpoint! {:bind-port 8080 :advertised-port 9090})]
+    (is (= :starting (:status endpoint)))
+    (is (= 8080 (:bind-port (first @(:bound host)))))
+    (is (= "daostream:ws://127.0.0.1:9090/repl" (serve/url endpoint)))))
+
+
+(deftest an-ephemeral-bind-with-an-advertised-port-binds-port-zero
+  (let [{:keys [endpoint host]} (endpoint! {:bind-port 0 :advertised-port 9090})]
+    (is (= :starting (:status endpoint)))
+    (is (= 0 (:bind-port (first @(:bound host)))))
+    (is (= "daostream:ws://127.0.0.1:9090/repl" (serve/url endpoint)))))
 
 
 (deftest serving-without-a-host-package-reports-the-seam
@@ -147,11 +154,11 @@
                                       (throw (ex-info "must not run" {})))}})
         endpoint (serve/step endpoint 1)]
     (is (= :failed (:status endpoint)))
+    (is (str/includes? (str/join " " (texts endpoint)) "bind-threw"))
     (let [endpoint (serve/step (serve/stop! endpoint) 2)]
-      (is (= :stopped (:status endpoint))
+      (is (= :failed (:status endpoint))
           "no host completion can follow a bind that returned no resource")
       (is (true? (serve/stopped? endpoint)))
-      (is (nil? (:resolution endpoint)))
       (is (zero? @unbinds) "nil resources are never handed to the host"))))
 
 
@@ -168,35 +175,65 @@
         endpoint (serve/step (serve/stop! endpoint) 2)]
     (is (= :stopped (:status endpoint)))
     (is (true? (serve/stopped? endpoint)))
-    (is (nil? (:resolution endpoint)))
-    (is (str/includes? (str/join " " (texts endpoint)) "unbind-threw"))))
+    (is (str/includes? (str/join " " (texts endpoint))
+                       "Endpoint stopped without host completion: unbind-failed"))))
 
 
-(deftest stop-closes-every-accepted-sessions-socket-handle
+(deftest stop-ends-the-served-media-before-it-closes-the-session
   (let [{:keys [endpoint host]} (endpoint!)
-        endpoint (serve/step endpoint 1)
-        s (socket)
-        [endpoint _s] (connect! endpoint s 2)
-        endpoint (serve/stop! endpoint)]
+        endpoint (tick host endpoint 1)
+        [endpoint c now] (connect! host endpoint 2)
+        terminals (atom [])
+        endpoint (serve/stop! endpoint)
+        t0 (+ now 10)]
     (is (= :stopping (:status endpoint)))
     (is (false? (serve/stopped? endpoint)) "a bound listener is still owed a release")
-    (is (some? (:resolution endpoint)) "the entry is held until stop completes")
-    ;; The socket closes only after a real-time grace period, so a client's
-    ;; outstanding read of the now-ended requests/answers media can be
-    ;; answered with the media's own `:dao.stream/end` before its socket
-    ;; also reports closed -- see `serve/stop-grace-ms`.
-    (let [endpoint (serve/step endpoint 4)
-          endpoint (serve/step endpoint (+ 4 serve/stop-grace-ms -1))]
-      (is (empty? @(:closed s)) "the socket has not closed yet: still in grace")
-      (let [endpoint (serve/step endpoint (+ 4 serve/stop-grace-ms))]
-        (is (= 1 (count @(:closed s)))
-            "the accepted connection's socket handle was closed directly, since
-             there is no forwarded source stream to end it")
-        (is (= 1 (count @(:released host))))
-        (let [endpoint (serve/step endpoint (+ 5 serve/stop-grace-ms))]
+    (let [endpoint (loop [endpoint endpoint t t0]
+                     (if (> t (+ t0 490))
+                       endpoint
+                       (let [endpoint (tick host endpoint t)]
+                         (fixture/client-step! c t)
+                         (swap! terminals conj (:terminal @(:client c)))
+                         (recur endpoint (+ t 10)))))]
+      (is (some #{:dao.stream.rpc/ended} @terminals)
+          "the client read the ended answers medium during the drain")
+      (is (not-any? #{:dao.stream.rpc/detached} @terminals) "never a detach")
+      (is (zero? (fixture/closed-conns host)) "the session is still open")
+      (is (empty? @(:released host)) "the host is not yet released")
+      (let [endpoint (tick host endpoint (+ t0 500))]
+        (is (= 1 (fixture/closed-conns host)) "the session closed at +500")
+        (is (= 1 (count @(:released host))) "the host was released once")
+        (let [endpoint (tick host endpoint (+ t0 501))]
           (is (= :stopped (:status endpoint)))
-          (is (nil? (:resolution endpoint)))
+          (is (true? (serve/stopped? endpoint)))
+          (is (= 1 (count @(:released host))))
           (is (str/includes? (str/join " " (texts endpoint)) "Endpoint stopped")))))))
+
+
+(deftest attachment-departure-is-noticed
+  (let [{:keys [endpoint host]} (endpoint!)
+        endpoint (tick host endpoint 1)
+        [endpoint c now] (connect! host endpoint 2)
+        [attachment] (:sessions (serve/summary endpoint))
+        [_ endpoint] (serve/take-outbox endpoint)]
+    (is (string? attachment))
+    (swap! (:connection c) connect/close!)
+    (let [endpoint (tick host endpoint now)
+          endpoint (tick host endpoint (inc now))]
+      (is (some #{(str ";; attachment " attachment " left")} (texts endpoint)))
+      (is (empty? (:sessions (serve/summary endpoint)))))))
+
+
+(deftest a-serving-gap-is-counted-and-serving-continues
+  (let [{:keys [endpoint host]} (endpoint!)
+        endpoint (tick host endpoint 1)
+        [_ endpoint] (serve/take-outbox endpoint)]
+    (dotimes [i 70] (@(:deposit host) :listener-error {:i i}))
+    (let [endpoint (tick host endpoint 2)
+          lines (texts endpoint)]
+      (is (= :running (:status endpoint)))
+      (is (= 1 (count (filter #{";; endpoint lifecycle gap"} lines))))
+      (is (= {:gaps 1} (select-keys (:lifecycle (serve/summary endpoint)) [:gaps]))))))
 
 
 ;; =============================================================================
@@ -207,8 +244,8 @@
   "Append one eval request directly onto the endpoint's requests medium,
    as the mirror's own `:dao.stream/append!` answer would once a
    reflection's write reaches it -- the wire and its answering are
-   dao.stream.ws-project's and dao.stream.remote's own concern, already
-   proven by their test suites."
+   dao.stream.remote-channel's own concern, already proven by its test
+   suite."
   [endpoint id source]
   (stream/append! (:requests endpoint) (rpc/request-value id :op/eval [source])))
 
@@ -351,9 +388,16 @@
 
 
 (deftest the-summary-is-plain-data
-  (let [{:keys [endpoint]} (endpoint!)
-        summary (serve/summary (serve/step endpoint 1))]
+  (let [{:keys [endpoint host]} (endpoint!)
+        endpoint (tick host endpoint 1)
+        summary (serve/summary endpoint)]
     (is (= :running (:status summary)))
     (is (= "daostream:ws://127.0.0.1:8080/repl" (:url summary)))
     (is (true? (:serving? summary)))
-    (is (= [] (:sessions summary)))))
+    (is (= [] (:sessions summary)))
+    (is (= {:gaps 0 :diagnostics 0} (:lifecycle summary)))
+    (testing "a connected client is listed by its attachment"
+      (let [[endpoint _c _now] (connect! host endpoint 2)
+            sessions (:sessions (serve/summary endpoint))]
+        (is (= 1 (count sessions)))
+        (is (every? string? sessions))))))

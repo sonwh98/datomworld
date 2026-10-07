@@ -34,7 +34,6 @@
   (:require [clojure.string :as str]
             [dao.stream :as stream]
             [dao.stream.transit :as transit]
-            [dao.stream.ws-project :as ws-project]
             [yin.repl.main :as repl]
             [yin.repl.connect :as connect]
             [yin.repl.driver :as driver]
@@ -211,29 +210,37 @@
        :default (fn [] nil))))
 
 
+(defn- attachment-of
+  [connection]
+  (:attachment (connect/summary connection)))
+
+
 (defn- record-first-traffic!
-  "Remember the first connection's dial, so a later probe can tell whether a
-   reattachment reused it or -- as `dao.stream.ws-project/dial`'s own
-   contract requires -- composed a fresh one."
+  "Remember the first connection's attachment, so a later probe can tell
+   whether a reattachment reused it or -- as
+   `dao.stream.remote-channel/dial`'s own contract requires -- composed a
+   fresh one."
   [box first-traffic]
   (when (and (:connection @box) (nil? @first-traffic))
-    (reset! first-traffic (:dial (:connection @box))))
+    (reset! first-traffic (attachment-of (:connection @box))))
   first-traffic)
 
 
-(defn- channel-handle
-  [connection]
-  (some-> connection :dial ws-project/channel :handle))
+(defn- requests-writer
+  "The RPC client's requests reflection: a reflection whose channel is down
+   answers its append `closed`."
+  [box]
+  (get-in @box [:adapter :yin.repl.adapter/rpc :writer]))
 
 
 (defn- probe
   "One serializable observation of the client composition.
 
    `:handle-outcome` exists for Phase R5's second fact: once the boundary has
-   reported a terminal status, appending through the channel handle answers
-   `:dao.stream/closed` — the client-side proof that the connection died.  A
-   live connection is never probed this way, because the append would inject a
-   payload frame into the protocol."
+   reported a terminal status, appending through the requests reflection
+   answers `:dao.stream/closed` — the client-side proof that the connection
+   died.  A live connection is never probed this way, because the append
+   would inject a request into the served stream."
   [box first-traffic health]
   (let [connection (:connection @box)]
     {:reply :probe
@@ -243,12 +250,12 @@
      :undriven-outbox (count (:outbox @box))
      :traffic-retained?
      (boolean (when (and connection @first-traffic)
-                (identical? @first-traffic (:dial connection))))
+                (= @first-traffic (attachment-of connection))))
      :handle-outcome
      (when (and connection
-                (channel-handle connection)
+                (requests-writer box)
                 (contains? connect/terminal-statuses (:status connection)))
-       (:dao.stream/outcome (stream/append! (channel-handle connection) ::closed-probe)))}))
+       (:dao.stream/outcome (stream/append! (requests-writer box) ::closed-probe)))}))
 
 
 (defn- handle-command!

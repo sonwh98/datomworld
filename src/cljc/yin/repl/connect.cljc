@@ -2,52 +2,45 @@
   "The client side of the DaoStream Yin REPL, over the request-and-response
    service of docs/design/dao.stream.remote.md section 5.
 
-   One connection is one explicit value.  `open` canonicalizes the URL to the
-   request-target form `dao.stream.ws.md` defines, dials one WebSocket
-   channel through `dao.stream.ws-project`, and attaches two
-   `dao.stream.remote` reflections over it -- one of `\"yin.repl/requests\"`
-   (this end writes), one of `\"yin.repl/answers\"` (this end reads) -- both
-   sharing the one link the dial establishes.  `attach!` over
-   `dao.stream.remote` answers ok at once: that is the contract's deferred
-   remote confirmation, not a promise that the server has resolved anything,
-   so a connection is reported `:established` immediately rather than
-   waiting on an asynchronous transport event.
+   One connection is one explicit value.  `open` canonicalizes the URL to a
+   portable endpoint specification `{:host :port :path}` and dials it by
+   identities through `dao.stream.remote-channel`: two `dao.stream.remote`
+   reflections over one channel -- one of `\"yin.repl/requests\"` (this end
+   writes), one of `\"yin.repl/answers\"` (this end reads).  Both are
+   attached at once, inside the dial: that is the contract's deferred remote
+   confirmation, not a promise that the server has resolved anything, so a
+   connection is reported `:established` immediately.  The driver's `now`
+   is recorded at dialing, so a connection that never opens is lost at
+   `give-up-after`.  No transport is named here.
 
-   The dial is reusable across reconnects: `close!` closes the underlying
-   channel handle, and reattaching redials the same `attach!` and repeats
-   both reflection attaches, then `rpc/rebind`s the retained RPC client onto
-   the fresh pair -- which keeps its response cursor and its outstanding
-   bookkeeping, exactly as before.  Terminal status
+   An eval request's `append!` answer is the channel writer's acceptance
+   only (dao.stream.remote-channel, Writing through a reflection): an eval
+   is confirmed solely by its correlated answer on the answers reflection,
+   and an answer the server could not send reads, after `give-up-after`, as
+   a detach.
+
+   `step!` steps the dial by value at the driver's `now`; a caller that
+   drops the stepped connection stops the projection.  `close!` detaches:
+   it closes the connection only, so the RPC client observes the loss on
+   its next poll as `/detached`, the one reattachable terminal.  `reattach`
+   closes the old dial and composes a fresh one, then `rpc/rebind`s the
+   retained RPC client onto the fresh pair -- which keeps its response
+   cursor and its outstanding bookkeeping.  Terminal status
    (`:detached`/`:ended`/`:not-found`/`:transport-error`) is observed from
-   the RPC client's own `:terminal`, translated by `dao.stream.rpc`'s
-   reflection-read translation; `observe-terminal` turns that into the one
-   connection notice each terminal reason publishes exactly once."
+   the RPC client's own `:terminal`, the single source of terminal truth;
+   `observe-terminal` turns that into the one connection notice each
+   terminal reason publishes exactly once."
   (:require [clojure.string :as str]
             [dao.data :as data]
             [dao.stream :as stream]
-            [dao.stream.ringbuffer :as ring]
+            [dao.stream.remote-channel :as remote-channel]
             [dao.stream.rpc :as rpc]
-            [dao.stream.ws :as ws]
-            [dao.stream.ws-project :as ws-project]
             [yin.repl.host.common :as host-common]))
 
 
 ;; =============================================================================
 ;; Composition constants
 ;; =============================================================================
-
-(def traffic-capacity
-  "Declared capacity of the boundary's one traffic medium, in elements.  It is
-   reused across reconnects because a client boundary has at most one active
-   attachment at a time."
-  8192)
-
-
-(def traffic-admission
-  {:retention :evict-oldest
-   :capacity traffic-capacity
-   :value-domain :portable-values})
-
 
 (def url-prefix "daostream:")
 (def ws-scheme "ws://")
@@ -59,14 +52,6 @@
   "The path an empty URL path means for this REPL (D3).  An explicit `/`
    remains `/`; only an absent path becomes the served REPL stream."
   "/repl")
-
-
-(def service-identity
-  "The logical identity of the WebSocket channel a REPL endpoint serves.  A
-   descriptor names a served stream, so a client that only typed a URL still
-   needs one; a stable service name keeps `attach!` honest across endpoint
-   restarts."
-  "yin.repl/repl")
 
 
 (def requests-identity
@@ -90,7 +75,7 @@
 (def outcome-key :yin.repl.connect/outcome)
 (def connection-key :yin.repl.connect/connection)
 (def client-key :yin.repl.connect/client)
-(def descriptor-key :yin.repl.connect/descriptor)
+(def spec-key :yin.repl.connect/spec)
 (def message-key :yin.repl.connect/message)
 (def event-key :yin.repl.connect/event)
 (def text-key :yin.repl.connect/text)
@@ -219,7 +204,7 @@
 
 
 ;; =============================================================================
-;; URL to descriptor
+;; URL to endpoint specification
 ;; =============================================================================
 
 (defn- failure
@@ -244,86 +229,56 @@
 
 
 (defn parse-url
-  "Parse one REPL connect URL into a WebSocket descriptor.
+  "Parse one REPL connect URL into a portable endpoint specification
+   `{:host h :port p :path canonical}` under `spec-key`.
 
    Accepted forms are `daostream:ws://host[:port][/path]` and the same URL
    without the `daostream:` prefix.  Bracketed IPv6 literals are out of this
    slice and are reported rather than silently mis-parsed."
-  ([url] (parse-url url {}))
-  ([url {:keys [identity]}]
-   (let [url (str/trim (str url))
-         body (if (str/starts-with? url url-prefix) (subs url (count url-prefix)) url)]
-     (cond
-       (str/starts-with? body secure-scheme)
-       (failure :yin.repl.connect/invalid-url
-                "wss:// has no settled descriptor form in this slice; use ws://")
+  [url]
+  (let [url (str/trim (str url))
+        body (if (str/starts-with? url url-prefix) (subs url (count url-prefix)) url)]
+    (cond
+      (str/starts-with? body secure-scheme)
+      (failure :yin.repl.connect/invalid-url
+               "wss:// has no settled descriptor form in this slice; use ws://")
 
-       (not (str/starts-with? body ws-scheme))
-       (failure :yin.repl.connect/invalid-url
-                (str "connect needs a daostream:ws:// URL; got "
-                     (pr-str (data/summarize url diagnostic-bounds))))
+      (not (str/starts-with? body ws-scheme))
+      (failure :yin.repl.connect/invalid-url
+               (str "connect needs a daostream:ws:// URL; got "
+                    (pr-str (data/summarize url diagnostic-bounds))))
 
-       :else
-       (let [rest-url (subs body (count ws-scheme))
-             end (authority-end rest-url)
-             authority (subs rest-url 0 end)
-             raw-path (subs rest-url end)
-             colon (str/last-index-of authority ":")
-             host (if colon (subs authority 0 colon) authority)
-             port (if colon (parse-port (subs authority (inc colon))) default-port)]
-         (cond
-           (str/starts-with? authority "[")
-           (failure :yin.repl.connect/invalid-url
-                    "bracketed IPv6 authorities are not part of this slice")
+      :else
+      (let [rest-url (subs body (count ws-scheme))
+            end (authority-end rest-url)
+            authority (subs rest-url 0 end)
+            raw-path (subs rest-url end)
+            colon (str/last-index-of authority ":")
+            host (if colon (subs authority 0 colon) authority)
+            port (if colon (parse-port (subs authority (inc colon))) default-port)]
+        (cond
+          (str/starts-with? authority "[")
+          (failure :yin.repl.connect/invalid-url
+                   "bracketed IPv6 authorities are not part of this slice")
 
-           (str/blank? host)
-           (failure :yin.repl.connect/invalid-url
-                    (str "connect URL has no host: "
-                         (pr-str (data/summarize url diagnostic-bounds))))
+          (str/blank? host)
+          (failure :yin.repl.connect/invalid-url
+                   (str "connect URL has no host: "
+                        (pr-str (data/summarize url diagnostic-bounds))))
 
-           (nil? port)
-           (failure :yin.repl.connect/invalid-url
-                    (str "connect URL port must be a positive integer: "
-                         (pr-str (data/summarize url diagnostic-bounds))))
+          (nil? port)
+          (failure :yin.repl.connect/invalid-url
+                   (str "connect URL port must be a positive integer: "
+                        (pr-str (data/summarize url diagnostic-bounds))))
 
-           :else
-           (let [descriptor {:dao.stream/type ws/transport-type
-                             :dao.stream/identity (or identity service-identity)
-                             :ws/host host
-                             :ws/port port
-                             :ws/path (repl-target raw-path)}]
-             (if (ws/descriptor? descriptor)
-               {outcome-key :yin.repl.connect/parsed descriptor-key descriptor}
-               (failure :yin.repl.connect/invalid-url
-                        (str "connect URL does not name a servable stream: "
-                             (pr-str (data/summarize url diagnostic-bounds))))))))))))
+          :else
+          {outcome-key :yin.repl.connect/parsed
+           spec-key {:host host :port port :path (repl-target raw-path)}})))))
 
 
 ;; =============================================================================
 ;; The two-reflection boundary
 ;; =============================================================================
-
-(defn- mint
-  [handle anchor]
-  (let [result (stream/cursor handle anchor)]
-    (when (= :dao.stream/ok (:dao.stream/outcome result))
-      (:dao.stream/cursor result))))
-
-
-(defn- remote-descriptor
-  [channel identity]
-  {:dao.stream/type :dao.stream/remote
-   :dao.stream/identity identity
-   :dao.stream/channel channel})
-
-
-(defn- attacher
-  [traffic connect!]
-  (ws/make-attacher {:traffic {:dao.stream/handle traffic
-                               :dao.stream/surface #{:writer}}
-                     :admission traffic-admission
-                     :connect! connect!}))
-
 
 (defn- attach-outcome-message
   [url result]
@@ -338,105 +293,81 @@
     (str "Attaching to " url " answered " (pr-str (:dao.stream/outcome result)))))
 
 
-(defn- fresh-dial
-  "Compose one dial over a fresh traffic medium, its own fresh `attach!`
-   bound to that medium, and a fresh channel ring, before any attach.  A
-   reattachment composes a fresh dial with a fresh cursor, per
-   `dao.stream.ws-project/dial`'s own contract, and `attach!` is scoped to
-   the traffic medium it deposits into, so it must be rebuilt alongside
-   it -- reusing an old `attach!` over a new traffic medium would deposit
-   into the wrong buffer."
-  [host]
-  (let [traffic (:dao.stream/handle
-                  (ring/create! {:dao.stream/type ring/transport-type
-                                 ring/capacity-key traffic-capacity}))
-        attach! (try (attacher traffic (:connect! host))
-                     (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))
-        cursor (mint traffic stream/anchor-newest)
-        ring (:dao.stream/handle
-               (ring/create! {:dao.stream/type ring/transport-type
-                              ring/capacity-key traffic-capacity}))]
-    (when (and (some? attach!) (some? cursor))
-      (ws-project/dial {:attach! attach!
-                        :traffic {:dao.stream/handle traffic}
-                        :cursor cursor
-                        :ring ring
-                        :table {}}))))
+(defn- dial
+  "Dial `spec` by the two identities at the driver's `now`, answering
+   `[dial nil]` when attached or `[nil failure]`."
+  [url spec host now]
+  (let [d (remote-channel/dial {:spec spec :host host :now now
+                                :identities [requests-identity
+                                             answers-identity]})]
+    (case (:status d)
+      :attached [d nil]
+
+      :lost [nil (failure :yin.repl.connect/attach-failed
+                          (attach-outcome-message url (:outcome d)))]
+
+      [nil (failure :yin.repl.connect/no-host-adapter
+                    (host-common/missing-message "(connect …) is not wired"))])))
 
 
-(defn- attach-pair
-  "Attach both `requests`/`answers` reflections through `dial`'s one link,
-   sharing it exactly as `dao.stream.remote.cljc`'s attacher requires.
-   Returns `[requests-result answers-result]`, the second nil once the
-   first fails."
-  [dial channel]
-  (let [requests-result
-        (ws-project/dial-attach! dial (remote-descriptor channel
-                                                         requests-identity))]
-    (if-not (= :dao.stream/ok (:dao.stream/outcome requests-result))
-      [requests-result nil]
-      [requests-result
-       (ws-project/dial-reflect! dial (remote-descriptor channel
-                                                         answers-identity))])))
+(defn- requests-handle
+  [d]
+  (remote-channel/handle d requests-identity))
+
+
+(defn- answers-handle
+  [d]
+  (remote-channel/handle d answers-identity))
 
 
 (defn open
-  "Dial one WebSocket channel and attach both reflections, returning
-   immediately.  `attach!` over `dao.stream.remote` answers ok at once --
-   the contract's deferred remote confirmation -- so a successful result
-   is reported `:established` without waiting on any further transport
-   event.  The RPC client's response cursor is the `:dao.stream/newest`
-   anchor; `rpc/poll!` resolves it, retrying while the answers reflection
-   answers a retryable mint."
-  [{:keys [url identity host]}]
-  (let [parsed (parse-url url {:identity identity})]
-    (if-not (= :yin.repl.connect/parsed (get parsed outcome-key))
+  "Dial the URL's endpoint by the two identities and return immediately.
+   `:now` is the driver's clock reading, recorded on the dial so that a
+   connection that never opens is lost at `give-up-after`; without it
+   nothing expires.  Both reflections are attached at once -- the
+   contract's deferred remote confirmation -- so a successful result is
+   reported `:established` without waiting on any transport event.  The
+   RPC client's response cursor is the `:dao.stream/newest` anchor;
+   `rpc/poll!` resolves it, retrying while the answers reflection answers
+   a retryable mint."
+  [{:keys [url host now]}]
+  (let [parsed (parse-url url)]
+    (cond
+      (not= :yin.repl.connect/parsed (get parsed outcome-key))
       parsed
-      (let [channel (get parsed descriptor-key)]
-        (if-not (host-common/adapter? host)
-          (failure :yin.repl.connect/no-host-adapter
-                   (host-common/missing-message "(connect …) is not wired"))
-          (let [dial (fresh-dial host)]
-            (if-not dial
-              (failure :yin.repl.connect/invalid-composition
-                       "The client boundary composition was refused")
-              (let [[requests-result answers-result]
-                    (attach-pair dial channel)]
-                (cond
-                  (not= :dao.stream/ok (:dao.stream/outcome requests-result))
-                  (failure :yin.repl.connect/attach-failed
-                           (attach-outcome-message url requests-result))
 
-                  (not= :dao.stream/ok (:dao.stream/outcome answers-result))
-                  (failure :yin.repl.connect/attach-failed
-                           (attach-outcome-message url answers-result))
+      (not (host-common/adapter? host))
+      (failure :yin.repl.connect/no-host-adapter
+               (host-common/missing-message "(connect …) is not wired"))
 
-                  :else
-                  {outcome-key :yin.repl.connect/attached
-                   connection-key {:url url
-                                   :channel channel
-                                   :host host
-                                   :dial dial
-                                   :status :established
-                                   :detached-by nil}
-                   client-key (rpc/client-state
-                                (:dao.stream/handle requests-result)
-                                (:dao.stream/handle answers-result)
-                                stream/anchor-newest)})))))))))
+      :else
+      (let [spec (get parsed spec-key)
+            [d refusal] (dial url spec host now)]
+        (or refusal
+            {outcome-key :yin.repl.connect/attached
+             connection-key {:url url
+                             :spec spec
+                             :host host
+                             :dial d
+                             :status :established
+                             :detached-by nil}
+             client-key (rpc/client-state (requests-handle d)
+                                          (answers-handle d)
+                                          stream/anchor-newest)})))))
 
 
 (defn step!
-  "Drive this connection's dial one tick: its projection, so wire bytes the
-   host deposited onto the traffic medium reach the reflections' local
-   channel ring, then this end's own mirror step (a REPL client serves
-   nothing through it, but the composition is symmetric).  A caller's own
-   cadence must call this every tick it also polls the RPC client, or the
-   channel ring never receives anything the server sent -- reading a
-   reflection drains only the ring, never the traffic medium directly."
-  [connection]
-  (when-let [dial (:dial connection)]
-    (ws-project/dial-step! dial))
-  connection)
+  "Step this connection's dial one tick at the driver's `now` and answer
+   the stepped connection: its projection, so what the wire delivered
+   reaches the reflections' channel ring, the link at `now` (expiry), then
+   this end's own mirror step (a REPL client serves nothing through it,
+   but the composition is symmetric).  The dial is a value: a caller must
+   keep the returned connection and step it every tick it polls the RPC
+   client, or the channel ring never receives what the server sent.  A
+   nil `now` expires nothing."
+  [connection now]
+  (cond-> connection
+    (:dial connection) (update :dial remote-channel/dial-step now)))
 
 
 (def terminal-statuses
@@ -447,9 +378,9 @@
 
 
 (defn close!
-  "Disconnect.  `close!` on the dialed channel's handle ends the connection;
-   the RPC client observes the loss on its next poll as `/detached`, which
-   is what keeps the connection reattachable.
+  "Disconnect.  The dial is detached: its connection closes and its
+   reflections stay open, so the RPC client observes the loss on its next
+   poll as `/detached`, which is what keeps the connection reattachable.
 
    Who asked is recorded, because the two detachments mean different things to
    the shell: an operator `(disconnect)` returns ordinary input to local
@@ -461,9 +392,8 @@
    connection actually ended."
   ([connection] (close! connection :operator))
   ([connection by]
-   (when-let [ch (some-> (:dial connection) ws-project/channel)]
-     (stream/close! (:handle ch)))
    (cond-> (assoc connection :detached-by by)
+     (:dial connection) (update :dial remote-channel/detach!)
      (not (contains? terminal-statuses (:status connection)))
      (assoc :status :closing))))
 
@@ -482,40 +412,27 @@
 
 
 (defn reattach
-  "Reattach an existing connection: a fresh dial through the same host
-   adapter, both reflections attached again, then `rpc/rebind`.
+  "Reattach an existing connection at the driver's `now`: the old dial is
+   closed (its reflections already observed the loss), a fresh dial by the
+   same identities is composed as `open` composes one, then `rpc/rebind`.
 
    The RPC client's response cursor and its collision-checked random id
    allocator survive; only the writer and reader reflections change."
-  [connection client]
+  [connection client now]
   (if-not (reattachable? client)
     (failure :yin.repl.connect/not-reattachable
              (str "Only a dropped connection reattaches; this one ended as "
                   (pr-str (:terminal client))))
-    (let [{:keys [url channel host]} connection
-          dial (fresh-dial host)]
-      (if-not dial
-        (failure :yin.repl.connect/invalid-composition
-                 "The traffic medium minted no cursor")
-        (let [[requests-result answers-result] (attach-pair dial channel)]
-          (cond
-            (not= :dao.stream/ok (:dao.stream/outcome requests-result))
-            (failure :yin.repl.connect/attach-failed
-                     (attach-outcome-message url requests-result))
-
-            (not= :dao.stream/ok (:dao.stream/outcome answers-result))
-            (failure :yin.repl.connect/attach-failed
-                     (attach-outcome-message url answers-result))
-
-            :else
-            {outcome-key :yin.repl.connect/reattached
-             connection-key (assoc connection
-                                   :dial dial
-                                   :status :established
-                                   :detached-by nil)
-             client-key (rpc/rebind client
-                                    (:dao.stream/handle requests-result)
-                                    (:dao.stream/handle answers-result))}))))))
+    (let [{:keys [url spec host]} connection
+          _ (some-> (:dial connection) remote-channel/close!)
+          [d refusal] (dial url spec host now)]
+      (or refusal
+          {outcome-key :yin.repl.connect/reattached
+           connection-key (assoc connection
+                                 :dial d
+                                 :status :established
+                                 :detached-by nil)
+           client-key (rpc/rebind client (requests-handle d) (answers-handle d))}))))
 
 
 ;; =============================================================================
@@ -544,7 +461,7 @@
     :dao.stream.rpc/not-found
     [:not-found (event :yin.repl.connect/not-found
                        (str "No stream is served at "
-                            (:ws/path (:channel connection))
+                            (:path (:spec connection))
                             ": the endpoint disclaimed it, so this is not "
                             "retried"))]
 
@@ -578,7 +495,7 @@
     {:connected? false}
     {:connected? (= :established (:status connection))
      :url (:url connection)
-     :path (:ws/path (:channel connection))
-     :identity (:dao.stream/identity (:channel connection))
+     :path (:path (:spec connection))
      :status (:status connection)
-     :attachment (:attachment (some-> (:dial connection) ws-project/channel))}))
+     :dial-status (:status (:dial connection))
+     :attachment (some-> (:dial connection) remote-channel/attachment)}))

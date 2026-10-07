@@ -13,7 +13,8 @@
 
 (defn loopback-net
   "Listeners by port, live connections, the queue of frames and
-   lifecycle calls in flight, and the blackholed sides."
+   lifecycle calls in flight, and the blackholed sides; `:dialed`
+   records every `[host port]` dialed."
   []
   (atom {:listeners {} :queue [] :conns [] :blackholed #{}}))
 
@@ -85,6 +86,7 @@
   [conn code reason]
   (when-not @(:closed? conn)
     (reset! (:closed? conn) true)
+    (reset! (:close-code conn) code)
     (when-some [s @(:server conn)] ((:closed! s) code reason))
     ((:closed! (:client conn)) code reason)))
 
@@ -102,14 +104,18 @@
 
 
 (defn connect-on
-  "The `:connect!` seam over `net`."
+  "The `:connect!` seam over `net`; each dial's `[host port]` is
+   recorded under `:dialed`."
   [net]
   (fn [descriptor client]
     (let [conn {:port (:ws/port descriptor)
                 :client client
                 :server (atom nil)
-                :closed? (atom false)}]
+                :closed? (atom false)
+                :close-code (atom nil)}]
       (swap! net update :conns conj conn)
+      (swap! net update :dialed (fnil conj [])
+             [(:ws/host descriptor) (:ws/port descriptor)])
       (enqueue! net
                 (fn []
                   (if-some [l (get-in @net [:listeners (:ws/port descriptor)])]

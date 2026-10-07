@@ -14,10 +14,29 @@
 
    * `serve` composes endpoint, acceptor and lifecycle medium and binds;
      `serve-step` drives it at `now`; `stop!` initiates an explicit
-     stop that `serve-step` completes.
+     stop that `serve-step` completes, draining for `:drain-grace-ms`
+     when the consumer ended its media.
    * `dial` composes the reader's end; `dial-step` drives it at `now`,
-     resolving the name and attaching the descriptor answered; `handle`
-     is the reflection once attached; `close!` ends the dial.
+     resolving a name and attaching the descriptor answered, or, for
+     `:identities`, attaching every identity at once inside `dial`;
+     `handle` is a reflection once attached; `detach!` closes only the
+     connection, so the reflections observe the loss; `close!` ends the
+     dial.
+
+   Writing through a reflection.  A reflection's `append!` answers the
+   channel writer's acceptance only, never the peer's: (1) ok means the
+   value was accepted for the wire, not that the peer appended or acted
+   on it; (2) full means not sent -- the attachment is still
+   establishing, the outbound buffer is at its high-water mark, or the
+   link is at max-outstanding -- and the identical value is retried
+   later; (3) closed means the connection is down and nothing crossed;
+   (4) transport-error names not-found (the reflection is gone) or
+   no-surface (the entry takes no writes); (5) a value that crossed and
+   was appended, whose answer the peer's channel writer refused, stays
+   outstanding until `give-up-after`, when the link loses the channel
+   as channel-gone although the value crossed.  A consumer that needs
+   confirmation correlates an answer on a medium it reads; it never
+   consults the append's own wire answer.
 
    Every step is driver-paced: nothing here reads a clock or schedules
    itself, and refusals are data."
@@ -57,7 +76,11 @@
      single oversize pre-acknowledgement frame fails the frame bound
      (1009) before the pending bound (1013).
    * `:ws/max-outbound-bytes` (16 MiB) caps what a peer that requests
-     but never reads costs this host."
+     but never reads costs this host.
+   * `:drain-grace-ms` (0) is how long a stop keeps accepted sessions
+     open and answering after its first stopping tick, so a reader of a
+     medium the consumer ended observes `end` before its connection
+     closes; a consumer that ends media composes one (the REPL: 500)."
   {:step-budget 64
    :mirror-budget 64
    :chase-budget 32
@@ -77,7 +100,8 @@
    :expiry-ms 15000
    :slot-count 8
    :capacity 64
-   :stop-grace-ms 2000})
+   :stop-grace-ms 2000
+   :drain-grace-ms 0})
 
 
 (def ^:private ws-bound-keys
@@ -226,11 +250,40 @@
        :ring (buffer capacity)})))
 
 
-(defn- valid-table?
+(defn- valid-entry?
+  "An entry declares a non-empty subset of #{:reader :writer} that its
+   handle's own natures cover; a narrower surface than the handle's is
+   correct (a ring served write-only)."
+  [{:keys [handle surface]}]
+  (and (some? handle)
+       (set? surface)
+       (boolean (seq surface))
+       (every? #{:reader :writer} surface)
+       (or (not (contains? surface :reader)) (stream/reader? handle))
+       (or (not (contains? surface :writer)) (stream/writer? handle))))
+
+
+(defn- table-refusal
+  "Nil for a valid table and name map, else the refusal's `:detail`:
+   the first invalid entry's identity and declared surface."
   [table names]
-  (and (map? table)
-       (every? (fn [[_ e]] (and (map? e) (some? (:handle e)))) table)
-       (or (nil? names) (map? names))))
+  (cond
+    (not (map? table)) {:table table}
+    (not (or (nil? names) (map? names))) {:names names}
+    :else (some (fn [[id e]]
+                  (when-not (and (map? e) (valid-entry? e))
+                    {:identity id :surface (when (map? e) (:surface e))}))
+                table)))
+
+
+(defn- check-drain-grace!
+  "The composition error for a `:drain-grace-ms` that is not a
+   non-negative integer, thrown before anything listens."
+  [b]
+  (let [g (:drain-grace-ms b)]
+    (when-not (and (integer? g) (not (neg? g)))
+      (throw (ex-info "invalid dao.stream.remote-channel :drain-grace-ms"
+                      {:drain-grace-ms g})))))
 
 
 (defn serve
@@ -239,16 +292,24 @@
    table and name map (dao.stream.remote.md section 2), passed through
    untouched.  `:bounds` merges over `production-bounds`.
 
+   Each table entry declares a non-empty subset of `#{:reader :writer}`
+   as its `:surface`, validated against its handle's own natures: a
+   surface the handle lacks is `::invalid-table` with `:detail
+   {:identity id :surface S}`.  The spec's optional `:bind-host` and
+   `:bind-port` are where the listener binds; the descriptor still
+   names `:host` and `:port`.
+
    Answers a server value: `:status :starting` with `:spec`,
    `:descriptor` (the formatted ws descriptor), `:endpoint`, `:acceptor`,
    `:listener` (what `:bind!` answered), `:lifecycle`,
-   `:lifecycle-cursor` and `:lifecycle-gaps`.  Refusals are data,
-   `:status :refused` with `:reason`: `::no-transport` (a transport
-   other than :ws, or no `:bind!`), `::no-port` (not a positive
-   integer), `::invalid-table`, `::bind-failed` (`:bind!` threw or
-   answered an outcome that is not ok).  An invalid bound is the
-   composition error the validating layer throws, before anything
-   listens."
+   `:lifecycle-cursor`, `:lifecycle-gaps` and `:diagnostic-count` (every
+   diagnostic kept, monotonic, while `:diagnostics` holds the last 8).
+   Refusals are data, `:status :refused` with `:reason`:
+   `::no-transport` (a transport other than :ws, or no `:bind!`),
+   `::no-port` (not a positive integer), `::invalid-table`,
+   `::bind-failed` (`:bind!` threw or answered an outcome that is not
+   ok; `:detail` nil).  An invalid bound is the composition error the
+   validating layer throws, before anything listens."
   [{:keys [spec host table names bounds]}]
   (let [b (merge production-bounds bounds)]
     (cond
@@ -258,11 +319,12 @@
       (not (and (integer? (:port spec)) (pos? (:port spec))))
       (refused {:spec spec} ::no-port {})
 
-      (not (valid-table? table names))
-      (refused {:spec spec} ::invalid-table {})
+      (some? (table-refusal table names))
+      (refused {:spec spec} ::invalid-table {:detail (table-refusal table names)})
 
       :else
-      (let [descriptor (descriptor-of spec)
+      (let [_ (check-drain-grace! b)
+            descriptor (descriptor-of spec)
             capacity (:capacity b)
             pool (make-slots (:slot-count b))
             endpoint (ws/make-endpoint
@@ -307,12 +369,13 @@
                     :lifecycle lifecycle
                     :lifecycle-cursor lifecycle-cursor
                     :lifecycle-gaps 0
+                    :diagnostic-count 0
                     :deposit! deposit!}
             bound (try
                     ((:bind! host)
                      {:endpoint endpoint
-                      :bind-host (:host spec)
-                      :bind-port (:port spec)
+                      :bind-host (or (:bind-host spec) (:host spec))
+                      :bind-port (or (:bind-port spec) (:port spec))
                       :path (:path spec)
                       :ws/max-frame-bytes (:ws/max-frame-bytes b)
                       :accept! (fn [request-path socket now]
@@ -322,7 +385,8 @@
                     (catch #?(:cljd Object :clj Throwable :cljs :default) _
                       ::threw))]
         (if (or (= ::threw bound) (not (ok-or-nil? bound)))
-          (refused (select-keys server [:spec :descriptor]) ::bind-failed {})
+          (refused (select-keys server [:spec :descriptor]) ::bind-failed
+                   {:detail nil})
           (assoc server :status :starting :listener bound))))))
 
 
@@ -334,10 +398,17 @@
 
 (defn- release!
   "Close every session and every pending pre-acknowledgement
-   connection; the acceptor stops adopting first."
+   connection; the acceptor stops adopting first.  A stop the consumer
+   declared `:ended?` closes each session with the ws ended signal
+   first (dao.stream.ws.md, Ending a served stream), so the reader's end
+   deposits :ws/ended rather than :ws/closed; the generic close after
+   it is the handle's idempotent no-op.  Never closes a table handle."
   [server]
   (when-some [acceptor (:acceptor server)]
     (ws-project/stop! acceptor)
+    (when (get-in server [:stop :ended?])
+      (doseq [[_ session] (ws-project/sessions acceptor)]
+        (ws/close-ended! (:handle session))))
     (ws-project/close-sessions! acceptor))
   (when-some [endpoint (:endpoint server)]
     (ws/endpoint-stop! endpoint))
@@ -364,8 +435,10 @@
 
 (defn- diagnose
   [server fact]
-  (update server :diagnostics
-          (fn [ds] (vec (take-last max-diagnostics (conj (or ds []) fact))))))
+  (-> server
+      (update :diagnostics
+              (fn [ds] (vec (take-last max-diagnostics (conj (or ds []) fact)))))
+      (update :diagnostic-count (fnil inc 0))))
 
 
 (defn- observe
@@ -379,7 +452,8 @@
       (and (= :starting status) (= :bind-failed kind))
       (refused (release! server) ::bind-failed {:detail value})
 
-      (and (= :stopping status) (= :stopped kind))
+      (and (= :stopping status) (= :stopped kind)
+           (some? (get-in server [:stop :released])))
       (stopped server :confirmed)
 
       (= :stopped kind)
@@ -391,9 +465,22 @@
       :else server)))
 
 
+(defn- release-stop
+  "Release (4.3): every session and pending connection closed, then
+   the host listener released, recorded as `:released now`."
+  [server now]
+  (release! server)
+  (let [server (assoc-in server [:stop :released] now)]
+    (if (unbind! server)
+      server
+      (stopped server ::unbind-failed))))
+
+
 (defn- lifecycle-lost
-  "The lifecycle medium answered gap or end (5.1, gap and end columns)."
-  [server end?]
+  "The lifecycle medium answered gap or end (5.1, gap and end columns).
+   A drain it cuts short releases first, recorded as `:released now`,
+   so a stopped server never owes the listener or a session."
+  [server end? now]
   (case (:status server)
     :starting (do (release! server)
                   (unbind! server)
@@ -401,7 +488,12 @@
     :serving (if end?
                (-> (release! server) (stopped ::host-stopped))
                (update server :lifecycle-gaps inc))
-    :stopping (stopped server ::unconfirmed)
+    :stopping (let [server (if (some? (get-in server [:stop :released]))
+                             server
+                             (release-stop server now))]
+                (if (= :stopping (:status server))
+                  (stopped server ::unconfirmed)
+                  server))
     server))
 
 
@@ -409,7 +501,7 @@
 
 
 (defn- drain-lifecycle
-  [server]
+  [server now]
   (loop [server server]
     (if-not (contains? live (:status server))
       server
@@ -422,37 +514,65 @@
           :dao.stream/gap
           (recur (lifecycle-lost (assoc server :lifecycle-cursor
                                         (:dao.stream/cursor r))
-                                 false))
+                                 false now))
 
           :dao.stream/end
-          (lifecycle-lost server true)
+          (lifecycle-lost server true now)
 
           server)))))
 
 
+(defn- drained?
+  "True when a draining stop may release: no session is left to
+   answer, or `:drain-grace-ms` has passed since the first stopping
+   tick."
+  [server now]
+  (or (empty? (sessions server))
+      (>= (- now (get-in server [:stop :since]))
+          (get-in server [:bounds :drain-grace-ms]))))
+
+
 (defn- begin-stop
   "The first stopping tick (4.3): one last bounded answering pass with
-   offers rejected, every session and pending connection closed, then
-   the host listener released."
-  [server now]
-  (ws-project/accept-step! (:acceptor server) now)
-  (release! server)
-  (let [server (assoc-in server [:stop :since] now)]
-    (if (unbind! server)
-      server
-      (stopped server ::unbind-failed))))
-
-
-(defn- continue-stop
-  "A later stopping tick: newcomers that reached the endpoint before the
-   listener went are rejected and closed sessions reaped; then the host's
-   `:stopped` fact, or the composed grace, completes the stop."
+   offers rejected, and every pending pre-acknowledgement connection
+   closed (it holds no reflection).  Without a drain grace, or with no
+   session to answer, the stop releases at once; otherwise it drains."
   [server now]
   (ws-project/accept-step! (:acceptor server) now)
   (ws/endpoint-stop! (:endpoint server))
-  (let [server (drain-lifecycle server)]
+  (let [server (assoc-in server [:stop :since] now)]
+    (if (or (zero? (get-in server [:bounds :drain-grace-ms]))
+            (empty? (sessions server)))
+      (release-stop server now)
+      server)))
+
+
+(defn- drain-stop
+  "A draining tick: the lifecycle facts (a host that stops under the
+   drain is `::host-stopped`), an answering pass, stragglers closed;
+   then release once drained."
+  [server now]
+  (let [server (drain-lifecycle server now)]
+    (if-not (= :stopping (:status server))
+      server
+      (do (ws-project/accept-step! (:acceptor server) now)
+          (ws/endpoint-stop! (:endpoint server))
+          (if (drained? server now)
+            (release-stop server now)
+            server)))))
+
+
+(defn- continue-stop
+  "A tick after release: newcomers that reached the endpoint before the
+   listener went are rejected and closed sessions reaped; then the host's
+   `:stopped` fact, or the composed grace after release, completes the
+   stop."
+  [server now]
+  (ws-project/accept-step! (:acceptor server) now)
+  (ws/endpoint-stop! (:endpoint server))
+  (let [server (drain-lifecycle server now)]
     (if (and (= :stopping (:status server))
-             (>= (- now (get-in server [:stop :since]))
+             (>= (- now (get-in server [:stop :released]))
                  (get-in server [:bounds :stop-grace-ms])))
       (stopped server ::unconfirmed)
       server)))
@@ -469,39 +589,58 @@
    `::host-stopped`; `:listener-error` and `:upgrade-failed` are kept,
    the last 8, under `:diagnostics` -- then the acceptor's step.
 
-   Stopping (4.3): the first tick runs the last bounded answering pass,
-   closes every session and pending connection and asks the host to
-   unbind (`::unbind-failed`, and `:stopped`, when it cannot); later
-   ticks complete on the host's `:stopped` fact (outcome `:confirmed`),
-   a lifecycle gap (`::unconfirmed`), or `:stop-grace-ms` after the
-   first stopping tick (`::unconfirmed`).  Refused and stopped servers
-   are answered unchanged."
+   Stopping (4.3): the first tick runs the last bounded answering pass
+   and closes every pending connection (`:stop :since`).  Then, at once
+   when `:drain-grace-ms` is 0 or no session is left, else on the
+   draining tick where the last session left or the grace has passed,
+   the stop releases (`:stop :released`): every session closed, with
+   the ws ended signal when `stop!` was `:ended?`, and the host asked
+   to unbind (`::unbind-failed`, and `:stopped`, when it cannot).
+   While draining, sessions are still answered, so a reader's
+   outstanding `next` on a medium the consumer ended is answered `end`
+   before its connection closes.  After release, ticks complete on the
+   host's `:stopped` fact (outcome `:confirmed`), a lifecycle gap
+   (`::unconfirmed`), or `:stop-grace-ms` after release
+   (`::unconfirmed`); the host's `:stopped` before release is
+   `::host-stopped`.  A lifecycle gap or end while draining releases at
+   once (`:released now`) and completes `::unconfirmed`, or
+   `::unbind-failed` when the host refuses the unbind.  Refused and stopped servers are answered
+   unchanged."
   [server now]
   (case (:status server)
     (:starting :serving)
-    (let [server (drain-lifecycle server)]
+    (let [server (drain-lifecycle server now)]
       (when (contains? #{:starting :serving} (:status server))
         (ws-project/accept-step! (:acceptor server) now))
       server)
 
     :stopping
-    (if (nil? (get-in server [:stop :since]))
-      (begin-stop server now)
-      (continue-stop server now))
+    (let [{:keys [since released]} (:stop server)]
+      (cond
+        (nil? since) (begin-stop server now)
+        (nil? released) (drain-stop server now)
+        :else (continue-stop server now)))
 
     server))
 
 
 (defn stop!
   "Initiate an explicit stop of a starting or serving server: the
-   acceptor stops adopting and the server is `:stopping`.  Performs no
-   I/O; `serve-step` completes the stop.  Any other server is answered
-   unchanged."
-  [server]
-  (if (contains? #{:starting :serving} (:status server))
-    (do (ws-project/stop! (:acceptor server))
-        (assoc server :status :stopping :stop {:since nil :outcome nil}))
-    server))
+   acceptor stops adopting and the server is `:stopping`, its `:stop`
+   `{:since nil :released nil :outcome nil :ended? e}`.  `:ended?`
+   declares that the consumer has closed, or will have closed before
+   the next tick, the table handles whose end readers should observe;
+   which handles end is the consumer's decision, never this
+   composition's.  Performs no I/O; `serve-step` completes the stop.
+   Any other server is answered unchanged."
+  ([server] (stop! server {}))
+  ([server {:keys [ended?]}]
+   (if (contains? #{:starting :serving} (:status server))
+     (do (ws-project/stop! (:acceptor server))
+         (assoc server :status :stopping
+                :stop {:since nil :released nil :outcome nil
+                       :ended? (boolean ended?)}))
+     server)))
 
 
 ;; =============================================================================
@@ -513,21 +652,101 @@
    :dao.stream.remote/reason :dao.stream.remote/channel-gone})
 
 
+(defn- valid-target?
+  "Exactly one of a name or a non-empty vector of distinct, non-nil
+   identities."
+  [n identities]
+  (if (some? identities)
+    (and (nil? n)
+         (vector? identities)
+         (boolean (seq identities))
+         (every? some? identities)
+         (apply distinct? identities))
+    (some? n)))
+
+
+(defn- remote-descriptor
+  "The dao.stream remote descriptor of `identity` through the channel
+   of `spec`."
+  [spec identity]
+  {:dao.stream/type :dao.stream/remote
+   :dao.stream/identity identity
+   :dao.stream/channel (descriptor-of spec)})
+
+
+(defn- close-handles!
+  [handles]
+  (doseq [h (distinct (remove nil? handles))]
+    (when (stream/closable? h)
+      (stream/close! h))))
+
+
+(defn- attach-identities
+  "Establish the channel and attach every identity at once, in order:
+   the first attaches (establishing the channel), each further one
+   reflects through it.  Confirmation is deferred (dao.stream.remote.md
+   2.4): the probes are sent now, and a reflection whose identity the
+   table lacks turns gone when its probe is answered.  An attach that is
+   not ok is `:lost` with its outcome, the partial handles and the
+   connection closed."
+  [d identities]
+  (loop [remaining identities
+         handles {}]
+    (if (empty? remaining)
+      (assoc d :status :attached :handles handles)
+      (let [id (first remaining)
+            rd (remote-descriptor (:spec d) id)
+            r (if (empty? handles)
+                (ws-project/dial-attach! (:dial d) rd)
+                (ws-project/dial-reflect! (:dial d) rd))]
+        (if (= :dao.stream/ok (:dao.stream/outcome r))
+          (recur (rest remaining) (assoc handles id (:dao.stream/handle r)))
+          (do (close-handles! (vals handles))
+              (when-some [h (some-> (:dial d) ws-project/channel :handle)]
+                (stream/close! h))
+              (assoc d :status :lost :outcome r :handles handles)))))))
+
+
 (defn dial
   "Compose the reader's end toward `spec` over the host assembly's
-   `:connect!`, to resolve the name `:name` and attach what it answers.
-   `:bounds` merges over `production-bounds`; `:events`, optional, is
-   the link's event writer.  Every dial is fresh: its own traffic
-   medium, attacher, cursor and channel ring.  Answers `{:status
-   :resolving :spec :descriptor :name :policy :dial :handle :identity
-   :outcome :since}`, `:policy` the link policy and `:since` the first
-   step's `now`; without `:connect!`, or for a transport other than :ws,
-   `{:status :refused :reason ::no-transport}`.  An invalid bound is
-   the composition error the validating layer throws."
-  [{:keys [spec host bounds events] n :name}]
+   `:connect!`.  The target is exactly one of `:name`, resolved and
+   attached by `dial-step`, or `:identities`, a non-empty vector of
+   distinct, non-nil identities attached at once, here; anything else is
+   `{:status :refused :reason ::invalid-target}`.  `:bounds` merges over
+   `production-bounds`; `:events`, optional, is the link's event writer.
+   Every dial is fresh: its own traffic medium, attacher, cursor and
+   channel ring.
+
+   A name dial answers `{:status :resolving :spec :descriptor :name
+   :policy :dial :handle :handles :identity :outcome :since}`, `:policy`
+   the link policy and `:since` the first step's `now`.
+
+   An identities dial takes `:now`, the driver's clock reading at
+   dialing: it is recorded on the link before the channel is
+   established, so the probes sent at once carry `give-up-after`
+   deadlines and a connection that never opens is lost at them (without
+   `:now` nothing expires, acceptable only for tests).  It answers
+   `:status :attached` with `:handles {identity reflection}` and
+   `:handle nil` -- with a writer among the reflections there is no
+   \"the\" handle -- or `:status :lost` with the attacher's own
+   `:outcome` (transport-error for a local reachability failure,
+   invalid-descriptor).
+
+   Without `:connect!`, or for a transport other than :ws, `{:status
+   :refused :reason ::no-transport}`.  An invalid bound is the
+   composition error the validating layer throws."
+  [{:keys [spec host bounds events identities now] n :name}]
   (let [b (merge production-bounds bounds)]
-    (if-not (and (ws-transport? spec) (fn? (:connect! host)))
-      {:status :refused :reason ::no-transport :spec spec :name n}
+    (cond
+      (not (valid-target? n identities))
+      {:status :refused :reason ::invalid-target :spec spec :name n
+       :identities identities}
+
+      (not (and (ws-transport? spec) (fn? (:connect! host))))
+      {:status :refused :reason ::no-transport :spec spec :name n
+       :identities identities}
+
+      :else
       (let [capacity (:capacity b)
             policy (link-policy b)
             traffic (buffer capacity)
@@ -535,27 +754,34 @@
                       (merge (select-keys b ws-bound-keys)
                              {:traffic (writer-target traffic)
                               :admission (admission capacity)
-                              :connect! (:connect! host)}))]
-        {:status :resolving
-         :spec spec
-         :descriptor (descriptor-of spec)
-         :name n
-         :policy policy
-         :dial (ws-project/dial
-                 (merge policy
-                        (when events {:dao.stream.remote/events events})
-                        {:attach! attach!
-                         :traffic (writer-target traffic)
-                         :cursor (mint traffic stream/anchor-newest)
-                         :ring (buffer capacity)
-                         :table {}
-                         :step-budget (:step-budget b)
-                         :mirror-budget (:mirror-budget b)
-                         :chase-budget (:chase-budget b)}))
-         :handle nil
-         :identity nil
-         :outcome nil
-         :since nil}))))
+                              :connect! (:connect! host)}))
+            d {:status :resolving
+               :spec spec
+               :descriptor (descriptor-of spec)
+               :name n
+               :policy policy
+               :dial (ws-project/dial
+                       (merge policy
+                              (when events {:dao.stream.remote/events events})
+                              {:attach! attach!
+                               :traffic (writer-target traffic)
+                               :cursor (mint traffic stream/anchor-newest)
+                               :ring (buffer capacity)
+                               :table {}
+                               :step-budget (:step-budget b)
+                               :mirror-budget (:mirror-budget b)
+                               :chase-budget (:chase-budget b)}))
+               :handle nil
+               :handles {}
+               :identity nil
+               :outcome nil
+               :since nil}]
+        (if (nil? identities)
+          d
+          (do (when (some? now)
+                (ws-project/dial-step! (:dial d) now))
+              (attach-identities (assoc d :identities identities :since now)
+                                 identities)))))))
 
 
 (defn- channel-lost?
@@ -574,6 +800,7 @@
         (if (= :dao.stream/ok (:dao.stream/outcome a))
           (assoc d :status :attached
                  :handle (:dao.stream/handle a)
+                 :handles {(:dao.stream/identity r) (:dao.stream/handle a)}
                  :identity (:dao.stream/identity r)
                  :outcome r)
           (assoc d :status :lost :outcome a)))
@@ -626,21 +853,52 @@
 
 
 (defn handle
-  "The dial's reflection once attached, else nil."
+  "The named dial's reflection once attached, else nil; nil for an
+   identities dial, which has no one handle.  With `identity`, that
+   identity's reflection."
+  ([d] (:handle d))
+  ([d identity] (get (:handles d) identity)))
+
+
+(defn handles
+  "Every attached reflection, {identity handle}."
   [d]
-  (:handle d))
+  (:handles d))
+
+
+(defn attachment
+  "The dialed ws attachment id, nil before a connection exists and
+   after `close!`."
+  [d]
+  (when-not (= :closed (:status d))
+    (some-> (:dial d) ws-project/channel :attachment)))
+
+
+(defn detach!
+  "Close the dialed connection and nothing else: every reflection stays
+   open so that the loss reaches it as channel-gone on its next
+   operation, and the dial stays steppable until `dial-step` observes
+   the projection closed and answers `:lost`.  Marks `:detaching?`.
+   Idempotent; identity on a dial that has no connection or is already
+   detaching, lost or closed."
+  [d]
+  (let [h (some-> (:dial d) ws-project/channel :handle)]
+    (if (or (nil? h)
+            (:detaching? d)
+            (contains? #{:lost :closed :refused} (:status d)))
+      d
+      (do (stream/close! h)
+          (assoc d :detaching? true)))))
 
 
 (defn close!
-  "Close the dial's connection when one was made, and its reflection
-   when attached.  Idempotent; answers the dial, `:closed`.  A closed
-   dial is not stepped again: a redial composes a fresh one."
+  "Close the dial's connection when one was made, and every reflection
+   attached.  Idempotent; answers the dial, `:closed`.  A closed dial is
+   not stepped again: a redial composes a fresh one."
   [d]
   (if (= :closed (:status d))
     d
     (do (when-some [h (some-> (:dial d) ws-project/channel :handle)]
           (stream/close! h))
-        (when-some [h (:handle d)]
-          (when (stream/closable? h)
-            (stream/close! h)))
+        (close-handles! (cons (:handle d) (vals (:handles d))))
         (assoc d :status :closed))))

@@ -8,13 +8,12 @@
             [dao.stream :as stream]
             [dao.stream.rpc :as rpc]
             [dao.stream.transit :as transit]
-            [dao.stream.ws :as ws]
-            [dao.stream.ws-project :as ws-project]
             [yin.repl.main :as repl]
             [yin.repl.dht :as repl.dht]
             [yin.repl :as shell]
             [yin.repl.driver :as driver]
             [yin.repl.host.common :as host-common]
+            [yin.repl.net-fixture :as fixture]
             [yin.repl.serve :as serve]
             [yin.vm.linker.sign :as sign]))
 
@@ -210,7 +209,7 @@
 (deftest an-uncomposed-port-reports-the-missing-host
   (let [opts (repl/parse-args ["--port" "8080"])
         server (serve/serve! {:bind-port 8080 :host nil})]
-    (is (some? (:lifecycle server)) "serve! returns immediately with its medium")
+    (is (some? (:requests server)) "serve! returns immediately with its media")
     (is (= :failed (:status server)))
     (testing "and the ticker prints why, without a banner guessing at it"
       (let [[_ server' lines] (repl/step-all (repl/boot opts) server 0)]
@@ -393,14 +392,6 @@
 ;; standing in for the remote client.
 ;; =============================================================================
 
-(defn- socket
-  "A captured socket: every frame the endpoint sends."
-  []
-  (let [sent (atom [])]
-    {:sent sent
-     :socket {:send! (fn [text] (swap! sent conj text) nil)}}))
-
-
 (defn- answer-values
   "Every answer appended to the endpoint's shared answers medium, oldest
    first."
@@ -423,20 +414,19 @@
 
 
 (deftest the-served-endpoint-shares-the-local-shells-shell
-  (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
+  (let [h (fixture/host)
+        server (serve/serve! {:bind-port 8080 :host (:adapter h)})
         state (repl/boot {:adapter (host-adapter)})
         [_ server _] (repl/step-all state server 0)
-        s (socket)
-        accepted (ws/accept-connection! (:ws-endpoint server)
-                                        (:path server)
-                                        (:socket s)
-                                        2)
-        ;; Adoption is observed on the step after the upgrade, as the serve
-        ;; composition's own tests drive it.
+        client (fixture/open h (serve/url server) 2)
+        ;; Adoption is observed on the step after the connection reaches
+        ;; the endpoint, as the serve composition's own tests drive it.
+        _ (fixture/pump! h)
         [_ server _] (repl/step-all state server 3)
+        _ (fixture/pump! h)
         [state server _] (repl/step-all state server 4)]
-    (is (some? (:ws/handle accepted)))
-    (is (contains? (ws-project/sessions (:acceptor server)) (:ws/attachment accepted)))
+    (is (some? client))
+    (is (= 1 (count (:sessions (serve/summary server)))) "the session was adopted")
     (driver/submit-line! (:input state) "(defn twice [x] (* 2 x))")
     (let [[state server lines] (repl/step-all state server 5)]
       (is (str/includes? (str/join " " lines) ":closure")
@@ -922,7 +912,7 @@
                (let [after (ask! peer {:cmd :probe} :probe reply-ms)]
                  (is (false? (:traffic-retained? after))
                      "a reattachment composes a fresh dial with a fresh cursor
-                      (dao.stream.ws-project/dial's own contract), never
+                      (dao.stream.remote-channel/dial's own contract), never
                       reusing the old one")
                  (is (not= first-attachment
                            (get-in after [:connection :attachment]))
@@ -945,7 +935,7 @@
                (is (some? (await-server-notice a "Endpoint stopped" event-ms))
                    "the endpoint never completed its stop")
                (is (= :stopped (:status @(:endpoint a))))
-               (testing "the client deposits :ws/ended, not :ws/closed"
+               (testing "the client observes the served stream ending, not a bare close"
                  (is (some? (await-event peer
                                          #(= :yin.repl.connect/ended (:event %))
                                          event-ms))
@@ -1146,7 +1136,7 @@
                                     (.then (fn [_]
                                              (is (= :ended
                                                     (:status (connect/summary (:connection @(:box client)))))
-                                                 ":ws/ended, not :ws/closed, is what stop! deposits")
+                                                 "the ended answer, not a bare close, is what stop! leaves")
                                              (is (nil? (published client "Disconnected from"))
                                                  "a detach would mean the socket closed without the stream ending")))
                                     (.then (fn [_] nil)
@@ -1172,16 +1162,16 @@
       (let [[state' server' lines] (repl/step-all state nil 0)]
         (is (true? (repl/moved? state' server' lines))))))
   (testing "an endpoint holding a pending response never idles"
-    (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
+    (let [h (fixture/host)
+          server (serve/serve! {:bind-port 8080 :host (:adapter h)})
           [state server _] (repl/step-all (repl/boot {}) server 0)
-          s (socket)
-          accepted (ws/accept-connection! (:ws-endpoint server)
-                                          (:path server)
-                                          (:socket s)
-                                          2)
+          client (fixture/open h (serve/url server) 2)
+          _ (fixture/pump! h)
           [_ server _] (repl/step-all state server 3)
+          _ (fixture/pump! h)
           [state server _] (repl/step-all state server 4)]
-      (is (some? (:ws/handle accepted)))
+      (is (some? client))
+      (is (= 1 (count (:sessions (serve/summary server)))) "the session was adopted")
       (remote-request! server 0 "(+ 1 2)")
       ;; Nothing has stepped yet to notice the appended request, so the
       ;; endpoint's own moved? — one input to the owner's bit — holds.

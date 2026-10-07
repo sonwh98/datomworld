@@ -1,12 +1,13 @@
 (ns yin.repl.embed-test
   "The embedding composition behind the Flutter REPL widget, with the host
-   listener injected as in `yin.repl.serve-test`.  Nothing here binds a port."
+   listener injected, or the in-process loopback net of
+   yin.repl.net-fixture when a client attaches.  Nothing here binds a port."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.rpc :as rpc]
-            [dao.stream.ws :as ws]
-            [yin.repl.embed :as embed]))
+            [yin.repl.embed :as embed]
+            [yin.repl.net-fixture :as fixture]))
 
 
 (defn- host
@@ -18,14 +19,6 @@
    :unbind! (fn [_resources deposit!]
               (deposit! :stopped {:reason :requested})
               nil)})
-
-
-(defn- socket
-  []
-  (let [sent (atom [])]
-    {:sent sent
-     :socket {:send! (fn [text] (swap! sent conj text) nil)
-              :close! (fn [_code _reason] nil)}}))
 
 
 (defn- last-answer
@@ -49,11 +42,12 @@
 
 
 (defn- start
-  []
-  (embed/start {:port 7777
-                :advertised-host "192.168.1.20"
-                :primitives {'answer (fn [] 42)}
-                :host (host)}))
+  ([] (start (host)))
+  ([h]
+   (embed/start {:port 7777
+                 :advertised-host "192.168.1.20"
+                 :primitives {'answer (fn [] 42)}
+                 :host h})))
 
 
 (deftest a-wildcard-bind-with-an-advertised-host-binds
@@ -68,12 +62,14 @@
 
 
 (deftest a-host-primitive-is-served-and-survives-reset
-  (let [[endpoint _] (embed/step (start) 1)
-        s (socket)
-        _accepted (ws/accept-connection! (:ws-endpoint endpoint) (:path endpoint)
-                                         (:socket s) 2)
+  (let [h (fixture/host)
+        [endpoint _] (embed/step (start (:adapter h)) 1)
+        c (fixture/open h (:url (embed/status endpoint)) 2)
+        _ (fixture/pump! h)
         [endpoint _] (embed/step endpoint 2)
+        _ (fixture/pump! h)
         [endpoint _] (embed/step endpoint 3)]
+    (is (some? c) "a client attached")
     (is (= 1 (:clients (embed/status endpoint))) "the session was adopted")
     (is (= "client connected" (embed/status-text (embed/status endpoint))))
     (request! endpoint 0 "(answer)")
