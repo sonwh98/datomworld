@@ -502,3 +502,58 @@
     (is (= :dao.stream/closed (outcome :z)) "the quota is spent")
     (is (= [[1008 "dao.stream/outbound-overflow"]] @closes))
     (is (= 2 (count @sent)))))
+
+
+(defn- handoff-slot
+  []
+  (let [offer (buffer)
+        ack (buffer)]
+    {:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
+     :offer-admission (assoc admission :value-domain :host-values :capacity 1)
+     :ack {:dao.stream/handle ack :dao.stream/surface #{:writer}}
+     :ack-admission (assoc admission :value-domain :host-values :capacity 1)
+     :ack-cursor (:dao.stream/cursor (stream/cursor ack stream/anchor-newest))}))
+
+
+(deftest endpoint-stop-closes-pending-connections-and-frees-slots
+  (let [control (buffer)
+        slots [(handoff-slot) (handoff-slot)]
+        endpoint (ws/make-endpoint
+                   {:descriptor descriptor
+                    :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
+                    :control-admission admission
+                    :slots slots
+                    :expiry-ms nil})
+        closes (atom [])
+        sent (atom [])
+        socket (fn [tag]
+                 {:send! #(do (swap! sent conj %) nil)
+                  :close! (fn [code reason] (swap! closes conj [tag code reason]))})
+        a (ws/accept-connection! endpoint "/yin/repl" (socket :a))
+        b (ws/accept-connection! endpoint "/yin/repl" (socket :b))]
+    (is (= [:ws/pending :ws/pending] (mapv :ws/status [a b])))
+    (is (= endpoint (ws/endpoint-stop! endpoint)))
+    (is (= #{[:a 1001 "dao.stream/endpoint-stopped"]
+             [:b 1001 "dao.stream/endpoint-stopped"]}
+           (set @closes))
+        "both seams saw 1001 endpoint-stopped")
+    (is (= #{[(:ws/attachment a) :ws/closed] [(:ws/attachment b) :ws/closed]}
+           (set (map (juxt :ws/attachment :ws/event) (values control))))
+        "both terminal events on the control medium")
+    (is (= [:free :free] (mapv :status (:slots (ws/endpoint-state endpoint)))))
+    (is (empty? (:connections (ws/endpoint-state endpoint))))
+    ;; A late acknowledgement for a stopped connection is stale.
+    (let [traffic (buffer)]
+      (stream/append! (get-in slots [0 :ack :dao.stream/handle])
+                      {:ws/attachment (:ws/attachment a) :ws/command :ws/accept
+                       :ws/deposit {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                       :ws/admission admission})
+      (ws/endpoint-step endpoint 1)
+      (is (empty? (values traffic)))
+      (is (= :dao.stream/closed
+             (:dao.stream/outcome (stream/append! (:ws/handle a) :late))))
+      (is (empty? @sent)))
+    ;; A second endpoint-stop! is a no-op.
+    (ws/endpoint-stop! endpoint)
+    (is (= 2 (count @closes)))
+    (is (= 2 (count (values control))))))

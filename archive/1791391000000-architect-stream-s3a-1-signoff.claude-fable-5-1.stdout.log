@@ -1,0 +1,15 @@
+Slice S3a-1 is **ACCEPTED**. The final report is written at `collab/1791391000000-architect-stream-s3a-1-signoff.claude-fable-5-1.findings.md`.
+
+What I confirmed before flipping the verdict:
+
+- **Tree unchanged since the PENDING review.** Same ten files, same diff stat, and every file's modification time predates the prior report. The boundary and invariant findings stand without re-derivation.
+- **F4 fix present** at the reader conditional in the remote-channel test.
+- **New test namespace is on all three lanes.** The Dart aggregator discovers by the `_test.cljc` suffix and shadow auto-discovers, so the Dart and Node counts you reported include it.
+- **Lanes recorded as green** in the report: JVM full suite, Dart, Node, kondo clean, F1 probe.
+
+Two things for the orchestrator to watch at commit time, both in §4 of the report:
+
+- **Do not use `git add -A` or `git add .`.** The worktree's `node_modules` is a symlink, so the directory-only ignore pattern misses it and it shows untracked. Stage the ten listed paths by name.
+- **Leftover probe file** at `collab/s3a-probe/s3a/probe.clj`. The hook blocks it anyway, but it can be deleted.
+
+Carried forward unchanged: F2, F3, F5 as notes, plus my own request that S3a-2 fold the F1 probe into the lifecycle-gap-while-starting test as a committed regression case. Next step is yours: commit with the suggested message, fast-forward master, push, then brief S3a-2.

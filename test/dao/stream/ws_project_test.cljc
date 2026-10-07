@@ -902,3 +902,52 @@
            (select-keys @(:link @(.-state r))
                         [:drain-budget :max-outstanding :max-filed
                          :give-up-after])))))
+
+
+(deftest a-stopping-acceptor-rejects-offers-and-still-answers-sessions
+  (let [media (atom [])
+        {:keys [served next-req]} (served-with [:a] 1 5)
+        {:keys [acceptor offers acks]}
+        (acceptor-over media {"str-1" {:handle served :surface #{:reader}}})
+        sock-1 (ring 8)
+        sock-2 (ring 8)]
+    (offer! offers "att-1" sock-1)
+    (project/accept-step! acceptor 1)
+    (deposit! (:traffic (last @media)) (payload "att-1" next-req))
+    (is (= acceptor (project/stop! acceptor)))
+    (offer! offers "att-2" sock-2)
+    (project/accept-step! acceptor 2)
+    (is (= [1] (mapv :dao.stream.remote/id (answers sock-1)))
+        "the session's request was answered while stopping")
+    (is (= #{"att-1"} (set (keys (project/sessions acceptor))))
+        "the newcomer was not adopted")
+    (is (= ["att-1"] (mapv :ws/attachment (values acks)))
+        "no acknowledgement for the newcomer")
+    (is (= :dao.stream/closed
+           (:dao.stream/outcome (stream/append! sock-2 :test)))
+        "the newcomer's handle was closed")
+    (is (= 1 (count @media)) "no media for the newcomer")))
+
+
+(deftest close-sessions-closes-handles-and-rings-and-the-next-tick-reaps
+  (let [media (atom [])
+        {:keys [acceptor offers]}
+        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}})
+        sock-1 (ring 8)
+        sock-2 (ring 8)]
+    (offer! offers "att-1" sock-1)
+    (project/accept-step! acceptor 1)
+    (offer! offers "att-2" sock-2)
+    (project/accept-step! acceptor 2)
+    (is (= #{"att-1" "att-2"} (set (keys (project/sessions acceptor)))))
+    (is (= acceptor (project/close-sessions! acceptor)))
+    (is (every? :closed? (vals (project/sessions acceptor)))
+        "each session is marked closed")
+    (doseq [h [sock-1 sock-2]]
+      (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! h :x)))
+          "each handle is closed"))
+    (doseq [{:keys [ring]} @media]
+      (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! ring :x)))
+          "each channel ring is closed"))
+    (project/accept-step! acceptor 3)
+    (is (empty? (project/sessions acceptor)) "the next tick reaps them")))

@@ -342,6 +342,10 @@ Ownership remains explicit in every failure case:
   it if acknowledgement cannot be deposited;
 - after acknowledgement, the composition owns the session handle, while the
   endpoint continues to own its host connection for endpoint-wide stop;
+  `endpoint-stop!` is that stop for the connections still pending: each is
+  closed with 1001 `dao.stream/endpoint-stopped`, its terminal `:ws/closed`
+  deposited on the control medium and its slot released. It is idempotent,
+  and releasing the host listener stays the host's `unbind!`;
 - any non-`ok` traffic deposit after acceptance tears down the connection
   under Deposit Admission.
 
@@ -772,12 +776,12 @@ Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` i
   request liveness is decided there (2.4, Expiry): a request unanswered
   past `:dao.stream.remote/give-up-after`, against the `now` a driver hands
   the link's step, loses the channel, and the dial closes this handle.
-  Probing an *idle* connection is still open: whether with the protocol's
-  own ping/pong frames or with ordinary deposited values, how often, and —
-  if the probe is not a protocol frame — which component is obliged to
-  answer it. Over a remote channel a `descriptor` request is the natural
-  probe, the mirror step answers it, and its deadline bounds it; cadence
-  stays the composition's.
+  The idle probe is the consumer's own periodic read and its deadline: a
+  reader that polls sends a `next` the mirror answers, and an unanswered
+  one expires; its cadence is the composition's. No protocol ping/pong is
+  composed, and the open question is closed for channels used through
+  `dao.stream.remote` (`dao.stream.remote-channel`). Probing an idle
+  connection used outside a remote channel remains open.
 - Resumption protocol: stream identity is stable across reconnects, so
   resumption is possible by design; what history a rejoining dialer receives
   (and how it states where it left off) is not yet specified for the copy

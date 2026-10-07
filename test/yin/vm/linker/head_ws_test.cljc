@@ -2,12 +2,8 @@
   "The head board over WebSocket on loopback
    (docs/design/yin.vm.linker.dht.head.md 5.1, slice H2).
 
-   The portable cases run over `loopback-net`, an in-process stand-in for
-   the host listener and connect seams: `listen!` of the `yin.repl.host`
-   `:bind!` shape and `connect!` of the `dao.stream.ws/make-attacher`
-   shape, carrying each encoded frame between the two ends'
-   `dao.stream.ws/adapter`s through a queue the test pumps, so every
-   host runs the same composition deterministically.  One JVM case
+   The portable cases run over `dao.stream.loopback-net`, an in-process
+   stand-in for the host listener and connect seams.  One JVM case
    crosses a real loopback socket through `yin.repl.host`."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
@@ -18,6 +14,7 @@
             [dao.space.index :as index]
             [dao.space.transactor :as transactor]
             [dao.stream :as stream]
+            [dao.stream.loopback-net :refer [connect-on listen-on loopback-net pump! unlisten!]]
             [dao.stream.memory-log :as memory-log]
             [dao.stream.remote :as remote]
             [dao.stream.ringbuffer :as ringbuffer]
@@ -31,105 +28,6 @@
             #?@(:cljd []
                 :clj [[yin.repl.host :as host]]
                 :default [])))
-
-
-;; =============================================================================
-;; An in-process loopback net
-;; =============================================================================
-
-(defn- loopback-net
-  "Listeners by port, live connections, and the queue of frames and
-   lifecycle calls in flight."
-  []
-  (atom {:listeners {} :queue [] :conns []}))
-
-
-(defn- enqueue!
-  "Put `f` in flight; nil, as a host send! that accepted the frame
-   answers."
-  [net f]
-  (swap! net update :queue conj f)
-  nil)
-
-
-(defn- pump!
-  "Run everything in flight, including what running it puts in flight."
-  [net]
-  (loop []
-    (let [q (:queue @net)]
-      (when (seq q)
-        (swap! net assoc :queue [])
-        (doseq [f q] (f))
-        (recur)))))
-
-
-(defn- deliver!
-  [adapter payload]
-  (if (string? payload)
-    ((:message! adapter) payload)
-    ((:binary! adapter) payload)))
-
-
-(defn- listen-on
-  "The `listen!` seam over `net`: a port already listened on throws, as
-   a host bind does."
-  [net]
-  (fn [{:keys [bind-host bind-port accept! deposit!]}]
-    (when (contains? (:listeners @net) bind-port)
-      (throw (ex-info "address in use" {:port bind-port})))
-    (swap! net assoc-in [:listeners bind-port]
-           {:accept! accept! :deposit! deposit!})
-    (deposit! :bind-succeeded {:host bind-host :port bind-port})
-    {:dao.stream/outcome :dao.stream/ok :port bind-port}))
-
-
-(defn- close-conn!
-  [conn code reason]
-  (when-not @(:closed? conn)
-    (reset! (:closed? conn) true)
-    (when-some [s @(:server conn)] ((:closed! s) code reason))
-    ((:closed! (:client conn)) code reason)))
-
-
-(defn- unlisten!
-  "Stop the listener at `port`: every connection it accepted closes."
-  [net port]
-  (let [conns (filterv #(= port (:port %)) (:conns @net))]
-    (swap! net update :listeners dissoc port)
-    (doseq [c conns] (close-conn! c 1001 "going away"))))
-
-
-(defn- connect-on
-  "The `connect!` seam over `net`."
-  [net]
-  (fn [descriptor client]
-    (let [conn {:port (:ws/port descriptor)
-                :client client
-                :server (atom nil)
-                :closed? (atom false)}]
-      (swap! net update :conns conj conn)
-      (enqueue! net
-                (fn []
-                  (if-some [l (get-in @net [:listeners (:ws/port descriptor)])]
-                    (let [socket {:send! (fn [p]
-                                           (enqueue! net
-                                                     #(when-not @(:closed? conn)
-                                                        (deliver! client p))))
-                                  :close! (fn [code reason]
-                                            (enqueue! net
-                                                      #(close-conn!
-                                                         conn code reason)))}
-                          r ((:accept! l) (:ws/path descriptor) socket 0)]
-                      (when-some [h (:ws/handle r)]
-                        (reset! (:server conn) (ws/adapter h))
-                        ((:opened! client))))
-                    (close-conn! conn 1006 "connection refused"))))
-      {:send! (fn [p]
-                (enqueue! net #(when-not @(:closed? conn)
-                                 (when-some [s @(:server conn)]
-                                   (deliver! s p)))))
-       :close! (fn [code reason]
-                 (enqueue! net #(close-conn! conn code reason)))})))
 
 
 ;; =============================================================================

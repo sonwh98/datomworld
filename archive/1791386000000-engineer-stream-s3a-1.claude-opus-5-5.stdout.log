@@ -1,0 +1,20 @@
+S3a-1 is implemented and the full JVM suite passes: `bb test:clj` ran 3699 tests with 0 failures and 0 errors, and kondo is clean. The Node and Dart lanes have not been run, and §8 wants all three green before commit. Nothing is committed; the changes are in the working tree for review.
+
+**What's in:**
+- **`ws.cljc`:** `endpoint-stop!`, which closes every connection still waiting for acknowledgement with 1001 and frees its slot.
+- **`ws_project.cljc`:** `stop!` (the acceptor rejects every new offer) and `close-sessions!` (closes every session; the next tick removes them).
+- **`remote_channel.cljc` (new):** all eleven functions from the brief, including `production-bounds`, `serve`/`serve-step`/`stop!` and `dial`/`dial-step`/`close!`.
+- **Tests:**
+  - The loopback net fixtures moved to `test/dao/stream/loopback_net.cljc`, with `blackhole!`, `flood!` and an `unbind-on` seam added; `head_ws_test` now uses them.
+  - The 15 cases in `remote_channel_test.cljc` pass.
+  - The new `ws_test` and `ws_project_test` cases pass.
+- **Docs:** the §3.0/§3.1 amendments to `dao.stream.remote.md` and the Serving/Deferred amendments to `dao.stream.ws.md`.
+
+**Where I departed from the spec or brief (all detailed in the report):**
+- **One change outside the brief's scope:** `ws-project/dial-step!` now marks the channel gone when its link expires. Without this, a dial whose close event was lost would stay "attached" forever even though its link had given up.
+- **Bounds profile:** it has 20 keys, not the 17 the brief says, because the §1 table has 20 rows.
+- **Stop ordering:** because the spec runs the acceptor tick first, a connection pending at `stop!` is closed by the acceptor's rejection (code 1000), not by `endpoint-stop!` (1001). `endpoint-stop!` catches connections that arrive during the stop, and its 1001 close is tested directly.
+- **Later stop ticks** also remove closed sessions and close late arrivals, which the spec's list doesn't include.
+- **Newcomer during stop:** its dial ends `:lost` with a transport error, not the `:ws/transport-error` resolution §7 describes, because over the loopback net the client socket has already opened.
+
+Report: `collab/1791386000000-engineer-stream-s3a-1.claude-opus-5-5.findings.md`

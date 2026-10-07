@@ -757,3 +757,24 @@
         (terminal! hstate (:attachment slot) :ws/closed)
         (release-slot! endpoint index (:attachment slot)))))
   endpoint)
+
+
+(defn endpoint-stop!
+  "Endpoint-wide stop (dao.stream.ws.md Serving): close every connection
+   the endpoint still owns before acknowledgement -- each pending slot's
+   handle phase closes, the host is asked to close it with 1001
+   `dao.stream/endpoint-stopped`, its terminal :ws/closed is deposited on
+   the control medium, and the slot returns to the free pool.
+   Acknowledged connections belong to their composition and are not
+   touched here.  Idempotent: a second call finds nothing pending.  The
+   host listener is the host's to release (its `unbind!`).  Answers the
+   endpoint."
+  [endpoint]
+  (doseq [[index slot] (map-indexed vector (:slots (endpoint-state endpoint)))
+          :when (= :pending (:status slot))]
+    (let [hstate (:handle-state slot)]
+      (swap! hstate assoc :phase :closed)
+      (invoke-close! (:socket @hstate) 1001 "dao.stream/endpoint-stopped")
+      (terminal! hstate (:attachment slot) :ws/closed)
+      (release-slot! endpoint index (:attachment slot))))
+  endpoint)

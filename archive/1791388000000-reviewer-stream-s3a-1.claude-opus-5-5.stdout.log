@@ -1,0 +1,23 @@
+The review is done and my verdict is **ACCEPT**, but the report file isn't written yet. Plan mode only lets me write the plan file, so I couldn't create `collab/1791388000000-reviewer-stream-s3a-1.claude-opus-5-5.findings.md`. The full report text is in `/Users/sto/.claude/plans/created-gmt-2026-10-07-17-08-00-gmt-twinkly-karp.md`, ready to copy there verbatim once plan mode is lifted. The ExitPlanMode tool isn't available in this session, so I can't request the switch myself.
+
+**Checks I ran:**
+- **JVM tests:** the four affected namespaces passed (77 tests, 436 assertions, 0 failures).
+- **Lint:** kondo is clean on the 3 changed source files and 5 test files.
+- **Node and Dart:** not run, because this worktree has no `node_modules`. The full three-host `bb test` is still owed before landing.
+
+**Findings:**
+- **F1 (should fix, rarely reachable):** if the server is refused while still `:starting`, sessions it has already accepted are never closed. I confirmed this with a scratch script: after the refusal the session's ring still accepted writes and the client connection was still open. A refused server is never stepped again and `stop!` does nothing on it, so nothing ever releases them. This contradicts the spec's "a refused server holds nothing".
+  - **Where:** `remote_channel.cljc:398-400` (lifecycle gap while starting) and `:379-380` (bind failed). The engineer followed the spec's §5.1 table literally, so this is a gap in the spec.
+  - **Fix:** call `release!` in both paths and extend the existing starting-gap test to cover it.
+  - **Reachability:** it needs a host that reports bind success late or loses that report.
+- **F2 (note):** a host with no `:unbind!` makes every stop end immediately as `::unbind-failed`. That's honest, but neither docstring says so.
+- **F3 (note):** a spec with a missing `:path` or a non-string `:host` throws instead of returning a refusal. Nothing breaks today because the board always passes `"/head"`.
+- **F4 (Dart risk):** `remote_channel_test.cljc:228` puts `:clj` before `:cljd` in a reader conditional, which is the known ClojureDart trap. It should be checked in the three-host run.
+- **F5 (cosmetic):** when the host stops on its own, already-closed sessions still show up in `sessions` because they are never cleared out.
+
+**The specific items you asked about:**
+- **`endpoint-stop!`** closes pending connections the same way the existing expiry path does and is safe to call twice.
+- **Acceptor stop and session closing** are correct: during a stop, new connections are turned away the same way as at the session cap.
+- **`:gone?` flag (engineer's addition, outside the spec):** it's needed. It's the only way the dial notices a lost connection when the close event was dropped, and a test covers exactly that case.
+- **Engineer's deviations 1–9:** all accepted.
+- **Invariants:** no clock reads or scheduler in the changed code, and no new core stream operations. WebSocket-specific code stays below dao.stream; no `yin.*` source was touched (one yin test now imports the moved fixture).

@@ -321,11 +321,14 @@
    append that throws is isolated the same way: the offered handle is
    closed, no session is registered, and the tick goes on. A :make-media
    that throws after allocating a ring leaks that ring; avoiding it is
-   the composition's own concern, the acceptor retains nothing."
+   the composition's own concern, the acceptor retains nothing. A
+   stopping acceptor (`stop!`) rejects every offer the way the cap
+   does: the handle closed, no acknowledgement, no media."
   [acceptor slot offer now]
   (let [handle (get-in offer [:ws/handle :dao.stream/handle])
         attachment (:ws/attachment offer)]
     (if-not (and (= :ws/accepted (:ws/event offer))
+                 (not (:stopping? @acceptor))
                  (string? attachment)
                  (some? handle)
                  (stream/writer? handle)
@@ -420,6 +423,29 @@
    :handle :ring :cursor :project :last-activity-ms}."
   [acceptor]
   (:sessions @acceptor))
+
+
+(defn stop!
+  "Mark the acceptor stopping (dao.stream.remote.md 3.0, Explicit
+   stop). From here every offer is rejected as at the session cap; the
+   sessions already adopted are still projected and mirrored by
+   accept-step!, so one more tick is the last bounded answering pass.
+   Performs no I/O. Returns the acceptor."
+  [acceptor]
+  (swap! acceptor assoc :stopping? true)
+  acceptor)
+
+
+(defn close-sessions!
+  "Close every session's socket handle and channel ring and mark it
+   closed; the next accept-step! reaps them. Closing handles runs
+   outside swap!: the driver alone steps the acceptor, as for
+   reaping. Returns the acceptor."
+  [acceptor]
+  (doseq [[attachment session] (:sessions @acceptor)]
+    (close-session-resources! session)
+    (swap! acceptor assoc-in [:sessions attachment :closed?] true))
+  acceptor)
 
 
 (defn session-end
@@ -621,16 +647,18 @@
          (reset! mirror-cursor
                  (remote/mirror-step table names ring @mirror-cursor handle
                                      (mirror-bounds d)))
-         (when (and (:dao.stream.remote/channel-gone? stepped)
-                    (stream/closable? handle))
-           (stream/close! handle))))
+         (when (:dao.stream.remote/channel-gone? stepped)
+           (swap! channel assoc :gone? true)
+           (when (stream/closable? handle)
+             (stream/close! handle)))))
      @mirror-cursor)))
 
 
 (defn channel
-  "The dialed channel as data: {:attachment id :handle h :project p} --
-   the ws attachment identity, the ws handle (the channel writer), and
-   the attachment's projection. Nil before the first dial-attach!. A
+  "The dialed channel as data: {:attachment id :handle h :project p
+   :gone? g} -- the ws attachment identity, the ws handle (the channel
+   writer), the attachment's projection, and whether a stepped link
+   found the channel gone. Nil before the first dial-attach!. A
    composition that owns the connection's lifetime closes the handle
    here."
   [dial]

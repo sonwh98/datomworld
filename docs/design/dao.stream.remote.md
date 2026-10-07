@@ -510,6 +510,28 @@ contract:
   in one session's projection or mirror step is isolated and caught; its
   resources are closed and marked for reaping without crashing the acceptor
   or affecting other healthy sessions.
+- **Explicit stop**: an accepting composition's `stop!` marks it stopping,
+  after which every offer is rejected as at the session cap;
+  `close-sessions!` closes every session's handle and ring and marks it for
+  reaping; the ws endpoint's `endpoint-stop!` closes every connection still
+  pending acknowledgement (`dao.stream.ws.md` Serving). A serving
+  composition stops in that order, driver-paced: stop initiates and does no
+  I/O; the next step runs one last bounded answering pass with offers
+  rejected, closes the sessions, then the pending connections, then asks
+  the host to release its listener. Completion is the host's `stopped`
+  fact or, failing a callback, a composed grace measured against the
+  driver's `now`; release bookkeeping never depends on the callback.
+- **Lifecycle observation**: the listener's lifecycle medium is a bounded
+  ring written only by the host. While starting, `bind-succeeded` serves
+  and `bind-failed` refuses, and a gap or end refuses as lifecycle-lost
+  (a lost `bind-failed` cannot be told from a lost `bind-succeeded`), with
+  a best-effort release of the listener and the pending connections. While
+  serving, diagnostics (`listener-error`, `upgrade-failed`) are kept, the
+  last few; a gap adopts the recovery cursor and is counted, since only
+  diagnostics were lost; `stopped` without a stop, or an end, is a
+  host-stopped stop after closing sessions and pending connections. While
+  stopping, `stopped` confirms the stop, and a gap or end completes it
+  unconfirmed. A channel drop on either side is never a source gap.
 
 ### 3.1 WebSocket
 
@@ -538,6 +560,10 @@ keeps the events whose `:ws/attachment` names this channel, appends the
 `:ws/transport-error`) makes `ws-project` close the ring buffer: channel
 loss is then the link's `end` observation (2.4). `ws-project` is a step the
 composition drives at its own cadence, as it drives `endpoint-step`.
+`dao.stream.remote-channel` is the stepped composition over this channel:
+`serve`/`serve-step`/`stop!` and `dial`/`dial-step`/`close!` over a
+portable endpoint specification it formats into the ws descriptor itself,
+with its `production-bounds` profile as the composition data of 3.0.
 
 Direction is establishment, not authority. A WebSocket has a dialer and an
 acceptor because TCP does. Once established the channel is symmetric and
