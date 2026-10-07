@@ -156,16 +156,17 @@
    carry (invalid-value) is answered with the oversize protocol error
    in place of that element, the read not skipped and no cursor
    advanced past it; any other refused write leaves the request
-   unanswered."
+   unanswered. Returns the writer's outcome of the last append."
   [chan-writer answer]
   (let [r (stream/append! chan-writer answer)]
-    (when (= :dao.stream/invalid-value (:dao.stream/outcome r))
+    (if (= :dao.stream/invalid-value (:dao.stream/outcome r))
       (stream/append! chan-writer
                       (assoc (select-keys answer [:dao.stream/identity
                                                   :dao.stream.remote/id
                                                   :dao.stream.remote/name])
                              :dao.stream.remote/error
-                             :dao.stream.remote/oversize)))))
+                             :dao.stream.remote/oversize))
+      r)))
 
 
 (defn- descriptor-answer
@@ -186,7 +187,7 @@
    are answered not-found with the name and no identity. Otherwise the
    answer is the descriptor answer of the mapped entry -- its own
    identity, its declared surface -- with the name echoed. The name
-   never rides :dao.stream/identity."
+   never rides :dao.stream/identity. Returns the writer's outcome."
   [table names chan-writer req]
   (let [n (:dao.stream.remote/name req)
         id (:dao.stream.remote/id req)
@@ -211,8 +212,9 @@
    declared surface, and apply cursor, next and append! through
    apply-request with the channel context; append the answer with the
    id and identity. For next with a budget k, and an ok first outcome,
-   the chase places the further outcomes under more."
-  [table chan-writer channel req]
+   the chase places the further outcomes under more, k clamped to the
+   local chase-max when one is given. Returns the writer's outcome."
+  [table chan-writer channel chase-max req]
   (let [identity (:dao.stream/identity req)
         id (:dao.stream.remote/id req)
         op (:dao.stream.remote/op req)
@@ -235,14 +237,21 @@
                                   (valid-budget? req)
                                   (= :dao.stream/ok
                                      (:dao.stream/outcome outcome)))
-                         (chase h ctx (:dao.stream.remote/budget req)
-                                outcome))
+                         (let [k (:dao.stream.remote/budget req)]
+                           (chase h ctx
+                                  (if chase-max (min k chase-max) k)
+                                  outcome)))
                   answer (cond-> (assoc outcome
                                         :dao.stream.remote/id id
                                         :dao.stream/identity identity)
                            (seq more) (assoc :dao.stream.remote/more
                                              more))]
               (write-answer! chan-writer answer))))))))
+
+
+(defn- pos-int-or-nil?
+  [x]
+  (or (nil? x) (and (integer? x) (pos? x))))
 
 
 (defn mirror-step
@@ -261,25 +270,52 @@
    The five-argument form takes the composition's name map `names`,
    {name identity}, each value a key of `table`: a named descriptor
    request is answered from it (step 0). Without a name map every
-   name is unmapped."
+   name is unmapped.
+
+   The six-argument form takes `bounds`, nil or a map of optional
+   positive integers: :dao.stream.remote/mirror-budget bounds the
+   wire values read per call -- each ok read, well-formed or not, and
+   each gap counts one -- returning the cursor to continue from;
+   :dao.stream.remote/chase-budget clamps a peer-requested next
+   budget. Any other bounds is a composition error. A writer that
+   answers full on the answer of a descriptor, cursor, next or named
+   descriptor request stops the step at the cursor preceding that
+   request, so it is re-read and re-answered next call; a full on an
+   append! answer is dropped, the source append having run."
   ([table chan-reader cursor chan-writer]
-   (mirror-step table nil chan-reader cursor chan-writer))
+   (mirror-step table nil chan-reader cursor chan-writer nil))
   ([table names chan-reader cursor chan-writer]
-   (let [channel (:dao.stream/identity (stream/descriptor chan-reader))]
-     (loop [cursor cursor]
-       (let [r (stream/next chan-reader cursor)]
-         (case (:dao.stream/outcome r)
-           :dao.stream/ok
-           (let [v (:dao.stream/value r)]
-             (when (well-formed-request? v)
-               (if (contains? v :dao.stream/identity)
-                 (answer! table chan-writer channel v)
-                 (answer-named! table names chan-writer v)))
-             (recur (:dao.stream/cursor r)))
-           :dao.stream/blocked cursor
-           :dao.stream/end cursor
-           :dao.stream/gap (recur (:dao.stream/cursor r))
-           cursor))))))
+   (mirror-step table names chan-reader cursor chan-writer nil))
+  ([table names chan-reader cursor chan-writer bounds]
+   (when-not (or (nil? bounds)
+                 (and (map? bounds)
+                      (every? pos-int-or-nil? (vals bounds))))
+     (throw (ex-info "invalid DaoStream remote mirror bounds"
+                     {:bounds bounds})))
+   (let [channel (:dao.stream/identity (stream/descriptor chan-reader))
+         budget (:dao.stream.remote/mirror-budget bounds)
+         chase-max (:dao.stream.remote/chase-budget bounds)]
+     (loop [cursor cursor remaining budget]
+       (if (and remaining (zero? remaining))
+         cursor
+         (let [r (stream/next chan-reader cursor)
+               remaining' (when remaining (dec remaining))]
+           (case (:dao.stream/outcome r)
+             :dao.stream/ok
+             (let [v (:dao.stream/value r)
+                   w (when (well-formed-request? v)
+                       (if (contains? v :dao.stream/identity)
+                         (answer! table chan-writer channel chase-max v)
+                         (answer-named! table names chan-writer v)))]
+               (if (and (= :dao.stream/full (:dao.stream/outcome w))
+                        (not= :dao.stream/append!
+                              (:dao.stream.remote/op v)))
+                 cursor
+                 (recur (:dao.stream/cursor r) remaining')))
+             :dao.stream/blocked cursor
+             :dao.stream/end cursor
+             :dao.stream/gap (recur (:dao.stream/cursor r) remaining')
+             cursor)))))))
 
 
 ;; =============================================================================

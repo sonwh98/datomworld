@@ -1610,3 +1610,203 @@
              (stream/cursor r :dao.stream/oldest))
           "it matches the nil identity and marks the reflection gone")
       (is (not (contains? (:outstanding @link) 0))))))
+
+
+;; =============================================================================
+;; Answering-side loop budgets (S2a)
+;; =============================================================================
+
+(defn- descriptor-request
+  [id]
+  {:dao.stream/identity "s"
+   :dao.stream.remote/op :dao.stream/descriptor
+   :dao.stream.remote/args []
+   :dao.stream.remote/id id})
+
+
+(defn- answer-ids
+  [h]
+  (mapv :dao.stream.remote/id (values h)))
+
+
+(deftest mirror-budget-bounds-requests-per-step
+  (let [table {"s" (entry (ring 4) #{:reader})}
+        rd (ring 16)
+        wr (ring 16)
+        c0 (:dao.stream/cursor (stream/cursor rd :dao.stream/oldest))
+        bounds {:dao.stream.remote/mirror-budget 2}]
+    (doseq [id [1 2 3 4 5]]
+      (stream/append! rd (descriptor-request id)))
+    (let [c1 (remote/mirror-step table nil rd c0 wr bounds)]
+      (is (= [1 2] (answer-ids wr)) "two answers in one step")
+      (is (= 3 (:dao.stream.remote/id
+                 (:dao.stream/value (stream/next rd c1))))
+          "the returned cursor precedes request 3")
+      (let [c2 (remote/mirror-step table nil rd c1 wr bounds)]
+        (is (= [1 2 3 4] (answer-ids wr)) "the next call continues")
+        (remote/mirror-step table nil rd c2 wr bounds)
+        (is (= [1 2 3 4 5] (answer-ids wr)))))
+    (testing "nil bounds and a nil budget are unbounded"
+      (let [wr2 (ring 16)
+            wr3 (ring 16)]
+        (remote/mirror-step table nil rd c0 wr2 nil)
+        (remote/mirror-step table nil rd c0 wr3
+                            {:dao.stream.remote/mirror-budget nil})
+        (is (= [1 2 3 4 5] (answer-ids wr2)))
+        (is (= [1 2 3 4 5] (answer-ids wr3)))))))
+
+
+(deftest malformed-values-and-gaps-count-against-the-mirror-budget
+  (let [table {"s" (entry (ring 4) #{:reader})}
+        bounds {:dao.stream.remote/mirror-budget 2}]
+    (testing "malformed values each count one"
+      (let [rd (ring 16)
+            wr (ring 16)
+            c0 (:dao.stream/cursor (stream/cursor rd :dao.stream/oldest))]
+        (stream/append! rd :garbage)
+        (stream/append! rd {:not :a-request})
+        (stream/append! rd (descriptor-request 1))
+        (let [c1 (remote/mirror-step table nil rd c0 wr bounds)]
+          (is (= [] (answer-ids wr)) "the budget went to the junk")
+          (remote/mirror-step table nil rd c1 wr bounds)
+          (is (= [1] (answer-ids wr))))))
+    (testing "a gap counts one"
+      (let [rd (ring 2)
+            wr (ring 16)
+            c0 (:dao.stream/cursor (stream/cursor rd :dao.stream/oldest))]
+        (doseq [v [:evicted (descriptor-request 1) (descriptor-request 2)]]
+          (stream/append! rd v))
+        (is (= :dao.stream/gap (:dao.stream/outcome (stream/next rd c0))))
+        (let [c1 (remote/mirror-step table nil rd c0 wr bounds)]
+          (is (= [1] (answer-ids wr)) "gap plus one request")
+          (remote/mirror-step table nil rd c1 wr bounds)
+          (is (= [1 2] (answer-ids wr))))))))
+
+
+(deftest an-invalid-mirror-bound-is-a-composition-error
+  (let [table {"s" (entry (ring 4) #{:reader})}
+        rd (ring 16)
+        wr (ring 16)
+        c0 (:dao.stream/cursor (stream/cursor rd :dao.stream/oldest))]
+    (stream/append! rd (descriptor-request 1))
+    (doseq [bounds [{:dao.stream.remote/mirror-budget 0}
+                    {:dao.stream.remote/mirror-budget 1.5}
+                    {:dao.stream.remote/mirror-budget -1}
+                    {:dao.stream.remote/chase-budget 0}
+                    7]]
+      (let [e (try (remote/mirror-step table nil rd c0 wr bounds)
+                   nil
+                   (catch #?(:clj Exception :cljs :default :cljd Object) e
+                     e))]
+        (is (some? e) (str "rejects " (pr-str bounds)))
+        (is (= {:bounds bounds} (ex-data e)))))
+    (is (= [] (answer-ids wr)) "nothing answered")))
+
+
+(deftest chase-budget-clamps-a-peer-requested-budget
+  (let [s (ring 16)
+        _ (doseq [v (range 12)] (stream/append! s v))
+        table {"s" (entry s #{:reader})}
+        c0 (:dao.stream/cursor (stream/cursor s :dao.stream/oldest))
+        req {:dao.stream/identity "s"
+             :dao.stream.remote/op :dao.stream/next
+             :dao.stream.remote/args [c0]
+             :dao.stream.remote/id 1
+             :dao.stream.remote/budget 10}
+        answer (fn [bounds]
+                 (let [rd (ring 4)
+                       wr (ring 4)
+                       c (:dao.stream/cursor
+                           (stream/cursor rd :dao.stream/oldest))]
+                   (stream/append! rd req)
+                   (remote/mirror-step table nil rd c wr bounds)
+                   (first (values wr))))]
+    (is (= 2 (count (:dao.stream.remote/more
+                      (answer {:dao.stream.remote/chase-budget 3}))))
+        "the first outcome is the answer itself")
+    (is (= 9 (count (:dao.stream.remote/more (answer nil))))
+        "without a chase-budget the peer's budget stands")
+    (is (= 9 (count (:dao.stream.remote/more
+                      (answer {:dao.stream.remote/chase-budget 20}))))
+        "a larger chase-budget clamps nothing")))
+
+
+(deftest a-full-writer-rewinds-idempotent-answers-and-drops-append-answers
+  (testing "an idempotent answer refused full is re-answered next call"
+    (let [table {"s" (entry (ring 4) #{:reader})}
+          rd (ring 16)
+          out (ring 16)
+          wr (full-then-forward-writer out 1)
+          c0 (:dao.stream/cursor (stream/cursor rd :dao.stream/oldest))]
+      (stream/append! rd (descriptor-request 1))
+      (stream/append! rd (descriptor-request 2))
+      (let [c1 (remote/mirror-step table nil rd c0 wr nil)]
+        (is (= c0 c1) "the step stopped before the refused request")
+        (is (= [] (answer-ids out)))
+        (remote/mirror-step table nil rd c1 wr nil)
+        (is (= [1 2] (answer-ids out))
+            "same id, answered on the second tick"))))
+  (testing "cursor and next answers refused full rewind too"
+    (let [s (ring 8)
+          _ (stream/append! s :a)
+          table {"s" (entry s #{:reader})}
+          c-src (:dao.stream/cursor (stream/cursor s :dao.stream/oldest))]
+      (doseq [req [{:dao.stream/identity "s"
+                    :dao.stream.remote/op :dao.stream/cursor
+                    :dao.stream.remote/args [:dao.stream/oldest]
+                    :dao.stream.remote/id 1}
+                   {:dao.stream/identity "s"
+                    :dao.stream.remote/op :dao.stream/next
+                    :dao.stream.remote/args [c-src]
+                    :dao.stream.remote/id 1}]]
+        (testing (:dao.stream.remote/op req)
+          (let [rd (ring 16)
+                out (ring 16)
+                ;; carries the first answer, refuses the second once
+                writes (atom 0)
+                wr (reify stream/IDaoStreamWriter
+                     (append!
+                       [_ v]
+                       (if (= 2 (swap! writes inc))
+                         {:dao.stream/outcome :dao.stream/full}
+                         (stream/append! out v))))
+                c0 (:dao.stream/cursor
+                     (stream/cursor rd :dao.stream/oldest))]
+            (stream/append! rd (descriptor-request 0))
+            (stream/append! rd req)
+            (let [c-req (:dao.stream/cursor (stream/next rd c0))
+                  c1 (remote/mirror-step table nil rd c0 wr nil)]
+              (is (= [0] (answer-ids out)) "the request was refused")
+              (is (= c-req c1) "rewound to the cursor preceding it")
+              (remote/mirror-step table nil rd c1 wr nil)
+              (is (= [0 1] (answer-ids out))
+                  "the same id, answered on the next call")))))))
+  (testing "a named descriptor answer refused full rewinds too"
+    (let [table {"s" (entry (ring 4) #{:reader})}
+          rd (ring 16)
+          out (ring 16)
+          wr (full-then-forward-writer out 1)
+          c0 (:dao.stream/cursor (stream/cursor rd :dao.stream/oldest))]
+      (stream/append! rd {:dao.stream.remote/name "nm"
+                          :dao.stream.remote/op :dao.stream/descriptor
+                          :dao.stream.remote/args []
+                          :dao.stream.remote/id 1})
+      (is (= c0 (remote/mirror-step table {"nm" "s"} rd c0 wr nil)))
+      (remote/mirror-step table {"nm" "s"} rd c0 wr nil)
+      (is (= [1] (answer-ids out)))))
+  (testing "an append! answer refused full is dropped, not re-applied"
+    (let [target (ring 8)
+          table {"w" (entry target #{:writer})}
+          rd (ring 16)
+          out (ring 16)
+          wr (full-then-forward-writer out 1)
+          c0 (:dao.stream/cursor (stream/cursor rd :dao.stream/oldest))]
+      (stream/append! rd {:dao.stream/identity "w"
+                          :dao.stream.remote/op :dao.stream/append!
+                          :dao.stream.remote/args [:v]
+                          :dao.stream.remote/id 1})
+      (let [c1 (remote/mirror-step table nil rd c0 wr nil)]
+        (is (not= c0 c1) "the step moved past the append")
+        (remote/mirror-step table nil rd c1 wr nil)
+        (is (= [:v] (values target)) "the source append ran once")
+        (is (= [] (answer-ids out)) "its answer was not re-sent")))))

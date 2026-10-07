@@ -556,10 +556,25 @@
 (deftest invalid-bounds-are-a-composition-error
   (doseq [bad [{:max-sessions 0} {:max-sessions -1} {:max-sessions 1.5}
                {:idle-timeout 0} {:idle-timeout-ms -5} {:idle-timeout 2.5}
-               {:step-budget 0} {:step-budget 1.5} {:step-budget -1}]]
+               {:step-budget 0} {:step-budget 1.5} {:step-budget -1}
+               {:mirror-budget 0} {:mirror-budget 1.5} {:mirror-budget -1}
+               {:chase-budget 0} {:chase-budget 1.5} {:chase-budget -1}]]
     (testing bad
       (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
-            (acceptor-over (atom []) {} bad))))))
+            (acceptor-over (atom []) {} bad)))
+      (when-some [dial-bad (not-empty (select-keys bad [:step-budget
+                                                        :mirror-budget
+                                                        :chase-budget]))]
+        (let [{:keys [medium channel]} (composed)]
+          (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+                (project/dial
+                  (merge {:attach! (fn [_] nil)
+                          :traffic {:dao.stream/handle medium
+                                    :dao.stream/surface #{:writer}}
+                          :cursor (newest-cursor medium)
+                          :ring channel
+                          :table {}}
+                         dial-bad)))))))))
 
 
 (deftest session-error-isolation
@@ -619,3 +634,125 @@
       (project/accept-step! acceptor 4)
       (is (= [:a :b :c :d] (values (:ring flooded)))
           "the flood drains two events per tick, its cursor kept"))))
+
+
+(defn- served-with
+  "A served ring holding `vs`, and a next request on it from oldest
+   with id `id` asking a chase of `budget`."
+  [vs id budget]
+  (let [s (ring 16)]
+    (doseq [v vs] (stream/append! s v))
+    {:served s
+     :next-req {:dao.stream/identity "str-1"
+                :dao.stream.remote/op :dao.stream/next
+                :dao.stream.remote/args
+                [(:dao.stream/cursor (stream/cursor s stream/anchor-oldest))]
+                :dao.stream.remote/id id
+                :dao.stream.remote/budget budget}}))
+
+
+(defn- descriptor-req
+  [id]
+  {:dao.stream/identity "str-1"
+   :dao.stream.remote/op :dao.stream/descriptor
+   :dao.stream.remote/args []
+   :dao.stream.remote/id id})
+
+
+(defn- answers
+  "The answers retained on socket handle `h`: values carrying no op."
+  [h]
+  (remove #(contains? % :dao.stream.remote/op) (values h)))
+
+
+(deftest mirror-budget-and-chase-budget-reach-the-session-mirror
+  (let [media (atom [])
+        {:keys [served next-req]} (served-with [:a :b :c :d] 1 5)
+        {:keys [acceptor offers]}
+        (acceptor-over media {"str-1" {:handle served :surface #{:reader}}}
+                       {:mirror-budget 1 :chase-budget 2})
+        sock (ring 8)]
+    (offer! offers "att-1" sock)
+    (project/accept-step! acceptor 1)
+    (deposit! (:traffic (last @media)) (payload "att-1" next-req))
+    (deposit! (:traffic (last @media)) (payload "att-1" (descriptor-req 2)))
+    (project/accept-step! acceptor 2)
+    (is (= [1] (mapv :dao.stream.remote/id (answers sock)))
+        ":mirror-budget 1 answers one request this tick")
+    (is (= 1 (count (:dao.stream.remote/more (first (answers sock)))))
+        ":chase-budget 2 clamps the peer's budget of 5")
+    (project/accept-step! acceptor 3)
+    (is (= [1 2] (mapv :dao.stream.remote/id (answers sock)))
+        "the second request is answered on the next tick")))
+
+
+(deftest dial-bounds-reach-projection-and-mirror
+  (let [{:keys [medium channel]} (composed)
+        {:keys [served next-req]} (served-with [:a :b :c :d] 1 5)
+        dial (project/dial
+               {:attach! (fn [_]
+                           {:dao.stream/outcome :dao.stream/ok
+                            :dao.stream/handle (ring 8)
+                            :dao.stream/attachment "sock-1"})
+                :traffic {:dao.stream/handle medium
+                          :dao.stream/surface #{:writer}}
+                :cursor (newest-cursor medium)
+                :ring channel
+                :table {"str-1" {:handle served :surface #{:reader}}}
+                :step-budget 2
+                :mirror-budget 1
+                :chase-budget 2})]
+    (project/dial-attach! dial (remote-descriptor "other"))
+    (let [sock (:handle (project/channel dial))]
+      (deposit! medium (payload "sock-1" next-req))
+      (deposit! medium (payload "sock-1" (descriptor-req 2)))
+      (deposit! medium (payload "sock-1" (descriptor-req 3)))
+      (project/dial-step! dial)
+      (is (= 2 (count (filter #(contains? % :dao.stream.remote/op)
+                              (values channel))))
+          ":step-budget 2 projects two of the three requests")
+      (is (= [1] (mapv :dao.stream.remote/id (answers sock)))
+          ":mirror-budget 1 answers one")
+      (is (= 1 (count (:dao.stream.remote/more (first (answers sock)))))
+          ":chase-budget 2 clamps the peer's budget of 5")
+      (project/dial-step! dial)
+      (project/dial-step! dial)
+      (is (= [1 2 3] (mapv :dao.stream.remote/id (answers sock)))
+          "the rest follow one per tick"))))
+
+
+(deftest dial-mirror-effects-run-once-per-step
+  ;; The served writer replaces the dial's mirror cursor with an equal
+  ;; but distinct value while its append runs: a mirror step run inside
+  ;; swap! would then retry and apply the append a second time.
+  (let [{:keys [medium channel]} (composed)
+        dial-ref (atom nil)
+        applied (atom [])
+        target (reify stream/IDaoStreamWriter
+                 (append!
+                   [_ v]
+                   (when (= 1 (count (swap! applied conj v)))
+                     (swap! (:mirror-cursor @@dial-ref) #(into {} %)))
+                   {:dao.stream/outcome :dao.stream/ok}))
+        dial (project/dial
+               {:attach! (fn [_]
+                           {:dao.stream/outcome :dao.stream/ok
+                            :dao.stream/handle (ring 8)
+                            :dao.stream/attachment "sock-1"})
+                :traffic {:dao.stream/handle medium
+                          :dao.stream/surface #{:writer}}
+                :cursor (newest-cursor medium)
+                :ring channel
+                :table {"w" {:handle target :surface #{:writer}}}})]
+    (reset! dial-ref dial)
+    (project/dial-attach! dial (remote-descriptor "other"))
+    (deposit! medium (payload "sock-1" {:dao.stream/identity "w"
+                                        :dao.stream.remote/op
+                                        :dao.stream/append!
+                                        :dao.stream.remote/args [:v]
+                                        :dao.stream.remote/id 1}))
+    (project/dial-step! dial)
+    (is (= [:v] @applied) "the source append ran exactly once")
+    (is (= [1] (mapv :dao.stream.remote/id
+                     (answers (:handle (project/channel dial)))))
+        "and was answered once")))

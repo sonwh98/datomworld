@@ -193,10 +193,12 @@ transport never creates: a dynamic dispatch table has an
 
 ### 2.3 The mirror step
 
-`(mirror-step table chan-reader cursor chan-writer) -> cursor'`, and
+`(mirror-step table chan-reader cursor chan-writer) -> cursor'`,
 `(mirror-step table names chan-reader cursor chan-writer)` with the name
-map; without one every name is unmapped. For each request read from
-`chan-reader`, in order, bounded by a composition budget:
+map, and `(mirror-step table names chan-reader cursor chan-writer bounds)`
+with composition bounds; without a name map every name is unmapped. For
+each request read from `chan-reader`, in order, bounded by the
+mirror-budget below:
 
 0. A named request: look up its name in the name map and the identity
    found in the table. Either absent: append the `not-found` answer with
@@ -227,6 +229,28 @@ reader with the source's own recovery cursor. A mirror that ignores the
 budget is correct. A value the channel cannot carry is answered with
 `:dao.stream.remote/error :dao.stream.remote/oversize` in place of that
 element (2.1).
+
+`bounds` is nil or a map of two optional keys, each a positive integer or
+nil; anything else is a composition error
+(`ex-info "invalid DaoStream remote mirror bounds" {:bounds bounds}`).
+Nil means unbounded.
+
+- `:dao.stream.remote/mirror-budget`: at most this many wire values are
+  read per call. Each `ok` read counts one, well-formed or malformed, and so
+  does each `gap`; `blocked` and `end` are free. At zero the step returns
+  the current cursor, and the next call continues from it.
+- `:dao.stream.remote/chase-budget`: the local maximum for a peer-requested
+  `next` budget. The chase runs with `(min k chase-budget)`, so one call
+  costs at most mirror-budget × chase-budget handle operations.
+
+A channel writer that answers `:dao.stream/full` on the answer of a
+`descriptor`, `cursor`, `next` or named `descriptor` request stops the step,
+which returns the cursor preceding that request: the request is re-read
+next call and the source op recomputes an equally true answer (2.5). A
+`full` on an `append!` answer does not rewind, since the source append
+already ran and re-applying it would duplicate; that answer is dropped and
+the asker's append stays unknown (2.5). Any other refused write leaves the
+request unanswered.
 
 Steps 0 to 4 are the mirror's only contacts with the entry's handle: no
 answer path calls a handle outside `apply-request`, so nothing bypasses the
@@ -403,7 +427,11 @@ contract:
   processed from the traffic medium per tick, preventing continuous traffic
   floods from starving other processing or hanging driver ticks. An
   accepting composition takes it as `:step-budget`, applied to each
-  session's projection on every accept-step tick.
+  session's projection on every accept-step tick. Beside it the accepting
+  composition takes `:mirror-budget` and `:chase-budget` (each a positive
+  integer or nil), passed to each session's `mirror-step` as its `bounds`
+  (2.3). A dialing composition takes the same three keys for its
+  `dial-step!` projection and mirror.
 - **Session failure isolation**: An unhandled exception or malformed payload
   in one session's projection or mirror step is isolated and caught; its
   resources are closed and marked for reaping without crashing the acceptor

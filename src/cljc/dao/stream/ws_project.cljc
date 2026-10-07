@@ -169,6 +169,18 @@
        (writer-target? ack-writer)))
 
 
+(defn- pos-int-or-nil?
+  [x]
+  (or (nil? x) (and (integer? x) (pos? x))))
+
+
+(defn- mirror-bounds
+  "The remote/mirror-step bounds of an acceptor or dial state."
+  [{:keys [mirror-budget chase-budget]}]
+  {:dao.stream.remote/mirror-budget mirror-budget
+   :dao.stream.remote/chase-budget chase-budget})
+
+
 (defn make-acceptor
   "Compose the accepting end of the spec's section-5 toy.
    `:endpoint` is a dao.stream.ws/make-endpoint value whose handoff
@@ -189,11 +201,15 @@
    expiry against the `now` given to accept-step!; its alias
    `:idle-timeout-ms` takes precedence when both are given.
    `:step-budget`, optional positive integer or nil, bounds the events
-   each session's projection reads per tick. The listener is the
+   each session's projection reads per tick. `:mirror-budget` and
+   `:chase-budget`, optional positive integers or nil, bound each
+   session's mirror per tick (dao.stream.remote/mirror-step bounds).
+   The listener is the
    host's: it calls ws/accept-connection! on this endpoint, per
    dao.stream.ws.md Serving."
   [{:keys [endpoint slots table names make-media max-sessions
-           idle-timeout-ms idle-timeout step-budget] :as config}]
+           idle-timeout-ms idle-timeout step-budget mirror-budget
+           chase-budget] :as config}]
   (let [idle-t (or idle-timeout-ms idle-timeout)]
     (when-not (and (map? config)
                    (some? endpoint)
@@ -206,6 +222,10 @@
                        (and (integer? idle-t) (pos? idle-t)))
                    (or (nil? step-budget)
                        (and (integer? step-budget) (pos? step-budget)))
+                   (or (nil? mirror-budget)
+                       (and (integer? mirror-budget) (pos? mirror-budget)))
+                   (or (nil? chase-budget)
+                       (and (integer? chase-budget) (pos? chase-budget)))
                    (seq slots)
                    (every? valid-slot? slots))
       (throw (ex-info "invalid DaoStream ws acceptor composition"
@@ -218,6 +238,8 @@
            :max-sessions max-sessions
            :idle-timeout idle-t
            :step-budget step-budget
+           :mirror-budget mirror-budget
+           :chase-budget chase-budget
            :offer-cursors (mapv :offer-cursor slots)
            :sessions {}})))
 
@@ -370,7 +392,8 @@
                                          (:names @acceptor)
                                          (:ring session)
                                          (:cursor session)
-                                         (:handle session))
+                                         (:handle session)
+                                         (mirror-bounds @acceptor))
               active? (or (not= read-from (reading-cursor (:project session)))
                           (not= (:cursor session) cursor))]
           (swap! acceptor update-in [:sessions attachment]
@@ -429,8 +452,12 @@
    that this end's mirror answers named requests from. `dial-resolve!`
    resolves a name through the dialed channel before any reflection
    exists. :dao.stream.remote/events, :dao.stream.remote/resend-after
-   and :dao.stream.remote/budget pass to the attacher as its policy."
-  [{:keys [attach! traffic cursor ring table names] :as opts}]
+   and :dao.stream.remote/budget pass to the attacher as its policy.
+   `:step-budget`, `:mirror-budget` and `:chase-budget`, optional
+   positive integers or nil, bound `dial-step!`'s projection and
+   mirror per tick, as for make-acceptor."
+  [{:keys [attach! traffic cursor ring table names step-budget
+           mirror-budget chase-budget] :as opts}]
   (when-not (and (fn? attach!)
                  (map? traffic)
                  (stream/writer? (:dao.stream/handle traffic))
@@ -440,7 +467,10 @@
                  (stream/writer? ring)
                  (stream/closable? ring)
                  (map? table)
-                 (or (nil? names) (map? names)))
+                 (or (nil? names) (map? names))
+                 (pos-int-or-nil? step-budget)
+                 (pos-int-or-nil? mirror-budget)
+                 (pos-int-or-nil? chase-budget))
     (throw (ex-info "invalid DaoStream ws dial composition"
                     {:opts opts})))
   (let [channel (atom nil)
@@ -451,7 +481,9 @@
                                   :dao.stream.remote/budget])]
     (atom {:attach! attach! :traffic traffic :cursor cursor :ring ring
            :table table :names names :channel channel
-           :mirror-cursor mirror-cursor :policy policy})))
+           :mirror-cursor mirror-cursor :policy policy
+           :step-budget step-budget :mirror-budget mirror-budget
+           :chase-budget chase-budget})))
 
 
 (defn- establish!
@@ -543,15 +575,20 @@
    cadence: the attachment's projection first, so what the wire
    deposited reaches the ring, then this end's own mirror step over
    the projected reader and the socket handle, answering the other
-   direction's requests against this end's table. Returns the
+   direction's requests against this end's table, each bounded by the
+   dial's :step-budget, :mirror-budget and :chase-budget. Returns the
    mirror's advanced reading cursor."
   [dial]
-  (let [{:keys [ring table names channel mirror-cursor]} @dial]
+  (let [{:keys [ring table names channel mirror-cursor step-budget]
+         :as d} @dial]
     (when-some [project (:project @channel)]
-      (step! project))
+      (step! project step-budget))
     (when-some [handle (:handle @channel)]
-      (swap! mirror-cursor
-             (fn [c] (remote/mirror-step table names ring c handle))))
+      ;; The mirror's effects run once, outside any atom update: the
+      ;; driver alone steps the dial, as accept-step! does.
+      (reset! mirror-cursor
+              (remote/mirror-step table names ring @mirror-cursor handle
+                                  (mirror-bounds d))))
     @mirror-cursor))
 
 
