@@ -10717,3 +10717,34 @@ Done: (1) The seat was re-taken after agy's credits ran out; agy's tenancy (with
 Verification: driver-test 118/1912 green (mine); combined focused 120/2518 and 107/1605 green at intermediate states (mine); three-lane exit 0 on the final tree (mine); kondo 0/0; cljstyle clean (mine).
 Delegates: glm-5.3 (D15 blocked-round, D15a round 1), gpt-6.1-sol codex session 01a10e41 (D15a rounds 2-3 + the D14-continuation audit), opus claude (gate r1/r2, fix-3), astra codex thread 01a0f878 (the driver-seam ruling, the inbox ruling, the inbox-unavailable clarification), fable-5.1 claude session ff5b8c32 (the candidate-semantics confirmation), deepseek-v4-pro (the D10b-B gate + sign-off, landed by the agy-tenancy seat).
 Next: (1) D15 (the composition + REPL wiring) — the brief is written (collab/1791365499405-compiler-engineer-ucf-d15-compose.prompt.md) and the reply-transport research is staged (collab/1791376000000-research-reply-transport-replayability.findings.md: dao.stream.journal is the conforming reply substrate, rings are disqualified); the datomworld-d10b worktree needs a fresh branch (ucf-d15-compose) off master 2cf99c13. Dispatch on glm-5.3 (AVAILABLE again per routing-status). (2) D16 (the stage-D gate) after D15, with the deepseek sign-off's entry conditions: F2's Node+Dart 12-row matrix (the audit at collab/1791376000000-research... covers the F3 traceability: 7 covered, 5 gaps A-E — the F3 gap round closed them), and F1's v1? rename as a readability cleanup. (3) Stage E (brief staged: collab/1791372000000-compiler-engineer-ucf-stage-e.prompt.md) after D16. (4) Housekeeping: datomworld-d13's worktree/branch are merged and removable; datomworld-d10b holds D15's work; datomworld-d14 was already removed.
+
+## 2026-10-08 02:24:00 +07 — Track B: Cross-Machine Stream Slice S3a-2 landed on master
+Completed-GMT: 2026-10-07 19:24:00 GMT
+Coding-Agent: agy (interactive orchestrator seat)
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
+Tree: master@9b435060 (== origin/master)
+Done:
+  (1) Cross-Machine Stream Track Sub-slice S3a-2 landed on master (9b435060):
+      - `src/cljc/yin/vm/linker/head/board.cljc`: neutral board over `dao.stream.remote-channel` replacing deleted `src/cljc/yin/vm/linker/head/ws.cljc`. Pure board profile, 1-capacity ring, `loopback-literal?` guard. Zero `:ws/` or transport dependencies above `remote-channel`.
+      - `src/cljc/yin/vm/linker/head.cljc`: honest `:answered` semantics (`read-source`, `poll`, `attach`, `:polled`, `:answered`). Polling an idle source advances `:polled` only, not `:answered`. Follower inspects zero `:dao.stream.remote/*` keys.
+      - `src/cljc/yin/repl/dht.cljc` & `src/cljc/yin/repl/main.cljc`: wired to neutral board; `close!` single-tick shutdown (Deviation D2).
+      - `src/cljc/dao/stream/remote_channel.cljc`: driver-paced `:since` timer tracking on dial resolving step with `channel-gone` outcome at `give-up-after` (Deviation D1).
+      - Test suite & fixtures: `test/yin/vm/linker/head_board_test.cljc` (migrated and expanded from `head_ws_test.cljc`), `test/yin/vm/linker/head_follow_test.cljc`, `test/yin/repl/dht_head_test.cljc`, `test/dao/stream/remote_channel_test.cljc` (F1 probe fold included).
+      - Design documents amended: `docs/design/dao.stream.remote.md` and `docs/design/yin.vm.linker.dht.head.md`.
+  (2) Independent Adversarial Review:
+      - Independent adversarial review by Codex (`gpt-6.1-sol`): verdict ACCEPT in `archive/1791393000000-reviewer-stream-s3a-2.codex.findings.md`.
+  (3) Formal Architectural Sign-Off:
+      - Final Architectural Sign-Off granted as ACCEPTED by Lead System Architect (`claude-fable-5-1`) in `archive/1791394000000-architect-stream-s3a-2-signoff.claude-fable-5-1.findings.md`.
+      - Deviations D1 (dial resolving bound) and D2 (single-tick shutdown) reviewed and approved.
+      - All S3a-2 collaboration artifacts moved to `archive/` under git tracking.
+Verification (3-Host Multi-Lane Gate Complete):
+  - JVM (`clojure -M:test`): focused tests 110 tests / 1499 assertions green; full fast suite (`clojure -M:test -e :slow`): 3,705 tests, 238,015 assertions, 0 failures, 0 errors.
+  - Dart (`bb test:cljd`): 3,513 passed, 0 failed ("All tests passed!").
+  - Node / CLJS (`bb test:cljs`): 3,561 tests containing 102,413 assertions, 0 failures, 0 errors.
+  - Linter: `clj -M:kondo --lint` 0 errors, 0 warnings.
+Delegates:
+  - Lead System Architect: claude-fable-5-1 (S3a-2 Sign-Off: ACCEPTED).
+  - Implementation Engineer: claude-opus-5-5 (S3a-2 implementation: complete).
+  - Adversarial Reviewer: gpt-6.1-sol (Codex).
+Next:
+  - Proceed with Track A Slice P1 (Linked Prelude Decoupling) or S3b/S4 per project priorities.
