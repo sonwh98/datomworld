@@ -304,6 +304,32 @@ additional connection; it closes the new socket before logical acceptance,
 and the client resolves it as `:ws/transport-error`. It neither overwrites
 an outstanding offer nor grows an unbounded pending queue.
 
+The value frames a pending connection receives before its acknowledgement
+(its own socket opens ahead of this endpoint's tick) are queued and replayed
+in order on acceptance. That queue is bounded by `make-endpoint` config,
+each a positive integer or nil for unbounded:
+
+- `:ws/max-pending-frames`, the frames queued at once; and
+- `:ws/max-pending-bytes`, the summed raw payload sizes of the queued
+  frames, counted on the bytes the peer sent, not the decoded values.
+
+A frame that would exceed either is decided inside the same atomic step that
+decides queue-or-deposit, and tears the connection down before acceptance:
+close 1013 `dao.stream/pending-overflow`, `:ws/error` reason
+`:ws/pending-overflow` on the control medium, phase closed. The next
+`endpoint-step` releases the slot, a later acknowledgement is stale, and the
+client resolves `:ws/transport-error`, as for a full slot pool.
+
+`:ws/max-frame-bytes` (on `make-endpoint` and `make-attacher`) bounds one
+inbound frame's raw size at any phase. An oversize frame is a protocol
+failure before decode: close 1009 `dao.stream/frame-too-large`, `:ws/error`
+reason `:ws/frame-too-large`, phase closed. A host that reassembles fragments
+bounds its reassembly by the same value (it reaches the host as the adapter
+map's `:ws/max-frame-bytes`) and calls the adapter's `:too-large!` for the
+same teardown, or hands it to its library (`:max-ws` on http-kit,
+`maxPayload` on Node's `ws`). Where a host cannot send the code, its seam
+substitutes a supported teardown (Host wire codes, below).
+
 Ownership remains explicit in every failure case:
 
 - if the offer deposit is non-`ok`, the endpoint closes the pending
@@ -444,6 +470,56 @@ neither can the teardown event land in the destination that just refused it —
 so in that one case the local failure is observable only through the deposit
 result the adapter holds and through subsequent handle operations, and the
 peer observes it only if teardown reaches the wire.
+
+**Outbound bounds.** The handle's own `append!` is bounded in the other
+direction, by `make-attacher` / `make-endpoint` config (positive integers or
+nil for unbounded), judged after encode and before the send:
+
+- `:ws/outbound-high-water`: at or above it, `append!` answers the transient
+  `:dao.stream/full` and sends nothing. A `dao.stream.remote.md` mirror
+  rewinds an idempotent answer on `full` and re-answers it next tick (2.3).
+- `:ws/max-outbound-bytes`: at or above it, the connection is torn down:
+  close 1008 `dao.stream/outbound-overflow`, `:ws/error` reason
+  `:ws/outbound-overflow`, phase closed, and `append!` answers
+  `:dao.stream/closed` then and afterwards. A peer that requests and never
+  reads therefore cannot grow this host's outbound memory without bound.
+
+The level judged is the host's outbound backlog, read from the
+`{:send! :close!}` seam's optional `:queued-bytes` (a no-argument function).
+Where a host has no such signal the seam omits it: `:ws/outbound-high-water`
+does not apply, and `:ws/max-outbound-bytes` is a cumulative quota of
+encoded bytes sent since open, with the same teardown. Per host:
+
+| host seam | `:queued-bytes` | outbound bounds | inbound frame bound | lift status |
+|---|---|---|---|---|
+| JVM client (`java.net.http`) | the send chain's own count, raised at submission, lowered at completion | exact | reassembly bounded, `:too-large!`, then abort | exact |
+| JVM server (http-kit) | none | cumulative quota | http-kit `:max-ws`, plus the transport | gated |
+| Node (`ws`) client and server | `bufferedAmount` | exact | `maxPayload`, plus the transport | exact |
+| browser (DOM `WebSocket`) | `bufferedAmount` | exact | the transport, on whole messages | gated |
+| Dart (`dart:io` `WebSocket`) | none | cumulative quota | the transport, on whole messages | gated |
+
+A gated host stays gated for the loopback lift until its bounds and teardown
+are demonstrated.
+
+**Host wire codes.** The close codes above are what the transport asks its
+seam for; two hosts cannot put them on the wire, and their seams say so:
+
+- Browser: DOM `WebSocket.close` accepts only 1000 or 3000–4999 and throws
+  `InvalidAccessError` for anything else, closing nothing. The seam sends 1008,
+  1009, and 1013 as 1000 with the transport's reason string, so the socket
+  closes and its `close` event delivers the terminal. The peer sees 1000 plus
+  the reason, not the overflow code; the qualified `:ws/error` reason on the
+  local stream is unchanged. Demonstrated against a fake enforcing the DOM
+  contract, not yet in a real browser, so the browser stays gated.
+- JVM client: `java.net.http.WebSocket.sendClose` rejects 1009 and 1013
+  (among others). The seam does not chain such a close behind pending sends;
+  it aborts the socket at once and reports the terminal locally with the
+  requested code and reason. Sends the abort fails report nothing further.
+  The peer sees the connection drop without a close frame (its 1006), never
+  1009. Reassembly retains at most the bound plus one fragment before the
+  abort; the cleared buffers keep their capacity until the aborted
+  connection is released. 1013 is only ever sent by served connections, so
+  the client never hits it in practice.
 
 ## Envelope
 
@@ -715,10 +791,12 @@ Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` i
   is owed by neither that document nor this one until it does. The v2
   migration plan has deferred flow control out of its slice for the same
   reason, so nothing is being built against an unsettled vocabulary.
-- Some host socket APIs expose no reliable outbound high-water signal after
-  establishment. On such a host `append!` may accept into the host's opaque
-  buffer and the manifest excludes transient `full` for that state; this
-  bounded-observability asymmetry is explicit rather than an invented signal.
+- Two host seams (http-kit server, Dart) expose no outbound backlog after
+  establishment. There `:ws/outbound-high-water` does not apply, `append!`
+  accepts into the host's opaque buffer without transient `full`, and only
+  the cumulative `:ws/max-outbound-bytes` quota bounds it (Deposit
+  Admission, Outbound bounds); this bounded-observability asymmetry is
+  explicit rather than an invented signal, and those hosts stay gated.
 - Relationship to the RPC layers built over streams: `dao.stream.remote.md`
   section 8 retires `dao.stream.rpc.ws` and `dao.stream.serving` and makes
   request and response a convention over remote streams.

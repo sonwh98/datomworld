@@ -1,0 +1,2512 @@
+Reading additional input from stdin...
+OpenAI Codex v0.159.3
+--------
+workdir: /Users/sto/workspace/datomworld-stream-s2
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: low
+reasoning summaries: none
+session id: 01a116dd-7c42-7732-a65a-df6346536b26
+--------
+user
+You are the Lead System Architect for the datom.world project.
+Review the reconciliation of Slice S2d (B1 browser close codes, B2 JVM reassembly abort, same-tick adoption assertion) for final Architectural Sign-Off.
+
+Repository root: /Users/sto/workspace/datomworld-stream-s2
+Branch: stream-crossmachine-s2 (HEAD at 4ca18fec, working tree modified)
+
+Prior architectural review: collab/1791380000000-architect-stream-s2d-signoff.gpt-6-astra.findings.md (WITHHELD)
+Engineer reconciliation report: collab/1791381000000-stream-s2d-reconcile.claude.findings.md
+
+Verification status:
+- Focused JVM (dao.stream.ws.jvm-test, dao.stream.ws-project-test, dao.stream.ws-test): 62 tests, 270 assertions, 0 failures, 0 errors
+- JVM lane (bb test:clj): 3672 tests, 237705 assertions, 0 failures, 0 errors
+- Node lane (bb test:cljs): 3527 tests, 102174 assertions, 0 failures, 0 errors
+- Dart lane (bb test:cljd): 3479 tests passed
+- cljstyle check on touched files: clean
+- kondo: 0 errors
+
+Please evaluate whether the reconciliation addresses B1, B2, and the adoption assertion and provide your final Sign-Off verdict (ACCEPTED or WITHHELD).
+Write your report to: collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md
+codex
+I’ll read the architectural rules, prior findings, and reconciliation diff, then write the final verdict to the requested report.
+
+exec
+/bin/zsh -lc 'cat docs/design/datom.world.md' in /Users/sto/workspace/datomworld-stream-s2
+ succeeded in 0ms:
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is a stream boundary, never a function call. The one
+sanctioned function-shaped contact is a `dao.stream` handle operation, whose
+exhaustive outcome map is stream protocol, not an application callback.
+
+**Effects out.** Portable code appends an effect value describing what must
+happen. A host interpreter consumes that stream, performs the operation, and
+appends the outcome. Portable code reads the outcome. Correlation is by
+identity in the data; neither side holds a reference to the other. A host with
+no implementation for an effect emits a qualified unsupported result. That is a
+correct outcome, not a gap to be filled.
+
+**Events in.** When the host initiates (a socket receives, a connection drops,
+a timer fires) the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**Adapters.** An adapter is a map of those transform functions. That is all an
+adapter is. It is a value, not a namespace, and it is general: sockets, files,
+timers and windows all deliver events by calling something, and an adapter is
+what they call. Each entry takes the host's arguments and returns one value;
+the append is the adapter's, not the entry's, so an entry cannot return a value
+to the host and cannot invoke application code. The adapter is handed only the
+deposit operation and its own host resource. If its deposit channel fails, it
+may close that resource to make the boundary observably gone; this is teardown,
+not an upward callback.
+
+Host types are classified into plain data in the transform: it is the last
+place holding a host error object, and no host type crosses onto the stream. A
+transport may use a qualified envelope to preserve correlation, lifecycle, and
+additive evolution; that envelope remains plain data and creates no separate
+event mechanism. A composition may likewise define its own qualified vocabulary
+for facts it owns.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read. This keeps
+the layering one-way: a boundary depends on nothing above it, because whoever
+constructs the adapter supplies the stream.
+
+A transform deposits every event admitted by the boundary protocol and judges
+none of them semantically. Wire framing, decoding, and protocol validation
+happen below the transform: malformed wire input is transport machinery, not an
+event. Once the transport has produced a valid host event, data is syntax
+(axiom 2): an event that is noise to one interpreter is signal to another that
+does not exist yet, and filtering at the depositing layer destroys perspectives
+not yet taken. Retention is the medium's operational policy; meaning is
+interpretation. Neither is the depositor's decision.
+
+Two things are not adapters. One that exposes a function for portable code to
+call isolates the host library but keeps the coupling, and the effect never
+appears as an emission. One that takes a function to invoke has relocated the
+callback, not removed it, even when every value it passes is plain data; if
+that callback has a meaningful return value, it is a synchronous call in both
+directions wearing the shape of an event.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+exec
+/bin/zsh -lc 'git status --short; cat collab/1791380000000-architect-stream-s2d-signoff.gpt-6-astra.findings.md collab/1791381000000-stream-s2d-reconcile.claude.findings.md' in /Users/sto/workspace/datomworld-stream-s2
+ succeeded in 0ms:
+ M docs/design/dao.stream.remote.md
+ M docs/design/dao.stream.ws.md
+ M src/clj/dao/stream/ws/jvm.clj
+ M src/cljc/dao/stream/ws.cljc
+ M src/cljc/dao/stream/ws_project.cljc
+ M src/cljd/dao/stream/ws/dart.cljd
+ M src/cljs/dao/stream/ws/browser.cljs
+ M src/cljs/dao/stream/ws/node.cljs
+ M test/dao/stream/ws/browser_test.cljs
+ M test/dao/stream/ws/jvm_test.clj
+ M test/dao/stream/ws_project_test.cljc
+ M test/dao/stream/ws_test.cljc
+?? collab/1791304310868-architect-transport-mob-consensus.gpt-6-astra.findings.md
+?? collab/1791305896793-stream-s0-s1.claude-opus-5-5.findings.md
+?? collab/1791305896793-stream-s0-s1.claude-opus-5-5.prompt.md
+?? collab/1791305896793-stream-s0-s1.claude-opus-5-5.stdout.log
+?? collab/1791306950355-stream-s0-s1-review.glm-5.3.findings.md
+?? collab/1791306950355-stream-s0-s1-review.glm-5.3.prompt.md
+?? collab/1791306950355-stream-s0-s1-review.glm-5.3.stdout.log
+?? collab/1791306950355-stream-s0-s1-review.glm-5.3.stdout2.log
+?? collab/1791307641128-stream-s0-s1-reconcile.claude-opus-5-5.prompt.md
+?? collab/1791307641128-stream-s0-s1-reconcile.claude-opus-5-5.stdout.log
+?? collab/1791307753592-stream-s0-s1-review-r2.glm-5.3.findings.md
+?? collab/1791307753592-stream-s0-s1-review-r2.glm-5.3.prompt.md
+?? collab/1791307753592-stream-s0-s1-review-r2.glm-5.3.stdout.log
+?? collab/1791307753592-stream-s0-s1-review-r2.glm-5.3.stdout2.log
+?? collab/1791308475375-architect-stream-s0-s1-signoff.glm-5.3.findings.md
+?? collab/1791308475375-architect-stream-s0-s1-signoff.glm-5.3.prompt.md
+?? collab/1791308475375-architect-stream-s0-s1-signoff.glm-5.3.stdout.log
+?? collab/1791308475375-architect-stream-s0-s1-signoff.glm-5.3.stdout2.log
+?? collab/1791309074412-stream-s0-s1-wire-step-budget.claude-opus-5-5.prompt.md
+?? collab/1791309074412-stream-s0-s1-wire-step-budget.claude-opus-5-5.stdout.log
+?? collab/1791309256038-architect-stream-s0-s1-confirm.glm-5.3.findings.md
+?? collab/1791309256038-architect-stream-s0-s1-confirm.glm-5.3.prompt.md
+?? collab/1791309256038-architect-stream-s0-s1-confirm.glm-5.3.stdout.log
+?? collab/1791309256038-architect-stream-s0-s1-confirm.glm-5.3.stdout2.log
+?? collab/1791352687106-architect-stream-s2-spec.glm-5.3.prompt.md
+?? collab/1791352687106-architect-stream-s2-spec.glm-5.3.stdout.log
+?? collab/1791353752491-architect-stream-s2-spec.claude-fable-5-1.findings.md
+?? collab/1791353752491-architect-stream-s2-spec.claude-fable-5-1.prompt.md
+?? collab/1791353752491-architect-stream-s2-spec.claude-fable-5-1.stdout.log
+?? collab/1791353752491-architect-stream-s2-spec.claude-fable-5-1.stdout2.log
+?? collab/1791354690596-stream-s2a.claude-opus-5-5.findings.md
+?? collab/1791354690596-stream-s2a.claude-opus-5-5.prompt.md
+?? collab/1791354690596-stream-s2a.claude-opus-5-5.stdout.log
+?? collab/1791355023304-stream-s2a-review.gpt-6.1-sol.findings.md
+?? collab/1791355023304-stream-s2a-review.gpt-6.1-sol.prompt.md
+?? collab/1791355023304-stream-s2a-review.gpt-6.1-sol.stdout.log
+?? collab/1791355239843-stream-s2a-reconcile.claude-opus-5-5.findings.md
+?? collab/1791355239843-stream-s2a-reconcile.claude-opus-5-5.prompt.md
+?? collab/1791355239843-stream-s2a-reconcile.claude-opus-5-5.stdout.log
+?? collab/1791355900000-stream-s2a-review-r2.gpt-6.1-sol.findings.md
+?? collab/1791355900000-stream-s2a-review-r2.gpt-6.1-sol.prompt.md
+?? collab/1791355900000-stream-s2a-review-r2.gpt-6.1-sol.stdout.log
+?? collab/1791356000000-architect-stream-s2a-signoff.gpt-6-astra.findings.md
+?? collab/1791356000000-architect-stream-s2a-signoff.gpt-6-astra.prompt.md
+?? collab/1791356000000-architect-stream-s2a-signoff.gpt-6-astra.stdout.log
+?? collab/1791357000000-stream-s2b.claude-opus-5-5.findings.md
+?? collab/1791357000000-stream-s2b.claude-opus-5-5.prompt.md
+?? collab/1791357000000-stream-s2b.claude-opus-5-5.stdout.log
+?? collab/1791357300000-stream-s2b-review.gpt-6.1-sol.findings.md
+?? collab/1791357300000-stream-s2b-review.gpt-6.1-sol.prompt.md
+?? collab/1791357300000-stream-s2b-review.gpt-6.1-sol.stdout.log
+?? collab/1791357600000-stream-s2b-reconcile.claude-opus-5-5.findings.md
+?? collab/1791357600000-stream-s2b-reconcile.claude-opus-5-5.prompt.md
+?? collab/1791357600000-stream-s2b-reconcile.claude-opus-5-5.stdout.log
+?? collab/1791357700000-stream-s2b-review-r2.qwen3.8-max.findings.md
+?? collab/1791357700000-stream-s2b-review-r2.qwen3.8-max.prompt.md
+?? collab/1791357700000-stream-s2b-review-r2.qwen3.8-max.stdout.log
+?? collab/1791357800000-architect-stream-s2b-signoff.claude-fable-5-1.findings.md
+?? collab/1791357800000-architect-stream-s2b-signoff.claude-fable-5-1.prompt.md
+?? collab/1791357800000-architect-stream-s2b-signoff.claude-fable-5-1.stdout.log
+?? collab/1791358000000-stream-s2c.claude-opus-5-5.findings.md
+?? collab/1791358000000-stream-s2c.claude-opus-5-5.prompt.md
+?? collab/1791358000000-stream-s2c.claude-opus-5-5.stdout.log
+?? collab/1791359934597-stream-s2c-review.qwen3.8-max.findings.md
+?? collab/1791359934597-stream-s2c-review.qwen3.8-max.prompt.md
+?? collab/1791359934597-stream-s2c-review.qwen3.8-max.stdout.log
+?? collab/1791360593148-architect-stream-s2c-signoff.qwen3.8-max.findings.md
+?? collab/1791360593148-architect-stream-s2c-signoff.qwen3.8-max.prompt.md
+?? collab/1791360593148-architect-stream-s2c-signoff.qwen3.8-max.stdout.log
+?? collab/1791376000000-stream-s2d.claude-opus-5-5.stdout.log
+?? collab/1791376000000-stream-s2d.deepseek-v4-pro.findings.md
+?? collab/1791376000000-stream-s2d.deepseek-v4-pro.prompt.md
+?? collab/1791376000000-stream-s2d.deepseek-v4-pro.stdout.log
+?? collab/1791379000000-stream-s2d-review.cmd.findings.md
+?? collab/1791379000000-stream-s2d-review.cmd.prompt.md
+?? collab/1791379000000-stream-s2d-review.cmd.stdout.log
+?? collab/1791380000000-architect-stream-s2d-signoff.gpt-6-astra.findings.md
+?? collab/1791380000000-architect-stream-s2d-signoff.gpt-6-astra.prompt.md
+?? collab/1791380000000-architect-stream-s2d-signoff.gpt-6-astra.stdout.log
+?? collab/1791381000000-stream-s2d-reconcile.claude.findings.md
+?? collab/1791381000000-stream-s2d-reconcile.claude.prompt.md
+?? collab/1791381000000-stream-s2d-reconcile.claude.stdout.log
+?? collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.prompt.md
+?? collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.stdout.log
+?? node_modules
+# Slice S2d architectural sign-off
+
+**Verdict: WITHHELD**
+
+Reviewed branch `stream-crossmachine-s2`, HEAD `4ca18fec`, including the twelve modified files in the supplied scope. The portable implementation substantially follows S2d, but two host API restrictions invalidate the claimed overflow teardown behavior. The independent ACCEPT verdict does not account for those restrictions. Green tests do not resolve them because the relevant doubles accept close codes that the real APIs reject.
+
+## Blocking findings
+
+### B1 — Browser overflow closes the handle locally but fails to close the socket
+
+Locations: `src/cljs/dao/stream/ws/browser.cljs:76`; `src/cljc/dao/stream/ws.cljc:194`, `:328`, `:343`, and `invoke-close!` at `:144`.
+
+The new outbound-overflow path requests close 1008; inbound frame overflow requests 1009. The browser seam forwards both directly to DOM `WebSocket.close`. That API permits an explicit code of 1000 or 3000–4999; otherwise it throws `InvalidAccessError` before initiating closure. This is a host contract, not a hypothetical network failure. See the [WHATWG close algorithm](https://websockets.spec.whatwg.org/#dom-websocket-close).
+
+`teardown!` has already set the handle phase to closed, and `invoke-close!` catches the exception without a fallback. Thus the append can report `closed` while the host socket remains open, no closing handshake has begun, and no terminal host event is caused by this teardown. The peer can continue delivering traffic. This violates §1.4/§2 teardown and the D5 requirement to demonstrate host bounds and teardown before lifting its gate.
+
+Verification in this review: Node v26.1.0's built-in WHATWG `WebSocket` rejected 1008, 1009 and 1013 with `InvalidAccessError: invalid code`. This was an API validation probe, not an actual browser integration test. The normative algorithm establishes the browser behavior independently. The fake browser socket in `browser_test.cljs` merely records close arguments and cannot detect this error.
+
+Required resolution: introduce a browser-supported teardown mapping, preserving the qualified local diagnostic, and document the host-specific wire-code exception. A browser cannot meet the literal 1008/1009 wire-code promise through this API. Keep the browser's lift claim gated until its supported teardown is demonstrated. Add tests with DOM close-code validation and verify that overflow initiates a real closure and yields the terminal lifecycle event.
+
+### B2 — JVM close-through-chain cannot send the promised 1009
+
+Locations: `src/clj/dao/stream/ws/jvm.clj:225`, `:244`; `src/cljc/dao/stream/ws.cljc:343`.
+
+The reassembly overflow calls `:too-large!`, which routes 1009 through the normal `sendClose` chain. Java's `WebSocket.sendClose` explicitly disallows 1009 and completes exceptionally for an illegal status code. See the [Java WebSocket API contract](https://docs.oracle.com/en/java/javase/21/docs/api/java.net.http/java/net/http/WebSocket.html#sendClose(int,java.lang.String)).
+
+Once that close reaches the head of the chain, the existing failure observer calls `fail!`: it emits socket error, aborts the socket, and reports local close 1006 with `dao.stream/send-failed`. It does not deliver close 1009 to the peer. If an earlier send remains pending, even this fallback waits behind it. Consequently, the author's rationale that normal chaining preserves the 1009 close, and the independent review's acceptance of that rationale, are incorrect.
+
+Required resolution: explicitly define a supported JVM overflow teardown and its observable outcome, amend the impossible wire-code promise for this host, and test an actual JVM client receiving oversized fragmented text and binary messages. Verify no decode, bounded retained assembly, the qualified size diagnostic, and the documented terminal/peer behavior. Include a pending-send case so teardown does not rely on an untested assumption that the chain will drain. Do not describe this as successful transmission of 1009.
+
+## Architectural assessment of the remaining implementation
+
+| Requirement | Assessment |
+|---|---|
+| Five optional bounds on endpoint and attacher | Implemented, nil defaults preserved; positive-integer validation is a reasonable composition check. |
+| Raw inbound size checked before decode | Implemented; text uses character count as the spec explicitly requires. |
+| Pending count/size decision in the existing atomic phase/queue update | Implemented, including the closed phase on overflow and byte-counter reset on draining. Sequential release-before-ack behavior is covered. |
+| High-water refusal and maximum teardown selection | Portable outcome selection matches the spec; actual host teardown has B1/B2. |
+| Optional backlog seam and cumulative fallback | Implemented across the stated hosts. High-water is correctly inactive without a drainable backlog signal. |
+| JVM send-chain accounting | Submission/completion accounting is implemented; focused test passes. |
+| Node host reassembly limits | `maxPayload` is wired for client and server; server options must be composed consistently with endpoint bounds. |
+| http-kit and Dart | Fallback limitations and continued host gates are recorded. |
+| Adoption exception isolation | Both `make-media` and acknowledgement append are caught; failed adoption closes the offered handle and registers no session. The loop continues. |
+| Foundational invariants | No new registry, scheduler, application callback channel, source gap, or remote outcome vocabulary. Bounds are composition data; diagnostics remain stream data. |
+
+The pre-send threshold interpretation is acceptable under §2's “at or above” wording. It is not a strict cap including the newly submitted frame: one encoded payload can cross the threshold. “Exact” should describe the observed backlog, not a maximum allocation guarantee. Likewise, text character accounting is spec-compliant but is not UTF-8 byte accounting. Browser whole-message inbound allocation remains outside the transport's pre-decode check.
+
+## Additional review notes
+
+1. **The adoption tests do not prove their same-tick assertion.** In `test/dao/stream/ws_project_test.cljc:658–664`, tick 2 handles the throwing offer, but `:answered` is captured only after tick 3. A regression that skips healthy work for tick 2 could pass. Capture the healthy answer immediately after tick 2; the one-slot fixture itself is an acceptable alternative to the spec's two-offer setup.
+2. The acknowledgement-throw path discards successfully allocated media without cleanup. Retain this as an ownership follow-up; a local ring becoming unreachable is not by itself proof of a permanent heap leak, but externally owned resources need an explicit disposal contract.
+3. Concurrent append admission is not reserved atomically with submission, and the existing acknowledgement/reopen race is not ruled out by a release pass that ran earlier. These are retained concurrency limitations, not newly proven failures in this review. Do not promote the sequential tests into concurrency guarantees.
+4. JVM buffers are checked after appending the current fragment; clearing logical length does not release backing capacity. Record the transient/retained capacity qualification and exercise it in the host-bound tests. The browser similarly cannot refuse allocation before receiving a whole message.
+
+## Verification and evidence
+
+- Read the architectural foundations, S2 specification, author report, independent review, build/test guide, and the implementation/test/documentation diffs.
+- Independently reran the focused suites: **60 tests, 245 assertions, 0 failures, 0 errors**. The initial sandboxed attempt could not bind two loopback listeners; the rerun with socket permission passed.
+- `git diff --check`: clean.
+- User-supplied full-lane evidence: JVM 3670 tests / 237680 assertions; Node 3524 tests / 102165 assertions; Dart 3479 tests; all passed. User also reports cljstyle clean and kondo zero errors. Those full lanes and style checks were not independently rerun in this architectural pass. The supplied cljstyle result supersedes the author's earlier missing-check caveat.
+- Independently checked the host API contracts and ran the WHATWG close-code probe described above. No live oversized JVM-fragment integration test was run.
+
+## Sign-off decision
+
+S2d is **not approved for final architectural sign-off in its current form**. Resolve B1 and B2 with explicit host-supported teardown semantics, accurate host-gate documentation, and tests that exercise host restrictions. Tighten the same-tick adoption assertion during reconciliation. The bulk of the portable bounds work is acceptable; neither successful local outcome tests nor the current host matrix demonstrates the promised cross-host teardown.
+
+Only this report was added by this review. No implementation changes or commit were made.
+# Slice S2d reconciliation (B1, B2, same-tick assertion)
+
+Responds to `collab/1791380000000-architect-stream-s2d-signoff.gpt-6-astra.findings.md`.
+Branch `stream-crossmachine-s2`, uncommitted on top of `4ca18fec`.
+
+## B1: browser overflow teardown under the DOM close-code contract
+
+**Fix.** `src/cljs/dao/stream/ws/browser.cljs`, `raw-socket` `:close!`: the
+DOM `close` only gets a code it accepts (1000 or 3000-4999). The transport's
+1008, 1009, and 1013 go out as **1000 with the transport's reason string**
+(`dao.stream/outbound-overflow`, `dao.stream/frame-too-large`,
+`dao.stream/pending-overflow`). The other transport codes (1000, 4000, 4002)
+pass through unchanged. 1011 is only used by served connections, and a
+browser cannot serve.
+
+Observable outcome: the DOM socket really closes. Its `close` event reaches
+`:closed!` and deposits the terminal `:ws/closed`. The qualified `:ws/error`
+reason (`:ws/frame-too-large` or `:ws/outbound-overflow`) is already on the
+local stream from `teardown!`. The peer sees close 1000 plus the reason. It
+never sees 1008 or 1009.
+
+I mapped to 1000 rather than a private 4xxx code because 4000 and 4002
+already mean things to this transport (`ended` and `protocol`). Adding more
+private codes would grow the wire vocabulary for a host limitation.
+
+**Tests** (`test/dao/stream/ws/browser_test.cljs`). A new `validating-socket`
+fake makes `close` enforce the WHATWG contract: it throws `InvalidAccessError`
+for invalid codes and closes nothing. When it accepts a code, it dispatches
+the `close` event a real socket would.
+
+- `dom-close-rejects-the-raw-overflow-codes`: the fake rejects 1008, 1009 and
+  1013, so it can actually catch the bug the old seam had.
+- `inbound-overflow-closes-the-dom-socket`: an oversize whole message
+  (`:ws/max-frame-bytes 8`) closes the socket with
+  `[1000 "dao.stream/frame-too-large"]`. The stream is `opened`, then
+  `error :ws/frame-too-large`, then `closed`.
+- `outbound-overflow-closes-the-dom-socket`: when `bufferedAmount` is at or
+  over `:ws/max-outbound-bytes`, `append!` answers `closed` and the socket
+  closes with `[1000 "dao.stream/outbound-overflow"]`. The stream gets the
+  error and then the terminal.
+
+**Doc and gate.** `docs/design/dao.stream.ws.md` has a new "Host wire codes"
+paragraph, and the browser's lift status changed from **exact to gated**. The
+teardown is demonstrated against a contract-enforcing fake, not a real
+browser, so per your instruction the claim stays gated. The ns docstring
+records the mapping.
+
+## B2: JVM client cannot send 1009
+
+**Fix.** `src/clj/dao/stream/ws/jvm.clj`, `client-socket` `:close!`. A code
+that `java.net.http.WebSocket.sendClose` rejects (the set from its javadoc:
+1002, 1003, 1006, 1007, 1009, 1010, 1012, 1013, 1015) is **not chained**.
+A new local `abort!` does the following:
+
+1. Claims the connection's failure under the existing once-only claim.
+2. Calls `.abort` on the socket immediately, without waiting for any pending
+   send.
+3. Reports `(:closed! adapter) code reason` locally, for example
+   `1009 "dao.stream/frame-too-large"`.
+
+Because the failure is claimed first, the pending sends that `abort` fails
+reach `fail!` and report nothing: no second `:ws/error` and no 1006
+terminal. Later sends answer `closed`. Codes that `sendClose` accepts (1000,
+1008, 4000, 4002) still ride the chain as before.
+
+Observable outcome, stated plainly: **1009 is not transmitted.** The local
+stream gets `:ws/error :ws/frame-too-large` and then the terminal
+`:ws/closed`. The peer sees the TCP connection drop with no close frame,
+which is its own 1006. Among the transport's codes, only 1009 reaches this
+path on a client. 1013 is server-only.
+
+**Tests** (`test/dao/stream/ws/jvm_test.clj`):
+
+- `an-unsendable-close-code-aborts-at-once-behind-a-pending-send` (scripted
+  socket): this is the pending-send case. With one send in flight and one
+  chained, `close! 1009` gives the trace `[send-text] [abort]
+  [closed! 1009 …]` right away, with no `sendClose`. When the in-flight
+  future later fails, the trace does not change, and a later send answers
+  `closed`. A second `testing` block shows that 1008 is still chained behind
+  the pending send.
+- `an-oversize-fragmented-message-aborts-the-jvm-client` (live, no mocks of
+  the client): a raw `ServerSocket` peer does a real RFC 6455 upgrade and
+  then sends one message as **four real WebSocket fragments** of 600 bytes
+  each (one FIN=0 start frame and three continuation frames), for both
+  **text** (Transit attacher) and **binary** (CBOR attacher), against
+  `jvm/connect!` with `:ws/max-frame-bytes 1000`. The test asserts:
+  - the stream starts with `:ws/opened`;
+  - the qualified `:ws/error :ws/frame-too-large` is deposited;
+  - the last event is `:ws/closed`, and there is exactly one terminal;
+  - there is no `:ws/payload`;
+  - there is no `:ws/decode-failure`, so nothing was decoded (the filler is
+    not valid Transit or CBOR, so a decode would have failed);
+  - the peer received **0 bytes** after the upgrade, meaning no close frame;
+  - the peer's read ended in EOF or reset well before the 5 s timeout.
+
+  Limitation: on its own, the live test does not tell the new path from the
+  old one. The old path also ended in an abort, because the rejected
+  `sendClose` future failed into `fail!`, but it got there through a spurious
+  1006 report and only after the pending chain drained. The scripted test is
+  the one that tells the two apart.
+
+**Retained assembly (note 4).** The overflow check runs after the current
+fragment is appended. Retained assembly therefore peaks at the bound plus
+one fragment. After the overflow, `discarding?` stops appending and the
+socket is aborted. `setLength 0` and `reset` keep the backing capacity, but
+that capacity belongs to an aborted connection's listener and is released
+with it. The doc paragraph records this. I did not add an instrumented
+assertion of the buffer's capacity, because it is private listener state.
+
+**Not changed.** A close requested *before* `onOpen` with an unsendable code
+would still go straight to `sendClose` and fail silently. No transport path
+requests 1009 or 1013 before a client opens (no frames have arrived yet), so
+I left it alone.
+
+**Doc.** In `dao.stream.ws.md`, the JVM client row now reads "reassembly
+bounded, `:too-large!`, then abort". The "Host wire codes" paragraph states
+the abort semantics, the peer's 1006, and that 1009 is not sent. The 1009
+inbound-bound paragraph points to it. The `client-socket` docstring explains
+the abort path.
+
+## Same-tick adoption assertion
+
+`test/dao/stream/ws_project_test.cljc`, `adoption-isolated`: `:answered` is
+now captured right after tick 2, the tick in which the bad offer is handled,
+before tick 3 is stepped. A regression that defers healthy work past tick 2
+now fails both isolation tests.
+
+## Not addressed (retained follow-ups from the review)
+
+- Note 2: the acknowledgement-throw path drops allocated media without a
+  disposal contract (an ownership follow-up).
+- Note 3: concurrent append admission and the ack/reopen race are still
+  sequential-only guarantees.
+- The browser still allocates a whole message before the transport's size
+  check (a DOM limitation, already recorded).
+
+## Verification
+
+- Focused JVM: `clojure -M:test -n dao.stream.ws.jvm-test -n
+  dao.stream.ws-project-test -n dao.stream.ws-test` gave **62 tests, 270
+  assertions, 0 failures, 0 errors**.
+- `bb test:clj` (full JVM fast lane): **3672 tests, 237705 assertions, 0
+  failures, 0 errors**.
+- `bb test:cljs` (Node): **3527 tests, 102174 assertions, 0 failures, 0
+  errors**. `Testing dao.stream.ws.browser-test` appears in the output, and
+  the count includes the 3 new browser tests.
+- `bb test:cljd` (Dart): **3479 tests, all passed** (`+3479: All tests
+  passed!`). The first run hit the harness's 10-minute background limit and
+  was killed. The rerun with a longer limit completed. The two
+  `osError` dynamic warnings in `yin/repl/state.cljc` were already there.
+- `cljstyle check` on the five changed source and test files: clean.
+- `clj -M:kondo --lint` on the five changed files: 0 errors. One warning
+  remains, at `jvm_test.clj` (unresolved `org.httpkit.server`). It was there
+  before this change, in the existing dual-listener test. I fixed the
+  redundant-coercion info that my test introduced.
+
+No commit was made.
+
+exec
+/bin/zsh -lc 'git diff -- src/clj/dao/stream/ws/jvm.clj src/cljs/dao/stream/ws/browser.cljs test/dao/stream/ws/browser_test.cljs test/dao/stream/ws/jvm_test.clj test/dao/stream/ws_project_test.cljc docs/design/dao.stream.ws.md' in /Users/sto/workspace/datomworld-stream-s2
+ succeeded in 0ms:
+diff --git a/docs/design/dao.stream.ws.md b/docs/design/dao.stream.ws.md
+index 2195a404..cad7d5bd 100644
+--- a/docs/design/dao.stream.ws.md
++++ b/docs/design/dao.stream.ws.md
+@@ -304,6 +304,32 @@ additional connection; it closes the new socket before logical acceptance,
+ and the client resolves it as `:ws/transport-error`. It neither overwrites
+ an outstanding offer nor grows an unbounded pending queue.
+ 
++The value frames a pending connection receives before its acknowledgement
++(its own socket opens ahead of this endpoint's tick) are queued and replayed
++in order on acceptance. That queue is bounded by `make-endpoint` config,
++each a positive integer or nil for unbounded:
++
++- `:ws/max-pending-frames`, the frames queued at once; and
++- `:ws/max-pending-bytes`, the summed raw payload sizes of the queued
++  frames, counted on the bytes the peer sent, not the decoded values.
++
++A frame that would exceed either is decided inside the same atomic step that
++decides queue-or-deposit, and tears the connection down before acceptance:
++close 1013 `dao.stream/pending-overflow`, `:ws/error` reason
++`:ws/pending-overflow` on the control medium, phase closed. The next
++`endpoint-step` releases the slot, a later acknowledgement is stale, and the
++client resolves `:ws/transport-error`, as for a full slot pool.
++
++`:ws/max-frame-bytes` (on `make-endpoint` and `make-attacher`) bounds one
++inbound frame's raw size at any phase. An oversize frame is a protocol
++failure before decode: close 1009 `dao.stream/frame-too-large`, `:ws/error`
++reason `:ws/frame-too-large`, phase closed. A host that reassembles fragments
++bounds its reassembly by the same value (it reaches the host as the adapter
++map's `:ws/max-frame-bytes`) and calls the adapter's `:too-large!` for the
++same teardown, or hands it to its library (`:max-ws` on http-kit,
++`maxPayload` on Node's `ws`). Where a host cannot send the code, its seam
++substitutes a supported teardown (Host wire codes, below).
++
+ Ownership remains explicit in every failure case:
+ 
+ - if the offer deposit is non-`ok`, the endpoint closes the pending
+@@ -445,6 +471,56 @@ so in that one case the local failure is observable only through the deposit
+ result the adapter holds and through subsequent handle operations, and the
+ peer observes it only if teardown reaches the wire.
+ 
++**Outbound bounds.** The handle's own `append!` is bounded in the other
++direction, by `make-attacher` / `make-endpoint` config (positive integers or
++nil for unbounded), judged after encode and before the send:
++
++- `:ws/outbound-high-water`: at or above it, `append!` answers the transient
++  `:dao.stream/full` and sends nothing. A `dao.stream.remote.md` mirror
++  rewinds an idempotent answer on `full` and re-answers it next tick (2.3).
++- `:ws/max-outbound-bytes`: at or above it, the connection is torn down:
++  close 1008 `dao.stream/outbound-overflow`, `:ws/error` reason
++  `:ws/outbound-overflow`, phase closed, and `append!` answers
++  `:dao.stream/closed` then and afterwards. A peer that requests and never
++  reads therefore cannot grow this host's outbound memory without bound.
++
++The level judged is the host's outbound backlog, read from the
++`{:send! :close!}` seam's optional `:queued-bytes` (a no-argument function).
++Where a host has no such signal the seam omits it: `:ws/outbound-high-water`
++does not apply, and `:ws/max-outbound-bytes` is a cumulative quota of
++encoded bytes sent since open, with the same teardown. Per host:
++
++| host seam | `:queued-bytes` | outbound bounds | inbound frame bound | lift status |
++|---|---|---|---|---|
++| JVM client (`java.net.http`) | the send chain's own count, raised at submission, lowered at completion | exact | reassembly bounded, `:too-large!`, then abort | exact |
++| JVM server (http-kit) | none | cumulative quota | http-kit `:max-ws`, plus the transport | gated |
++| Node (`ws`) client and server | `bufferedAmount` | exact | `maxPayload`, plus the transport | exact |
++| browser (DOM `WebSocket`) | `bufferedAmount` | exact | the transport, on whole messages | gated |
++| Dart (`dart:io` `WebSocket`) | none | cumulative quota | the transport, on whole messages | gated |
++
++A gated host stays gated for the loopback lift until its bounds and teardown
++are demonstrated.
++
++**Host wire codes.** The close codes above are what the transport asks its
++seam for; two hosts cannot put them on the wire, and their seams say so:
++
++- Browser: DOM `WebSocket.close` accepts only 1000 or 3000–4999 and throws
++  `InvalidAccessError` for anything else, closing nothing. The seam sends 1008,
++  1009, and 1013 as 1000 with the transport's reason string, so the socket
++  closes and its `close` event delivers the terminal. The peer sees 1000 plus
++  the reason, not the overflow code; the qualified `:ws/error` reason on the
++  local stream is unchanged. Demonstrated against a fake enforcing the DOM
++  contract, not yet in a real browser, so the browser stays gated.
++- JVM client: `java.net.http.WebSocket.sendClose` rejects 1009 and 1013
++  (among others). The seam does not chain such a close behind pending sends;
++  it aborts the socket at once and reports the terminal locally with the
++  requested code and reason. Sends the abort fails report nothing further.
++  The peer sees the connection drop without a close frame (its 1006), never
++  1009. Reassembly retains at most the bound plus one fragment before the
++  abort; the cleared buffers keep their capacity until the aborted
++  connection is released. 1013 is only ever sent by served connections, so
++  the client never hits it in practice.
++
+ ## Envelope
+ 
+ Transport-owned keys are qualified under `:ws/…`; the logical-stream identity
+@@ -715,10 +791,12 @@ Close code `4000`, reason `dao.stream/ended`, maps to `:ws/ended`. Code `4004` i
+   is owed by neither that document nor this one until it does. The v2
+   migration plan has deferred flow control out of its slice for the same
+   reason, so nothing is being built against an unsettled vocabulary.
+-- Some host socket APIs expose no reliable outbound high-water signal after
+-  establishment. On such a host `append!` may accept into the host's opaque
+-  buffer and the manifest excludes transient `full` for that state; this
+-  bounded-observability asymmetry is explicit rather than an invented signal.
++- Two host seams (http-kit server, Dart) expose no outbound backlog after
++  establishment. There `:ws/outbound-high-water` does not apply, `append!`
++  accepts into the host's opaque buffer without transient `full`, and only
++  the cumulative `:ws/max-outbound-bytes` quota bounds it (Deposit
++  Admission, Outbound bounds); this bounded-observability asymmetry is
++  explicit rather than an invented signal, and those hosts stay gated.
+ - Relationship to the RPC layers built over streams: `dao.stream.remote.md`
+   section 8 retires `dao.stream.rpc.ws` and `dao.stream.serving` and makes
+   request and response a convention over remote streams.
+diff --git a/src/clj/dao/stream/ws/jvm.clj b/src/clj/dao/stream/ws/jvm.clj
+index 90ab2716..1839546c 100644
+--- a/src/clj/dao/stream/ws/jvm.clj
++++ b/src/clj/dao/stream/ws/jvm.clj
+@@ -5,10 +5,13 @@
+    callbacks invoke the plain adapter entries supplied by `dao.stream.ws`.
+    This namespace retains no application state and never drives an endpoint.
+ 
+-   The JVM WebSocket APIs expose no useful outbound high-water signal.  A send
+-   accepted by the host is therefore `:dao.stream/ok`; transient
+-   `:dao.stream/full` is excluded by nature on this host.  Acceptance is not
+-   delivery: `send!` returns as soon as the host has taken the message, and a
++   The JVM WebSocket APIs expose no outbound high-water signal of their own.
++   The client seam counts its own send chain as `:queued-bytes`, so the
++   transport's outbound bounds are exact there; http-kit's server socket has
++   no such count, so a served connection uses the transport's cumulative
++   quota and stays gated.  A send accepted by the host is `:dao.stream/ok`.
++   Acceptance is not delivery: `send!` returns as soon as the host has taken
++   the message, and a
+    send that fails afterwards is reported on the stream as `:ws/error` then a
+    terminal `:ws/closed`.  Nothing here joins, parks, or sleeps — the operation
+    must return what is true when it is called.
+@@ -16,7 +19,8 @@
+    Frames are typed end to end: text payloads ride `sendText`/`onText`, binary
+    payloads ride `sendBinary`/`onBinary`, and this adapter never inspects a
+    payload to classify it.  Fragmented messages (text or binary) are assembled
+-   so the transport sees one message per callback boundary."
++   so the transport sees one message per callback boundary, bounded by the
++   composition's `:ws/max-frame-bytes`."
+   (:require [clojure.string :as str]
+             [dao.stream.transit :as transit]
+             [dao.stream.ws :as ws]
+@@ -34,6 +38,11 @@
+   [transit/profile])
+ 
+ 
++(def ^:private http-kit-default-max-ws
++  "http-kit's own `:max-ws` default, 4 MiB."
++  (* 4 1024 1024))
++
++
+ (defn offered-subprotocols
+   "The upgrade request's offered subprotocol list, split and trimmed."
+   [request]
+@@ -122,6 +131,13 @@
+   (CompletableFuture/completedFuture nil))
+ 
+ 
++(def ^:private unsendable-close-codes
++  "The status codes `java.net.http.WebSocket.sendClose` rejects.  Among the
++   transport's teardown codes this is 1009 (frame too large) and 1013
++   (pending overflow, served connections only)."
++  #{1002 1003 1006 1007 1009 1010 1012 1013 1015})
++
++
+ (defn client-socket
+   "The `{:send! :close!}` boundary over an asynchronous client connection.
+ 
+@@ -139,7 +155,19 @@
+    does, so without the claim one lost socket would abort and report N times,
+    and a teardown that re-entered through the adapter would report again. The
+    first claimant reports; the connection then stays failed and accepts no
+-   further chaining."
++   further chaining.
++
++   The connection's `:queued` counter is the outbound backlog: raised by a
++   send's payload size under the submission lock, lowered when that send's
++   future completes, either way.  `:queued-bytes` reads it, which makes the
++   transport's outbound bounds exact on this host.
++
++   A close whose code `sendClose` rejects (1009 on an inbound overflow) is
++   not chained: the socket is aborted at once, behind no pending send, and
++   the terminal is reported locally with the requested code and reason.  The
++   peer sees the connection drop without a close frame (its 1006), never a
++   1009.  The abort claims the connection's failure first, so the pending
++   sends it fails report nothing further."
+   [connection adapter]
+   (letfn [(claim-failure!
+             []
+@@ -157,8 +185,13 @@
+               (when-let [socket (:socket @connection)]
+                 (.abort ^WebSocket socket))
+               ((:closed! adapter) 1006 "dao.stream/send-failed")))
++          (abort!
++            [socket code reason]
++            (when (claim-failure!)
++              (.abort ^WebSocket socket)
++              ((:closed! adapter) code reason)))
+           (chain!
+-            [f]
++            [size f]
+             ;; The successor is built and installed under the lock; its
+             ;; completion observer is registered after leaving it. An
+             ;; already-exceptional future runs that observer inline, and
+@@ -171,18 +204,27 @@
+                                         ^CompletableFuture pending
+                                         (reify java.util.function.Function
+                                           (apply [_ _] (f))))]
+-                             (swap! connection assoc :pending next)
++                             (swap! connection #(-> %
++                                                    (assoc :pending next)
++                                                    (update :queued (fnil + 0) size)))
+                              next)))]
+               (if next
+                 (do (.whenComplete
+                       ^CompletableFuture next
+                       (reify java.util.function.BiConsumer
+-                        (accept [_ _v error] (when error (fail!)))))
++                        (accept
++                          [_ _v error]
++                          (swap! connection update :queued - size)
++                          (when error (fail!)))))
+                     nil)
+                 ::failed)))]
+-    {:send! (fn [payload]
++    {:queued-bytes #(:queued @connection 0)
++     :send! (fn [payload]
+               (if-let [socket (:socket @connection)]
+-                (let [result (chain! #(if (string? payload)
++                (let [result (chain! (if (string? payload)
++                                       (count payload)
++                                       (alength ^bytes payload))
++                                     #(if (string? payload)
+                                         (.sendText ^WebSocket socket payload true)
+                                         (.sendBinary ^WebSocket socket
+                                                      (ByteBuffer/wrap ^bytes payload) true)))]
+@@ -199,7 +241,10 @@
+                (if-let [socket (:socket @connection)]
+                  ;; Closing something already gone is satisfied, not
+                  ;; refused, so close! answers nil either way.
+-                 (do (chain! #(.sendClose ^WebSocket socket code reason)) nil)
++                 (do (if (contains? unsendable-close-codes code)
++                       (abort! socket code reason)
++                       (chain! 0 #(.sendClose ^WebSocket socket code reason)))
++                     nil)
+                  (do (swap! connection assoc :close-request [code reason]) nil)))}))
+ 
+ 
+@@ -214,6 +259,18 @@
+                           :pending nil :failed? false})
+         text (StringBuilder.)
+         binary (ByteArrayOutputStream.)
++        max-frame (:ws/max-frame-bytes adapter)
++        ;; Set once a message outgrows the frame bound: its remaining
++        ;; fragments are dropped, not buffered, until its last one.
++        discarding? (volatile! false)
++        assemble! (fn [size clear! last? message!]
++                    (cond
++                      @discarding? (when last? (vreset! discarding? false))
++                      (and max-frame (> (size) max-frame))
++                      (do (clear!)
++                          (vreset! discarding? (not last?))
++                          ((:too-large! adapter)))
++                      last? (message!)))
+         listener
+         (reify WebSocket$Listener
+           (onOpen
+@@ -230,11 +287,11 @@
+ 
+           (onText
+             [_ socket data last?]
+-            (.append text ^CharSequence data)
+-            (when last?
+-              (let [message (str text)]
+-                (.setLength text 0)
+-                ((:message! adapter) message)))
++            (when-not @discarding? (.append text ^CharSequence data))
++            (assemble! #(.length text) #(.setLength text 0) last?
++                       #(let [message (str text)]
++                          (.setLength text 0)
++                          ((:message! adapter) message)))
+             (.request ^WebSocket socket 1)
+             (completed))
+ 
+@@ -242,13 +299,14 @@
+             [_ socket data last?]
+             ;; Java may fragment one binary message across callbacks; the
+             ;; assembled bytes are one `:binary!` entry, never a sentinel.
+-            (let [chunk (byte-array (.remaining ^ByteBuffer data))]
+-              (.get ^ByteBuffer data chunk)
+-              (.write binary chunk)
+-              (when last?
+-                (let [message (.toByteArray binary)]
+-                  (.reset binary)
+-                  ((:binary! adapter) message))))
++            (when-not @discarding?
++              (let [chunk (byte-array (.remaining ^ByteBuffer data))]
++                (.get ^ByteBuffer data chunk)
++                (.write binary chunk)))
++            (assemble! #(.size binary) #(.reset binary) last?
++                       #(let [message (.toByteArray binary)]
++                          (.reset binary)
++                          ((:binary! adapter) message)))
+             (.request ^WebSocket socket 1)
+             (completed))
+ 
+@@ -355,7 +413,11 @@
+    `:codecs` is the endpoint's codec profile table (default Transit only).
+    An upgrade offering any table subprotocol completes with the negotiated
+    one; an upgrade offering none is refused before it completes — a
+-   mixed-version peer fails its handshake rather than being downgraded."
++   mixed-version peer fails its handshake rather than being downgraded.
++
++   `:ws/max-frame-bytes`, when given, bounds http-kit's own message
++   reassembly (its `:max-ws`), so an oversize message is refused before it
++   is assembled."
+   [{:keys [bind-host bind-port accept! deposit! codecs] :as options}]
+   (let [clock #(System/currentTimeMillis)
+         codecs (or (seq codecs) default-codecs)
+@@ -381,6 +443,8 @@
+         server (http/run-server handler {:ip bind-host
+                                          :port bind-port
+                                          :legacy-return-value? false
++                                         :max-ws (or (:ws/max-frame-bytes options)
++                                                     http-kit-default-max-ws)
+                                          :error-logger
+                                          (fn [_message _error]
+                                            (deposit! :listener-error
+diff --git a/src/cljs/dao/stream/ws/browser.cljs b/src/cljs/dao/stream/ws/browser.cljs
+index d42e22cc..c701e7de 100644
+--- a/src/cljs/dao/stream/ws/browser.cljs
++++ b/src/cljs/dao/stream/ws/browser.cljs
+@@ -20,11 +20,15 @@
+    payload content to classify either.
+ 
+    Host matrix declaration (per `dao.stream.ws.md`): the DOM `WebSocket.send`
+-   accepts into an opaque host buffer and exposes no outbound high-water
+-   signal, so transient `:dao.stream/full` is excluded by nature on this host,
+-   exactly as on Node.  A send returns `undefined`, which the transport
+-   classifies as ok; while the attachment is establishing, the transport's own
+-   phase gate answers `full` without touching the socket."
++   accepts into a host buffer whose backlog `bufferedAmount` reports; the seam
++   exposes it as `:queued-bytes`, so the transport's outbound bounds are exact
++   on this host, exactly as on Node.  A send returns `undefined`, which the
++   transport classifies as ok; while the attachment is establishing, the
++   transport's own phase gate answers `full` without touching the socket.
++   The DOM socket takes no inbound size limit, so `:ws/max-frame-bytes` is
++   judged by the transport on each whole message.  DOM `close` takes only
++   1000 or 3000-4999, so the overflow teardowns reach the wire as 1000 with
++   the transport's reason (see `raw-socket`)."
+   (:require [dao.stream.ws :as ws]))
+ 
+ 
+@@ -64,14 +68,28 @@
+   socket)
+ 
+ 
++(defn- dom-close-code?
++  "The codes DOM `WebSocket.close` accepts; any other throws
++   `InvalidAccessError` before closing anything."
++  [code]
++  (or (= 1000 code) (<= 3000 code 4999)))
++
++
+ (defn raw-socket
+   "The `{:send! :close!}` view of one host socket, which is the only shape
+    `dao.stream.ws` accepts from a host.  `send!` takes the attachment codec's
+    payload and lets the host dispatch on its type — a String sends a text
+-   frame, a typed array a binary frame."
++   frame, a typed array a binary frame.
++
++   `close!` sends a transport code the DOM refuses (1008, 1009, 1013) as
++   1000 with the transport's reason, so the socket really closes and its
++   `close` event carries the terminal; the qualified diagnostic is already
++   on the stream."
+   [socket]
+   {:send! (fn [payload] (.send ^js socket payload))
+-   :close! (fn [code reason] (.close ^js socket code reason))})
++   :close! (fn [code reason]
++             (.close ^js socket (if (dom-close-code? code) code 1000) reason))
++   :queued-bytes (fn [] (.-bufferedAmount ^js socket))})
+ 
+ 
+ (defn connect!
+diff --git a/test/dao/stream/ws/browser_test.cljs b/test/dao/stream/ws/browser_test.cljs
+index 171890ab..60c052b1 100644
+--- a/test/dao/stream/ws/browser_test.cljs
++++ b/test/dao/stream/ws/browser_test.cljs
+@@ -121,12 +121,81 @@
+       (is (= #{"open" "message" "close" "error"} (set (keys @(:handlers fake))))))))
+ 
+ 
+-(deftest raw-socket-shape-is-exactly-send-and-close
++(deftest raw-socket-shape-is-exactly-send-close-and-queued-bytes
+   (let [fake (fake-socket "ws://x" ws/subprotocol)
+         raw (browser/raw-socket (:socket fake))]
+     (is (fn? (:send! raw)))
+     (is (fn? (:close! raw)))
+-    (is (= #{:send! :close!} (set (keys raw))))))
++    (is (= #{:send! :close! :queued-bytes} (set (keys raw))))
++    (set! (.-bufferedAmount ^js (:socket fake)) 42)
++    (is (= 42 ((:queued-bytes raw)))
++        "the outbound backlog is the DOM socket's bufferedAmount")))
++
++
++;; =============================================================================
++;; Overflow teardown under the DOM close-code contract
++;; =============================================================================
++
++
++(defn- validating-socket
++  "A fake whose `close` enforces the WHATWG contract -- only 1000 or
++   3000-4999, else `InvalidAccessError` before anything closes -- and, when
++   it accepts, dispatches the `close` event a real socket would, echoing the
++   code and reason."
++  [url protocol]
++  (let [fake (fake-socket url protocol)]
++    (unchecked-set (:socket fake) "close"
++                   (fn [code reason]
++                     (when-not (or (= 1000 code) (<= 3000 code 4999))
++                       (throw (doto (js/Error. "invalid code")
++                                (unchecked-set "name" "InvalidAccessError"))))
++                     (swap! (:closes fake) conj [code reason])
++                     ((:fire fake) "close" #js {:code code :reason reason})))
++    fake))
++
++
++(defn- attach-validating
++  [bounds]
++  (let [fake (validating-socket "ws://127.0.0.1:9183/yin/repl" ws/subprotocol)
++        traffic (buffer)]
++    (set-global-websocket! (fn [_url _protocol] (:socket fake)))
++    (let [attach ((ws/make-attacher (merge {:traffic {:dao.stream/handle traffic
++                                                      :dao.stream/surface #{:writer}}
++                                            :admission admission
++                                            :connect! browser/connect!}
++                                           bounds))
++                  (descriptor))]
++      ((:fire fake) "open" #js {})
++      {:fake fake :traffic traffic :handle (:dao.stream/handle attach)})))
++
++
++(deftest dom-close-rejects-the-raw-overflow-codes
++  (let [fake (validating-socket "ws://x" ws/subprotocol)]
++    (doseq [code [1008 1009 1013]]
++      (is (thrown? js/Error (.close ^js (:socket fake) code "r"))
++          "the fake enforces the DOM contract the adapter must satisfy"))
++    (is (= [] @(:closes fake)))))
++
++
++(deftest inbound-overflow-closes-the-dom-socket
++  (let [{:keys [fake traffic]} (attach-validating {:ws/max-frame-bytes 8})]
++    ((:fire fake) "message" #js {:data "a frame well past eight characters"})
++    (is (= [[1000 "dao.stream/frame-too-large"]] @(:closes fake))
++        "1009 reaches the DOM as 1000 with the transport's reason, so the
++         socket closes rather than throwing InvalidAccessError")
++    (is (= [[:ws/opened nil] [:ws/error :ws/frame-too-large] [:ws/closed nil]]
++           (event-kinds traffic))
++        "the qualified diagnostic, then the terminal from the DOM close event")))
++
++
++(deftest outbound-overflow-closes-the-dom-socket
++  (let [{:keys [fake traffic handle]} (attach-validating {:ws/max-outbound-bytes 16})]
++    (set! (.-bufferedAmount ^js (:socket fake)) 64)
++    (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! handle [:v]))))
++    (is (= [[1000 "dao.stream/outbound-overflow"]] @(:closes fake))
++        "1008 reaches the DOM as 1000 with the transport's reason")
++    (is (= [[:ws/opened nil] [:ws/error :ws/outbound-overflow] [:ws/closed nil]]
++           (event-kinds traffic)))))
+ 
+ 
+ ;; =============================================================================
+diff --git a/test/dao/stream/ws/jvm_test.clj b/test/dao/stream/ws/jvm_test.clj
+index 9977b2ba..05895fc2 100644
+--- a/test/dao/stream/ws/jvm_test.clj
++++ b/test/dao/stream/ws/jvm_test.clj
+@@ -153,6 +153,54 @@
+           "and issues once the send completes"))))
+ 
+ 
++(deftest an-unsendable-close-code-aborts-at-once-behind-a-pending-send
++  (testing "sendClose rejects 1009, so the seam aborts rather than chaining it"
++    (let [{:keys [trace futures seam]} (scripted)]
++      ((:send! seam) "in flight")
++      ((:send! seam) "chained")
++      (is (nil? ((:close! seam) 1009 "dao.stream/frame-too-large")))
++      (is (= [[:send-text "in flight"]
++              [:abort]
++              [:closed! 1009 "dao.stream/frame-too-large"]]
++             @trace)
++          "the abort does not wait for the pending send, issues no sendClose,
++           and reports the requested code locally")
++      (.completeExceptionally ^CompletableFuture (first @futures)
++                              (java.io.IOException. "aborted"))
++      (is (= [[:send-text "in flight"]
++              [:abort]
++              [:closed! 1009 "dao.stream/frame-too-large"]]
++             @trace)
++          "the sends the abort failed report nothing further")
++      (is (= {:dao.stream/outcome :dao.stream/closed} ((:send! seam) "after"))
++          "and the connection accepts no further sends")))
++  (testing "a code sendClose accepts still rides the chain"
++    (let [{:keys [trace futures seam]} (scripted)]
++      ((:send! seam) "in flight")
++      ((:close! seam) 1008 "dao.stream/outbound-overflow")
++      (.complete ^CompletableFuture (first @futures) nil)
++      (is (= [[:send-text "in flight"]
++              [:send-close 1008 "dao.stream/outbound-overflow"]]
++             @trace)))))
++
++
++(deftest client-socket-accounts-queued-bytes-across-the-send-chain
++  (testing "the backlog rises on submission and falls on completion"
++    (let [{:keys [futures seam]} (scripted)
++          queued (:queued-bytes seam)]
++      (is (zero? (queued)) "an idle connection has no backlog")
++      ((:send! seam) "abc")
++      ((:send! seam) "defgh")
++      (is (= 8 (queued)) "both the in-flight and the chained send count")
++      (.complete ^CompletableFuture (first @futures) nil)
++      (is (= 5 (queued)) "the first send's bytes leave on its completion")
++      ((:close! seam) 1000 "bye")
++      (is (= 5 (queued)) "a close frame carries no payload bytes")
++      (.complete ^CompletableFuture (second @futures) nil)
++      (.complete ^CompletableFuture (nth @futures 2) nil)
++      (is (zero? (queued)) "the drained chain has no backlog"))))
++
++
+ (deftest an-inline-failure-reports-without-holding-the-submission-lock
+   (testing "an already-failed send runs its observer inline, off the monitor"
+     (let [trace (atom [])
+@@ -515,3 +563,127 @@
+             "no handoff slot was consumed"))
+       (finally
+         (jvm/stop-listening! listener (fn []))))))
++
++
++;; =============================================================================
++;; Inbound reassembly overflow against a live JVM client
++;; =============================================================================
++
++
++(defn- ws-frame
++  "One unmasked server frame; payloads stay under 64 KiB."
++  ^bytes [opcode fin? ^bytes payload]
++  (let [n (alength payload)
++        out (ByteArrayOutputStream.)]
++    (.write out (int (bit-or (if fin? 0x80 0) opcode)))
++    (if (< n 126)
++      (.write out n)
++      (do (.write out 126)
++          (.write out (int (bit-shift-right n 8)))
++          (.write out (int (bit-and n 0xff)))))
++    (.write out payload 0 n)
++    (.toByteArray out)))
++
++
++(defn- read-request-head
++  [^java.io.InputStream in]
++  (loop [out (StringBuilder.)]
++    (if (.endsWith (str out) "\r\n\r\n")
++      (str out)
++      (let [b (.read in)]
++        (if (neg? b)
++          (str out)
++          (recur (.append out (char b))))))))
++
++
++(defn- fragmenting-peer
++  "A raw WebSocket peer that completes one upgrade, sends one message as
++   `fragments` frames of `fragment-size` filler bytes (opcode 1 text or 2
++   binary), then reads until the client drops the connection.  The future
++   answers the bytes the client sent after the upgrade and how the read
++   ended, so a test can tell an abort from a close handshake."
++  [opcode fragments fragment-size]
++  (let [server (doto (java.net.ServerSocket. 0 1 (java.net.InetAddress/getByName "127.0.0.1"))
++                 (.setSoTimeout 5000))]
++    {:port (.getLocalPort server)
++     :result
++     (future
++       (with-open [server server
++                   socket (.accept server)]
++         (.setSoTimeout socket 5000)
++         (let [in (.getInputStream socket)
++               out (.getOutputStream socket)
++               head (read-request-head in)
++               header (fn [name]
++                        (second (re-find (re-pattern (str "(?i)" name ":\\s*(.+?)\r\n")) head)))
++               accept (.encodeToString
++                        (java.util.Base64/getEncoder)
++                        (.digest (java.security.MessageDigest/getInstance "SHA-1")
++                                 (.getBytes (str (header "Sec-WebSocket-Key")
++                                                 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))))]
++           (.write out (.getBytes (str "HTTP/1.1 101 Switching Protocols\r\n"
++                                       "Upgrade: websocket\r\nConnection: Upgrade\r\n"
++                                       "Sec-WebSocket-Accept: " accept "\r\n"
++                                       "Sec-WebSocket-Protocol: "
++                                       (header "Sec-WebSocket-Protocol") "\r\n\r\n")))
++           (let [filler (byte-array fragment-size (byte (int \a)))]
++             (doseq [i (range fragments)]
++               (.write out (ws-frame (if (zero? i) opcode 0)
++                                     (= i (dec fragments))
++                                     filler))))
++           (.flush out)
++           (loop [received 0]
++             (let [b (try (.read in)
++                          (catch java.net.SocketTimeoutException _ :timeout)
++                          (catch java.io.IOException _ :reset))]
++               (cond
++                 (= :timeout b) {:received received :ended :timeout}
++                 (= :reset b) {:received received :ended :reset}
++                 (neg? b) {:received received :ended :eof}
++                 :else (recur (inc received))))))))}))
++
++
++(defn- overflow-run
++  "Attach one JVM client with a 1000-byte frame bound to a fragmenting peer
++   sending four 600-byte fragments; answer the client's deposited events once
++   its terminal arrives, and the peer's view."
++  [codec opcode]
++  (let [{:keys [port result]} (fragmenting-peer opcode 4 600)
++        traffic (dual-buffer 32)
++        attach! (ws/make-attacher {:traffic {:dao.stream/handle traffic
++                                             :dao.stream/surface #{:writer}}
++                                   :admission dual-admission
++                                   :codec codec
++                                   :connect! jvm/connect!
++                                   :ws/max-frame-bytes 1000})
++        attached (attach! (assoc dual-descriptor :ws/port port))
++        terminal? #(some #{:ws/closed :ws/ended} (map :ws/event (dual-values traffic)))]
++    (is (= :dao.stream/ok (:dao.stream/outcome attached)))
++    (is (eventually terminal? 5000) "the overflow reaches a terminal event")
++    {:events (dual-values traffic)
++     :peer (deref result 6000 :peer-timeout)}))
++
++
++(deftest an-oversize-fragmented-message-aborts-the-jvm-client
++  ;; java.net.http.WebSocket cannot send close 1009, so a reassembly
++  ;; overflow aborts the socket: the transport deposits its qualified
++  ;; diagnostic and a local terminal, nothing is decoded, and the peer sees
++  ;; the connection drop without any close frame.
++  (doseq [[label codec opcode] [["text" transit/profile 1]
++                                ["binary" cbor/profile 2]]]
++    (testing (str "a fragmented " label " message over :ws/max-frame-bytes")
++      (let [{:keys [events peer]} (overflow-run codec opcode)
++            kinds (map :ws/event events)]
++        (is (= :ws/opened (first kinds)))
++        (is (some #(= [:ws/error :ws/frame-too-large] [(:ws/event %) (:ws/reason %)])
++                  events)
++            "the qualified size diagnostic is deposited")
++        (is (= :ws/closed (last kinds)) "the terminal is the local close")
++        (is (= 1 (count (filter #{:ws/closed :ws/ended} kinds))) "exactly once")
++        (is (not-any? #{:ws/payload} kinds) "nothing was delivered")
++        (is (not-any? #(= :ws/decode-failure (:ws/reason %)) events)
++            "and nothing was decoded")
++        (is (= 0 (:received peer))
++            "the client sent no close frame: it aborted rather than closing")
++        (is (#{:eof :reset} (:ended peer))
++            "and the peer saw the connection drop promptly")))))
+diff --git a/test/dao/stream/ws_project_test.cljc b/test/dao/stream/ws_project_test.cljc
+index 9e792f47..d7b0c94c 100644
+--- a/test/dao/stream/ws_project_test.cljc
++++ b/test/dao/stream/ws_project_test.cljc
+@@ -636,6 +636,77 @@
+           "the flood drains two events per tick, its cursor kept"))))
+ 
+ 
++(defn- adoption-isolated
++  "Adopt a healthy att-1, then offer att-bad while att-1 has a request
++   standing, with `break!` making att-bad's adoption throw. Answers the
++   observations the two isolation tests share."
++  [break!]
++  (let [media (atom [])
++        {:keys [acceptor offers acks]}
++        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}})
++        sock-1 (ring 8)
++        sock-bad (ring 8)]
++    (offer! offers "att-1" sock-1)
++    (project/accept-step! acceptor 1)
++    (break! acceptor acks)
++    (deposit! (:traffic (first @media))
++              (payload "att-1" {:dao.stream/identity "str-1"
++                                :dao.stream.remote/op :dao.stream/descriptor
++                                :dao.stream.remote/args []
++                                :dao.stream.remote/id 5}))
++    (offer! offers "att-bad" sock-bad)
++    (project/accept-step! acceptor 2)
++    (let [sessions-after-bad (set (keys (project/sessions acceptor)))
++          ;; Captured before tick 3, so the answer is tick 2's own work.
++          answered (set (map :dao.stream.remote/id (values sock-1)))
++          sock-3 (ring 8)]
++      (offer! offers "att-3" sock-3)
++      (project/accept-step! acceptor 3)
++      {:sessions-after-bad sessions-after-bad
++       :answered answered
++       :bad-closed (:dao.stream/outcome (stream/append! sock-bad :test))
++       :sessions-after-next (set (keys (project/sessions acceptor)))})))
++
++
++(deftest a-throwing-make-media-is-isolated
++  (let [r (adoption-isolated
++            (fn [acceptor _]
++              (swap! acceptor update :make-media
++                     (fn [f]
++                       (fn [offer]
++                         (if (= "att-bad" (:ws/attachment offer))
++                           (throw (ex-info "make-media failed" {}))
++                           (f offer)))))))]
++    (is (= #{"att-1"} (:sessions-after-bad r))
++        "no session exists for the throwing offer")
++    (is (= #{5} (:answered r))
++        "the healthy session answered in the same tick")
++    (is (= :dao.stream/closed (:bad-closed r))
++        "the throwing offer's handle was closed")
++    (is (= #{"att-1" "att-3"} (:sessions-after-next r))
++        "the next offer is adopted as usual")))
++
++
++(deftest a-throwing-ack-append-is-isolated
++  (let [r (adoption-isolated
++            (fn [acceptor acks]
++              (swap! acceptor assoc-in [:slots 0 :ack-writer :dao.stream/handle]
++                     (reify stream/IDaoStreamWriter
++                       (append!
++                         [_ ack]
++                         (if (= "att-bad" (:ws/attachment ack))
++                           (throw (ex-info "ack append failed" {}))
++                           (stream/append! acks ack)))))))]
++    (is (= #{"att-1"} (:sessions-after-bad r))
++        "no session exists for the throwing offer")
++    (is (= #{5} (:answered r))
++        "the healthy session answered in the same tick")
++    (is (= :dao.stream/closed (:bad-closed r))
++        "the throwing offer's handle was closed")
++    (is (= #{"att-1" "att-3"} (:sessions-after-next r))
++        "the next offer is adopted as usual")))
++
++
+ (defn- served-with
+   "A served ring holding `vs`, and a next request on it from oldest
+    with id `id` asking a chase of `budget`."
+
+exec
+/bin/zsh -lc 'cat docs/agents/build-n-test.md; git rev-parse --short HEAD; git branch --show-current; git diff --check' in /Users/sto/workspace/datomworld-stream-s2
+ succeeded in 0ms:
+---
+description: Build, lint, test commands, TDD guidelines, and bracket debugging for Clojure, ClojureScript, Node.js, and ClojureDart
+---
+
+# BUILD & TEST
+
+## Commands
+
+```sh
+# Tests (Babashka runner)
+bb test              # All three lanes (JVM, Node, Dart), fast default form: no slow tests
+bb test:all          # Every test on every lane, slow ones included (JVM takes 20+ min)
+bb test:slow         # Only the slow tests, on every lane
+# One lane alone: <task>:clj, <task>:cljs, <task>:cljd
+bb test:clj          # JVM, fast: skips ^:slow (bare `clj -M:test` runs them too)
+bb test:cljs         # Node (shadow-cljs :cljs alias), fast: guarded slow bodies print SKIP
+bb test:cljd         # Dart (needs flutter on PATH), fast: guarded slow bodies print SKIP
+bb test:all:clj      # JVM, no filter: `clojure -M:test`
+bb test:all:cljs     # Node with DATOM_SLOW_TESTS=1
+bb test:all:cljd     # Dart with DATOM_SLOW_TESTS=1
+bb test:slow:clj     # JVM: `-i :slow` (long-loops-test, ~14 min)
+bb test:slow:cljs    # Node: only the namespaces that use dao.test-slow/guard, DATOM_SLOW_TESTS=1
+bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_TESTS=1
+# Slow tests: tag a deftest ^:slow. The JVM runner then excludes it from `bb test:clj`.
+# Node and Dart have no tag filter, so a .cljc slow test also wraps its body in
+# (dao.test-slow/guard "name" (fn [] ...)); it prints SKIP unless DATOM_SLOW_TESTS=1.
+# Node and Dart select slow tests by NAMESPACE (derived by grepping `slow/guard`
+# under test/), so the non-slow tests inside those namespaces also run there.
+# On Node, shadow also runs the test namespaces those nine require (about
+# seven more, e.g. lower-portable-test); on Dart only the nine namespaces run.
+# Run test:slow / test:all before a big merge or a commit that touches many parts.
+# Run one Dart lane at a time repo-wide.
+#
+# When to tag a test slow: when it takes more than about 5 s on any lane (the
+# Python e2e tests sit on a ~3 s floor, so their JVM cut is 3.0 s). The
+# default lanes must stay in minutes; 22 JVM tests (0.75% of the suite) were
+# 81% of its test time. Tag it ^:slow on the JVM; if it is a .cljc test, also
+# wrap its body in dao.test-slow/guard so Node and Dart skip it by default. A
+# test that is slow only on Dart (dao.jing.dht-test/unproven-chunks-... takes
+# 72 s there, 3.6 s on the JVM) is a candidate for a speed investigation first.
+# Python slow set (2026-10-06): 65 ^:slow and 15 guard-only tests in the
+# yang.python.antlr e2e, e2e-c1, prelude-parity, safepoint, float-address
+# and int-contract tests; a Python slice landing runs `clojure -M:test -i :slow -n <ns>` for
+# its changed Python namespaces.
+# While iterating, run only `bb test:clj` (or one namespace: `clojure -M:test -n
+# <ns>`), not the full `bb test`. Run the full three-lane `bb test` once per
+# slice, before landing, and one lane set at a time: overlapping runs slow each
+# other down. Cross-host bugs show only on Node or Dart, so the full run is
+# still the gate before a commit.
+# Measured fast-lane times (2026-10-03): bb test about 14 min = JVM 5.5 + Node
+# 3.8 + Dart 4.3, plus builds. test:slow: Node and Dart about 5 min each (mostly
+# compile); the JVM half is estimated at 17 min (long-loops-test alone is 14),
+# not yet run end to end. test:all: JVM 20+ min, also an estimate.
+npm test             # Node.js tests
+
+# Cross-host peers the JVM lane spawns. `bb test` builds both. A bare
+# `bb test:clj` builds only the Node REPL (it depends on build:yin-repl-node);
+# without build:yin-repl-peer first, the Dart-peer tests skip with a printed notice.
+bb build:yin-repl-peer   # Dart exe build/yin-repl-peer (yin.repl R5 pairs)
+bb build:yin-repl-node   # Node REPL target/yin-repl.js; REQUIRED by
+                         # yin.repl.dht-process-test (JVM-to-Node DHT reader,
+                         # and the linker L5 Node reader that requires a module
+                         # by name): `clojure -M:test` without it fails that test
+```
+
+### Changed-only tests: `bb test:changed`
+
+`bb test:changed` (src/dev/affected.clj) runs the fast tests a change can
+reach: the reverse require closure of the files changed since the
+merge-base with master, plus fixtures that mention a changed resource path,
+tests that walk a changed tree, and each src file's `_test` by convention.
+A walker is a file calling file-seq, fs/glob, fs/list-dir,
+fs/walk-file-tree or .listFiles; each string literal argument of its
+io/file, fs/file, fs/path, fs/glob, java.io.File. or File. calls is a root
+(let-bound roots count), and a change under a root selects it. The three
+lanes run in parallel (logs: target/profile/changed-<lane>.log) after the
+needed builds. `test:changed:list` shows what and why; `:clj`/`:cljs`/
+`:cljd` run one lane; `--base REF`; `--changed FILE...` (absolute OK; a
+typo, an empty list or the wrong cwd exits 1). Use it to iterate and to
+land a slice confined to a package. Exit 2 (from :list too) is a wide
+change (deps.edn bb.edn shadow-cljs.edn mise.toml .cljstyle src/dev/
+antlr/ .clj-kondo/ package*/pubspec*): it runs nothing; run `bb test`,
+as for a change to the core everything requires (yin.vm engine,
+dao.stream, codecs) and before a big merge. Not seen: dynamic loads
+(`requiring-resolve`, `resolve`), paths or walk roots built at run time,
+and spawned programs that changed (target/yin-repl.js, Dart peers).
+
+The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
+slice L5) is two tests:
+
+- `yin.repl.dht-process-test` (JVM lane only): real `yin.repl.main`
+  processes over real loopback UDP. A JVM publisher with a key file
+  publishes modules by name, and JVM and Node readers require them by
+  name on all four VMs. Plain Clojure in the test JVM takes the same path
+  and checks each section 9 failure as data. Ports are ephemeral, and
+  every wait is bounded. A run takes a few minutes. Run it alone with
+  `clojure -M:test -n yin.repl.dht-process-test`, after
+  `bb build:yin-repl-node`.
+- `yin.vm.linker.dht-end-to-end-test` (all three lanes): the same
+  scenario in process, over the `dao.jing.dht` test mesh seam. Dart's
+  signed-name leg runs here, because no Dart `yin.repl.main` process
+  exists to spawn. `build/yin-repl-peer` is the R5 slice peer, not a
+  REPL.
+
+```sh
+# ClojureScript / shadow-cljs (always via deps.edn :cljs alias, never npx)
+clj -M:cljs -m shadow.cljs.devtools.cli watch <build-id>    # e.g. watch demo
+clj -M:cljs -m shadow.cljs.devtools.cli compile <build-id>  # e.g. compile demo
+clj -M:cljs -m shadow.cljs.devtools.cli release <build-id>  # production release
+
+# ClojureDart
+clj -M:clojuredart:cljd compile
+
+# Linting
+clj -M:kondo --lint <path>
+```
+
+The Dart `bb` lanes run `src/dev/cljd_agg.clj` (`bb src/dev/cljd_agg.clj
+[--slow-only | --slow-regex]`), not `cljd test`. `--slow-only` runs only the
+namespaces that use `dao.test-slow/guard` and fails if one has no generated
+Dart file. `--slow-regex` prints those namespaces as an anchored alternation
+with its dots already escaped for an EDN string (bb.edn feeds it to shadow-cljs
+`--config-merge` for `test:slow:cljs`); it is not a ready-to-use regex, and it
+exits 1 when no namespace uses the guard. `flutter test` spends about 7.5 s loading
+each of the ~166 generated `test/cljd-out/**/*_test.dart` files, so the
+script compiles every test namespace via `clojure -M:clojuredart:cljd compile
+<namespaces>`, writes up to min(8, cores) shard files under `build/cljd-agg/`
+(greedy by file size; each imports its files and calls their `main`), runs
+`flutter test --concurrency N` on the shards, and deletes them. Shards never sit
+under `test/`, so plain `clojure -M:clojuredart:cljd test` still works. Tests of
+different namespaces share an isolate per shard. Failures stay attributable:
+package:test names are ns-qualified (`dao.foo-test/bar-test`).
+
+`flutter test`/`cljd test` globs everything under `test/cljd-out/`, and the
+compile does not prune it when a source file is deleted or renamed. The
+aggregated lanes only run namespaces that still exist under `test/`, but a
+stale file can silently pass a plain `cljd test`. Run `rm -rf test/cljd-out`
+before relying on that to prove a deletion or rename took effect.
+
+## Testing Philosophy & TDD
+
+Write tests before implementing features (TDD).
+
+Tests define the contract and expected behavior. Implementation follows from the tests, not the other way around.
+
+When implementing a feature or fix:
+1. **Red phase**: Write the test first — define what should happen.
+2. **Green phase**: Implement the minimum code to pass the test.
+3. **Refactor phase**: Refactor if needed while keeping tests green.
+
+This ensures code is testable by design and implementation matches actual requirements.
+
+## Debugging Malformed CLJ / EDN / CLJS
+
+A single missing bracket can silently break an entire file. The compiler may still succeed, with subsequent forms nesting inside the broken one.
+
+1. **Run clj-kondo first**:
+   ```sh
+   clj -M:kondo --lint path/to/file.cljs
+   ```
+
+2. **If clj-kondo reports a mismatch, write a bracket-tracing script**:
+   Do NOT try to eyeball-count brackets. Track a stack of `(char, line, col)` for every opener. Handle: string literals, escaped chars, and `;;` line comments.
+
+3. **Fix one bracket at a time, re-run checker after each fix**:
+   Common patterns:
+   - Hiccup vector missing `]` causes siblings to become extra arguments.
+   - `defn`/`let` missing `)` causes subsequent top-level forms to nest inside.
+   - Both can coexist while total bracket count is zero-sum.
+
+4. **After brackets balance**, rerun `clj-kondo`, then rebuild with `clj -M:cljs -m shadow.cljs.devtools.cli compile <build>`.
+4ca18fec
+stream-crossmachine-s2
+
+exec
+/bin/zsh -lc "sed -n '130,330p' src/clj/dao/stream/ws/jvm.clj; sed -n '68,110p' src/cljs/dao/stream/ws/browser.cljs; rg -n 'validating-socket|dom-close|overflow-closes|unsendable|pending-send' test/dao/stream/ws/{browser_test.cljs,jvm_test.clj}; sed -n '130,215p' src/cljc/dao/stream/ws.cljc; sed -n '310,370p' src/cljc/dao/stream/ws.cljc" in /Users/sto/workspace/datomworld-stream-s2
+ succeeded in 0ms:
+  []
+  (CompletableFuture/completedFuture nil))
+
+
+(def ^:private unsendable-close-codes
+  "The status codes `java.net.http.WebSocket.sendClose` rejects.  Among the
+   transport's teardown codes this is 1009 (frame too large) and 1013
+   (pending overflow, served connections only)."
+  #{1002 1003 1006 1007 1009 1010 1012 1013 1015})
+
+
+(defn client-socket
+  "The `{:send! :close!}` boundary over an asynchronous client connection.
+
+   `java.net.http.WebSocket` completes a `sendText` exceptionally while an
+   earlier one is still pending, so outbound messages are chained behind the
+   connection's `:pending` future rather than joined: the submitter returns as
+   soon as the host has accepted the message (J1, J2). A send that fails after
+   acceptance is reported on the stream — `:ws/error`, then the terminal
+   `:ws/closed` after the socket is aborted — never as a return value (J3).
+
+   Two disciplines make that safe. The chain is built under `locking` rather
+   than `swap!`, whose retry would issue a second `sendText` for one message.
+   And failure is a once-only connection transition claimed under the same
+   lock: every future in a chain completes exceptionally when its predecessor
+   does, so without the claim one lost socket would abort and report N times,
+   and a teardown that re-entered through the adapter would report again. The
+   first claimant reports; the connection then stays failed and accepts no
+   further chaining.
+
+   The connection's `:queued` counter is the outbound backlog: raised by a
+   send's payload size under the submission lock, lowered when that send's
+   future completes, either way.  `:queued-bytes` reads it, which makes the
+   transport's outbound bounds exact on this host.
+
+   A close whose code `sendClose` rejects (1009 on an inbound overflow) is
+   not chained: the socket is aborted at once, behind no pending send, and
+   the terminal is reported locally with the requested code and reason.  The
+   peer sees the connection drop without a close frame (its 1006), never a
+   1009.  The abort claims the connection's failure first, so the pending
+   sends it fails report nothing further."
+  [connection adapter]
+  (letfn [(claim-failure!
+            []
+            (locking connection
+              (when-not (:failed? @connection)
+                (swap! connection assoc :failed? true)
+                true)))
+          (fail!
+            []
+            ;; Outside the lock: the adapter entries may re-enter through
+            ;; close!, which must find the connection already failed rather
+            ;; than block on a lock this thread holds.
+            (when (claim-failure!)
+              ((:error! adapter))
+              (when-let [socket (:socket @connection)]
+                (.abort ^WebSocket socket))
+              ((:closed! adapter) 1006 "dao.stream/send-failed")))
+          (abort!
+            [socket code reason]
+            (when (claim-failure!)
+              (.abort ^WebSocket socket)
+              ((:closed! adapter) code reason)))
+          (chain!
+            [size f]
+            ;; The successor is built and installed under the lock; its
+            ;; completion observer is registered after leaving it. An
+            ;; already-exceptional future runs that observer inline, and
+            ;; reporting a failure while holding the submission monitor would
+            ;; block every other submitter across the adapter's deposits.
+            (let [next (locking connection
+                         (when-not (:failed? @connection)
+                           (let [pending (or (:pending @connection) (completed))
+                                 next (.thenCompose
+                                        ^CompletableFuture pending
+                                        (reify java.util.function.Function
+                                          (apply [_ _] (f))))]
+                             (swap! connection #(-> %
+                                                    (assoc :pending next)
+                                                    (update :queued (fnil + 0) size)))
+                             next)))]
+              (if next
+                (do (.whenComplete
+                      ^CompletableFuture next
+                      (reify java.util.function.BiConsumer
+                        (accept
+                          [_ _v error]
+                          (swap! connection update :queued - size)
+                          (when error (fail!)))))
+                    nil)
+                ::failed)))]
+    {:queued-bytes #(:queued @connection 0)
+     :send! (fn [payload]
+              (if-let [socket (:socket @connection)]
+                (let [result (chain! (if (string? payload)
+                                       (count payload)
+                                       (alength ^bytes payload))
+                                     #(if (string? payload)
+                                        (.sendText ^WebSocket socket payload true)
+                                        (.sendBinary ^WebSocket socket
+                                                     (ByteBuffer/wrap ^bytes payload) true)))]
+                  ;; A failed connection is permanently gone, so it answers
+                  ;; `closed`, not the retryable `full` that `false` would
+                  ;; mean: an append that read the handle's open phase before
+                  ;; the failure claim must not leave a request retained as
+                  ;; unsent for a socket that is never coming back.
+                  (if (= ::failed result)
+                    {:dao.stream/outcome :dao.stream/closed}
+                    nil))
+                false))
+     :close! (fn [code reason]
+               (if-let [socket (:socket @connection)]
+                 ;; Closing something already gone is satisfied, not
+                 ;; refused, so close! answers nil either way.
+                 (do (if (contains? unsendable-close-codes code)
+                       (abort! socket code reason)
+                       (chain! 0 #(.sendClose ^WebSocket socket code reason)))
+                     nil)
+                 (do (swap! connection assoc :close-request [code reason]) nil)))}))
+
+
+(defn connect!
+  "Start an asynchronous JVM client attachment and return its raw socket seam.
+
+   The client offers exactly the subprotocol of the codec profile the
+   transport selected (the adapter map's `:ws/codec`), so a peer that does
+   not speak it fails the handshake rather than being downgraded."
+  [descriptor adapter]
+  (let [connection (atom {:socket nil :future nil :close-request nil
+                          :pending nil :failed? false})
+        text (StringBuilder.)
+        binary (ByteArrayOutputStream.)
+        max-frame (:ws/max-frame-bytes adapter)
+        ;; Set once a message outgrows the frame bound: its remaining
+        ;; fragments are dropped, not buffered, until its last one.
+        discarding? (volatile! false)
+        assemble! (fn [size clear! last? message!]
+                    (cond
+                      @discarding? (when last? (vreset! discarding? false))
+                      (and max-frame (> (size) max-frame))
+                      (do (clear!)
+                          (vreset! discarding? (not last?))
+                          ((:too-large! adapter)))
+                      last? (message!)))
+        listener
+        (reify WebSocket$Listener
+          (onOpen
+            [_ socket]
+            (swap! connection assoc :socket socket)
+            (when-let [[code reason] (:close-request @connection)]
+              (.sendClose ^WebSocket socket code reason))
+            ;; There is no admission wire frame any more: the mirror
+            ;; answers not-found per identity once a reflection attaches,
+            ;; not this transport's own accept/disclaim handshake, so the
+            ;; socket's own open is the resolution.
+            ((:opened! adapter))
+            (.request ^WebSocket socket 1))
+
+          (onText
+            [_ socket data last?]
+            (when-not @discarding? (.append text ^CharSequence data))
+            (assemble! #(.length text) #(.setLength text 0) last?
+                       #(let [message (str text)]
+                          (.setLength text 0)
+                          ((:message! adapter) message)))
+            (.request ^WebSocket socket 1)
+            (completed))
+
+          (onBinary
+            [_ socket data last?]
+            ;; Java may fragment one binary message across callbacks; the
+            ;; assembled bytes are one `:binary!` entry, never a sentinel.
+            (when-not @discarding?
+              (let [chunk (byte-array (.remaining ^ByteBuffer data))]
+                (.get ^ByteBuffer data chunk)
+                (.write binary chunk)))
+            (assemble! #(.size binary) #(.reset binary) last?
+                       #(let [message (.toByteArray binary)]
+                          (.reset binary)
+                          ((:binary! adapter) message)))
+            (.request ^WebSocket socket 1)
+            (completed))
+
+          (onPing
+            [_ socket data]
+            (.request ^WebSocket socket 1)
+            (.sendPong ^WebSocket socket ^ByteBuffer data))
+
+          (onPong
+            [_ socket _data]
+            (.request ^WebSocket socket 1)
+            (completed))
+
+          (onClose
+            [_ _socket code reason]
+            ((:closed! adapter) code (str reason))
+            (completed))
+
+          (onError
+            [_ _socket _error]
+            ((:error! adapter))))
+  socket)
+
+
+(defn- dom-close-code?
+  "The codes DOM `WebSocket.close` accepts; any other throws
+   `InvalidAccessError` before closing anything."
+  [code]
+  (or (= 1000 code) (<= 3000 code 4999)))
+
+
+(defn raw-socket
+  "The `{:send! :close!}` view of one host socket, which is the only shape
+   `dao.stream.ws` accepts from a host.  `send!` takes the attachment codec's
+   payload and lets the host dispatch on its type — a String sends a text
+   frame, a typed array a binary frame.
+
+   `close!` sends a transport code the DOM refuses (1008, 1009, 1013) as
+   1000 with the transport's reason, so the socket really closes and its
+   `close` event carries the terminal; the qualified diagnostic is already
+   on the stream."
+  [socket]
+  {:send! (fn [payload] (.send ^js socket payload))
+   :close! (fn [code reason]
+             (.close ^js socket (if (dom-close-code? code) code 1000) reason))
+   :queued-bytes (fn [] (.-bufferedAmount ^js socket))})
+
+
+(defn connect!
+  "The `:connect!` host seam for `dao.stream.ws/make-attacher` in the
+   browser.
+
+   Starts connection establishment to the descriptor's URL offering exactly
+   the subprotocol of the transport's selected codec profile (the adapter
+   map's `:ws/codec`) — a peer that does not speak it fails the handshake —
+   and synchronously returns the raw socket view; the connection resolves
+   asynchronously and every socket event reaches the adapter map the
+   transport built.  The deposit medium and its already-minted cursor are the
+   caller's composition, not arguments here."
+  [descriptor adapter]
+  (let [socket (js/WebSocket. (socket-url descriptor)
+                              (get-in adapter [:ws/codec :ws/subprotocol] ws/subprotocol))]
+    (set! (.-binaryType ^js socket) "arraybuffer")
+    (wire! socket adapter)
+test/dao/stream/ws/jvm_test.clj:143:(deftest close-waits-its-turn-behind-a-pending-send
+test/dao/stream/ws/jvm_test.clj:156:(deftest an-unsendable-close-code-aborts-at-once-behind-a-pending-send
+test/dao/stream/ws/browser_test.cljs:140:(defn- validating-socket
+test/dao/stream/ws/browser_test.cljs:159:  (let [fake (validating-socket "ws://127.0.0.1:9183/yin/repl" ws/subprotocol)
+test/dao/stream/ws/browser_test.cljs:172:(deftest dom-close-rejects-the-raw-overflow-codes
+test/dao/stream/ws/browser_test.cljs:173:  (let [fake (validating-socket "ws://x" ws/subprotocol)]
+test/dao/stream/ws/browser_test.cljs:180:(deftest inbound-overflow-closes-the-dom-socket
+test/dao/stream/ws/browser_test.cljs:191:(deftest outbound-overflow-closes-the-dom-socket
+
+
+(defn- payload-size
+  "The raw size of one wire payload: characters for a text payload, bytes
+   for host bytes.  `:cljd` comes first because the cljd host-eval pass also
+   reads a `:clj` branch."
+  [payload]
+  (if (string? payload)
+    (count payload)
+    #?(:cljd (.-length ^List payload)
+       :cljs (.-length ^js payload)
+       :clj (alength ^bytes payload))))
+
+
+(defn- invoke-close!
+  [socket code reason]
+  (when-let [f (:close! socket)]
+    (try
+      (f code reason)
+      (catch #?(:cljd Object :clj Throwable :cljs :default) _
+        ;; The connection has already transitioned locally.  The caller adds a
+        ;; diagnostic where it still has a functioning composed medium.
+        :failed))))
+
+
+(defn- send-result
+  [socket payload]
+  ;; The payload is whatever the attachment's codec produced — a string for
+  ;; text profiles, host bytes for binary profiles.  The transport never
+  ;; inspects it; the host `:send!` seam owns the typed frame.
+  (try
+    (let [x ((:send! socket) payload)]
+      (cond
+        (or (nil? x) (= true x) (= :ok x)) (outcome :dao.stream/ok)
+        (= false x) (outcome :dao.stream/full)
+        (and (map? x) (:dao.stream/outcome x)) x
+        :else (outcome :dao.stream/transport-error)))
+    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+      (outcome :dao.stream/transport-error))))
+
+
+(declare receive! closed! opened! teardown!)
+
+
+(defn- outbound-level
+  "The outbound bytes the bounds are judged against: the seam's own
+   `:queued-bytes` where the host has it, else the cumulative encoded bytes
+   sent since open."
+  [s socket]
+  (if-let [queued (:queued-bytes socket)]
+    (queued)
+    (:sent-bytes s 0)))
+
+
+(defn- send-bounded!
+  "Send one encoded payload under the outbound bounds.  At or above
+   `:ws/max-outbound-bytes` the connection is torn down and the append
+   answers `closed`; at or above `:ws/outbound-high-water` (seam
+   `:queued-bytes` only) it answers the transient `full`."
+  [state attachment s socket payload]
+  (let [{:ws/keys [outbound-high-water max-outbound-bytes]} (:bounds s)
+        level (when (or outbound-high-water max-outbound-bytes)
+                (outbound-level s socket))]
+    (cond
+      (and max-outbound-bytes (>= level max-outbound-bytes))
+      (do (teardown! state attachment 1008 "dao.stream/outbound-overflow"
+                     :ws/outbound-overflow)
+          (outcome :dao.stream/closed))
+
+      (and outbound-high-water (:queued-bytes socket) (>= level outbound-high-water))
+      (outcome :dao.stream/full)
+
+      :else
+      (let [result (send-result socket payload)]
+        (when (and max-outbound-bytes (nil? (:queued-bytes socket))
+                   (= :dao.stream/ok (:dao.stream/outcome result)))
+          (swap! state update :sent-bytes (fnil + 0) (payload-size payload)))
+        result))))
+
+
+(defn- deposit!
+  [state event]
+  (let [target (:deposit @state)
+        result (stream/append! (:dao.stream/handle target) event)]
+    ;; A host promised this medium admits all boundary events.  A failed
+    ;; deposit is therefore terminal, rather than a reason to retain a hidden
+        socket (volatile! nil)]
+    (swap! state
+           (fn [s]
+             (if (= :closed (:phase s))
+               s
+               (do (vreset! socket (:socket s)) (assoc s :phase :closed)))))
+    (when (= :failed (invoke-close! @socket ended-close-code "dao.stream/ended"))
+      (emit-reason! state attachment :ws/error :ws/close-failure))
+    (outcome :dao.stream/ok)))
+
+
+(defn- new-handle
+  [descriptor attachment target phase socket codec bounds]
+  (let [state (atom {:phase phase :socket socket :deposit target
+                     :resolution? false :terminal? false :bounds bounds})]
+    [(WsHandle. state descriptor attachment codec) state]))
+
+
+(defn- teardown!
+  "Deposit the `:ws/error` diagnostic, close the phase, and ask the host to
+   close with `code`.  The host close callback still owns the terminal event."
+  [state attachment code reason diagnostic]
+  (emit-reason! state attachment :ws/error diagnostic)
+  (swap! state assoc :phase :closed)
+  (invoke-close! (:socket @state) code reason))
+
+
+(defn- protocol-failure!
+  [state attachment]
+  (teardown! state attachment protocol-close-code "dao.stream/protocol-error"
+             :ws/decode-failure))
+
+
+(defn- frame-too-large!
+  [state attachment]
+  (teardown! state attachment 1009 "dao.stream/frame-too-large" :ws/frame-too-large))
+
+
+(defn opened!
+  "Adapter entry: the host socket itself is open -- for a client, its own
+   `connect!` seam calls this the moment the underlying connection
+   establishes, with no wire frame of ours to wait for; for a server,
+   `accept-slot!` sets `:open` directly and this stays a guarded no-op
+   for it.  There is no admission handshake any more: a served identity's
+   presence is the mirror's own answer, per identity, once attached."
+  [handle]
+  (let [state (.-state ^WsHandle handle)
+        attachment (.-attachment ^WsHandle handle)
+        emit? (volatile! false)]
+    (swap! state (fn [s]
+                   (if (and (= :connecting (:phase s)) (not (:resolution? s)))
+                     (do (vreset! emit? true) (assoc s :phase :open :resolution? true))
+                     s)))
+    (when @emit? (emit! state attachment :ws/opened))))
+
+
+(defn- deliver!
+  "Decode one inbound frame payload with the handle's codec and dispatch its
+   envelope.  Wire validation only; application values are never judged.
+
+   There is no admission handshake any more, so a value frame can outrun
+
+exec
+/bin/zsh -lc 'clojure -M:test -n dao.stream.ws.jvm-test -n dao.stream.ws-project-test -n dao.stream.ws-test' in /Users/sto/workspace/datomworld-stream-s2
+ exited 1 in 3171ms:
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing dao.stream.ws.jvm-test
+
+ERROR in (an-oversize-fragmented-message-aborts-the-jvm-client) (Net.java:-2)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: java.net.SocketException: Operation not permitted
+ at sun.nio.ch.Net.bind0 (Net.java:-2)
+    sun.nio.ch.Net.bind (Net.java:565)
+    sun.nio.ch.Net.bind (Net.java:554)
+    sun.nio.ch.NioSocketImpl.bind (NioSocketImpl.java:636)
+    java.net.ServerSocket.bind (ServerSocket.java:391)
+    java.net.ServerSocket.<init> (ServerSocket.java:278)
+    dao.stream.ws.jvm_test$fragmenting_peer.invokeStatic (jvm_test.clj:606)
+    dao.stream.ws.jvm_test$fragmenting_peer.invoke (jvm_test.clj:599)
+    dao.stream.ws.jvm_test$overflow_run.invokeStatic (jvm_test.clj:651)
+    dao.stream.ws.jvm_test$overflow_run.invoke (jvm_test.clj:646)
+    dao.stream.ws.jvm_test$fn__7748$fn__7756.invoke (jvm_test.clj:675)
+    dao.stream.ws.jvm_test$fn__7748.invokeStatic (jvm_test.clj:674)
+    dao.stream.ws.jvm_test/fn (jvm_test.clj:667)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.boundedLength (RT.java:1810)
+    clojure.lang.RestFn.applyTo (RestFn.java:133)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+ERROR in (transit-and-cbor-sessions-share-one-live-jvm-listener) (Net.java:-2)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: java.net.SocketException: Operation not permitted
+ at sun.nio.ch.Net.bind0 (Net.java:-2)
+    sun.nio.ch.Net.bind (Net.java:565)
+    sun.nio.ch.ServerSocketChannelImpl.netBind (ServerSocketChannelImpl.java:344)
+    sun.nio.ch.ServerSocketChannelImpl.bind (ServerSocketChannelImpl.java:301)
+    java.nio.channels.ServerSocketChannel.bind (ServerSocketChannel.java:224)
+    org.httpkit.server.HttpServer.<init> (HttpServer.java:163)
+    org.httpkit.server$run_server.invokeStatic (server.clj:175)
+    org.httpkit.server$run_server.doInvoke (server.clj:73)
+    clojure.lang.RestFn.invoke (RestFn.java:426)
+    dao.stream.ws.jvm$listen_BANG_.invokeStatic (jvm.clj:443)
+    dao.stream.ws.jvm$listen_BANG_.invoke (jvm.clj:410)
+    dao.stream.ws.jvm_test$fn__7651.invokeStatic (jvm_test.clj:494)
+    dao.stream.ws.jvm_test/fn (jvm_test.clj:487)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.boundedLength (RT.java:1810)
+    clojure.lang.RestFn.applyTo (RestFn.java:133)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+ERROR in (a-cbor-client-offering-to-a-transit-only-jvm-listener-fails-its-upgrade) (Net.java:-2)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: java.net.SocketException: Operation not permitted
+ at sun.nio.ch.Net.bind0 (Net.java:-2)
+    sun.nio.ch.Net.bind (Net.java:565)
+    sun.nio.ch.ServerSocketChannelImpl.netBind (ServerSocketChannelImpl.java:344)
+    sun.nio.ch.ServerSocketChannelImpl.bind (ServerSocketChannelImpl.java:301)
+    java.nio.channels.ServerSocketChannel.bind (ServerSocketChannel.java:224)
+    org.httpkit.server.HttpServer.<init> (HttpServer.java:163)
+    org.httpkit.server$run_server.invokeStatic (server.clj:175)
+    org.httpkit.server$run_server.doInvoke (server.clj:73)
+    clojure.lang.RestFn.invoke (RestFn.java:426)
+    dao.stream.ws.jvm$listen_BANG_.invokeStatic (jvm.clj:443)
+    dao.stream.ws.jvm$listen_BANG_.invoke (jvm.clj:410)
+    dao.stream.ws.jvm_test$fn__7690.invokeStatic (jvm_test.clj:544)
+    dao.stream.ws.jvm_test/fn (jvm_test.clj:540)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.boundedLength (RT.java:1810)
+    clojure.lang.RestFn.applyTo (RestFn.java:133)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+Testing dao.stream.ws-project-test
+
+Testing dao.stream.ws-test
+
+Ran 62 tests containing 245 assertions.
+0 failures, 3 errors.
+
+codex
+The code addresses both blockers: browser close codes are mapped to DOM-supported values, and JVM reassembly overflow aborts immediately without waiting for pending sends. The adoption test now captures the healthy answer before tick 3. I’m checking the focused tests; the browser’s live-host gate remains closed as documented.
+
+exec
+/bin/zsh -lc "sed -n '135,215p' test/dao/stream/ws/browser_test.cljs; sed -n '150,220p' test/dao/stream/ws/jvm_test.clj; rg -n 'S2d|D5|reassembly|loopback' docs/design/dao.stream.remote.md; sed -n '400,450p' src/cljc/dao/stream/ws.cljc" in /Users/sto/workspace/datomworld-stream-s2
+ succeeded in 0ms:
+;; =============================================================================
+;; Overflow teardown under the DOM close-code contract
+;; =============================================================================
+
+
+(defn- validating-socket
+  "A fake whose `close` enforces the WHATWG contract -- only 1000 or
+   3000-4999, else `InvalidAccessError` before anything closes -- and, when
+   it accepts, dispatches the `close` event a real socket would, echoing the
+   code and reason."
+  [url protocol]
+  (let [fake (fake-socket url protocol)]
+    (unchecked-set (:socket fake) "close"
+                   (fn [code reason]
+                     (when-not (or (= 1000 code) (<= 3000 code 4999))
+                       (throw (doto (js/Error. "invalid code")
+                                (unchecked-set "name" "InvalidAccessError"))))
+                     (swap! (:closes fake) conj [code reason])
+                     ((:fire fake) "close" #js {:code code :reason reason})))
+    fake))
+
+
+(defn- attach-validating
+  [bounds]
+  (let [fake (validating-socket "ws://127.0.0.1:9183/yin/repl" ws/subprotocol)
+        traffic (buffer)]
+    (set-global-websocket! (fn [_url _protocol] (:socket fake)))
+    (let [attach ((ws/make-attacher (merge {:traffic {:dao.stream/handle traffic
+                                                      :dao.stream/surface #{:writer}}
+                                            :admission admission
+                                            :connect! browser/connect!}
+                                           bounds))
+                  (descriptor))]
+      ((:fire fake) "open" #js {})
+      {:fake fake :traffic traffic :handle (:dao.stream/handle attach)})))
+
+
+(deftest dom-close-rejects-the-raw-overflow-codes
+  (let [fake (validating-socket "ws://x" ws/subprotocol)]
+    (doseq [code [1008 1009 1013]]
+      (is (thrown? js/Error (.close ^js (:socket fake) code "r"))
+          "the fake enforces the DOM contract the adapter must satisfy"))
+    (is (= [] @(:closes fake)))))
+
+
+(deftest inbound-overflow-closes-the-dom-socket
+  (let [{:keys [fake traffic]} (attach-validating {:ws/max-frame-bytes 8})]
+    ((:fire fake) "message" #js {:data "a frame well past eight characters"})
+    (is (= [[1000 "dao.stream/frame-too-large"]] @(:closes fake))
+        "1009 reaches the DOM as 1000 with the transport's reason, so the
+         socket closes rather than throwing InvalidAccessError")
+    (is (= [[:ws/opened nil] [:ws/error :ws/frame-too-large] [:ws/closed nil]]
+           (event-kinds traffic))
+        "the qualified diagnostic, then the terminal from the DOM close event")))
+
+
+(deftest outbound-overflow-closes-the-dom-socket
+  (let [{:keys [fake traffic handle]} (attach-validating {:ws/max-outbound-bytes 16})]
+    (set! (.-bufferedAmount ^js (:socket fake)) 64)
+    (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! handle [:v]))))
+    (is (= [[1000 "dao.stream/outbound-overflow"]] @(:closes fake))
+        "1008 reaches the DOM as 1000 with the transport's reason")
+    (is (= [[:ws/opened nil] [:ws/error :ws/outbound-overflow] [:ws/closed nil]]
+           (event-kinds traffic)))))
+
+
+;; =============================================================================
+;; Deterministic wiring through the fake DOM socket
+;; =============================================================================
+
+
+(deftest wiring-deposits-opened-and-closed-through-the-boundary
+  (let [traffic (buffer)
+        fake (fake-socket "ws://127.0.0.1:9183/yin/repl" ws/subprotocol)]
+    (set-global-websocket! (fn [_url _protocol] (:socket fake)))
+    (let [attach ((ws/make-attacher {:traffic {:dao.stream/handle traffic
+                                               :dao.stream/surface #{:writer}}
+                                     :admission admission
+                                     :connect! browser/connect!})
+                  (descriptor))
+          handle (:dao.stream/handle attach)]
+          "sendClose is chained behind the pending send")
+      (.complete ^CompletableFuture (first @futures) nil)
+      (is (= [[:send-text "in flight"] [:send-close 1000 "bye"]] @trace)
+          "and issues once the send completes"))))
+
+
+(deftest an-unsendable-close-code-aborts-at-once-behind-a-pending-send
+  (testing "sendClose rejects 1009, so the seam aborts rather than chaining it"
+    (let [{:keys [trace futures seam]} (scripted)]
+      ((:send! seam) "in flight")
+      ((:send! seam) "chained")
+      (is (nil? ((:close! seam) 1009 "dao.stream/frame-too-large")))
+      (is (= [[:send-text "in flight"]
+              [:abort]
+              [:closed! 1009 "dao.stream/frame-too-large"]]
+             @trace)
+          "the abort does not wait for the pending send, issues no sendClose,
+           and reports the requested code locally")
+      (.completeExceptionally ^CompletableFuture (first @futures)
+                              (java.io.IOException. "aborted"))
+      (is (= [[:send-text "in flight"]
+              [:abort]
+              [:closed! 1009 "dao.stream/frame-too-large"]]
+             @trace)
+          "the sends the abort failed report nothing further")
+      (is (= {:dao.stream/outcome :dao.stream/closed} ((:send! seam) "after"))
+          "and the connection accepts no further sends")))
+  (testing "a code sendClose accepts still rides the chain"
+    (let [{:keys [trace futures seam]} (scripted)]
+      ((:send! seam) "in flight")
+      ((:close! seam) 1008 "dao.stream/outbound-overflow")
+      (.complete ^CompletableFuture (first @futures) nil)
+      (is (= [[:send-text "in flight"]
+              [:send-close 1008 "dao.stream/outbound-overflow"]]
+             @trace)))))
+
+
+(deftest client-socket-accounts-queued-bytes-across-the-send-chain
+  (testing "the backlog rises on submission and falls on completion"
+    (let [{:keys [futures seam]} (scripted)
+          queued (:queued-bytes seam)]
+      (is (zero? (queued)) "an idle connection has no backlog")
+      ((:send! seam) "abc")
+      ((:send! seam) "defgh")
+      (is (= 8 (queued)) "both the in-flight and the chained send count")
+      (.complete ^CompletableFuture (first @futures) nil)
+      (is (= 5 (queued)) "the first send's bytes leave on its completion")
+      ((:close! seam) 1000 "bye")
+      (is (= 5 (queued)) "a close frame carries no payload bytes")
+      (.complete ^CompletableFuture (second @futures) nil)
+      (.complete ^CompletableFuture (nth @futures 2) nil)
+      (is (zero? (queued)) "the drained chain has no backlog"))))
+
+
+(deftest an-inline-failure-reports-without-holding-the-submission-lock
+  (testing "an already-failed send runs its observer inline, off the monitor"
+    (let [trace (atom [])
+          holds (atom [])
+          connection (atom nil)
+          socket (reify WebSocket
+                   (sendText
+                     [_ data _last?]
+                     (swap! trace conj [:send-text (str data)])
+                     ;; already exceptional: whenComplete runs inline, on the
+                     ;; submitting thread
+                     (doto (CompletableFuture.)
+                       (.completeExceptionally (ex-info "refused" {}))))
+
+                   (sendClose
+                     [_ code reason]
+                     (swap! trace conj [:send-close code reason])
+731:- Link state, UDP reassembly buffers, channel sockets: no; governed by close
+            (if-not (and (= :ws/value (:ws/frame frame))
+                         (contains? frame :ws/value)
+                         ((:ws/portable-value? codec) (:ws/value frame)))
+              (protocol-failure! state attachment)
+              (let [value (:ws/value frame)
+                    action (volatile! nil)]
+                (swap! state
+                       (fn [s]
+                         (case (:phase s)
+                           :open (do (vreset! action :open) s)
+                           (:pending :replaying)
+                           (let [queued (+ (:pending-bytes s 0) size)]
+                             (if (or (and max-pending-frames
+                                          (>= (count (:pending-frames s)) max-pending-frames))
+                                     (and max-pending-bytes (> queued max-pending-bytes)))
+                               (do (vreset! action :overflow) (assoc s :phase :closed))
+                               (do (vreset! action :pending)
+                                   (-> s
+                                       (update :pending-frames (fnil conj []) value)
+                                       (assoc :pending-bytes queued)))))
+                           (do (vreset! action :else) s))))
+                (case @action
+                  :open (emit! state attachment :ws/payload value)
+                  :pending nil
+                  :overflow (teardown! state attachment 1013 "dao.stream/pending-overflow"
+                                       :ws/pending-overflow)
+                  :else (protocol-failure! state attachment)))))))
+      (catch #?(:cljd Object :clj Throwable :cljs :default) _
+        (protocol-failure! state attachment)))))
+
+
+(defn receive!
+  "Adapter entry for one text WebSocket message.  A text frame on a binary
+   profile is a protocol failure — the transport reads the frame's declared
+   kind, never its content."
+  [handle text]
+  (if (= :text (:ws/frame-kind (.-codec ^WsHandle handle)))
+    (deliver! handle text)
+    (protocol-failure! (.-state ^WsHandle handle)
+                       (.-attachment ^WsHandle handle))))
+
+
+(defn receive-binary!
+  "Adapter entry for one binary WebSocket message (a host byte payload):
+   byte[] on the JVM, Uint8Array on ClojureScript, Uint8List on Dart.  A
+   binary frame on a text profile is a protocol failure."
+  [handle bytes]
+  (if (= :binary (:ws/frame-kind (.-codec ^WsHandle handle)))
+    (deliver! handle bytes)
+    (protocol-failure! (.-state ^WsHandle handle)
+                       (.-attachment ^WsHandle handle))))
+
+web search: 
+web search: https://websockets.spec.whatwg.org/#dom-websocket-close
+exec
+/bin/zsh -lc 'clojure -M:test -n dao.stream.ws.jvm-test -n dao.stream.ws-project-test -n dao.stream.ws-test' in /Users/sto/workspace/datomworld-stream-s2
+web search: 
+ succeeded in 3295ms:
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing dao.stream.ws.jvm-test
+
+Testing dao.stream.ws-project-test
+
+Testing dao.stream.ws-test
+
+Ran 62 tests containing 270 assertions.
+0 failures, 0 errors.
+
+web search: '1009'
+exec
+/bin/zsh -lc "rg -n 'Host wire codes|Reassembly retains|browser \\(DOM|defn- adoption-isolated|answered \\(set|defn- fragmenting-peer|deftest an-oversize|defn- assemble|abort"'!|defn- dom-close'"' docs/design/dao.stream.ws.md src/clj/dao/stream/ws/jvm.clj src/cljs/dao/stream/ws/browser.cljs test/dao/stream/ws_project_test.cljc test/dao/stream/ws/jvm_test.clj" in /Users/sto/workspace/datomworld-stream-s2
+ succeeded in 0ms:
+src/clj/dao/stream/ws/jvm.clj:188:          (abort!
+src/clj/dao/stream/ws/jvm.clj:245:                       (abort! socket code reason)
+test/dao/stream/ws_project_test.cljc:639:(defn- adoption-isolated
+test/dao/stream/ws_project_test.cljc:661:          answered (set (map :dao.stream.remote/id (values sock-1)))
+test/dao/stream/ws/jvm_test.clj:599:(defn- fragmenting-peer
+test/dao/stream/ws/jvm_test.clj:667:(deftest an-oversize-fragmented-message-aborts-the-jvm-client
+src/cljs/dao/stream/ws/browser.cljs:71:(defn- dom-close-code?
+docs/design/dao.stream.ws.md:331:substitutes a supported teardown (Host wire codes, below).
+docs/design/dao.stream.ws.md:498:| browser (DOM `WebSocket`) | `bufferedAmount` | exact | the transport, on whole messages | gated |
+docs/design/dao.stream.ws.md:504:**Host wire codes.** The close codes above are what the transport asks its
+docs/design/dao.stream.ws.md:519:  1009. Reassembly retains at most the bound plus one fragment before the
+
+codex
+The focused JVM suites pass independently: 62 tests, 270 assertions, zero failures or errors, including live text and binary fragmentation. I’ll record ACCEPTED for S2d, with the browser gate and existing memory-capacity, ownership, and concurrency limitations retained.
+
+apply patch
+patch: completed
+/Users/sto/workspace/datomworld-stream-s2/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md
+diff --git a/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md b/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..632b75a63c7d8bd347cf984afb4484a727c86683
+--- /dev/null
++++ b/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md
+@@ -0,0 +1,48 @@
++# Slice S2d final architectural sign-off
++
++**Verdict: ACCEPTED**
++
++Reviewed `stream-crossmachine-s2`, HEAD `4ca18fec`, including the uncommitted reconciliation. This confirmation supersedes the WITHHELD verdict in `collab/1791380000000-architect-stream-s2d-signoff.gpt-6-astra.findings.md` for S2d. B1 and B2 are resolved, and the same-tick adoption assertion is corrected. No remaining blocking finding in this reconciliation scope.
++
++## B1 — Resolved; browser host lift remains gated
++
++`src/cljs/dao/stream/ws/browser.cljs:71–96` validates the requested close code at the host seam and substitutes 1000 for unsupported codes, retaining the transport reason. Existing supported codes pass through. This satisfies the [WHATWG close-code contract](https://websockets.spec.whatwg.org/#dom-websocket-close), which permits explicit 1000 or 3000–4999. The qualified local overflow diagnostic remains transport stream data; no new remote outcome or private wire vocabulary is introduced.
++
++`test/dao/stream/ws/browser_test.cljs:140–201` supplies the missing contract enforcement: invalid raw codes throw without recording a close, while inbound and outbound overflow pass supported arguments and yield error followed by terminal through the wired close event. These tests would catch the previous direct forwarding of 1008/1009.
++
++The fake dispatches closure synchronously and echoes the requested code. It demonstrates mapping and lifecycle wiring, not real-browser timing, peer behavior, or closure under a stalled outbound queue. DOM close does not discard previously queued sends. Accordingly, `docs/design/dao.stream.ws.md:498–514` correctly retains the browser gate and explicitly identifies the fake-only evidence. Acceptance of S2d does **not** authorize lifting that gate. A successful wire handshake uses 1000 plus the reason; abnormal closure need not produce that peer-observed code.
++
++## B2 — Resolved
++
++`src/clj/dao/stream/ws/jvm.clj:133–138,188–192,241–249` routes the explicitly prohibited Java close codes to immediate abort, outside the send chain. The rejection set matches the [Java WebSocket API contract](https://docs.oracle.com/en/java/javase/21/docs/api/java.net.http/java/net/http/WebSocket.html#sendClose(int,java.lang.String)). The existing once-only failure claim precedes abort, so failed pending futures do not replace the size diagnostic with a send-failed diagnostic or a second terminal. Further sends return closed.
++
++The adapter reports the requested code and reason locally after abort. This is a host teardown outcome deposited through the existing adapter, not a claim that 1009 was transmitted. The documentation now distinguishes the local terminal from the peer's abnormal connection loss without a close frame.
++
++Two complementary tests establish the resolution:
++
++- `test/dao/stream/ws/jvm_test.clj:156` proves immediate abort with one send in flight and another chained, no sendClose invocation, no duplicate report when the pending future fails, and refusal of later sends. It also preserves normal chaining for 1008.
++- `test/dao/stream/ws/jvm_test.clj:599–694` uses a real JVM client and raw loopback peer sending four 600-byte WebSocket fragments against a 1000-unit bound, for both Transit text and CBOR binary. It verifies the size diagnostic, one terminal, no payload or decode-failure, no client close-frame bytes, and peer EOF/reset within the bounded wait. This test passed independently in this review.
++
++The live test alone would not distinguish the former eventual abort after illegal sendClose; the pending-send regression supplies that distinction. Together with inspection of the pre-decode reassembly path, the evidence addresses B2.
++
++## Same-tick adoption assertion — Resolved
++
++`test/dao/stream/ws_project_test.cljc:659–666` now realizes the healthy answer set immediately after tick 2, before stepping tick 3. Both make-media and acknowledgement-append failure tests assert that captured set. A regression postponing healthy work until tick 3 can no longer pass. The existing one-slot fixture remains an acceptable proof of isolation.
++
++## Qualifications retained by this sign-off
++
++- The JVM reassembly bound limits accumulated logical content, checked after appending the current callback fragment. “Bound plus one fragment” is not a strict heap-capacity limit: growable backing arrays may overallocate, the binary path has a temporary chunk, and clearing retains backing capacity until the connection becomes reclaimable. The live test exercises overflow but does not measure retained capacity. This is the previously identified qualification, not a newly demonstrated blocker.
++- Browser inbound allocation still precedes the whole-message transport check. Browser, http-kit server, and Dart remain gated as documented.
++- Backlog observations and sequential tests do not establish atomic concurrent append admission or eliminate the acknowledgement/reopen race. Threshold checks can admit a payload that crosses the threshold; text character counts are not UTF-8 byte counts.
++- Media disposal after acknowledgement failure remains an ownership follow-up. The pre-open JVM deferred-close path does not use the new abort mapping, but the reviewed overflow paths require an opened client and cannot trigger it before onOpen.
++
++The reconciliation preserves the architectural boundary: host restrictions are handled in host seams, diagnostics and lifecycle remain stream data, and portable interpretation gains no application callback channel, scheduler, registry, or remote outcome vocabulary.
++
++## Verification
++
++- Independently read the foundations, prior architectural findings, reconciliation report, relevant implementation/test/documentation diffs, and host API contracts.
++- Independently ran `clojure -M:test -n dao.stream.ws.jvm-test -n dao.stream.ws-project-test -n dao.stream.ws-test`: **62 tests, 270 assertions, 0 failures, 0 errors**. The first sandboxed run could not bind loopback listeners (three environment errors); the authorized rerun with socket access passed.
++- `git diff --check`: clean.
++- Supplied full-lane evidence, not independently rerun here: JVM **3672 tests / 237705 assertions**, Node **3527 tests / 102174 assertions**, Dart **3479 tests**, all passing; cljstyle clean; kondo zero errors. Browser regression execution relies on that supplied Node-lane evidence.
++
++**Final decision: ACCEPTED for Slice S2d with the documented host gates and retained qualifications.** This is not blanket approval to lift every host's loopback gate. Only this report was added; no implementation changes or commit were made.
+
+exec
+/bin/zsh -lc 'git diff --check; test -s collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md' in /Users/sto/workspace/datomworld-stream-s2
+ succeeded in 0ms:
+diff --git a/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md b/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..632b75a63c7d8bd347cf984afb4484a727c86683
+--- /dev/null
++++ b/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md
+@@ -0,0 +1,48 @@
++# Slice S2d final architectural sign-off
++
++**Verdict: ACCEPTED**
++
++Reviewed `stream-crossmachine-s2`, HEAD `4ca18fec`, including the uncommitted reconciliation. This confirmation supersedes the WITHHELD verdict in `collab/1791380000000-architect-stream-s2d-signoff.gpt-6-astra.findings.md` for S2d. B1 and B2 are resolved, and the same-tick adoption assertion is corrected. No remaining blocking finding in this reconciliation scope.
++
++## B1 — Resolved; browser host lift remains gated
++
++`src/cljs/dao/stream/ws/browser.cljs:71–96` validates the requested close code at the host seam and substitutes 1000 for unsupported codes, retaining the transport reason. Existing supported codes pass through. This satisfies the [WHATWG close-code contract](https://websockets.spec.whatwg.org/#dom-websocket-close), which permits explicit 1000 or 3000–4999. The qualified local overflow diagnostic remains transport stream data; no new remote outcome or private wire vocabulary is introduced.
++
++`test/dao/stream/ws/browser_test.cljs:140–201` supplies the missing contract enforcement: invalid raw codes throw without recording a close, while inbound and outbound overflow pass supported arguments and yield error followed by terminal through the wired close event. These tests would catch the previous direct forwarding of 1008/1009.
++
++The fake dispatches closure synchronously and echoes the requested code. It demonstrates mapping and lifecycle wiring, not real-browser timing, peer behavior, or closure under a stalled outbound queue. DOM close does not discard previously queued sends. Accordingly, `docs/design/dao.stream.ws.md:498–514` correctly retains the browser gate and explicitly identifies the fake-only evidence. Acceptance of S2d does **not** authorize lifting that gate. A successful wire handshake uses 1000 plus the reason; abnormal closure need not produce that peer-observed code.
++
++## B2 — Resolved
++
++`src/clj/dao/stream/ws/jvm.clj:133–138,188–192,241–249` routes the explicitly prohibited Java close codes to immediate abort, outside the send chain. The rejection set matches the [Java WebSocket API contract](https://docs.oracle.com/en/java/javase/21/docs/api/java.net.http/java/net/http/WebSocket.html#sendClose(int,java.lang.String)). The existing once-only failure claim precedes abort, so failed pending futures do not replace the size diagnostic with a send-failed diagnostic or a second terminal. Further sends return closed.
++
++The adapter reports the requested code and reason locally after abort. This is a host teardown outcome deposited through the existing adapter, not a claim that 1009 was transmitted. The documentation now distinguishes the local terminal from the peer's abnormal connection loss without a close frame.
++
++Two complementary tests establish the resolution:
++
++- `test/dao/stream/ws/jvm_test.clj:156` proves immediate abort with one send in flight and another chained, no sendClose invocation, no duplicate report when the pending future fails, and refusal of later sends. It also preserves normal chaining for 1008.
++- `test/dao/stream/ws/jvm_test.clj:599–694` uses a real JVM client and raw loopback peer sending four 600-byte WebSocket fragments against a 1000-unit bound, for both Transit text and CBOR binary. It verifies the size diagnostic, one terminal, no payload or decode-failure, no client close-frame bytes, and peer EOF/reset within the bounded wait. This test passed independently in this review.
++
++The live test alone would not distinguish the former eventual abort after illegal sendClose; the pending-send regression supplies that distinction. Together with inspection of the pre-decode reassembly path, the evidence addresses B2.
++
++## Same-tick adoption assertion — Resolved
++
++`test/dao/stream/ws_project_test.cljc:659–666` now realizes the healthy answer set immediately after tick 2, before stepping tick 3. Both make-media and acknowledgement-append failure tests assert that captured set. A regression postponing healthy work until tick 3 can no longer pass. The existing one-slot fixture remains an acceptable proof of isolation.
++
++## Qualifications retained by this sign-off
++
++- The JVM reassembly bound limits accumulated logical content, checked after appending the current callback fragment. “Bound plus one fragment” is not a strict heap-capacity limit: growable backing arrays may overallocate, the binary path has a temporary chunk, and clearing retains backing capacity until the connection becomes reclaimable. The live test exercises overflow but does not measure retained capacity. This is the previously identified qualification, not a newly demonstrated blocker.
++- Browser inbound allocation still precedes the whole-message transport check. Browser, http-kit server, and Dart remain gated as documented.
++- Backlog observations and sequential tests do not establish atomic concurrent append admission or eliminate the acknowledgement/reopen race. Threshold checks can admit a payload that crosses the threshold; text character counts are not UTF-8 byte counts.
++- Media disposal after acknowledgement failure remains an ownership follow-up. The pre-open JVM deferred-close path does not use the new abort mapping, but the reviewed overflow paths require an opened client and cannot trigger it before onOpen.
++
++The reconciliation preserves the architectural boundary: host restrictions are handled in host seams, diagnostics and lifecycle remain stream data, and portable interpretation gains no application callback channel, scheduler, registry, or remote outcome vocabulary.
++
++## Verification
++
++- Independently read the foundations, prior architectural findings, reconciliation report, relevant implementation/test/documentation diffs, and host API contracts.
++- Independently ran `clojure -M:test -n dao.stream.ws.jvm-test -n dao.stream.ws-project-test -n dao.stream.ws-test`: **62 tests, 270 assertions, 0 failures, 0 errors**. The first sandboxed run could not bind loopback listeners (three environment errors); the authorized rerun with socket access passed.
++- `git diff --check`: clean.
++- Supplied full-lane evidence, not independently rerun here: JVM **3672 tests / 237705 assertions**, Node **3527 tests / 102174 assertions**, Dart **3479 tests**, all passing; cljstyle clean; kondo zero errors. Browser regression execution relies on that supplied Node-lane evidence.
++
++**Final decision: ACCEPTED for Slice S2d with the documented host gates and retained qualifications.** This is not blanket approval to lift every host's loopback gate. Only this report was added; no implementation changes or commit were made.
+
+codex
+**ACCEPTED.** B1, B2, and the same-tick adoption assertion are resolved. Browser host lift remains gated.
+
+Independently verified: **62 tests, 270 assertions, zero failures or errors**.
+
+[Final sign-off report](collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md)
+diff --git a/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md b/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..632b75a63c7d8bd347cf984afb4484a727c86683
+--- /dev/null
++++ b/collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md
+@@ -0,0 +1,48 @@
++# Slice S2d final architectural sign-off
++
++**Verdict: ACCEPTED**
++
++Reviewed `stream-crossmachine-s2`, HEAD `4ca18fec`, including the uncommitted reconciliation. This confirmation supersedes the WITHHELD verdict in `collab/1791380000000-architect-stream-s2d-signoff.gpt-6-astra.findings.md` for S2d. B1 and B2 are resolved, and the same-tick adoption assertion is corrected. No remaining blocking finding in this reconciliation scope.
++
++## B1 — Resolved; browser host lift remains gated
++
++`src/cljs/dao/stream/ws/browser.cljs:71–96` validates the requested close code at the host seam and substitutes 1000 for unsupported codes, retaining the transport reason. Existing supported codes pass through. This satisfies the [WHATWG close-code contract](https://websockets.spec.whatwg.org/#dom-websocket-close), which permits explicit 1000 or 3000–4999. The qualified local overflow diagnostic remains transport stream data; no new remote outcome or private wire vocabulary is introduced.
++
++`test/dao/stream/ws/browser_test.cljs:140–201` supplies the missing contract enforcement: invalid raw codes throw without recording a close, while inbound and outbound overflow pass supported arguments and yield error followed by terminal through the wired close event. These tests would catch the previous direct forwarding of 1008/1009.
++
++The fake dispatches closure synchronously and echoes the requested code. It demonstrates mapping and lifecycle wiring, not real-browser timing, peer behavior, or closure under a stalled outbound queue. DOM close does not discard previously queued sends. Accordingly, `docs/design/dao.stream.ws.md:498–514` correctly retains the browser gate and explicitly identifies the fake-only evidence. Acceptance of S2d does **not** authorize lifting that gate. A successful wire handshake uses 1000 plus the reason; abnormal closure need not produce that peer-observed code.
++
++## B2 — Resolved
++
++`src/clj/dao/stream/ws/jvm.clj:133–138,188–192,241–249` routes the explicitly prohibited Java close codes to immediate abort, outside the send chain. The rejection set matches the [Java WebSocket API contract](https://docs.oracle.com/en/java/javase/21/docs/api/java.net.http/java/net/http/WebSocket.html#sendClose(int,java.lang.String)). The existing once-only failure claim precedes abort, so failed pending futures do not replace the size diagnostic with a send-failed diagnostic or a second terminal. Further sends return closed.
++
++The adapter reports the requested code and reason locally after abort. This is a host teardown outcome deposited through the existing adapter, not a claim that 1009 was transmitted. The documentation now distinguishes the local terminal from the peer's abnormal connection loss without a close frame.
++
++Two complementary tests establish the resolution:
++
++- `test/dao/stream/ws/jvm_test.clj:156` proves immediate abort with one send in flight and another chained, no sendClose invocation, no duplicate report when the pending future fails, and refusal of later sends. It also preserves normal chaining for 1008.
++- `test/dao/stream/ws/jvm_test.clj:599–694` uses a real JVM client and raw loopback peer sending four 600-byte WebSocket fragments against a 1000-unit bound, for both Transit text and CBOR binary. It verifies the size diagnostic, one terminal, no payload or decode-failure, no client close-frame bytes, and peer EOF/reset within the bounded wait. This test passed independently in this review.
++
++The live test alone would not distinguish the former eventual abort after illegal sendClose; the pending-send regression supplies that distinction. Together with inspection of the pre-decode reassembly path, the evidence addresses B2.
++
++## Same-tick adoption assertion — Resolved
++
++`test/dao/stream/ws_project_test.cljc:659–666` now realizes the healthy answer set immediately after tick 2, before stepping tick 3. Both make-media and acknowledgement-append failure tests assert that captured set. A regression postponing healthy work until tick 3 can no longer pass. The existing one-slot fixture remains an acceptable proof of isolation.
++
++## Qualifications retained by this sign-off
++
++- The JVM reassembly bound limits accumulated logical content, checked after appending the current callback fragment. “Bound plus one fragment” is not a strict heap-capacity limit: growable backing arrays may overallocate, the binary path has a temporary chunk, and clearing retains backing capacity until the connection becomes reclaimable. The live test exercises overflow but does not measure retained capacity. This is the previously identified qualification, not a newly demonstrated blocker.
++- Browser inbound allocation still precedes the whole-message transport check. Browser, http-kit server, and Dart remain gated as documented.
++- Backlog observations and sequential tests do not establish atomic concurrent append admission or eliminate the acknowledgement/reopen race. Threshold checks can admit a payload that crosses the threshold; text character counts are not UTF-8 byte counts.
++- Media disposal after acknowledgement failure remains an ownership follow-up. The pre-open JVM deferred-close path does not use the new abort mapping, but the reviewed overflow paths require an opened client and cannot trigger it before onOpen.
++
++The reconciliation preserves the architectural boundary: host restrictions are handled in host seams, diagnostics and lifecycle remain stream data, and portable interpretation gains no application callback channel, scheduler, registry, or remote outcome vocabulary.
++
++## Verification
++
++- Independently read the foundations, prior architectural findings, reconciliation report, relevant implementation/test/documentation diffs, and host API contracts.
++- Independently ran `clojure -M:test -n dao.stream.ws.jvm-test -n dao.stream.ws-project-test -n dao.stream.ws-test`: **62 tests, 270 assertions, 0 failures, 0 errors**. The first sandboxed run could not bind loopback listeners (three environment errors); the authorized rerun with socket access passed.
++- `git diff --check`: clean.
++- Supplied full-lane evidence, not independently rerun here: JVM **3672 tests / 237705 assertions**, Node **3527 tests / 102174 assertions**, Dart **3479 tests**, all passing; cljstyle clean; kondo zero errors. Browser regression execution relies on that supplied Node-lane evidence.
++
++**Final decision: ACCEPTED for Slice S2d with the documented host gates and retained qualifications.** This is not blanket approval to lift every host's loopback gate. Only this report was added; no implementation changes or commit were made.
+
+tokens used
+64,132
+**ACCEPTED.** B1, B2, and the same-tick adoption assertion are resolved. Browser host lift remains gated.
+
+Independently verified: **62 tests, 270 assertions, zero failures or errors**.
+
+[Final sign-off report](collab/1791382000000-architect-stream-s2d-confirm.gpt-6-astra.findings.md)

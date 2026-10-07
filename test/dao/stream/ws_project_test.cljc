@@ -636,6 +636,77 @@
           "the flood drains two events per tick, its cursor kept"))))
 
 
+(defn- adoption-isolated
+  "Adopt a healthy att-1, then offer att-bad while att-1 has a request
+   standing, with `break!` making att-bad's adoption throw. Answers the
+   observations the two isolation tests share."
+  [break!]
+  (let [media (atom [])
+        {:keys [acceptor offers acks]}
+        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}})
+        sock-1 (ring 8)
+        sock-bad (ring 8)]
+    (offer! offers "att-1" sock-1)
+    (project/accept-step! acceptor 1)
+    (break! acceptor acks)
+    (deposit! (:traffic (first @media))
+              (payload "att-1" {:dao.stream/identity "str-1"
+                                :dao.stream.remote/op :dao.stream/descriptor
+                                :dao.stream.remote/args []
+                                :dao.stream.remote/id 5}))
+    (offer! offers "att-bad" sock-bad)
+    (project/accept-step! acceptor 2)
+    (let [sessions-after-bad (set (keys (project/sessions acceptor)))
+          ;; Captured before tick 3, so the answer is tick 2's own work.
+          answered (set (map :dao.stream.remote/id (values sock-1)))
+          sock-3 (ring 8)]
+      (offer! offers "att-3" sock-3)
+      (project/accept-step! acceptor 3)
+      {:sessions-after-bad sessions-after-bad
+       :answered answered
+       :bad-closed (:dao.stream/outcome (stream/append! sock-bad :test))
+       :sessions-after-next (set (keys (project/sessions acceptor)))})))
+
+
+(deftest a-throwing-make-media-is-isolated
+  (let [r (adoption-isolated
+            (fn [acceptor _]
+              (swap! acceptor update :make-media
+                     (fn [f]
+                       (fn [offer]
+                         (if (= "att-bad" (:ws/attachment offer))
+                           (throw (ex-info "make-media failed" {}))
+                           (f offer)))))))]
+    (is (= #{"att-1"} (:sessions-after-bad r))
+        "no session exists for the throwing offer")
+    (is (= #{5} (:answered r))
+        "the healthy session answered in the same tick")
+    (is (= :dao.stream/closed (:bad-closed r))
+        "the throwing offer's handle was closed")
+    (is (= #{"att-1" "att-3"} (:sessions-after-next r))
+        "the next offer is adopted as usual")))
+
+
+(deftest a-throwing-ack-append-is-isolated
+  (let [r (adoption-isolated
+            (fn [acceptor acks]
+              (swap! acceptor assoc-in [:slots 0 :ack-writer :dao.stream/handle]
+                     (reify stream/IDaoStreamWriter
+                       (append!
+                         [_ ack]
+                         (if (= "att-bad" (:ws/attachment ack))
+                           (throw (ex-info "ack append failed" {}))
+                           (stream/append! acks ack)))))))]
+    (is (= #{"att-1"} (:sessions-after-bad r))
+        "no session exists for the throwing offer")
+    (is (= #{5} (:answered r))
+        "the healthy session answered in the same tick")
+    (is (= :dao.stream/closed (:bad-closed r))
+        "the throwing offer's handle was closed")
+    (is (= #{"att-1" "att-3"} (:sessions-after-next r))
+        "the next offer is adopted as usual")))
+
+
 (defn- served-with
   "A served ring holding `vs`, and a next request on it from oldest
    with id `id` asking a chase of `budget`."

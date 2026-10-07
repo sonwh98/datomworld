@@ -1,0 +1,21 @@
+The plan-mode exit tool is not available in this session, so I cannot hand the plan over through it. The plan is complete and written; here is what it contains and what happens on approval.
+
+**What I did**
+
+I read the brief, the two findings it cites (the transport mob consensus and the S0/S1 sign-off), the three source files S2 touches (`remote.cljc`, `ws.cljc`, `ws_project.cljc`), the JVM, Node and Dart socket seams, the design sections to be amended, and the existing test fixtures. No file in the worktree was modified.
+
+**Where the plan is**
+
+`/Users/sto/.claude/plans/read-collab-1791353752491-architect-stre-vectorized-forest.md`
+
+It carries the full Slice S2 specification as the text to be written to the findings path the brief names. The key decisions in it:
+
+- **Answering side (S2a).** `mirror-step` gains a sixth argument, a bounds map with `:dao.stream.remote/mirror-budget` and `:dao.stream.remote/chase-budget`. Exhaustion returns the cursor at the stop point, never end. A writer `full` rewinds idempotent answers and drops append answers. ws-project passes the bounds from acceptor and dial config.
+- **Link side (S2b).** `drain-budget`, `max-outstanding` (refused locally as if the writer said full), `max-filed` (evict oldest; everything filed is idempotent-recomputable), and a clamp installing no more prefetched outcomes than the link asked for.
+- **Liveness (S2c).** `give-up-after` in ms. The link still reads no clock. A new `:step` entry on the links map takes driver-supplied `now`, drains a bounded snapshot, then declares channel loss through the existing loss path. `dial-step!` gets a two-arity with `now` and closes the socket handle on loss. The deadline is fixed at first send and never moved by a resend. One recorded deviation: a kept, never-accepted probe also gets a deadline, so an establishment stall is bounded.
+- **Bytes and frames (S2d).** Five `:ws/` keys for frame size, pending count and bytes, outbound high-water (answers full) and outbound max (teardown). Outbound accounting comes from an optional seam key `:queued-bytes`. JVM client and Node/browser get exact accounting; Dart and the http-kit server fall back to a cumulative quota and stay gated. `adopt!` gets try/catch around make-media and the ack append.
+- **Failure table, test plan per sub-slice with the fixtures to reuse, and the landing order** S2a, S2b, S2c, S2d, each its own commit with its design amendments.
+
+**On approval**
+
+I will fill the completion timestamp, write the spec to `collab/1791353752491-architect-stream-s2-spec.claude-fable-5-1.findings.md`, and confirm that `git status` shows no modified tracked files.

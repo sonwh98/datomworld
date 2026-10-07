@@ -114,6 +114,33 @@
   (str (random-uuid)))
 
 
+(def ^:private bound-keys
+  "The byte and frame bounds a composition may set on `make-attacher` and
+   `make-endpoint`.  Each is a positive integer or nil; nil is unbounded."
+  [:ws/max-frame-bytes :ws/max-pending-frames :ws/max-pending-bytes
+   :ws/outbound-high-water :ws/max-outbound-bytes])
+
+
+(defn- checked-bounds
+  [config]
+  (let [bounds (select-keys config bound-keys)]
+    (when-not (every? (fn [[_ v]] (or (nil? v) (and (integer? v) (pos? v)))) bounds)
+      (throw (ex-info "invalid DaoStream WebSocket bounds" {:bounds bounds})))
+    bounds))
+
+
+(defn- payload-size
+  "The raw size of one wire payload: characters for a text payload, bytes
+   for host bytes.  `:cljd` comes first because the cljd host-eval pass also
+   reads a `:clj` branch."
+  [payload]
+  (if (string? payload)
+    (count payload)
+    #?(:cljd (.-length ^List payload)
+       :cljs (.-length ^js payload)
+       :clj (alength ^bytes payload))))
+
+
 (defn- invoke-close!
   [socket code reason]
   (when-let [f (:close! socket)]
@@ -141,7 +168,43 @@
       (outcome :dao.stream/transport-error))))
 
 
-(declare receive! closed! opened!)
+(declare receive! closed! opened! teardown!)
+
+
+(defn- outbound-level
+  "The outbound bytes the bounds are judged against: the seam's own
+   `:queued-bytes` where the host has it, else the cumulative encoded bytes
+   sent since open."
+  [s socket]
+  (if-let [queued (:queued-bytes socket)]
+    (queued)
+    (:sent-bytes s 0)))
+
+
+(defn- send-bounded!
+  "Send one encoded payload under the outbound bounds.  At or above
+   `:ws/max-outbound-bytes` the connection is torn down and the append
+   answers `closed`; at or above `:ws/outbound-high-water` (seam
+   `:queued-bytes` only) it answers the transient `full`."
+  [state attachment s socket payload]
+  (let [{:ws/keys [outbound-high-water max-outbound-bytes]} (:bounds s)
+        level (when (or outbound-high-water max-outbound-bytes)
+                (outbound-level s socket))]
+    (cond
+      (and max-outbound-bytes (>= level max-outbound-bytes))
+      (do (teardown! state attachment 1008 "dao.stream/outbound-overflow"
+                     :ws/outbound-overflow)
+          (outcome :dao.stream/closed))
+
+      (and outbound-high-water (:queued-bytes socket) (>= level outbound-high-water))
+      (outcome :dao.stream/full)
+
+      :else
+      (let [result (send-result socket payload)]
+        (when (and max-outbound-bytes (nil? (:queued-bytes socket))
+                   (= :dao.stream/ok (:dao.stream/outcome result)))
+          (swap! state update :sent-bytes (fnil + 0) (payload-size payload)))
+        result))))
 
 
 (defn- deposit!
@@ -201,16 +264,22 @@
 
   (append!
     [_ value]
-    (let [{:keys [phase socket]} @state]
+    (let [{:keys [phase socket] :as s} @state]
       (cond
         (= :closed phase) (outcome :dao.stream/closed)
         (not= :open phase) (outcome :dao.stream/full)
         (not ((:ws/portable-value? codec) value)) (outcome :dao.stream/invalid-value)
-        :else (try
-                (send-result socket ((:ws/encode codec) {:ws/frame :ws/value
-                                                         :ws/value value}))
-                (catch #?(:cljd Object :clj Throwable :cljs :default) _
-                  (outcome :dao.stream/invalid-value))))))
+        :else (let [payload (try
+                              ((:ws/encode codec) {:ws/frame :ws/value
+                                                   :ws/value value})
+                              (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                                ::unencodable))]
+                (if (= ::unencodable payload)
+                  (outcome :dao.stream/invalid-value)
+                  (try
+                    (send-bounded! state attachment s socket payload)
+                    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                      (outcome :dao.stream/transport-error))))))))
 
 
   stream/IDaoStreamClosable
@@ -250,17 +319,30 @@
 
 
 (defn- new-handle
-  [descriptor attachment target phase socket codec]
+  [descriptor attachment target phase socket codec bounds]
   (let [state (atom {:phase phase :socket socket :deposit target
-                     :resolution? false :terminal? false})]
+                     :resolution? false :terminal? false :bounds bounds})]
     [(WsHandle. state descriptor attachment codec) state]))
+
+
+(defn- teardown!
+  "Deposit the `:ws/error` diagnostic, close the phase, and ask the host to
+   close with `code`.  The host close callback still owns the terminal event."
+  [state attachment code reason diagnostic]
+  (emit-reason! state attachment :ws/error diagnostic)
+  (swap! state assoc :phase :closed)
+  (invoke-close! (:socket @state) code reason))
 
 
 (defn- protocol-failure!
   [state attachment]
-  (emit-reason! state attachment :ws/error :ws/decode-failure)
-  (swap! state assoc :phase :closed)
-  (invoke-close! (:socket @state) protocol-close-code "dao.stream/protocol-error"))
+  (teardown! state attachment protocol-close-code "dao.stream/protocol-error"
+             :ws/decode-failure))
+
+
+(defn- frame-too-large!
+  [state attachment]
+  (teardown! state attachment 1009 "dao.stream/frame-too-large" :ws/frame-too-large))
 
 
 (defn opened!
@@ -298,31 +380,50 @@
    in between them, so this frame queues into a queue nobody replays
    again and is lost.  The atomic decision instead tells this call
    whether it must deposit itself (the phase had already opened by the
-   time the swap committed) or was safely filed for `accept-slot!`."
+   time the swap committed) or was safely filed for `accept-slot!`.
+
+   The bounds are judged on the raw payload the peer sent: a frame over
+   `:ws/max-frame-bytes` fails before decode, and a frame that would take
+   the queue over `:ws/max-pending-frames` or `:ws/max-pending-bytes` is
+   the fourth action of the same swap, `:overflow`, which closes the phase
+   there so no later frame queues behind it."
   [handle payload]
   (let [state (.-state ^WsHandle handle)
         attachment (.-attachment ^WsHandle handle)
-        codec (.-codec ^WsHandle handle)]
+        codec (.-codec ^WsHandle handle)
+        {:ws/keys [max-frame-bytes max-pending-frames max-pending-bytes]} (:bounds @state)]
     (try
-      (let [frame ((:ws/decode codec) payload)]
-        (if-not (and (= :ws/value (:ws/frame frame))
-                     (contains? frame :ws/value)
-                     ((:ws/portable-value? codec) (:ws/value frame)))
-          (protocol-failure! state attachment)
-          (let [value (:ws/value frame)
-                action (volatile! nil)]
-            (swap! state
-                   (fn [s]
-                     (case (:phase s)
-                       :open (do (vreset! action :open) s)
-                       (:pending :replaying)
-                       (do (vreset! action :pending)
-                           (update s :pending-frames (fnil conj []) value))
-                       (do (vreset! action :else) s))))
-            (case @action
-              :open (emit! state attachment :ws/payload value)
-              :pending nil
-              :else (protocol-failure! state attachment)))))
+      (let [size (payload-size payload)]
+        (if (and max-frame-bytes (> size max-frame-bytes))
+          (frame-too-large! state attachment)
+          (let [frame ((:ws/decode codec) payload)]
+            (if-not (and (= :ws/value (:ws/frame frame))
+                         (contains? frame :ws/value)
+                         ((:ws/portable-value? codec) (:ws/value frame)))
+              (protocol-failure! state attachment)
+              (let [value (:ws/value frame)
+                    action (volatile! nil)]
+                (swap! state
+                       (fn [s]
+                         (case (:phase s)
+                           :open (do (vreset! action :open) s)
+                           (:pending :replaying)
+                           (let [queued (+ (:pending-bytes s 0) size)]
+                             (if (or (and max-pending-frames
+                                          (>= (count (:pending-frames s)) max-pending-frames))
+                                     (and max-pending-bytes (> queued max-pending-bytes)))
+                               (do (vreset! action :overflow) (assoc s :phase :closed))
+                               (do (vreset! action :pending)
+                                   (-> s
+                                       (update :pending-frames (fnil conj []) value)
+                                       (assoc :pending-bytes queued)))))
+                           (do (vreset! action :else) s))))
+                (case @action
+                  :open (emit! state attachment :ws/payload value)
+                  :pending nil
+                  :overflow (teardown! state attachment 1013 "dao.stream/pending-overflow"
+                                       :ws/pending-overflow)
+                  :else (protocol-failure! state attachment)))))))
       (catch #?(:cljd Object :clj Throwable :cljs :default) _
         (protocol-failure! state attachment)))))
 
@@ -371,15 +472,21 @@
    `:binary!` binary frames — the two typed facts a host reports without
    inspecting content — and `:ws/codec` is the connection's profile, so a
    host `:connect!` seam can negotiate the selected subprotocol without
-   any second channel."
+   any second channel.  `:ws/max-frame-bytes` is the composition's frame
+   bound (nil for none), so a host that reassembles fragments stops
+   buffering past it and calls `:too-large!`, the same teardown as an
+   oversize whole frame."
   [handle]
-  {:opened! #(opened! handle)
-   :message! #(receive! handle %)
-   :binary! #(receive-binary! handle %)
-   :closed! #(closed! handle %1 %2)
-   :ws/codec (.-codec ^WsHandle handle)
-   :error! #(emit-reason! (.-state ^WsHandle handle) (.-attachment ^WsHandle handle)
-                          :ws/error :ws/socket-error)})
+  (let [state (.-state ^WsHandle handle)
+        attachment (.-attachment ^WsHandle handle)]
+    {:opened! #(opened! handle)
+     :message! #(receive! handle %)
+     :binary! #(receive-binary! handle %)
+     :closed! #(closed! handle %1 %2)
+     :too-large! #(frame-too-large! state attachment)
+     :ws/codec (.-codec ^WsHandle handle)
+     :ws/max-frame-bytes (get-in @state [:bounds :ws/max-frame-bytes])
+     :error! #(emit-reason! state attachment :ws/error :ws/socket-error)}))
 
 
 (defn make-attacher
@@ -391,10 +498,18 @@
 
    `:codec` selects the wire profile explicitly (default: Transit).  The
    offer is exactly the selected subprotocol, so a peer that does not speak
-   it fails the handshake rather than being downgraded."
+   it fails the handshake rather than being downgraded.
+
+   The byte and frame bounds (`:ws/max-frame-bytes`, `:ws/max-pending-frames`,
+   `:ws/max-pending-bytes`, `:ws/outbound-high-water`,
+   `:ws/max-outbound-bytes`) are optional positive integers; nil is
+   unbounded.  The seam may carry `:queued-bytes`, a no-argument function
+   answering the host's outbound backlog; without it the outbound bound is a
+   cumulative quota of encoded bytes sent since open."
   [{:keys [traffic admission connect! codec] :as config}]
   (let [target (checked-target traffic admission)
-        codec (checked-codec codec)]
+        codec (checked-codec codec)
+        bounds (checked-bounds config)]
     (when-not (fn? connect!)
       (throw (ex-info "WebSocket host composition requires :connect!" {:config config})))
     (fn attach!
@@ -402,7 +517,7 @@
       (if-not (descriptor? descriptor codec)
         (outcome :dao.stream/invalid-descriptor)
         (let [id (attachment-id)
-              [handle state] (new-handle descriptor id target :connecting nil codec)]
+              [handle state] (new-handle descriptor id target :connecting nil codec bounds)]
           (try
             (let [socket (connect! descriptor (adapter handle))]
               (if (and (map? socket) (fn? (:send! socket)) (fn? (:close! socket)))
@@ -421,11 +536,14 @@
 ;; per identity now, so this transport no longer routes an upgrade by path
 ;; at all -- every upgrade this endpoint's own codec negotiation accepts is
 ;; accepted, and what a client can reach through it is entirely the
-;; mirror's own table.
+;; mirror's own table.  The byte and frame bounds are those of
+;; `make-attacher`, applied to every accepted connection; the pending bounds
+;; are what keeps a peer from growing the pre-acknowledgement queue.
 (defn make-endpoint
   [{:keys [descriptor control control-admission slots codecs] :as config}]
   (let [control-target (checked-target control control-admission)
-        codecs (or codecs [transit/profile])]
+        codecs (or codecs [transit/profile])
+        bounds (checked-bounds config)]
     (when-not (seq slots)
       (throw (ex-info "WebSocket endpoint needs handoff slots" {:config config})))
     (when-not (and (seq codecs) (every? codec-profile? codecs))
@@ -448,6 +566,7 @@
                      (some? (:ack-cursor slot)))
         (throw (ex-info "invalid capacity-one WebSocket handoff slot" {:slot slot}))))
     {:config config
+     :bounds bounds
      :codecs codecs
      :codec-index (zipmap (map :ws/subprotocol codecs) codecs)
      :state (atom {:control control-target
@@ -527,7 +646,8 @@
                {:ws/status :ws/full})
            (let [[index slot] @chosen
                  id (attachment-id)
-                 [handle hstate] (new-handle descriptor id (endpoint-target endpoint) :pending socket codec)
+                 [handle hstate] (new-handle descriptor id (endpoint-target endpoint) :pending socket codec
+                                             (:bounds endpoint))
                  offer {:ws/attachment id :ws/event :ws/accepted
                         :ws/handle {:dao.stream/handle handle
                                     :dao.stream/surface #{:writer :closable}}}
@@ -572,7 +692,7 @@
              (fn [s]
                (let [queued (:pending-frames s)]
                  (vreset! batch queued)
-                 (cond-> (assoc s :pending-frames [])
+                 (cond-> (assoc s :pending-frames [] :pending-bytes 0)
                    (and (empty? queued) (= :replaying (:phase s)))
                    (assoc :phase :open)))))
       (when (seq @batch)

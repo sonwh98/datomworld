@@ -317,7 +317,11 @@
    medium refuses, close the offered handle; the slot itself is the
    endpoint's to release. When :max-sessions is reached after reaping
    expired/closed sessions, reject the newcomer by closing its handle
-   without an accept acknowledgement."
+   without an accept acknowledgement. A :make-media or acknowledgement
+   append that throws is isolated the same way: the offered handle is
+   closed, no session is registered, and the tick goes on. A :make-media
+   that throws after allocating a ring leaks that ring; avoiding it is
+   the composition's own concern, the acceptor retains nothing."
   [acceptor slot offer now]
   (let [handle (get-in offer [:ws/handle :dao.stream/handle])
         attachment (:ws/attachment offer)]
@@ -335,13 +339,17 @@
           (when (stream/closable? handle)
             (stream/close! handle))
           (let [make-media (:make-media @acceptor)
-                media (make-media offer)
-                appended (stream/append!
-                           (:dao.stream/handle (:ack-writer slot))
-                           {:ws/attachment attachment
-                            :ws/command :ws/accept
-                            :ws/deposit (:traffic media)
-                            :ws/admission (:admission media)})]
+                [media appended]
+                (try
+                  (let [media (make-media offer)]
+                    [media (stream/append!
+                             (:dao.stream/handle (:ack-writer slot))
+                             {:ws/attachment attachment
+                              :ws/command :ws/accept
+                              :ws/deposit (:traffic media)
+                              :ws/admission (:admission media)})])
+                  (catch #?(:cljd Object :clj Throwable :cljs :default) _
+                    nil))]
             (if (= :dao.stream/ok (:dao.stream/outcome appended))
               (swap! acceptor assoc-in [:sessions attachment]
                      {:attachment attachment

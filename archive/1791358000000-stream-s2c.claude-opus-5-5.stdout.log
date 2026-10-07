@@ -1,0 +1,25 @@
+S2c is implemented, and the requested checks pass: the remote and ws-project tests (83 tests, 609 assertions, 0 failures), cljstyle (clean), and kondo (0 errors). Nothing is committed yet, and the Node and Dart lanes haven't been run.
+
+**`remote.cljc`**
+- **Setting:** `:dao.stream.remote/give-up-after` is checked like the other bounds (positive integer or nil).
+- **When the deadline is set:** a request gets `now + give-up-after` the first time it exists on the link, either when its send is accepted or when a refused attach probe is kept.
+  - A kept probe keeps that deadline when it's later sent, so retries never reset it.
+  - A probe still waiting on its reflection gets no deadline until the link takes it in.
+  - Resends never move a deadline, and an answer clears it.
+  - With no `give-up-after`, or before any step with `now`, nothing is stamped and nothing expires.
+- **New `:step` entry on `links`,** called as `(step channel-descriptor now)`. It records `now`, runs a budgeted drain, and then checks for overdue requests.
+  - If any request is past its deadline, it emits a `channel-expired` event for the lowest such id and runs the existing channel-loss path. That gives `append-unknown` for outstanding appends, and later `cursor`/`next`/`resolve` answer `channel-gone`, while `descriptor` still answers `ok`.
+  - It returns `{:dao.stream.remote/channel-gone? … :dao.stream.remote/expired …}`, or nil for a channel this peer doesn't reach.
+
+**`ws_project.cljc`**
+- `dial` passes `give-up-after` to its link. Only the namespaced key is accepted, as in spec §1.2; there's no plain `:give-up-after` alias.
+- `(dial-step! dial now)` runs the projection, steps the link at `now`, runs the mirror, and closes the ws handle if the link reports the channel gone.
+- The 1-arity `dial-step!` passes no `now` and never expires, so existing callers are unchanged.
+
+**One addition beyond the brief:** when a dial has already been stepped with a `now`, it steps its new link at that `now` before sending the attach probe. Otherwise the probe sent at `dial-attach!` would have no deadline, and the stalled-connection case the spec wants bounded would stay unbounded on the dial path.
+
+**Docs:** in `dao.stream.remote.md`, a new Expiry paragraph in §2.4, a note in §2.5, and a §3.0 bullet. The Liveness item in `dao.stream.ws.md`'s Deferred list now points to the remote doc; probing an idle connection is still listed as open.
+
+**Tests:** all seven tests the brief names, plus checks for an invalid `give-up-after`, stepping a channel this peer doesn't reach, and the 1-arity `dial-step!` never expiring. I also added the two S2b follow-ups: drain budget over malformed values and a gap, and `dial` passing its link options through.
+
+Kondo's one warning is still the old unused `peer2` binding at `remote_test.cljc:661`. Still to run: `bb test:clj` and the full three-platform `bb test`. The report is at `collab/1791358000000-stream-s2c.claude-opus-5-5.findings.md`.

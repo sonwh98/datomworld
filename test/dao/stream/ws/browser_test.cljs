@@ -121,12 +121,81 @@
       (is (= #{"open" "message" "close" "error"} (set (keys @(:handlers fake))))))))
 
 
-(deftest raw-socket-shape-is-exactly-send-and-close
+(deftest raw-socket-shape-is-exactly-send-close-and-queued-bytes
   (let [fake (fake-socket "ws://x" ws/subprotocol)
         raw (browser/raw-socket (:socket fake))]
     (is (fn? (:send! raw)))
     (is (fn? (:close! raw)))
-    (is (= #{:send! :close!} (set (keys raw))))))
+    (is (= #{:send! :close! :queued-bytes} (set (keys raw))))
+    (set! (.-bufferedAmount ^js (:socket fake)) 42)
+    (is (= 42 ((:queued-bytes raw)))
+        "the outbound backlog is the DOM socket's bufferedAmount")))
+
+
+;; =============================================================================
+;; Overflow teardown under the DOM close-code contract
+;; =============================================================================
+
+
+(defn- validating-socket
+  "A fake whose `close` enforces the WHATWG contract -- only 1000 or
+   3000-4999, else `InvalidAccessError` before anything closes -- and, when
+   it accepts, dispatches the `close` event a real socket would, echoing the
+   code and reason."
+  [url protocol]
+  (let [fake (fake-socket url protocol)]
+    (unchecked-set (:socket fake) "close"
+                   (fn [code reason]
+                     (when-not (or (= 1000 code) (<= 3000 code 4999))
+                       (throw (doto (js/Error. "invalid code")
+                                (unchecked-set "name" "InvalidAccessError"))))
+                     (swap! (:closes fake) conj [code reason])
+                     ((:fire fake) "close" #js {:code code :reason reason})))
+    fake))
+
+
+(defn- attach-validating
+  [bounds]
+  (let [fake (validating-socket "ws://127.0.0.1:9183/yin/repl" ws/subprotocol)
+        traffic (buffer)]
+    (set-global-websocket! (fn [_url _protocol] (:socket fake)))
+    (let [attach ((ws/make-attacher (merge {:traffic {:dao.stream/handle traffic
+                                                      :dao.stream/surface #{:writer}}
+                                            :admission admission
+                                            :connect! browser/connect!}
+                                           bounds))
+                  (descriptor))]
+      ((:fire fake) "open" #js {})
+      {:fake fake :traffic traffic :handle (:dao.stream/handle attach)})))
+
+
+(deftest dom-close-rejects-the-raw-overflow-codes
+  (let [fake (validating-socket "ws://x" ws/subprotocol)]
+    (doseq [code [1008 1009 1013]]
+      (is (thrown? js/Error (.close ^js (:socket fake) code "r"))
+          "the fake enforces the DOM contract the adapter must satisfy"))
+    (is (= [] @(:closes fake)))))
+
+
+(deftest inbound-overflow-closes-the-dom-socket
+  (let [{:keys [fake traffic]} (attach-validating {:ws/max-frame-bytes 8})]
+    ((:fire fake) "message" #js {:data "a frame well past eight characters"})
+    (is (= [[1000 "dao.stream/frame-too-large"]] @(:closes fake))
+        "1009 reaches the DOM as 1000 with the transport's reason, so the
+         socket closes rather than throwing InvalidAccessError")
+    (is (= [[:ws/opened nil] [:ws/error :ws/frame-too-large] [:ws/closed nil]]
+           (event-kinds traffic))
+        "the qualified diagnostic, then the terminal from the DOM close event")))
+
+
+(deftest outbound-overflow-closes-the-dom-socket
+  (let [{:keys [fake traffic handle]} (attach-validating {:ws/max-outbound-bytes 16})]
+    (set! (.-bufferedAmount ^js (:socket fake)) 64)
+    (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! handle [:v]))))
+    (is (= [[1000 "dao.stream/outbound-overflow"]] @(:closes fake))
+        "1008 reaches the DOM as 1000 with the transport's reason")
+    (is (= [[:ws/opened nil] [:ws/error :ws/outbound-overflow] [:ws/closed nil]]
+           (event-kinds traffic)))))
 
 
 ;; =============================================================================

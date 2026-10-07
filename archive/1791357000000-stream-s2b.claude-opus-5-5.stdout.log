@@ -1,0 +1,21 @@
+S2b is implemented, and the requested checks pass: the remote and ws-project tests (69 tests, 537 assertions, 0 failures), cljstyle (clean), and kondo (0 errors). Nothing is committed yet, and the Node and Dart lanes haven't been run.
+
+**`remote.cljc`**
+- **Policy check:** `links` now accepts `drain-budget`, `max-outstanding` and `max-filed`. A value that isn't nil or a positive integer throws `ex-info "invalid DaoStream remote link policy"` when the links are built.
+- **Drain budget:** each drain reads at most that many values. The link's cursor stays where it stopped, and the next operation's drain carries on from there.
+- **`max-outstanding`:** a new `send!` refuses at the cap, sending nothing, so each operation answers as it would for a writer `full`. `cursor` and `resolve` answer "transport-error, retry", `next` answers `blocked`, and `append!` answers `full`. Resends of a request already in flight are not counted against the cap.
+- **`more` clamp:** the link installs at most its own budget minus one prefetched outcome (the answer itself is the first), and none if it never sent a budget. Anything extra the peer sends is dropped.
+- **`max-filed`:** filed answers and installed `more` outcomes share one bound. Past it the oldest is evicted (lowest id first, an answer before the outcomes it installed). The operation it answered simply asks again.
+
+**`ws_project.cljc`:** `dial` now passes the three new keys through to its link (spec §1.2; `give-up-after` belongs to S2c and isn't added).
+
+**Docs:** §2.4 (link state, the three bounds, the Drain paragraph) and a new "Link bounds" bullet in §3.0.
+
+**Tests:** I added the four tests the brief names plus a policy-check test. The `more` test also covers eviction across both stores at once.
+
+Decisions for review:
+1. **`more` clamp is off by one from the spec text.** The spec says "at most the budget", but the brief's test (budget 2 gives 1 installed) needs budget minus one. I followed the test, because it matches how the answering side counts the answer as the first outcome.
+2. **Attach probes at the cap are kept, not dropped.** A probe refused by `max-outstanding` waits in the pending queue and is retried each drain. That queue can go past the cap by one entry per local `attach!`, but only the local caller can cause that, not the peer, and nothing extra goes on the wire. Dropping the probe instead would leave the attachment unconfirmed forever.
+3. **Eviction can cascade.** When an evicted answer is re-asked, its new answer can push out a newer one that hasn't been read yet. Nothing goes wrong (that one is re-asked too), but `max-filed` should be set above the number of answers one step expects to hold. My first version of the eviction test hit this, so the test now reads the kept answers before re-asking the evicted one.
+
+Kondo's one warning is the old unused `peer2` binding at `remote_test.cljc:661`. Still to run: `bb test:clj` and the full three-platform `bb test`. The report is at `collab/1791357000000-stream-s2b.claude-opus-5-5.findings.md`.

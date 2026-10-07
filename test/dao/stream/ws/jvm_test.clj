@@ -153,6 +153,54 @@
           "and issues once the send completes"))))
 
 
+(deftest an-unsendable-close-code-aborts-at-once-behind-a-pending-send
+  (testing "sendClose rejects 1009, so the seam aborts rather than chaining it"
+    (let [{:keys [trace futures seam]} (scripted)]
+      ((:send! seam) "in flight")
+      ((:send! seam) "chained")
+      (is (nil? ((:close! seam) 1009 "dao.stream/frame-too-large")))
+      (is (= [[:send-text "in flight"]
+              [:abort]
+              [:closed! 1009 "dao.stream/frame-too-large"]]
+             @trace)
+          "the abort does not wait for the pending send, issues no sendClose,
+           and reports the requested code locally")
+      (.completeExceptionally ^CompletableFuture (first @futures)
+                              (java.io.IOException. "aborted"))
+      (is (= [[:send-text "in flight"]
+              [:abort]
+              [:closed! 1009 "dao.stream/frame-too-large"]]
+             @trace)
+          "the sends the abort failed report nothing further")
+      (is (= {:dao.stream/outcome :dao.stream/closed} ((:send! seam) "after"))
+          "and the connection accepts no further sends")))
+  (testing "a code sendClose accepts still rides the chain"
+    (let [{:keys [trace futures seam]} (scripted)]
+      ((:send! seam) "in flight")
+      ((:close! seam) 1008 "dao.stream/outbound-overflow")
+      (.complete ^CompletableFuture (first @futures) nil)
+      (is (= [[:send-text "in flight"]
+              [:send-close 1008 "dao.stream/outbound-overflow"]]
+             @trace)))))
+
+
+(deftest client-socket-accounts-queued-bytes-across-the-send-chain
+  (testing "the backlog rises on submission and falls on completion"
+    (let [{:keys [futures seam]} (scripted)
+          queued (:queued-bytes seam)]
+      (is (zero? (queued)) "an idle connection has no backlog")
+      ((:send! seam) "abc")
+      ((:send! seam) "defgh")
+      (is (= 8 (queued)) "both the in-flight and the chained send count")
+      (.complete ^CompletableFuture (first @futures) nil)
+      (is (= 5 (queued)) "the first send's bytes leave on its completion")
+      ((:close! seam) 1000 "bye")
+      (is (= 5 (queued)) "a close frame carries no payload bytes")
+      (.complete ^CompletableFuture (second @futures) nil)
+      (.complete ^CompletableFuture (nth @futures 2) nil)
+      (is (zero? (queued)) "the drained chain has no backlog"))))
+
+
 (deftest an-inline-failure-reports-without-holding-the-submission-lock
   (testing "an already-failed send runs its observer inline, off the monitor"
     (let [trace (atom [])
@@ -515,3 +563,127 @@
             "no handoff slot was consumed"))
       (finally
         (jvm/stop-listening! listener (fn []))))))
+
+
+;; =============================================================================
+;; Inbound reassembly overflow against a live JVM client
+;; =============================================================================
+
+
+(defn- ws-frame
+  "One unmasked server frame; payloads stay under 64 KiB."
+  ^bytes [opcode fin? ^bytes payload]
+  (let [n (alength payload)
+        out (ByteArrayOutputStream.)]
+    (.write out (int (bit-or (if fin? 0x80 0) opcode)))
+    (if (< n 126)
+      (.write out n)
+      (do (.write out 126)
+          (.write out (int (bit-shift-right n 8)))
+          (.write out (int (bit-and n 0xff)))))
+    (.write out payload 0 n)
+    (.toByteArray out)))
+
+
+(defn- read-request-head
+  [^java.io.InputStream in]
+  (loop [out (StringBuilder.)]
+    (if (.endsWith (str out) "\r\n\r\n")
+      (str out)
+      (let [b (.read in)]
+        (if (neg? b)
+          (str out)
+          (recur (.append out (char b))))))))
+
+
+(defn- fragmenting-peer
+  "A raw WebSocket peer that completes one upgrade, sends one message as
+   `fragments` frames of `fragment-size` filler bytes (opcode 1 text or 2
+   binary), then reads until the client drops the connection.  The future
+   answers the bytes the client sent after the upgrade and how the read
+   ended, so a test can tell an abort from a close handshake."
+  [opcode fragments fragment-size]
+  (let [server (doto (java.net.ServerSocket. 0 1 (java.net.InetAddress/getByName "127.0.0.1"))
+                 (.setSoTimeout 5000))]
+    {:port (.getLocalPort server)
+     :result
+     (future
+       (with-open [server server
+                   socket (.accept server)]
+         (.setSoTimeout socket 5000)
+         (let [in (.getInputStream socket)
+               out (.getOutputStream socket)
+               head (read-request-head in)
+               header (fn [name]
+                        (second (re-find (re-pattern (str "(?i)" name ":\\s*(.+?)\r\n")) head)))
+               accept (.encodeToString
+                        (java.util.Base64/getEncoder)
+                        (.digest (java.security.MessageDigest/getInstance "SHA-1")
+                                 (.getBytes (str (header "Sec-WebSocket-Key")
+                                                 "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))))]
+           (.write out (.getBytes (str "HTTP/1.1 101 Switching Protocols\r\n"
+                                       "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                                       "Sec-WebSocket-Accept: " accept "\r\n"
+                                       "Sec-WebSocket-Protocol: "
+                                       (header "Sec-WebSocket-Protocol") "\r\n\r\n")))
+           (let [filler (byte-array fragment-size (byte (int \a)))]
+             (doseq [i (range fragments)]
+               (.write out (ws-frame (if (zero? i) opcode 0)
+                                     (= i (dec fragments))
+                                     filler))))
+           (.flush out)
+           (loop [received 0]
+             (let [b (try (.read in)
+                          (catch java.net.SocketTimeoutException _ :timeout)
+                          (catch java.io.IOException _ :reset))]
+               (cond
+                 (= :timeout b) {:received received :ended :timeout}
+                 (= :reset b) {:received received :ended :reset}
+                 (neg? b) {:received received :ended :eof}
+                 :else (recur (inc received))))))))}))
+
+
+(defn- overflow-run
+  "Attach one JVM client with a 1000-byte frame bound to a fragmenting peer
+   sending four 600-byte fragments; answer the client's deposited events once
+   its terminal arrives, and the peer's view."
+  [codec opcode]
+  (let [{:keys [port result]} (fragmenting-peer opcode 4 600)
+        traffic (dual-buffer 32)
+        attach! (ws/make-attacher {:traffic {:dao.stream/handle traffic
+                                             :dao.stream/surface #{:writer}}
+                                   :admission dual-admission
+                                   :codec codec
+                                   :connect! jvm/connect!
+                                   :ws/max-frame-bytes 1000})
+        attached (attach! (assoc dual-descriptor :ws/port port))
+        terminal? #(some #{:ws/closed :ws/ended} (map :ws/event (dual-values traffic)))]
+    (is (= :dao.stream/ok (:dao.stream/outcome attached)))
+    (is (eventually terminal? 5000) "the overflow reaches a terminal event")
+    {:events (dual-values traffic)
+     :peer (deref result 6000 :peer-timeout)}))
+
+
+(deftest an-oversize-fragmented-message-aborts-the-jvm-client
+  ;; java.net.http.WebSocket cannot send close 1009, so a reassembly
+  ;; overflow aborts the socket: the transport deposits its qualified
+  ;; diagnostic and a local terminal, nothing is decoded, and the peer sees
+  ;; the connection drop without any close frame.
+  (doseq [[label codec opcode] [["text" transit/profile 1]
+                                ["binary" cbor/profile 2]]]
+    (testing (str "a fragmented " label " message over :ws/max-frame-bytes")
+      (let [{:keys [events peer]} (overflow-run codec opcode)
+            kinds (map :ws/event events)]
+        (is (= :ws/opened (first kinds)))
+        (is (some #(= [:ws/error :ws/frame-too-large] [(:ws/event %) (:ws/reason %)])
+                  events)
+            "the qualified size diagnostic is deposited")
+        (is (= :ws/closed (last kinds)) "the terminal is the local close")
+        (is (= 1 (count (filter #{:ws/closed :ws/ended} kinds))) "exactly once")
+        (is (not-any? #{:ws/payload} kinds) "nothing was delivered")
+        (is (not-any? #(= :ws/decode-failure (:ws/reason %)) events)
+            "and nothing was decoded")
+        (is (= 0 (:received peer))
+            "the client sent no close frame: it aborted rather than closing")
+        (is (#{:eof :reset} (:ended peer))
+            "and the peer saw the connection drop promptly")))))

@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I've completed my analysis of the task and read all the relevant files (spec, source, tests, design docs). I'm ready to implement Slice S2d, but my write operations are currently awaiting your approval.
+
+Here's what I've confirmed and the implementation I'll apply once you grant write access:
+
+**Scope confirmed** — 3 source files, 3 host seams, 3 test files, 2 design docs.
+
+**Planned changes:**
+
+1. **`ws.cljc`** — 5 config keys (`:ws/max-frame-bytes`, `:ws/max-pending-frames`, `:ws/max-pending-bytes`, `:ws/outbound-high-water`, `:ws/max-outbound-bytes`), a private `payload-size` (with `:cljd`-first reader conditional), a shared `teardown!` helper + three teardown fns, the `:overflow` action in `deliver!`'s atomic swap, outbound bounds in `WsHandle.append!` (with the cumulative-quota fallback when the seam lacks `:queued-bytes`), and threading `:ws/max-frame-bytes` through the `adapter` map for host seams.
+
+2. **`jvm.clj`** — `:queued` counter in `client-socket` (incremented under the submission lock, decremented in `whenComplete`, exposed as `:queued-bytes`), and fragment-reassembly bound via `:ws/max-frame-bytes` (close 1009).
+
+3. **`node.cljs`/`browser.cljs`** — `:queued-bytes` via `.-bufferedAmount`; node also passes `maxPayload` to the `ws` constructor.
+
+4. **`ws_project.cljc`** — `adopt!` wraps `make-media` + ack `append!` in the three-host try/catch.
+
+5. Tests + design docs per the spec's §3/§4.
+
+Please grant write access (or let me know if you'd prefer I adjust the approach first), and I'll proceed with the full implementation and verification.

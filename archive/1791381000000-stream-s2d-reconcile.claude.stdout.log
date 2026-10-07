@@ -1,0 +1,28 @@
+I fixed all three sign-off items, and all three test lanes pass. Nothing is committed yet; it's waiting for the Architect to re-review.
+
+**B1: browser close codes**
+- **Fix:** in `src/cljs/dao/stream/ws/browser.cljs`, the browser socket now sends 1008, 1009 and 1013 as close code 1000, keeping our reason string (e.g. `dao.stream/frame-too-large`). The socket really closes and its `close` event delivers the final `:ws/closed`. Codes the browser accepts (1000, 4000, 4002) go through unchanged.
+- **What the peer sees:** 1000 plus the reason, never the overflow code. Our own stream still gets the specific `:ws/error` (e.g. `:ws/frame-too-large`).
+- **Tests:** I added a fake socket that enforces the browser's close-code rule: it throws `InvalidAccessError` on a bad code and otherwise fires the close event. Three tests use it: the fake rejects 1008/1009/1013, and both inbound and outbound overflow now actually close the socket and end the stream.
+- **Docs:** I changed the browser's lift status in `docs/design/dao.stream.ws.md` from "exact" to "gated". That follows the Architect's instruction: the fix is only shown against the fake, not a real browser.
+
+**B2: JVM client can't send 1009**
+- **Fix:** in `src/clj/dao/stream/ws/jvm.clj`, a close code that Java's `sendClose` rejects is no longer queued behind pending sends. The socket is aborted at once and the end is reported locally with the requested code. The sends that the abort kills report nothing extra.
+- **What the peer sees:** the connection drops with no close frame (1006 on their side). 1009 is never sent, and the docs say so.
+- **Unit test:** with one send in flight and one queued, close 1009 aborts immediately and nothing is reported twice. 1008 still waits its turn behind pending sends.
+- **Live test:** a raw socket server sends a message as four real fragments (1000-byte limit, 600-byte fragments), for both text and binary. Each run gets the size error and exactly one `:ws/closed`. Nothing is delivered or decoded, and the server receives zero bytes after the handshake, then sees the connection drop.
+- **Limitation:** the live test alone can't tell the old code from the new, because the old path also ended in an abort, just later and with a spurious 1006 report. Only the unit test catches that difference.
+- **Not changed:** a close with one of these codes requested before the socket opens still goes to `sendClose` and fails silently. Nothing in the transport asks for 1009 or 1013 that early, so I left it.
+
+**Same-tick assertion:** `adoption-isolated` in `test/dao/stream/ws_project_test.cljc` now records the healthy session's answer right after tick 2, before tick 3 runs.
+
+**Verification**
+- Focused JVM tests: 62 tests, 0 failures.
+- Full JVM lane (`bb test:clj`): 3672 tests, 0 failures.
+- Node lane (`bb test:cljs`): 3527 tests, 0 failures, including the browser tests.
+- Dart lane (`bb test:cljd`): 3479 tests, all passed. The first run hit the 10-minute background limit and was killed; the rerun completed.
+- cljstyle is clean on the five changed files. kondo has 0 errors; one warning remains in `jvm_test.clj` (unresolved `org.httpkit.server`), which predates this change.
+
+I left two of the review's follow-up notes alone: disposing of media when the acknowledgement append throws (note 2), and guarantees that only hold sequentially, not under concurrency (note 3).
+
+The report is at `collab/1791381000000-stream-s2d-reconcile.claude.findings.md`.

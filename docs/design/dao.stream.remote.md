@@ -521,7 +521,10 @@ wired; the writer handle, whose `append!` frames each value as one
 `{:ws/frame :ws/value :ws/value v}` message in the negotiated codec profile
 (Transit-JSON text or the CBOR binary profile); the bounded acceptance
 handoff with slot and acknowledgement; the resolution and lifecycle
-vocabulary. Ordered and reliable; frame budget unbounded.
+vocabulary. Ordered and reliable; frame budget `:ws/max-frame-bytes`
+(nil for unbounded), with the pending and outbound bounds of
+`dao.stream.ws.md` (Serving, Deposit Admission) beside it. An outbound
+`full` from the writer is the transient refusal the mirror rewinds on (2.3).
 
 **New, the projection.** The mirror and the link speak raw request and
 answer maps, so each channel end composes one step, `ws-project`, between

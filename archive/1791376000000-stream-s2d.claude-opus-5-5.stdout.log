@@ -1,0 +1,34 @@
+S2d is in place in the `datomworld-stream-s2` worktree, uncommitted. All three test lanes pass: JVM, Node and Dart. `cljstyle` was not run because this session's permission gate refused it, so please run `cljstyle check` on the touched files before committing.
+
+The deepseek-v4-pro run stopped at a write-approval prompt and made no edits, so I (Claude Opus) wrote all of this. Treat it as Claude-authored code when picking a reviewer.
+
+**Test results**
+- The three target namespaces: 60 tests, 0 failures.
+- `bb test:clj`: 3670 tests, 0 failures.
+- `bb test:cljs`: 3524 tests, 0 failures.
+- `bb test:cljd`: all 3479 tests passed. The new tests are compiled into the Dart output, but I couldn't find their names in the progress output, so I haven't seen them run one by one.
+- kondo: 0 errors. One warning at `jvm_test.clj:470` was there before my change.
+
+**What changed**
+- **`ws.cljc`**:
+  - All five limits are new config keys, and leaving them unset keeps today's behaviour.
+  - An inbound frame over `:ws/max-frame-bytes` is rejected on its raw size before decoding, with close 1009.
+  - The pending-queue limits are a fourth `:overflow` action inside the existing single `swap!` in `deliver!`, with close 1013. The swap also marks the connection closed, so no later frame can queue behind it.
+  - `append!` answers `full` at the outbound high-water mark and tears down with close 1008 at the outbound maximum.
+  - A host socket that doesn't report its send backlog (`:queued-bytes`) falls back to a running total of bytes sent since open.
+- **Host sockets**: the JVM client counts its own send queue and caps fragment reassembly. Node and browser report `bufferedAmount`. Node gets `maxPayload` and the http-kit server gets `:max-ws`. The http-kit server and Dart have no backlog signal, so they use the running total and stay gated (blocked from the loopback lift until their limits are demonstrated).
+- **`ws_project/adopt!`**: if `make-media` or the acknowledgement append throws, the offered handle is closed, no session is registered, and the tick carries on.
+- **Tests and docs**: all 8 tests from the brief are added. The design docs are updated in the four places you named, including a per-host table.
+
+**Changes outside the brief**
+- `browser_test.cljs` asserted the browser socket map had exactly two keys, which the new `:queued-bytes` key broke. I updated it, and it now also checks the value comes from `bufferedAmount`.
+- An invalid limit (not a positive integer) now throws when the attacher or endpoint is built.
+- I added a host-only hook, `:too-large!`, so the JVM reassembler uses the same teardown and close code as an oversize whole frame.
+
+**Departures from the spec for review**
+- When a reassembled message gets too big, the JVM client closes with 1009 through the normal send chain instead of calling `.abort`, because an immediate abort would drop the queued close frame. Memory stays bounded either way.
+- Without `:queued-bytes`, the high-water limit is ignored and only the maximum applies, because a running total that answered `full` would never go back down.
+
+Not covered: no test drives the JVM client's reassembly limit end to end, because that needs a live socket.
+
+The full report, including the exact threshold rules, is in `collab/1791376000000-stream-s2d.deepseek-v4-pro.findings.md`.

@@ -8,7 +8,13 @@
 
    Frames are typed end to end: a text frame's string reaches `:message!`, a
    binary frame's bytes reach `:binary!` as the socket's byte list, and this
-   adapter never inspects payload content to classify either."
+   adapter never inspects payload content to classify either.
+
+   Host matrix declaration (per `dao.stream.ws.md`): `io.WebSocket` reports
+   no outbound backlog and takes no inbound size limit, so the seam carries
+   no `:queued-bytes`.  The transport's outbound bound is its cumulative quota
+   and `:ws/max-frame-bytes` is judged on each whole message; this host stays
+   gated for the loopback lift."
   (:require ["dart:async" :as async]
             ["dart:core" :as core]
             ["dart:io" :as io]

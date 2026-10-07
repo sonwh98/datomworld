@@ -5,10 +5,13 @@
    callbacks invoke the plain adapter entries supplied by `dao.stream.ws`.
    This namespace retains no application state and never drives an endpoint.
 
-   The JVM WebSocket APIs expose no useful outbound high-water signal.  A send
-   accepted by the host is therefore `:dao.stream/ok`; transient
-   `:dao.stream/full` is excluded by nature on this host.  Acceptance is not
-   delivery: `send!` returns as soon as the host has taken the message, and a
+   The JVM WebSocket APIs expose no outbound high-water signal of their own.
+   The client seam counts its own send chain as `:queued-bytes`, so the
+   transport's outbound bounds are exact there; http-kit's server socket has
+   no such count, so a served connection uses the transport's cumulative
+   quota and stays gated.  A send accepted by the host is `:dao.stream/ok`.
+   Acceptance is not delivery: `send!` returns as soon as the host has taken
+   the message, and a
    send that fails afterwards is reported on the stream as `:ws/error` then a
    terminal `:ws/closed`.  Nothing here joins, parks, or sleeps — the operation
    must return what is true when it is called.
@@ -16,7 +19,8 @@
    Frames are typed end to end: text payloads ride `sendText`/`onText`, binary
    payloads ride `sendBinary`/`onBinary`, and this adapter never inspects a
    payload to classify it.  Fragmented messages (text or binary) are assembled
-   so the transport sees one message per callback boundary."
+   so the transport sees one message per callback boundary, bounded by the
+   composition's `:ws/max-frame-bytes`."
   (:require [clojure.string :as str]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
@@ -32,6 +36,11 @@
 (def default-codecs
   "The listener's codec table when a composition names none: Transit only."
   [transit/profile])
+
+
+(def ^:private http-kit-default-max-ws
+  "http-kit's own `:max-ws` default, 4 MiB."
+  (* 4 1024 1024))
 
 
 (defn offered-subprotocols
@@ -122,6 +131,13 @@
   (CompletableFuture/completedFuture nil))
 
 
+(def ^:private unsendable-close-codes
+  "The status codes `java.net.http.WebSocket.sendClose` rejects.  Among the
+   transport's teardown codes this is 1009 (frame too large) and 1013
+   (pending overflow, served connections only)."
+  #{1002 1003 1006 1007 1009 1010 1012 1013 1015})
+
+
 (defn client-socket
   "The `{:send! :close!}` boundary over an asynchronous client connection.
 
@@ -139,7 +155,19 @@
    does, so without the claim one lost socket would abort and report N times,
    and a teardown that re-entered through the adapter would report again. The
    first claimant reports; the connection then stays failed and accepts no
-   further chaining."
+   further chaining.
+
+   The connection's `:queued` counter is the outbound backlog: raised by a
+   send's payload size under the submission lock, lowered when that send's
+   future completes, either way.  `:queued-bytes` reads it, which makes the
+   transport's outbound bounds exact on this host.
+
+   A close whose code `sendClose` rejects (1009 on an inbound overflow) is
+   not chained: the socket is aborted at once, behind no pending send, and
+   the terminal is reported locally with the requested code and reason.  The
+   peer sees the connection drop without a close frame (its 1006), never a
+   1009.  The abort claims the connection's failure first, so the pending
+   sends it fails report nothing further."
   [connection adapter]
   (letfn [(claim-failure!
             []
@@ -157,8 +185,13 @@
               (when-let [socket (:socket @connection)]
                 (.abort ^WebSocket socket))
               ((:closed! adapter) 1006 "dao.stream/send-failed")))
+          (abort!
+            [socket code reason]
+            (when (claim-failure!)
+              (.abort ^WebSocket socket)
+              ((:closed! adapter) code reason)))
           (chain!
-            [f]
+            [size f]
             ;; The successor is built and installed under the lock; its
             ;; completion observer is registered after leaving it. An
             ;; already-exceptional future runs that observer inline, and
@@ -171,18 +204,27 @@
                                         ^CompletableFuture pending
                                         (reify java.util.function.Function
                                           (apply [_ _] (f))))]
-                             (swap! connection assoc :pending next)
+                             (swap! connection #(-> %
+                                                    (assoc :pending next)
+                                                    (update :queued (fnil + 0) size)))
                              next)))]
               (if next
                 (do (.whenComplete
                       ^CompletableFuture next
                       (reify java.util.function.BiConsumer
-                        (accept [_ _v error] (when error (fail!)))))
+                        (accept
+                          [_ _v error]
+                          (swap! connection update :queued - size)
+                          (when error (fail!)))))
                     nil)
                 ::failed)))]
-    {:send! (fn [payload]
+    {:queued-bytes #(:queued @connection 0)
+     :send! (fn [payload]
               (if-let [socket (:socket @connection)]
-                (let [result (chain! #(if (string? payload)
+                (let [result (chain! (if (string? payload)
+                                       (count payload)
+                                       (alength ^bytes payload))
+                                     #(if (string? payload)
                                         (.sendText ^WebSocket socket payload true)
                                         (.sendBinary ^WebSocket socket
                                                      (ByteBuffer/wrap ^bytes payload) true)))]
@@ -199,7 +241,10 @@
                (if-let [socket (:socket @connection)]
                  ;; Closing something already gone is satisfied, not
                  ;; refused, so close! answers nil either way.
-                 (do (chain! #(.sendClose ^WebSocket socket code reason)) nil)
+                 (do (if (contains? unsendable-close-codes code)
+                       (abort! socket code reason)
+                       (chain! 0 #(.sendClose ^WebSocket socket code reason)))
+                     nil)
                  (do (swap! connection assoc :close-request [code reason]) nil)))}))
 
 
@@ -214,6 +259,18 @@
                           :pending nil :failed? false})
         text (StringBuilder.)
         binary (ByteArrayOutputStream.)
+        max-frame (:ws/max-frame-bytes adapter)
+        ;; Set once a message outgrows the frame bound: its remaining
+        ;; fragments are dropped, not buffered, until its last one.
+        discarding? (volatile! false)
+        assemble! (fn [size clear! last? message!]
+                    (cond
+                      @discarding? (when last? (vreset! discarding? false))
+                      (and max-frame (> (size) max-frame))
+                      (do (clear!)
+                          (vreset! discarding? (not last?))
+                          ((:too-large! adapter)))
+                      last? (message!)))
         listener
         (reify WebSocket$Listener
           (onOpen
@@ -230,11 +287,11 @@
 
           (onText
             [_ socket data last?]
-            (.append text ^CharSequence data)
-            (when last?
-              (let [message (str text)]
-                (.setLength text 0)
-                ((:message! adapter) message)))
+            (when-not @discarding? (.append text ^CharSequence data))
+            (assemble! #(.length text) #(.setLength text 0) last?
+                       #(let [message (str text)]
+                          (.setLength text 0)
+                          ((:message! adapter) message)))
             (.request ^WebSocket socket 1)
             (completed))
 
@@ -242,13 +299,14 @@
             [_ socket data last?]
             ;; Java may fragment one binary message across callbacks; the
             ;; assembled bytes are one `:binary!` entry, never a sentinel.
-            (let [chunk (byte-array (.remaining ^ByteBuffer data))]
-              (.get ^ByteBuffer data chunk)
-              (.write binary chunk)
-              (when last?
-                (let [message (.toByteArray binary)]
-                  (.reset binary)
-                  ((:binary! adapter) message))))
+            (when-not @discarding?
+              (let [chunk (byte-array (.remaining ^ByteBuffer data))]
+                (.get ^ByteBuffer data chunk)
+                (.write binary chunk)))
+            (assemble! #(.size binary) #(.reset binary) last?
+                       #(let [message (.toByteArray binary)]
+                          (.reset binary)
+                          ((:binary! adapter) message)))
             (.request ^WebSocket socket 1)
             (completed))
 
@@ -355,7 +413,11 @@
    `:codecs` is the endpoint's codec profile table (default Transit only).
    An upgrade offering any table subprotocol completes with the negotiated
    one; an upgrade offering none is refused before it completes — a
-   mixed-version peer fails its handshake rather than being downgraded."
+   mixed-version peer fails its handshake rather than being downgraded.
+
+   `:ws/max-frame-bytes`, when given, bounds http-kit's own message
+   reassembly (its `:max-ws`), so an oversize message is refused before it
+   is assembled."
   [{:keys [bind-host bind-port accept! deposit! codecs] :as options}]
   (let [clock #(System/currentTimeMillis)
         codecs (or (seq codecs) default-codecs)
@@ -381,6 +443,8 @@
         server (http/run-server handler {:ip bind-host
                                          :port bind-port
                                          :legacy-return-value? false
+                                         :max-ws (or (:ws/max-frame-bytes options)
+                                                     http-kit-default-max-ws)
                                          :error-logger
                                          (fn [_message _error]
                                            (deposit! :listener-error

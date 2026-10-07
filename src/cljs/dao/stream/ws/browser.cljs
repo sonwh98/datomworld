@@ -20,11 +20,15 @@
    payload content to classify either.
 
    Host matrix declaration (per `dao.stream.ws.md`): the DOM `WebSocket.send`
-   accepts into an opaque host buffer and exposes no outbound high-water
-   signal, so transient `:dao.stream/full` is excluded by nature on this host,
-   exactly as on Node.  A send returns `undefined`, which the transport
-   classifies as ok; while the attachment is establishing, the transport's own
-   phase gate answers `full` without touching the socket."
+   accepts into a host buffer whose backlog `bufferedAmount` reports; the seam
+   exposes it as `:queued-bytes`, so the transport's outbound bounds are exact
+   on this host, exactly as on Node.  A send returns `undefined`, which the
+   transport classifies as ok; while the attachment is establishing, the
+   transport's own phase gate answers `full` without touching the socket.
+   The DOM socket takes no inbound size limit, so `:ws/max-frame-bytes` is
+   judged by the transport on each whole message.  DOM `close` takes only
+   1000 or 3000-4999, so the overflow teardowns reach the wire as 1000 with
+   the transport's reason (see `raw-socket`)."
   (:require [dao.stream.ws :as ws]))
 
 
@@ -64,14 +68,28 @@
   socket)
 
 
+(defn- dom-close-code?
+  "The codes DOM `WebSocket.close` accepts; any other throws
+   `InvalidAccessError` before closing anything."
+  [code]
+  (or (= 1000 code) (<= 3000 code 4999)))
+
+
 (defn raw-socket
   "The `{:send! :close!}` view of one host socket, which is the only shape
    `dao.stream.ws` accepts from a host.  `send!` takes the attachment codec's
    payload and lets the host dispatch on its type — a String sends a text
-   frame, a typed array a binary frame."
+   frame, a typed array a binary frame.
+
+   `close!` sends a transport code the DOM refuses (1008, 1009, 1013) as
+   1000 with the transport's reason, so the socket really closes and its
+   `close` event carries the terminal; the qualified diagnostic is already
+   on the stream."
   [socket]
   {:send! (fn [payload] (.send ^js socket payload))
-   :close! (fn [code reason] (.close ^js socket code reason))})
+   :close! (fn [code reason]
+             (.close ^js socket (if (dom-close-code? code) code 1000) reason))
+   :queued-bytes (fn [] (.-bufferedAmount ^js socket))})
 
 
 (defn connect!

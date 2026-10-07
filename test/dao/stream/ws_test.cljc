@@ -202,17 +202,20 @@
 
 
 (defn- one-slot-endpoint
-  [offer ack control]
-  (ws/make-endpoint
-    {:descriptor descriptor
-     :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
-     :control-admission admission
-     :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
-              :offer-admission (assoc admission :value-domain :host-values :capacity 1)
-              :ack {:dao.stream/handle ack :dao.stream/surface #{:writer}}
-              :ack-admission (assoc admission :value-domain :host-values :capacity 1)
-              :ack-cursor (:dao.stream/cursor (stream/cursor ack stream/anchor-newest))}]
-     :expiry-ms nil}))
+  ([offer ack control] (one-slot-endpoint offer ack control {}))
+  ([offer ack control bounds]
+   (ws/make-endpoint
+     (merge
+       {:descriptor descriptor
+        :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
+        :control-admission admission
+        :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
+                 :offer-admission (assoc admission :value-domain :host-values :capacity 1)
+                 :ack {:dao.stream/handle ack :dao.stream/surface #{:writer}}
+                 :ack-admission (assoc admission :value-domain :host-values :capacity 1)
+                 :ack-cursor (:dao.stream/cursor (stream/cursor ack stream/anchor-newest))}]
+        :expiry-ms nil}
+       bounds))))
 
 
 (deftest pre-accept-peer-loss-releases-its-handoff-slot
@@ -356,3 +359,146 @@
     (ws/receive! handle (frame :late))
     (is (true? @injected))
     (is (= [:early :mid :late] (mapv :ws/value (values traffic))))))
+
+
+(defn- bounded-client
+  "An opened client attachment composed with `bounds`, over a seam that
+   records sends and close requests and merges `seam` (e.g. a
+   `:queued-bytes`)."
+  ([bounds] (bounded-client bounds {} transit/profile))
+  ([bounds seam codec]
+   (let [traffic (buffer)
+         adapter (atom nil)
+         sent (atom [])
+         closes (atom [])
+         handle (:dao.stream/handle
+                  ((ws/make-attacher
+                     (merge {:traffic {:dao.stream/handle traffic
+                                       :dao.stream/surface #{:writer}}
+                             :admission admission
+                             :codec codec
+                             :connect! (fn [_ a]
+                                         (reset! adapter a)
+                                         (merge {:send! #(do (swap! sent conj %) nil)
+                                                 :close! (fn [& args] (swap! closes conj (vec args)))}
+                                                seam))}
+                            bounds))
+                   descriptor))]
+     ((:opened! @adapter))
+     {:handle handle :adapter @adapter :traffic traffic :sent sent :closes closes})))
+
+
+(defn- frame
+  [v]
+  (transit/encode {:ws/frame :ws/value :ws/value v}))
+
+
+(deftest a-frame-over-max-frame-bytes-is-a-protocol-failure-before-decode
+  (let [decodes (atom 0)
+        codec (update transit/profile :ws/decode
+                      (fn [decode] (fn [p] (swap! decodes inc) (decode p))))
+        small (frame 1)
+        {:keys [handle adapter traffic closes]}
+        (bounded-client {:ws/max-frame-bytes (count small)} {} codec)]
+    ((:message! adapter) small)
+    (is (= 1 @decodes) "a frame at the bound decodes")
+    ((:message! adapter) (frame "an oversize value"))
+    (is (= 1 @decodes) "the oversize frame is refused before decode")
+    (is (= [[1009 "dao.stream/frame-too-large"]] @closes))
+    (is (= [[:ws/opened nil] [:ws/payload nil] [:ws/error :ws/frame-too-large]]
+           (mapv (juxt :ws/event :ws/reason) (values traffic))))
+    (is (= :dao.stream/closed (:dao.stream/outcome (stream/append! handle :late))))
+    (is (= 1009 (do ((:too-large! adapter)) (first (last @closes))))
+        "a host that stops reassembly reaches the same teardown")
+    (is (thrown? #?(:cljd Object :clj Exception :cljs js/Error)
+          (bounded-client {:ws/max-frame-bytes 0}))
+        "a bound that is not a positive integer is a composition error")))
+
+
+(defn- pending-overflow
+  "Accept one connection on an endpoint with `bounds`, receive `frames`
+   before any acknowledgement, then acknowledge late."
+  [bounds frames]
+  (let [offer (buffer)
+        ack (buffer)
+        control (buffer)
+        endpoint (one-slot-endpoint offer ack control bounds)
+        closes (atom [])
+        accepted (ws/accept-connection! endpoint "/yin/repl"
+                                        {:send! (fn [_] nil)
+                                         :close! (fn [& args] (swap! closes conj (vec args)))})
+        attachment (:ws/attachment accepted)
+        traffic (buffer)]
+    (doseq [f frames]
+      (ws/receive! (:ws/handle accepted) f))
+    (let [closes-before-step @closes
+          control-events (mapv (juxt :ws/event :ws/reason) (values control))]
+      (ws/endpoint-step endpoint 1)
+      (let [slot-status (:status (first (:slots (ws/endpoint-state endpoint))))]
+        (stream/append! ack {:ws/attachment attachment :ws/command :ws/accept
+                             :ws/deposit {:dao.stream/handle traffic
+                                          :dao.stream/surface #{:writer}}
+                             :ws/admission admission})
+        (ws/endpoint-step endpoint 2)
+        {:closes closes-before-step
+         :control control-events
+         :slot-status slot-status
+         :traffic (values traffic)}))))
+
+
+(deftest pending-frames-over-count-tear-down-before-acceptance
+  (let [r (pending-overflow {:ws/max-pending-frames 2} [(frame :a) (frame :b) (frame :c)])]
+    (is (= [[1013 "dao.stream/pending-overflow"]] (:closes r)))
+    (is (= [[:ws/error :ws/pending-overflow]] (:control r))
+        "the diagnostic lands on the endpoint's control medium")
+    (is (= :free (:slot-status r)) "endpoint-step released the slot")
+    (is (empty? (:traffic r)) "the late acknowledgement is stale")))
+
+
+(deftest pending-frames-over-bytes-tear-down-before-acceptance
+  (let [f (frame :a)
+        r (pending-overflow {:ws/max-pending-bytes (inc (count f))} [f (frame :b)])]
+    (is (= [[1013 "dao.stream/pending-overflow"]] (:closes r)))
+    (is (= [[:ws/error :ws/pending-overflow]] (:control r)))
+    (is (= :free (:slot-status r)))
+    (is (empty? (:traffic r))))
+  (let [f (frame :a)
+        r (pending-overflow {:ws/max-pending-bytes (* 2 (count f))} [f (frame :b)])]
+    (is (empty? (:closes r)) "two frames that fit the byte bound stay queued")))
+
+
+(deftest outbound-high-water-answers-full-and-max-tears-down
+  (let [queued (atom 0)
+        {:keys [handle traffic sent closes]}
+        (bounded-client {:ws/outbound-high-water 100 :ws/max-outbound-bytes 200}
+                        {:queued-bytes #(deref queued)} transit/profile)
+        outcome #(:dao.stream/outcome (stream/append! handle %))]
+    (is (= :dao.stream/ok (outcome :a)))
+    (reset! queued 100)
+    (is (= :dao.stream/full (outcome :b)) "at high-water the append is refused, transiently")
+    (reset! queued 199)
+    (is (= :dao.stream/full (outcome :b)))
+    (is (= 1 (count @sent)) "nothing crossed while full")
+    (reset! queued 0)
+    (is (= :dao.stream/ok (outcome :b)) "a drained backlog accepts again")
+    (reset! queued 200)
+    (is (= :dao.stream/closed (outcome :c)) "at max the connection is torn down")
+    (is (= [[1008 "dao.stream/outbound-overflow"]] @closes))
+    (is (= [:ws/error :ws/outbound-overflow]
+           ((juxt :ws/event :ws/reason) (last (values traffic)))))
+    (reset! queued 0)
+    (is (= :dao.stream/closed (outcome :d)) "closed afterwards")
+    (is (= 2 (count @sent)))))
+
+
+(deftest a-seam-without-queued-bytes-uses-the-cumulative-quota
+  (let [n (count (frame :x))
+        {:keys [handle sent closes]}
+        (bounded-client {:ws/outbound-high-water 1 :ws/max-outbound-bytes (* 2 n)})
+        outcome #(:dao.stream/outcome (stream/append! handle %))]
+    (is (= :dao.stream/ok (outcome :x))
+        "high-water needs the seam's count; the quota alone applies")
+    (is (= :dao.stream/ok (outcome :y)))
+    (is (= :dao.stream/closed (outcome :z)) "the quota is spent")
+    (is (= [[1008 "dao.stream/outbound-overflow"]] @closes))
+    (is (= 2 (count @sent)))))

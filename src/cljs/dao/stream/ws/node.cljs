@@ -24,11 +24,13 @@
    never inspects payload content to classify either.
 
    Host matrix declaration (per `dao.stream.ws.md`): Node's `ws` `send`
-   accepts into an opaque host buffer and exposes no outbound high-water
-   signal, so transient `:dao.stream/full` is excluded by nature on this host.
-   A send returns nil, which the transport classifies as ok; while the
-   attachment is establishing, the transport's own phase gate answers `full`
-   without touching the socket."
+   accepts into a host buffer whose backlog `bufferedAmount` reports; the
+   seam exposes it as `:queued-bytes`, so the transport's outbound bounds are
+   exact on this host and `:ws/outbound-high-water` answers `full`.  A send
+   returns nil, which the transport classifies as ok; while the attachment is
+   establishing, the transport's own phase gate answers `full` without
+   touching the socket.  `ws` enforces `:ws/max-frame-bytes` itself as its
+   `maxPayload`, closing with 1009 before an oversize message is assembled."
   (:require ["ws" :as ws-package]
             [clojure.string :as str]
             [dao.stream.transit :as transit]
@@ -36,6 +38,11 @@
 
 
 (def subprotocol-refusal-code 1002)
+
+
+(def ^:private ws-default-max-payload
+  "The `ws` package's own `maxPayload` default, 100 MiB."
+  (* 100 1024 1024))
 
 
 (def default-codecs
@@ -181,6 +188,7 @@
   ([socket subprotocol]
    {:send! (fn [payload] (.send ^js socket payload))
     :close! (fn [code reason] (.close ^js socket code reason))
+    :queued-bytes (fn [] (.-bufferedAmount ^js socket))
     :ws/subprotocol subprotocol}))
 
 
@@ -196,9 +204,11 @@
    caller's composition, not arguments here: attach! deposits nothing before
    resolution and no event can outrun a cursor minted first."
   [descriptor adapter]
-  (let [socket (new (.-WebSocket ws-package)
+  (let [max-frame (:ws/max-frame-bytes adapter)
+        socket (new (.-WebSocket ws-package)
                     (socket-url descriptor)
-                    (get-in adapter [:ws/codec :ws/subprotocol] ws/subprotocol))]
+                    (get-in adapter [:ws/codec :ws/subprotocol] ws/subprotocol)
+                    #js {:maxPayload (or max-frame ws-default-max-payload)})]
     (wire! socket adapter)
     (raw-socket socket)))
 
@@ -214,7 +224,8 @@
    same seam it owns), `:on-listening` (called with the bound address map once
    the server reports listening) and `:on-error` (the sole observer of the
    server's 'error' event; the default no-op only prevents the host process
-   from dying on an unhandled EventEmitter error).
+   from dying on an unhandled EventEmitter error) and `:ws/max-frame-bytes`
+   (the server's `maxPayload`, default the `ws` package's own).
 
    Every upgrade that offers any table subprotocol is negotiated
    deterministically — the first codec in table order that the client offered
@@ -232,6 +243,7 @@
    `endpoint-step` cadence, and the returned listener is plain host data."
   ([endpoint] (listen! endpoint {}))
   ([endpoint {:keys [host port clock codecs accept! on-listening on-error]
+              :ws/keys [max-frame-bytes]
               :or {host "127.0.0.1" port 0}}]
    (let [clock (or clock #(js/Date.now))
          codecs (vec (or (seq codecs) default-codecs))
@@ -242,6 +254,9 @@
          server (new (.-WebSocketServer ws-package)
                      #js {:host host
                           :port port
+                          ;; Never undefined: `ws` spreads options over its
+                          ;; defaults, and an undefined `maxPayload` is no limit.
+                          :maxPayload (or max-frame-bytes ws-default-max-payload)
                           ;; The subprotocol is wire protocol, so its
                           ;; selection belongs to the endpoint's host edge:
                           ;; an unsupported offer means the upgrade is not a

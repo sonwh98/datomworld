@@ -1,0 +1,17 @@
+Done. The spec is written and the worktree is otherwise untouched.
+
+**Delivered**
+`collab/1791353752491-architect-stream-s2-spec.claude-fable-5-1.findings.md` (about 26 KB), headed with the completion timestamp and the session id from the brief.
+
+**What it specifies**
+- **S2a, answering side.** `mirror-step` gains a sixth argument, a bounds map with `:dao.stream.remote/mirror-budget` and `:dao.stream.remote/chase-budget`. Exhaustion returns the cursor at the stop point. A writer `full` rewinds idempotent answers and drops append answers. ws-project passes the bounds from new acceptor and dial config keys, and consumers change nothing.
+- **S2b, link side.** `drain-budget`, `max-outstanding` (refused locally as if the writer said full), `max-filed` (evict oldest, safe because everything filed is idempotent), and a clamp installing no more prefetched outcomes than the link asked for.
+- **S2c, liveness.** `give-up-after` in ms with the link still clock-free. A new `:step` entry on the links map takes driver-supplied `now`, drains a bounded snapshot, then declares channel loss through the existing path. `dial-step!` gets a two-arity with `now` and closes the socket on loss. One flagged deviation: kept, never-accepted probes also get a deadline so an establishment stall is bounded.
+- **S2d, bytes and frames.** Five `:ws/` keys: frame size, pending count, pending bytes, outbound high-water (answers full) and outbound max (teardown). Outbound accounting comes from an optional seam key `:queued-bytes`. JVM client and Node/browser are exact; Dart and the http-kit server fall back to a cumulative quota and stay gated. `adopt!` gets try/catch around make-media and the ack append.
+- A failure-to-outcome table, a per-sub-slice test plan naming the fixtures to reuse, the landing order S2a, S2b, S2c, S2d with the design sections each amends, and a suggested production profile for S3a.
+
+**Verified**
+`git diff --stat` is empty and `git status` shows only untracked collab files plus `node_modules`. No tests were run, as this was a specification pass.
+
+**Next**
+The file is ready for the orchestrator to route to review and to brief the S2a implementer.
