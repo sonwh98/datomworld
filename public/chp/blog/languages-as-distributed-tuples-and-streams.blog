@@ -1,61 +1,83 @@
 #:blog{:title "Beyond Monolithic Runtimes: Languages as Distributed Tuples and Streams"
        :date #inst "2026-10-08T00:00:00.000-00:00"
-       :abstract [:p "How datom.world eliminates monolithic C/FFI runtimes: executing Python, TypeScript, and Java through 40 platform-neutral host primitives, content-addressed preludes over the DHT, composable stream compilation, and virtual POSIX without OS seams."]
+       :abstract [:p "How datom.world eliminates monolithic C/FFI runtimes by executing guest languages over three pure host modules and content-addressed prelude streams. This post covers the host seam, DHT-published preludes, composable compilation perspectives, and virtual POSIX without ambient OS syscalls."]
        :content [:section.blog-article
                  [:div.section-inner
                   [:article
                    :$blog-title
                    :$blog-date
 
-                   [:p "When modern operating systems run a programming language—whether Python, TypeScript, Java, or Ruby—they drag along massive baggage: monolithic C runtimes, vendor-specific FFI bindings, complex " [:code "sys.path"] " resolution, ambient mutable environments, and platform-specific POSIX system calls. If you want to move a running program to another machine or a browser tab, you hit a wall."]
+                   [:p "When modern operating systems run a programming language—whether Python, TypeScript, Java, or Ruby—they drag along baggage: monolithic C runtimes, vendor-specific FFI bindings, complex " [:code "sys.path"] " resolution, ambient mutable environments, and platform-specific POSIX system calls. If you want to move a running program to another machine or a browser tab, you hit a wall."]
 
-                   [:p "With the completion of " [:strong "Phase C3"] " in " [:code "datom.world"] " (exact arbitrary-precision arithmetic, strict IEEE-754 carrier discipline, and mutation-tested parity across JVM, Node.js, and Dart VM), we arrived at a pivotal architectural milestone: " [:strong "Phase C4 (The Linked Runtime)"] ". Here is how " [:code "datom.world"] " rethinks the fundamental nature of programming language runtimes."]
+                   [:p "With the completion of " [:strong "Phase C3"] " in " [:code "datom.world"] " (exact integers to a declared bound, strict IEEE-754 carrier discipline, and mutation-tested parity across JVM, Node.js, and Dart VM), the next phase, " [:strong "C4 (the linked prelude)"] ", is designed and under way. Here is how " [:code "datom.world"] " rethinks the fundamental nature of programming language runtimes."]
 
-                   [:h2 "1. The Seam Pattern: 40 Primitives for the Whole World"]
+                   [:h2 "1. The Seam: Three Modules for Every Language"]
                    [:p "A common misconception is that running Python inside the Yin VM requires writing a slow Clojure emulator for Python. In reality, the architecture cleanly separates execution from host acceleration:"]
-                   [:ul
+                   [:ul.bulleted
                     [:li [:strong "Python runs as native guest code: "] "Python syntax, variable scoping, inheritance, generators, and exception handling are compiled into Universal AST and executed natively by the Yin VM."]
-                    [:li [:strong "The Host Seam is tiny and closed: "] "The VM delegates hardware-level acceleration to exactly " [:strong "40 host primitives"] " across three modules:"]
-                    [:ul
-                     [:li [:code "cell/*"] " (3 primitives): " [:code "cell/new"] ", " [:code "cell/get"] ", and " [:code "cell/set!"] "—powering all mutable heap objects (lists, dicts, instances, and frame stacks)."]
-                     [:li [:code "data/*"] " (15 primitives): UTF-16 code point manipulation, collection slicing, memory bounds (" [:code "data/max-items"] "), and float64 carrier discipline."]
-                     [:li [:code "integer/*"] " (22 primitives): Arbitrary-precision math, bitwise logic, radix parsing, and shortest-digit float formatting."]]]
+                    [:li [:strong "The Host Seam is three pure modules: "] "The host seam is three pure modules—" [:code "cell"] ", " [:code "data"] ", and " [:code "integer"] "—with 55 exports between them. The entire Python prelude reaches the host through 40 of those names plus the VM's 22 core primitives. Nothing in the prelude calls a host function outside these:"]
+                    [:ul.bulleted
+                     [:li [:code "cell/*"] " (3 exports): " [:code "cell/new"] ", " [:code "cell/get"] ", and " [:code "cell/set!"] "—powering all mutable heap objects (lists, dicts, instances, and the runtime context)."]
+                     [:li [:code "data/*"] " (26 exports): string primitives over UTF-16 units and Unicode code points, collection slicing, memory bounds (" [:code "data/max-items"] "), and float64 carrier discipline."]
+                     [:li [:code "integer/*"] " (26 exports): exact arithmetic bounded by declared bit and digit limits, bitwise logic, radix parsing, and shortest-digit float formatting."]]]
 
-                   [:p "Because these 40 primitives represent pure, platform-neutral computation, " [:strong "adding a new language like TypeScript, Java, or Scheme requires zero new host seams!"] " They all share the exact same 40 primitives; only the language-specific prelude changes."]
+                   [:p "The architectural bet is that a second language reuses these same three modules. The prelude manifest declares the host modules it needs by content address (§8.5.6), so when the JavaScript or Scheme prelude lands, anyone can verify whether the bet held directly from its published manifest."]
 
-                   [:h2 "2. What is a Prelude? The Soul of a Language"]
-                   [:p "The Yin VM understands only lambda calculus, continuations, cells, and streams. It knows nothing about Python classes, JavaScript prototype chains, or Java vtables."]
+                   [:h2 "2. What a Prelude Is"]
+                   [:p "The Yin VM understands only lambda calculus, continuations, effects, and the cell and stream modules. It knows nothing about Python classes, JavaScript prototype chains, or Java vtables."]
                    [:p "A " [:strong "prelude"] " is the language-specific foundation automatically loaded before user code. It defines the personality and semantics of the language:"]
-                   [:ul
+                   [:ul.bulleted
                     [:li [:code "py/add"] ": Decides whether " [:code "+"] " performs exact integer addition, list concatenation, or raises a " [:code "TypeError"] "."]
-                    [:li [:code "py/truthy?"] ": Codifies that " [:code "[]"] ", " [:code "{}"] ", and " [:code "0"] " are falsy in Python (whereas in JavaScript, " [:code "Boolean([])"] " is true!)."]
-                    [:li [:code "py/make-class"] " and " [:code "py/getattr"] ": Implements Python's method resolution order (MRO) and dynamic attribute dispatch."]]
+                    [:li [:code "py/truthy"] ": Codifies that " [:code "[]"] ", " [:code "{}"] ", and " [:code "0"] " are falsy in Python (whereas in JavaScript, " [:code "Boolean([])"] " is true)."]
+                    [:li [:code "py/make-class"] " and " [:code "py/getattr"] ": Implements single-inheritance attribute lookup and dynamic dispatch."]]
+
+                   [:p "Consider evaluating a simple expression like " [:code "a + b"] ". In conventional runtimes, this relies on C-level dispatch tables. In Yin, it lowers into clean guest applications of prelude functions:"]
+                   [:pre
+                    [:code
+                     ";; Lowered form of `a + b` in Universal AST\n"
+                     "[-1 :yin/type :application]\n"
+                     "[-1 :yin/operator -2]\n"
+                     "[-1 :yin/operands [-3 -4]]\n"
+                     "[-2 :yin/type :variable :yin/name py/add]\n"
+                     "[-3 :yin/type :variable :yin/name a]\n"
+                     "[-4 :yin/type :variable :yin/name b]"]]
+                   [:p "Notice that no host names or C bindings appear in this lowered form. The operation is expressed entirely in terms of the language prelude."]
 
                    [:h2 "3. Preludes on the DHT: Languages as Distributed Data"]
-                   [:p "In conventional systems, you install Python by placing gigabytes of binary files on disk. In " [:code "datom.world"] ", " [:strong "code is content-addressed data (Axiom 3)"] "."]
-                   [:p "The Python prelude is compiled into immutable semantic tuples and stored in the " [:code "dao.jing.dht"] " peer-to-peer content store:"]
-                   [:ul
-                    [:li "A lightweight edge node or browser tab with " [:em "zero"] " Python installed can execute Python code on demand."]
+                   [:p "In conventional systems, you install Python through a binary install of hundreds of megabytes on disk. In " [:code "datom.world"] ", " [:strong "code is content-addressed data (Axiom 3)"] "."]
+                   [:p "Phase C4 (§8.5.6) makes the Python prelude a linker module named " [:code "py"] ": compiled once into semantic rows, published content-addressed to the " [:code "dao.jing.dht"] " peer-to-peer store, and required by every Python program. Once that lands:"]
+                   [:ul.bulleted
+                    [:li "A lightweight edge node or browser tab with zero Python installed can execute Python code on demand."]
                     [:li "When a task requires " [:code "'py"] ", the Linker fetches the content-addressed prelude tuples over the DHT, verifies their cryptographic hash, and links them."]
-                    [:li "Upgrading a language version is simply referencing a new content hash. No system libraries break, and legacy code remains permanently reproducible."]]
+                    [:li "A new program pins a new hash, while a running task keeps the image it started with. A published package pins its prelude, so it runs the same way forever without breaking legacy code."]]
+
+                   [:p "The resulting module structure links explicitly and deterministically:"]
+                   [:pre
+                    [:code
+                     ";; Module shape under C4\n"
+                     "(do (require 'py)              ; hoisted content delivery\n"
+                     "    (yin/def spec {:name \"app\" :package? false})\n"
+                     "    (yin/def body (fn [%globals %globals-fn]\n"
+                     "                   <lowered module body>)))"]]
 
                    [:h2 "4. Composable Stream Compilation: One Stream, Many Perspectives"]
-                   [:p "Code is stored as a stream of canonical semantic tuple rows: " [:code "[id tag & slots]"] ". Because code is pure data, a composable " [:code "dao.stream"] " compilation pipeline can lower the same code into multiple execution forms simultaneously:"]
-                   [:ul
-                    [:li [:strong "AST Walker: "] "Reconstructs map trees for interactive inspection, structural reflection, and macros."]
-                    [:li [:strong "Semantic VM: "] "Linearizes rows into a positional instruction vector for fast evaluation."]
-                    [:li [:strong "Register VM (de Bruijn): "] "Eliminates variable names into register offsets for peak execution speed."]
-                    [:li [:strong "Datalog Relation ($ast): "] "Streams code directly into " [:code "dao.space.index"] ", allowing developers to query the live codebase using relational Datalog (" [:code "dao.space.query/q"] ")."]]
+                   [:p "Code is stored as canonical semantic tuple rows: the stored payload in " [:code "dao.jing"] " is the flat body " [:code "[tag & slots]"] ", and the full logical row " [:code "[id tag & slots]"] " is reconstructed on read. Because code is pure data, multiple independent observers can read the exact same stream concurrently, each completely ignorant of the others:"]
+                   [:ul.bulleted
+                    [:li [:strong "AST Walker: "] "Reconstructs map trees for interactive inspection and structural reflection. (The macro expander is simply one more observer on the syntax side of a stream boundary.)"]
+                    [:li [:strong "Semantic VM: "] "Linearizes rows into a positional instruction vector for fast evaluation via a CESK state loop."]
+                    [:li [:strong "Register VM (de Bruijn): "] "Eliminates variable names into register offsets for execution speed."]
+                    [:li [:strong "Datalog Relation ($ast): "] "The same rows are indexed by " [:code "dao.space.index"] ", and " [:code "yin.repl"] " exposes them as the " [:code "$ast"] " relation to relational Datalog queries (" [:code "dao.space.query/q"] ")."]]
+                   [:p "As explored in " [:a {:href "/blog/ast-datom-streams-bytecode-performance.blog"} "AST Datom Streams"] " and " [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"] ", this symmetric ignorance is the foundational invariant: the evaluator never consults an index to run, and the index never evaluates a form to index it."]
 
-                   [:h2 "5. Axiom 1 and Virtual POSIX: No Ambient Syscalls"]
+                   [:h2 "5. Host Boundaries and Virtual POSIX: No Ambient Syscalls"]
                    [:p "What about operating system operations like opening files, network sockets, or reading timers?"]
-                   [:p "Per " [:strong "Axiom 1 (Everything is a Stream)"] ", " [:code "datom.world"] " strictly rejects ambient OS syscalls. Instead, POSIX capabilities are modeled as " [:strong "virtual stream adapters"] ":"]
-                   [:ul
+                   [:p "Per the Host Boundaries specification (rooted in " [:strong "Axiom 1: Everything is a Stream"] "), " [:code "datom.world"] " strictly rejects ambient OS syscalls: all host contact is a stream boundary—effects out, events in. Here is where the architecture points next for POSIX capabilities:"]
+                   [:ul.bulleted
                     [:li "File descriptors (" [:code "fd"] ") are task-local indices pointing to " [:code "dao.stream"] " handles."]
-                    [:li "Filesystems are immutable directory trees in " [:code "dao.space.store"] "."]
-                    [:li "Network sockets are dials and listeners over " [:code "dao.stream.remote-channel"] "."]
+                    [:li "File contents are content-addressed blobs in the same " [:code "dao.jing"] " store that holds code; directories are stream-backed trees over them."]
+                    [:li "A network socket is a dial or a serve over " [:code "dao.stream.remote-channel"] ", which is itself a stream."]
                     [:li "Processes and signals are Yin VM continuations and safepoint event streams."]]
-                   [:p "This enables pure sandboxing and deterministic time-travel debugging: a running Python process can pause, serialize its continuation to CBOR, travel across the network, and resume seamlessly on another computer without holding any dangling OS file descriptors."]
+                   [:p "The continuation format (UCF) already gives a paused task a content-addressed identity and wire form (see " [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"] "). Once heap lift lands in a future slice, a paused Python task will carry its objects with it and resume elsewhere across the network without leaving any dangling OS file descriptors."]
 
                    [:h2 "Conclusion"]
-                   [:p "By treating languages not as monolithic C runtimes, but as " [:strong "content-addressed semantic tuples over universal streams"] ", " [:code "datom.world"] " achieves what traditional systems cannot: true cross-platform determinism, instant multi-language mobility, and verifiable execution across the distributed web."]]]]}
+                   [:p "By treating languages not as monolithic C runtimes, but as " [:strong "content-addressed semantic tuples over universal streams"] ", " [:code "datom.world"] " establishes a disciplined foundation: cross-platform determinism today, and verifiable multi-language mobility across the distributed web tomorrow."]]]]}
