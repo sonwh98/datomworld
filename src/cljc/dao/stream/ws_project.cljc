@@ -97,33 +97,44 @@
    medium's own recovery cursor, the lost events being lost. The
    medium's own end closes the projection and the ring with it:
    nothing more can arrive, so a link waiting on the ring must
-   observe the loss (2.4) rather than block forever. Returns the
-   projection."
-  [project]
-  (loop []
-    (let [s @project]
-      (if (:closed? s)
-        project
-        (let [r (stream/next (:traffic s) (:cursor s))]
-          (case (:dao.stream/outcome r)
-            :dao.stream/ok
-            (let [event (:dao.stream/value r)]
-              (swap! project assoc :cursor (:dao.stream/cursor r))
-              (if (project! s event)
-                (swap! project assoc :closed? true)
-                (recur)))
+   observe the loss (2.4) rather than block forever. When an optional
+   `budget` (positive integer) is provided, read at most `budget`
+   events in one step! call; any other non-nil budget is a composition
+   error. Returns the projection."
+  ([project]
+   (step! project nil))
+  ([project budget]
+   (when-not (or (nil? budget) (and (integer? budget) (pos? budget)))
+     (throw (ex-info "invalid DaoStream ws projection step! budget"
+                     {:budget budget})))
+   (let [bounded? (some? budget)]
+     (loop [remaining (if bounded? budget -1)]
+       (if (and bounded? (zero? remaining))
+         project
+         (let [s @project]
+           (if (:closed? s)
+             project
+             (let [r (stream/next (:traffic s) (:cursor s))]
+               (case (:dao.stream/outcome r)
+                 :dao.stream/ok
+                 (let [event (:dao.stream/value r)]
+                   (swap! project assoc :cursor (:dao.stream/cursor r))
+                   (if (project! s event)
+                     (do (swap! project assoc :closed? true)
+                         project)
+                     (recur (if bounded? (dec remaining) -1))))
 
-            :dao.stream/end
-            (do (stream/close! (:ring s))
-                (swap! project assoc :closed? true)
-                project)
+                 :dao.stream/end
+                 (do (stream/close! (:ring s))
+                     (swap! project assoc :closed? true)
+                     project)
 
-            :dao.stream/gap
-            (do (swap! project assoc :cursor (:dao.stream/cursor r))
-                (recur))
+                 :dao.stream/gap
+                 (do (swap! project assoc :cursor (:dao.stream/cursor r))
+                     (recur (if bounded? (dec remaining) -1)))
 
-            ;; blocked, and any read the medium refuses: stay put.
-            project))))))
+                 ;; blocked, and any read the medium refuses: stay put.
+                 project)))))))))
 
 
 (defn closed?
@@ -172,26 +183,106 @@
    (the fresh channel ring buffer). `:names`, optional, is the name
    map beside the table (dao.stream.remote.md section 2), {name
    identity}, each value a key of the table: the mirror answers a
-   named descriptor request from it. The listener is the host's: it
-   calls ws/accept-connection! on this endpoint, per dao.stream.ws.md
-   Serving."
-  [{:keys [endpoint slots table names make-media] :as config}]
-  (when-not (and (map? config)
-                 (some? endpoint)
-                 (fn? make-media)
-                 (map? table)
-                 (or (nil? names) (map? names))
-                 (seq slots)
-                 (every? valid-slot? slots))
-    (throw (ex-info "invalid DaoStream ws acceptor composition"
-                    {:config config})))
-  (atom {:endpoint endpoint
-         :slots (vec slots)
-         :table table
-         :names names
-         :make-media make-media
-         :offer-cursors (mapv :offer-cursor slots)
-         :sessions {}}))
+   named descriptor request from it. `:max-sessions`, optional positive
+   integer or nil, bounds concurrent active sessions. `:idle-timeout`,
+   optional positive integer milliseconds or nil, sets idle session
+   expiry against the `now` given to accept-step!; its alias
+   `:idle-timeout-ms` takes precedence when both are given.
+   `:step-budget`, optional positive integer or nil, bounds the events
+   each session's projection reads per tick. The listener is the
+   host's: it calls ws/accept-connection! on this endpoint, per
+   dao.stream.ws.md Serving."
+  [{:keys [endpoint slots table names make-media max-sessions
+           idle-timeout-ms idle-timeout step-budget] :as config}]
+  (let [idle-t (or idle-timeout-ms idle-timeout)]
+    (when-not (and (map? config)
+                   (some? endpoint)
+                   (fn? make-media)
+                   (map? table)
+                   (or (nil? names) (map? names))
+                   (or (nil? max-sessions)
+                       (and (integer? max-sessions) (pos? max-sessions)))
+                   (or (nil? idle-t)
+                       (and (integer? idle-t) (pos? idle-t)))
+                   (or (nil? step-budget)
+                       (and (integer? step-budget) (pos? step-budget)))
+                   (seq slots)
+                   (every? valid-slot? slots))
+      (throw (ex-info "invalid DaoStream ws acceptor composition"
+                      {:config config})))
+    (atom {:endpoint endpoint
+           :slots (vec slots)
+           :table table
+           :names names
+           :make-media make-media
+           :max-sessions max-sessions
+           :idle-timeout idle-t
+           :step-budget step-budget
+           :offer-cursors (mapv :offer-cursor slots)
+           :sessions {}})))
+
+
+(defn- session-closed?
+  "True if the session's projection is closed, or the session was explicitly
+   marked closed."
+  [s]
+  (or (:closed? s)
+      (closed? (:project s))))
+
+
+(defn- session-idle?
+  "True if the session has exceeded idle-timeout given `now`."
+  [s idle-timeout now]
+  (and (some? idle-timeout)
+       (some? now)
+       (number? (:last-activity-ms s))
+       (>= (- now (:last-activity-ms s)) idle-timeout)))
+
+
+(defn- close-session-resources!
+  "Close a session's socket handle and channel ring."
+  [s]
+  (when (stream/closable? (:handle s))
+    (stream/close! (:handle s)))
+  (when (stream/closable? (:ring s))
+    (stream/close! (:ring s))))
+
+
+(defn- reaped
+  "The sessions without closed or expired ones. A closed session's tick
+   just ran its last mirror pass -- a closed ring forwards no further
+   request, so only what it retained could ever be answered, and that
+   pass answered what the handle accepted -- so its handle, ring and
+   projection have nothing left to do. Keeping them would grow the
+   composition without bound across repeated connections; the endpoint
+   released the connection's slot at acceptance (dao.stream.ws.md
+   Serving), and this is the composition's own bound. When idle-timeout
+   and `now` are supplied, a session idle for at least idle-timeout is
+   reaped too, its handle and ring closed: unlike a closed session's,
+   its connection may still be open."
+  [m idle-timeout now]
+  (reduce-kv
+    (fn [acc att s]
+      (cond
+        (session-closed? s) acc
+
+        (session-idle? s idle-timeout now)
+        (do (close-session-resources! s) acc)
+
+        :else (assoc acc att s)))
+    {}
+    m))
+
+
+(defn- reap-sessions!
+  "Reap closed or expired sessions from the acceptor atom and return
+   the kept sessions. Reaping closes handles, so it runs outside swap!;
+   the driver alone steps the acceptor."
+  [acceptor now]
+  (let [{:keys [sessions idle-timeout]} @acceptor
+        kept (reaped sessions idle-timeout now)]
+    (swap! acceptor assoc :sessions kept)
+    kept))
 
 
 (defn- adopt!
@@ -202,10 +293,11 @@
    reading cursor and socket handle the mirror works through. An
    offer that is not an acceptance, and an acknowledgement the slot's
    medium refuses, close the offered handle; the slot itself is the
-   endpoint's to release."
-  [acceptor slot offer]
-  (let [make-media (:make-media @acceptor)
-        handle (get-in offer [:ws/handle :dao.stream/handle])
+   endpoint's to release. When :max-sessions is reached after reaping
+   expired/closed sessions, reject the newcomer by closing its handle
+   without an accept acknowledgement."
+  [acceptor slot offer now]
+  (let [handle (get-in offer [:ws/handle :dao.stream/handle])
         attachment (:ws/attachment offer)]
     (if-not (and (= :ws/accepted (:ws/event offer))
                  (string? attachment)
@@ -214,53 +306,51 @@
                  (stream/closable? handle))
       (when (stream/closable? handle)
         (stream/close! handle))
-      (let [media (make-media offer)
-            appended (stream/append!
-                       (:dao.stream/handle (:ack-writer slot))
-                       {:ws/attachment attachment
-                        :ws/command :ws/accept
-                        :ws/deposit (:traffic media)
-                        :ws/admission (:admission media)})]
-        (if (= :dao.stream/ok (:dao.stream/outcome appended))
-          (swap! acceptor assoc-in [:sessions attachment]
-                 {:attachment attachment
-                  :handle handle
-                  :ring (:ring media)
-                  :cursor (:dao.stream/cursor
-                            (stream/cursor (:ring media)
-                                           stream/anchor-oldest))
-                  :project (projection
-                             {:attachment attachment
-                              :traffic (:reader media)
-                              :cursor (:cursor media)
-                              :ring (:ring media)})})
-          (stream/close! handle))))))
-
-
-(defn- reaped
-  "The sessions without the closed ones. A closed session's tick just
-   ran its last mirror pass -- a closed ring forwards no further
-   request, so only what it retained could ever be answered, and that
-   pass answered what the handle accepted -- so its handle, ring and
-   projection have nothing left to do. Keeping them would grow the
-   composition without bound across repeated connections; the endpoint
-   released the connection's slot at acceptance (dao.stream.ws.md
-   Serving), and this is the composition's own bound."
-  [m]
-  (into {} (remove (fn [[_ s]] (closed? (:project s))) m)))
+      (let [cur-sessions (reap-sessions! acceptor now)
+            max-s (:max-sessions @acceptor)]
+        (if (and (some? max-s) (>= (count cur-sessions) max-s))
+          ;; Reject newcomer at active cap
+          (when (stream/closable? handle)
+            (stream/close! handle))
+          (let [make-media (:make-media @acceptor)
+                media (make-media offer)
+                appended (stream/append!
+                           (:dao.stream/handle (:ack-writer slot))
+                           {:ws/attachment attachment
+                            :ws/command :ws/accept
+                            :ws/deposit (:traffic media)
+                            :ws/admission (:admission media)})]
+            (if (= :dao.stream/ok (:dao.stream/outcome appended))
+              (swap! acceptor assoc-in [:sessions attachment]
+                     {:attachment attachment
+                      :handle handle
+                      :ring (:ring media)
+                      :cursor (:dao.stream/cursor
+                                (stream/cursor (:ring media)
+                                               stream/anchor-oldest))
+                      :project (projection
+                                 {:attachment attachment
+                                  :traffic (:reader media)
+                                  :cursor (:cursor media)
+                                  :ring (:ring media)})
+                      :last-activity-ms (or now 0)})
+              (stream/close! handle))))))))
 
 
 (defn accept-step!
   "Advance the accepting composition one tick at `now`, in the order
    serving compositions use: a transport step first (releasing dead
    pendings, consuming standing acknowledgements), then one offer per
-   slot adopted with its fresh media and acknowledgement, then a
-   second transport step, so the fresh acknowledgement is consumed and
-   the accept frame is on the wire before this end answers anything,
+   slot adopted with its fresh media and acknowledgement, then a second
+   transport step, so the fresh acknowledgement is consumed and the
+   accept frame is on the wire before this end answers anything,
    then per session the projection and, over the projected reader and
-   the socket handle, the mirror step. A session whose projection has
-   closed is then removed: the mirror pass just run was its last, and
-   repeated connections must not accumulate. Returns the acceptor."
+   the socket handle, the mirror step. Each session step is isolated in
+   a try/catch so an unexpected error marks the session closed and frees
+   its resources without bringing down the acceptor loop or healthy
+   peers. A session whose projection has closed or which has timed out
+   is then removed: repeated connections must not accumulate. Returns
+   the acceptor."
   [acceptor now]
   (let [{:keys [endpoint slots] :as s} @acceptor]
     (ws/endpoint-step endpoint now)
@@ -270,23 +360,33 @@
         (when (= :dao.stream/ok (:dao.stream/outcome r))
           (swap! acceptor assoc-in [:offer-cursors index]
                  (:dao.stream/cursor r))
-          (adopt! acceptor slot (:dao.stream/value r)))))
+          (adopt! acceptor slot (:dao.stream/value r) now))))
     (ws/endpoint-step endpoint now)
     (doseq [[attachment session] (:sessions @acceptor)]
-      (step! (:project session))
-      (swap! acceptor assoc-in [:sessions attachment :cursor]
-             (remote/mirror-step (:table @acceptor)
-                                 (:names @acceptor)
-                                 (:ring session)
-                                 (:cursor session)
-                                 (:handle session))))
-    (swap! acceptor update :sessions reaped)
+      (try
+        (let [read-from (reading-cursor (:project session))
+              _ (step! (:project session) (:step-budget @acceptor))
+              cursor (remote/mirror-step (:table @acceptor)
+                                         (:names @acceptor)
+                                         (:ring session)
+                                         (:cursor session)
+                                         (:handle session))
+              active? (or (not= read-from (reading-cursor (:project session)))
+                          (not= (:cursor session) cursor))]
+          (swap! acceptor update-in [:sessions attachment]
+                 #(cond-> (assoc % :cursor cursor)
+                    (and active? (some? now)) (assoc :last-activity-ms now))))
+        (catch #?(:clj Throwable :cljs :default :cljd Object) _
+          ;; Isolate the failure: close this session, spare the rest.
+          (close-session-resources! session)
+          (swap! acceptor assoc-in [:sessions attachment :closed?] true))))
+    (reap-sessions! acceptor now)
     acceptor))
 
 
 (defn sessions
   "The acceptor's sessions as data: attachment id -> {:attachment
-   :handle :ring :cursor :project}."
+   :handle :ring :cursor :project :last-activity-ms}."
   [acceptor]
   (:sessions @acceptor))
 

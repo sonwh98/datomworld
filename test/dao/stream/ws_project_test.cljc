@@ -7,7 +7,11 @@
    end closing projection and ring alike -- channel loss then being
    the link's own end observation --, a closed session reaped with its
    slot reused by the next connection, and a second attach on one
-   dial rejected."
+   dial rejected. The resource bounds (dao.stream.remote.md 3.0): a
+   step event budget, newcomers rejected at :max-sessions, idle
+   sessions reaped with their handle and ring closed, activity
+   resetting the idle clock, and one session's failure isolated from
+   the rest."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ringbuffer]
@@ -314,52 +318,57 @@
    accepted offers as the transport's upgrade callback would.
    :make-media hands out one fresh traffic medium, channel ring and
    cursor per accepted offer, each recorded in `media` for the test to
-   drive and observe."
-  [media table]
-  (let [offers (ring 1)
-        acks (ring 1)
-        endpoint (ws/make-endpoint
-                   {:descriptor
-                    {:dao.stream/type :dao.stream/ws
-                     :dao.stream/identity "toy"
-                     :ws/host "127.0.0.1"
-                     :ws/port 1
-                     :ws/path "/toy"}
-                    :control {:dao.stream/handle (ring 16)
-                              :dao.stream/surface #{:writer}}
-                    :control-admission
-                    {:retention :evict-oldest :capacity 16
-                     :value-domain :portable-values}
-                    :slots [{:offer {:dao.stream/handle offers
-                                     :dao.stream/surface #{:writer}}
-                             :offer-admission handoff-admission
-                             :ack {:dao.stream/handle acks
-                                   :dao.stream/surface #{:writer}}
-                             :ack-admission handoff-admission
-                             :ack-cursor (newest-cursor acks)}]
-                    :expiry-ms nil})]
-    {:offers offers
-     :acceptor
-     (project/make-acceptor
-       {:endpoint endpoint
-        :slots [{:offer-reader offers
-                 :offer-cursor (newest-cursor offers)
-                 :ack-writer {:dao.stream/handle acks
-                              :dao.stream/surface #{:writer}}}]
-        :table table
-        :make-media
-        (fn [_]
-          (let [traffic (ring 64)
-                channel-ring (ring 64)
-                m {:traffic traffic :ring channel-ring}]
-            (swap! media conj m)
-            {:traffic {:dao.stream/handle traffic
-                       :dao.stream/surface #{:writer}}
-             :admission {:retention :evict-oldest :capacity 64
-                         :value-domain :portable-values}
-             :reader traffic
-             :cursor (newest-cursor traffic)
-             :ring channel-ring}))})}))
+   drive and observe. `config`, optional, merges into the acceptor's
+   composition (its :max-sessions and :idle-timeout bounds)."
+  ([media table] (acceptor-over media table {}))
+  ([media table config]
+   (let [offers (ring 1)
+         acks (ring 1)
+         endpoint (ws/make-endpoint
+                    {:descriptor
+                     {:dao.stream/type :dao.stream/ws
+                      :dao.stream/identity "toy"
+                      :ws/host "127.0.0.1"
+                      :ws/port 1
+                      :ws/path "/toy"}
+                     :control {:dao.stream/handle (ring 16)
+                               :dao.stream/surface #{:writer}}
+                     :control-admission
+                     {:retention :evict-oldest :capacity 16
+                      :value-domain :portable-values}
+                     :slots [{:offer {:dao.stream/handle offers
+                                      :dao.stream/surface #{:writer}}
+                              :offer-admission handoff-admission
+                              :ack {:dao.stream/handle acks
+                                    :dao.stream/surface #{:writer}}
+                              :ack-admission handoff-admission
+                              :ack-cursor (newest-cursor acks)}]
+                     :expiry-ms nil})]
+     {:offers offers
+      :acks acks
+      :acceptor
+      (project/make-acceptor
+        (merge
+          {:endpoint endpoint
+           :slots [{:offer-reader offers
+                    :offer-cursor (newest-cursor offers)
+                    :ack-writer {:dao.stream/handle acks
+                                 :dao.stream/surface #{:writer}}}]
+           :table table
+           :make-media
+           (fn [_]
+             (let [traffic (ring 64)
+                   channel-ring (ring 64)
+                   m {:traffic traffic :ring channel-ring}]
+               (swap! media conj m)
+               {:traffic {:dao.stream/handle traffic
+                          :dao.stream/surface #{:writer}}
+                :admission {:retention :evict-oldest :capacity 64
+                            :value-domain :portable-values}
+                :reader traffic
+                :cursor (newest-cursor traffic)
+                :ring channel-ring}))}
+          config))})))
 
 
 (defn- offer!
@@ -409,3 +418,204 @@
           (project/accept-step! acceptor 4)
           (is (= [:works] (values ring))
               "the second session projects onto its own fresh ring"))))))
+
+
+(deftest step-respects-event-budget
+  (let [{:keys [medium channel project]} (composed)]
+    (deposit! medium (payload me :a))
+    (deposit! medium (payload me :b))
+    (deposit! medium (payload me :c))
+    (deposit! medium (payload me :d))
+    ;; Step with budget 2: reads only 2 events
+    (project/step! project 2)
+    (is (= [:a :b] (values channel))
+        "budget of 2 consumes exactly 2 events even though 4 were deposited")
+    ;; Step with budget 1: reads 1 more event
+    (project/step! project 1)
+    (is (= [:a :b :c] (values channel))
+        "budget of 1 consumes the next event")
+    ;; Step with nil budget: reads remaining events to blocked
+    (project/step! project)
+    (is (= [:a :b :c :d] (values channel))
+        "unbounded step consumes all remaining events")))
+
+
+(deftest an-invalid-step-budget-is-a-composition-error
+  (let [{:keys [medium channel project]} (composed)]
+    (deposit! medium (payload me :a))
+    (doseq [bad [0 -1 1.5]]
+      (testing bad
+        (is (= {:budget bad}
+               (try (project/step! project bad) nil
+                    (catch #?(:clj Exception :cljs :default :cljd Object) e
+                      (ex-data e))))
+            "an ex-info carrying the rejected budget")))
+    (is (= [] (values channel))
+        "a rejected budget reads nothing")))
+
+
+(deftest max-sessions-rejects-newcomers-at-cap
+  (let [media (atom [])
+        {:keys [acceptor offers acks]}
+        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}}
+                       {:max-sessions 1})
+        sock-1 (ring 8)
+        sock-2 (ring 8)]
+    (offer! offers "att-1" sock-1)
+    (project/accept-step! acceptor 100)
+    (is (= #{"att-1"} (set (keys (project/sessions acceptor))))
+        "the first connection is admitted under :max-sessions 1")
+    (offer! offers "att-2" sock-2)
+    (project/accept-step! acceptor 101)
+    (is (= #{"att-1"} (set (keys (project/sessions acceptor))))
+        "the newcomer is rejected at the active cap")
+    (is (= ["att-1"] (mapv :ws/attachment (values acks)))
+        "no accept acknowledgement was written for the newcomer")
+    (is (= :dao.stream/closed
+           (:dao.stream/outcome (stream/append! sock-2 :test)))
+        "the rejected newcomer's offered handle was closed")
+    (is (= 1 (count @media))
+        "no media were composed for the rejected newcomer")))
+
+
+(deftest idle-sessions-are-reaped-and-free-capacity
+  (let [media (atom [])
+        {:keys [acceptor offers]}
+        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}}
+                       {:max-sessions 1 :idle-timeout 50})
+        sock-1 (ring 8)
+        sock-2 (ring 8)]
+    (offer! offers "att-1" sock-1)
+    (project/accept-step! acceptor 100)
+    (is (= #{"att-1"} (set (keys (project/sessions acceptor)))))
+    (project/accept-step! acceptor 140)
+    (is (= #{"att-1"} (set (keys (project/sessions acceptor))))
+        "40ms idle is under the 50ms timeout")
+    (offer! offers "att-2" sock-2)
+    (project/accept-step! acceptor 160)
+    (is (= #{"att-2"} (set (keys (project/sessions acceptor))))
+        "the idle session is reaped before admission, freeing the cap
+         for the newcomer")
+    (is (= :dao.stream/closed
+           (:dao.stream/outcome (stream/append! sock-1 :test)))
+        "the reaped session's handle was closed")
+    (is (= :dao.stream/closed
+           (:dao.stream/outcome (stream/append! (:ring (first @media)) :x)))
+        "the reaped session's channel ring was closed")))
+
+
+(deftest idle-reaping-runs-on-a-tick-without-offers
+  (let [media (atom [])
+        {:keys [acceptor offers]}
+        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}}
+                       {:idle-timeout-ms 50})
+        sock-1 (ring 8)]
+    (offer! offers "att-1" sock-1)
+    (project/accept-step! acceptor 100)
+    (project/accept-step! acceptor 150)
+    (is (empty? (project/sessions acceptor))
+        ":idle-timeout-ms is honoured and reaping needs no newcomer")
+    (is (= :dao.stream/closed
+           (:dao.stream/outcome (stream/append! sock-1 :test))))))
+
+
+(deftest session-activity-resets-idle-timeout
+  (let [media (atom [])
+        {:keys [acceptor offers]}
+        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}}
+                       {:idle-timeout 50})]
+    (offer! offers "att-1" (ring 8))
+    (project/accept-step! acceptor 100)
+    (deposit! (:traffic (last @media))
+              (payload "att-1" {:dao.stream/identity "str-1"
+                                :dao.stream.remote/op :dao.stream/descriptor
+                                :dao.stream.remote/args []
+                                :dao.stream.remote/id 1}))
+    (project/accept-step! acceptor 130)
+    (project/accept-step! acceptor 170)
+    (is (= #{"att-1"} (set (keys (project/sessions acceptor))))
+        "70ms since admission but 40ms since the activity at 130")
+    (project/accept-step! acceptor 180)
+    (is (empty? (project/sessions acceptor))
+        "50ms since the last activity: reaped")))
+
+
+(deftest no-bounds-keeps-sessions-unbounded
+  (let [media (atom [])
+        {:keys [acceptor offers]}
+        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}})]
+    (doseq [[t att] [[1 "att-1"] [2 "att-2"] [3 "att-3"]]]
+      (offer! offers att (ring 8))
+      (project/accept-step! acceptor t))
+    (project/accept-step! acceptor 1000000)
+    (is (= #{"att-1" "att-2" "att-3"} (set (keys (project/sessions acceptor))))
+        "without :max-sessions or :idle-timeout nothing is rejected or
+         expired")))
+
+
+(deftest invalid-bounds-are-a-composition-error
+  (doseq [bad [{:max-sessions 0} {:max-sessions -1} {:max-sessions 1.5}
+               {:idle-timeout 0} {:idle-timeout-ms -5} {:idle-timeout 2.5}
+               {:step-budget 0} {:step-budget 1.5} {:step-budget -1}]]
+    (testing bad
+      (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
+            (acceptor-over (atom []) {} bad))))))
+
+
+(deftest session-error-isolation
+  (let [media (atom [])
+        {:keys [acceptor offers]}
+        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}})
+        sock-1 (ring 8)
+        sock-2 (ring 8)]
+    (offer! offers "att-1" sock-1)
+    (project/accept-step! acceptor 100)
+    (offer! offers "att-2" sock-2)
+    (project/accept-step! acceptor 101)
+    (is (= #{"att-1" "att-2"} (set (keys (project/sessions acceptor))))
+        "both sessions admitted")
+    ;; A projection over no traffic medium: its step! throws.
+    (swap! acceptor assoc-in [:sessions "att-1" :project]
+           (atom {:closed? false :traffic nil :cursor nil :ring nil}))
+    (deposit! (:traffic (second @media))
+              (payload "att-2" {:dao.stream/identity "str-1"
+                                :dao.stream.remote/op :dao.stream/descriptor
+                                :dao.stream.remote/args []
+                                :dao.stream.remote/id 42}))
+    (project/accept-step! acceptor 102)
+    (is (= #{"att-2"} (set (keys (project/sessions acceptor))))
+        "the failing session is reaped, the healthy one kept")
+    (is (= :dao.stream/closed
+           (:dao.stream/outcome (stream/append! sock-1 :test)))
+        "the failing session's handle was closed")
+    (is (= #{42} (set (map :dao.stream.remote/id (values sock-2))))
+        "the healthy session answered its request in the same tick")))
+
+
+(deftest a-flooded-session-cannot-starve-its-peers
+  (let [media (atom [])
+        {:keys [acceptor offers]}
+        (acceptor-over media {"str-1" {:handle (ring 16) :surface #{:reader}}}
+                       {:step-budget 2})
+        sock-2 (ring 8)]
+    (offer! offers "att-1" (ring 8))
+    (project/accept-step! acceptor 1)
+    (offer! offers "att-2" sock-2)
+    (project/accept-step! acceptor 2)
+    (is (= #{"att-1" "att-2"} (set (keys (project/sessions acceptor)))))
+    (let [[flooded healthy] @media]
+      (doseq [v [:a :b :c :d :e]]
+        (deposit! (:traffic flooded) (payload "att-1" v)))
+      (deposit! (:traffic healthy)
+                (payload "att-2" {:dao.stream/identity "str-1"
+                                  :dao.stream.remote/op :dao.stream/descriptor
+                                  :dao.stream.remote/args []
+                                  :dao.stream.remote/id 9}))
+      (project/accept-step! acceptor 3)
+      (is (= [:a :b] (values (:ring flooded)))
+          ":step-budget 2 bounds the flooded session's projection per tick")
+      (is (= #{9} (set (map :dao.stream.remote/id (values sock-2))))
+          "the other session was answered in the same tick")
+      (project/accept-step! acceptor 4)
+      (is (= [:a :b :c :d] (values (:ring flooded)))
+          "the flood drains two events per tick, its cursor kept"))))

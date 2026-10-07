@@ -372,6 +372,43 @@ is ordered and reliable; the link reads the last as composition data for
 `:dao.stream.remote/resend-after`, and nothing else in section 2 changes
 per channel.
 
+### 3.0 Stepped channel composition boundary and resource bounds
+
+`dao.stream` is the sole abstraction boundary for communication across
+machine boundaries: neither higher-level interpreter runtimes (such as
+`yin.repl`) nor evaluation surfaces (such as `yin.vm.linker`) know or care
+about underlying transport specifics (TCP WebSocket vs UDP datagram).
+Swapping transport mechanisms beneath `dao.stream` preserves all handle
+operations, outcome algebras, opaque cursors, source gap/recovery semantics,
+and append semantics. Raw network drop or connection loss is never invented
+or reported as a source-retention gap.
+
+Channel compositions are stepped and driver-paced: cadence is owned by the
+composition runner, not by ambient timers, daemon loops, or background
+threads. All stepped channel compositions observe an explicit resource bounds
+contract:
+- **Finite admission cap (`:max-sessions`)**: An accepting channel composition
+  enforces an upper bound on active concurrent sessions. When `:max-sessions`
+  is reached, newcomer offers are cleanly rejected (their offered socket
+  handles closed and accept acknowledgements withheld) after reaping expired
+  and closed sessions.
+- **Idle reaping (`:idle-timeout`)**: `:idle-timeout` is a positive integer
+  in milliseconds, measured against the driver-supplied `now`; its alias
+  `:idle-timeout-ms` takes precedence when both are given. Sessions with no
+  progress or activity for at least `:idle-timeout` milliseconds are reaped
+  on accept-step ticks; their underlying socket handles and channel rings
+  are closed to release resources and restore capacity.
+- **Step event budget (`budget`)**: Channel projection `step!` loops accept an
+  optional event budget. When specified, at most `budget` events are read and
+  processed from the traffic medium per tick, preventing continuous traffic
+  floods from starving other processing or hanging driver ticks. An
+  accepting composition takes it as `:step-budget`, applied to each
+  session's projection on every accept-step tick.
+- **Session failure isolation**: An unhandled exception or malformed payload
+  in one session's projection or mirror step is isolated and caught; its
+  resources are closed and marked for reaping without crashing the acceptor
+  or affecting other healthy sessions.
+
 ### 3.1 WebSocket
 
 `dao.stream.ws` as specified in `dao.stream.ws.md` is the socket layer, and
