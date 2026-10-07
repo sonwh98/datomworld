@@ -1871,6 +1871,15 @@ occurrence's active lease at its epoch; at or past the bound, and
 without the evidence, abort is refused. After the lease has ended its
 old local machine is never restored.
 
+(M-next D15a, as built.) The driver steps this state through a
+custody seam, not `:phase` alone: `control-step` carries custody
+progress and the established offer/report/release/closure brackets,
+`program-step` prepares and captures the export, `stop` latches the
+driver, and `owed-control-write?` answers the control cadence. A
+candidate that accepted a grant but has not lowered it stays in
+`:activating` and still stops at its own lease bound. The inbox
+retention machine and the unavailable-lane semantics are in 7.11.
+
 ### 7.7.5 Fencing effects: epochs, operation ids, and what exactly-once costs
 
 `dao.lease.md` states it plainly: **the absence of a `:lapsed` fact is
@@ -2474,6 +2483,7 @@ family, disjoint from this one.
 | `:yin.k/not-at-safepoint` | lift | `:yin.k/segment`, `:yin.k/pc` |
 | `:yin.k/not-quiescent` | lift | the ready-queue depth |
 | `:yin.k/non-portable` | lift | `:yin.k/path`, `:yin.k/kind`, `:yin.k/hint` — kinds at §7.5.4, cycles included as `:kind :cyclic` |
+| `:yin.k/refused` | lift | `:yin.k/reason`, the export or abort refusal |
 | `:yin.k/profile-mismatch` | lower | `:yin.k/contract` expected and found |
 | `:yin.k/hash-mismatch` | lower | the address claimed and the address computed |
 | `:yin.k/undecodable` | lower | `:yin.k/path`, the structural defect — malformed markers, missing or cyclic refs, malformed-but-correctly-hashed bodies |
@@ -2590,6 +2600,29 @@ exactly these five values:
   Attribution is identity equality; a descriptor is never compared.
   A front reply's `:yin.k/answer` is the landed answer unchanged
   (`yin.vm.linker.dht.md` 14.2.4).
+
+(M-next D, as built.) The driver's own refusals and the exporting
+state's holds ride the closed status set above, never a new dispatch
+key. `:yin.k/refused` carries `:yin.k/reason`: the exporting state
+raises it for a machine already exporting or ended (`:not-running`,
+D8), and the abort rule for `:restarted`, `:not-exporting`,
+`:tenure-ended`, `:tenure-unconfirmed` and
+`:offer-possibly-accepted` (D14, 7.7.4). The custody holds that
+refuse a lift are a second vocabulary under `:yin.k/hold`, surfaced
+as `:yin.k/non-portable` of kind `:reason-mismatch` naming the hold
+and the task path: `:observe`, `:held`, `:unminted-cursor`,
+`:pending-close` and `:link-cursor-not-installed` (7.7.4). An input
+conflict is a `:yin.k/status` refusal of the authority's input
+protocol, never the admission outcome `:intent-conflict`: an input
+is evidence, not an effect, and an input conflict commits nothing
+and quarantines nothing (`yin.vm.linker.dht.md` 14.2.2). The two
+families are disjoint and no path translates one into the other. A
+driver's inbox retention (`:yin.k/journal :yin.k/inbox`) is one
+record per selected observation; its journal position is the merge
+order, with no second persisted ordering counter, and control
+records may pass earlier deferred program records while deferred
+program order and selected control order are preserved
+independently (7.11).
 
 ## §7.10 Invariant compliance
 

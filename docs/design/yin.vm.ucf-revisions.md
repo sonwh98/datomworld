@@ -397,16 +397,43 @@ untouched, so no image validity changes.
     the frozen version-0 wire, and a supplied custody header selects
     version 1. D10 to D16 and E remain; the doc text for the
     protection classes and the fenced writer lands with D11.
+    Status, 2026-10-08: M-next D slices D10 to D14 are implemented
+    (D10 441b2b4c, D11 4c4764f7, D12 b38786c8, D13 bf6bdeaa, D14
+    9cea60dd). Stage D10b-A/B landed the version-2 handoff body as
+    the standalone amendment
+    `yin.vm.universal-continuation-format.v2-amendment.md` and its
+    four-kernel lift/lower (da325495, 49960017), closing the four
+    execution profiles (semantic, stack, register, walker) with no
+    code-format, opcode or stamp change; `handoff-version` is now
+    `#{0 1 2}`. Stage D15a landed the holder-driver control/program
+    split with durable positional inboxes (2cf99c13):
+    `control-step`, `program-step`, `stop` and
+    `owed-control-write?` over the ruled version-1 inbox
+    descriptors, the unavailable-lane semantics and the split accept
+    tail, documented in UCF 7.11. The doc amendments these stages
+    forced are recorded in 7.7.4, 7.9 and linker-dht 14.2.2 (the
+    driver split, the refusal and hold vocabularies, the input
+    conflict rule and the write-ahead journal). D15, D16 and E
+    remain. D16's entry is gated on the deepseek findings F2 and F3:
+    F2, the Node run and the full twelve-row matrix on JVM, Node and
+    Dart, row 10's canonical-byte agreement provable only
+    cross-host; F3, a one-line-per-row traceability of the twelve
+    acceptance rows to concrete test names, with any gap filled. F1
+    (rename the load-bearing `v1?` flag) is a readability cleanup,
+    not a D16 gate.
   - Recorded separately, as version-0 defects of the landed stage-1
-    reader and not as version-1 gaps: (a) lower assigns an empty
+    handoff and not as version-1 gaps: (a) lower assigns an empty
     wait set for a `:parked` body that also carries frames
     (`handoff.cljc`, about line 1386); (b) `validate-body` does not
     require an install entry for every `:install` pending (about
-    line 996). Each is a post-A fix owed a version-0 test,
-    optionally delivered in D (linker-dht 14.3). Neither reopens
-    stage 1's kept-cursor evidence nor reassigns the M4 gate.
-    Status: both fixed in version 0, each with its own red-then-green
-    test in `yin.vm.ucf.handoff-test`; the wire is unchanged.
+    line 996); (c) the version-0 export's address was the content
+    hash of the body map, not of the emitted bytes, so it never
+    verified against the fetched payload (D1 90bd8e57). Each is a
+    post-A fix owed a version-0 test, delivered in D (linker-dht
+    14.3). Neither reopens stage 1's kept-cursor evidence nor
+    reassigns the M4 gate. Status: all three fixed in version 0,
+    each with its own red-then-green test in
+    `yin.vm.ucf.handoff-test`; the wire is unchanged.
 
   Stage 1 (M-next A, the kept-cursor handoff of linker-dht 14.1,
   carried by `yin.vm.ucf.handoff`) recorded here what the amendment

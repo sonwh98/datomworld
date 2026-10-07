@@ -3393,6 +3393,22 @@ as `:yin.k/non-portable`, kind `:unprotected-pending`; an operation
 id on an unenrolled target refuses as `:yin.k/unsatisfied`, naming
 the stream (UCF 7.7.4).
 
+(M-next D14.) Every external act of the driver is write-ahead in a
+progress journal, plain data under `:yin.k/journal`: a mint
+(`:yin.k/minted`, the occurrence and its role), a fence
+(`:yin.k/fenced`, the body and recovery addresses), an intent
+(`:yin.k/intent`, the action and its request, durable before the
+send), an attempt (`:yin.k/attempt`, the append's outcome), an
+acknowledgment (`:yin.k/ack`, the authenticated answer), an abort
+(`:yin.k/aborted`) and each inbox retention (`:yin.k/inbox`, 7.9).
+An intent precedes every external action; each retry carries an
+attempt record while the logical request, occurrence and body stay
+stable. An uncertain append stalls every step -- program work,
+sends, abort and enroll alike -- until reopen reconciles it, and
+journal reads distinguish authenticated end-of-history from
+transport failure, gaps and malformed frames. Persisted clock
+readings never restore tenure.
+
 Epoch and sequence are nonnegative portable exact integers bounded by
 2^52-1. Neither wraps, and the two exhaust differently (UCF 7.7.8). An
 exhausted sequence assigns no id, appends nothing, and refuses export.
@@ -3616,21 +3632,27 @@ Status: M-next A is landed (80b59233). M-next B is the published
 amendment above. M-next C, D, and E remain, and with them every test
 contract of 14.2.4; nothing here claims full UCF closure.
 
-Two version-0 defects in the landed handoff were found while writing
+Three version-0 defects in the landed handoff were found while writing
 the amendment. They are post-A defect fixes, each owed a version-0
-test, and may be delivered with M-next D. They are preservation and
-validation defects of the version-0 reader, not version-1 gaps. They
-do not reopen M-next A's kept-cursor evidence and do not move or
-reassign the M4 gate.
+test, and were delivered with the M-next D stage. They are
+preservation and validation defects of the version-0 reader, not
+version-1 gaps. They do not reopen M-next A's kept-cursor evidence
+and do not move or reassign the M4 gate. All three are fixed in
+version 0, each with its own red-then-green test; the version-0 wire
+is unchanged.
 
 - Lower assigns an empty wait set for a `:parked` body that also
   carries frames, so those waits are lost (`handoff.cljc`,
   `resume-task`, about line 1386). Required: restore them in order
-  (UCF 7.2.1).
+  (UCF 7.2.1). Fixed.
 - `validate-body` validates the install entries present but does not
   require an entry for every `:install` pending (about line 996), so
   a foreign body bypasses the check that lift makes. Required:
-  refuse `:yin.k/undecodable` (UCF 7.4.3).
+  refuse `:yin.k/undecodable` (UCF 7.4.3). Fixed.
+- The version-0 export returned the content hash of the body map
+  while the emitted bytes were the stream codec, so the address never
+  verified against the payload a receiver fetches. Required: mint the
+  address from the exact emitted bytes. Fixed (D1 90bd8e57).
 
 Sequence/pending fields change the accepted UCF envelope grammar: publish
 `:yin.k/version 1` for this amendment and refuse unsupported versions with

@@ -294,6 +294,12 @@ Proposals, grants, refusals, releases and renewals cross a boundary as ordinary
 payload, carried by the composition to the medium the recipient reads. Carriage
 is delivery, not a second authoring.
 
+A renewal, like a proposal and a release, may be carried by the
+authority's front under the holder's request identity, with the same
+resolver attribution and the same carriage as the proposal and
+release it accompanies (`yin.vm.linker.dht.md` 14.2.4). The judge
+counts the carried renewal; carriage adds no key to any outcome map.
+
 `:lapsed` does not cross; it is the grantor's record on the grantor's stream. A
 remote holder learns of a reclaim by observing it — for a served connection, an
 ordinary `:ws/closed`; for a stream served under `dao.stream.remote.md`, the
