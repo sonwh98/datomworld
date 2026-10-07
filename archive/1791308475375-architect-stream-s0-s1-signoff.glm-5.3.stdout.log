@@ -1,0 +1,19 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+The plan is complete. One note: the plan-mode workflow references `ExitPlanMode`/`AskUserQuestion` tools, but neither is available in this session's toolset, so I'm presenting the finished plan directly.
+
+## Plan summary
+
+**Task**: Complete `collab/1791308475375-architect-stream-s0-s1-signoff.glm-5.3.prompt.md` — the Lead System Architect read-only gate pass on the S0+S1 working-tree diff, deciding the one open question (**A2**: `accept-step!` still calls unbounded `(step! project)` at `ws_project.cljc:363` while the budget primitive sits unused) and writing the formal findings file.
+
+**Ruling: CHANGES REQUESTED — narrowly.** Everything else (S0 §3.0 contract, admission cap + reap-then-reject, idle reaping with handle+ring closure, loud budget/bounds validation, error isolation, tests, backward compat — A1/B1 fixes verified firsthand) is **accepted**. A2's wiring must land in S1, not be waived into S2, because:
+
+1. **Letter** — D5's S1 line includes "fair scheduling"; nothing else in the diff delivers it.
+2. **Harm** — deposits are off-driver *by axiom* (`datom.world.md:80-84`, ws.cljc chain), memory is already bounded by medium admission declarations, so the unbounded loop's harm is specifically **driver-tick time** (one flooding peer starves all other sessions, reaping, and admission — in the limit, hangs the tick). The step budget is the only mechanism that bounds tick time. The acceptance evidence "continuous producer cannot defeat step budget" is false today in the only shipped acceptor.
+3. **Cost/seam** — ~10–15 lines (`:step-budget` in `make-acceptor`, passed at the call site) + one flood/no-starvation test; zero-breakage by construction.
+4. **Gate discipline** — cheap, unentangled letter items shouldn't set a deferral precedent; waiving means S2 reopens this composition surface anyway.
+
+The findings also record formal dispositions (D3-duty→slice table resolving the "pending"/scheduling ambiguity, A4 = traffic-counts-as-activity intended, A5 → S2, A6 harmless, dial-side budget → S2, S3a must set non-nil bounds, kondo/CLJS/CLJD lanes owed) and **pre-scoped conversion conditions** so the next round is mechanical: wire, test, suites green, delta-only spot check → `Sign-off: GRANTED`, no full re-review.
+
+**Execution after approval**: optionally re-run the focused test suite to attest the 22/80 baseline, then write only the findings file (`collab/1791308475375-architect-stream-s0-s1-signoff.glm-5.3.findings.md`, collab header format, house `Verdict:`/`Sign-off:` lines). No code or design files touched.

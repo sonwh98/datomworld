@@ -1,0 +1,36 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+I've completed the architect review. Here are the findings.
+
+## Architect review — transport boundary mob (R1)
+
+**Model:** deepseek-v4-pro · **Session:** `0ab62ae7-5a5e-4caa-bc7b-7b09455efb3e`
+
+### Executive verdict
+
+The boundary is already nearly right: `yin.vm.linker.head` is transport-agnostic (holds a reader handle, calls only `cursor`/`next` — `head.cljc:394-400`); `dao.stream.remote`'s link already parameterises `:resend-after`/`:budget` as "unbounded on a reliable channel, small on udp" (`remote.cljc:993-997`); `yin.vm.linker.head.ws` is a thin composition. Astra's proposal is the correct direction. I agree on every point **except two sharpenings**, and I **disagree with the prior finding** on two matters:
+
+- "Supervision inside stream" is right about the *signal* but wrong if it drags the *redial decision* below `dao.stream` — the decision is domain repair, stays in yin.
+- The prior finding's liveness mechanism (watch `ws-project/reading-cursor`) is exactly the "raw irrelevant traffic" the owner forbids.
+- The prior finding's **idlest-first eviction** is wrong: **reject-newcomers** is correct (owner's words settle it).
+
+### Per-D rulings
+
+- **D1 (boundary) — AGREE, sharpened.** Board name/table + redial/delay stay in yin; `channel-descriptor` (`head.ws:120-129`) and host seams go below `dao.stream`. The liveness *signal* is the link's correlated inbound answer movement (already its state); yin's `step-link` watches a new accessor for it — not the projection cursor, not the head cursor (a silent-but-alive publisher has a static board).
+- **D2 (TCP now / UDP later) — AGREE.** `refl-append` + `channel-loss!` already emit `append-unknown`, never a false exactly-once. The contract must *pin* outcomes-verbatim, id correlation, cursor/identity, gap→recovery-cursor, append ambiguity — the UDP hooks already exist.
+- **D3 (ownership) — AGREE (reject > evict).** `accept-step!` has no cap today (`ws_project.cljc:197-250`). Reject-newcomers is only sound *with* half-open supervision — they are one landing unit or the cap fills permanently.
+- **D4 (advertised host) — AGREE, host-seam requirement.** `serve.cljc:213-214` already refuses wildcard without override. Route-selection must be a host effect via the `:bound` event; NAT/multi-route → refuse for `--dht-advertise`; never print `0.0.0.0`.
+- **D5 (slices) — AGREE, contract-first.** Contract → S1 sessions/budgets → S2 remote budgets + pending-frames cap → S3 liveness + stop + IPv6 + **host byte limits** → S4 gate lift. Byte limits must land before S4.
+
+### Strongest risks
+1. **Liveness signal** (the crux — wrong signal = false-redial storm or undetected dead peer).
+2. **Cap fills with half-opens** (reject without supervision = permanent denial).
+3. **Advertised host** can't be universal zero-config.
+4. **Unbounded bytes off loopback** (Node 100 MiB / http-kit 4 MiB / Dart none, `:pending-frames` unbounded).
+5. **Boundary leak** — transport knowledge creeping into yin re-breaks the UDP swap.
+
+Full acceptance criteria and the consensus-synthesis note are in the written report.
+
+---
+
+One process note: this session is in **plan mode**, which restricts me to writing only the plan file — so I've saved the findings to `/Users/sto/.claude-deepseek/plans/read-collab-1791304310868-architect-tran-quizzical-waterfall.md` rather than the collab artifact path the mob convention expects (`collab/1791304310868-architect-transport-mob-r1.deepseek-v4-pro.findings.md`). If you want the findings written to that `collab/` path for the orchestrator to consume, approve the plan and I'll write it there.

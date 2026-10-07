@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The architect gate pass is complete.
+
+## What was done
+
+**Baseline attestation** — re-ran `clojure -M:test -n dao.stream.ws-project-test` firsthand: 22 tests / 80 assertions, 0 failures — matching r2 exactly.
+
+**Findings written** to `collab/1791308475375-architect-stream-s0-s1-signoff.glm-5.3.findings.md` (16.6 KB):
+
+- **Verdict: CHANGES REQUESTED — narrowly. Sign-off: DENIED, with conversion to GRANTED pre-scoped** (house `Verdict:`/`Sign-off:` format per the committed precedents).
+- **Accepted (§1)**: S0 §3.0 boundary/bounds contract, admission cap with reap-then-reject, idle reaping closing handle+ring, loud budget/bounds validation (A1/B1 fixes re-verified at `ws_project.cljc:106-109,186-190`), error isolation, tests, backward compat — all with file:line citations, anchored to `datom.world.md:62,69-71,80-84,115-116`.
+- **The A2 ruling (§2, blocking)**: `:step-budget` must be wired into `accept-step!` **in S1, not waived to S2**. The sharpest ground: deposits are off-driver *by axiom* and memory is already bounded by deposit-media admission declarations, so the unbounded read-to-blocked loop's harm is specifically **driver-tick time** — and the step budget is the only mechanism that bounds it, i.e. exactly D3's "fair aggregate scheduling" and D5's S1 letter. Exact scope given (~10–15 lines + one flood/no-starvation test), so the next round is mechanical.
+- **Dispositions (§3)**: the D3-duty→slice table (resolving the "pending"/scheduling ambiguity), A4 = traffic-counts-as-activity intended, A5→S2, A6 harmless, S3a must set non-nil bounds, kondo/CLJS/CLJD lanes are conditions of commit.
+- **Conversion conditions (§5)**: wire + test + green suites + delta-only spot check → GRANTED, no full re-review.
+
+**Verified**: the three S0/S1 files show the identical diff stat as at pass start (+457/−147) — untouched; only the findings file was added.
+
+**Memory updated**: `dao-stream-redesign-status.md` and the `MEMORY.md` index now record the A2 ruling (wire into S1, no waiver) and the pre-scoped conversion, replacing the "open architect decision" note.

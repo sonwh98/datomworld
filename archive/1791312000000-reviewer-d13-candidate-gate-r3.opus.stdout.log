@@ -1,0 +1,100 @@
+Completed-GMT: 2026-10-06 18:12:56 GMT Completed-Local: 2026-10-07 01:12:56 +07
+
+# D13 candidate gate, round 3 (opus)
+
+**Verdict: NOT READY.** One small fix is needed (finding 1). It is a bug that has been there since r1; this round's changes did not introduce it. Every r1 fix and both r2 must-fixes check out.
+
+**Scope.** I read the uncommitted candidate in `/Users/sto/workspace/datomworld-d13`. Both files are untracked, so `git diff` shows nothing; I reviewed `src/cljc/yin/vm/ucf/holder/driver.cljc` (1052 lines) and `test/yin/vm/ucf/holder/driver_test.cljc` (1589 lines) in full. I edited nothing and ran no suite. The test results quoted below are the engineer's fix-2 report (focused suite 29 tests / 277 assertions; JVM fast lane 3504 tests / 234375 assertions, 0 failures). I did not re-run them.
+
+## Must fix
+
+**1. A stale own grant on an occurrence that can never be granted again proposes forever.**
+- **Where:** `driver.cljc:594-596`, compared with `driver.cljc:714`.
+- **What goes wrong:**
+  - When there is no grant, `step-proposing` answers `:yin.k/not-holder` for an occurrence that is closed, exhausted or quarantined (line 714). The module docstring (lines 32-34) and 7.9 say the same.
+  - `accept`'s arm for a stale grant on an unheld occurrence (`(and stale? (nil? (:dao.lease/lease entry)))`) goes to `propose` without checking `never-granted-again?`.
+  - The judge refuses every proposal on such an occurrence (`grant.cljc:311-319`), and it records that refusal under `:answered`.
+  - `propose` sees `refused?` and mints a fresh id (line 478-481). The next step does the same again.
+  - The result is one new proposal id per judge pass, forever, with the step answering `:yin.k/awaiting-grant` when it should say not-holder.
+- **How it is reached:** the driver sees its own grant, but does not accept it before the lease lapses. For example, a few steps answer `:unsatisfied` because of a transient gap or transport error, and it stays `:proposing`. Then a reclaim at the lease's own epoch exhausts the occurrence (`ledger.cljc:636-637`), or a quarantine or close is recorded. Each step then finds the stale own grant, because `grants-to` reads the raw records, and lands in this arm.
+- **History:** the arm predates F3. The F3 fix (only clearing the proposal when the stale grant answered the current proposal id) made the bad branch cheaper but did not close it. I missed it in r1.
+- **Fix:**
+  - Add an arm before the stale-unheld one: `(and stale? (never-granted-again? entry))` answers `(with-status state :yin.k/not-holder (occurrence-state projection o))`, with no release.
+  - Add a test: own grant, lapse, reclaim to exhaustion (or a crafted quarantine), step N times. Expect `:not-holder` and exactly one proposal id.
+
+## r1 findings: all stay fixed
+
+- **F1 (accept only this driver's own proposal ids):**
+  - `grants-to` is filtered by `:sent-proposals` (line 694).
+  - The holder gets `:subject` and `:proposal` (lines 558-565).
+  - Pinned by `foreign-grants-never-activate-a-restarted-driver-test` (test:1271) and `restarted-drivers-mint-distinct-proposals-test` (test:1342).
+- **F2 (D7 reader first):**
+  - `step-validating` calls `handoff/resume-task` before `checkpoint/inspect` (lines 1004-1014).
+  - Pinned by `profile-refusal-precedes-wrong-address-test` (test:1282): bytes with version 2 under the wrong address give `:profile-mismatch`.
+- **F3 (no new proposal every step):**
+  - The proposal is cleared only when the stale grant answered the current proposal id (line 595).
+  - Pinned by `stale-own-grant-mints-only-one-successor-proposal-test` (test:1294): 2 proposals after 5 steps.
+- **F4 (the writer arm of admit routing):**
+  - `enrolled-write-after-activation-routes-both-answer-paths-test` (test:1518) runs an enrolled put after activation twice: once discharged by the admit reply (outcome reader nil), once by the projected admission (admit replies filtered out).
+  - Both runs assert the machine reaches `:done` and the effect lands on the target.
+- **F5 (regrants through a candidate that proposes):**
+  - The regrant and failure rows now go through the judge: `:judge` steps, `to-running`, and holder-b proposing (test:711-731, 946-953, 1019-1026).
+  - `grant-direct!` is now used only with the driver's own proposal id, or for a deliberately foreign grant.
+- **F6 (lease bound without a readable ledger):**
+  - The clock is checked before the ledger is read (line 900).
+  - Pinned by `unreadable-ledger-still-ends-at-local-bound-test` (test:1431).
+- **F7 (epoch in the recheck):**
+  - The recheck compares both lease and epoch (lines 924-926).
+  - Pinned by `the-epoch-dimension-of-the-tenure-recheck-test` (see the r2 section).
+- **F8 (a real fold defect):**
+  - `dense-ledger-with-invalid-content-is-a-fold-defect-test` (test:1351) uses a record whose `t` is dense but whose content is defective.
+  - Expected result: unsatisfied `:fold-defect`, nothing attached, no release.
+- **N1:** the literal `(< 10 15)` is gone. There is a real early step at `{:s 6}` with no renewal (test:966-968), and observations and machine are asserted unchanged at and after the bound (test:999-1018).
+- **N4:** release `:carried` is now live: `step-releasing` drains replies first (line 985). Proposal `:carried` is read at line 489.
+- **N7:** `record-facts` uses `mapv` (line 323).
+
+## r2 must-fixes: both closed
+
+**r2-1 (a run ended in the post-cycle drain was re-labelled).**
+- **The fix:** `(= :releasing (:phase base)) base` is now the first cond arm (lines 948-949), ahead of `end`, `unsat` and `at-safepoint?`. It mirrors the guard before the cycle (line 904).
+- **The test:** I traced `delayed-carriage-past-the-bound-ends-the-run-once-test` (test:1034):
+  1. The first `read-reply!` returns nil, so the drain before the cycle sees nothing.
+  2. `renew` re-sends the identical pending renewal.
+  3. `run-cycle`'s `require-tenure!` reads `{:s 11}`.
+  4. The second `read-reply!` flips the clock to `{:s 31}` and hands back the carriage reply.
+  5. `control-reply`'s renewal arm finds the driver no longer holding (bound 1+30) and calls `end-run`.
+- **Before the fix:** the cond would have reached `at-safepoint?` and answered `:safepoint` / `:ok`, so the test really exercises the arm.
+- **Assertions:** one diagnostic, one release, and the next step retries the same request without ending the run again.
+
+**r2-2 (the judge refusal leading to a fresh proposal was unpinned).**
+- test:542-561 first checks that the ledger holds `:dao.lease/rejected` for holder-b's proposal id.
+- It then lapses lease-1 and steps holder-b once.
+- It asserts a fresh id, 2 distinct ids sent, and `:proposals` 2.
+- That run goes through `step-proposing`'s no-grant path, then `propose`, then `refused?`, then a mint, which is exactly the branch that was unpinned.
+
+**r2-3 (recommended epoch pin): added and sound.**
+- The running half (test:804-836) uses a crafted ledger where the same grant fact is the live lease one epoch higher. That isolates the epoch comparison: `observed-lease = l`, and the cause is `:stale`.
+- The accept half (test:837-864) cannot isolate the epoch on any ledger history that folds, and the engineer says so. The epoch comparison at lines 556-557 is defense-in-depth.
+
+## Regressions and notes (none blocking apart from finding 1)
+
+2. **The cycle's own run end is dropped when the drain also ended the run.** Because the `:releasing` arm comes first (line 948), a `:run-end` from the cycle (for example `:intent-conflict`) is discarded and the single diagnostic says `:lease-bound`. That keeps "one diagnostic" (r3 1.6), but the cycle's cause is lost. Folding it into the existing diagnostic's detail would be a cheap improvement.
+3. **A leftover `:run-end` key can stay in the state.** When the drain before the cycle ends the run, line 905 returns `state` with any `:run-end` set by `drain` still on it, whereas the path after the cycle removes it (line 942). It is harmless because `:releasing` never reads it; `(dissoc state :run-end)` would make the two paths match.
+4. **The catch path starts from the state as it was before the step.** `step-active`'s catch (lines 970-976) calls `end-run` on the original state, so replies already drained in that step are dropped. That is acceptable because the run ends and the release follows. One edge case: if a seam throws instead of returning an outcome, after the diagnostic was appended, then `end-run` runs again and appends a second diagnostic before the throw escapes. The seam contract says seams return outcomes, so a docstring line is enough.
+5. **The two defect branches in `step-proposing` still skip `drain-control`** (lines 698-702; r2 note 6). This is still an asymmetry, and harmless.
+6. **A test comment is out of date.** test:1137-1142 still says the writer arm is driven "through the class a first export can carry". That was written before the enrolled-write test at test:1518 existed. Reword it so the D14 deferral is clearly about retained successor writes only.
+7. **Carried over from r1, not addressed (all should-fix):**
+   - F9: seams and the receiver still sit in the step state.
+   - F10: the driver's `history-defect` and `fold` (lines 282-314) duplicate D3's history-reading and fold logic.
+   - N4: `:stale` still releases a lease the fold already shows as gone.
+   - N5: every step re-folds the whole history.
+
+   These should be recorded for D14/D15 if they are not fixed here.
+8. **Landing chores:**
+   - The worktree is based on b38786c8, and master is now at 73b213a9. The candidate files are new and untracked, so a rebase will not conflict.
+   - The Node and Dart lanes, kondo and cljstyle have not been run on this candidate.
+   - Minor Dart risk: test helper `binding-entities` (test:588) uses `for` over a `group-by` result, which on ClojureDart can hand the body a nil past 32 elements. It is safe at today's transaction sizes.
+
+## What must change
+
+1. Add a `never-granted-again?` arm ahead of `accept`'s stale-unheld propose arm, answering not-holder with `occurrence-state`, plus a test showing an exhausted or quarantined occurrence after a stale own grant gives `:not-holder` with one proposal id. After that, and green lanes, the slice is READY. Notes 2-8 can go in now if cheap, or be recorded for D14/D15.

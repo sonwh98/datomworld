@@ -1,0 +1,958 @@
+OpenAI Codex v0.159.3
+--------
+[1mworkdir:[0m /Users/sto/workspace/datomworld
+[1mmodel:[0m gpt-6-astra
+[1mprovider:[0m openai
+[1mapproval:[0m on-request
+[1msandbox:[0m workspace-write [workdir, /tmp, $TMPDIR]
+[1mreasoning effort:[0m low
+[1mreasoning summaries:[0m none
+[1msession id:[0m 01a0f878-281b-7253-ac44-ff2402583d35
+--------
+[36muser[0m
+Read /Users/sto/workspace/datomworld/collab/1791096045000-architect-python-c3-numeric-rulings.prompt.md and complete it now. Read-only; your final response is the deliverable.
+[35m[3mcodex[0m[0m
+I’ll read the ruling brief and its referenced sources, then deliver the architectural decisions here. I won’t edit files.
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc 'cat collab/1791096045000-architect-python-c3-numeric-rulings.prompt.md'[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+Created-GMT: 2026-10-04 06:42:12 GMT
+Created-Local: 2026-10-04 13:42:12 +07 (+0700)
+Coding-Agent: claude (fable-5-1, session 9682d342-338e-4359-9676-8c0bec32eaf7) and codex (gpt-6-astra, resume of thread 01a0f878-281b-7253-ac44-ff2402583d35)
+Session-ID: 9682d342-338e-4359-9676-8c0bec32eaf7 (fable); 01a0f878-281b-7253-ac44-ff2402583d35 (astra)
+
+# Task: three Python numeric rulings the next C3 slices need
+
+Role: Architect
+
+Implementers:
+- Model: claude-fable-5-1 | Assigned: 2026-10-04 13:42 +07 | Status: active | Rationale: standing mob; design questions go to the architect pair
+- Model: gpt-6-astra | Assigned: 2026-10-04 13:42 +07 | Status: active | Rationale: standing mob partner; independent opinion on the same brief
+
+Read-only. Answer independently; do not edit, do not run suites. Repo: /Users/sto/workspace/datomworld (master ff1e0195). Read docs/design/yang.antlr.md 8.5.4 (C3 integers: rulings 1 to 14, the dict-key section
+around the reduced-rational keys, the NaN bullet, the "Known limits" bullet and "Integer `is` is value-based through the unchanged `py/is`"), 8.5.5 (float addresses), 8.11 ("`is` on immutable values is same type and value",
+owner decision 1) and src/cljc/yang/python/antlr/prelude.cljc (`py/is`, `py/key`, `py/hash`, `py/float?`), src/cljc/yin/vm/data.cljc (`float64`, `float-value`), src/cljc/dao/jing/cbor.cljc (the JS Float64 carrier).
+
+## Q1. `py/is` on floats is host-dependent
+`py/is` is host `=` on the wrapped value (ruling 8: value-based, "same type and value"). For floats the host `=` differs: on JavaScript the Float64 carrier's equality treats NaN as equal to NaN and +0.0 as DIFFERENT from -0.0; on the
+JVM `=` on doubles gives NaN not equal to NaN (unless the same box) and 0.0 equal to -0.0 (and Dart differs again). So `nan is nan2` and `0.0 is -0.0` likely answer differently per host: a cross-host parity defect against the
+"same address, same behavior on every host" invariant, found by fable while reviewing C3-S2. CPython: `0.0 is -0.0` is False (distinct objects), `x = float('nan'); x is x` is True, `float('nan') is float('nan')` is False,
+`1.0 is 1.0` is implementation-defined. Rule: what must `py/is` do for floats so every host agrees, consistent with "floats have no object identity here" and with the one-shared-NaN dict-key decision (all NaNs are one key)?
+Candidates: (a) float64 CONTENT equality: one NaN (so `nan is nan2` is True, a stated departure like the NaN key), signed zeros distinct; (b) value equality with 0.0 `is` -0.0 True; (c) something else. Give the exact rule, the
+implementation seam (where the comparison lives so the carrier, host doubles and canonical bytes agree), the cross-host test that pins it, and any doc text to add to 8.5.4.
+
+## Q2. Integer dict and set keys past the digit limit
+Ruling-6 reduced-rational keys format integers as decimal text through the integer module's base-10 formatting, which is refused beyond ::max-digits (4300 in the test configuration). CPython's limit applies to `str()` and
+`int()` conversions, NOT to hashing or dict keys, so a large integer key that works in CPython is refused here. Not reachable from Python source yet (big literals and operator promotion are later C3 slices). Rule: (a) key with a
+power-of-two radix (hex), which the digit limit exempts; (b) keep decimal and record the limit as a documented departure; (c) bind the key's digit budget separately from the str() budget; (d) other. State the exact key form if it
+changes (the ruling-6 key shape is `[:py.numeric/finite numerator-decimal denominator-decimal]` and is pinned in goldens), the effect on the 2^53 vs 2^53+1 and 1/1.0/True equalities, the migration cost (the canonical-bytes golden
+in dict-keys-test), and the slice that should carry it.
+
+## Q3. Guest exceptions for integer-module refusals
+Today the prelude does not map `integer` refusals (digit/bit limit, wrong type) to guest exceptions: such a refusal fails the whole run with a host ex-info (docs say so in 8.5.4 "Known limits"; ruling 11 plans MemoryError/ValueError).
+Which C3 slice should deliver the mapping, what is the mapping table (limit exceeded to MemoryError or OverflowError or ValueError, per CPython 3.9.6 behavior for the same operation), and must it precede the operator slice
+(C3-S3) that makes big integers reachable from source? Give an order of the remaining C3 slices (S0 to S7 in 8.5.4's table) that respects dependencies and fixes where Q1 and Q2 land.
+
+Give a recommendation, not a survey; one-line verdict per question first.
+
+Begin the final response exactly with:
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "sed -n '1913,2195p' docs/design/yang.antlr.md; rg -n 'py/is |py/hash|py/key|py/float\\?' src/cljc/yang/python/antlr/prelude.cljc | tail -15; rg -n 'refuse"'!|:.*limit|wrong|integer/format|float64|float-value'"' src/cljc/yin/vm/integer.cljc src/cljc/yin/vm/data.cljc | head -65; sed -n '335,375p' src/cljc/dao/jing/cbor.cljc; rg -n 'immutable values|owner decision 1|same type and value' docs/design/yang.antlr.md"[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+  a prelude-profile bump under section 11.
+
+For safepoints, generator switches happen only at applications of
+`py/gen-switch`, `py/yield-raw`, and `py/yield-from`, which an attached
+inserter can find by query; `sys.settrace` sees nothing in C2. Future
+per-thread dynamic state (the frame-record stack, the recursion counter,
+`exc_info`) joins `:ctx` and swaps with the handler stack.
+
+```text
++--------+---------------------------------------------------------------------+
+| Slice  | Scope                                                               |
++========+=====================================================================+
+| S1     | Core: `py/make-generator`, `py/gen-switch`, `py/yield`,             |
+|        | `py/gen-exit`, `py/gen-fail`; `StopIteration`; `next`; the          |
+|        | `iter-at` and `iterable` arms; lowering arms for `yield_stmt` and   |
+|        | `yield_expr`, a `:gen` binder reset in every nested scope, and      |
+|        | removal of the three `yield` guards.                                |
++--------+---------------------------------------------------------------------+
+| S2     | `send`, `throw`, `close`, and the dynamic context: `GeneratorExit`, |
+|        | `finally` and `with` around a yield, the "generator already         |
+|        | executing" check, PEP 479.                                          |
++--------+---------------------------------------------------------------------+
+| S3     | `yield from`, `iter`, and stateful sequence iterators.              |
++--------+---------------------------------------------------------------------+
+| S4     | Generator expressions, with removal of the C1 consuming-builtin     |
+|        | inlining.                                                           |
++--------+---------------------------------------------------------------------+
+| S5     | Heap, wire, and hosts: collection of suspended and dropped          |
+|        | generators, lift refusal, determinism, snapshot rendering;          |
+|        | user-defined iterator classes.                                      |
++--------+---------------------------------------------------------------------+
+```
+
+The cross-ruling strengthens acceptance:
+
+- Every slice runs on all four evaluators on JVM, Node, and Dart;
+  "wherever the parity lane runs" does not support a portability claim.
+  Expected output for source programs is CPython 3.9.6's.
+- Ruling 1: nested generators, different resuming callers, and
+  suspension during exception unwinding.
+- Ruling 2: flags become collectible when unreachable, not necessarily
+  right after re-entry, so reachable heap is measured after repeated
+  suspension and collection.
+- Ruling 4: short-circuiting and side effects, not only PEP 479.
+- Ruling 7: the complete reachable continuation and heap graph across
+  many yields, changing callers, nested delegation, and forced
+  collections; top-level continuation length alone is insufficient, and
+  clearing named slots does not prove that references in captured
+  environments vanished.
+- Ruling 8: shared iterators, invalid `__iter__` results, subclassed
+  `StopIteration`, and exceptions from loop bodies.
+
+Deferred: close-on-collection, async generators, migration of suspended
+generators, `settrace` events, `gi_*` introspection, and the
+three-argument `throw`.
+
+#### 8.5.4 Integers (phase C3)
+
+This section records the C3 integer design as amended by the C3
+cross-ruling's fourteen converged rulings. Of its slices S0 to S7 below,
+S1 (the exact-integer module, `54536317`) has landed, and so has the
+numeric-key, `hash()` and `is` work of rulings 6 to 8 (`be1f8d06`,
+orchestrated as C3-S2, the S5 row's scope); the rest are pending. C1
+restricts integers to [-2^53, 2^53], an intentional limitation C3 replaces
+with exact promotion.
+
+Python integers are untagged exact scalars of any magnitude (ruling 1).
+A bignum is an immutable value, possibly the payload of an existing
+cell; there is no per-integer cell, no `:py/bigint` wrapper, no digit
+table, and no intern table. Bignums are immutable leaves: they hold no
+cell references and need no `gc-children` expansion, and a numeric
+result crossing a host boundary allocates no task cell. Aliasing is
+ordinary: after `x = 10**100; y = x; x += 1`, `y` keeps the old value.
+
+Each value has exactly one carrier per host (ruling 2):
+
+```text
++------------+----------------------------------+------------------------------+
+| Host       | Native carrier                   | Bignum carrier               |
++============+==================================+==============================+
+| JVM        | Signed `long`, [-2^63, 2^63-1]   | `clojure.lang.BigInt`; a raw |
+|            |                                  | `BigInteger` never leaves    |
+|            |                                  | the integer module           |
++------------+----------------------------------+------------------------------+
+| JavaScript | `Number` only within [-(2^53-1), | Native `BigInt`              |
+|            | 2^53-1], so 2^53 and -2^53 are   |                              |
+|            | bignums                          |                              |
++------------+----------------------------------+------------------------------+
+| Dart VM    | Signed `int`, [-2^63, 2^63-1]    | `BigInt`                     |
++------------+----------------------------------+------------------------------+
+| Dart to JS | Not claimed                      | Not claimed                  |
++------------+----------------------------------+------------------------------+
+```
+
+Promotion happens before an operation could overflow, wrap, or round;
+demotion after it is mandatory, not optional. On ClojureScript
+`(= 1 (js/BigInt 1))` is false and on Dart `int` and `BigInt` are
+unequal, so an undemoted result would split equality, `is`, and every
+prelude test against a native literal. The carrier must not affect
+Python type, equality, truthiness, rendering, hash, code addresses,
+serialized bytes, task-cell allocation counts, guest exceptions, or
+effect traces.
+
+Values use Jing's existing CBOR forms unchanged, with no new payload
+kind and no AST tag (ruling 3):
+
+```text
++----------------------+-------------------------------------------------------+
+| Integer n            | Canonical CBOR (existing Jing `int-wire`)             |
++======================+=======================================================+
+| 0 <= n < 2^64        | Major type 0, shortest argument width                 |
++----------------------+-------------------------------------------------------+
+| -2^64 <= n < 0       | Major type 1, argument -1-n, shortest width           |
++----------------------+-------------------------------------------------------+
+| n >= 2^64            | Tag 2 over a byte string holding n                    |
++----------------------+-------------------------------------------------------+
+| n < -2^64            | Tag 3 over a byte string holding -1-n, not abs(n)     |
++----------------------+-------------------------------------------------------+
+```
+
+- Digits are unsigned base-256, most significant byte first, minimal
+  length. A bignum tag is noncanonical when the value fits major type 0
+  or 1. Ingress refuses leading zeros, unnecessary tags, malformed
+  payloads, and trailing bytes; existing Jing fixtures stay unchanged.
+- A source literal within +/-(2^53-1) stays a native `:literal`. A
+  larger literal lowers to an application of the integer module's parse
+  function over its canonical decimal string, because the de Bruijn
+  canonical value table declares `:bigint` out of domain and the image
+  encoder refuses a JS or Dart bigint. Every literal thus stays inside
+  the existing domain on all four kernels, and every spelling of one
+  value (decimal, hexadecimal, binary, octal) has one address.
+  Widening the de Bruijn value domain is a separate kernel ruling.
+- `42` and `42.0` stay distinct content although numerically equal.
+
+Exact-integer carriers are recognized as scalars in the encoder, the
+heap trace, `pin-refs`, `values/kind-of`, and `data/number?`, and this
+is tested on Node and Dart before any bignum reaches a cell (ruling 4).
+On JS and Dart a bignum fails host `number?`. UCF gains no marker; its
+scalar number arm covers every Jing exact-integer carrier, and the
+cell-lift refusal is unchanged, so C3 does not establish Python-task
+migration.
+
+A separately installed, versioned `:pure` integer module carries the
+exact kernels (ruling 5). It follows `yin.vm.data` (section 9.3): the
+composition installs it explicitly, the Python runtime profile requires
+it, and a composition without it is refused at admission. It declares
+arities, raises no effects, holds no host state, never calls back into
+Python, and never touches the heap or store; expected arithmetic
+failures are returned as qualified data for the prelude to translate.
+`vm/primitives`, the grammar, opcodes, and evaluator dispatch do not
+change. Python dispatch, sign rules, and exceptions stay in the
+prelude:
+
+```text
++--------------------------------------+---------------------------------------+
+| Python prelude                       | Pure integer module                   |
++======================================+=======================================+
+| Python type dispatch and bool        | Exact integer recognition and         |
+| coercion                             | normalization                         |
++--------------------------------------+---------------------------------------+
+| Guest exception construction         | Exact add, subtract, multiply,        |
+|                                      | negate, compare                       |
++--------------------------------------+---------------------------------------+
+| Floor quotient and modulo sign       | Truncating quotient and remainder     |
+| adjustment                           | pair                                  |
++--------------------------------------+---------------------------------------+
+| Operator result-type selection       | Unbounded signed bit operations       |
++--------------------------------------+---------------------------------------+
+| Integer power loop and special cases | Checked shifts and bit length         |
++--------------------------------------+---------------------------------------+
+| Parsing syntax, bases, underscores,  | Exact digit accumulation and radix    |
+| whitespace                           | formatting                            |
++--------------------------------------+---------------------------------------+
+| Numeric key and guest hash policy    | Exact binary64 decomposition and      |
+|                                      | conversion; correctly rounded integer |
+|                                      | ratio to binary64                     |
++--------------------------------------+---------------------------------------+
+```
+
+- Guest integers go only through the module, since host `+` on mixed
+  carriers throws on JS and Dart. Internal counters, including C2's
+  `iter-at` index and the sequence iterator's `:i`, stay VM primitives
+  and never become guest values without normalization.
+- The conversion and rounding kernels are written once in portable code
+  over a minimal per-host bignum shim, not three host implementations.
+  The shim does not reach into `dao.jing.cbor` privates; Jing stays a
+  passive codec.
+- Floor division and modulo derive from the truncating pair: if the
+  remainder is nonzero and its sign differs from the divisor's, the
+  quotient decrements and the divisor is added to the remainder. Zero
+  division is checked before the primitive is invoked.
+- Bit operations follow an infinite signed two's-complement model:
+  `~a = -a-1`, `a << k = a * 2^k`, `a >> k = floor(a / 2^k)`. A negative
+  count raises `ValueError`; counts are never narrowed before that
+  check; a huge right shift returns 0 or -1 from the sign, and a huge
+  left shift of a nonzero operand passes result-size admission first.
+- Non-negative integer powers are exact, by squaring through exact
+  primitives (ruling 10). Float-result powers use the prelude's existing
+  squaring loop, `py/fpow`, as the pinned contract: bit-identical across
+  hosts and allowed to differ from CPython's `pow` in the last place,
+  documented. A negative exponent converts the base through the checked
+  conversion first, so a huge base raises `OverflowError`. Fractional
+  exponents, complex results, and three-argument `pow` are deferred.
+
+Conversions are acceptance conditions (ruling 9):
+
+- Integer text is parsed and formatted exactly, never through a double
+  or a native-width parser. Source-literal syntax and
+  `int(string, base)` validation are separate rules. `str` and `repr`
+  give exact decimal text with no suffix or exponent, and the guest
+  builtins and the boundary snapshot renderer share that contract.
+- `int(finite_float)` truncates the binary64 value exactly; infinity
+  raises `OverflowError` and NaN raises `ValueError`.
+- `float(integer)` rounds once, to nearest with ties to even, and raises
+  `OverflowError` outside the finite range.
+- Integer `/` is correctly rounded from the exact ratio, so
+  `(10**400) / (10**400)` is `1.0`.
+- Mixed arithmetic converts the integer through the checked conversion
+  and keeps the tagged float result; C1 float tags and signed-zero
+  behavior are preserved. Comparison between an integer and a finite
+  float is exact over the float's binary rational, never by rounding the
+  integer.
+- `int`, `float`, `str`, `repr`, `divmod`, and `hash` do not exist in
+  C1; each is a named C3 deliverable, or its tests are written at
+  prelude level.
+
+Python numeric equality, dict-key normalization, and canonical storage
+identity stay three distinct contracts. Numeric dict and set keys are
+reduced-rational keys in one form (ruling 6), `[:py.numeric/finite
+numerator-decimal denominator-decimal]`, replacing C1's double
+normalization:
+
+- `True`, `1`, and `1.0` share the key 1/1; `False`, `0`, and `+/-0.0`
+  share 0/1; `1.5` is 3/2; 2^53 and 2^53+1 stay distinct.
+- Infinities get their own signed keys. Every NaN shares one key,
+  `[:py.numeric/nan]` (pinned in C3-S2). A float here has no object
+  identity to tell two NaNs apart, and Jing float64 content already makes
+  every NaN one value, so a per-object NaN key cannot survive addressing;
+  keying by the host double is not deterministic either (on the JVM host
+  `=` answers true for one boxed NaN and false for two). This departs from
+  CPython, where distinct NaN objects are distinct keys. For dict/set
+  key normalization, all NaNs belong to one equivalence class,
+  recursively inside tuple keys; this does not change numeric comparison
+  semantics. Reinsertion retains the first stored key and updates its
+  value. In Python terms: `d[x]` after `d[x] = 1` works as in CPython;
+  `d[float('nan')]` returns that entry where CPython raises `KeyError`;
+  and `len({nan, nan2})` is 1 where CPython gives 2. This is the
+  float-identity departure, the same family as ruling 8's value-based
+  `is`, and a tuple containing a NaN inherits it through `:py/tuple-key`.
+  Jing's private `exact-key` is a storage-layer helper, not the guest key
+  contract, and is not reused.
+- Tuple elements normalize recursively under the existing tuple-key
+  convention; the non-numeric arm (generators and other identity
+  objects by ref) and the unhashable arm are preserved. The
+  insertion-order vector keeps the first inserted original key.
+- Known limits, recorded and not fixed in C3-S2. An integer key is
+  formatted in base 10 through the `integer` module, so an integer past
+  the composition's `::max-digits` cannot be a dict or set key; CPython
+  applies its digit limit to `str()`, not to hashing or keying. And the
+  smallest subnormal keys with a 1075-bit denominator of 324 digits, so
+  a composition's `integer` limits must admit at least 1075 bits and 324
+  digits for float keys. Under smaller limits the key is refused, never
+  approximated: the refusal must surface as the documented guest
+  failure (ruling 11: `MemoryError` for bits, `ValueError` for digits).
+  The prelude does not map `integer` refusals to guest exceptions yet,
+  so today such a refusal fails the run instead.
+
+Guest numeric `hash()` uses P = 2^61-1 on every host (ruling 7):
+`h(n) = sign(n) * (abs(n) mod P)`, with -1 replaced by -2. A finite
+float hashes its reduced rational with the same modulus and the modular
+inverse of the denominator; a bool hashes as 0 or 1. Host hash, Jing's
+`num-hash`, content digests, and cell ids are never exposed. Dicts do
+not consume `hash()`; they use the keys above. `hash()` of an identity
+object (generator, instance, function) is unsupported in C3, since the
+only available identity is the cell id, which is not exposed and not
+stable across lift.
+
+Integer `is` is value-based through the unchanged `py/is`, which stays
+`(= a b)` and is carrier-independent by ruling 2; this matches section
+8.11's "same type and value" rule (ruling 8). `True is 1` stays false.
+No CPython allocation or interning fidelity is promised.
+
+Numeric limits are explicit Python-profile data in bits and digits, with
+1497:    [py/hash-int
+1500:         (py/hash-signed s (py/mod-p (if (< s 0) (integer/neg n) n)))))]
+1506:    [py/hash-float
+1513:         (py/hash-signed s
+1516:    [py/hash
+1519:         (if (py/float? x)
+1522:               (if (py/zero? f) 0 (py/hash-float f))
+1525:           (py/hash-int (py/int-canon (py/num x))))
+1531:     (fn [d k] (not (= (get (get (cell/get d) :index) (py/key k) :py/missing) :py/missing)))]
+1537:             nk (py/key x)]
+1555:             nk (py/key k)
+1572:         (if (= k :py/stop) acc (py/reindex ks (+ i 1) (assoc acc (py/key k) i)))))]
+1577:             slot (get (get c :index) (py/key k) :py/missing)]
+1691:                       slot (get (get c :index) (py/key k) :py/missing)]
+2086:                       (fn [args] (py/hash (py/arg args 0))))]
+src/cljc/yin/vm/data.cljc:30:     `::reason` (`:arity`, `:wrong-type`, `:out-of-range` or
+src/cljc/yin/vm/data.cljc:56:(defn- refuse!
+src/cljc/yin/vm/data.cljc:61:(defn- wrong-type!
+src/cljc/yin/vm/data.cljc:64:  (refuse! op :wrong-type {::arg arg, ::expected expected}))
+src/cljc/yin/vm/data.cljc:95:  "Argument `arg` of `op` as an integer, or a `:wrong-type` refusal."
+src/cljc/yin/vm/data.cljc:99:      (wrong-type! op arg :integer)
+src/cljc/yin/vm/data.cljc:110:    (refuse! op :out-of-range {::index i, ::lo lo, ::hi hi}))
+src/cljc/yin/vm/data.cljc:191:    (wrong-type! op arg :string))
+src/cljc/yin/vm/data.cljc:215:    (wrong-type! 'count 0 :collection)))
+src/cljc/yin/vm/data.cljc:221:    (wrong-type! op arg :vector))
+src/cljc/yin/vm/data.cljc:239:    :else (wrong-type! 'contains? 0 :map-set-or-vector)))
+src/cljc/yin/vm/data.cljc:246:    (wrong-type! 'dissoc 0 :map)))
+src/cljc/yin/vm/data.cljc:253:    (wrong-type! 'disj 0 :set)))
+src/cljc/yin/vm/data.cljc:260:    (wrong-type! 'peek 0 :vector)))
+src/cljc/yin/vm/data.cljc:267:    (not (vector? v)) (wrong-type! 'pop 0 :vector)
+src/cljc/yin/vm/data.cljc:290:      (wrong-type! 'into 1 :sequential))
+src/cljc/yin/vm/data.cljc:295:      (wrong-type! 'into 1 :sequential-or-set))
+src/cljc/yin/vm/data.cljc:297:    :else (wrong-type! 'into 0 :vector-or-set)))
+src/cljc/yin/vm/data.cljc:345:      (refuse! 'str-split :empty-separator {}))
+src/cljc/yin/vm/data.cljc:359:    (wrong-type! 'str-join 1 :sequential))
+src/cljc/yin/vm/data.cljc:362:      (wrong-type! 'str-join 1 :strings)))
+src/cljc/yin/vm/data.cljc:382:    (wrong-type! 'code-points->str 0 :sequential))
+src/cljc/yin/vm/data.cljc:387:                (wrong-type! 'code-points->str 0 :code-points))
+src/cljc/yin/vm/data.cljc:427:(defn float-value
+src/cljc/yin/vm/data.cljc:428:  "The host double of number or float64 content `x`, for host arithmetic:
+src/cljc/yin/vm/data.cljc:431:   numbers, and wraps the result back with `float64`."
+src/cljc/yin/vm/data.cljc:433:  (when-not (or (data-number? x) (cbor/float64? x))
+src/cljc/yin/vm/data.cljc:434:    (wrong-type! 'float-value 0 :number))
+src/cljc/yin/vm/data.cljc:438:                 (cbor/float64? x) (.-v ^not-native x)
+src/cljc/yin/vm/data.cljc:442:(defn float64
+src/cljc/yin/vm/data.cljc:443:  "Float content with the value of number `x`: Jing's float64, the form a
+src/cljc/yin/vm/data.cljc:445:   double on the JVM and Dart, the float64 carrier on JS, where a bare
+src/cljc/yin/vm/data.cljc:449:  (cbor/float64 (float-value x)))
+src/cljc/yin/vm/data.cljc:487:   ['float64 [1] float64]
+src/cljc/yin/vm/data.cljc:488:   ['float-value [1] float-value]
+src/cljc/yin/vm/data.cljc:494:   admit, so a wrong count never reaches a host arity exception."
+src/cljc/yin/vm/data.cljc:502:          (refuse! op :arity {::argc n}))
+src/cljc/yin/vm/integer.cljc:55:   `:arity`, `:wrong-type`, `:out-of-range`, `:syntax`, `:zero-division`,
+src/cljc/yin/vm/integer.cljc:56:   `:negative-count`, `:negative-exponent`, `:bit-limit` and
+src/cljc/yin/vm/integer.cljc:57:   `:digit-limit`. A runtime profile maps them to guest exceptions; the
+src/cljc/yin/vm/integer.cljc:58:   Python profile maps `:bit-limit` to `MemoryError` and `:digit-limit`
+src/cljc/yin/vm/integer.cljc:83:(defn- refuse!
+src/cljc/yin/vm/integer.cljc:88:(defn- wrong-type!
+src/cljc/yin/vm/integer.cljc:91:  (refuse! op :wrong-type {::arg arg, ::expected expected}))
+src/cljc/yin/vm/integer.cljc:105:   `:wrong-type` refusal."
+src/cljc/yin/vm/integer.cljc:109:    (wrong-type! op arg :integer)))
+src/cljc/yin/vm/integer.cljc:124:  (refuse! op :bit-limit {::limit (::max-bits limits)}))
+src/cljc/yin/vm/integer.cljc:129:   `:bit-limit` refusal."
+src/cljc/yin/vm/integer.cljc:131:  (when (> (bits b) (::max-bits limits))
+src/cljc/yin/vm/integer.cljc:160:    (when (> (+ (bits x) (bits y) -1) (::max-bits limits))
+src/cljc/yin/vm/integer.cljc:174:      (refuse! op :zero-division {}))
+src/cljc/yin/vm/integer.cljc:201:        max-bits (::max-bits limits)]
+src/cljc/yin/vm/integer.cljc:203:      (neg? (sign n)) (refuse! 'pow :negative-exponent {})
+src/cljc/yin/vm/integer.cljc:260:      (refuse! op :negative-count {}))
+src/cljc/yin/vm/integer.cljc:268:        max-bits (::max-bits limits)]
+src/cljc/yin/vm/integer.cljc:319:      (refuse! op :out-of-range {::arg 1, ::lo 2, ::hi 36}))
+src/cljc/yin/vm/integer.cljc:330:  (refuse! op :digit-limit {::limit (::max-digits limits)}))
+src/cljc/yin/vm/integer.cljc:337:     (wrong-type! 'parse 0 :string))
+src/cljc/yin/vm/integer.cljc:343:       (refuse! 'parse :syntax {}))
+src/cljc/yin/vm/integer.cljc:344:     (when (and (not (power-of-two? r)) (> n (::max-digits limits)))
+src/cljc/yin/vm/integer.cljc:350:                              (refuse! 'parse :syntax {}))))
+src/cljc/yin/vm/integer.cljc:379:         max-digits (::max-digits limits)
+src/cljc/yin/vm/integer.cljc:438:   admit, so a wrong count never reaches a host arity exception."
+src/cljc/yin/vm/integer.cljc:444:          (refuse! op :arity {::argc n}))
+src/cljc/yin/vm/integer.cljc:458:                        {::reason :limits, ::limit k}))))))
+       (apply str (map #(let [b (.getUint8 view %)]
+                          (str (when (< b 16) "0") (.toString b 16)))
+                       (range 8))))))
+
+
+#?(:cljs
+   (deftype Float64
+     [v]
+
+     Object
+
+     (toString [_] (str v))
+
+
+     ;; numeric and default coercion refuses: `carrier + 1`, `carrier < 3`
+     ;; and `"" + carrier` would otherwise go through toString and answer
+     ;; a string or a bare Number that lost the float's kind. String
+     ;; conversion (`str`, `String`, `.toString`) asks toString first and is
+     ;; unaffected; read the value through an explicit accessor instead.
+     (valueOf
+       [_]
+       (refuse :carrier-coercion
+               "a float64 carrier has no implicit numeric value"))
+
+
+     IEquiv
+
+     (-equiv
+       [_ other]
+       (and (instance? Float64 other)
+            (or (and (js/isNaN v) (js/isNaN (.-v ^Float64 other)))
+                (js/Object.is v (.-v ^Float64 other)))))
+
+
+     IHash
+
+     (-hash [_] (hash (if (js/isNaN v) "nan" (double-bits-hex v))))
+
+
+     IPrintWithWriter
+
+1253:  ruling, owner decision 1). Global reads and writes go through that
+2192:8.11's "same type and value" rule (ruling 8). `True is 1` stays false.
+3143:- `is` on immutable values is same type and value, confirmed per
+3144:  language profile (owner decision 1). Python's reference permits it. A
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "sed -n '2190,2255p' docs/design/yang.antlr.md; sed -n '3138,3155p' docs/design/yang.antlr.md; rg -n '\\[py/is|float-key|int-canon|finite-key' src/cljc/yang/python/antlr/prelude.cljc; sed -n '80,88p' src/cljc/yin/vm/integer.cljc; sed -n '370,393p' src/cljc/yin/vm/integer.cljc; sed -n '20,34p' docs/design/datom.world.md; sed -n '427,450p' src/cljc/yin/vm/data.cljc"[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+Integer `is` is value-based through the unchanged `py/is`, which stays
+`(= a b)` and is carrier-independent by ruling 2; this matches section
+8.11's "same type and value" rule (ruling 8). `True is 1` stays false.
+No CPython allocation or interning fidelity is promised.
+
+Numeric limits are explicit Python-profile data in bits and digits, with
+no implicit default and nothing inherited from environment variables or
+host library defaults (ruling 11). A bit-length breach is a guest
+`MemoryError` and a digit-limit breach is a guest `ValueError`, both
+catchable and deterministic; neither is `OverflowError`. Real host
+exhaustion, timeout, and cancellation stay operational (section 11).
+Calling a large synchronous kernel `:pure` does not make it
+interruptible, so C3 makes no mid-primitive safepoint or latency claim.
+
+The stream codec is not widened and C3 builds no new adapter (ruling
+12). A raw remote put of a bignum refuses with a qualified outcome;
+canonical Jing bytes through the existing `dao.jing.stream` adapter are
+the only remote form, and printing and re-reading EDN is not a bignum
+transport. CPython NaN object-identity fidelity remains unsupported;
+deterministic NaN key behavior is now specified. Full float rendering
+parity remains a separately tracked limitation, not claimed by C3
+(ruling 13).
+
+```text
++--------+---------------------------------------------------------------------+
+| Slice  | Scope                                                               |
++========+=====================================================================+
+| S0     | Freeze contracts: profile, expected bytes, literals, hashes,        |
+|        | outcomes, and boundary values around 2^53, 2^63, and 2^64. No       |
+|        | existing canonical fixture changes.                                 |
++--------+---------------------------------------------------------------------+
+| S1     | Exact carriers and the pure module, installed explicitly; a         |
+|        | registry without it refuses.                                        |
++--------+---------------------------------------------------------------------+
+| S2     | Literal and boundary integration: equal spellings give equal rows,  |
+|        | bytes, and hashes; malformed encodings refuse.                      |
++--------+---------------------------------------------------------------------+
+| S3     | Integer operators, including augmented forms, through the prelude;  |
+|        | every C1 arithmetic regression still passes.                        |
++--------+---------------------------------------------------------------------+
+| S4     | Conversions and comparisons: float bits, exact text, tagged float   |
+|        | results, exceptions; no double rounding.                            |
++--------+---------------------------------------------------------------------+
+| S5     | Numeric dict and set keys and guest hashes.                         |
++--------+---------------------------------------------------------------------+
+| S6     | Heap and portability: collection, pinning, scalar UCF round trips,  |
+|        | honest refusal of cell lift and raw transport.                      |
++--------+---------------------------------------------------------------------+
+| S7     | Integration gate over the full C1 and C3 corpus, profile mismatch,  |
+|        | and resource-limit fixtures.                                        |
++--------+---------------------------------------------------------------------+
+```
+
+C3 is complete only with (ruling 14):
+
+- All four VMs on JVM, Node, and Dart VM, twelve lanes; Dart compiled to
+  JavaScript is not claimed. Source-level tests run on the JVM and
+  parserless forms on Node and Dart.
+- Golden byte fixtures checked on each host, in place of directed
+  host-pair runs, and unchanged Jing fixtures.
+- The full C1 corpus.
+- Generated operands from a checked-in table with CPython-computed
+  expectations, not a host RNG. The corpus covers the boundaries around
+  2^53, 2^63, and 2^64, promotion followed by cancellation, the
+  `divmod`, shift, power, conversion, key, and `hash(-1)` detectors, and
+  the C1 signed-zero cases.
+  still mean same-cell, and refs must stay usable as map keys, on every
+  host.
+- Guest value equality is prelude code. Python `==` on lists recurses
+  through cells; it is never host `=` on a value containing refs, which
+  would compare elements by identity.
+- `is` on immutable values is same type and value, confirmed per
+  language profile (owner decision 1). Python's reference permits it. A
+  Java profile cannot use it: boxed objects and `new String` require
+  distinct identity, so a Java profile gives them cells.
+- The ref itself is a valid host map key, so default instance hashing
+  needs no id extraction.
+- A guest-visible `id()` is not stable across a lift, because cell ids are
+  task-local and re-minted on lift. This is accepted and documented as a
+  limitation (owner decision 2).
+- Functions: two closures from one lambda with equal environments compare
+  equal structurally, while JS and Python require them distinct and allow
+  attributes on functions. Full fidelity wraps a function as an object in
+  a cell; the Python spike uses bare closures and leaves `is` on functions
+615:    [py/isinstance
+1350:    [py/is (fn [a b] (= a b))]
+1351:    [py/is-not (fn [a b] (not (= a b)))]
+1434:    [py/finite-key
+1436:    [py/float-key
+1444:           (py/finite-key "0" "1")
+1449:               (py/finite-key (integer/format m)
+1451:               (py/finite-key (integer/format (integer/shift-left m e)) "1"))))
+1466:           (py/float-key (py/num k))
+1467:           (py/finite-key (integer/format (py/int-canon (py/num k))) "1"))
+1501:    [py/int-canon
+1525:           (py/hash-int (py/int-canon (py/num x))))
+  "integer primitive refused")
+
+
+(defn- refuse!
+  [op reason data]
+  (throw (ex-info refusal-message (merge {::op op, ::reason reason} data))))
+
+
+(defn- wrong-type!
+         p 1]
+    (if (< p r) (recur (inc c) (* 2 p)) c)))
+
+
+(defn- int-format
+  ([limits a] (int-format limits a 10))
+  ([limits a radix]
+   (let [x (big! 'format 0 a)
+         r (radix! 'format radix)
+         max-digits (::max-digits limits)
+         limited? (not (power-of-two? r))]
+     ;; |x| >= 2^(bits - 1), so it has more than (bits - 1) / log2(r)
+     ;; digits: refuse before building text that is certain to breach
+     (when (and limited?
+                (pos? (bits x))
+                (>= (dec (bits x)) (* (ceil-log2 r) max-digits)))
+       (digit-limit! limits 'format))
+     (let [text (host/to-radix-string x r)]
+       (when (and limited?
+                  (> (- (count text) (if (neg? (sign x)) 1 0)) max-digits))
+         (digit-limit! limits 'format))
+       text))))
+
+
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+
+## Tuples and Datoms
+
+(defn float-value
+  "The host double of number or float64 content `x`, for host arithmetic:
+   what the literal `1.0` is on each host, a double on the JVM and Dart, a
+   Number on JS. A prelude unwraps a float with this, computes on bare
+   numbers, and wraps the result back with `float64`."
+  [x]
+  (when-not (or (data-number? x) (cbor/float64? x))
+    (wrong-type! 'float-value 0 :number))
+  #?(:cljd (if (dart/is? x BigInt) (.toDouble ^BigInt x) (.toDouble ^num x))
+     :clj (double x)
+     :cljs (cond (number? x) x
+                 (cbor/float64? x) (.-v ^not-native x)
+                 :else (js/Number x))))
+
+
+(defn float64
+  "Float content with the value of number `x`: Jing's float64, the form a
+   float keeps in any value that can reach an addressed row or image (a
+   double on the JVM and Dart, the float64 carrier on JS, where a bare
+   integral Number is an integer; dao.jing.cbor.md, Numeric identity). The
+   producer carries float kind; the codec never infers it."
+  [x]
+  (cbor/float64 (float-value x)))
+
+
+[1mweb search:[0m 
+[1mweb search:[0m site.docs.python.org 3.9.14 integer string conversion length limitation ValueError ...
+[35m[3mcodex[0m[0m
+The brief identifies real gaps. I also confirmed that CPython’s digit limit was added in 3.9.14, after the 3.9.6 reference version. I’ll distinguish that explicit profile restriction from Python operation errors, and recommend fixing key formatting and guest refusal handling before large integers become source-reachable.
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "rg -n 'dict-keys-test|golden|canonical' test/yang/python/antlr/*key* test/yang/python/antlr/prelude_parity_test.cljc 2>/dev/null | tail -12; sed -n '1338,1355p' src/cljc/yang/python/antlr/prelude.cljc; sed -n '45,61p' src/cljc/yin/vm/integer.cljc; sed -n '3140,3150p' docs/design/yang.antlr.md; sed -n '2290,2310p' docs/design/yang.antlr.md"[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+zsh:1: no matches found: test/yang/python/antlr/*key*
+     (fn [xs ys i]
+       (let [x (get xs i :py/stop)
+             y (get ys i :py/stop)]
+         (if (= x :py/stop)
+           (= y :py/stop)
+           (if (= y :py/stop)
+             false
+             (if (py/eq x y) (py/eq-items xs ys (+ i 1)) false)))))]
+    [py/ne (fn [a b] (not (py/eq a b)))]
+    ;; `is` is value-based for every non-cell value (C3 ruling 8): equal
+    ;; integers are `is`-equal at any magnitude, since each value has one
+    ;; carrier per host; True is not 1, since bools are host booleans
+    [py/is (fn [a b] (= a b))]
+    [py/is-not (fn [a b] (not (= a b)))]
+
+    ;; ---------------------------------------------------------- truthiness
+    [py/truthy
+     (fn [x]
+   Limits (ruling 11) are explicit composition data with no default, in
+   bits and digits: `::max-bits` bounds the bit length of every integer
+   result, and `::max-digits` bounds the digit count `parse` reads and
+   `format` writes in a radix that is not a power of two. A result that
+   would breach `::max-bits` is refused before it is built wherever its
+   size is known in advance (`mul`, `shift-left`, `pow`).
+
+   A refused call throws `ex-info` with the message `refusal-message` and
+   ex-data built here, never host exception text, never an operand:
+   `::op`, `::reason` and the reason's own keys. The reasons are
+   `:arity`, `:wrong-type`, `:out-of-range`, `:syntax`, `:zero-division`,
+   `:negative-count`, `:negative-exponent`, `:bit-limit` and
+   `:digit-limit`. A runtime profile maps them to guest exceptions; the
+   Python profile maps `:bit-limit` to `MemoryError` and `:digit-limit`
+   to `ValueError`, never `OverflowError`."
+  (:require
+    [clojure.string :as str]
+- Guest value equality is prelude code. Python `==` on lists recurses
+  through cells; it is never host `=` on a value containing refs, which
+  would compare elements by identity.
+- `is` on immutable values is same type and value, confirmed per
+  language profile (owner decision 1). Python's reference permits it. A
+  Java profile cannot use it: boxed objects and `new String` require
+  distinct identity, so a Java profile gives them cells.
+- The ref itself is a valid host map key, so default instance hashing
+  needs no id extraction.
+- A guest-visible `id()` is not stable across a lift, because cell ids are
+  task-local and re-minted on lift. This is accepted and documented as a
+
+Both rejected alternatives fail for the same reason, that the kind is
+gone before the codec sees the number. Normalizing integral floats to
+integers already describes Node; extending it to JVM and Dart violates
+"`1` and `1.0` have different addresses". Tagging row inputs alone
+leaves runtime values diverging and gives Node two representations,
+since a JVM-minted float row already decodes to the carrier on Node.
+
+The normative rule, astra's text as widened by fable's correction 1 to
+runtime values:
+
+> Every floating-point value entering canonical rows or any addressed
+> image, including source literals, prelude constants, nested Python
+> float payloads, and runtime float values held by snapshots and
+> continuations, must preserve float64 kind before host representation
+> erases it. Addressed values use Jing's existing float64
+> representation. A Python float wrapper alone does not establish the
+> numeric kind of its payload. Row projection and transformation must
+> preserve that kind.
+
+The mechanism is Jing's existing `dao.jing/float64` carrier (tag 27),
+
+[35m[3mcodex[0m[0m
+Completed-GMT: 2026-10-04 06:45:17 GMT
+Completed-Local: 2026-10-04 13:45:17 +07
+
+**Q1 — Adopt canonical float64 content equality for float `is`; remove host equality from that decision.**
+
+The exact rule is:
+
+- Two Python floats are `is`-equal iff their canonical float64 content is equal.
+- All NaNs are `is`-equal, regardless of provenance, sign, or payload.
+- Positive and negative zero are distinct.
+- Other finite values and infinities compare by their binary64 content.
+- A float is never `is`-equal to an integer or bool.
+- `is not` is exactly the negation of `is`.
+
+This chooses **(a)**. It provides reflexive, host-independent value identity without allocating float cells. It deliberately differs from CPython object identity. Numeric `==` and dict-key equivalence remain separate: both zeros share a dictionary key, and NaN’s shared key does not make numeric equality reflexive.
+
+The existing [py/is implementation](/Users/sto/workspace/datomworld/src/cljc/yang/python/antlr/prelude.cljc:1350) is an implementation defect for floats, not grounds to change Jing’s encoding.
+
+**Implementation seam:** add a pure data-module operation, for example `data/float64-same?`, whose contract is equality of canonical float64 content. It accepts float payloads and handles host doubles and the JS carrier consistently. Implement it through public float-content facilities or exact binary64 inspection, including NaN normalization; do not change generic `=` or reach into Jing’s private key machinery. Comparing full serialized bytes is a reference oracle, not a requirement to serialize on every comparison.
+
+`py/is` performs Python type dispatch and invokes this operation only for two floats. Preserve cell identity and normalized integer behavior. Immutable tuples must recursively use the same type-and-content relation; leaving host structural equality around nested floats would retain the defect.
+
+Add to §8.5.4, with a pointer from §8.11:
+
+> Value-based `is` uses canonical float64 content for Python floats: all NaNs are identical, signed zeros are distinct, and float and integer values are never identical. This rule applies recursively within immutable tuples. It establishes neither numeric equality nor CPython allocation identity. `is not` negates this relation.
+
+Replace the claim that `py/is` universally “stays `(= a b)`.”
+
+**Acceptance:** all four VMs on JVM, Node, and Dart must pin same and independently produced NaNs, decoded NaNs, both zeros, equal finite floats, opposite infinities, float/int/bool distinctions, and tuples containing those values. Assert `is-not` is complementary and compare the float helper’s answers against canonical-byte equality.
+
+Deliver this as an immediate correction to the landed numeric-key/identity work—**table S5 follow-up, with S4 comparison coverage**.
+
+---
+
+**Q2 — Replace decimal rational-key components with canonical hexadecimal text; do not apply the user-facing decimal digit limit to key normalization.**
+
+Choose **(a)**, with an explicit new discriminant:
+
+```clojure
+[:py.numeric/finite-hex numerator-hex denominator-hex]
+```
+
+Both strings use lowercase hexadecimal, no prefix, no leading zeros, and no plus sign. The numerator may have one leading `-`; zero is `"0"`. The denominator is positive, the fraction reduced, and zero is always `"0"/"1"`.
+
+Examples:
+
+```clojure
+1, 1.0, True  => [:py.numeric/finite-hex "1" "1"]
+0, -0.0      => [:py.numeric/finite-hex "0" "1"]
+1.5          => [:py.numeric/finite-hex "3" "2"]
+2^53         => [:py.numeric/finite-hex "20000000000000" "1"]
+2^53+1       => [:py.numeric/finite-hex "20000000000001" "1"]
+```
+
+Infinity and NaN key forms remain unchanged. Tuple normalization remains recursive. Guest hashes and the first-inserted original dictionary key do not change.
+
+The landed [integer formatter](/Users/sto/workspace/datomworld/src/cljc/yin/vm/integer.cljc:374) already exempts power-of-two radices from `::max-digits`. Use explicit radix 16 for **both** rational components. This avoids costly unrestricted decimal conversion and avoids introducing a second digit-budget policy.
+
+Bit limits still govern integer intermediates. In particular, the current smallest-subnormal algorithm constructs a 1075-bit denominator; hexadecimal formatting removes its decimal-digit restriction, not that bit requirement.
+
+**Migration:** update ruling 6, the known-limits paragraph, key fixtures, and the canonical-bytes golden in `dict-keys-test`. Using `finite-hex` prevents old decimal components from silently acquiring a different meaning. Bump the Python prelude/runtime profile and regenerate dependent addresses. Do not rewrite Jing’s scalar codec fixtures or treat old and new dictionary indexes as interchangeable. No Python-cell migration compatibility is established here.
+
+Deliver this with the **table S5 follow-up before S2 literal exposure or S3 promotion**.
+
+Acceptance must build an integer exceeding the configured decimal digit limit while remaining within the bit limit, then prove insertion, lookup, replacement, deletion, set membership, and tuple-key use succeed. Its decimal `str`/`repr` conversion must still raise the configured digit-limit error. Repeat with a deliberately small digit budget and finite float keys.
+
+---
+
+**Q3 — Deliver guest-refusal translation as a prerequisite slice before source-level bignum exposure, not at the final integration gate.**
+
+Retain ruling 11: **bit-budget breach → `MemoryError`; digit-budget breach → `ValueError`**. Neither is ordinary integer arithmetic overflow.
+
+One baseline correction is necessary: **CPython 3.9.6 did not have the decimal conversion digit limit.** It was added in 3.9.14. Therefore the configured digit limit is an explicit support-profile restriction, not a claimed 3.9.6 exception match. [Python’s versioned `int` documentation](https://docs.python.org/3.9/library/functions.html?highlight=round#int).
+
+Use this mapping:
+
+| Condition | Guest behavior |
+|---|---|
+| Explicit integer bit-budget breach | `MemoryError` |
+| Decimal/non-power-of-two conversion digit-budget breach | `ValueError` |
+| Wrong guest operand type or guest-call arity | `TypeError` |
+| Invalid `int()` text or invalid conversion base | `ValueError` |
+| Integer division/modulo by zero | `ZeroDivisionError` |
+| Negative shift count | `ValueError` |
+| Integer-to-float conversion outside finite binary64 range | `OverflowError` |
+| `int(infinity)` | `OverflowError` |
+| `int(NaN)` | `ValueError` |
+| Malformed source integer literal | Frontend syntax diagnostic, not runtime `int()` failure |
+
+Two reasons require operation-aware handling:
+
+- **`:negative-exponent` is not inherently a guest error.** Python integer power with a negative exponent selects floating-point semantics; zero to a negative power raises `ZeroDivisionError`. Dispatch before calling the nonnegative integer-power kernel.
+- **`:out-of-range` is not universally `OverflowError`.** Invalid radix is `ValueError`; a checked conversion to a bounded destination can require `OverflowError`. Map by operation and reason.
+
+Likewise, an internal primitive arity mismatch generated by a correct prelude is an implementation defect, not a guest’s `TypeError`. Unknown refusal reasons and genuine host failures must not be indiscriminately converted into catchable guest errors.
+
+**Mechanism:** the current [integer module throws qualified `ex-info`](/Users/sto/workspace/datomworld/src/cljc/yin/vm/integer.cljc:83), which portable `py/try` cannot catch. Provide a versioned pure result-returning numeric interface that converts only recognized integer refusals into qualified data. The portable prelude unwraps success or constructs and raises the appropriate guest exception. Do not make evaluator dispatch Python-aware or pass guest exception callbacks into the host module.
+
+Wire every guest-reachable numeric path through it, including key normalization and hashing—not just arithmetic operators. Add `MemoryError` beneath `Exception` in the base exception hierarchy.
+
+Acceptance must catch each mapped failure in guest code, continue afterward, and verify `finally` behavior and unchanged dictionary state after failed key normalization. Host exception text must not determine the guest outcome. Real host exhaustion, cancellation, and unexpected defects remain operational failures, as §8.5.4 already specifies.
+
+**Remaining sequence, using the document’s S0–S7 numbering:**
+
+1. **S0 amendment:** freeze these three rulings, profile changes, key bytes, and refusal contracts.
+2. **S1 follow-up plus the exception portion of S4:** establish the pure refusal-result interface and prelude translation.
+3. **S5 follow-up:** land Q1 float identity and Q2 hexadecimal keys; cover existing hash/key failures.
+4. **S6 prerequisite checks:** confirm carrier tracing, pinning, and scalar boundaries before broader source exposure.
+5. **S2:** literal and boundary integration. This also needs a correction to the decimal-parse lowering rule: compiler-generated reconstruction of a hexadecimal literal must not accidentally impose the decimal digit limit. Use a canonical power-of-two reconstruction spelling while enforcing source-spelling limits separately.
+6. **S3:** exact operators and augmented forms, using the established exception bridge.
+7. **Remaining S4, then remaining S6:** conversions/comparisons and complete heap/portability coverage.
+8. **S7:** full C1/C3 integration and resource-limit matrix.
+
+The work previously orchestrated as “C3-S2” was the table’s **S5** scope; keep that distinction explicit in implementation assignments.
+
+Read-only assessment; no files changed or suites run.
+[2mtokens used[0m
+1,517,870
+Completed-GMT: 2026-10-04 06:45:17 GMT
+Completed-Local: 2026-10-04 13:45:17 +07
+
+**Q1 — Adopt canonical float64 content equality for float `is`; remove host equality from that decision.**
+
+The exact rule is:
+
+- Two Python floats are `is`-equal iff their canonical float64 content is equal.
+- All NaNs are `is`-equal, regardless of provenance, sign, or payload.
+- Positive and negative zero are distinct.
+- Other finite values and infinities compare by their binary64 content.
+- A float is never `is`-equal to an integer or bool.
+- `is not` is exactly the negation of `is`.
+
+This chooses **(a)**. It provides reflexive, host-independent value identity without allocating float cells. It deliberately differs from CPython object identity. Numeric `==` and dict-key equivalence remain separate: both zeros share a dictionary key, and NaN’s shared key does not make numeric equality reflexive.
+
+The existing [py/is implementation](/Users/sto/workspace/datomworld/src/cljc/yang/python/antlr/prelude.cljc:1350) is an implementation defect for floats, not grounds to change Jing’s encoding.
+
+**Implementation seam:** add a pure data-module operation, for example `data/float64-same?`, whose contract is equality of canonical float64 content. It accepts float payloads and handles host doubles and the JS carrier consistently. Implement it through public float-content facilities or exact binary64 inspection, including NaN normalization; do not change generic `=` or reach into Jing’s private key machinery. Comparing full serialized bytes is a reference oracle, not a requirement to serialize on every comparison.
+
+`py/is` performs Python type dispatch and invokes this operation only for two floats. Preserve cell identity and normalized integer behavior. Immutable tuples must recursively use the same type-and-content relation; leaving host structural equality around nested floats would retain the defect.
+
+Add to §8.5.4, with a pointer from §8.11:
+
+> Value-based `is` uses canonical float64 content for Python floats: all NaNs are identical, signed zeros are distinct, and float and integer values are never identical. This rule applies recursively within immutable tuples. It establishes neither numeric equality nor CPython allocation identity. `is not` negates this relation.
+
+Replace the claim that `py/is` universally “stays `(= a b)`.”
+
+**Acceptance:** all four VMs on JVM, Node, and Dart must pin same and independently produced NaNs, decoded NaNs, both zeros, equal finite floats, opposite infinities, float/int/bool distinctions, and tuples containing those values. Assert `is-not` is complementary and compare the float helper’s answers against canonical-byte equality.
+
+Deliver this as an immediate correction to the landed numeric-key/identity work—**table S5 follow-up, with S4 comparison coverage**.
+
+---
+
+**Q2 — Replace decimal rational-key components with canonical hexadecimal text; do not apply the user-facing decimal digit limit to key normalization.**
+
+Choose **(a)**, with an explicit new discriminant:
+
+```clojure
+[:py.numeric/finite-hex numerator-hex denominator-hex]
+```
+
+Both strings use lowercase hexadecimal, no prefix, no leading zeros, and no plus sign. The numerator may have one leading `-`; zero is `"0"`. The denominator is positive, the fraction reduced, and zero is always `"0"/"1"`.
+
+Examples:
+
+```clojure
+1, 1.0, True  => [:py.numeric/finite-hex "1" "1"]
+0, -0.0      => [:py.numeric/finite-hex "0" "1"]
+1.5          => [:py.numeric/finite-hex "3" "2"]
+2^53         => [:py.numeric/finite-hex "20000000000000" "1"]
+2^53+1       => [:py.numeric/finite-hex "20000000000001" "1"]
+```
+
+Infinity and NaN key forms remain unchanged. Tuple normalization remains recursive. Guest hashes and the first-inserted original dictionary key do not change.
+
+The landed [integer formatter](/Users/sto/workspace/datomworld/src/cljc/yin/vm/integer.cljc:374) already exempts power-of-two radices from `::max-digits`. Use explicit radix 16 for **both** rational components. This avoids costly unrestricted decimal conversion and avoids introducing a second digit-budget policy.
+
+Bit limits still govern integer intermediates. In particular, the current smallest-subnormal algorithm constructs a 1075-bit denominator; hexadecimal formatting removes its decimal-digit restriction, not that bit requirement.
+
+**Migration:** update ruling 6, the known-limits paragraph, key fixtures, and the canonical-bytes golden in `dict-keys-test`. Using `finite-hex` prevents old decimal components from silently acquiring a different meaning. Bump the Python prelude/runtime profile and regenerate dependent addresses. Do not rewrite Jing’s scalar codec fixtures or treat old and new dictionary indexes as interchangeable. No Python-cell migration compatibility is established here.
+
+Deliver this with the **table S5 follow-up before S2 literal exposure or S3 promotion**.
+
+Acceptance must build an integer exceeding the configured decimal digit limit while remaining within the bit limit, then prove insertion, lookup, replacement, deletion, set membership, and tuple-key use succeed. Its decimal `str`/`repr` conversion must still raise the configured digit-limit error. Repeat with a deliberately small digit budget and finite float keys.
+
+---
+
+**Q3 — Deliver guest-refusal translation as a prerequisite slice before source-level bignum exposure, not at the final integration gate.**
+
+Retain ruling 11: **bit-budget breach → `MemoryError`; digit-budget breach → `ValueError`**. Neither is ordinary integer arithmetic overflow.
+
+One baseline correction is necessary: **CPython 3.9.6 did not have the decimal conversion digit limit.** It was added in 3.9.14. Therefore the configured digit limit is an explicit support-profile restriction, not a claimed 3.9.6 exception match. [Python’s versioned `int` documentation](https://docs.python.org/3.9/library/functions.html?highlight=round#int).
+
+Use this mapping:
+
+| Condition | Guest behavior |
+|---|---|
+| Explicit integer bit-budget breach | `MemoryError` |
+| Decimal/non-power-of-two conversion digit-budget breach | `ValueError` |
+| Wrong guest operand type or guest-call arity | `TypeError` |
+| Invalid `int()` text or invalid conversion base | `ValueError` |
+| Integer division/modulo by zero | `ZeroDivisionError` |
+| Negative shift count | `ValueError` |
+| Integer-to-float conversion outside finite binary64 range | `OverflowError` |
+| `int(infinity)` | `OverflowError` |
+| `int(NaN)` | `ValueError` |
+| Malformed source integer literal | Frontend syntax diagnostic, not runtime `int()` failure |
+
+Two reasons require operation-aware handling:
+
+- **`:negative-exponent` is not inherently a guest error.** Python integer power with a negative exponent selects floating-point semantics; zero to a negative power raises `ZeroDivisionError`. Dispatch before calling the nonnegative integer-power kernel.
+- **`:out-of-range` is not universally `OverflowError`.** Invalid radix is `ValueError`; a checked conversion to a bounded destination can require `OverflowError`. Map by operation and reason.
+
+Likewise, an internal primitive arity mismatch generated by a correct prelude is an implementation defect, not a guest’s `TypeError`. Unknown refusal reasons and genuine host failures must not be indiscriminately converted into catchable guest errors.
+
+**Mechanism:** the current [integer module throws qualified `ex-info`](/Users/sto/workspace/datomworld/src/cljc/yin/vm/integer.cljc:83), which portable `py/try` cannot catch. Provide a versioned pure result-returning numeric interface that converts only recognized integer refusals into qualified data. The portable prelude unwraps success or constructs and raises the appropriate guest exception. Do not make evaluator dispatch Python-aware or pass guest exception callbacks into the host module.
+
+Wire every guest-reachable numeric path through it, including key normalization and hashing—not just arithmetic operators. Add `MemoryError` beneath `Exception` in the base exception hierarchy.
+
+Acceptance must catch each mapped failure in guest code, continue afterward, and verify `finally` behavior and unchanged dictionary state after failed key normalization. Host exception text must not determine the guest outcome. Real host exhaustion, cancellation, and unexpected defects remain operational failures, as §8.5.4 already specifies.
+
+**Remaining sequence, using the document’s S0–S7 numbering:**
+
+1. **S0 amendment:** freeze these three rulings, profile changes, key bytes, and refusal contracts.
+2. **S1 follow-up plus the exception portion of S4:** establish the pure refusal-result interface and prelude translation.
+3. **S5 follow-up:** land Q1 float identity and Q2 hexadecimal keys; cover existing hash/key failures.
+4. **S6 prerequisite checks:** confirm carrier tracing, pinning, and scalar boundaries before broader source exposure.
+5. **S2:** literal and boundary integration. This also needs a correction to the decimal-parse lowering rule: compiler-generated reconstruction of a hexadecimal literal must not accidentally impose the decimal digit limit. Use a canonical power-of-two reconstruction spelling while enforcing source-spelling limits separately.
+6. **S3:** exact operators and augmented forms, using the established exception bridge.
+7. **Remaining S4, then remaining S6:** conversions/comparisons and complete heap/portability coverage.
+8. **S7:** full C1/C3 integration and resource-limit matrix.
+
+The work previously orchestrated as “C3-S2” was the table’s **S5** scope; keep that distinction explicit in implementation assignments.
+
+Read-only assessment; no files changed or suites run.

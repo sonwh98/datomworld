@@ -1,0 +1,20 @@
+R1 is fixed, and its regression test fails on the old code and passes on the new. The `full` coverage for `cursor` and `next` is added. The requested checks are green; nothing is committed yet.
+
+**R1 (`ws_project.cljc`, `dial-step!`):** `remote/mirror-step` no longer runs inside `swap!`. It now runs once from `@mirror-cursor`, and `reset!` stores the cursor it returns. This is the same single-driver pattern `accept-step!` uses, and a comment says so.
+
+**Regression test:** `dial-mirror-effects-run-once-per-step` in `ws_project_test.cljc`.
+- The served writer, on its first `append!`, swaps the dial's mirror cursor for an equal but different map. Under the old `swap!` code this forces a retry on the JVM.
+- The test asserts the source append ran once and was answered once.
+- With `swap!` temporarily put back, it fails as expected: the append ran twice (`[:v :v]`) and was answered twice (`[1 1]`). With the fix it passes.
+- The interference fires only once on purpose. When it fired on every append, the old code retried forever and the run died without a report.
+- On CLJS and Dart `swap!` never retries, so there the test only checks the normal path.
+
+**Coverage (`remote_test.cljc`):** I added a block for `cursor` and `next` requests to the existing `full`-writer test. Each case puts a descriptor request first, and the writer accepts that answer and refuses the next one once with `full`. The test checks that the step stops at the cursor just before the refused request, not the starting cursor, and that the next call answers the same id.
+
+**Results**
+- `clojure -M:test -n dao.stream.remote-test -n dao.stream.ws-project-test`: 64 tests, 487 assertions, 0 failures, 0 errors.
+- `mise exec -- cljstyle check` on the four files: clean.
+- `clj -M:kondo`: 0 errors and 1 warning, the unused binding `peer2` at `remote_test.cljc:661`. That warning was there before; this round's tests went elsewhere in the file.
+- Still to run: `bb test:clj` and the full three-platform `bb test`.
+
+The report is at `collab/1791355239843-stream-s2a-reconcile.claude-opus-5-5.findings.md`.

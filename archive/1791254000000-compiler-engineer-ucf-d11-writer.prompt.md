@@ -1,7 +1,7 @@
 Created-GMT: 2026-10-07 06:15:00 GMT
 Created-Local: 2026-10-07 13:15:00 +0700
 Coding-Agent: assigned at dispatch
-Session-ID: pending (provider-generated)
+Session-ID: 2abd669b-64f2-4dfc-8ba7-de1511d2c8f7
 
 # Task: UCF M-next D11 — the fenced writer
 Role: Yang Compiler and Universal AST Engineer
@@ -10,7 +10,7 @@ Implementers:
 - Model: assigned at dispatch | Assigned: 2026-10-07 13:15:00 +0700 | Status: active | Rationale: the holder-side writer; D6's applies are its discharge path
 
 Implement D11 in /Users/sto/workspace/datomworld-d11 (worktree, branch
-ucf-d11-writer, based on master with D10 landed). Read first, in the
+ucf-d11-writer, based on master 441b2b4c with D10 landed). Read first, in the
 worktree's collab/: the D plan r3 (1791194000000-architect-m-next
 -d-plan-r3.claude-fable-5-1.findings.md — sections 1.3, 1.11 and the
 D11 test contract), the astra review's finding 4 (correlation vs

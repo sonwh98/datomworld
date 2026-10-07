@@ -1,7 +1,7 @@
 Created-GMT: 2026-10-05 09:31:00 GMT
 Created-Local: 2026-10-05 16:31:00 +0700
 Coding-Agent: claude (opus-5-5)
-Session-ID: pending (provider-generated)
+Session-ID: d3189d4f-e832-471d-b449-087994218a2d
 
 # Task: UCF M-next D2 — the front's :yin.k/renewal request
 Role: Yang Compiler and Universal AST Engineer
@@ -10,8 +10,8 @@ Implementers:
 - Model: claude-opus-5-5 | Assigned: 2026-10-05 16:31:00 +0700 | Status: active | Rationale: implementation role, continuity with the C/D slice engineers
 
 Implement D2 in /Users/sto/workspace/datomworld-d2 (worktree, branch
-ucf-d2-renewal, based on master 14d9f750). Read first: the D plan r2
-(collab/1791191725340-architect-m-next-d-plan-r2.claude-fable-5-1
+ucf-d2-renewal, based on master 14d9f750). Read first: the D plan r3 (canonical; r2 section numbers hold, residuals 1 to 4 folded)
+(collab/1791194000000-architect-m-next-d-plan-r3.claude-fable-5-1
 .findings.md — sections 1.5 and the D2 test contract), the plan review it
 folded (collab/1791191261015-architect-m-next-d-plan-review.gpt-6-astra
 .findings.md, finding 5), src/cljc/yin/vm/ucf/authority/front.cljc (the

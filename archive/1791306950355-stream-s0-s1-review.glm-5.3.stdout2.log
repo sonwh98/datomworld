@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Plan executed. The review is complete and delivered.
+
+## What was done
+
+**Verification runs** (source untouched):
+- Focused lane: `dao.stream.ws-project-test` — **21 tests / 76 assertions, 0 failures, 0 errors** (matches the implementer's claim)
+- Dependents lane (10 namespaces): **125 tests / 839 assertions, 0 failures, 0 errors** (matches)
+- **kondo still not run** — both `clojure -M:kondo` and `clj-kondo` were refused by this session's permission gate, the same refusal the implementer reported; my report independently confirms their claim and flags it back to the orchestrator
+
+**Findings report written** to `collab/1791306950355-stream-s0-s1-review.glm-5.3.findings.md` with per-line citations:
+
+**Verdict: CHANGES REQUESTED — narrowly.** No REJECT-level issue.
+- **A1 (code)**: `step!` 2-arity silently reads **unbounded** when given a specified-but-invalid budget (0/−1/2.5, `ws_project.cljc:106`) — contradicts §3.0's "at most `budget` events read" and the slice's own loud-failure idiom in `make-acceptor`
+- **A2 (architect decision)**: `accept-step!` never uses the budget (`ws_project.cljc:358`) though consensus D5 assigns S1 "fair scheduling" — waive explicitly or wire `:step-budget` now
+- **B1 (doc)**: `:idle-timeout-ms` alias with silent `-ms`-wins precedence is undocumented in §3.0
+- **Verified sound** (cited): rejection is a *live* slot bound (handle close → `:phase :closed` → same-tick slot release in `endpoint-step`), reap-then-reject ordering, idle reaping closing handle+ring with correct channel-loss semantics for links, error isolation with pure `swap!`s, ring close idempotency, 100% backward compatibility at both consumer call sites
+- **Notes recorded**: malformed-frame flood defers idle reaping forever; adoption-path throws not isolated (S2)
+
+**Working tree check**: the three reviewed files are byte-identical to the reviewed state (same diff stats); the only addition is the findings file, as the read-only review required. Memory updated with the arc status.

@@ -1,0 +1,81 @@
+Review complete. This session is fully read-only — `shell_command`, `edit_file`, and `write_file` are all permission-denied — so I could not run the JVM/Node/Dart tests, the four mutations, kondo, cljstyle, or write the report file. Here is my full assessment by reading, the patches that still need applying, and the report content.
+
+## State found (codex's uncommitted work, line-by-line reviewed)
+
+**src — all three design-named changes present and exactly per design §1.1/1.2:**
+- `src/cljc/yin/vm.cljc:992` — `machine-data?` gains `(integer-host/big-carrier? x)`; the ns already requires `integer-host` (line 32). Correct.
+- `src/cljc/yin/vm/ucf/handoff.cljc:140-144` — `scalar?` is `(and (number? x) (not (integer-host/big-carrier? x)))`, exactly the design's rule. Correct.
+- `handoff.cljc:320-331` — encoder `jing.cbor/numeric?` arm, version-1 carries as-is, version 0 refuses `:host-object` with a `#?(:cljd ...)`-first hint. `handoff.cljc:1434` — decoder `(jing.cbor/numeric? x) x` before the map arm. Correct.
+- `engine.cljc` — unchanged; `scalar?` (line 798) still holds its `big-carrier?` arm, so the orchestrator's revert of the leftover mutation is confirmed by content.
+
+**Tests — all of T1-T7 exist and reference only APIs I verified exist:**
+- T1 `collection-test`, T2 `pinning-test`, T3 `big-integer-images-test`, T5 `cell-refusal-test` in `int_heap_test.cljc`. The T3 harness is a faithful copy of `float_address_test`'s proven `kernels`/`define`/`b64` pattern; T2 matches the `a-ref-put-on-a-stream-stays-authentic-test` template (`stream/next` yields the put value — confirmed in `heap_reclamation_test.cljc:391`); bignums built via `py/int-lit` hex; `:gc-threshold` is a real create-vm option (vm.cljc:2101); `py/list`, `py/list-append`, `py/dict-new`, `py/tuple`, `py/conj`, `py/add`, `py/str`, `cell/get`, `integer/parse`, `engine/collect`, `module/image-identity`, `canon-ints`/`float-bits` (public, int_ops_test:120/139), `slow/guard`, `tu/make-stream`/`tu/secret` — all verified present.
+- T4 `scalar-round-trip-test`, T7 `version-zero-refuses-big-content-test` in `scalar_round_trip_test.cljc`; T4 lifts with `(ls/header 0)` (version 1) as the design requires, T7 with nil header.
+- T6 rows: `journal_test.cljc:351-363` (validate-portable + refuse-without-write for 2^64, -2^64-1, float64 carrier) and `stream_test.cljc:96-102` (wrap/unwrap vs S0 `cbor` column).
+- Portability traps: no `##NaN` (NaN as `(- inf inf)`), floats via `data/float-value`/`cbor/float64`, negation via `(* -1.0 z)`, maps start from `{}`, `:cljd`-first readers, no doseq >32 elements (40-item loop is guest-side), both new test files ASCII-only and ≤80 columns. The `5e-324` literal has precedent in existing `.cljc` tests.
+
+**Fixture** — `scalars-v1.txt` + `scalars-v1.mint.clj` (minting note committed beside it, per brief). I verified the hex internally: canonical jing key ordering (by encoded bytes), `kind "halted"`, version 1, contract v3, 35 result keys (31 int names + floats/strings/true/none = 70 entries, matches `0x46`), the `:yin.k/origin` map exactly `(ls/header 0)`'s origin (emitter peer-a, occurrence 1d3e5b7a..., lease-7), float64s 0000.../8000.../7ff8.../7ff0.../0000...0001/4340.../43e0.... Consistent — but never re-verified against a fresh JVM mint.
+
+**Docs** — ruling 4 paragraph (2055-2062) and ruling 12 paragraph (2301-2309) correctly edited, minimal, nothing else touched. **The S6 row (2351-2352) is broken**: "Cell lift and scalar fixes tested; T1/T6 rulings pending." leaks internal test names and is not marked landed.
+
+**Report** — missing. **Mutations** — none performed. **No test was ever run** on any host.
+
+## Edits still needed (blocked here; apply verbatim)
+
+1. `docs/design/yang.antlr.md` S6 row, replace line 2352's content (keep 68-char column):
+   `|        | cell-lift and raw-transport refusals, version-0 refusal. Landed.    |`
+2. `test/dao/stream/journal_test.cljc` — move `[yang.python.antlr.int-contract-fixtures :as f]` after `[dao.stream.journal :as journal]` (alphabetical require order).
+3. `test/dao/jing/stream_test.cljc` — move the same require after `[dao.stream.transit :as transit]`.
+
+## Report content for `collab/1791271000000-vm-engineer-python-c3-s6.findings.md`
+
+```markdown
+Completed-GMT: (fill at write time)
+
+# VM engineer: Python C3 S6 continuation (took over from codex, died at cap)
+
+## State found
+Uncommitted partial work, reviewed line by line; no prior report. All three
+design-named src edits present and exactly per design section 1: vm.cljc
+machine-data? big-carrier arm (line 992), handoff scalar? excluding big
+carriers (140-144), handoff encoder v1-gated numeric arm (320-331) and
+decoder numeric arm (1434). engine.cljc unchanged (orchestrator revert
+confirmed by content: engine scalar? keeps its big-carrier arm). Tests
+T1-T7 all present; fixture scalars-v1.txt minted (internally consistent:
+canonical key order, halted kind, ls/header 0 origin, 31 int names +
+floats/strings/true/none) with its mint script; ruling 4 and ruling 12
+paragraphs edited; S6 doc row broken; nothing was run and no mutation shown.
+
+## Checklist
+- T1 collection (guest, 4 VMs, gc-threshold 2): written, NOT RUN
+- T2 pinning (guest, 4 VMs): written, NOT RUN
+- T3 images (4 kernels): written, NOT RUN
+- T4 scalar round trip + golden bytes + S0 cbor column: written, NOT RUN;
+  fixture never verified against a fresh mint
+- T5 cell-lift refusal (:cell, never :host-object): written, NOT RUN
+- T6 raw transport rows (journal + dao.jing.stream): written, NOT RUN
+- T7 version-0 refusal (:non-portable :host-object): written, NOT RUN
+- src fixes: all three present, match design; nothing else under src
+- mutations (4): NONE PERFORMED
+- doc: ruling 4 and ruling 12 paragraphs done; S6 row needs the fix below
+- kondo / cljstyle / JVM / Node / Dart: NOT RUN
+
+## Blocked
+This continuation session ran with shell, edit and write tools all
+permission-denied (read-only): no test lane, no mutation cycle, no lint, no
+git diff. Verification and the four mutations (engine scalar? big-carrier
+drop; decoder numeric arm removal; machine-data? arm removal; one corrupted
+fixture byte) remain to be run by a session with execution rights, after
+applying three pending edits: the S6 doc row ("cell-lift and raw-transport
+refusals, version-0 refusal. Landed.") and require-order fixes in
+journal_test.cljc and stream_test.cljc (int-contract-fixtures last,
+alphabetical).
+
+## Deviations / open questions
+- scalars-v1.txt trusted from codex's JVM mint; the gate must re-run T4 on
+  the JVM before believing address and bytes.
+- 5e-324 appears as a direct double literal in scalar_round_trip_test;
+  precedent exists in float_address_test, judged acceptable.
+```
+
+Bottom line: the partial work is usable and nearly complete by inspection — src fixes and all seven tests are in place and API-correct — but nothing is verified. What remains is mechanical: apply the 3 small edits, run `clojure -M:test -n yang.python.antlr.int-heap-test` (plus the other three namespaces), the Node and Dart lanes, the four mutation cycles with `git diff -- src` confirmation after each revert, kondo/cljstyle, and write the report. I could do none of that here because every executing and writing tool is permission-denied in this session.

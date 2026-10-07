@@ -1,0 +1,16 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+r2 plan executed. The sign-off is delivered.
+
+## Summary
+
+**Verdict: ACCEPT — S0 + S1 signed off** (`collab/1791307753592-stream-s0-s1-review-r2.glm-5.3.findings.md`).
+
+**A1 ✓ fixed** — `step!` 2-arity now throws `ex-info` with `{:budget budget}` at entry for any non-nil non-positive-integer (`ws_project.cljc:105-108`); the simplified loop guard (`bounded? (some? budget)`) is safe under that check, and I re-verified all four read outcomes behave as in r1. The new test covers exactly 0/−1/1.5, asserts the ex-data, and proves a rejected budget reads nothing — stronger than asked.
+
+**B1 ✓ fixed** — §3.0 and the `make-acceptor` docstring both document the milliseconds unit and "`:idle-timeout-ms` takes precedence when both are given"; §3.0's new phrasing also pins the inclusive `>=` boundary the implementation uses.
+
+**Scope check** — diff delta vs r1 is +2/+5/+14 lines, exactly the two fixes; `accept-step!` untouched, so A2 correctly remains the open architect decision (noted in the sign-off).
+
+**Verification** — I independently re-ran the focused lane: **22 tests / 80 assertions, 0 failures, 0 errors**, matching the orchestrator's claim (21/76 + 1 test/4 assertions). Kondo and cljstyle were again permission-gated in this session (all three invocations refused) — the report says plainly that those two results remain the orchestrator's attestation, with the static checks I could do being consistent. One non-blocking nit recorded: the edited docstring paragraph overruns the repo's manual ~62-char wrap convention (no cljstyle rule covers it).
+
+Working tree confirmed untouched apart from the new findings file; memory updated to reflect the sign-off with A2 still open.

@@ -1,0 +1,19 @@
+Completed-GMT: 2026-10-06 16:46:54 GMT
+Completed-Local: 2026-10-06 23:46:54 +07 (+0700)
+
+**D10b stopped at investigation and nothing is implemented.** Rule 5 of the brief says to stop and report if the work needs a change to the handoff body's wire grammar, and it does. I changed no source or test files and ran no tests, so there are no red or green results. The conclusion comes from reading the code only. The only file added is `collab/1791304928887-compiler-engineer-ucf-d10b-kernel-lift-lower.findings.md`.
+
+Why the wire grammar has to change:
+- **No place to declare the profile.** Contract part 4 needs the body to declare its kernel/profile. The body's only candidate is `:yin.k/contract`, which is the semantic-only stamp the brief forbids touching. `:yin.k/requires` has no profile entry, so a declaration means a new field.
+- **Code form is semantic-only.** `validate-body` checks every code entry with `ucf/code-address` and `code/well-formed-vector?`. The stack kernel's code hashes with `dcode/image-hash`, the register kernel's is a `{:bodies :instructions}` map hashed with `rcode/register-hash`, and the walker holds semantic-bytecode rows with no pc. "Each kernel's own hash is the address" therefore needs a per-profile code form in the body.
+- **Register shape is fixed.** `validate-registers` and the encode/decode pair fix `segment`, `pc`, `env`, `stack` and `k`. The stack kernel's entry is `{segment pc frames stack continuation format hash image}` and the register kernel's adds `registers` and `bodies`. The walker's is `{env k}` over AST-node frames. Carrying these "as they stand" needs per-kernel register shapes in the wire.
+- **No safepoint table for the other kernels.** `check-frame-pc` and `safepoint-kinds-at` depend on `ucf/safepoint-at`. Stack and register images have no equivalent, and the walker has no pc.
+
+Unresolved concerns, all listed in the findings file:
+- Where the declaration lives, and whether additive version-1 keys are enough or a new version or stamp is needed.
+- Whether the walker should be liftable at all.
+- Whether the work also needs `ucf.cljc`, `checkpoint.cljc` or `code.cljc`, which are outside the permitted diff.
+
+Incomplete work: everything in the five-part contract. kondo and cljstyle were not run because no code changed, and I did not rebase onto D13/D14 for the same reason.
+
+The findings file ends with four questions for the Architect ruling.

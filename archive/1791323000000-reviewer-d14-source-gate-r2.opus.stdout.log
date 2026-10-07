@@ -1,0 +1,87 @@
+Completed-GMT: 2026-10-07 06:17:38 GMT Completed-Local: 2026-10-07 13:17:38 +07
+
+# Gate review, round 2: M-next D14 (source/exit half)
+
+**Verdict: READY**
+
+All four blocking findings from round 1 are closed in the code, and each one has a test that checks the behavior I asked for. I found no regressions that block landing. The only open items are low-severity and listed below.
+
+This review is read-only. I edited no files except the required plan file and ran no suites; the three-lane green result is the orchestrator's, as relayed to me. The engineer worked from the dispatch's six-item summary because they could not read my log. I checked their mapping against my exact round-1 text, and it is complete.
+
+## Blocking findings from round 1
+
+**1. A non-admitted report answer no longer wedges the exit. CLOSED.**
+- In `step-exit-body` (`driver.cljc:1268-1274`), a `:suspended` answer goes back to `exit-report-step`. That function rebuilds `[:exit :report]` without the old answer and resends the request with the same `[:yin.k/resumed o1 l address]` id.
+- Every other non-admitted answer goes to `end-run`. That covers the authority's `:ended-lease`, `:quarantined`, `:report-conflict` and `:counter-regression` refusals, and `:closed`. `end-run` writes one diagnostic, enters `releasing`, ends the machine, stops the holder and sends the cleanup release. `step-releasing` then answers `:failed`.
+- While suspended, `step-active-held` keeps checking tenure and renewing. A suspension that outlasts the bound therefore ends at `:lease-bound` rather than hanging.
+- Tests:
+  - `suspended-report-retries-the-identical-request-test` (`driver_test.cljc:3026`): two identical report requests, no release, no diagnostic.
+  - `refused-report-ends-the-run-and-releases-test` (`:3037`): covers all five shapes and checks the ended gate, one report, one diagnostic, the release being sent, the occurrence staying unclosed, and `:failed`.
+
+**2. Abort is now journaled as a durable terminal record. CLOSED.**
+- `abort*` appends `{:yin.k/journal :yin.k/aborted :yin.k/occurrence O}` (`driver.cljc:2584-2585`) before it puts the machine back in the state. `progress-record?` accepts the record and `fold-journal` collects it under `:aborted`.
+- If that append is uncertain, the abort fails closed: `public-progress` stalls with the export still fenced (`abort-uncertain-journal-record-never-hands-back-execution-test`, both cut points).
+- `reopen` handles both roles:
+  - An aborted `:first` source reopens as `:aborted` with no machine and no offer (`driver.cljc:2425-2428`; test at `:3053`).
+  - An aborted successor is excluded from `reopen-exit` (`:2436`) and goes to `reopen-holder`. That sends the release and re-proposes, and the aborted successor is never offered again (test at `:3071`).
+
+**3. A minted-but-unfenced exit now releases and re-enters candidacy. CLOSED.**
+- The stall branch (`driver.cljc:2430-2434`) now fires only when the role is `:first` or there is no grant.
+- A holder's unfenced successor or result therefore falls through to `reopen-holder`. That gives `:releasing`, no machine, the cleanup release, and then `:proposing` over the original occurrence and address.
+- `incomplete-holder-exit-releases-and-reenters-candidacy-test` (`:3110`, both roles) drives the run all the way to `:proposing` and checks that the release was sent, which the old row did not do.
+- A `:first` source still stays non-runnable (`incomplete-preparation-recovery-stays-non-runnable-test`).
+
+**4. Abort tenure now uses `lease/holding?`, the max cap and the latches. CLOSED.**
+- The pre-check's `:live` value is now `lease/holding?` together with the ledger lease and epoch match. `:bound` takes the smaller of the duration bound and `granted-at + :dao.lease/max` (`driver.cljc:2561-2580`).
+- After the record is durable, `abort*` checks `holding?` again with a fresh clock reading (`:2587`). If tenure ran out during the append, the run ends instead of handing the machine back: one diagnostic, the machine ended, the holder stopped, and a release seeded for the next step.
+- The release is deferred to the next step so that the terminal record is the last thing the abort call writes to the journal. That is coherent.
+- Tests:
+  - `holder-abort-respects-cap-latches-and-stopped-state-test` (`:3129`): the cap, `:bound-reached?`, `:undersized?` and `:released?` each refuse the abort with the machine still fenced.
+  - `abort-rechecks-tenure-after-its-durable-terminal-record-test` (`:3189`): drives the run on to `:failed` with exactly one diagnostic.
+
+## Non-blocking checks
+
+**5. Finding 7 (v1 bytes) is handled by a doc statement plus a demonstration, not a true before/after pin.**
+- The UCF doc now calls the version-1 module-store fixed point a correctness repair. Canonical ordering's scratch census never filled the emitted dependency table, so affected bodies now get different addresses. It is not a new version or format, and version-0 bytes are unchanged.
+- `module-store-dependencies-are-censused-to-a-fixed-point-test` pins both addresses and checks that version-0 bytes survive freeze and rehydrate.
+- However, the "old one-pass body" in that test is built by removing the store from the corrected body (`update … dissoc other-id`). It is not produced by the old code, so the doc's phrase "pins the old one-pass body" overstates what the test proves.
+- That is acceptable as evidence. But it still departs from the ruling's sentence "versions 0/1 and their bytes remain unchanged". Before landing, the orchestrator should get an architect's acknowledgment (one line is enough) that this is a correction.
+
+**6. Finding 9 (closure inside waits) is closed.**
+- `closure-in-blocked-environment-survives-fenced-recovery-test` (`export_test.cljc`) binds `f` to a lambda, blocks on a stream read, then applies `f`. That puts a real closure in the blocked wait's environment.
+- The test shows the closure survives freeze and rehydration into a fresh receiver. It comes back owned by the receiver, not the source, with zero IO, no waits in the scheduler, and the same bytes.
+
+**7. Round-1 findings 5 and 8 are closed.**
+- Finding 5: a restarted exit keeps its cell until the ledger shows the lease's cause (`driver.cljc:1311-1312`; test at `:3155`).
+- Finding 8: the first proposal now journals one intent and one attempt (test at `:3146`). Storing is now short-circuited, recovery object first, so a refusal stops before the body is stored (`driver.cljc:885-886`; test at `:3175`).
+
+## New findings (all low; none block landing)
+
+**8. (Low/Plausible) A later non-admitted report reply can overwrite an admitted answer.**
+- `control-reply` (`driver.cljc:1685-1690`) stores whatever report answer arrives last.
+- Any step with no answer yet resends the report, so two sends can be in flight. If one is answered `:committed` and the next is then answered `:suspended`, the stored answer goes back to `:suspended`.
+- The authority deduplicates before its refusals (`completion.cljc` `report-decision` returns `:replayed` first), so only `:suspended` or `:closed` can produce this. In practice that means the authority was poisoned or closed right after the commit.
+- With `:suspended`, the driver resends until it either gets `:replayed` or crosses the bound. In the second case it ends a run whose report is already committed, and the successor's offer is never driven to admission.
+- The live state also no longer matches the journaled acknowledgment.
+- Fix: once an answer is admitted, keep it and ignore later non-admitted replies, in `control-reply` and the same way in `ack-offer`.
+
+**9. (Low) Lint was not run on the final text.**
+- The engineer could not run kondo or cljstyle on this round's changes (`findings.md:182-194`).
+- If the three-lane run did not include lint, run `clojure -M:kondo --lint` and cljstyle on the five changed files before committing.
+
+**10. (Low, carried over) Round-1 item 6 is still open.**
+- `journal-records` still checks the in-memory log backend's own cursor keys (`driver.cljc:451-458`).
+- Unreadable or malformed journal history still throws an exception carrying a misleading `:assembly` hint, rather than returning a refusal as data.
+- It was not addressed, and it was non-blocking in round 1.
+
+**11. (Note) The report is resent on every step until a reply arrives.**
+- Each resend journals another intent and attempt (`step-exit-body:1268`), so a slow front makes the journal grow without bound.
+- This matches the offer and release retries, so it is consistent with the design and not a regression. A future compaction or backoff seam may want to cover it.
+
+## Regression hunt
+
+I traced every `reopen` branch against all journal shapes from the fold. That covers aborted first and successor exports, an aborted successor followed by a newer mint, unfenced successor and result exits, a grant newer than an exit, a source that became its own holder, and an uncertain abort cut. Every branch lands where the ruling says it should.
+
+The D13 candidate path, the `step-active-held` tenure ordering, the settled-exit read of the ledger, and the stall checks on `step`, `hand-off`, `abort` and `enroll` are unchanged in behavior.
+
+Readiness depends on getting the architect acknowledgment in item 5 and running lint if the lanes did not include it (item 9).

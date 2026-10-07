@@ -1,0 +1,17 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+The plan is ready. As before, `ExitPlanMode` isn't available in this session's toolset, so I present it directly.
+
+## Plan summary — gate confirmation pass (DENIED → GRANTED)
+
+**Task**: Complete `collab/1791309256038-architect-stream-s0-s1-confirm.glm-5.3.prompt.md` — the read-only delta-only confirmation of my own §5 conversion criteria after the orchestrator landed the A2 `:step-budget` wiring.
+
+**Static verification (done firsthand this session) — all three criteria hold:**
+
+1. **§2 scope landed exactly** — `:step-budget` destructured, validated in the existing `when-not` (`ws_project.cljc:193-220`), stored and docstring-documented; call site is `(step! (:project session) (:step-budget @acceptor))` at `:368` (nil = unbounded = prior behavior); §3.0 gained the one sentence naming the acceptor key (`dao.stream.remote.md:404-406`); the flood test `a-flooded-session-cannot-starve-its-peers` genuinely discriminates (att-1 admitted/stepped first, 5 flooded events, budget 2 → exactly `[:a :b]` **and** the peer answered same tick, `[:a :b :c :d]` next tick proving cursor continuation); invalid rows 0/1.5/−1 added. One disclosed bonus: the overlong docstring line rewrapped (closes r2's nit).
+2. **Suites green** — orchestrator attests 23/87 focused, 127/850 dependents, kondo 0/0, cljstyle clean; the arithmetic is airtight (+2 tests/+11 assertions = the already-reviewed A1 test + the flood test — nothing else). I'll re-run both suites myself at execution.
+3. **Delta-only** — diff +2 design / +7 source / +30 test vs my estimate +2/+5/+25; all hunks confined to the five A2 areas + the rewrap; consumers, `dial-step!`, `mirror-step` untouched.
+
+**Ruling to record: SIGN-OFF: GRANTED**, with the standing reminders that CLJS/CLJD lanes and the three-lane run remain conditions of commit (not conversion), and the S2/S3a tracking items stand.
+
+**Execution after approval**: re-run both suites → write `collab/1791309256038-architect-stream-s0-s1-confirm.glm-5.3.findings.md` (criterion-by-criterion with cites, firsthand runs, house `Verdict:`/`Sign-off:` lines) → update memory. No code or design files touched.

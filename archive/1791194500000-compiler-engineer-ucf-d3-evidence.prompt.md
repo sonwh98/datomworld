@@ -1,7 +1,7 @@
 Created-GMT: 2026-10-05 09:40:00 GMT
 Created-Local: 2026-10-05 16:40:00 +0700
 Coding-Agent: claude (opus-5-5)
-Session-ID: pending (provider-generated)
+Session-ID: 1b3d42aa-0455-4f56-aa16-f3471a0b9efe
 
 # Task: UCF M-next D3 — the authenticated ledger reader (holder evidence)
 Role: Yang Compiler and Universal AST Engineer
@@ -10,8 +10,8 @@ Implementers:
 - Model: claude-opus-5-5 | Assigned: 2026-10-05 16:40:00 +0700 | Status: active | Rationale: implementation role, continuity with the C/D slice engineers
 
 Implement D3 in /Users/sto/workspace/datomworld-d3 (worktree, branch
-ucf-d3-evidence, based on master 14d9f750). Read first: the D plan r2
-(collab/1791191725340-architect-m-next-d-plan-r2.claude-fable-5-1
+ucf-d3-evidence, based on master 14d9f750). Read first: the D plan r3 (canonical; r2 section numbers hold, residuals 1 to 4 folded)
+(collab/1791194000000-architect-m-next-d-plan-r3.claude-fable-5-1
 .findings.md — section 1.5 and the D3 test contract) and the review it
 folded (collab/1791191261015-architect-m-next-d-plan-review
 .gpt-6-astra.findings.md, finding 5); then src/cljc/yin/vm/ucf/ledger.cljc

@@ -1,0 +1,6 @@
+Created-GMT: 2026-10-06 16:37:06 GMT
+Role: Lead System Architect
+# Task: Final two reconciliation details
+Read-only, no tools needed except Read if helpful. Reply <=350 words, do not claim all-party agreement.
+Astra accepts S3a/S3b splitting and per-host bounds gate. For this requested complete milestone, S4 sign-off waits for both S3a and S3b; interim board tests/commits may proceed on loopback independently. This avoids claiming the Owner invariant while yin.repl still depends on ws. Can you accept this sequence as the joint recommendation, even if earlier board exposure would be technically feasible? Numeric limits are finite composition profile choices to validate, not owner decisions or architecture blockers.
+One correction: expiry only when drain reaches blocked may NEVER happen under continuous irrelevant traffic, even with budgets. Correlated per-request deadline must not be extended by unrelated traffic or successive budget exhaustion. Service a bounded snapshot of already-queued responses / allow bounded local scheduling grace; then expire or signal overload using existing stream failure semantics. Never require an unbounded drain-to-blocked to enforce timeout. No new protocol operations; closure/abort terminal bookkeeping completes even if callback never arrives. Agree?

@@ -1,0 +1,26 @@
+S2a is implemented in the `datomworld-stream-s2` worktree, and the requested JVM tests pass. Nothing is committed yet, and the Node and Dart lanes haven't been run.
+
+**`remote.cljc`**
+- `mirror-step` has the new 6-arity taking `bounds`, and the 4- and 5-arities call it with `bounds nil`. Bad bounds throw `ex-info "invalid DaoStream remote mirror bounds" {:bounds bounds}`.
+- **Mirror budget:** each value read counts one, whether it's a valid request or junk, and so does each gap. `blocked` and `end` cost nothing. When the budget runs out, the step returns the cursor to continue from next call.
+- **Chase budget:** `answer!` caps a peer's requested chase at `(min k chase-max)`. A request without a budget still never chases.
+- **Writer `full`:** the answer functions now return the writer's outcome.
+  - On a descriptor, cursor, next or named descriptor answer, `full` stops the step at the cursor before that request, so it is answered again next tick.
+  - On an `append!` answer, `full` is dropped and the append is not re-run.
+
+**`ws_project.cljc`**
+- `make-acceptor` checks and stores `:mirror-budget` and `:chase-budget`, and `accept-step!` passes them to the mirror.
+- `dial` checks and stores `:step-budget`, `:mirror-budget` and `:chase-budget`. `dial-step!` uses them for its projection step and its mirror.
+
+**Docs:** §2.3 of `dao.stream.remote.md` now covers the new arity, the bounds and the `full` rule; §3.0 lists the new keys.
+
+**Tests:** I added the five `remote_test` tests and two `ws_project_test` tests the spec names. The invalid-bounds test now also covers the new keys, for both the acceptor and `dial`.
+
+**Results**
+- `clojure -M:test -n dao.stream.remote-test -n dao.stream.ws-project-test`: 63 tests, 479 assertions, 0 failures, 0 errors.
+- Kondo (`clj -M:kondo`; the `clojure -M:kondo` form was blocked by the permission prompt): 0 errors and 1 warning, an unused binding `peer2` at `remote_test.cljc:661`. That warning was already there; I only added code at the end of that file.
+- Still to run before committing: `bb test:clj` and the full three-platform `bb test`.
+
+**Left out on purpose:** the spec's §1.2 also adds four link settings to `dial`'s policy and a new `(dial-step! dial now)`. Both depend on the link work in S2b and S2c and weren't in the S2a brief.
+
+The report is at `collab/1791354690596-stream-s2a.claude-opus-5-5.findings.md`.

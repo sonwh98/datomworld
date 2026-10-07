@@ -1,0 +1,165 @@
+Completed-GMT: 2026-10-06 16:49:42 GMT
+Completed-Local: 2026-10-06 23:49:42 +07
+Coding-Agent: claude (opus-5-5, gate review)
+
+# Gate review: M-next D13, the driver's candidate half
+
+**Verdict: NOT READY.** The overall shape is right. There is one plain-data step state, the three remote paths are composition-supplied, the variant is checked against the fold's admitted set before lower, tenure is refolded every active step, and the release is cleanup only and gets retried. Three changes are required before landing:
+
+- **(F1)** Accept only grants that answer a proposal this driver sent.
+- **(F2)** Stop running `checkpoint/inspect` ahead of the D7 pipeline, because it reverses the 7.2.1 refusal order.
+- **(F3)** Stop the stale-grant branch from minting and sending a new proposal on every step.
+
+**(F4)** should also land in this slice: the driver's admit-routing code has no test, and I don't think that gap needs to wait for D14.
+
+Scope: I read the engineer's report, the r3 plan (sections 1.4 to 1.7, 1.10, 1.11 and the D13 contract), the D10 lower-inputs ruling, the two new files, and the relevant parts of `dao.lease`, `holder/evidence`, `ledger` and `handoff`. Read-only: no edits, no suites run. The worktree is on `ucf-d13-candidate` at b38786c8, which contains 4c4764f7. The only uncommitted non-collab files are the two new ones.
+
+## Required
+
+**F1. The driver accepts grants it never proposed for.** `src/cljc/yin/vm/ucf/holder/driver.cljc:326-340, 551-558, 669-670`
+
+- **What happens:** `grants-to` keeps every `:accepted` fact naming `me` on the occurrence, and `step-proposing` accepts `(peek grants)`. Nothing checks the grant's `:dao.lease/proposal` against an id this driver minted.
+  - `lease/initial-holder` is built without the `:subject` and `:proposal` expectations. `dao.lease` provides those for exactly this case (`dao/lease.cljc:1583-1589`: "a holder that proposed … will not keep-first an unsolicited or stale grant").
+  - It even accepts on the very first `:proposing` step, before any proposal has been sent.
+- **Concrete failure:** a holder process crashes while its lease is still live, and the composition restarts a fresh driver for the same identity.
+  - The new driver finds the pre-crash grant, refolds, sees it is still the occurrence's live lease, and lowers and runs.
+  - `observe-grant` seeds the basis at the restart reading (`dao/lease.cljc:1788`). The holder's bound is therefore up to one full duration later than the judge's window (renewal at t0, restart near t0+D, believed bound near t0+2D).
+  - That removes the H3 guarantee that a holder stops before the judge's window closes. From then on, the only thing stopping this holder is the per-step ledger refold, which is a race against the judge's lapse record and the reader's lag. The regranted holder can start while this one still does at-least-once IO.
+  - This also contradicts r3 1.10 and D14's row "a restarted holder with a journaled grant does not run; it releases and re-proposes". D13's acceptance rule should not need D14 to undo it.
+- **Required change:**
+  - Keep the set of proposal ids this driver has sent, and accept only a grant whose `:dao.lease/proposal` is in that set.
+  - Pass `:subject` and `:proposal` into `initial-holder`.
+  - Treat any other grant to `me` as foreign. Whether to release it can wait for D14's ruling; at minimum, never activate on it.
+- **Test impact:** every test that uses `grant-direct!` with a pid the driver never minted ("p-x", "p-a", "p-b"; test lines 657, 881, 953 and others) must drive real proposals through the judge or use the driver's own pid. That is better evidence anyway (see F5).
+
+**F2. The candidate runs `checkpoint/inspect` before the D7 reader, so the refusal order is wrong.** `driver.cljc:894-904`
+
+- `step-validating` calls `checkpoint/inspect` first, and inspect checks the address first (`checkpoint.cljc:406-412`). Only after that does it call `handoff/resume-task`, whose D7 pipeline runs decode, the tag, the version gate and only then the address (`handoff.cljc:1821-1826`).
+- r3 1.7 says the resumer's order is the normative one for 7.2.1, and D7's contract pins "unsupported version wins over a wrong address".
+- Consequences in the driver:
+  - Bytes with version 2 under a wrong address answer `:yin.k/hash-mismatch` instead of `:yin.k/profile-mismatch`.
+  - Stream-codec version-0 bytes fail inside inspect's Jing decode and answer `:undecodable` instead of D7's answer.
+- **Fix:** call `resume-task` first. Then call `inspect` only on bytes D7 has accepted, purely to pull out the occurrence and arbitration. Alternatively, have the awaiting-grant answer carry them.
+- Add a driver test for "wrong address plus unsupported version" that expects `:yin.k/profile-mismatch`. The existing junk-bytes test (test line 969) uses a correct address, so it cannot tell the two orders apart.
+
+**F3. A stale, unheld grant to `me` causes a new proposal on every step.** `driver.cljc:583-586`
+
+- **Mechanism:**
+  - When the newest grant to `me` is stale and the occurrence is unheld, `accept` calls `(propose (assoc state :proposal nil) projection)`.
+  - Clearing `:proposal` forces a mint, and `propose` sends it.
+  - On the next step `grants-to` returns the same stale grant, so the branch repeats: one new proposal id and one new append per step until something regrants.
+- This bypasses `propose`'s own "resend unchanged while uncarried, mint only after a refusal" rule (lines 475-478), which is the 7.7.8 discipline the report describes.
+- **Fix:** call `(propose state projection)` without clearing the proposal. Mint fresh only when the outstanding proposal is the one the stale grant answered. That check is easy once F1 tracks proposal ids.
+- Add a test: lapse the driver's own grant, step N times, and assert exactly one new proposal.
+
+**F4. The driver's admit routing has no test, and the D14 deferral is broader than it needs to be.** `driver.cljc:750-754`
+
+- The report is right that an enrolled write retained in a body is a successor and gets orphan-refused until D14.
+- A first-export body whose program issues an enrolled `:put` after activation carries no operation id, so it should not have that problem.
+  - Enrollment is available in this world: `authority/enroll!` is used by `writer_test.cljc:143` and line 263.
+  - So a test can lower a machine parked on a read of `prog-r`, feed it, and let it write to the enrolled target.
+- **What is untested:** the driver code that is new in D13:
+  - the `:yin.k/admit` and projected-`:yin.k/admission` dispatch in `drain`;
+  - the hand-off to `writer/discharge`;
+  - the machine continuing after discharge.
+- The at-least-once test (test line 905) asserts that no admit request occurs at all. `reader/settle` routing is covered by the regrant test, and the writer arm should get the same.
+- **Required:** one test of an enrolled write after activation through the driver, discharged by reply, plus one case discharged by a projected outcome.
+- If there is a reason a fresh enrolled put under a first-offer occurrence also needs a predecessor, the report should state it with the authority line that refuses it. Then the deferral stands as scoped.
+
+## Should fix (in this slice or recorded for D14)
+
+**F5. The residual-2 regrant rows bypass "a candidate that proposes".** Test lines 689-704, 785-793 and 846-854.
+
+- Each regrant is written straight into the ledger with `grant-direct!` and a foreign pid. In the post-grant-failure test the lease is also force-lapsed with `lapse-direct!` when the judge still holds it.
+- The D13 contract row is "the occurrence is granted again to a candidate that proposes". As written, the tests would pass even if the judge refused to regrant.
+- The renewal test does show the judge lapsing the released lease (line 850), which is good. Its follow-up should then let holder-b propose and the judge grant it. With F1 in place, that is forced anyway.
+
+**F6. If the ledger stays unreadable, the run never ends at the lease bound.** `driver.cljc:828-831`
+
+- An unreadable ledger answers `:yin.k/unsatisfied` before the clock is read.
+- No IO runs, so the "IO stops" half holds. But the run is never ended: the machine keeps gate `:running`, no diagnostic is appended and no release is sent, for as long as the ledger stays unreadable.
+- The bound check needs no ledger. Read the clock first, and if `holding?` is false, `end-run :lease-bound` regardless of what the ledger says.
+- Related, and fine as long as it's documented: one transient ledger error on a due step also skips that step's renewal.
+
+**F7. The current-tenure recheck compares the lease only, not the epoch.** `driver.cljc:834`
+
+- The D10 ruling and the report both describe the check as "the fold's live lease at the binding's epoch", but `step-active` compares only `l`.
+- `accept` does compare the epoch (line 550). Make the two consistent, or say in a comment that lease ids are never reused across epochs.
+
+**F8. The "fold defect" test does not reach a real fold defect.** Test line 721.
+
+- `(assoc rs 1 [arb {}])` gives a record with no `:t`. `history-defect` (line 295) reports that as `:fold-defect` before `ledger/fold-record` is ever called.
+- The path where `t` is dense and the content is defective (lines 542-546, then 574) is never exercised.
+- There is a real tension here. Some content defects are also invalid bindings: the report itself says a duplicated binding "defects every successor's evidence fold". The driver resolves that overlap toward a release. The report's claim "never a release" for unavailable history is therefore only true for defects detected by the t-check.
+- Add a case where `t` is dense but the content is defective and is not a binding. Assert unsatisfied with no release, and state the overlap rule in the docstring.
+
+**F9. The step state is not plain data.** `driver.cljc:185` and line 184, plus the holder at line 551.
+
+- `:seams` stores the composition's functions in the state.
+- `:receiver` is a live machine.
+- `:holder` contains `dao.lease`'s `:resolver` function, which the driver fabricates as `(fn [_ _] arb)`.
+- The authority boundary is still respected, because every remote touch goes through the seams. But the contract says "one explicit plain-data step state".
+- Prefer `(step env state)` with the seams in `env`, and keep only data in `state`. The fabricated resolver is defensible, since `grants-to` already filtered by the composition's attribution, but it deserves a comment.
+
+**F10. The driver duplicates D3's private history and fold logic.** `driver.cljc:275-312`, against `holder/evidence.cljc:36-72`.
+
+- `transport-error?`, `history-defect` and `fold` restate `evidence/defect` and `evidence/fold`.
+- Two copies of the complete-history-or-nothing rule can drift apart. Make D3's helpers public and call them.
+- `machines` and `ended` are a third copy of the walker that already exists in the writer and the reader. That pattern predates D13, but this would be the moment to collapse it.
+
+## Notes and assessments
+
+**N1. Contract rows, end to end**
+- **Row 1 (two candidates over two encodings):** covered, with one holder per encoding. Awaiting-grant, then not-holder naming the winner, nothing released, no further proposals while held.
+- **Row 2 (invalid bindings):** all four cases are covered. Each answers not-holder plus the release `[:yin.k/release "lease-1"]` with no machine. The extra "another author's" case also goes through `:no-binding`.
+- **Row 3 (unavailable history):** all four D3 modes; non-terminal `:proposing`, no machine, no release. See F8 for the gap in the fold-defect case.
+- **Row 4 (post-grant failure):** release, then a retained retry on a full inbound with an identical request id. Covered, apart from F5.
+- **Row 5 (renewal and bound):** renewal at elapsed 10 of 30, the basis advances to the pre-append reading, and exactly one value plus one diagnostic at the bound.
+  - Line 826, `(is (< 10 15))`, compares two literals and tests nothing. Replace it with a step at, say, elapsed 5 that asserts no renewal was sent.
+  - The bound assertion counts only inbound requests. Also assert that `@(:observations d)` did not change and that the program stream did not move during and after the bound step.
+- **Row 6 (source resumes only after its own grant):** covered, but via `grant-direct!` (F1 and F5).
+
+**N2. Admitted-variant proof.** Correct, and placed correctly.
+- Line 577 checks the address against `(:yin.k/variants entry)` from the driver's own fold of the attributed records. The order is binding, then evidence, then variant, then the stale checks, then holding, then lower.
+- The test at line 1000 proves the admitted set came from the ledger and not from comparing two supplied addresses.
+
+**N3. Tenure recheck.**
+- It runs before any execution or IO on every `:running` and `:safepoint` step.
+- It goes through a fresh ledger fold, not the stored `:ready` answer, and it calls `lease/holding?` on a new clock reading.
+- Order: ledger, liveness, clock and bound, then renewal, then the program cycle. That matches the D10 obligation, subject to F6 and F7.
+
+**N4. Release semantics.**
+- Cleanup only: the driver never sends completion evidence, never touches a quarantine, and becomes terminal `:failed` after the release, so it proposes nothing for recovery.
+- A pending release is retried verbatim (lines 880-887), and `lease/stop` is used correctly (line 432).
+- Two loose ends:
+  - `:release :carried` is set only by `control-reply`, which never runs in `:releasing`, so the `(true? (:carried release))` test at line 876 is dead.
+  - `:proposal :carried` is set at line 636 but never read.
+- `:stale` also releases a lease the fold already shows as gone. That is harmless, but r3 1.6 says to release only "if the lease may still be live".
+
+**N5. One `vm/run` per step.** I accept this as a scheduling choice.
+- A tenure check before every execution slice is the conservative granularity, and it matches D12's "the driver steps the machine and calls again".
+- The real cost is elsewhere: every step refolds the whole ledger from the origin. Replaying a prefix of N inputs therefore costs O(N × history). r3's risk 3 budgeted O(history) per grant, not per step.
+- `ledger/fold-record` is incremental, so the state could carry the projection and the last `t`. That's not blocking on the memory substrate, but D15 should record it.
+
+**N6. The engineer's stated limits.**
+- **Enrolled writer arm deferred to D14:** too broad; see F4.
+- **Judge release-lapse only exercised where the judge granted:** that is accurate, and it's a symptom of the `grant-direct!` setup (F5).
+- **"Two clock readings per accepting step":** the report is wrong here, in the code's favour. `accept` reads the clock once (line 557) and uses that reading for both `observe-grant` and the lower's `:now` (line 605). `step-active` also reads it once (line 841). The report should be corrected.
+- **`:safepoint` and the exit half belonging to D14:** correctly scoped.
+
+**N7. Portability and style.**
+- `record-facts` (line 321) uses `for` over `(distinct (map first datoms))`. On ClojureDart, `for` over a chunked seq longer than 32 can hand the body a nil and crash, Dart only. A transaction with more than 32 entities would hit it. Use `mapv` or `keep`.
+- `lower`'s `base` takes the first entry of a single-entry reading map; that is fine on all three hosts.
+- The tenure `:bound` passed to D10 ignores a `:dao.lease/max` cap. D10's `n < b` check is looser than `holding?`, which does apply the cap. Harmless, but worth a comment.
+- No kondo or cljstyle run was available to me; I rely on the orchestrator's 0/1-pre-existing and clean results.
+- Only JVM was run. The Node and Dart lanes belong to the landing gate.
+- The branch is behind master by the Python C3 and yin.repl commits. They don't touch these files, but it needs a rebase before landing.
+
+## What must change, in order
+
+1. Accept only grants that answer this driver's own proposal ids, with `:subject` and `:proposal` passed to the dao.lease holder, and rework the tests off foreign-pid `grant-direct!` (F1, F5).
+2. Make the D7 reader run first in `:validating`, and add the profile-before-address test (F2).
+3. Stop minting a proposal on every step in the stale-and-unheld branch, and add a one-proposal test (F3).
+4. Add the enrolled-write-after-activation test for the admit routing, by reply and by projected outcome, or put the authority's reason for refusing it in the report (F4).
+
+F6 to F10 and N1's test tightening should go in with these if they are cheap. Otherwise record them in the report for D14 or D15.

@@ -7,7 +7,8 @@ Session-ID: d914ca29-1b2a-4c78-bccf-5c68da8b04c5
 Role: Yang Compiler and Universal AST Engineer
 
 Implementers:
-- Model: glm-5.3 | Assigned: 2026-10-07 07:00:00 +0700 | Status: active | Rationale: back after the credit reset; D7's and D9's main rounds were glm's
+- Status-Event: 2026-10-07 05:55 +0700 | Model: glm-5.3 | Status: superseded | Rationale: still out of credits until 7am; the owner authorized codex/agy implementation rounds (routing-status.md)
+- Model: gpt-6-terra (codex) | Assigned: 2026-10-07 05:55:00 +0700 | Status: active | Rationale: the owner lifted the codex implementation reservation; terra is the balanced engineering model
 
 Implement D10 in /Users/sto/workspace/datomworld-d10 (worktree, branch
 ucf-d10-v1-lower, based on master af5dc88e with D1 to D9 and the doc

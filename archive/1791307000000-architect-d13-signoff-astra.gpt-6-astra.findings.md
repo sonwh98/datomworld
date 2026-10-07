@@ -1,0 +1,17 @@
+The driver currently treats acceptance into the front’s request stream as successful renewal or release. The front has a separate authenticated `:carried` response, so I’m checking that distinction and whether tenure is rechecked after guest execution, before program IO.
+
+
+Completed-GMT: 2026-10-06 16:48:34 GMT
+Completed-Local: 2026-10-06 23:48:34 +0700
+
+CHANGES
+
+1. **Renewal advances tenure before carriage is proved.** In `driver.cljc:718–732`, `renew` passes the front-inbound append result to `lease/observe-renewal`. That only proves the request was queued: `authority/front.cljc:211–226` can subsequently answer `:suspended` without carrying the renewal. Retain the request and its pre-send clock reading; advance tenure only on authenticated, matching `:carried` evidence. Recheck the existing bound before accepting delayed evidence; a late acknowledgment must never revive expired tenure. Pin inbound acceptance followed by failed carriage, delayed acknowledgment, and successful carriage.
+
+2. **Proposal and release progress can be lost.** `control-reply` (`driver.cljc:630–643`) marks carriage without checking `:yin.k/answer`; `step-releasing` (`873–887`) declares release complete on inbound acceptance and stops reading replies. Proposals likewise stop resending once queued. Retain these obligations until authenticated carriage, retry unchanged requests after suspended carriage or lost replies, and distinguish lease-proposal rejection from transport/carriage failure. Pin a full lease-fact stream behind an accepting inbound stream: proposals must eventually progress and releases must eventually be carried, without clearing quarantine or manufacturing completion.
+
+3. **The tenure check does not cover subsequent IO.** `step-active` checks once (`driver.cljc:840–847`), then `run-cycle` executes `vm/run`, writer emission and live observation (`778–788`) without another check. Computation or an earlier effect can consume the remaining tenure. Enforce the D10 ruling’s recheck before subsequent program IO, including bare writes and closes; checking only the request callback misses those direct effects. Pin expiry during computation and between successive effects: no further program IO, root and children ended, release retained for cleanup.
+
+4. **Thrown post-grant failures bypass cleanup.** `run-cycle` and `step-active` have no failure transition around execution/emission. The landed writer explicitly throws for terminal bare-link append outcomes (`holder/writer.cljc:278`), so this is a reachable path, not hypothetical seam misuse. Preserve the failure while transitioning into an ended state with a retained release obligation; do not retry the failed program effect. Pin that terminal-link path and a release initially unable to be carried.
+
+The admitted-variant proof and composition of the existing lower, writer and reader are appropriate, but these defects violate the remote-carriage, tenure and post-grant cleanup contracts. The current tests carry the front immediately after driver steps, which masks the distinction between inbound acceptance and actual carriage. These are D13 obligations, not D14 journal work. No files were edited and no suites were run.

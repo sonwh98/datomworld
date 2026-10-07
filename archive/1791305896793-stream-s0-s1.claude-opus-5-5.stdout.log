@@ -1,0 +1,32 @@
+Slices S0 and S1 are finished in the worktree and the JVM tests pass, but kondo didn't run. The permission gate refused both `clojure -M:kondo` and `clj-kondo` in this non-interactive session. Nothing is committed.
+
+**S0 (`docs/design/dao.stream.remote.md`):** I accepted the existing new section 3.0 without edits. It already covers the boundary invariant, `:max-sessions` rejection after reaping, idle reaping, the `step!` event budget and per-session failure isolation. It describes the target design: `yin.vm.linker.head.ws` and `yin.repl` still build `:ws` descriptors themselves until slices S3a/S3b move that code.
+
+**S1 (`ws_project.cljc`):** The existing edits do what the brief asks. I made four corrections:
+1. **Closed sessions:** a session whose projection closed is dropped again without closing its handle or ring, as before. The edit had been closing them for every reaped session. Only idle-reaped sessions get closed now; a session that throws is closed in the catch block itself.
+2. **Reaping outside `swap!`:** reaping closes handles, so it now runs outside `swap!`, where a retry could repeat the side effect.
+3. **Idle-timeout check:** `:idle-timeout` must now be a positive integer, as the brief says (it accepted any positive number).
+4. **One-argument `accept-step!` removed:** nobody asked for it, and both real callers pass `now`.
+
+One brief item works differently: dao.stream has no way to ask whether a handle is closed, and the architect consensus says not to add one. So a dead handle is caught when the transport's close event shuts the projection, or by the closed flag the error path sets.
+
+**Tests (`ws_project_test.cljc`):**
+- I fixed the missing paren that broke reading the file.
+- I removed a roughly 50-line copy of the test helper `acceptor-over`; it now takes an optional config map instead.
+- The error-isolation test was broken: it offered two connections in one tick, but the acceptor adopts only one per tick. It now admits them on separate ticks.
+- I added five tests:
+  - idle reaping on a tick with no new connection, plus the `:idle-timeout-ms` key;
+  - no limits means nothing is rejected or expired;
+  - invalid limits throw;
+  - a rejected newcomer gets no acknowledgement;
+  - the reaped session's ring is closed.
+
+**Results:**
+- `clojure -M:test -n dao.stream.ws-project-test`: 21 tests, 76 assertions, 0 failures.
+- The ten namespaces that use this code (ws-project jvm/cross-jvm, head-ws, and yin.repl serve/connect/wire/embed/dht-head/main): 125 tests, 839 assertions, 0 failures.
+
+Still to do before landing: run kondo with `clojure -M:kondo --lint src/cljc/dao/stream/ws_project.cljc test/dao/stream/ws_project_test.cljc` and the full three-host `bb test`. The acceptor doesn't pass a step budget yet. That, budgeting `mirror-step`, and fair scheduling belong to slice S2, as the report notes.
+
+Report: `collab/1791305896793-stream-s0-s1.claude-opus-5-5.findings.md`
+
+The Gmail, Google Calendar and Google Drive connectors also need authorizing in your claude.ai connector settings before they can be used. They weren't needed for this task.

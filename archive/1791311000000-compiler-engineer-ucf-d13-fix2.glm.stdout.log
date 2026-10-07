@@ -1,0 +1,30 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+D13 fix round 2 complete. All three items landed test-first; the full JVM fast lane is green.
+
+## Item 1 — MUST FIX (driver.cljc:943): post-cycle drain run-end re-labelled
+
+**Fix** — the cond after the post-cycle drain now opens with the pre-cycle guard's mirror (`src/cljc/yin/vm/ucf/holder/driver.cljc:944-949`): `(= :releasing (:phase base))` → `base`, placed *before* the `(some? end)` arm so a drain-ended run is never re-ended even when the cycle also queued a `:run-end`.
+
+**Reachability test** — `delayed-carriage-past-the-bound-ends-the-run-once-test` (driver_test.cljc:1034). The machine halts (`:safepoint`), a real renewal is sent at `{:s 11}` and carried by the real front; the critical step withholds the carriage reply from the pre-cycle drain (a wrapper answering nil once, then the reply) and releases it inside the post-cycle drain, flipping a controlled-reading clock to the bound (`{:s 31}` = basis 1 + 30) at exactly that release — between-step clock resets provably cannot fire the arm.
+
+**Red before the fix** — exactly the gate's four symptoms: phase `:releasing`→`:safepoint`, status `:yin.k/ended`→`:yin.k/ok`, ended detail lost (`:cause nil`), and a **second** run-end diagnostic on the next step (2 diagnostics, violating r3 1.6). **Green after**: one diagnostic, one release, the retry is the identical request.
+
+## Item 2 — MUST PIN (driver.cljc:478-481): refusal → fresh pid
+
+`two-candidates-over-two-encodings-test` extended: guards that the judge's granting pass really recorded `:dao.lease/rejected` for holder-b's pid in the ledger, lapses the winner's lease, steps holder-b again — fresh pid proposed, 2 distinct proposal ids total, `:proposals` 2. Pinned green (the discipline already held).
+
+## Item 3 — RECOMMENDED (driver.cljc:924-926, :556-557): the epoch dimension
+
+New `the-epoch-dimension-of-the-tenure-recheck-test` with a `crafted-ledger` helper: the world's own header/enrollment/offers plus a hand-built prior tenure (grant→lapse→reclaim) so the *same* grant fact is the occurrence's live lease **bound one epoch higher** — crafted directly because no foldable history can move an epoch under an unchanged lease id. The running recheck refuses `:stale` with `:dao.lease/observed-lease = l` (the epoch alone moved); accept's stale arm likewise refuses `not-holder` carrying the moved epoch, holder and lease of the successor tenure.
+
+One honest boundary: accept's epoch disjunct cannot be *isolated* on foldable records — a reclaim (the only epoch mover) always nils the live lease first, so at accept a differing epoch entails a differing lease. The pin therefore drives the reachable stale path with the epoch dimension engaged and asserted (binding 1 vs observed 2), while the recheck half isolates the epoch alone through the evidence-captured-at-accept asymmetry. Both green with no code change.
+
+## Exact counts
+
+| Suite | Tests | Assertions | Failures/Errors |
+|---|---|---|---|
+| `yin.vm.ucf.holder.driver-test` (focused) | 29 | 277 | 0 / 0 |
+| Holder cluster + landed reader suites (driver writer reader evidence export handoff handoff-v1 custody ledger checkpoint) | 180 | 1745 | 0 / 0 |
+| Full JVM fast lane (`clojure -M:test -e :slow`, the `bb test:clj` command) | **3504** | **234375** | **0 / 0** |
+
+Baseline before this round was 27/239 on the focused suite (+2 tests, +38 assertions). `bb`/`mise` and kondo/cljstyle remained approval-gated in this environment (as in r1), so the lane was run directly — its `target/yin-repl.js` and antlr artifacts already existed. No git writes; both files remain the uncommitted candidate.

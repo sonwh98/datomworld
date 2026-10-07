@@ -1,0 +1,32 @@
+S4 is finished in the worktree, with one item blocked (`float('-nan')`'s sign bit, below). Nothing is committed. JVM, Node and Dart slow lanes all pass on the final code; the full three-lane `bb test:changed` is left for you at landing. The report is `collab/1791226000000-compiler-engineer-python-c3-s4.findings.md`. It has the "State found" section and a done/not-done checklist.
+
+**What codex left:** most of the logic was sound, and I kept all the conversion, parsing and builtin code. What I fixed:
+- **Float literals:** they broke the prelude's float-discipline test.
+- **`canon-ints`:** codex copied it from `prelude_parity_test`, and it threw on 2^63 and on infinities. There is now one public copy in `int_ops_test`, and `prelude_parity_test` requires it.
+- **`pow` parity:** `(-1.0) ** (2^1024 − 2^970 − 1)` gave −1.0. CPython gives 1.0, because the exponent rounds to an even double first. The CPython fixture caught this.
+
+I rewrote the conversions section and the `pow` helpers for house style and the 80-column limit. `pow` now converts base, then exponent, the way CPython does.
+
+**Bugs the slice found:**
+- **Two old pins were wrong.** In `int_ops_test`, `(-1) ** -(2**64+1)` and `(-1.0) ** (2**64+1)` were pinned as −1.0; CPython gives 1.0, so I corrected them.
+- **The harness couldn't see signed zero.** `check-cases` treated −0.0 and 0.0 as equal, so the "abs through `py/float-abs`" mutation stayed green. It now compares floats by IEEE bits, and every existing pin still passes.
+- **Two JS-only bugs showed up on Node.** A `##NaN` literal broke content addressing of the prelude, and `repr(0.0)` printed `-0.0`. Both are fixed, and a fast pin now covers the signed-zero case.
+
+**Blocked: `float('-nan')` sign bit.** The ruling asks for bits fff8, but no allowed operation can set a NaN's sign. Arithmetic NaNs take the CPU's default sign, and Jing writes every NaN as 7ff8 anyway. No C3 guest operation can observe the sign either. `-nan` is therefore the one NaN, with whatever sign the CPU gives it. Getting fff8 would need a new `data` export, which is an Architect question.
+
+**Where CPython disagreed with the design, the fixture won:**
+- `//` by a float zero says "float floor division by zero".
+- `int()` of whitespace alone quotes the original text.
+- `int()` also keeps code points 28–31 rather than stripping them.
+
+**Not matched:** 27 fixture rows where CPython escapes non-ASCII non-printables such as `'\u200b'`. Both our renderer and the guest `repr` escape only ASCII controls. Those rows are labelled hand pins; matching CPython would need a Unicode printable table, another Architect question.
+
+**Other deliverables:**
+- **Mutations:** all 7 went red once.
+- **Pin changes and re-mints:** digit-limit message pins in `int_literal`, `prelude_parity` and `int_contract`; the new exponent boundary; and the `float_address` goldens, re-minted against the final prelude. `safepoint`, `lower` and `lower_portable` needed no change.
+- **Docs:** 8.5.4 of `yang.antlr.md` is updated.
+- **Checks:** kondo and cljstyle are clean.
+
+**Two things I couldn't run:**
+- Python isn't permitted in this session, so I spot-checked `int-conv-v1.txt` rather than regenerating it. Running `/usr/bin/python3 -I test/resources/yang/python/int-conv-v1.generate.py` and checking that git shows no change would settle it.
+- Setting `DATOM_SLOW_TESTS=1` inline needed approval, so I ran Node and Dart through `bb test:slow:cljs` and `bb test:slow:cljd`. Those cover more namespaces than the brief's commands.

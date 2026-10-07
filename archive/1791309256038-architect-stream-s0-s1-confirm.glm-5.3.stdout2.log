@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The confirmation pass is complete — **the gate converts: S0 + S1 receive the Lead System Architect sign-off.**
+
+## What was done
+
+**Suites re-attested firsthand** (matching the orchestrator exactly):
+- Focused `dao.stream.ws-project-test`: **23 tests / 87 assertions, 0 failures**
+- 10-namespace dependent run: **127 tests / 850 assertions, 0 failures**
+
+**Findings written** to `collab/1791309256038-architect-stream-s0-s1-confirm.glm-5.3.findings.md`:
+
+- **Verdict: SIGN-OFF / Sign-off: GRANTED** — all three §5 conversion criteria verified:
+  1. **§2 scope landed exactly** — `:step-budget` validated in `make-acceptor`'s existing `when-not`, docstring-documented, stored, and passed at `ws_project.cljc:368` (nil = unbounded = prior behavior); §3.0 sentence names the acceptor key; the flood test genuinely discriminates (att-1 stepped first; budget 2 → exactly `[:a :b]` **and** the peer answered in the same tick; `[:a :b :c :d]` next tick proving cursor continuation); invalid rows 0/1.5/−1. One disclosed bonus accepted: the docstring rewrap closing r2's nit.
+  2. **Suites green** — firsthand runs above; the arithmetic cross-check (+2/+11 = A1's reviewed test + the flood test) proves no unaccounted additions; kondo 0/0 and cljstyle clean now attested — the first time either ran anywhere on this branch.
+  3. **Delta-only** — +2 design / +7 source / +30 test versus the DENIED-reviewed state; every hunk confined to the five §2 areas; consumers, `dial-step!`, `mirror-step` untouched.
+- **Standing conditions restated**: CLJS/CLJD lanes + the three-lane `bb test` remain owed before commit (per `build-n-test.md:47-49`); S2 tracking (mirror-step/dial-side budgets, shared-pool scheduling, adoption-path isolation, byte bounds) and the S3a input (neutral board must set non-nil bounds) stand.
+
+**Verified**: diff stat unchanged at +495/−148 across the three S0/S1 files — only the findings file was added.
+
+**Memory updated**: `dao-stream-redesign-status.md` and the `MEMORY.md` index now record the A2 landing and the granted sign-off, with the pre-commit lanes and S2/S3a tracking carried forward.

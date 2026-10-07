@@ -1,0 +1,29 @@
+Both blocking findings from the review are fixed. The targeted tests pass (71 tests, 565 assertions, 0 failures), cljstyle is clean and kondo reports 0 errors. Nothing is committed yet, and the Node and Dart lanes haven't been run.
+
+**Finding 1: refused attach probes went over the cap and deadlocked**
+- **Cause:** a refused probe was always kept in the link's pending queue, even at the cap. When two probes were pending, each retry counted the other and refused itself, so neither ever went out.
+- **Fix:** a probe is now kept only if there is room under `max-outstanding`, the same check a send uses. So requests in flight plus kept probes can never exceed the cap. A kept probe's retry doesn't count itself, so it always has room and can never be blocked by another kept probe.
+- **A probe with no room** waits on its own reflection instead of the link. That reflection's next operation offers it again. `close!` clears it.
+- **Trade-off:** a reflection that is never used never gets its waiting probe in, so it never confirms. Confirmation is only visible through that reflection's own operations or the event writer, so I judged this acceptable.
+
+**Finding 2: prefetch evicted its own answer, so `next` stayed blocked forever**
+- Prefetched outcomes now only fill free retained capacity and never evict anything.
+- The budget sent with a `next` request is capped at `max-filed`, so the peer isn't asked for outcomes the link would drop.
+- **This changes the architect's eviction order:** entries are now evicted in the order the link stored them, not lowest id first. Under lowest-id order, an answer that was asked again gets a lower id than entries stored after it, so it could be evicted as soon as it was stored. That was the same starvation by a second route. With the new order, storing an answer never evicts that answer.
+- The earlier `budget 4 / max-filed 2` test row now expects 1 stored answer and 1 prefetched outcome. Its old expectation (0 and 2) was the defect itself.
+
+**Tests added**
+- `attach-probes-share-a-capped-link`: three reflections on one capped link, run twice.
+  - With a writer that accepts (cap 1), the waiting probes go out one at a time as answers arrive, which is the review's scenario.
+  - With a writer that answers `full` (cap 2), both kept probes eventually go out without blocking each other.
+  - Both runs end with all three confirmed and the cap never exceeded.
+- `a-prefetch-never-evicts-its-own-answer`: the review's `max-filed 1`, `budget 2` case with one reader, which now reads `:a`, `:b`, `:c` in turn.
+
+The design doc's §2.4 is updated to match.
+
+Still open:
+- Kondo's one warning is the old unused `peer2` binding at `remote_test.cljc:661`.
+- I didn't add the review's non-blocking coverage ideas (drain budget with malformed values and gaps, and `dial` passing the new link options through).
+- `bb test:clj` and the full three-platform `bb test` still need to run.
+
+The report is at `collab/1791357600000-stream-s2b-reconcile.claude-opus-5-5.findings.md`.

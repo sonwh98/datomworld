@@ -1,0 +1,15 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-10-06 16:37:50 GMT
+Completed-Local: 2026-10-06 23:37:50 +07
+
+D13 is done. The report is at `collab/1791299000000-compiler-engineer-ucf-d13-candidate.findings.md`.
+
+**Changed files** (nothing landed touched; `git status` shows only these two plus the collab prompts):
+- `src/cljc/yin/vm/ucf/holder/driver.cljc` (new, 946 lines) — one explicit step state (`:validating` → `:proposing` → `:running`/`:safepoint` → `:releasing` → `:failed`), plain data, `initial` with assembly-checked seams and `step`. Reaches the authority only through the three composition-supplied paths: the front streams, the outcome projection, and D3's ledger reader; dao.lease's own holder machine is the tenure arithmetic over the composition's clock.
+- `test/yin/vm/ucf/holder/driver_test.cljc` (new, 1020 lines) — 12 deftests over a real in-process world (real authority, fronts, judge, offers, bindings, inputs, admissions; every checkpoint a real lift of a real parked machine).
+
+**Tests** (JVM, `clojure -M:test`): driver suite **12 tests / 153 assertions, 0 failures, 0 errors**; the full UCF cluster re-run green (163/1621 and 76/1180). kondo and cljstyle were sandbox-blocked (noted in the report); Node/Dart lanes not run — JVM is the iteration lane per the acceptance criteria.
+
+**Contract coverage**: all six D13 rows — two candidates over two encodings (`awaiting-grant` then `not-holder`), the four invalid bindings (`not-holder` + release; the binding check must precede the evidence fold since each corruption also breaks it), unavailable history never activating (all four D3 modes, never a release, never an empty prefix), post-grant failure releasing with the retained-release retry, renewal before half with all IO stopping at the bound (exactly one append — the release — plus one run-end diagnostic), the source resuming only after its own grant — plus the admitted-variant rule, tenure recheck before scheduling execution/IO, regrant-replays-from-the-checkpoint (zero live observations), the attachment check, side-effect-free validation, the at-least-once writer arm, and the halted-result no-grant path.
+
+**Honest boundaries** in the report: an *enrolled* write can't reach a first-offer activation (successor bodies are orphan-refused until the predecessor's closure — D14's half), so the enrolled writer arm is driven but not end-to-end; the judge's release-lapse is only exercised where the judge granted the lease; two clock readings per accepting step; one `vm/run` per step is a scheduling choice, not a ruled one.

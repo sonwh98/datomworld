@@ -1,13 +1,13 @@
 Created-GMT: 2026-10-05 16:03:00 GMT
 Created-Local: 2026-10-05 23:03:00 +0700
 Coding-Agent: claude (opus-5-5 if available, else glm-5.3)
-Session-ID: pending (provider-generated)
+Session-ID: 807834a2-2a07-445e-b28c-8a42ad4bcc94
 
 # Task: UCF M-next D8 — the exporting state, the prepare/encode split, and the abort rule
 Role: VM Runtime Engineer (holder side)
 
 Implementers:
-- Model: assigned at dispatch | Assigned: 2026-10-05 23:03:00 +0700 | Status: active | Rationale: implementation role; the engine seam rounds (D4 to D6) landed, this begins the holder namespaces
+- Model: claude-opus-5-5 | Assigned: 2026-10-05 23:03:00 +0700 | Status: active | Rationale: implementation role; the engine seam rounds (D4 to D6) landed, this begins the holder namespaces
 
 Implement D8 in /Users/sto/workspace/datomworld-d8 (worktree, branch
 ucf-d8-exporting, based on master with D7 landed). Read first, in the

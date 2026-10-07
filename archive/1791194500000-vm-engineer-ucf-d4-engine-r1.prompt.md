@@ -1,7 +1,7 @@
 Created-GMT: 2026-10-05 09:41:00 GMT
 Created-Local: 2026-10-05 16:41:00 +0700
 Coding-Agent: claude (opus-5-5)
-Session-ID: pending (provider-generated)
+Session-ID: 1671ee53-5e80-4ba0-8e9e-9d959efdb209
 
 # Task: UCF M-next D4 — engine round 1: the observe/apply split of the immediate effects and the custody gate modes
 Role: VM Runtime Engineer (engine seam)
@@ -10,8 +10,8 @@ Implementers:
 - Model: claude-opus-5-5 | Assigned: 2026-10-05 16:41:00 +0700 | Status: active | Rationale: the engine seam is the D plan's riskiest slice; the D plan assigns it to engine rounds with a zero-call test control
 
 Implement D4 in /Users/sto/workspace/datomworld-d4 (worktree, branch
-ucf-d4-engine-r1, based on master 14d9f750). Read first: the D plan r2
-(collab/1791191725340-architect-m-next-d-plan-r2.claude-fable-5-1
+ucf-d4-engine-r1, based on master 14d9f750). Read first: the D plan r3 (canonical; r2 section numbers hold, residuals 1 to 4 folded)
+(collab/1791194000000-architect-m-next-d-plan-r3.claude-fable-5-1
 .findings.md — sections 1.1, 1.2 and the D4 test contract) and the
 review it folded (collab/1791191261015-architect-m-next-d-plan-review
 .gpt-6-astra.findings.md, finding 1). Then src/cljc/yin/vm/engine.cljc —

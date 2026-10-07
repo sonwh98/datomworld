@@ -1,0 +1,29 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+# Transport boundary mob — reconciliation (R2)
+
+Completed-GMT: 2026-10-06 16:52 GMT · Model: deepseek-v4-pro · Session-ID: 0ab62ae7-5a5e-4caa-bc7b-7b09455efb3e · Role: Lead System Architect
+
+## Supervisor vs. accessor — I AGREE with Astra; I retract the accessor
+
+My R1 "health accessor watched by yin `step-link`" was half-right and half-wrong. Right: the liveness *signal* is correlated inbound answer movement, never the projection cursor, never the head cursor. Wrong: I placed the expiry decision in yin, which leaves transport-timeout policy above `dao.stream` and forces yin to see a "health" datum that is none of its business. Astra's version is strictly better and uses machinery that already exists:
+
+- The link/supervisor expires an unanswered request into the existing `channel-gone` outcome (`remote.cljc:542-555`), the reflection answers the existing non-retryable `transport-error` (`translated :channel-gone`), and the follower's `read-source` already turns that into `:source-lost` (`head.cljc:545-556`) — which yin already handles by `drop-dial` + redial. **No new outcome, no accessor, no `closed?` predicate, no yin-side timeout policy.** Yin only ever sees `:source-lost` and decides retry; that is exactly the owner's "neither REPL nor linker cares about transport."
+- The supervisor is stepped by the driver with supplied `now`/deadlines — **no clock reads** — or advances an independent unanswered-round counter, not arbitrary per-reflection calls (the shared link is drained from several observers per tick, so call-counting is ill-defined). `blocked` from a mirror is correlated progress and keeps the source alive; a locally-produced `blocked` is not; an unchanged head never implies a dead connection; unrelated traffic resets nothing. Server-side idle reap is separate and unrelated to the link's outbound requests.
+
+**Item 1 (D1: descriptor construction / REPL migration) — AGREE, with one sequencing note.** Fable's "one function in yin chooses the descriptor" still encodes transport in yin portable code and fails the owner's invariant; Astra is right that yin must parse only the principal and hand an **opaque endpoint specification** downward, with stream/host assembly below `dao.stream` doing parse/format/transport-select. Board-name and the exposure table stay in yin. The one correction to Fable: "don't migrate `yin.repl.serve` this epic" is a fine *sequence*, but it must be stated as **contract-complete, serve-migration-deferred-with-a-named-slice** — the boundary contract (S0) names `serve`'s coupling the way the design doc already names C4. D1 may not be reported "done" with serve unmigrated.
+
+**Item 2 (byte bound as lift gate) — AGREE.** Rate bound + idle reap is a per-tick bound, not a memory bound: a client that keeps sending and never reads is never idle while the outbound queue grows without limit. Fable's substitutes do not bound cumulative outbound memory. The implementable form, and my acceptance, is a **composition-level cumulative per-session outbound byte quota** — the composition already measures the values it appends, so this needs no host high-water API — with hard teardown that releases buffers. A host that cannot bound frames at the edge stays **gated** (loopback) rather than advertising a hard bound it cannot honour.
+
+**Item 3 (supervisor, not `:asks` reuse) — AGREE.** Each flaw is real: `count-ask!` resets `:asks` at `resend-after` (`remote.cljc:384-390`), so it cannot count unanswered rounds; a budgeted `drain!` may leave answers unread; the shared link is polled by several observers per tick. So `give-up-after` must not ride `:asks`. The supervisor tracks correlated per-request completion against supplied deadlines, an independent unanswered-round count, or both; server idle expiry is separate; a valid `blocked` answer keeps the source alive; unrelated traffic cannot reset a request's deadline.
+
+**Item 4 (slices) — AGREE.** S0 contract → S1 admission/lifecycle bounds → S2 all nested loops including `drain!`, pending retries, `chase`, and bytes → S3 boundary migration + liveness + stop for **both** board and REPL → S4 address selection + IPv6 + all-host tests, then gate. Independent landing while loopback remains is the correct safety property; the gate is the last thing to lift.
+
+## Four clarifications — confirmed
+
+1. **Wildcard baseline:** unique eligible interface via a **streamed host effect** (enumeration, Dart-portable — no connected-UDP route probe), optional route-to-configured-peer hint, explicit override always wins; no universal-NAT claim.
+2. **Reject-newcomers is not owner-ordered.** I over-attributed in R1 ("owner's words settle it"). It is an architect recommendation, which I still hold — reject-at-cap only together with idle/half-open reap, else the cap fills and deadlocks the board.
+3. **UDP parity = unchanged consumer source and outcome algebra**, not identical delivery or exactly-once; append dedup/correlation is already payload-owned in the remote contract (`append-unknown` on loss, never false exactly-once).
+4. **Writable REPL UDP** must be tested against its declared semantics — the eval/append direction's acceptance-is-outbound and append-unknown-on-loss — not assumed to behave like TCP.
+
+No all-party consensus is claimed yet; these rulings are this seat's reconciliation for the coordinator to weigh against Fable's open items (k, idle N, cap default).

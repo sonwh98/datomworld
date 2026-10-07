@@ -1,0 +1,15 @@
+Both review findings are fixed and the focused suite passes: `clojure -M:test -n dao.stream.ws-project-test` ran 22 tests with 80 assertions and no failures. Nothing is committed.
+
+**A1: invalid step budgets now throw (`ws_project.cljc`)**
+- `step!` with two arguments checks the budget first. Any non-nil budget that isn't a positive integer throws `(ex-info "invalid DaoStream ws projection step! budget" {:budget budget})`, the same pattern `make-acceptor` uses. Before, a bad budget silently meant "read everything".
+- The docstring now says a bad non-nil budget is an error.
+- New test `an-invalid-step-budget-is-a-composition-error` checks that 0, -1 and 1.5 each throw an ex-info carrying `{:budget bad}`, and that nothing is read. It checks the `ex-data` rather than the `ExceptionInfo` class, because catching by that class is a known ClojureDart trap.
+
+**B1: idle-timeout documented (`dao.stream.remote.md` §3.0 and the `make-acceptor` docstring)**
+- `:idle-timeout` is documented as a positive integer in milliseconds, measured against the `now` the driver passes in.
+- The alias `:idle-timeout-ms` is documented as winning when both are given.
+- I also changed "exceeding" to "for at least", because the code reaps at exactly the timeout (`>=`), and rewrapped the paragraph.
+
+**Wider run:** I also ran the five namespaces that use this code. One test in `yin.vm.linker.head-ws-test`, `the-board-crosses-a-real-loopback-socket`, failed once: the server was refused when binding its "free port", which looks like a port race with the socket tests running alongside it. Rerun alone, that namespace passed (11 tests, 89 assertions). It passed in the earlier full dependent run too, and this change doesn't touch that code.
+
+Still not run: kondo (the permission gate blocked it last session) and the ClojureScript and ClojureDart test runs. Both should run before landing.

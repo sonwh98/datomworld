@@ -1,0 +1,65 @@
+Completed-GMT: 2026-10-06 18:51:39 GMT Completed-Local: 2026-10-07 01:51:39 +07
+
+# D13 candidate gate, round 4 (opus)
+
+**Verdict: READY.** The r3 must-fix is closed, and none of the fixes from r1, r2 or r3 has come back. You can land it once the Node and Dart lanes pass (see the last section).
+
+**Scope:** I read the uncommitted, untracked `src/cljc/yin/vm/ucf/holder/driver.cljc` (1069 lines) and `test/yin/vm/ucf/holder/driver_test.cljc` (1754 lines) in `/Users/sto/workspace/datomworld-d13`. I edited nothing in the candidate and ran no suite. The test results are the engineer's: focused suite 32 tests / 311 assertions, JVM fast lane 3507 / 234409, kondo 0/0, cljstyle clean. I did not re-run them.
+
+## The r3 must-fix is closed
+
+**The fix (`driver.cljc:597-607`):** the stale-unheld arm now checks `never-granted-again?` before it proposes.
+- When the occurrence can never be granted again, it answers `(with-status state :yin.k/not-holder (occurrence-state projection o))`. That is the same shape as `step-proposing`'s arm at `:725-729`.
+- It sends no release, which is right because custody was never accepted.
+- It mints no proposal.
+- The regrantable case still goes to `propose`, and still clears the proposal only when the stale grant answered the current proposal id, so F3 is kept.
+- The arm comes after the variant check and before the `stale?`-while-held arm. That order is fine: both arms give the same answer shape.
+- `never-granted-again?` (`:363-369`) is the one shared predicate, so the two call sites cannot drift apart.
+
+**The tests (`driver_test.cljc:883-971`):** one helper, `dead-occurrence-answers-not-holder`, is used by two cases.
+- **Closed:** a real completion report followed by a release lapse closes the occurrence (test:917).
+- **Quarantined:** a real `:intent-conflict` from two conflicting admissions, followed by a policy lapse (test:947).
+- In both cases the driver has proposed and been granted but is still `:proposing`, so its own grant reads stale from the raw records. Because `grants-to` reads the records raw and the grant matches `:sent-proposals`, the step goes into `accept`, not into `step-proposing`'s no-grant path.
+- The tests assert:
+  - the answer is `:not-holder`, the phase stays `:proposing`, and the detail carries the occurrence and the mark (`:yin.k/closed` or `:yin.k/quarantined`) with no lease;
+  - no new proposal id, no machine and no release;
+  - after a further `:judge` pass, the answer is still not-holder and there is still no new proposal id.
+- Before the fix, the same step would have cleared the answered proposal, minted a new id and answered `:awaiting-grant`. So the test fails without the fix, as the engineer's report says.
+
+**Exhausted is not tested, and that differs from your brief.**
+- Your brief says the red-first tests are "exhausted (reclaim at the lease's own epoch) and quarantined". The file actually has **closed** and **quarantined**.
+- The comment at test:875-881 says why: the holder-side `fold` starts from `ledger/empty-projection` at the default epoch bound. A reclaim at the lease's own epoch therefore fails the fold with `:epoch-mismatch` and answers `:unsatisfied` before it reaches the stale arm.
+- That matches `fold` (`:303-314`). It also means the exhausted example in my r3 finding cannot happen through this driver's own fold. Closed and quarantine were real routes, and both are now tested.
+- The exhausted case goes through the same predicate, so the risk is low. The report should still describe the tests correctly.
+
+## The other r3 improvements are applied correctly
+
+- **Note 2 (the cycle's run end folds into one diagnostic):**
+  - `end-run` (`:441-457`) reads any `:run-end` already on the state and folds its cause in as `:also-ended`, in both the diagnostic and the releasing detail. It then removes `:run-end`.
+  - This works because `run-cycle` leaves `:run-end` on the state going into the post-cycle drain (`:886`, `:952`). The drain calls `control-reply`, then `end-run`, which sees the cycle's cause.
+  - The `:releasing`-first arm (`:961`) still returns `base` without relabelling it. The r2-1 fix stays intact.
+  - Pinned by `the-cycles-run-end-folds-into-the-drains-one-diagnostic-test` (test:1601): a fail-stop put plus a renewal carriage that crosses the bound gives exactly one diagnostic, `{:cause :lease-bound … :also-ended :fail-stop}`, with no `:run-end` left on the state and zero writes performed.
+  - Edge case, harmless: program records read after the drain's `end-run` in the same drain can set `:run-end` again (`:801`). `base` removes it (`:955`). `control-reply`'s renewal arm only fires in `:running` or `:safepoint`, so a second `end-run` cannot happen.
+- **Note 3 (leftover `:run-end` key):** the path where the pre-cycle drain ends the run now returns `(dissoc state :run-end)` (`:915-918`), the same as the post-cycle path. A cycle end in the pre-cycle drain also folds through `end-run`.
+- **Note 4 (catch path):** the `step-active` docstring (`:981-985`) now states the seam contract: seams answer outcomes and never throw, so a throw is the cycle's own. That covers the double-diagnostic edge case I raised in r3. The catch path still starts from the state before the step, and that state never carries `:run-end`, so `end-run` there produces exactly one diagnostic.
+
+## No regressions to earlier findings
+
+| Finding | Status | Where |
+|---|---|---|
+| F1 | holds | `grants-to` is filtered by `:sent-proposals` (`:705`); the holder gets `:subject` and `:proposal` (`:563-570`) |
+| F3 | holds | the conditional clear is unchanged inside the new `if` (`:606-607`) |
+| F7 | holds | the epoch comparison is unchanged in `accept` (`:561-562`) and in the recheck (`:937-939`) |
+| r2-1 | holds | the `:releasing`-first arm is still first (`:961`) |
+
+The r3-era pins are all still present (test:1378, 1389, 1401, 1449, 1458, 1538, 1683), and so is the r2-1 pin (test:1141). I found no new defects.
+
+## Still open (none blocking)
+
+- **r3 note 6 is not addressed.** test:1248-1249 still says the writer arm is driven "through the class a first export can carry". Since the enrolled-write test at test:1683, it should say the D14 deferral covers only retained successor writes. It is a one-line rewording and can go in at landing.
+- **Exhausted is not tested** (see above). Record it in the report or in D14 rather than describing it as tested.
+- **F9, F10, N4 and N5** (from r1) should be recorded for D14/D15.
+- **Landing chores:**
+  - Rebase onto master (73b213a9). The files are new, so it should not conflict.
+  - Run the Node and Dart lanes. They have not been run on this candidate.
+  - On Dart, the test helper `binding-entities` uses `for` over a `group-by` result, which can pass a nil past 32 elements. It is safe at today's sizes.

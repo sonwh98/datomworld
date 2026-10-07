@@ -1,0 +1,23 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done. Full report:
+
+## D13 fix round 3 — done, all green
+
+### The must-fix (`src/cljc/yin/vm/ucf/holder/driver.cljc:597-607`)
+`accept`'s stale-unheld arm now applies the same `never-granted-again?` check as step-proposing's no-grant path: before proposing, an occurrence that is closed, exhausted or quarantined answers `:yin.k/not-holder` carrying `(occurrence-state projection o)` — the exact shape of the neighboring stale-held arm and of `:714`. The driver no longer mints-and-gets-refused forever over a dead occurrence.
+
+### Tests — red-first, one honest deviation on (a)
+- **(b) quarantined** — `a-quarantined-occurrence-answers-not-holder-past-the-gap-test`: judge grant → a *real* intent conflict (two conflicting `admission/admit!` fenced envelopes under the live lease) quarantines the occurrence → `:policy` lapse opens the gap. **Red before the fix exactly as the gate predicted:** the step answered `:yin.k/awaiting-grant` and minted a fresh pid (1→2), and kept minting across judge passes. **Green after:** `not-holder` with `:yin.k/quarantined true`, no new proposal, stable.
+- **(a) exhausted — delivered as *closed*, and here is why:** the literal construction (a reclaim at the lease's own epoch, ledger.cljc:636-637) is **fold-unreachable from the holder side**. `reclaimed-defect` (ledger.cljc:358-360) pins every reclaim to `next-epoch` of its lease's epoch; saturation — the only route to the exhausted mark — requires the fold's `:max-epoch` to equal that epoch; every holder-side fold (D3 evidence, D12, D13 driver) runs at the *default* bound (driver.cljc:307). I built the lowered-bound world (`world :epoch-bound 1`, two real tenures, exhausting reclaim): the driver answers `:unsatisfied` (fold-defect `:epoch-mismatch`) *before* the stale arm, pre- and post-fix alike — a safe answer, never the propose loop, so no test of the ruling's fix can be built on it. The foldable marks from the gate's own reachability sentence ("a quarantine/close is recorded") are **closed** and **quarantined**, both now covered: `a-closed-occurrence-answers-not-holder-past-the-gap-test` drives a *real* completion (`completion/report!` of a real halted lift whose header origin names the occurrence+lease, then a `:release` lapse whose transaction carries the closure and edge). Red (`:awaiting-grant`, fresh mint) → green (`not-holder`, `:yin.k/closed true`). The wall is documented in a comment over the test section, and `world` grew `:epoch-bound` for it.
+- Shared helper `dead-occurrence-answers-not-holder` asserts the full contract: not-holder, `:proposing`, the occurrence state observed, unheld, **no fresh pid appended**, no machine, no release, stability across a judge pass.
+
+### The three cheap improvements
+- **(2)** `end-run` folds a run end the state already carries into the **one** diagnostic as `:also-ended` — implemented in `end-run` because that is the only place that reaches the appended diagnostic (the stream is append-only; folding in the cond could not). Proven red-first by temporarily reverting: `the-cycles-run-end-folds-into-the-drains-one-diagnostic-test` (withholding-reply wrapper + a declared fail-stop parked put as the cycle's run-end) red showed `{:cause :lease-bound :dao.lease/lease l}` dropping the cycle's `:fail-stop`; green shows one diagnostic `{:cause :lease-bound :dao.lease/lease l :also-ended :fail-stop}`, the write never performed.
+- **(3)** the pre-cycle `:releasing` return is now `(dissoc state :run-end)`, matching the post-cycle path.
+- **(4)** `step-active` documents the seam contract at the catch: seams answer outcomes and never throw, so a throw there is the cycle's own.
+
+### Exact outcomes
+- Focused suite `clojure -M:test -n yin.vm.ucf.holder.driver-test`: **32 tests, 311 assertions, 0 failures, 0 errors** (was 29/277 at r2; +3 deftests, +34 assertions).
+- Full JVM fast lane `clojure -M:test -e :slow`: **3507 tests, 234409 assertions, 0 failures, 0 errors** (was 3504/234375).
+- kondo/cljstyle: **approval-gated again** (command approval refused), not run; edits hand-formatted to the surrounding style (80-col margin held).
+- No git writes; everything uncommitted in the worktree as before. Memory updated.

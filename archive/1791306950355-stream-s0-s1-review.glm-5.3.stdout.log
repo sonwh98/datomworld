@@ -1,0 +1,15 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+That was an incorrect tool call on my part (ExitWorktree is a no-op here — no filesystem changes were made; I remain in the worktree). The plan-mode review is complete regardless: the full plan, including the review verdict and the exact findings-report content to be written, is saved at `/Users/sto/.claude-glm/plans/read-collab-1791306950355-stream-s0-s1-r-cozy-brooks.md`.
+
+**Plan summary** — complete the `stream-s0-s1-review` task in two steps:
+
+1. **Verification runs** (read-only w.r.t. source): the focused `dao.stream.ws-project-test` lane, the ten-namespace dependents lane, and kondo on both changed files — kondo was never run (the implementer's session was permission-gated), so the review should close that gap.
+2. **Write** `collab/1791306950355-stream-s0-s1-review.glm-5.3.findings.md` with the verdict **CHANGES REQUESTED (narrowly)**:
+   - **A1**: `step!` 2-arity treats a specified-but-invalid budget (0/negative/fractional) as unbounded (`ws_project.cljc:106-107`) — contradicts §3.0's "at most `budget` events read" and the slice's own loud-failure idiom in `make-acceptor`; one-line fix plus test rows.
+   - **A2**: `accept-step!` never passes a budget (`ws_project.cljc:358`) though consensus D5 assigns S1 "fair scheduling" — architect decision required (wire `:step-budget` now or record a waiver to S2).
+   - **B1**: `:idle-timeout-ms` alias + undocumented precedence vs §3.0 naming only `:idle-timeout`.
+   - Everything else — boundary invariant, reap-then-reject ordering, live slot release on rejection, idle reaping with handle+ring closure, error isolation, `swap!` purity, backward compatibility — verified ACCEPT, with notes (flood-defers-idle-reaping, adoption-path isolation, `now`=nil baseline) recorded for the architect.
+
+No code or design files will be modified; the only new file is the findings report.

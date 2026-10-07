@@ -1,0 +1,18 @@
+The acceptor now takes a `:step-budget` that limits how many events each session's projection reads per tick. `clojure -M:test -n dao.stream.ws-project-test` passes: 23 tests, 87 assertions, 0 failures. Nothing is committed.
+
+**`src/cljc/dao/stream/ws_project.cljc`**
+- `make-acceptor` reads `:step-budget` from its config, checks it is nil or a positive integer, stores it, and documents it in the docstring. While editing the docstring I also rewrapped a line I had left too long in the last change.
+- `accept-step!` now passes the budget to each session's projection step. When the budget is nil it reads everything, as before.
+
+**`docs/design/dao.stream.remote.md` §3.0**: the step event budget bullet now names the acceptor's `:step-budget` key and says it applies to each session on every tick.
+
+**`test/dao/stream/ws_project_test.cljc`**
+- `invalid-bounds-are-a-composition-error` now also checks that `:step-budget` values of 0, 1.5 and -1 throw.
+- New test `a-flooded-session-cannot-starve-its-peers` runs with `:step-budget 2`:
+  - It admits two sessions, deposits five events on the first and one request on the second, then runs one tick.
+  - The first session's ring holds exactly `[:a :b]`, and the second session's request (id 9) is answered in the same tick.
+  - After one more tick the first ring holds `[:a :b :c :d]`, so the flood drains two events per tick and keeps its place.
+
+**Wider check:** the six namespaces that use this code (`ws-project-jvm`, `ws-project-cross-jvm`, `head-ws`, `serve`, `connect`, `serve-connect-wire`) pass: 45 tests, 251 assertions, 0 failures.
+
+Kondo and the ClojureScript and ClojureDart test runs have still not been run on this branch; they need to run before it lands.

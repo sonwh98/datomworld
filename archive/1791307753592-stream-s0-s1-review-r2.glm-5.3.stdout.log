@@ -1,0 +1,12 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+The r2 plan is ready. Summary:
+
+**Verification complete (static):** both fixes are in and correct.
+
+- **A1 ✓** — `step!` 2-arity now throws `ex-info` with `{:budget budget}` for any non-nil non-positive-integer budget (`ws_project.cljc:105-108`); the new test covers exactly 0/−1/1.5, asserts the ex-data, and additionally proves a rejected budget reads nothing
+- **B1 ✓** — §3.0 and the `make-acceptor` docstring both now document milliseconds and "`:idle-timeout-ms` takes precedence when both are given"
+- **No scope creep** — the diff delta vs my r1 review is exactly these two fixes; `accept-step!` untouched (A2 remains the open architect decision, out of r2 scope)
+- One non-blocking nit to record: the edited docstring paragraph overruns the repo's ~62-char wrap convention (cljstyle has no line-length rule, so the orchestrator's clean check stands)
+
+**Execution on approval:** re-run the focused test lane to independently confirm the claimed 22/80 green, attempt kondo/cljstyle (may hit the same permission gate as r1 — will record honestly either way), then write the sign-off to `collab/1791307753592-stream-s0-s1-review-r2.glm-5.3.findings.md` with verdict **ACCEPT / signed off**, line-cited evidence, the wrap nit, and A2's unchanged standing.

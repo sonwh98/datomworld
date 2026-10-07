@@ -1,0 +1,61 @@
+Completed-GMT: 2026-10-06 22:44:20 GMT
+Completed-Local: 2026-10-07 05:44:20 +07
+
+# Gate review: M-next D14 (source/exit half with progress journal)
+
+**Verdict: NOT READY**
+
+The new freeze/rehydrate seam does its job. It has its own tag and version 1 and reuses the handoff codec. It checks addresses, the header, descriptors, the snapshot against the body and the recovery state before anything is attached. It proves byte identity by re-preparing and re-encoding, with zero IO calls, and a recovered record cannot abort (`export.cljc:313-485`, `:527`). The exit order matches the ruling (`driver.cljc:1243-1270`). Acknowledgments are matched to the exact request: the report id carries `[o1 l address]` and the release id carries the lease (`driver.cljc:1148-1150`, `:1327-1331`, `:2292-2313`).
+
+Four defects block landing: two high-severity, two medium.
+
+## Blocking findings
+
+**1. (High) A non-admitted report answer wedges the exit forever while the lease keeps being renewed.**
+- `step-exit-body` turns any non-admitted report answer into a permanent `:report-refused` (`driver.cljc:1263-1265`). There is no resend, no run end and no release.
+- `step-active-held` still renews on every step before entering the exit body (`driver.cljc:1982-1989`). The holder therefore keeps the occurrence alive indefinitely, and it never closes or becomes regrantable.
+- `completion/report!` documents the authority's own `:suspended` and `:closed` answers. `:suspended` is transient, so it should lead to a resend. The terminal refusals (`:ended-lease`, `:quarantined`, `:report-conflict`, `:counter-regression`) should run the r3 1.6 run-end: one diagnostic plus cleanup release.
+- No test drives a refused or suspended report.
+
+**2. (High) Abort is not journaled, so a reopen brings back an aborted first export and offers its stale snapshot.**
+- `abort*` (`driver.cljc:2498-2556`) changes only the in-memory state. The journal still holds the `:first` mint and fence.
+- After a crash, `reopen` sends that journal through `reopen-source` (`driver.cljc:2415-2416`, `:2201-2227`). It rebuilds the fenced snapshot and `step-exporting` sends the offer.
+- But the aborted machine had already returned to local, uncustodied execution and may have performed IO after the snapshot. If the offer is admitted and granted, the stale checkpoint runs again: double execution and duplicated effects.
+- Abort needs a durable terminal record (for example `{:yin.k/journal :yin.k/aborted :yin.k/occurrence O}`), written before local execution is handed back. The fold and reopen must then treat it as closing the export.
+- No test reopens after an abort.
+
+**3. (Medium) A holder that crashes during exit preparation, before the fence, stays stalled forever and never releases or re-proposes.**
+- The first `reopen` branch (`driver.cljc:2405-2408`) stalls on any minted-but-unfenced occurrence, including a successor or result minted after a journaled grant.
+- `:stalled` refuses all progress, and reopening again gives the same answer. The origin lease is never released, and this driver never re-enters candidacy.
+- That contradicts:
+  - the ruling §1: "a restarted holder releases and re-enters candidacy";
+  - brief item 9;
+  - the new UCF text: "they reconcile, release and re-enter candidacy".
+- Releasing the origin lease and re-proposing over the origin checkpoint is not one of the ruling's forbidden moves (inventing waits, reminting, blind re-serving, or using the original machine). Only a `:first` source should stay non-runnable here; when a grant exists, this case belongs in `reopen-holder`.
+- `exit-journal-cuts-never-restore-execution-test` (`driver_test.cljc:2644-2679`) only asserts "not running" plus one step. It passes on this permanent stall and never checks that the release eventually happens.
+
+**4. (Medium) The abort tenure check ignores dao.lease's max cap and its bound latches.**
+- `abort*` computes the bound as `(or last-renewal-at granted-at) + duration` (`driver.cljc:2526-2531`).
+- dao.lease's `at-bound?` also enforces `:dao.lease/max` from `granted-at`, plus the sticky `:bound-reached?` and `:undersized?` latches (`dao/lease.cljc:1818-1832`).
+- UCF grants do carry `:dao.lease/max` (`ledger.cljc:78`, `authority/grant.cljc:153`). A holder past its cap but inside its renewal window can therefore abort back into execution. The ledger's `:live` check only closes that window once the judge's lapse has been folded.
+- The fix: decide tenure with `lease/holding?` and derive `:bound` from the same rule.
+
+## Non-blocking findings
+
+5. **(Low/Plausible) Restart cleanup can drop the exit cell.** In `step-exiting` (`driver.cljc:1297-1308`), a restarted exit clears `:exit` once release carriage is acknowledged and the ledger fold, read in the same step, does not yet show the report. If carriage acknowledgment can arrive before the earlier report is visible in the ledger, the closed occurrence's successor is never offered (the driver then answers `:not-holder` in proposing). Please confirm that the front guarantees ledger visibility before carriage replies, or keep the exit cell until the fold shows the lease ended.
+
+6. **(Low) The driver hard-codes the journal's cursor shape.** `journal-records` checks `:dao.stream.memory-log/identity` and `/position` keys (`driver.cljc:451-458`). That is backend knowledge inside the driver. It is consistent with journal.cljc's stated visible log, but brittle. Separately, malformed or unavailable history throws `ex-info` (with an `:assembly` hint) rather than returning a data refusal. That fails closed, which is acceptable, but the hint is misleading.
+
+7. **(Low/Needs confirmation) Version-1 published bytes may have changed.** `handoff.cljc:793` now runs the module-store fixed-point for `(:v1 @found)` too, not only for recovery. If a v1 body previously omitted transitive module stores, its published v1 bytes change. The ruling says "Semantic handoff versions 0/1 and their bytes remain unchanged", and the findings only mention leaving v0 unchanged. This needs a statement that `canonical-order` already covered these stores, or an architect note that this is a correction rather than a format change.
+
+8. **(Low) Small cleanups.**
+   - A freshly minted proposal intent is journaled twice before its first send (`driver.cljc:1407-1418`).
+   - `export-fence-step`'s eager `mapv` still stores the body after the recovery store has failed (`driver.cljc:866-881`). The fence stays correctly gated either way.
+
+9. **(Low) Seam test coverage.** `recovery-preserves-aliases-distinct-cells-and-authentic-closures-test` proves an authentic, receiver-owned closure held in the store. It does not test a closure captured in the blocked frame's environment registers, which is the ruling's "closure inside waits" case. Adding a `let1 'f (lam …)` / block / `(app (v 'f))` row would close that.
+
+## Regression check against D13/D11/D12
+
+I found no regression to the landed D13 candidate path: admitted-variant check, grant durable before lower, bound-before-apply renewal, run-end single diagnostic. Stall refusal covers `step`, `hand-off`, `abort` and `enroll`. Enrollment follows C12: every enroll call is preceded by a projection reread, and unavailable evidence waits.
+
+The engineer's JVM 3556/235377 green result was not re-run, as instructed. Nothing was edited and no suite was run.

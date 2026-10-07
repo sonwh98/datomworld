@@ -1,0 +1,24 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"auto_mode"}
+The write to `collab/` was blocked — plan mode is still enforcing "only the plan file is writable," and this session has no `ExitPlanMode` tool for me to lift it. So I can't drop the findings file until you approve/exit plan mode.
+
+Here's where things stand:
+
+**The architect analysis is complete.** All five decisions (D1–D5) are settled, with the consensus and the full findings text written into the plan file at:
+
+`/Users/sto/.claude-deepseek/plans/read-collab-1791304215674-architect-cros-eager-cosmos.md`
+
+**The deliverable** (`collab/1791304215674-architect-crossmachine-mob.deepseek-v4-pro.findings.md`) is fully drafted and ready to write the moment plan mode lifts.
+
+**The consensus in one line each:**
+
+- **D1 — boundary holds.** `yin.repl`/`yin.vm.linker.head` have no transport code; the transport choice is confined to `yin.vm.linker.head.ws`. **Do not** refactor it into an abstract board-attacher now (premature abstraction). `dao.stream.remote` already anticipates UDP (`remote.cljc:992`).
+- **D2 — TCP (WebSocket) confirmed.** Free return-path proof, serves the ring with existing code, amends no contract. UDP deferred.
+- **D3 — bounds live in the transport layer** (ws-project/remote own the unbounded resources), and **liveness = inbound `dao.stream` cursor movement**, not TCP primitives — a live mirror answers every `next` even with `blocked`, so half-open is detectable without misclassifying a withholding source. Check sits behind the `head.ws` seam so the shell stays transport-blind. (One refinement of Fable's Item 5.)
+- **D4 — explicit advertised host** off loopback, mirroring `yin.repl.serve`'s existing wildcard rule; `--dht-advertise <ip>`.
+- **D5 — confirm S1→S2→S3→S4**, bounds landing on loopback before the gate lifts; D4 folds into S4, IPv6 brackets stay in S3.
+
+Note: the `/loop` that fired mid-turn was my own mis-tool-call, not something you started — this is a single-shot task, so I didn't arm a loop.
+
+To proceed, exit plan mode (approve the plan) and I'll write the findings file immediately — the content is ready.

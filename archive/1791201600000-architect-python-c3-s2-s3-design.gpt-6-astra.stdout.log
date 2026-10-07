@@ -1,0 +1,1514 @@
+OpenAI Codex v0.159.3
+--------
+[1mworkdir:[0m /Users/sto/workspace/datomworld
+[1mmodel:[0m gpt-6-astra
+[1mprovider:[0m openai
+[1mapproval:[0m on-request
+[1msandbox:[0m workspace-write [workdir, /tmp, $TMPDIR]
+[1mreasoning effort:[0m low
+[1mreasoning summaries:[0m none
+[1msession id:[0m 01a0f878-281b-7253-ac44-ff2402583d35
+--------
+[36muser[0m
+Read /Users/sto/workspace/datomworld/collab/1791201600000-architect-python-c3-s2-s3-design.prompt.md and complete it now. Read-only; your final response is the deliverable and must contain the complete rulings.
+[35m[3mcodex[0m[0m
+I’ll read the brief and referenced code, then provide the complete rulings here. I won’t edit files or run suites.
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc 'cat collab/1791201600000-architect-python-c3-s2-s3-design.prompt.md'[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+Created-GMT: 2026-10-05 18:10:00 GMT
+Coding-Agent: claude (fable-5-1, new session) and codex (gpt-6-astra, resume of thread 01a0f878-281b-7253-ac44-ff2402583d35), independently
+# Task: slice-ready design rulings for Python C3 S2 (literals and boundary integration) and S3 (integer operators)
+Role: Architect. Read-only; your final response IS the deliverable. Answer independently; be decisive; a survey is a failure.
+
+Repo /Users/sto/workspace/datomworld (master 21c5af8f). Landed: C3 S1 (exact-integer module, now version 2: limit breaches return :yin.vm.integer/bit-limit and /digit-limit as data), S5 keys/hash with S2b (content `is`, hex dict keys), S3a (py/int-result translator: MemoryError / ValueError). S0 (contract freeze) is in review in /Users/sto/workspace/datomworld-s0: read its fixture test/resources/yang/python/int-contract-v1.txt and test/yang/python/antlr/int_contract_{fixtures,test}.cljc there: S2 and S3 must reproduce those frozen values on every host.
+Read: docs/design/yang.antlr.md 8.5.4 (rulings 1 to 14, the slice table S0-S7, known limits) and 8.5.5; src/cljc/yin/vm/integer.cljc; src/cljc/yang/python/antlr/prelude.cljc (py/checked-add/sub/mul, py/ipow, py/int-floordiv, py/int-mod, bit ops, shifts, py/num, py/int-result, py/key, py/hash) and lower.cljc (integer literal lowering; the range fast path in py/range-at); collab/1791096045000-architect-python-c3-numeric-rulings.{claude-fable-5-1,gpt-6-astra}.findings.md (your earlier Q1-Q3 rulings and the slice order), collab/1791199800000-compiler-engineer-python-c3-s0.findings.md.
+
+Rule on, with exact code-facing deltas and a test list per slice:
+S2 (literals and boundary integration):
+ 1. The lowered form of an integer literal of any magnitude and spelling (decimal, 0x, 0o, 0b, underscores): what the lowering emits so that equal spellings give equal rows, bytes and addresses on JVM, Node and Dart (a native small int inline vs a bignum constant: can the Universal AST carry a bignum literal datum on every host, including JS BigInt, through canonical CBOR, or must it lower to a parse call; if a parse call, which radix). The known defect: a huge hex literal lowered through a canonical DECIMAL string hits ::max-digits where CPython exempts power-of-two radices: fix it here (a canonical power-of-two reconstruction spelling, with source-spelling limits enforced separately: say exactly which limit applies to which spelling, and what CPython 3.9.6 does).
+ 2. Malformed encodings refuse: what counts (non-canonical carrier, integral float where an int is required, out-of-contract widths) and where the refusal lives.
+ 3. What "boundary integration" must cover at the host boundary (values crossing into and out of the VM: stream values, FFI, print/repr of a bignum under the digit limit) and what is deferred to S4/S6.
+S3 (operators):
+ 4. The full operator table replacing py/checked-* and the [-2^53, 2^53] OverflowError: + - * // % divmod ** (non-negative exponent stays int; negative exponent gives float per ruling 10; 0 ** negative is ZeroDivisionError), unary - + ~, << >> & | ^ on negatives (two's-complement semantics over arbitrary precision), comparisons across int/bool/float (exact, no double rounding: which belongs to S3 vs S4), true division int/int -> float (correctly rounded for bignums: S3 or S4), augmented forms, bool as int. For each: the integer-module call, where py/int-result wraps it, and the guest exception on each failure.
+ 5. The FAST PATH: a prior change made long loops 6x slower until a guarded small-int fast path was added (see py/range-at). State the exact fast-path guard for add/sub/mul/compare so small-int arithmetic stays native on JVM, Node and Dart without ever wrapping, overflowing or rounding (JS safe-integer bound 2^53-1; JVM/Dart 2^63-1 but results must agree with JS on carrier choice per ruling 2), and how it stays correct at the boundaries the S0 fixture pins.
+ 6. Behavior change: programs that relied on OverflowError past 2^53 now get exact integers. List the existing tests/goldens that must change and say it is intended (ruling reference).
+ 7. Slicing: is S3 one engineer round or must it split (S3-add/sub/mul+compare, S3-div/mod/pow, S3-bitwise/shift)? Give the order and what each slice's golden re-mint covers.
+Also: anything S2/S3 need from the integer module that version 2 lacks (a new export means version 3: say so explicitly), and any S0 frozen value you believe is wrong.
+Output: one-line verdict per numbered item first, then the specifics. Begin the final response exactly with:
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS local-timezone-name>
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "cat collab/1791199800000-compiler-engineer-python-c3-s0.findings.md; cat /Users/sto/workspace/datomworld-s0/test/resources/yang/python/int-contract-v1.txt; rg -n 'def|integer/|literal|refus' /Users/sto/workspace/datomworld-s0/test/yang/python/antlr/int_contract_fixtures.cljc | tail -55; rg -n 'py/checked|py/int-result|py/ipow|py/range-at|py/int-floordiv|py/bit|py/lshift|py/rshift' src/cljc/yang/python/antlr/prelude.cljc; rg -n 'parse|BigInt|integer|radix' src/cljc/yang/python/antlr/lower.cljc | head -25; sed -n '405,450p' src/cljc/yin/vm/integer.cljc"[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+Completed-GMT: 2026-10-06
+Coding-Agent: claude (opus-5-5)
+# Python C3 slice S0: the exact-integer contracts, frozen as fixtures
+
+Status: done, green on the focused JVM namespaces. No git writes. No
+product code changed (src/ is byte-identical; `git diff --stat` shows only
+the doc line). Node and Dart were not run (iteration rule); see
+"Cross-host reasoning".
+
+## Files
+
+- NEW `test/resources/yang/python/int-contract-v1.txt` (306 lines). Written
+  by a one-off CPython 3.9.6 script kept out of the repo
+  (`build/s0/gen_int_contract.py`, gitignored). The script computes every
+  column from CPython and from the documented rules of `integer` v2 and
+  Jing's `int-wire`, independently of the Clojure code.
+- NEW `test/yang/python/antlr/int_contract_fixtures.cljc`, the loader. It
+  makes no writes. It holds the fixed value list, the profiles and the
+  boundary rows. Its `render` recomputes the whole file on the host from
+  the integer module and Jing. Its `read-file` drops blank lines.
+- NEW `test/yang/python/antlr/int_contract_test.cljc`, the tests.
+- `docs/design/yang.antlr.md`: the S0 row gains "Landed." Nothing else
+  changed.
+
+## The fixture
+
+Line format: `<name> <column> <text>`. Names use the expression language
+`[-]B[^K][(+|-)D]` with ordinary precedence, so `-2^63-1` is -(2^63)-1.
+`f:2^K` names a binary64.
+
+- Header:
+  - `int-contract-v1`
+  - `generator CPython 3.9.6`
+  - `profile wide max-bits 4096 max-digits 4300`
+  - `profile small max-bits 60 max-digits 5`
+- Integer values (31): 0, 1, -1, 2^31-1, 2^31, 2^31+1, 2^32. Then the
+  full neighbor set n-1, n, n+1, -n+1, -n, -n-1 for n = 2^53, 2^63 and
+  2^64, plus 2^62. Then 2^100, 10^30, 2^1074, 2^1075 and 2^2000.
+- Integer columns:
+  - `bits`
+  - `dec` (CPython `str`)
+  - `hex` (`format(n,'x')`)
+  - `hash` (CPython `hash`)
+  - `key` (S2b `py/key`: the numerator in hex, then `1`)
+  - `cbor` (canonical Jing bytes)
+  - `wide` and `small`: the outcome of each of `normalize`, `inc`,
+    `dec`, `square`, `format`, `format16`, plus `shl`, the largest
+    left-shift count that is still a value (`any` for 0, `none` when n
+    alone breaches).
+- Float values: `f:2^53` and `f:2^63`.
+- Float columns: `dec` (`int(x)`), `hash`, `key`, `cbor` (the float64
+  frame), `is-int false`, `eq-int true`.
+- 42 boundary rows, each `op <profile> <op> <args> <outcome>`, with the
+  first breach and the last fit on each side:
+  - shift-left of 1 and -1 by 4095/4096 (wide) and 59/60 (small)
+  - `mul` with the pre-check edge: (2^2048-1)^2 and 2^2048*(2^2048-1)
+    are values, 2^2048*2^2048 breaches
+  - `add`/`sub` to 2^4096
+  - `pow 2 4095/4096`
+  - `parse` 10^1233 (a value) / 10^1234 (bit-limit) / 10^4299
+    (bit-limit: digits pass, bits fail) / 10^4300 (digit-limit)
+  - `parse16` 2^4096-1 / 2^4096
+  - the small profile's 99999/100000 for `format` and `parse`, signed
+  - `format16` exempt from the digit limit
+
+Sample pins:
+- 2^53 encodes as `1b0020000000000000`.
+- 2^64-1 encodes as `1bffffffffffffffff`, and 2^64 as
+  `c249010000000000000000`.
+- -2^64 encodes as `3bffffffffffffffff`, and -2^64-1 as
+  `c349010000000000000000` (tag 3 over -1-n).
+- `hash(-1)` is -2. `hash(2^63)` is 4. `hash(10^30)` is
+  465258685558744706.
+
+## Tests (`yang.python.antlr.int-contract-test`)
+
+Fast tests (all hosts, no VM):
+1. `the-file-holds-exactly-the-rendered-text`: `(= (f/render)
+   (f/read-text))`. The rendered side is computed portably: dec/hex
+   through `integer/format`; the hash through ruling 7's formula on the
+   module (P = 2^61-1, -1 -> -2); bytes through `jing/canonical-bytes`;
+   outcomes by calling the module under each profile, with `shl` checked
+   at k and k+1; the floats through the host's own exact float->integer
+   conversion.
+2. `every-value-has-every-column`: the coverage test. It checks:
+   - each value has each column of its kind exactly once, and nothing
+     extra
+   - the neighbors of 2^53, 2^63 and 2^64 are present, signed
+   - every profile column names every op
+   - the boundary rows are exactly the declared ones
+   - the header (generator and profiles)
+3. `integer-rows-recompute-on-this-host` and
+   `float-rows-recompute-on-this-host`: per row and per column, each with
+   its own failure label.
+4. `text-round-trips-through-the-module`: `parse` of the frozen decimal
+   and hex text gives the frozen bytes.
+5. `canonical-widths-at-the-boundaries`: eight literal pins of the codec
+   widths: the last 64-bit head and the first tag 2 and tag 3, each
+   signed.
+6. `module-outcomes-under-the-named-profiles`: each per-value outcome.
+   `shift-left` at k is a value and at k+1 is `::bit-limit`. Every
+   boundary row is checked.
+
+Slow tests (`^:slow` plus `slow/guard`; about 8 s together on the JVM),
+parserless, on all four VMs:
+7. `guest-values-on-every-vm-test` (wide):
+   - The guest builds each value from small literals (`integer/pow`,
+     `neg`, `add`, `sub`) and returns its decimal and hex text,
+     `integer/format (py/hash n)`, `py/key` and the value itself. The
+     host compares these with the fixture, and the value through its
+     canonical bytes.
+   - For `f:2^53` and `f:2^63` the guest returns the hash, the key and
+     the float, whose bytes are compared, plus three checks:
+     - `py/is x n`: false
+     - `py/eq x n`: true
+     - `py/is` on n built twice: true
+   - This is (g), the S2b float `is` table for integer-valued floats.
+8. `guest-limit-reasons-on-every-vm-test` (wide and small): every frozen
+   outcome is run as a guest call through `py/int-result` inside
+   `py/try`:
+   - each per-value outcome, for the values that fit the profile
+   - both sides of the shift boundary
+   - every boundary row
+
+   Expected results: `value` gives `:value`; `bit-limit` gives
+   `["MemoryError"]`; `digit-limit` gives `["ValueError" {:py/str
+   "Exceeds the limit for integer string conversion"}]`. This is (f).
+
+JVM only (`#?(:cljd nil :clj ...)`):
+9. `cpython-recomputes-the-pinned-columns`: runs `python3 -c` and
+   compares `str`, hex, `hash` and the key text of every value. When
+   python3 is missing or is not exactly 3.9.6, it prints `SKIP ... the
+   CPython pins were NOT rechecked` with the exit code, version and
+   error. This was verified by renaming the binary to `python3-absent`.
+
+## Red before, green after, and mutations (JVM)
+
+- Red before the fixture existed: 10 tests, 535 errors.
+- Green: `yang.python.antlr.int-contract-test` ran 10 tests with 2447
+  assertions, 0 failures. python3 3.9.6 was present, so test 9 ran (no
+  SKIP).
+- Each mutation was applied once and then reverted. "Fixture" means the
+  file was regenerated afterwards.
+
+| Mutation | What failed |
+|---|---|
+| Fixture pin drift: `2^64 hash 8` -> `9` | render-equality, the row test, guest values on all 4 VMs, CPython (7 failures) |
+| Tag 3 over abs(n): `-2^64-1` cbor -> `...0001` | render-equality, the row test, the width pins, both round trips, guest bytes on 4 VMs (9 failures) |
+| Shift boundary: `op small shift-left 1 60` -> `value` | render-equality, module outcomes, guest mapping on 4 VMs (6 failures) |
+| Coordinated drift: the renderer drops the -1 -> -2 rule AND the fixture says `-1 hash -1` | render-equality and the row tests stay green. Guest values on 4 VMs and the CPython check fail (5 failures). This is why the pins cannot drift silently. |
+| Module off-by-one: `integer/out` `>` -> `>=` (src, reverted) | 166 failures across render-equality, rows, module outcomes and guest mapping |
+| Blank lines: two empty lines appended to the fixture | only `the-file-holds-exactly-the-rendered-text` fails; every `read-file` test stays green, so the loader ignores blank lines |
+
+## Untouched canonical fixtures
+
+- `git status`: under `test/resources` the only new path is
+  `yang/python/int-contract-v1.txt`. Nothing under `dao/` or `yin/`
+  changed, and src/ is unchanged.
+- Green: `clojure -M:test -n yang.python.antlr.int-contract-test -n
+  dao.jing.cbor-conformance-test -n dao.jing.cbor-test -n
+  yang.python.antlr.float-address-test -n yin.vm.integer-test` ran 74
+  tests with 3368 assertions, 0 failures. The five conformance SKIPs are
+  the existing errata E1 and README N/A rows.
+- Green: `dao.jing.cbor-fixtures-test` ran 14 tests with 2705
+  assertions, 0 failures.
+- `bb test:changed:list` selects `dao.jing.cbor-conformance-test` and
+  `yang.python.antlr.int-contract-test` on all three lanes.
+
+## Checks
+
+- kondo: 0 errors and 0 warnings on both new files. Two shadowing
+  warnings (`ints`, `floats`) were fixed by renaming them to
+  `int-names` and `float-names`.
+- `mise exec -- cljstyle fix` (one file reformatted), then `check`: clean.
+- ASCII only. Code lines are at most 80 columns. The fixture's data lines
+  are longer (the 2^2000 decimal, as the ledger and checkpoint fixtures'
+  hex lines are).
+
+## Findings and deviations
+
+1. No cross-host defect was found on the JVM. Every CPython column
+   agrees with the module, the codec and the guest on all four VMs.
+2. A JVM conversion trap for S4 (`int(float)`). Fixed in my helper; no
+   product code has this path yet. `clojure.core/bigint` of a double goes
+   through `BigDecimal/valueOf`, which uses the shortest decimal text, so
+   `(bigint 9.223372036854775807E18)` is 9223372036854776000, not 2^63.
+   My first render produced `f:2^63 dec 9223372036854776000 / hash 196`,
+   and the CPython fixture caught it. The helper now uses `(bigint
+   (BigDecimal. (double x)))`, which is exact. S4's JVM shim must not use
+   `bigint` or `biginteger` of a double.
+3. The profile. The brief says "max-bits 4096 ... as in the existing
+   parity runners", but those runners use max-bits 100000 (prelude
+   parity, float address, safepoint, e2e). I froze the brief's stated
+   4096/4300, named `wide`. It admits the 1075-bit float-key minimum and
+   keeps the boundary values small.
+4. Hash. As asked, the hash is pinned as data, and the JVM-only CPython
+   recheck exists. I ALSO render it portably through ruling 7's formula
+   over the module, and check the guest `py/hash` on all four VMs, so
+   the hash column is recomputed on every host as well.
+5. The `small` profile's per-value columns are trivially `bit-limit` for
+   everything above 60 bits. Its real boundaries are in the boundary rows
+   and in the 2^31 to 2^53 rows. That is inherent in the 60/5 profile the
+   brief fixed.
+6. `py/try`'s third argument is Python's `else` arm. My first `caught`
+   returned `:py/None` on success (S3a's helper does the same). The S0
+   copy returns `:value` from `else`.
+
+## Cross-host reasoning (Node, Dart not run)
+
+- Every JS/Dart comparison goes through module text (`format`), module
+  `compare`, or canonical bytes. There is no host `=` across carriers.
+  The guest-returned values are compared through `jing/canonical-bytes`
+  on the host that ran them.
+- There are no integral float literals. Floats are built by exact
+  doubling (`(reduce * 0.5 (repeat (inc k) 2))`) and, in the guest, by
+  `(* (data/float-value 1) 4294967296 ...)`, as the S2b rows are. The
+  float->integer conversion is `#?(:cljd (BigInt.from x) :clj ...
+  :cljs (js/BigInt x))` with `:cljd` first, and `BigInt` is imported
+  from `dart:core` as in `cbor_fixtures.cljc`.
+- The JVM-only forms are `#?(:cljd nil :clj ...)`, and the shell require
+  is `#?@(:cljd [] :clj [...])`. Neither namespace writes a file.
+- `read-file` drops blank lines, which covers Dart's trailing empty
+  line. Render-equality compares whole texts, as `checkpoint_test` does.
+- The guest tests are slow-guarded, so a plain `bb test:changed` runs
+  only the eight fast tests on Node and Dart; the guest legs print SKIP
+  there. To run (f) and (g) on Node and Dart, use
+  `DATOM_SLOW_TESTS=1` (the `bb test:slow:cljs` / `:cljd` lanes).
+
+## Leftovers outside the repo
+
+`build/s0/` (gitignored) holds the generator, `mutate.py`, an unused
+`mutations.sh` and the run logs. Regenerate the fixture with
+`python3 build/s0/gen_int_contract.py` from the repo root. It asserts
+CPython 3.9.6. If the generator should be kept with the fixture, as
+`cbor-v1.generate.py` is, that is a one-file move.
+int-contract-v1
+generator CPython 3.9.6
+profile wide max-bits 4096 max-digits 4300
+profile small max-bits 60 max-digits 5
+0 bits 0
+0 dec 0
+0 hex 0
+0 hash 0
+0 key 0 1
+0 cbor 00
+0 wide normalize=value inc=value dec=value square=value format=value format16=value shl=any
+0 small normalize=value inc=value dec=value square=value format=value format16=value shl=any
+1 bits 1
+1 dec 1
+1 hex 1
+1 hash 1
+1 key 1 1
+1 cbor 01
+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4095
+1 small normalize=value inc=value dec=value square=value format=value format16=value shl=59
+-1 bits 1
+-1 dec -1
+-1 hex -1
+-1 hash -2
+-1 key -1 1
+-1 cbor 20
+-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4095
+-1 small normalize=value inc=value dec=value square=value format=value format16=value shl=59
+2^31-1 bits 31
+2^31-1 dec 2147483647
+2^31-1 hex 7fffffff
+2^31-1 hash 2147483647
+2^31-1 key 7fffffff 1
+2^31-1 cbor 1a7fffffff
+2^31-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4065
+2^31-1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=29
+2^31 bits 32
+2^31 dec 2147483648
+2^31 hex 80000000
+2^31 hash 2147483648
+2^31 key 80000000 1
+2^31 cbor 1a80000000
+2^31 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4064
+2^31 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=28
+2^31+1 bits 32
+2^31+1 dec 2147483649
+2^31+1 hex 80000001
+2^31+1 hash 2147483649
+2^31+1 key 80000001 1
+2^31+1 cbor 1a80000001
+2^31+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4064
+2^31+1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=28
+2^32 bits 33
+2^32 dec 4294967296
+2^32 hex 100000000
+2^32 hash 4294967296
+2^32 key 100000000 1
+2^32 cbor 1b0000000100000000
+2^32 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4063
+2^32 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=27
+2^53-1 bits 53
+2^53-1 dec 9007199254740991
+2^53-1 hex 1fffffffffffff
+2^53-1 hash 9007199254740991
+2^53-1 key 1fffffffffffff 1
+2^53-1 cbor 1b001fffffffffffff
+2^53-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4043
+2^53-1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=7
+2^53 bits 54
+2^53 dec 9007199254740992
+2^53 hex 20000000000000
+2^53 hash 9007199254740992
+2^53 key 20000000000000 1
+2^53 cbor 1b0020000000000000
+2^53 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4042
+2^53 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=6
+2^53+1 bits 54
+2^53+1 dec 9007199254740993
+2^53+1 hex 20000000000001
+2^53+1 hash 9007199254740993
+2^53+1 key 20000000000001 1
+2^53+1 cbor 1b0020000000000001
+2^53+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4042
+2^53+1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=6
+-2^53+1 bits 53
+-2^53+1 dec -9007199254740991
+-2^53+1 hex -1fffffffffffff
+-2^53+1 hash -9007199254740991
+-2^53+1 key -1fffffffffffff 1
+-2^53+1 cbor 3b001ffffffffffffe
+-2^53+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4043
+-2^53+1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=7
+-2^53 bits 54
+-2^53 dec -9007199254740992
+-2^53 hex -20000000000000
+-2^53 hash -9007199254740992
+-2^53 key -20000000000000 1
+-2^53 cbor 3b001fffffffffffff
+-2^53 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4042
+-2^53 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=6
+-2^53-1 bits 54
+-2^53-1 dec -9007199254740993
+-2^53-1 hex -20000000000001
+-2^53-1 hash -9007199254740993
+-2^53-1 key -20000000000001 1
+-2^53-1 cbor 3b0020000000000000
+-2^53-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4042
+-2^53-1 small normalize=value inc=value dec=value square=bit-limit format=digit-limit format16=value shl=6
+2^62 bits 63
+2^62 dec 4611686018427387904
+2^62 hex 4000000000000000
+2^62 hash 2
+2^62 key 4000000000000000 1
+2^62 cbor 1b4000000000000000
+2^62 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4033
+2^62 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^63-1 bits 63
+2^63-1 dec 9223372036854775807
+2^63-1 hex 7fffffffffffffff
+2^63-1 hash 3
+2^63-1 key 7fffffffffffffff 1
+2^63-1 cbor 1b7fffffffffffffff
+2^63-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4033
+2^63-1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^63 bits 64
+2^63 dec 9223372036854775808
+2^63 hex 8000000000000000
+2^63 hash 4
+2^63 key 8000000000000000 1
+2^63 cbor 1b8000000000000000
+2^63 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+2^63 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^63+1 bits 64
+2^63+1 dec 9223372036854775809
+2^63+1 hex 8000000000000001
+2^63+1 hash 5
+2^63+1 key 8000000000000001 1
+2^63+1 cbor 1b8000000000000001
+2^63+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+2^63+1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^63+1 bits 63
+-2^63+1 dec -9223372036854775807
+-2^63+1 hex -7fffffffffffffff
+-2^63+1 hash -3
+-2^63+1 key -7fffffffffffffff 1
+-2^63+1 cbor 3b7ffffffffffffffe
+-2^63+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4033
+-2^63+1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^63 bits 64
+-2^63 dec -9223372036854775808
+-2^63 hex -8000000000000000
+-2^63 hash -4
+-2^63 key -8000000000000000 1
+-2^63 cbor 3b7fffffffffffffff
+-2^63 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+-2^63 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^63-1 bits 64
+-2^63-1 dec -9223372036854775809
+-2^63-1 hex -8000000000000001
+-2^63-1 hash -5
+-2^63-1 key -8000000000000001 1
+-2^63-1 cbor 3b8000000000000000
+-2^63-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+-2^63-1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^64-1 bits 64
+2^64-1 dec 18446744073709551615
+2^64-1 hex ffffffffffffffff
+2^64-1 hash 7
+2^64-1 key ffffffffffffffff 1
+2^64-1 cbor 1bffffffffffffffff
+2^64-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+2^64-1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^64 bits 65
+2^64 dec 18446744073709551616
+2^64 hex 10000000000000000
+2^64 hash 8
+2^64 key 10000000000000000 1
+2^64 cbor c249010000000000000000
+2^64 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4031
+2^64 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^64+1 bits 65
+2^64+1 dec 18446744073709551617
+2^64+1 hex 10000000000000001
+2^64+1 hash 9
+2^64+1 key 10000000000000001 1
+2^64+1 cbor c249010000000000000001
+2^64+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4031
+2^64+1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^64+1 bits 64
+-2^64+1 dec -18446744073709551615
+-2^64+1 hex -ffffffffffffffff
+-2^64+1 hash -7
+-2^64+1 key -ffffffffffffffff 1
+-2^64+1 cbor 3bfffffffffffffffe
+-2^64+1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4032
+-2^64+1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^64 bits 65
+-2^64 dec -18446744073709551616
+-2^64 hex -10000000000000000
+-2^64 hash -8
+-2^64 key -10000000000000000 1
+-2^64 cbor 3bffffffffffffffff
+-2^64 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4031
+-2^64 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+-2^64-1 bits 65
+-2^64-1 dec -18446744073709551617
+-2^64-1 hex -10000000000000001
+-2^64-1 hash -9
+-2^64-1 key -10000000000000001 1
+-2^64-1 cbor c349010000000000000000
+-2^64-1 wide normalize=value inc=value dec=value square=value format=value format16=value shl=4031
+-2^64-1 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^100 bits 101
+2^100 dec 1267650600228229401496703205376
+2^100 hex 10000000000000000000000000
+2^100 hash 549755813888
+2^100 key 10000000000000000000000000 1
+2^100 cbor c24d10000000000000000000000000
+2^100 wide normalize=value inc=value dec=value square=value format=value format16=value shl=3995
+2^100 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+10^30 bits 100
+10^30 dec 1000000000000000000000000000000
+10^30 hex c9f2c9cd04674edea40000000
+10^30 hash 465258685558744706
+10^30 key c9f2c9cd04674edea40000000 1
+10^30 cbor c24d0c9f2c9cd04674edea40000000
+10^30 wide normalize=value inc=value dec=value square=value format=value format16=value shl=3996
+10^30 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^1074 bits 1075
+2^1074 dec 202402253307310618352495346718917307049556649764142118356901358027430339567995346891960383701437124495187077864316811911389808737385793476867013399940738509921517424276566361364466907742093216341239767678472745068562007483424692698618103355649159556340810056512358769552333414615230502532186327508646006263307707741093494784
+2^1074 hex 40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^1074 hash 137438953472
+2^1074 key 40000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 1
+2^1074 cbor c25887040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^1074 wide normalize=value inc=value dec=value square=value format=value format16=value shl=3021
+2^1074 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^1075 bits 1076
+2^1075 dec 404804506614621236704990693437834614099113299528284236713802716054860679135990693783920767402874248990374155728633623822779617474771586953734026799881477019843034848553132722728933815484186432682479535356945490137124014966849385397236206711298319112681620113024717539104666829230461005064372655017292012526615415482186989568
+2^1075 hex 80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^1075 hash 274877906944
+2^1075 key 80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 1
+2^1075 cbor c25887080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^1075 wide normalize=value inc=value dec=value square=value format=value format16=value shl=3020
+2^1075 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+2^2000 bits 2001
+2^2000 dec 114813069527425452423283320117768198402231770208869520047764273682576626139237031385665948631650626991844596463898746277344711896086305533142593135616665318539129989145312280000688779148240044871428926990063486244781615463646388363947317026040466353970904996558162398808944629605623311649536164221970332681344168908984458505602379484807914058900934776500429002716706625830522008132236281291761267883317206598995396418127021779858404042159853183251540889433902091920554957783589672039160081957216630582755380425583726015528348786419432054508915275783882625175435528800822842770817965453762184851149029376
+2^2000 hex 100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^2000 hash 281474976710656
+2^2000 key 100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 1
+2^2000 cbor c258fb0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+2^2000 wide normalize=value inc=value dec=value square=value format=value format16=value shl=2095
+2^2000 small normalize=bit-limit inc=bit-limit dec=bit-limit square=bit-limit format=digit-limit format16=value shl=none
+f:2^53 dec 9007199254740992
+f:2^53 hash 9007199254740992
+f:2^53 key 20000000000000 1
+f:2^53 cbor d81b827064616f2e6a696e672f666c6f61743634484340000000000000
+f:2^53 is-int false
+f:2^53 eq-int true
+f:2^63 dec 9223372036854775808
+f:2^63 hash 4
+f:2^63 key 8000000000000000 1
+f:2^63 cbor d81b827064616f2e6a696e672f666c6f617436344843e0000000000000
+f:2^63 is-int false
+f:2^63 eq-int true
+op wide shift-left 1 4095 value
+op wide shift-left 1 4096 bit-limit
+op wide shift-left -1 4095 value
+op wide shift-left -1 4096 bit-limit
+op wide mul 2^2048-1 2^2048-1 value
+op wide mul 2^2048 2^2048-1 value
+op wide mul 2^2048 2^2048 bit-limit
+op wide mul 2^4095 -2 bit-limit
+op wide add 2^4095 2^4095-1 value
+op wide add 2^4096-1 1 bit-limit
+op wide sub -2^4096+1 1 bit-limit
+op wide pow 2 4095 value
+op wide pow 2 4096 bit-limit
+op wide format 2^4096-1 value
+op wide format16 2^4096-1 value
+op wide parse 10^1233 value
+op wide parse 10^1234 bit-limit
+op wide parse 10^4299 bit-limit
+op wide parse 10^4300 digit-limit
+op wide parse16 2^4096-1 value
+op wide parse16 2^4096 bit-limit
+op small shift-left 1 59 value
+op small shift-left 1 60 bit-limit
+op small shift-left -1 59 value
+op small shift-left -1 60 bit-limit
+op small mul 2^30-1 2^30-1 value
+op small mul 2^30 2^30-1 value
+op small mul 2^30 2^30 bit-limit
+op small add 2^59 2^59-1 value
+op small add 2^60-1 1 bit-limit
+op small sub -2^60+1 1 bit-limit
+op small pow 2 59 value
+op small pow 2 60 bit-limit
+op small format 99999 value
+op small format 100000 digit-limit
+op small format -99999 value
+op small format -100000 digit-limit
+op small format16 2^60-1 value
+op small parse 99999 value
+op small parse 100000 digit-limit
+op small parse16 2^60-1 value
+op small parse16 2^60 bit-limit
+23:      :default [(:require [clojure.string :as str]
+30:(def path
+35:(def generator
+40:(def profiles
+47:(def int-names
+56:(def float-names
+61:(def int-columns ["bits" "dec" "hex" "hash" "key" "cbor" "wide" "small"])
+64:(def float-columns ["dec" "hash" "key" "cbor" "is-int" "eq-int"])
+67:(def outcome-ops
+72:(def ops
+122:(defn module
+125:  (integer/integer-module {::integer/max-bits max-bits,
+126:                           ::integer/max-digits max-digits}))
+129:(def ^:private build
+134:(defn call
+140:(defn max-bits
+146:(def ^:private profile-modules
+150:(defn profile-module
+156:(defn parse-name
+167:(defn value
+180:(defn float-exponent
+190:(defn float-value
+196:(defn float->integer
+212:(defn bits
+217:(defn dec-text
+222:(defn hex-text
+227:(def ^:private modulus
+232:(defn hash-text
+244:(defn cbor-hex
+250:(defn outcome
+256:(defn shl-max
+273:(defn outcomes
+287:(defn op-result
+302:(defn int-rows
+316:(defn float-rows
+331:(defn render
+356:(defn read-text
+362:(defn read-file
+384:(defn column
+390:(defn parse-outcomes
+114:   not a result, and `py/int-result` wraps every call that can breach:
+933:    [py/checked-add
+942:    [py/checked-sub (fn [a b] (py/checked-add a (- 0 b)))]
+943:    [py/checked-mul
+965:                 (py/checked-add x y)
+966:                 (if (= op :sub) (py/checked-sub x y) (py/checked-mul x y)))))
+1052:    [py/int-floordiv
+1157:             (py/int-floordiv (py/num a) (py/num b))
+1168:    [py/ipow
+1173:         (let [h (py/ipow base (py/int-floordiv e 2))
+1174:               hh (py/checked-mul h h)]
+1175:           (if (= (py/int-mod e 2) 0) hh (py/checked-mul hh base)))))]
+1181:         (let [h (py/fpow base (py/int-floordiv e 2))
+1202:                   (py/ipow x e))))))
+1204:    [py/bit1
+1209:    [py/bit-op
+1214:         (- 0 (py/bit1 op (if (= a -1) 1 0) (if (= b -1) 1 0)))
+1215:         (py/checked-add (py/bit1 op (py/int-mod a 2) (py/int-mod b 2))
+1216:                         (py/checked-mul 2 (py/bit-op op (py/int-floordiv a 2)
+1217:                                                      (py/int-floordiv b 2))))))]
+1221:         (py/bit-op op (py/num a) (py/num b))
+1223:    [py/bitand (fn [a b] (py/int-op :and a b))]
+1224:    [py/bitor (fn [a b] (py/int-op :or a b))]
+1225:    [py/bitxor (fn [a b] (py/int-op :xor a b))]
+1229:         (py/checked-sub (- 0 (py/num a)) 1)
+1238:    [py/lshift
+1241:           (if (= (py/num a) 0) 0 (py/checked-mul (py/num a) (py/ipow 2 (py/num n))))))]
+1242:    [py/rshift
+1248:             (py/int-floordiv (py/num a) (py/ipow 2 (py/num n))))))]
+1412:    [py/int-result
+1472:           (py/conj (py/conj [] (py/int-result (integer/neg (get p 0))))
+1493:                 (py/int-result (integer/format m 16))
+1494:                 (py/int-result
+1496:                     (py/int-result (integer/shift-left 1 (- 0 e)))
+1499:                 (py/int-result
+1500:                   (integer/format (py/int-result (integer/shift-left m e))
+1519:             (py/int-result (integer/format (py/int-canon (py/num k)) 16))
+1543:       (py/int-result
+1544:         (integer/sub (py/int-result (integer/shift-left 1 61)) 1)))]
+1547:       (get (py/int-result (integer/floor-div-mod n (py/hash-modulus))) 1))]
+1553:         (let [v (py/int-result (integer/neg h))] (if (= v -1) -2 v))
+1560:                                     (py/int-result (integer/neg n))
+1573:             k (get (py/int-result (integer/floor-div-mod (get p 1) 61)) 1)]
+1577:             (py/int-result
+1578:               (integer/mul (if (< s 0) (py/int-result (integer/neg m)) m)
+1579:                            (py/int-result (integer/shift-left 1 k))))))))]
+1797:           (py/checked-add (py/checked-sub (py/int-floordiv stop step)
+1798:                                           (py/int-floordiv start step))
+1803:             (py/checked-add (py/checked-sub (py/int-floordiv start m)
+1804:                                             (py/int-floordiv stop m))
+1817:           (py/range-elem start (+ step step) (py/int-floordiv i 2)))))]
+1818:    [py/range-at
+1862:           (py/range-at it i)
+2148:   ;; an integer past the composition's bit limit (`py/int-result`)
+254:  "2^53: the prelude's integer range is [-2^53, 2^53], exact on every host."
+258:(defn- parse-radix
+259:  [n digits radix]
+262:              (when (or (nil? d) (>= d radix))
+264:              (let [x (+ (* acc radix) d)]
+266:                  (unsupported! n "integer literal beyond 2^53"))
+272:(defn- parse-number
+278:      (str/starts-with? lower "0x") (parse-radix n (subs t 2) 16)
+279:      (str/starts-with? lower "0o") (parse-radix n (subs t 2) 8)
+280:      (str/starts-with? lower "0b") (parse-radix n (subs t 2) 2)
+283:      ;; bare 2.0 would be the integer 2 and change the row's address
+285:                                        #?(:cljd (double/parse t)
+286:                                           :clj (Double/parseDouble t)
+287:                                           :cljs (js/parseFloat t)))}
+290:      (syntax! n (str "leading zeros in decimal integer literals are not "
+291:                      "permitted; use an 0o prefix for octal integers"))
+292:      :else (parse-radix n t 10))))
+306:  (let [cp (parse-radix n s 16)]
+344:                         (conj out (code-point->str (parse-radix n digits 8)))))
+349:(defn- parse-string
+540:      (= "NUMBER" (:type head)) (u/lit (parse-number n (:text head)))
+542:      (u/lit {:py/str (apply str (map #(parse-string n (:text %)) ks))})
+(defn- int-normalize
+  [limits a]
+  (out limits (big! 'normalize 0 a)))
+
+
+;; =============================================================================
+;; The module
+;; =============================================================================
+
+(def ^:private exports
+  "`[name arities kernel]` of every export. Each kernel takes the
+   composition's limits first."
+  [['integer? [1] int-integer?]
+   ['normalize [1] int-normalize]
+   ['add [2] int-add]
+   ['sub [2] int-sub]
+   ['neg [1] int-neg]
+   ['mul [2] int-mul]
+   ['compare [2] int-compare]
+   ['quot-rem [2] int-quot-rem]
+   ['floor-div-mod [2] int-floor-div-mod]
+   ['pow [2] int-pow]
+   ['bit-and [2] int-bit-and]
+   ['bit-or [2] int-bit-or]
+   ['bit-xor [2] int-bit-xor]
+   ['bit-not [1] int-bit-not]
+   ['shift-left [2] int-shift-left]
+   ['shift-right [2] int-shift-right]
+   ['bit-length [1] int-bit-length]
+   ['parse [1 2] int-parse]
+   ['format [1 2] int-format]])
+
+
+(defn- arity-checked
+  "`f` refusing, as data, a call whose argument count `arities` does not
+   admit, so a wrong count never reaches a host arity exception."
+  [op arities f]
+  (let [fixed (set arities)]
+    (fn [& args]
+      (let [n (count args)]
+        (when-not (contains? fixed n)
+          (refuse! op :arity {::argc n}))
+        (apply f args)))))
+
+
+(defn- check-limits!
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "sed -n '925,955p' src/cljc/yang/python/antlr/prelude.cljc; sed -n '1183,1204p' src/cljc/yang/python/antlr/prelude.cljc; sed -n '1412,1430p' src/cljc/yang/python/antlr/prelude.cljc; sed -n '1818,1847p' src/cljc/yang/python/antlr/prelude.cljc; sed -n '250,273p' src/cljc/yang/python/antlr/lower.cljc; rg -n 'Known limits|source literal|version 2|Integer "'`is`|radix'"' docs/design/yang.antlr.md | head -18; tail -38 collab/1791199800000-compiler-engineer-python-c3-s0.findings.md; rg -n 'deftest|overflow|beyond 2' test/yang/python/antlr/{e2e_c1_test.clj,lower_test.clj,prelude_parity_test.cljc} | tail -28; cat collab/1791096045000-architect-python-c3-numeric-rulings.gpt-6-astra.findings.md | tail -18; cat collab/1791096045000-architect-python-c3-numeric-rulings.claude-fable-5-1.findings.md | tail -25"[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+    ;; every literal here is hashed by dao.jing.cbor when the program is
+    ;; projected to rows, and on JS a hashed integer must be a safe integer
+    ;; (|n| <= 2^53 - 1). 2^52 is safe, and the product is exactly 2^53 on
+    ;; every host.
+    [py/overflow
+     (fn []
+       (py/raise-new py.b/OverflowError
+                     {:py/str "integer result outside the supported range (2**53)"}))]
+    [py/checked-add
+     (fn [a b]
+       (if (< 0 a)
+         (if (< 0 b)
+           (if (< (- (* 2 4503599627370496) b) a) (py/overflow) (+ a b))
+           (+ a b))
+         (if (< b 0)
+           (if (< a (- (* -2 4503599627370496) b)) (py/overflow) (+ a b))
+           (+ a b))))]
+    [py/checked-sub (fn [a b] (py/checked-add a (- 0 b)))]
+    [py/checked-mul
+     ;; |a * b| <= 2^53 exactly when |b| <= floor(2^53 / |a|)
+     (fn [a b]
+       (let [x (py/abs a)
+             y (py/abs b)]
+         (if (if (< x 67108864) (< y 67108864) false)
+           (* a b)
+           (if (= x 0)
+             0
+             (if (< (get (py/divmod-pos (* 2 4503599627370496) x) 0) y)
+               (py/overflow)
+               (* a b))))))]
+    [py/arith
+           (if (= (py/int-mod e 2) 0) hh (* hh base)))))]
+    [py/pow
+     (fn [a b]
+       (if (if (py/numeric? a) (py/numeric? b) false)
+         (let [x (py/num a)
+               y (py/num b)
+               floaty (if (py/float? a) true (py/float? b))]
+           (if (if (py/float? b) (< (py/floor y) y) false)
+             (py/raise-new py.b/NotImplementedError
+                           {:py/str "non-integer exponents are not supported"})
+             (let [e (if (py/float? b) (py/floor y) y)]
+               (if (< e 0)
+                 (if (py/zero? a)
+                   (py/raise-new py.b/ZeroDivisionError
+                                 {:py/str "0.0 cannot be raised to a negative power"})
+                   (py/float (/ (data/float-value 1)
+                                (py/fpow (data/float-value x) (- 0 e)))))
+                 (if floaty
+                   (py/float (py/fpow (data/float-value x) e))
+                   (py/ipow x e))))))
+         (py/type-error {:py/str "unsupported operand type for **"})))]
+    [py/bit1
+    [py/int-result
+     (fn [r]
+       (if (= r :yin.vm.integer/bit-limit)
+         ;; CPython raises a bare MemoryError(): no args
+         (py/raise (let [e (py/make-instance py.b/MemoryError)]
+                     (do (py/setattr e "args" (py/tuple [])) e)))
+         (if (= r :yin.vm.integer/digit-limit)
+           (py/raise-new py.b/ValueError
+                         (py/str (data/str-concat
+                                   "Exceeds the limit for integer string "
+                                   "conversion")))
+           (if (py/int-refusal? r) (:py/int-defect r) r))))]
+    [py/int-refusal?
+     (fn [r]
+       (if (= r :yin.vm.integer/arity)
+         true
+         (if (= r :yin.vm.integer/wrong-type)
+           true
+           (if (= r :yin.vm.integer/out-of-range)
+    [py/range-at
+     ;; with 0 <= i <= 2^26, |step| <= 2^26 and |start| <= 2^52, |i * step|
+     ;; <= 2^52 and start + i * step is within +-2^53, exact on every host
+     ;; in O(1), the one-past element included; otherwise a valid element
+     ;; is exact through range-elem, and the one-past element may exceed
+     ;; 2^53 on JS, but its true value is beyond stop and rounding is
+     ;; monotone, so the bound test still ends the range exactly there
+     (fn [r i]
+       (let [start (get r :start)
+             step (get r :step)
+             x (if (if (<= 0 i)
+                     (if (<= i 67108864)
+                       (if (<= -67108864 step)
+                         (if (<= step 67108864)
+                           (if (<= -4503599627370496 start) (<= start 4503599627370496) false)
+                           false)
+                         false)
+                       false)
+                     false)
+                 (+ start (* i step))
+                 (py/range-elem start step i))]
+         (if (if (< 0 step) (< x (get r :stop)) (> x (get r :stop)))
+           x
+           :py/stop)))]
+    [py/range-len
+     ;; O(1); a length beyond 2^53 is an OverflowError: CPython's limit is
+     ;; sys.maxsize, 2^53 is this profile's integer domain
+     (fn [r _i] (py/range-count (get r :start) (get r :stop) (get r :step)))]
+    [py/iter-at
+     (fn [it i]
+;; Literals
+;; =============================================================================
+
+(def ^:private max-exact-int
+  "2^53: the prelude's integer range is [-2^53, 2^53], exact on every host."
+  9007199254740992)
+
+
+(defn- parse-radix
+  [n digits radix]
+  (reduce (fn [acc ch]
+            (let [d (str/index-of "0123456789abcdef" (str/lower-case (str ch)))]
+              (when (or (nil? d) (>= d radix))
+                (unsupported! n "number literal"))
+              (let [x (+ (* acc radix) d)]
+                (when (> x max-exact-int)
+                  (unsupported! n "integer literal beyond 2^53"))
+                x)))
+          0
+          digits))
+
+
+(defn- parse-number
+  [n text]
+2039:- A source literal within +/-(2^53-1) stays a native `:literal`. A
+2085:| Parsing syntax, bases, underscores,  | Exact digit accumulation and radix    |
+2148:power-of-two radix is exempt from `::max-digits`.
+2173:- Known limits. Keys are hex, so the digit limit never applies to
+2240:| S3a    | Limit reasons as guest exceptions: `integer` version 2 returns      |
+2320:> image, including source literals, prelude constants, nested Python
+   over the module, and check the guest `py/hash` on all four VMs, so
+   the hash column is recomputed on every host as well.
+5. The `small` profile's per-value columns are trivially `bit-limit` for
+   everything above 60 bits. Its real boundaries are in the boundary rows
+   and in the 2^31 to 2^53 rows. That is inherent in the 60/5 profile the
+   brief fixed.
+6. `py/try`'s third argument is Python's `else` arm. My first `caught`
+   returned `:py/None` on success (S3a's helper does the same). The S0
+   copy returns `:value` from `else`.
+
+## Cross-host reasoning (Node, Dart not run)
+
+- Every JS/Dart comparison goes through module text (`format`), module
+  `compare`, or canonical bytes. There is no host `=` across carriers.
+  The guest-returned values are compared through `jing/canonical-bytes`
+  on the host that ran them.
+- There are no integral float literals. Floats are built by exact
+  doubling (`(reduce * 0.5 (repeat (inc k) 2))`) and, in the guest, by
+  `(* (data/float-value 1) 4294967296 ...)`, as the S2b rows are. The
+  float->integer conversion is `#?(:cljd (BigInt.from x) :clj ...
+  :cljs (js/BigInt x))` with `:cljd` first, and `BigInt` is imported
+  from `dart:core` as in `cbor_fixtures.cljc`.
+- The JVM-only forms are `#?(:cljd nil :clj ...)`, and the shell require
+  is `#?@(:cljd [] :clj [...])`. Neither namespace writes a file.
+- `read-file` drops blank lines, which covers Dart's trailing empty
+  line. Render-equality compares whole texts, as `checkpoint_test` does.
+- The guest tests are slow-guarded, so a plain `bb test:changed` runs
+  only the eight fast tests on Node and Dart; the guest legs print SKIP
+  there. To run (f) and (g) on Node and Dart, use
+  `DATOM_SLOW_TESTS=1` (the `bb test:slow:cljs` / `:cljd` lanes).
+
+## Leftovers outside the repo
+
+`build/s0/` (gitignored) holds the generator, `mutate.py`, an unused
+`mutations.sh` and the run logs. Regenerate the fixture with
+`python3 build/s0/gen_int_contract.py` from the repo root. It asserts
+CPython 3.9.6. If the generator should be kept with the fixture, as
+`cbor-v1.generate.py` is, that is a one-file move.
+test/yang/python/antlr/prelude_parity_test.cljc:236:(deftest ^:slow prelude-semantics-on-every-vm-test
+test/yang/python/antlr/prelude_parity_test.cljc:270:(deftest ^:slow range-fast-path-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:295:(deftest printed-floats-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:300:(deftest escapes-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:337:(deftest generator-switch-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:342:(deftest generator-throw-and-close-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:425:(deftest generator-throw-non-exception-class-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:430:(deftest yield-from-and-iter-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:561:(deftest delegation-stop-and-sticky-dict-iterator-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:653:(deftest delegation-chain-callers-and-unwinding-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:726:(deftest generator-expression-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:762:(deftest generator-expression-admission-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:776:                              (fn [e] (cell/set! r {:py/str "overflow"}))
+test/yang/python/antlr/prelude_parity_test.cljc:798:          (is (= {:py/out ["9007199254740992 overflow overflow overflow overflow overflow"],
+test/yang/python/antlr/prelude_parity_test.cljc:803:(deftest integer-bound-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:944:(deftest ^:slow numeric-keys-hash-and-is-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1025:(deftest ^:slow float-is-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1111:(deftest ^:slow big-integer-keys-past-the-digit-limit-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1181:(deftest ^:slow int-limits-are-catchable-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1222:(deftest ^:slow failed-key-normalization-leaves-containers-unchanged-test
+test/yang/python/antlr/prelude_parity_test.cljc:1249:(deftest ^:slow int-defects-stay-host-failures-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1254:(deftest numeric-dict-keys-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1368:(deftest preserved-key-arms-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1373:(deftest nan-keys-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1456:(deftest unhashable-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1497:(deftest signed-zero-floats-on-every-host-test
+test/yang/python/antlr/prelude_parity_test.cljc:1502:(deftest render-test
+test/yang/python/antlr/prelude_parity_test.cljc:1511:(deftest prelude-notation-test
+2. **S1 follow-up plus the exception portion of S4:** establish the pure refusal-result interface and prelude translation.
+3. **S5 follow-up:** land Q1 float identity and Q2 hexadecimal keys; cover existing hash/key failures.
+4. **S6 prerequisite checks:** confirm carrier tracing, pinning, and scalar boundaries before broader source exposure.
+5. **S2:** literal and boundary integration. This also needs a correction to the decimal-parse lowering rule: compiler-generated reconstruction of a hexadecimal literal must not accidentally impose the decimal digit limit. Use a canonical power-of-two reconstruction spelling while enforcing source-spelling limits separately.
+6. **S3:** exact operators and augmented forms, using the established exception bridge.
+7. **Remaining S4, then remaining S6:** conversions/comparisons and complete heap/portability coverage.
+8. **S7:** full C1/C3 integration and resource-limit matrix.
+
+The work previously orchestrated as “C3-S2” was the table’s **S5** scope; keep that distinction explicit in implementation assignments.
+
+Read-only assessment; no files changed or suites run.
+[2mtokens used[0m
+1,517,870
+Completed-GMT: 2026-10-04 06:45:17 GMT
+Completed-Local: 2026-10-04 13:45:17 +07
+
+**Q1 — Adopt canonical float64 content equality for float `is`; remove host equality from that decision.**
+
+| `:digit-limit` | `str`, `repr`, `int(str)`, decimal `format` | `ValueError`, "Exceeds the limit (N digits) for integer string conversion" | `py/int-result` (S3a); exercised in S4 |
+| `:syntax` | `int(str, base)` | `ValueError`, "invalid literal for int() with base B" | prelude validates before the call (S4) |
+| `:out-of-range` (radix) | `int(x, base)` | `ValueError`, "int() base must be >= 2 and <= 36, or 0" | prelude check before the call (S4) |
+| `:zero-division` | `//`, `%`, `divmod` | `ZeroDivisionError`, "integer division or modulo by zero" | existing prelude precheck |
+| `:negative-count` | `<<`, `>>` | `ValueError`, "negative shift count" | existing `py/shift-check` |
+| `:negative-exponent` | `**` | not an error: float-result path (ruling 10) | prelude dispatch (S3) |
+| `:wrong-type`, `:arity` | prelude defect only | none; the run fails with the host refusal | stays a throw |
+
+**CPython reference.**
+- CPython 3.9.6 has no digit limit at all. The 4300-digit limit and its `ValueError` arrived in 3.11 and the 3.9.14 security backport, so the `:digit-limit` row follows that later behavior deliberately, as ruling 11 already decided.
+- An oversized integer result in 3.9.6 is `MemoryError` when allocation fails. `OverflowError` ("too many digits in integer") appears only at the address-space ceiling, so `MemoryError` is the faithful mapping for a profile bit limit.
+- `OverflowError` stays reserved for conversions, which are not module refusals: `float(10**400)`, `int(inf)`, and a huge base with a negative exponent. `int(nan)` is `ValueError`. These are S4.
+
+**Order of the remaining slices.**
+
+1. **S2b** (new; amends the landed C3-S2): Q1 `data/content=` and `py/is`, Q2 hex keys, golden regeneration, doc edits.
+2. **S0**: freeze contracts after S2b, so the frozen bytes include hex keys, the `is` table and the Q3 outcome table. Fixtures only.
+3. **S3a** (new): Q3 seam. Module v2, `MemoryError`, `py/int-result`. Testable at prelude level without operators, for example a float key under a 512-bit composition raising a catchable `MemoryError`.
+4. **S2**: literals and boundary integration. Needs S3a because big literals lower to `integer/parse`.
+5. **S3**: operators. Needs S3a; S2 first lets its tests be written from source.
+6. **S4**: conversions and comparisons; first source-level exercise of `:digit-limit`.
+7. **S6**: heap and portability. It touches no prelude code, so it can run alongside S3 and S4.
+8. **S7**: integration gate.
+
+**One flag for S2.** Big literals lower to `parse` over a canonical *decimal* string, so a huge hex literal would hit the digit limit where CPython exempts it. This is the same defect shape as Q2 and S2 should rule on it; I have not ruled it here.
+
+[35m[3mexec[0m[0m
+[1m/bin/zsh -lc "sed -n '125,174p' src/cljc/yin/vm/integer.cljc; sed -n '200,220p' src/cljc/yin/vm/integer.cljc; rg -n 'overflow|beyond 2\\"'^53|9007199254740993'"' test/yang/python/antlr/{lower_test.clj,e2e_c1_test.clj} | head -18; sed -n '196,212p' /Users/sto/workspace/datomworld-s0/test/yang/python/antlr/int_contract_fixtures.cljc; sed -n '1,30p' /Users/sto/workspace/datomworld-s0/test/yang/python/antlr/int_contract_test.cljc; sed -n '2035,2054p' docs/design/yang.antlr.md; sed -n '2170,2182p' docs/design/yang.antlr.md"[0m in /Users/sto/workspace/datomworld
+[32m succeeded in 0ms:[0m
+
+
+(defn- bits
+  [b]
+  (host/magnitude-bit-length b))
+
+
+(defn- out
+  "Big integer result `b` in its canonical carrier, or `::bit-limit`."
+  [limits b]
+  (if (> (bits b) (::max-bits limits))
+    ::bit-limit
+    (host/demote b)))
+
+
+(defn- pair
+  "`[q r]`, or the first of them that is a limit reason."
+  [q r]
+  (cond (keyword? q) q
+        (keyword? r) r
+        :else [q r]))
+
+
+;; =============================================================================
+;; Arithmetic
+;; =============================================================================
+
+(defn- int-add
+  [limits a b]
+  (out limits (host/add (big! 'add 0 a) (big! 'add 1 b))))
+
+
+(defn- int-sub
+  [limits a b]
+  (out limits (host/sub (big! 'sub 0 a) (big! 'sub 1 b))))
+
+
+(defn- int-neg
+  [limits a]
+  (out limits (host/sub zero (big! 'neg 0 a))))
+
+
+(defn- int-mul
+  [limits a b]
+  (let [x (big! 'mul 0 a)
+        y (big! 'mul 1 b)]
+    ;; |x*y| has bits(x) + bits(y) or one fewer bits
+    (if (> (+ (bits x) (bits y) -1) (::max-bits limits))
+      ::bit-limit
+      (out limits (host/mul x y)))))
+  (let [x (big! 'floor-div-mod 0 a)
+        y (divisor! 'floor-div-mod b)
+        q (host/quot-trunc x y)
+        r (host/rem-trunc x y)
+        adjust? (and (not (zero? (sign r))) (not= (sign r) (sign y)))]
+    (pair (out limits (if adjust? (host/sub q one) q))
+          (out limits (if adjust? (host/add r y) r)))))
+
+
+(defn- int-pow
+  [limits a e]
+  (let [x (big! 'pow 0 a)
+        n (big! 'pow 1 e)
+        max-bits (::max-bits limits)]
+    (cond
+      (neg? (sign n)) (refuse! 'pow :negative-exponent {})
+      (zero? (sign n)) 1
+      (or (zero? (sign x)) (zero? (host/compare-big x one))) (host/demote x)
+      (zero? (host/compare-big x neg-one))
+      (if (zero? (sign (host/bit-and-big n one))) 1 -1)
+      ;; |x| >= 2 from here, so |x^n| has at least n + 1 bits
+test/yang/python/antlr/e2e_c1_test.clj:395:    (every-vm= (prints (str "9007199254740992 overflow overflow 4503599627370496 "
+test/yang/python/antlr/e2e_c1_test.clj:396:                            "9007199254740992 overflow overflow")
+test/yang/python/antlr/e2e_c1_test.clj:397:                       "overflow overflow 0 -1 overflow 9007199254740992")
+test/yang/python/antlr/e2e_c1_test.clj:402:                      "        return 'overflow'"
+(defn float->integer
+  "The exact integer of an integral host double, in its canonical
+   carrier: the host's own conversion, normalized by the module. On the
+   JVM not `bigint` of the double, which reads its shortest decimal text
+   and answers 9223372036854776000 for 2^63."
+  [x]
+  (call build 'normalize
+        #?(:cljd (BigInt.from x)
+           :clj (bigint (java.math.BigDecimal. (double x)))
+           :cljs (js/BigInt x))))
+
+
+;; =============================================================================
+;; Columns
+;; =============================================================================
+
+(defn bits
+(ns yang.python.antlr.int-contract-test
+  "C3 slice S0: the exact-integer contracts frozen in
+   test/resources/yang/python/int-contract-v1.txt hold on this host.
+
+   Every column is recomputed here and must equal the file: the text as a
+   whole, each row on its own, the module's outcomes under the two named
+   profiles, and, through the parserless prelude runners on all four VMs,
+   the guest's text, hash, key and bytes of each value, the `is` rows of
+   the integer-valued floats, and the guest exception each limit reason
+   becomes. The CPython columns are data; on the JVM python3 recomputes
+   them when it is exactly 3.9.6, and the test says loudly when it skips."
+  (:require
+    [clojure.string :as str]
+    [clojure.test :refer [deftest is testing]]
+    #?@(:cljd [] :clj [[clojure.java.shell :as shell]])
+    [dao.test-slow :as slow]
+    [yang.python.antlr.int-contract-fixtures :as f]
+    [yang.python.antlr.prelude :as prelude]
+    [yang.python.antlr.uast :as u]
+    [yin.vm :as vm]
+    [yin.vm.data :as data]
+    [yin.vm.debruijn-linearize :as dl]
+    [yin.vm.debruijn-register-compile :as rc]
+    [yin.vm.debruijn.register :as rvm]
+    [yin.vm.debruijn.stack :as dvm]
+    [yin.vm.integer :as integer]
+    [yin.vm.linearize :as linearize]
+    [yin.vm.module :as module]
+    [yin.vm.semantic :as semantic]
+    [yin.vm.test-utils :as tu]))
+- Digits are unsigned base-256, most significant byte first, minimal
+  length. A bignum tag is noncanonical when the value fits major type 0
+  or 1. Ingress refuses leading zeros, unnecessary tags, malformed
+  payloads, and trailing bytes; existing Jing fixtures stay unchanged.
+- A source literal within +/-(2^53-1) stays a native `:literal`. A
+  larger literal lowers to an application of the integer module's parse
+  function over its canonical decimal string, because the de Bruijn
+  canonical value table declares `:bigint` out of domain and the image
+  encoder refuses a JS or Dart bigint. Every literal thus stays inside
+  the existing domain on all four kernels, and every spelling of one
+  value (decimal, hexadecimal, binary, octal) has one address.
+  Widening the de Bruijn value domain is a separate kernel ruling.
+- `42` and `42.0` stay distinct content although numerically equal.
+
+Exact-integer carriers are recognized as scalars in the encoder, the
+heap trace, `pin-refs`, `values/kind-of`, and `data/number?`, and this
+is tested on Node and Dart before any bignum reaches a cell (ruling 4).
+On JS and Dart a bignum fails host `number?`. UCF gains no marker; its
+scalar number arm covers every Jing exact-integer carrier, and the
+cell-lift refusal is unchanged, so C3 does not establish Python-task
+  convention; the non-numeric arm (generators and other identity
+  objects by ref) and the unhashable arm are preserved. The
+  insertion-order vector keeps the first inserted original key.
+- Known limits. Keys are hex, so the digit limit never applies to
+  keying, as CPython applies it to `str()` and not to hashing or keying:
+  an integer past `::max-digits` is a valid dict or set key. The
+  smallest subnormal keys with a 1075-bit denominator, so a
+  composition's `integer` limits must admit at least 1075 bits for float
+  keys. Under a smaller bit limit the key is refused, never
+  approximated: the refusal must surface as the documented guest
+  failure (ruling 11: `MemoryError`). Since S3a the prelude translates
+  it through the single translator `py/int-result`: the breach raises a
+  catchable `MemoryError`, and a failed key normalization leaves the
+
+[35m[3mcodex[0m[0m
+Completed-GMT: 2026-10-05 18:10:40 GMT
+Completed-Local: 2026-10-06 01:10:40 +07
+
+**1. S2 literals — retain small native literal data; reconstruct larger integers from canonical hexadecimal text.**
+
+For an admitted nonnegative integer token of value `n`:
+
+```clojure
+;; n <= 9007199254740991
+(u/lit n)
+
+;; n > 9007199254740991 — illustrative emitted guest form
+(py/int-result (integer/parse "canonical-lowercase-hex" 16))
+```
+
+The reconstruction string has no prefix, underscores, or leading zeros. Decimal, hexadecimal, octal, and binary spellings of the same value produce the same semantic rows, bytes, and address. Source-position/provenance records may differ. Unary signs remain Python unary operators; do not confuse signed expressions with token spelling normalization.
+
+**Do not emit a bignum literal datum into the universal executable AST.** Jing can encode the value, but the de Bruijn image domain still excludes that literal kind. Codec support does not establish executable-image support. Amend [§8.5.4’s decimal reconstruction rule](/Users/sto/workspace/datomworld/docs/design/yang.antlr.md:2039) to radix 16.
+
+Replace `lower/parse-radix`’s native accumulator and 2^53 rejection with exact compile-time token processing. It must never pass through a host double. Keep string-escape decoding separate: its code-point bounds must not be accidentally widened by this change.
+
+Apply limits as follows:
+
+- Validate Python token syntax first, including underscores and decimal leading-zero rules.
+- For decimal source tokens, apply the declared source decimal-digit budget, excluding underscores and counting digit characters.
+- Hexadecimal, octal, and binary source tokens are exempt from that digit budget.
+- Runtime reconstruction uses radix 16 and is therefore exempt from the decimal conversion budget.
+- A runtime integer result exceeding `::max-bits` raises catchable `MemoryError` through `py/int-result`.
+- Small inline literals must not bypass a restrictive runtime bit budget. Under profiles where the inline value is not statically known to fit, emit `py/int-result(integer/normalize n)` around the native literal datum. Any compile-time specialization must be bound to the declared runtime profile.
+
+A decimal token rejected by the frontend’s digit policy produces a source diagnostic, not a runtime `ValueError`. Runtime `int(string)` conversion belongs to S4.
+
+CPython **3.9.6 has no decimal conversion digit limit**. Our explicit budget is a profile restriction, consistent with the earlier ruling; it must not be described as 3.9.6 behavior.
+
+**S2 tests:** equal-spelling groups around 2^53, 2^63, and 2^64; underscores and leading zeros; large hexadecimal accepted where equivalent decimal source exceeds the digit budget; runtime bit-limit catches; restrictive-profile small literals; and exact rows/bytes/addresses through all four image pipelines.
+
+---
+
+**2. S2 encoding — reject malformed wire data at decoding, and reject wrong numeric kinds at the consuming contract.**
+
+Keep Jing’s existing canonical integer grammar:
+
+- shortest major-type 0/1 encoding where applicable;
+- tags 2/3 only beyond their respective major-type ranges;
+- minimal unsigned big-endian magnitude;
+- tag 3 magnitude is `-1-n`;
+- no leading zero bytes, redundant bignum tags, nonminimal argument widths, malformed payloads, or trailing values.
+
+These are **codec refusals**, not Python `MemoryError` or `ValueError`. Preserve existing Jing fixtures.
+
+An integral float is valid float data, but is not an integer operand merely because its value is integral. Integer-only APIs reject it through Python type dispatch; integer-only wire fields reject it structurally. Neither path silently converts it.
+
+Normalize accepted exact host integer carriers at the Python boundary. Do not let raw JS BigInt values representing small integers, or equivalent noncanonical host carriers, create different equality behavior. An already-rounded JS Number outside the safe-integer domain is not evidence of the original integer and must not be “recovered” by conversion to BigInt.
+
+The codec’s 64-bit head boundary is not a maximum integer width. Profile bit limits and executable-literal restrictions are separate contracts.
+
+**S2 tests:** all malformed categories above, integer-versus-integral-float distinctions, normalization/demotion, and byte preservation for every S0 boundary row.
+
+---
+
+**3. S2 boundaries — make exact values safe and visible now; leave new conversion APIs and full migration claims to S4/S6.**
+
+S2 must cover:
+
+- Exact integer recognition when entering the VM through supported data/module boundaries.
+- Canonical carrier normalization and explicit profile-limit handling at Python ingress.
+- Exact integers returned by pure host modules and held in collections/cells.
+- Existing print and snapshot/repr rendering: decimal text is exact below the digit limit; guest rendering that breaches it raises `ValueError`, never displays a refusal keyword or host exception.
+- Canonical Jing round trips without narrowing.
+
+Do **not** silently widen DaoStream’s raw value codec or existing FFI envelopes. Where a transport cannot carry a bignum, retain its qualified refusal. Use the established Jing-byte adapter where supported. An FFI operation claiming integer support must explicitly specify its accepted carrier/encoding; a host double is not an exact-integer transport.
+
+S4 owns the new `int`, `float`, `str`, `repr`, and related conversion semantics. S6 owns comprehensive GC, pinning, aliasing, scalar UCF portability, and continued refusal of unsupported cell migration. Basic carrier/heap smoke checks must precede source exposure; the full S6 matrix can follow.
+
+**S2 tests:** literal → cell/tuple/dict → return/render paths, module ingress/egress, supported Jing transport, honest unsupported raw transport, and no partial container mutation after a normalization failure.
+
+---
+
+**4. S3 operators — replace bounded arithmetic with exact module operations; bring required float bridges forward from S4 before enabling their bignum paths.**
+
+For the integer arms below, first validate guest operand types and coerce bool to integer 0/1. Wrap each result-producing module call with `py/int-result` **before** inspecting, indexing, or combining its result.
+
+| Python operation | Exact integer implementation | Guest failure |
+|---|---|---|
+| `+`, `-`, `*` | `integer/add`, `sub`, `mul` | Bit breach → `MemoryError` |
+| Unary `-` | `integer/neg` | Bit breach → `MemoryError` |
+| Unary `+` | `integer/normalize` after bool coercion | Bit breach → `MemoryError` |
+| `//`, `%` | `integer/floor-div-mod`; select quotient/remainder after translation | Zero divisor → `ZeroDivisionError` |
+| `divmod` | Same pair, wrapped as Python tuple | Zero divisor → `ZeroDivisionError` |
+| `**`, integer exponent ≥ 0 | `integer/pow` | Bit breach → `MemoryError` |
+| `~` | `integer/bit-not` | Bit breach → `MemoryError` |
+| `&`, `|`, `^` | `integer/bit-and`, `bit-or`, `bit-xor` | Bit breach → `MemoryError` |
+| `<<`, `>>` | `integer/shift-left`, `shift-right` | Negative count → `ValueError`; bit breach → `MemoryError` |
+| Integer ordering/equality | `integer/compare` | No float conversion |
+| Integer `/` | Exact-ratio-to-binary64 kernel | Zero divisor → `ZeroDivisionError`; nonfinite overflow → `OverflowError` |
+
+Python floor division and modulo retain:
+
+```text
+a = q*b + r
+q = floor(a/b)
+r is zero or has the divisor’s sign
+```
+
+Bit operations use infinite signed two’s complement. Large right shifts yield `0` or `-1`; do not construct `2**count`. Preserve `0 << huge == 0`.
+
+**Boolean result types need explicit dispatch.** Arithmetic on bool produces integers; binary `&`, `|`, and `^` on **two bools** produce bools. Mixed bool/int bit operations produce integers. Integer `is` remains distinct from bool identity.
+
+**Negative exponent:** do not invoke `integer/pow` and translate `:negative-exponent` as a guest failure. Dispatch to the float-result path; zero base raises `ZeroDivisionError`. A large base requiring an unrepresentable float conversion raises `OverflowError`. Avoid the current reciprocal-of-overflowing-positive-power approach, which can erase a representable tiny result.
+
+**Mixed comparisons:** exact int/bool comparisons belong in the first S3 round. Exact int/float comparisons are nominally S4, but must be brought forward before S3 claims supported comparisons over newly reachable bignums. Never compare by rounding the integer to double.
+
+**True division:** likewise bring the ratio kernel forward for S3 integration. `(10**400)/(10**400)` must produce `1.0`; independently converting numerator and denominator is wrong.
+
+Augmented forms reuse these operators, preserving evaluation exactly once and existing mutable-container behavior. Guest wrong types raise `TypeError` before module invocation. Existing zero/count checks prevent expected domain errors from reaching `py/int-result`’s internal-defect arm. Arity, wrong-type, or impossible domain refusals produced by a correctly dispatched prelude remain implementation defects.
+
+**Missing module facilities:** version 2 has no exact integer-to-binary64 conversion, integer/float comparison, or correctly rounded integer-ratio conversion exports. Adding those exports requires **integer module version 3**, explicit profile negotiation, and tests. Preserve all v2 integer operation semantics and S0 pins.
+
+---
+
+**5. Fast paths — place native arithmetic inside the integer module, with carrier checks and profile-limit checks; do not bypass it in the Python prelude.**
+
+The brief’s carrier wording needs correction: hosts do **not** choose identical physical carriers. Ruling 2 requires the canonical carrier **per host**: JS promotes at its safe-integer boundary; JVM/Dart can retain native signed integers longer. Canonical bytes and guest results must agree.
+
+Use a conservative shared native fast path:
+
+- Both operands must first be recognized as native exact integers, not floats or bignum carriers.
+- **Add/subtract:** `|a| <= 2^51` and `|b| <= 2^51`. The result is within ±2^52.
+- **Multiply:** `|a| <= 2^26` and `|b| <= 2^26`. The result is within ±2^52.
+- **Compare:** native exact operands within `[-(2^53-1), 2^53-1]` may use native comparison directly.
+- Outside those guards, use the existing exact kernels.
+- Every arithmetic result still undergoes the configured bit-limit check. A small-profile breach must not disappear because the arithmetic took the fast path.
+
+These are sufficient guards, not maximal ones. They require no interpreted division, recursion, or unsafe product to decide eligibility. Optimizing existing exports internally does not itself require module v3.
+
+**Range requires integration too.** The present [range fast path](/Users/sto/workspace/datomworld/src/cljc/yang/python/antlr/prelude.cljc:1818) can produce ±2^53 as bare JS numbers. It cannot remain the C3 guest-result path unchanged. Route guest range arithmetic and comparisons through exact helpers; normalize internal indices when they become guest numeric operands. Remove recursive range-element arithmetic once the exact module handles the calculation.
+
+Range exhaustion must not raise a resource error merely because a never-yielded one-past value would exceed the profile. Check eligibility before constructing an out-of-domain candidate. Keep count, membership, slice, and repeat helpers in the numeric integration audit; replacing only named arithmetic operators is incomplete.
+
+**Performance tests:** bound VM transitions for ordinary add/sub/mul and range lookup independently of operand/index magnitude within the fast region. Retain `long-loops-test` as slow coverage. Test each guard boundary and fallback, including small-profile breaches and S0’s promotion/cancellation cases.
+
+---
+
+**6. Compatibility — removing the ±2^53 arithmetic OverflowError is intentional; replace its tests, not the new exact results.**
+
+This is the explicit C1 restriction removed by §8.5.4 rulings 1–2.
+
+Update:
+
+- The overflow expectations in [e2e_c1_test.clj:395](/Users/sto/workspace/datomworld/test/yang/python/antlr/e2e_c1_test.clj:395).
+- `integer-bound-on-every-host-test` and the bounded arithmetic expectations in [prelude_parity_test.cljc](/Users/sto/workspace/datomworld/test/yang/python/antlr/prelude_parity_test.cljc:798).
+- Lowering tests expecting rejection beyond 2^53.
+- Range comments/assertions that equate the integer domain with the `len()` restriction.
+- Python prelude/program address goldens affected by changed emitted forms or bundled code.
+
+Retain actual conversion `OverflowError` tests, signed-zero tests, malformed-codec fixtures, hex-key fixtures, and S0 value/hash/CBOR pins.
+
+I found **no numerical S0 pin requiring correction** in the inspected fixture and renderer. Its format/format16 results on values exceeding the small profile’s bit limit describe the module’s formatting contract; they are not permission for guest ingress to bypass normalization. The report’s JVM-only evidence must not be represented as completed Node/Dart verification.
+
+---
+
+**7. Sequencing — split S3 into three integer rounds plus a required numeric-bridge integration round.**
+
+Recommended order:
+
+1. **S2:** exact token normalization, canonical hexadecimal reconstruction, profile-bound admission, rendering/boundary integration.
+2. **S3-I:** add/sub/mul, unary signs, integer/bool comparisons, native fast paths; preserve existing sequence dispatch.
+3. **S3-II:** floor division/modulo/divmod and nonnegative integer power; signed and limit boundaries.
+4. **S3-III:** bitwise operations and shifts; remove interpreted bit recursion and power-based shifts.
+5. **S3-IV / advanced S4 dependency:** module v3 float bridges, negative power, true division, mixed numeric comparisons/arithmetic, and completion of range/sequence helper integration.
+6. Remaining S4 conversions, remaining S6 portability, then S7.
+
+Partial rounds must explicitly refuse unsupported newly reachable bignum paths rather than silently fall through to native arithmetic. S3 is not complete until round IV closes them.
+
+Each round re-mints only its affected Python prelude/program goldens and profile references. **S0 numerical values, keys, hashes, canonical integer bytes, and limit outcomes remain fixed.** Add operator fixtures rather than regenerating those expectations from the changed implementation.
+
+Across all rounds, acceptance is four VMs × JVM/Node/Dart, with parserless equivalent forms where source parsing is unavailable. No new executable bignum literal tag, generic VM numeric dispatch, or raw-stream widening is authorized.
+
+Read-only review; no files changed or suites run.
+[2mtokens used[0m
+1,765,781
+Completed-GMT: 2026-10-05 18:10:40 GMT
+Completed-Local: 2026-10-06 01:10:40 +07
+
+**1. S2 literals — retain small native literal data; reconstruct larger integers from canonical hexadecimal text.**
+
+For an admitted nonnegative integer token of value `n`:
+
+```clojure
+;; n <= 9007199254740991
+(u/lit n)
+
+;; n > 9007199254740991 — illustrative emitted guest form
+(py/int-result (integer/parse "canonical-lowercase-hex" 16))
+```
+
+The reconstruction string has no prefix, underscores, or leading zeros. Decimal, hexadecimal, octal, and binary spellings of the same value produce the same semantic rows, bytes, and address. Source-position/provenance records may differ. Unary signs remain Python unary operators; do not confuse signed expressions with token spelling normalization.
+
+**Do not emit a bignum literal datum into the universal executable AST.** Jing can encode the value, but the de Bruijn image domain still excludes that literal kind. Codec support does not establish executable-image support. Amend [§8.5.4’s decimal reconstruction rule](/Users/sto/workspace/datomworld/docs/design/yang.antlr.md:2039) to radix 16.
+
+Replace `lower/parse-radix`’s native accumulator and 2^53 rejection with exact compile-time token processing. It must never pass through a host double. Keep string-escape decoding separate: its code-point bounds must not be accidentally widened by this change.
+
+Apply limits as follows:
+
+- Validate Python token syntax first, including underscores and decimal leading-zero rules.
+- For decimal source tokens, apply the declared source decimal-digit budget, excluding underscores and counting digit characters.
+- Hexadecimal, octal, and binary source tokens are exempt from that digit budget.
+- Runtime reconstruction uses radix 16 and is therefore exempt from the decimal conversion budget.
+- A runtime integer result exceeding `::max-bits` raises catchable `MemoryError` through `py/int-result`.
+- Small inline literals must not bypass a restrictive runtime bit budget. Under profiles where the inline value is not statically known to fit, emit `py/int-result(integer/normalize n)` around the native literal datum. Any compile-time specialization must be bound to the declared runtime profile.
+
+A decimal token rejected by the frontend’s digit policy produces a source diagnostic, not a runtime `ValueError`. Runtime `int(string)` conversion belongs to S4.
+
+CPython **3.9.6 has no decimal conversion digit limit**. Our explicit budget is a profile restriction, consistent with the earlier ruling; it must not be described as 3.9.6 behavior.
+
+**S2 tests:** equal-spelling groups around 2^53, 2^63, and 2^64; underscores and leading zeros; large hexadecimal accepted where equivalent decimal source exceeds the digit budget; runtime bit-limit catches; restrictive-profile small literals; and exact rows/bytes/addresses through all four image pipelines.
+
+---
+
+**2. S2 encoding — reject malformed wire data at decoding, and reject wrong numeric kinds at the consuming contract.**
+
+Keep Jing’s existing canonical integer grammar:
+
+- shortest major-type 0/1 encoding where applicable;
+- tags 2/3 only beyond their respective major-type ranges;
+- minimal unsigned big-endian magnitude;
+- tag 3 magnitude is `-1-n`;
+- no leading zero bytes, redundant bignum tags, nonminimal argument widths, malformed payloads, or trailing values.
+
+These are **codec refusals**, not Python `MemoryError` or `ValueError`. Preserve existing Jing fixtures.
+
+An integral float is valid float data, but is not an integer operand merely because its value is integral. Integer-only APIs reject it through Python type dispatch; integer-only wire fields reject it structurally. Neither path silently converts it.
+
+Normalize accepted exact host integer carriers at the Python boundary. Do not let raw JS BigInt values representing small integers, or equivalent noncanonical host carriers, create different equality behavior. An already-rounded JS Number outside the safe-integer domain is not evidence of the original integer and must not be “recovered” by conversion to BigInt.
+
+The codec’s 64-bit head boundary is not a maximum integer width. Profile bit limits and executable-literal restrictions are separate contracts.
+
+**S2 tests:** all malformed categories above, integer-versus-integral-float distinctions, normalization/demotion, and byte preservation for every S0 boundary row.
+
+---
+
+**3. S2 boundaries — make exact values safe and visible now; leave new conversion APIs and full migration claims to S4/S6.**
+
+S2 must cover:
+
+- Exact integer recognition when entering the VM through supported data/module boundaries.
+- Canonical carrier normalization and explicit profile-limit handling at Python ingress.
+- Exact integers returned by pure host modules and held in collections/cells.
+- Existing print and snapshot/repr rendering: decimal text is exact below the digit limit; guest rendering that breaches it raises `ValueError`, never displays a refusal keyword or host exception.
+- Canonical Jing round trips without narrowing.
+
+Do **not** silently widen DaoStream’s raw value codec or existing FFI envelopes. Where a transport cannot carry a bignum, retain its qualified refusal. Use the established Jing-byte adapter where supported. An FFI operation claiming integer support must explicitly specify its accepted carrier/encoding; a host double is not an exact-integer transport.
+
+S4 owns the new `int`, `float`, `str`, `repr`, and related conversion semantics. S6 owns comprehensive GC, pinning, aliasing, scalar UCF portability, and continued refusal of unsupported cell migration. Basic carrier/heap smoke checks must precede source exposure; the full S6 matrix can follow.
+
+**S2 tests:** literal → cell/tuple/dict → return/render paths, module ingress/egress, supported Jing transport, honest unsupported raw transport, and no partial container mutation after a normalization failure.
+
+---
+
+**4. S3 operators — replace bounded arithmetic with exact module operations; bring required float bridges forward from S4 before enabling their bignum paths.**
+
+For the integer arms below, first validate guest operand types and coerce bool to integer 0/1. Wrap each result-producing module call with `py/int-result` **before** inspecting, indexing, or combining its result.
+
+| Python operation | Exact integer implementation | Guest failure |
+|---|---|---|
+| `+`, `-`, `*` | `integer/add`, `sub`, `mul` | Bit breach → `MemoryError` |
+| Unary `-` | `integer/neg` | Bit breach → `MemoryError` |
+| Unary `+` | `integer/normalize` after bool coercion | Bit breach → `MemoryError` |
+| `//`, `%` | `integer/floor-div-mod`; select quotient/remainder after translation | Zero divisor → `ZeroDivisionError` |
+| `divmod` | Same pair, wrapped as Python tuple | Zero divisor → `ZeroDivisionError` |
+| `**`, integer exponent ≥ 0 | `integer/pow` | Bit breach → `MemoryError` |
+| `~` | `integer/bit-not` | Bit breach → `MemoryError` |
+| `&`, `|`, `^` | `integer/bit-and`, `bit-or`, `bit-xor` | Bit breach → `MemoryError` |
+| `<<`, `>>` | `integer/shift-left`, `shift-right` | Negative count → `ValueError`; bit breach → `MemoryError` |
+| Integer ordering/equality | `integer/compare` | No float conversion |
+| Integer `/` | Exact-ratio-to-binary64 kernel | Zero divisor → `ZeroDivisionError`; nonfinite overflow → `OverflowError` |
+
+Python floor division and modulo retain:
+
+```text
+a = q*b + r
+q = floor(a/b)
+r is zero or has the divisor’s sign
+```
+
+Bit operations use infinite signed two’s complement. Large right shifts yield `0` or `-1`; do not construct `2**count`. Preserve `0 << huge == 0`.
+
+**Boolean result types need explicit dispatch.** Arithmetic on bool produces integers; binary `&`, `|`, and `^` on **two bools** produce bools. Mixed bool/int bit operations produce integers. Integer `is` remains distinct from bool identity.
+
+**Negative exponent:** do not invoke `integer/pow` and translate `:negative-exponent` as a guest failure. Dispatch to the float-result path; zero base raises `ZeroDivisionError`. A large base requiring an unrepresentable float conversion raises `OverflowError`. Avoid the current reciprocal-of-overflowing-positive-power approach, which can erase a representable tiny result.
+
+**Mixed comparisons:** exact int/bool comparisons belong in the first S3 round. Exact int/float comparisons are nominally S4, but must be brought forward before S3 claims supported comparisons over newly reachable bignums. Never compare by rounding the integer to double.
+
+**True division:** likewise bring the ratio kernel forward for S3 integration. `(10**400)/(10**400)` must produce `1.0`; independently converting numerator and denominator is wrong.
+
+Augmented forms reuse these operators, preserving evaluation exactly once and existing mutable-container behavior. Guest wrong types raise `TypeError` before module invocation. Existing zero/count checks prevent expected domain errors from reaching `py/int-result`’s internal-defect arm. Arity, wrong-type, or impossible domain refusals produced by a correctly dispatched prelude remain implementation defects.
+
+**Missing module facilities:** version 2 has no exact integer-to-binary64 conversion, integer/float comparison, or correctly rounded integer-ratio conversion exports. Adding those exports requires **integer module version 3**, explicit profile negotiation, and tests. Preserve all v2 integer operation semantics and S0 pins.
+
+---
+
+**5. Fast paths — place native arithmetic inside the integer module, with carrier checks and profile-limit checks; do not bypass it in the Python prelude.**
+
+The brief’s carrier wording needs correction: hosts do **not** choose identical physical carriers. Ruling 2 requires the canonical carrier **per host**: JS promotes at its safe-integer boundary; JVM/Dart can retain native signed integers longer. Canonical bytes and guest results must agree.
+
+Use a conservative shared native fast path:
+
+- Both operands must first be recognized as native exact integers, not floats or bignum carriers.
+- **Add/subtract:** `|a| <= 2^51` and `|b| <= 2^51`. The result is within ±2^52.
+- **Multiply:** `|a| <= 2^26` and `|b| <= 2^26`. The result is within ±2^52.
+- **Compare:** native exact operands within `[-(2^53-1), 2^53-1]` may use native comparison directly.
+- Outside those guards, use the existing exact kernels.
+- Every arithmetic result still undergoes the configured bit-limit check. A small-profile breach must not disappear because the arithmetic took the fast path.
+
+These are sufficient guards, not maximal ones. They require no interpreted division, recursion, or unsafe product to decide eligibility. Optimizing existing exports internally does not itself require module v3.
+
+**Range requires integration too.** The present [range fast path](/Users/sto/workspace/datomworld/src/cljc/yang/python/antlr/prelude.cljc:1818) can produce ±2^53 as bare JS numbers. It cannot remain the C3 guest-result path unchanged. Route guest range arithmetic and comparisons through exact helpers; normalize internal indices when they become guest numeric operands. Remove recursive range-element arithmetic once the exact module handles the calculation.
+
+Range exhaustion must not raise a resource error merely because a never-yielded one-past value would exceed the profile. Check eligibility before constructing an out-of-domain candidate. Keep count, membership, slice, and repeat helpers in the numeric integration audit; replacing only named arithmetic operators is incomplete.
+
+**Performance tests:** bound VM transitions for ordinary add/sub/mul and range lookup independently of operand/index magnitude within the fast region. Retain `long-loops-test` as slow coverage. Test each guard boundary and fallback, including small-profile breaches and S0’s promotion/cancellation cases.
+
+---
+
+**6. Compatibility — removing the ±2^53 arithmetic OverflowError is intentional; replace its tests, not the new exact results.**
+
+This is the explicit C1 restriction removed by §8.5.4 rulings 1–2.
+
+Update:
+
+- The overflow expectations in [e2e_c1_test.clj:395](/Users/sto/workspace/datomworld/test/yang/python/antlr/e2e_c1_test.clj:395).
+- `integer-bound-on-every-host-test` and the bounded arithmetic expectations in [prelude_parity_test.cljc](/Users/sto/workspace/datomworld/test/yang/python/antlr/prelude_parity_test.cljc:798).
+- Lowering tests expecting rejection beyond 2^53.
+- Range comments/assertions that equate the integer domain with the `len()` restriction.
+- Python prelude/program address goldens affected by changed emitted forms or bundled code.
+
+Retain actual conversion `OverflowError` tests, signed-zero tests, malformed-codec fixtures, hex-key fixtures, and S0 value/hash/CBOR pins.
+
+I found **no numerical S0 pin requiring correction** in the inspected fixture and renderer. Its format/format16 results on values exceeding the small profile’s bit limit describe the module’s formatting contract; they are not permission for guest ingress to bypass normalization. The report’s JVM-only evidence must not be represented as completed Node/Dart verification.
+
+---
+
+**7. Sequencing — split S3 into three integer rounds plus a required numeric-bridge integration round.**
+
+Recommended order:
+
+1. **S2:** exact token normalization, canonical hexadecimal reconstruction, profile-bound admission, rendering/boundary integration.
+2. **S3-I:** add/sub/mul, unary signs, integer/bool comparisons, native fast paths; preserve existing sequence dispatch.
+3. **S3-II:** floor division/modulo/divmod and nonnegative integer power; signed and limit boundaries.
+4. **S3-III:** bitwise operations and shifts; remove interpreted bit recursion and power-based shifts.
+5. **S3-IV / advanced S4 dependency:** module v3 float bridges, negative power, true division, mixed numeric comparisons/arithmetic, and completion of range/sequence helper integration.
+6. Remaining S4 conversions, remaining S6 portability, then S7.
+
+Partial rounds must explicitly refuse unsupported newly reachable bignum paths rather than silently fall through to native arithmetic. S3 is not complete until round IV closes them.
+
+Each round re-mints only its affected Python prelude/program goldens and profile references. **S0 numerical values, keys, hashes, canonical integer bytes, and limit outcomes remain fixed.** Add operator fixtures rather than regenerating those expectations from the changed implementation.
+
+Across all rounds, acceptance is four VMs × JVM/Node/Dart, with parserless equivalent forms where source parsing is unavailable. No new executable bignum literal tag, generic VM numeric dispatch, or raw-stream widening is authorized.
+
+Read-only review; no files changed or suites run.
