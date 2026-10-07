@@ -10748,3 +10748,42 @@ Delegates:
   - Adversarial Reviewer: gpt-6.1-sol (Codex).
 Next:
   - Proceed with Track A Slice P1 (Linked Prelude Decoupling) or S3b/S4 per project priorities.
+
+## 2026-10-08 04:25:00 +07 — Track B: Cross-Machine Stream Slice S3b landed on master
+Completed-GMT: 2026-10-07 21:25:00 GMT
+Coding-Agent: agy (interactive orchestrator seat)
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
+Tree: master@4f264bc5 (== origin/master)
+Done:
+  (1) Cross-Machine Stream Track Slice S3b (Remote REPL over `dao.stream.remote-channel`) landed on master (4f264bc5):
+      - Migrated Remote REPL server (`yin.repl.serve`) and client (`yin.repl.connect`) completely off direct transport dependencies onto `dao.stream.remote-channel`.
+      - `src/cljc/dao/stream/remote_channel.cljc`:
+        * D1: Validates declared table surfaces against handles' natures (`valid-entry?`); refuses invalid surfaces as `::invalid-table`.
+        * D2: Added `:identities [id ...]` dial with deferred confirmation, non-nil validation (`valid-target?`), handle accessors (`handle`, `handles`), and sequence-exhaustion iteration in `attach-identities`.
+        * D3: Writable-append ambiguity contract pinned; evaluation confirmed strictly by correlated RPC answer envelopes.
+        * D4: Added draining stop state machine with `:drain-grace-ms` (500 ms in REPL), `ws/close-ended!` (code 4000) for `:ended?` stops, and teardown with `:released` timestamp upon lifecycle gap / end during drain.
+        * D5: Added `detach!` to close only the connection handle while leaving dial and reflections steppable until `channel-gone`.
+        * D6: Supported `:bind-host` and `:bind-port` passthrough in portable spec below boundary.
+        * D7: Added monotonic `:diagnostic-count` and `attachment` accessor.
+      - `src/cljc/yin/repl/serve.cljc`: Reimplemented as a pure interpreter over `remote-channel/serve`, eliminating all `:ws/` tokens, slots, and transport internals.
+      - `src/cljc/yin/repl/connect.cljc`: Reimplemented with portable spec `{:host :port :path}` and value-stepping `(step! connection now)` with clock-free driver timestamps.
+      - Boundary Gate D10: Enforced zero `:ws/`, `dao.stream.ws`, or `ws-project` tokens in `serve.cljc`, `connect.cljc`, and all tests under `test/yin/repl/` outside `test/yin/repl/host/`. Relocated Node host adapter test to `test/yin/repl/host/node_test.cljs`.
+  (2) Independent Adversarial Review:
+      - Initial review by Codex (`gpt-6.1-sol`) produced `REVISE` (findings R1-R4).
+      - Remediation implemented by Claude Opus 5.5 (R1 bind-port, R2 nil-identity loop termination, R3 D10 test boundary cleanups, R4 cljstyle, drain-gap teardown).
+      - Re-review by Codex (`gpt-6.1-sol`): verdict ACCEPT in `archive/1791400000000-reviewer-stream-s3b-rereview.codex.findings.md`.
+  (3) Formal Architectural Sign-Off:
+      - Final Architectural Sign-Off evaluated and granted as ACCEPTED by Lead System Architect Codex (`gpt-6-astra`) in `archive/1791400500000-architect-stream-s3b-signoff.codex.findings.md`.
+      - All S3b collaboration artifacts moved to `archive/` under git tracking.
+Verification:
+  - JVM (`clojure -M:test`): focused tests across all 5 namespaces (remote-channel, connect, serve, serve-connect-wire, dht-head): 92 tests, 667 assertions, 0 failures, 0 errors.
+  - Node / CLJS (`bb test:cljs`): focused test suite (remote-channel, connect, serve, dht-head, host.node): 92 tests, 662 assertions, 0 failures, 0 errors.
+  - Dart (`bb test:cljd`): focused portable test suite: 89 tests passed, 0 failures.
+  - Formatting / Linter: `cljstyle check` clean (exit 0), `clj -M:kondo --lint` 0 errors, 0 warnings on changed files, `git diff --check` clean.
+  - Boundary grep gates: zero matches.
+Delegates:
+  - Lead System Architect: claude-fable-5-1 (specification) & gpt-6-astra (sign-off: ACCEPTED).
+  - Implementation Engineer: claude-opus-5-5 (S3b implementation & remediation).
+  - Adversarial Reviewer: gpt-6.1-sol (Codex).
+Next:
+  - Land Track A Slice P1 (Linked Prelude Decoupling) upon completion of test suite and sign-off.
