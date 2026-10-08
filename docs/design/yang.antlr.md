@@ -2639,7 +2639,9 @@ two land serially, not concurrently.
 This section records the C4 design as amended by the C4 cross-ruling's
 nineteen converged rulings; where they differ from the design's own
 recommendations, the converged rulings govern. Its implementation is
-pending, in slices F2, F3, P1 to P3, and I1 to I7 below; F1 and P1 have landed.
+pending, in slices F2, F3, P1 to P3, and I1 to I7 below; F1, P1 and P2
+have landed; P2 covers the semantic, stack and register VMs, the walker
+waiting on L-b.
 
 Install delivers code; instantiation is the importing task's own
 evaluation (ruling 1). A linked Python-side module (the base prelude,
@@ -2859,14 +2861,21 @@ The linked prelude:
 - One source, two emitters. The definition list in `prelude.cljc` stays
   the single source; the bundled emitter is today's, and the module
   emitter strips the module's own namespace from keys and internal
-  references, because export keys are bare.
+  references, because export keys are bare. The module emitter strips
+  `py/` only; `py.b/*` and `py.rt/*` stay qualified internal keys, each
+  with a module-level literal placeholder so the scanners discharge the
+  bodies that read them; the module tree is one application whose
+  operands are the definitions, because a `then` chain leaves every
+  definition but the first inside a closure body. `py/conj` and `py/not`
+  were renamed `py/vconj` and `py/lnot`: a bare key equal to a primitive
+  name shadows that primitive inside the module.
 - Runtime state moves from module-level definitions into `py/init!`,
   which writes one state slot (`py.rt/state`, a literal `:py/uninit`
   until `py/init!` flips it to `:py/ready` as its last write; the cells
   and classes stay store keys the body defines).
 - The linked entry wrapper is
   `(do (require 'py) (py/init!) (py/run-main (fn [%globals %globals-fn]
-  ...)))`.
+  ...)))`. `py/run-main` is `py/run-module` until I1.
 - The lowering drops `builtin-names` and direct `py.b/*` reads, so a new
   builtin class no longer touches the lowering, and the hand-kept host
   name sets become derivable from the tree.
@@ -3031,7 +3040,13 @@ Linker prerequisites, the linker seat's to build:
 | Item | Scope                                               | Blocks          |
 +======+=====================================================+=================+
 | L-a  | Host-export profile requirements in published       | P2              |
-|      | manifests, enforced end to end (ruling 7)           |                 |
+|      | manifests, enforced end to end (ruling 7). P2       |                 |
+|      | landed the declaration and discharge half           |                 |
+|      | (qualified host exports under                       |                 |
+|      | `:yin.module/primitives`, matched by profile        |                 |
+|      | address at step 5b); limits and versions in profile |                 |
+|      | identity, and requirement discovery replacing       |                 |
+|      | `admit`, remain.                                    |                 |
 +------+-----------------------------------------------------+-----------------+
 | L-b  | Module-level sibling reads in the tree format       | The walker      |
 |      | (ruling 6)                                          | under the       |
@@ -3111,7 +3126,16 @@ precompiled CST packets or rows, since the parser is JVM-only):
   `isinstance` of `Exception` read in another unit of the same task; an
   install child at `validated` has an empty heap and no `:cell` lift
   refusal; a wrong host-module profile is refused by name; a missing
-  name-environment entry is refused with no bundled fallback.
+  name-environment entry is refused with no bundled fallback (semantic,
+  stack, register; the walker under L-b). Landed with the `py` manifest
+  at
+  `:segment/blake3-8f5e6bc93e0e8960682b65c2e4254ec959e69f0579ccda07a3189ea0e0e4b9d7`
+  and the linked `x = 1` program root at
+  `:segment/blake3-dbe72b291a26a4f594ad55cf52e5ffd088fdd262b58fd26212a01a7dd983a6df`
+  (JVM goldens in `linked_prelude_test`). Measured on the JVM: `publish-module!` of `py`
+  takes about 37 to 45 s; one linked run takes about 4.4 to 5.3 s against
+  0.4 to 1.0 s bundled, about 80% of it the CBOR decode of the served
+  image (reflective `alength` in `dao.jing.cbor/blen`).
 - P3: safepoint slice 1's acceptance re-runs under the linked profile on
   every VM; stage input contains no prelude row; a derived program with
   no `pysp` binding reports the unresolved hook name.
