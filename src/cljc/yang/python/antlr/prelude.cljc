@@ -142,11 +142,25 @@
    proves it supplies every host name, `data/max-items` and the version
    4 `integer` exports included, through `admit` before a program runs.
 
+   Two emitters, one source (C4 slice P2): `definitions` is the only
+   definition list. `uast` is the bundled prelude a program tree carries
+   ahead of its body; `module-uast` is the same list as the linker
+   module `py` (`module-exports`, `module-spec`), which a linked program
+   requires instead. The module emitter strips only the module's own
+   namespace `py/`; `py.b/*` and `py.rt/*` stay qualified internal keys,
+   each runtime key with a module-level `:py/uninit` placeholder so the
+   linker's scanners discharge the bodies that read it before `py/init!`
+   defines it. `py/vconj` and `py/lnot` are not `py/conj` and `py/not`
+   because a bare key equal to a primitive name would shadow that
+   primitive inside the module.
+
    Host names the prelude depends on and does not define: `host-names`
    (the cell module from yin.vm.module, the integer module from
    yin.vm.integer, the rest from yin.vm.data)."
   (:require
+    [clojure.walk :as walk]
     [yang.python.antlr.uast :as u]
+    [yin.vm :as vm]
     [yin.vm.integer :as integer]
     [yin.vm.module :as module]))
 
@@ -175,7 +189,7 @@
     [py/float? (fn [x] (not (nil? (get x :py/float))))]
     [py/float (fn [x] (assoc {} :py/float (data/float64 x)))]
     [py/tuple (fn [items] (assoc (assoc {} :py/type :tuple) :items items))]
-    [py/conj (fn [xs x] (conj xs x))]
+    [py/vconj (fn [xs x] (conj xs x))]
     [py/arg (fn [args i] (get args i))]
     [py/numeric?
      (fn [x]
@@ -223,7 +237,7 @@
     [py/frame-depth (fn [hs] (if (nil? hs) 0 (get hs 3)))]
     [py/frame
      (fn [kind payload rest]
-       (py/conj (py/conj (py/conj (py/conj (py/conj [] kind) payload) rest)
+       (py/vconj (py/vconj (py/vconj (py/vconj (py/vconj [] kind) payload) rest)
                          (+ 1 (py/frame-depth rest)))
                 (get (cell/get py.rt/ctx) :depth)))]
     [py/pop-frame
@@ -318,7 +332,7 @@
                        (do (cell/set! hit true)
                            (if (py/truthy
                                  (py/call exit
-                                          (py/conj (py/conj (py/conj [] (py/type-of e)) e)
+                                          (py/vconj (py/vconj (py/vconj [] (py/type-of e)) e)
                                                    :py/None)))
                              :py/None
                              (py/raise e))))
@@ -326,7 +340,7 @@
            (fn [x]
              (if (cell/get hit)
                :py/None
-               (py/call exit (py/conj (py/conj (py/conj [] :py/None) :py/None)
+               (py/call exit (py/vconj (py/vconj (py/vconj [] :py/None) :py/None)
                                       :py/None)))))))]
 
     ;; ---------------------------------------------------------- generators
@@ -357,7 +371,7 @@
        (assoc (assoc (assoc {} :py/type :generator) :name name) :state state))]
     [py/make-generator
      (fn [name body] (cell/new (assoc (py/gen-content name :created) :body body)))]
-    [py/outcome (fn [tag v] (py/conj (py/conj [] tag) v))]
+    [py/outcome (fn [tag v] (py/vconj (py/vconj [] tag) v))]
     [py/gen-switch
      (fn [g msg]
        (let [c (cell/get g)
@@ -459,7 +473,7 @@
              (py/raise v)
              (if (= default :py/missing)
                (py/raise (py/call py.b/StopIteration
-                                  (if (= v :py/None) [] (py/conj [] v))))
+                                  (if (= v :py/None) [] (py/vconj [] v))))
                default)))))]
     [py/gen-step
      ;; one advancement for a loop: the value, or :py/stop at completion
@@ -495,7 +509,7 @@
              (py/as-exception
                (py/call typ (if (= (get val :py/type) :tuple)
                               (get val :items)
-                              (py/conj [] val)))))
+                              (py/vconj [] val)))))
            (py/type-error
              (py/str (data/str-concat
                        "exceptions must be classes or instances deriving "
@@ -603,6 +617,10 @@
        (cell/new (assoc (assoc (assoc (assoc {} :py/type :class) :name name)
                                :base base)
                         :attrs {})))]
+    [py/object-class
+     ;; the implicit base of a class statement with no bases: CPython uses
+     ;; object without a name lookup
+     (fn [] py.b/object)]
     [py/make-instance
      (fn [cls]
        (cell/new (assoc (assoc (assoc {} :py/type :instance) :class cls)
@@ -610,7 +628,7 @@
     [py/make-exc
      (fn [cls msg]
        (let [e (py/make-instance cls)]
-         (do (py/setattr e "args" (py/tuple (py/conj [] msg))) e)))]
+         (do (py/setattr e "args" (py/tuple (py/vconj [] msg))) e)))]
     [py/raise-new (fn [cls msg] (py/raise (py/make-exc cls msg)))]
     [py/type-error (fn [msg] (py/raise-new py.b/TypeError msg))]
     [py/as-exception
@@ -815,7 +833,7 @@
              (py/fn-error fc "() takes too many positional arguments")
              (let [state (py/bind-keywords
                            fc
-                           (py/conj (py/conj (py/conj [] (py/pad args n 0 []))
+                           (py/vconj (py/vconj (py/vconj [] (py/pad args n 0 []))
                                              (py/pad [] (data/count (get spec :kwonly)) 0 []))
                                     (if (get spec :kwstar?) (py/dict-new) nil))
                            kwargs
@@ -823,16 +841,16 @@
                    slots (py/fill-defaults fc (get state 0) (get fc :defaults) n 0)
                    ko (py/fill-kwdefaults fc (get state 1) (get spec :kwonly) 0)
                    with-star (if star
-                               (py/conj slots
+                               (py/vconj slots
                                         (py/tuple (if (< n given) (data/subvec args n) [])))
                                slots)
                    with-ko (data/into with-star ko)]
-               (if (get spec :kwstar?) (py/conj with-ko (get state 2)) with-ko))))))]
+               (if (get spec :kwstar?) (py/vconj with-ko (get state 2)) with-ko))))))]
     [py/call (fn [f args] (py/call-kw f args []))]
     [py/call-kw
      (fn [f args kwargs]
        (if (= (get f :py/type) :method)
-         (py/call-kw (get f :fn) (data/into (py/conj [] (get f :self)) args) kwargs)
+         (py/call-kw (get f :fn) (data/into (py/vconj [] (get f :self)) args) kwargs)
          (let [t (py/content-type f)]
            (if (= t :function)
              (let [fc (cell/get f)] ((get fc :code) (py/bind-args fc args kwargs)))
@@ -859,7 +877,7 @@
                      (py/str (data/str-concat (get (cell/get cls) :name)
                                               "() takes no arguments")))
                    :py/None))
-               (py/call-kw init (data/into (py/conj [] inst) args) kwargs))
+               (py/call-kw init (data/into (py/vconj [] inst) args) kwargs))
              inst)))]
     [py/extend
      ;; call-site *iterable and display *iterable
@@ -1143,9 +1161,9 @@
                     (* (data/float-value 0) (/ x y))
                     (let [f (py/float-floor div)]
                       (if (< (data/float-value 0.5) (- div f)) (+ f 1) f)))]
-           (py/conj (py/conj [] fd) mod))
+           (py/vconj (py/vconj [] fd) mod))
          (let [nan (+ (- x x) (- y y))]
-           (py/conj (py/conj [] nan) nan))))]
+           (py/vconj (py/vconj [] nan) nan))))]
     [py/float-floor
      (fn [x]
        (if (if (< x (* 2 4503599627370496))
@@ -1186,12 +1204,12 @@
        (if (if (py/numeric? a) (py/numeric? b) false)
          (if (if (py/int? a) (py/int? b) false)
            (do (py/division-check a b)
-               (py/conj (py/conj [] (py/num a)) (py/num b)))
+               (py/vconj (py/vconj [] (py/num a)) (py/num b)))
            (let [x (py/as-float a) y (py/as-float b)]
              (do (if (py/zero? y)
                    (py/raise-new py.b/ZeroDivisionError (py/str message))
                    :py/None)
-                 (py/conj (py/conj [] x) y))))
+                 (py/vconj (py/vconj [] x) y))))
          (py/type-error {:py/str "unsupported operand type"})))]
     [py/divmod-values
      (fn [a b message]
@@ -1217,7 +1235,7 @@
          (py/tuple
            (if (if (py/int? a) (py/int? b) false)
              qr
-             (py/conj (py/conj [] (py/float (get qr 0)))
+             (py/vconj (py/vconj [] (py/float (get qr 0)))
                       (py/float (get qr 1)))))))]
     [py/fpow
      ;; float base ** e for an integer e >= 0
@@ -1503,7 +1521,7 @@
          (if (= t :list)
            (< 0 (data/count (get c :items)))
            (if (if (= t :dict) true (= t :set)) (< 0 (data/count (get c :keys))) true))))]
-    [py/not (fn [x] (if (py/truthy x) false true))]
+    [py/lnot (fn [x] (if (py/truthy x) false true))]
 
     ;; ---------------------------------------------------------- lists
     [py/list
@@ -1581,7 +1599,7 @@
      ;; a >= 2^53 is integral: halve it exactly to below 2^53
      (fn [a e]
        (if (< a (* 2 4503599627370496))
-         (py/conj (py/conj [] (py/int-of a)) e)
+         (py/vconj (py/vconj [] (py/int-of a)) e)
          (py/float-parts-up (/ a 2) (+ e 1))))]
     [py/float-parts-down
      ;; 0 < a < 2^53: double it exactly until integral; the integer is then
@@ -1589,7 +1607,7 @@
      (fn [a e]
        (let [m (py/int-of a)]
          (if (= a (data/float-value m))
-           (py/conj (py/conj [] m) e)
+           (py/vconj (py/vconj [] m) e)
            (py/float-parts-down (+ a a) (- e 1)))))]
     [py/float-parts
      ;; [m e] with x = m * 2^e exactly, for a finite nonzero double x
@@ -1599,13 +1617,13 @@
                  (py/float-parts-down a 0)
                  (py/float-parts-up a 0))]
          (if (< x 0)
-           (py/conj (py/conj [] (py/int-result (integer/neg (get p 0))))
+           (py/vconj (py/vconj [] (py/int-result (integer/neg (get p 0))))
                     (get p 1))
            p)))]
 
     ;; ---------------------------------------------------------- dicts
     [py/finite-key
-     (fn [n d] (py/conj (py/conj (py/conj [] :py.numeric/finite) n) d))]
+     (fn [n d] (py/vconj (py/vconj (py/vconj [] :py.numeric/finite) n) d))]
     [py/float-key
      ;; host double x: a finite float as its reduced rational, +-0.0 as
      ;; 0/1; an infinity by its sign; every NaN as one key (yang.antlr.md
@@ -1632,8 +1650,8 @@
                  "1"))))
          ;; NaN fails <=; host = can answer true for one boxed NaN
          (if (<= x x)
-           (py/conj (py/conj [] :py.numeric/infinite) (if (< x 0) "-" "+"))
-           (py/conj [] :py.numeric/nan))))]
+           (py/vconj (py/vconj [] :py.numeric/infinite) (if (< x 0) "-" "+"))
+           (py/vconj [] :py.numeric/nan))))]
     [py/key
      ;; the normalized index key: a number is its exact value, so 1, 1.0
      ;; and True are one key and 2^53 and 2^53 + 1 are two (C3 ruling 6);
@@ -1873,7 +1891,7 @@
              (if slice?
                (py/str (data/code-points->str (py/slice-of cps k)))
                (py/str (data/code-points->str
-                         (py/conj [] (get cps (py/index k (data/count cps))))))))
+                         (py/vconj [] (get cps (py/index k (data/count cps))))))))
            (if (= t :list)
              (let [items (get (cell/get o) :items)]
                (if slice?
@@ -2135,7 +2153,7 @@
              k (data/count xs)]
          (if (< k (+ before after))
            (py/raise-new py.b/ValueError {:py/str "not enough values to unpack"})
-           (data/into (py/conj (data/subvec xs 0 before)
+           (data/into (py/vconj (data/subvec xs 0 before)
                                (py/list (data/subvec xs before (- k after))))
                       (data/subvec xs (- k after) k)))))]
     [py/len
@@ -2220,7 +2238,7 @@
                  (if (= (get x :py/type) :range)
                    (assoc {}
                           :py/range
-                          (py/conj (py/conj (py/conj [] (get x :start))
+                          (py/vconj (py/vconj (py/vconj [] (get x :start))
                                             (get x :stop))
                                    (get x :step)))
                    x)))))))]
@@ -2370,7 +2388,7 @@
     [py/char-escape
      ;; render/string-repr's escapes, for code point c under quote q
      (fn [c q]
-       (let [ch (data/code-points->str (py/conj [] c))]
+       (let [ch (data/code-points->str (py/vconj [] c))]
          (if (= c 92)
            "\\\\"
            (if (= ch q)
@@ -2473,12 +2491,12 @@
          (if (if (<= 0 d) (< d base) false)
            (py/read-digits cs (+ i 1) base true
                            (data/str-concat
-                             acc (data/code-points->str (py/conj [] c))))
+                             acc (data/code-points->str (py/vconj [] c))))
            (if (= c 95)
              (if prev
                (py/read-digits cs (+ i 1) base false acc)
-               (py/conj (py/conj (py/conj [] i) acc) false))
-             (py/conj (py/conj (py/conj [] i) acc)
+               (py/vconj (py/vconj (py/vconj [] i) acc) false))
+             (py/vconj (py/vconj (py/vconj [] i) acc)
                       (if (= acc "") true prev))))))]
     [py/int-text-error
      (fn [s base]
@@ -2606,7 +2624,7 @@
              j (get a 0)
              b (if (= (get cs j) 46)
                  (py/read-digits cs (+ j 1) 10 false "")
-                 (py/conj (py/conj (py/conj [] j) "") true))
+                 (py/vconj (py/vconj (py/vconj [] j) "") true))
              k (get b 0)
              exponent (if (= (get cs k) 101) true (= (get cs k) 69))
              k (if exponent (+ k 1) k)
@@ -2616,7 +2634,7 @@
                  k)
              e (if exponent
                  (py/read-digits cs k 10 false "")
-                 (py/conj (py/conj (py/conj [] k) "0") true))
+                 (py/vconj (py/vconj (py/vconj [] k) "0") true))
              ds (data/str-concat (get a 1) (get b 1))]
          (if (if (if (get a 2) (get b 2) false)
                (if (get e 2)
@@ -2778,7 +2796,11 @@
                              (fn [] :py/None))]
              (assoc (assoc {} :py/out (cell/get py.rt/out))
                     :py/exception
-                    (if (= exc :py/None) nil (py/snapshot-exc exc))))))]])
+                    (if (= exc :py/None) nil (py/snapshot-exc exc))))))]
+    [py/run-main
+     ;; the entry wrapper's call: today the same as run-module; I1 gives it
+     ;; __name__ and the module object
+     (fn [body] (py/run-module body))]])
 
 
 (def builtin-classes
@@ -2866,11 +2888,11 @@
                          (py/int-conv (py/arg args 0) (py/arg args 1))))]
     ["float" py.b/float
      (py/make-function "float" {:params ["x"], :no-kw true}
-                       (py/conj [] (py/float (data/float-value 0))) []
+                       (py/vconj [] (py/float (data/float-value 0))) []
                        (fn [args] (py/float-conv (py/arg args 0))))]
     ["str" py.b/str
      (py/make-function "str" {:params ["x"], :no-kw true}
-                       (py/conj [] (py/str "")) []
+                       (py/vconj [] (py/str "")) []
                        (fn [args] (py/str-conv (py/arg args 0) false)))]
     ["repr" py.b/repr
      (py/make-function "repr" {:params ["x"], :no-kw true}
@@ -3027,6 +3049,147 @@
   "The bundled prelude: every definition, then the task's runtime state
    allocated by `py/init!`."
   (u/then functions-uast (u/sexp->uast '(py/init!))))
+
+
+;; =============================================================================
+;; The module emitter: the same definition list as the linker module `py`
+;; =============================================================================
+
+(def module-name
+  "The linker module the Python runtime profile is published as."
+  'py)
+
+
+(def runtime-keys
+  "Every key `py/init!` allocates, the ready flag aside, sorted: the three
+   runtime cells, the builtin classes, functions and method
+   implementations, and the builtins dict. Read from the same tables
+   `init-form` reads."
+  (vec (sort-by str
+                (concat '[py.rt/ctx py.rt/limit py.rt/out py.b/builtins]
+                        (mapv second builtin-classes)
+                        (mapv second builtin-functions)
+                        (mapv first method-implementations)))))
+
+
+(defn strip
+  "`sym` without the module's own namespace `py`; any other value as it
+   is. `py.b/*` and `py.rt/*` stay qualified: they are internal store keys,
+   and stripping them would collide (`py/list` and `py.b/list`)."
+  [sym]
+  (if (and (symbol? sym) (= "py" (namespace sym)))
+    (symbol (name sym))
+    sym))
+
+
+(defn- strip-form
+  "A prelude-notation form with every symbol `strip`ped: references,
+   definition keys and quoted keys alike. Keywords, strings and the
+   keys of literal maps are untouched."
+  [form]
+  (walk/postwalk strip form))
+
+
+(def ^:private module-definitions
+  "The module's definition list: a `:py/uninit` placeholder for every
+   runtime key, so each read of one is discharged by an unconditional
+   module-level definition, then every definition, stripped."
+  (into (mapv (fn [k] [k :py/uninit]) runtime-keys)
+        (map (fn [[k form]] [(strip k) (strip-form form)]))
+        definitions))
+
+
+(def module-uast
+  "The module tree: one application whose operands are the definitions,
+   in order, applied to a lambda that returns nil. Every definition runs
+   on the main sequence, unconditionally and before the one call, so the
+   linker's scanners discharge every body read of a sibling or a runtime
+   key; a `then` chain would leave every definition but the first inside
+   a closure body. Defining runs nothing."
+  (let [nodes (mapv (fn [[k form]] (u/def! k (u/sexp->uast form)))
+                    module-definitions)
+        params (mapv (fn [i] (symbol (str "%d" i))) (range (count nodes)))]
+    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) nodes))))
+
+
+(def module-exports
+  "The module's exports: every `py/` key of the definition list,
+   stripped. The runtime keys and the state slot are internal."
+  (set (keep (fn [[k _]] (when (= "py" (namespace k)) (strip k)))
+             definitions)))
+
+
+(defn- free-names
+  "Every variable name some occurrence of the map AST `ast` reads
+   unbound by an enclosing lambda."
+  [ast]
+  (letfn [(walk-node
+            [acc node bound]
+            (cond
+              (vector? node) (reduce (fn [a n] (walk-node a n bound)) acc node)
+              (not (map? node)) acc
+              :else
+              (case (:type node)
+                :variable (if (contains? bound (:name node))
+                            acc
+                            (conj acc (:name node)))
+                :literal acc
+                :lambda (walk-node acc (:body node) (into bound (:params node)))
+                (reduce (fn [a v] (walk-node a v bound)) acc (vals node)))))]
+    (walk-node #{} ast #{})))
+
+
+(defn- defined-keys
+  "Every literal key the map AST `ast` defines with `yin/def`, at any
+   depth."
+  [ast]
+  (set (keep (fn [node]
+               (when (and (map? node)
+                          (= :application (:type node))
+                          (= 'yin/def (get-in node [:operator :name])))
+                 (get-in node [:operands 0 :value])))
+             (tree-seq coll? seq ast))))
+
+
+(def ^:private module-free-names
+  "The names the module tree reads and does not define, sorted: the
+   primitives and the host exports its manifest must declare."
+  (vec (sort-by str
+                (remove (conj (defined-keys module-uast) 'yin/def)
+                        (free-names module-uast)))))
+
+
+(defn module-spec
+  "`yin.vm.linker.publish/publish-module!`'s spec for the module `py`
+   over the host registry `registry`. Every free name of the module tree
+   is declared under `:primitives`: a primitive by its `vm/primitives`
+   profile, a host export `ns/name` by the profile address the registry's
+   host module `ns` publishes and the effect set its `:callable-effects`
+   index holds for the export's function. A free name neither supplies is
+   refused before anything is published. This namespace emits; it never
+   publishes."
+  [registry]
+  {:name module-name,
+   :ast module-uast,
+   :exports module-exports,
+   :requires {},
+   :primitives
+   (into {}
+         (map (fn [n]
+                (if-let [profile (vm/profile-of vm/primitives n)]
+                  [n profile]
+                  (if-let [address (module/host-export-profile registry n)]
+                    (let [entry (module/module-entry (:modules registry)
+                                                     (symbol (namespace n)))
+                          f (get-in entry [:slice (symbol (name n))])]
+                      [n {:yin.k/profile address,
+                          :yin.k/effects
+                          (get (:callable-effects registry) f #{})}])
+                    (throw (ex-info "the py module reads an undeclared name"
+                                    {:yang.python.antlr/refusal
+                                     :yang.python.antlr/undeclared-free,
+                                     :name n}))))))
+         module-free-names)})
 
 
 (def min-integer-bits

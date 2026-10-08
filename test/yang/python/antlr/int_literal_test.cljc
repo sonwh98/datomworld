@@ -629,8 +629,8 @@
   (testing "a float is a float by tag: an integer-only operation raises
             TypeError through py/int?, nothing converts it"
     (let [two {:py/float (cbor/float64 2)}
-          form (list 'py/conj
-                     (list 'py/conj [] (list 'py/int? two))
+          form (list 'py/vconj
+                     (list 'py/vconj [] (list 'py/int? two))
                      (list 'py/try
                            (list 'fn [] (list 'py/invert two))
                            '(fn [e]

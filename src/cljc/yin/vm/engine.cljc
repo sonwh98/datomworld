@@ -1195,7 +1195,9 @@
    step 7): `yin.vm.linker/discharge` over the response's obligations,
    then profile equality for every obligation the manifest names under
    `:yin.module/primitives` -- a same-named primitive of a different
-   profile is `:unresolved-free`. A namespaced obligation of a module the
+   profile is `:unresolved-free`; a qualified name is matched against the
+   host module export of that name (`module/host-export-profile`). A
+   namespaced obligation of a module the
    manifest requires is the install's to satisfy: the child requires it,
    and the receiving task receives it at `linked`."
   [state response]
@@ -1215,9 +1217,11 @@
         (some (fn [o]
                 (let [n (obligation-name o)
                       expected (get-in manifest [:yin.module/primitives n])
-                      actual (:yin.k/profile
-                               (or (vm/profile-of (:primitives state) n)
-                                   (get (:primitive-profiles state) n)))]
+                      actual (or (:yin.k/profile
+                                   (or (vm/profile-of (:primitives state) n)
+                                       (get (:primitive-profiles state) n)))
+                                 (module/host-export-profile (:modules state)
+                                                             n))]
                   (when (and (some? expected) (not= expected actual))
                     (linker/refused :unresolved-free
                                     {:name n,

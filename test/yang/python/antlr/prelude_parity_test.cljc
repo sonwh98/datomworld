@@ -133,7 +133,7 @@
     [(py/truthy :py/None) false]
     [(py/truthy 5) true]
     [(py/truthy {:py/str "a"}) true]
-    [(py/not 0) true]
+    [(py/lnot 0) true]
     [(py/eq 1 {:py/float 1.0}) true]
     [(py/eq {:py/float 1.5} {:py/float 1.5}) true]
     [(py/eq 1 true) true]
@@ -239,7 +239,7 @@
 (defn- prelude-semantics-on-every-vm
   []
   (let [form (reduce (fn [acc [f _]]
-                       (list 'py/conj acc
+                       (list 'py/vconj acc
                              (if (= 'py/float-mod (first f))
                                (with-float64 f)
                                (ops/exact-literals (with-float64 f)))))
@@ -275,9 +275,9 @@
                          prelude/definitions))
           results (run-with-prelude
                     stubbed
-                    '(py/conj
-                       (py/conj
-                         (py/conj (py/conj [] (py/range-elem 0 1 5))
+                    '(py/vconj
+                       (py/vconj
+                         (py/vconj (py/vconj [] (py/range-elem 0 1 5))
                                   (py/to-vector (py/range3 0 3000 1)))
                          (py/range-at (py/range3 0 67108865 1) 67108864))
                        (py/range-at (py/range3 0 67108866 1) 67108865)))]
@@ -301,7 +301,7 @@
                       '(py/run-module
                          (fn [g]
                            (py/print
-                             (py/conj (py/conj (py/conj (py/conj [] 2)
+                             (py/vconj (py/vconj (py/vconj (py/vconj [] 2)
                                                         (py/truediv 4 2))
                                                (py/add 1 {:py/float 2.0}))
                                       {:py/float 0.5}))))))]
@@ -324,7 +324,7 @@
                     '(py/run-module
                        (fn [g]
                          (py/print
-                           (py/conj (py/conj [] (py/call-ec (fn [k] (do (k 7) 8))))
+                           (py/vconj (py/vconj [] (py/call-ec (fn [k] (do (k 7) 8))))
                                     (py/try (fn []
                                               (py/raise-new py.b/ValueError
                                                             {:py/str "v"}))
@@ -345,7 +345,7 @@
                     '(let [g (py/make-generator
                                "g"
                                (fn [gen] (do (py/yield gen 1) (py/yield gen 2) :py/None)))]
-                       (py/conj (py/conj (py/conj [] (py/gen-switch g [:send :py/None]))
+                       (py/vconj (py/vconj (py/vconj [] (py/gen-switch g [:send :py/None]))
                                          (py/gen-switch g [:send :py/None]))
                                 (py/gen-switch g [:send :py/None]))))]
       (doseq [[k result] results]
@@ -379,7 +379,7 @@
                                       (py/yield gen 2)))
                                 (fn [x]
                                   (cell/set! log
-                                             (py/conj (cell/get log) :fin))))))
+                                             (py/vconj (cell/get log) :fin))))))
                         h (py/make-generator
                             "h"
                             (fn [gen]
@@ -397,7 +397,7 @@
                                   (fn [x] (py/isinstance x py.b/RuntimeError))
                                   (fn [] :no))
                         k (get (cell/get h) :state)]
-                      (reduce (fn [acc s] (list 'py/conj acc s)) []
+                      (reduce (fn [acc s] (list 'py/vconj acc s)) []
                               '[a b c d e f i j k])))]
       (doseq [[k result] results]
         (testing (str k)
@@ -421,7 +421,7 @@
                                  "__init__" {:params ["self" "v"], :no-kw true}
                                  [] []
                                  (fn [args]
-                                   (cell/set! log (py/conj (cell/get log)
+                                   (cell/set! log (py/vconj (cell/get log)
                                                            (py/arg args 1))))))
                            g (py/make-generator
                                "g"
@@ -435,7 +435,7 @@
                                      (fn [] :no))
                            d (cell/get log)
                            e (py/gen-send g :py/None)]
-                       (py/conj (py/conj (py/conj (py/conj [] a) b) d) e)))]
+                       (py/vconj (py/vconj (py/vconj (py/vconj [] a) b) d) e)))]
       (doseq [[k result] results]
         (testing (str k)
           (is (= [1 true [] 2] result)))))))
@@ -454,7 +454,7 @@
             iter of a list is a stateful iterator that is its own iter"
     (let [results (run-with-prelude
                     prelude/uast
-                    '(let [note (fn [log x] (cell/set! log (py/conj (cell/get log) x)))
+                    '(let [note (fn [log x] (cell/set! log (py/vconj (cell/get log) x)))
                            inner (fn [log]
                                    (py/make-generator
                                      "inner"
@@ -493,18 +493,18 @@
                            k (py/next it :py/missing)
                            l (py/next it :d)
                            m (py/is (py/iter it) it)]
-                       (py/conj
-                         (py/conj
-                           (py/conj
-                             (py/conj
-                               (py/conj
-                                 (py/conj
-                                   (py/conj
-                                     (py/conj
-                                       (py/conj
-                                         (py/conj
-                                           (py/conj
-                                             (py/conj (py/conj (py/conj [] a) b) c)
+                       (py/vconj
+                         (py/vconj
+                           (py/vconj
+                             (py/vconj
+                               (py/vconj
+                                 (py/vconj
+                                   (py/vconj
+                                     (py/vconj
+                                       (py/vconj
+                                         (py/vconj
+                                           (py/vconj
+                                             (py/vconj (py/vconj (py/vconj [] a) b) c)
                                              d)
                                            e)
                                          f)
@@ -570,7 +570,7 @@
                         k (py/try (fn [] (py/next it :py/missing))
                                   (fn [x] (py/isinstance x py.b/RuntimeError))
                                   (fn [] :no))]
-                      (reduce (fn [acc s] (list 'py/conj acc s)) []
+                      (reduce (fn [acc s] (list 'py/vconj acc s)) []
                               '[a b c e f g h k])))]
       (doseq [[k result] results]
         (testing (str k)
@@ -594,7 +594,7 @@
                     (list
                       'let
                       '[log (cell/new [])
-                        note (fn [x] (cell/set! log (py/conj (cell/get log) x)))
+                        note (fn [x] (cell/set! log (py/vconj (cell/get log) x)))
                         c (fn []
                             (py/make-generator
                               "c"
@@ -659,7 +659,7 @@
                         v4 (py/try (fn [] (py/gen-send outer2 :py/None))
                                    (fn [e] (py/isinstance e py.b/ValueError))
                                    (fn [] :no))]
-                      (reduce (fn [acc s] (list 'py/conj acc s)) []
+                      (reduce (fn [acc s] (list 'py/vconj acc s)) []
                               '[r1 r2 r3 r4 r5 r6 u1 u2 u3 u4 u5 v1 v2 v3 v4])))]
       (doseq [[k result] results]
         (testing (str k)
@@ -687,7 +687,7 @@
 
 (defn- conj-all
   [syms]
-  (reduce (fn [acc s] (list 'py/conj acc s)) [] syms))
+  (reduce (fn [acc s] (list 'py/vconj acc s)) [] syms))
 
 
 (defn- generator-expression-on-every-host
@@ -704,18 +704,18 @@
                       'let
                       ['genexp genexp-form
                        'log '(cell/new [])
-                       'note '(fn [x] (do (cell/set! log (py/conj (cell/get log) x)) x))
+                       'note '(fn [x] (do (cell/set! log (py/vconj (cell/get log) x)) x))
                        'a '(py/call py.b/any
-                                    (py/conj [] (genexp (py/list [1 2 3 4])
+                                    (py/vconj [] (genexp (py/list [1 2 3 4])
                                                         (fn [x] (py/lt 2 (note x))))))
                        'la '(cell/get log)
                        'r1 '(cell/set! log [])
                        'b '(py/call py.b/all
-                                    (py/conj [] (genexp (py/list [1 2 3])
+                                    (py/vconj [] (genexp (py/list [1 2 3])
                                                         (fn [x] (py/lt (note x) 2)))))
                        'lb '(cell/get log)
                        'c '(py/call py.b/sum
-                                    (py/conj [] (genexp (py/range3 1 4 1) (fn [x] x))))
+                                    (py/vconj [] (genexp (py/range3 1 4 1) (fn [x] x))))
                        'd '(py/try (fn [] (genexp 5 (fn [x] x)))
                                    (fn [e] (py/isinstance e py.b/TypeError))
                                    (fn [] :no))
@@ -799,7 +799,7 @@
                    (ov (fn []
                          (py/sub (py/neg (py/int-lit "20000000000000")) 1)))
                    (ov (fn [] (py/mul 9007199254740991 3)))]
-          items (reduce (fn [acc form] (list 'py/conj acc form)) [] values)
+          items (reduce (fn [acc form] (list 'py/vconj acc form)) [] values)
           results (run-with-prelude
                     prelude/uast
                     (list 'py/run-module
@@ -896,8 +896,8 @@
    ['(py/key (py/float (- (data/float-value ##Inf) (data/float-value ##Inf)))) [:py.numeric/nan]]
    ['(= (py/key (py/float (- (data/float-value ##Inf) (data/float-value ##Inf)))) (py/key (py/float (* (data/float-value 0) (data/float-value ##Inf))))) true]
    ['(= (py/key (py/float (- (data/float-value ##Inf) (data/float-value ##Inf)))) (py/key {:py/float ##Inf})) false]
-   [(list '= (list 'py/key (list 'py/tuple (list 'py/conj [1] two-53+1)))
-          (list 'py/key (list 'py/tuple (list 'py/conj [{:py/float 1.0}] two-53+1))))
+   [(list '= (list 'py/key (list 'py/tuple (list 'py/vconj [1] two-53+1)))
+          (list 'py/key (list 'py/tuple (list 'py/vconj [{:py/float 1.0}] two-53+1))))
     true]
    ['(py/key {:py/str "k"}) {:py/str "k"}]
    ['(= (py/key -1) (py/key -2)) false]
@@ -946,7 +946,7 @@
 
 (defn- numeric-keys-hash-and-is-on-every-host
   []
-  (let [form (reduce (fn [acc [f _]] (list 'py/conj acc (with-float64 f)))
+  (let [form (reduce (fn [acc [f _]] (list 'py/vconj acc (with-float64 f)))
                      []
                      key-hash-is-cases)
         expected (mapv second key-hash-is-cases)
@@ -980,10 +980,10 @@
      ['ninf {:py/float ##-Inf}]
      ['big two-53+1]
      ['big2 (list 'integer/add two-53 1)]
-     ['t-nan '(py/tuple (py/conj [] nan))]
-     ['t-nan2 '(py/tuple (py/conj [] nan2))]
-     ['t-zero '(py/tuple (py/conj [] zero))]
-     ['t-neg-zero '(py/tuple (py/conj [] neg-zero))]]))
+     ['t-nan '(py/tuple (py/vconj [] nan))]
+     ['t-nan2 '(py/tuple (py/vconj [] nan2))]
+     ['t-zero '(py/tuple (py/vconj [] zero))]
+     ['t-neg-zero '(py/tuple (py/vconj [] neg-zero))]]))
 
 
 (defn- float-is-on-every-host
@@ -996,7 +996,7 @@
     (let [names (mapv first is-table)
           pairs (for [a names, b names] [a b])
           conj-all (fn [xs]
-                     (reduce (fn [acc x] (list 'py/conj acc x)) [] xs))
+                     (reduce (fn [acc x] (list 'py/vconj acc x)) [] xs))
           form (with-float64
                  (list 'let (vec (mapcat identity is-table))
                        (conj-all
@@ -1048,7 +1048,7 @@
   '(fn [thunk]
      (py/try thunk
              (fn [e]
-               (data/into (py/conj []
+               (data/into (py/vconj []
                                    (get (cell/get (get (cell/get e) :class))
                                         :name))
                           (get (get (get (cell/get e) :attrs) "args") :items)))
@@ -1075,18 +1075,18 @@
                            v (py/getitem d big)
                            _4 (py/dict-del-quiet d big)
                            n2 (data/count (get (cell/get d) :keys))
-                           s (py/set-from (py/conj (py/conj [] big) big1))
+                           s (py/set-from (py/vconj (py/vconj [] big) big1))
                            t (py/dict-new)
-                           _5 (py/dict-set t (py/tuple (py/conj [1] big)) 7)]
-                       (py/conj
-                         (py/conj
-                           (py/conj
-                             (py/conj
-                               (py/conj
-                                 (py/conj
-                                   (py/conj
-                                     (py/conj
-                                       (py/conj (py/conj [] k)
+                           _5 (py/dict-set t (py/tuple (py/vconj [1] big)) 7)]
+                       (py/vconj
+                         (py/vconj
+                           (py/vconj
+                             (py/vconj
+                               (py/vconj
+                                 (py/vconj
+                                   (py/vconj
+                                     (py/vconj
+                                       (py/vconj (py/vconj [] k)
                                                 (= k (py/key big1)))
                                        n1)
                                      v)
@@ -1096,7 +1096,7 @@
                              (data/count (get (cell/get s) :keys)))
                            (py/contains s big))
                          (py/getitem t (py/tuple
-                                         (py/conj [1]
+                                         (py/vconj [1]
                                                   (integer/shift-left
                                                     1 20000)))))))]
       (doseq [[k result] results]
@@ -1110,8 +1110,8 @@
                          prelude/uast
                          (list 'let ['caught caught]
                                '(let [big (integer/shift-left 1 20000)]
-                                  (py/conj
-                                    (py/conj [] (integer/format big))
+                                  (py/vconj
+                                    (py/vconj [] (integer/format big))
                                     (caught
                                       (fn []
                                         (py/int-result
@@ -1226,7 +1226,7 @@
                                '(caught
                                   (fn []
                                     (py/dict-set d
-                                                 (py/tuple (py/conj [1] tiny))
+                                                 (py/tuple (py/vconj [1] tiny))
                                                  {:py/str "c"})))
                                '(caught (fn [] (py/set-add s tiny)))])]
                         (conj-all ['r '(= d0 (cell/get d))
@@ -1280,7 +1280,7 @@
                              (cons 'do (map (fn [[k v]] (list 'py/dict-set 'd k {:py/str v}))
                                             pairs))
                              '(let [c (cell/get d)]
-                                (py/conj (py/conj [] (get c :keys)) (get c :vals))))))
+                                (py/vconj (py/vconj [] (get c :keys)) (get c :vals))))))
           f2-53 '(py/float (* (data/float-value 2) 4503599627370496))
           f2-80 '(py/float (* (data/float-value 1) 4503599627370496 268435456))
           forms [(fill [[1 "a"] [{:py/float 1.0} "b"] [true "c"]])
@@ -1296,13 +1296,13 @@
                     prelude/functions-uast
                     (with-float64
                       (list 'let ['shown '(fn [kv]
-                                            (py/conj (py/conj [] (data/count (get kv 0)))
+                                            (py/vconj (py/vconj [] (data/count (get kv 0)))
                                                      (get kv 1)))
                                   'first-key '(fn [kv] (get (get kv 0) 0))]
-                            (list 'py/conj
-                                  (list 'py/conj
+                            (list 'py/vconj
+                                  (list 'py/vconj
                                         (reduce (fn [acc f]
-                                                  (list 'py/conj acc
+                                                  (list 'py/vconj acc
                                                         (list 'shown f)))
                                                 []
                                                 forms)
@@ -1354,16 +1354,16 @@
                          '_5 '(py/dict-set d a 5)
                          's1 '(py/set-from [1 {:py/float 1.0} true 2])
                          's2 '(py/set-from [true 1 {:py/float 1.0}])]
-                        '(py/conj
-                           (py/conj
-                             (py/conj
-                               (py/conj
-                                 (py/conj
-                                   (py/conj
-                                     (py/conj
-                                       (py/conj
-                                         (py/conj
-                                           (py/conj [] (data/count (get (cell/get d) :keys)))
+                        '(py/vconj
+                           (py/vconj
+                             (py/vconj
+                               (py/vconj
+                                 (py/vconj
+                                   (py/vconj
+                                     (py/vconj
+                                       (py/vconj
+                                         (py/vconj
+                                           (py/vconj [] (data/count (get (cell/get d) :keys)))
                                            (py/getitem d a))
                                          (py/getitem d g))
                                        (get (cell/get s1) :keys))
@@ -1371,10 +1371,10 @@
                                    (err (fn [] (py/dict-set d (py/list []) 1))))
                                  (err (fn [] (py/dict-set d (py/dict-new) 1))))
                                (err (fn [] (py/set-add (py/set-new) (py/set-new)))))
-                             (err (fn [] (py/dict-set d (py/tuple (py/conj [1] (py/list []))) 1))))
+                             (err (fn [] (py/dict-set d (py/tuple (py/vconj [1] (py/list []))) 1))))
                            (err (fn []
                                   (py/set-add (py/set-new)
-                                              (py/tuple (py/conj [] (py/tuple (py/conj [] (py/dict-new))))))))))))]
+                                              (py/tuple (py/vconj [] (py/tuple (py/vconj [] (py/dict-new))))))))))))]
       (doseq [[k result] results]
         (testing (str k)
           (is (= [4 5 3 [1 2] [true]
@@ -1413,26 +1413,26 @@
                          '_2 '(py/dict-set d y 2)
                          'n '(data/count (get (cell/get d) :keys))
                          'v '(py/getitem d x)
-                         's '(py/set-from (py/conj (py/conj [] x) y))
+                         's '(py/set-from (py/vconj (py/vconj [] x) y))
                          't '(py/dict-new)
-                         '_3 '(py/dict-set t (py/tuple (py/conj [1] x)) :found)]
-                        '(py/conj
-                           (py/conj
-                             (py/conj
-                               (py/conj
-                                 (py/conj
-                                   (py/conj
-                                     (py/conj
-                                       (py/conj
-                                         (py/conj (py/conj (py/conj [] a) b) c)
+                         '_3 '(py/dict-set t (py/tuple (py/vconj [1] x)) :found)]
+                        '(py/vconj
+                           (py/vconj
+                             (py/vconj
+                               (py/vconj
+                                 (py/vconj
+                                   (py/vconj
+                                     (py/vconj
+                                       (py/vconj
+                                         (py/vconj (py/vconj (py/vconj [] a) b) c)
                                          n)
                                        v)
                                      (data/count (get (cell/get s) :keys)))
                                    (py/contains s x))
                                  (py/contains s y))
                                (py/contains s z))
-                             (py/getitem t (py/tuple (py/conj [1] y))))
-                           (py/getitem t (py/tuple (py/conj [{:py/float 1.0}] z)))))))]
+                             (py/getitem t (py/tuple (py/vconj [1] y))))
+                           (py/getitem t (py/tuple (py/vconj [{:py/float 1.0}] z)))))))]
       (doseq [[k result] results]
         (testing (str k)
           (is (= [1 1 1 1 2 1 true true true :found :found] result)))))))
@@ -1456,10 +1456,10 @@
                           (list 'fn '[g gf]
                                 (list 'let ['caught caught]
                                       '(py/print
-                                         (py/conj
-                                           (py/conj
-                                             (py/conj
-                                               (py/conj [] (caught (fn [] (py/hash (py/list [])))))
+                                         (py/vconj
+                                           (py/vconj
+                                             (py/vconj
+                                               (py/vconj [] (caught (fn [] (py/hash (py/list [])))))
                                                (caught (fn [] (py/hash (py/dict-new)))))
                                              (caught (fn [] (py/hash py.b/len))))
                                            (caught (fn [] (py/hash {:py/str "s"})))))))))]
@@ -1502,7 +1502,7 @@
                     "-1.0" "-0.0" "0.0" "0.0" "-0.0"]
           results (run-with-prelude prelude/functions-uast
                                     (reduce (fn [acc f]
-                                              (list 'py/conj acc (with-float64 f)))
+                                              (list 'py/vconj acc (with-float64 f)))
                                             []
                                             forms))]
       (doseq [[k result] results]
@@ -1603,7 +1603,7 @@
                      d (py/try (fn [] (py/global-get g {:py/str "nosuch"}))
                                (fn [e] (py/isinstance e py.b/NameError))
                                (fn [] :no))]
-                 (py/conj (py/conj (py/conj (py/conj [] (= a py.b/len)) b)
+                 (py/vconj (py/vconj (py/vconj (py/vconj [] (= a py.b/len)) b)
                                    (= c py.b/len))
                           d)))]
       (testing (str k)
@@ -1627,7 +1627,7 @@
                                (fn [] :no))
                      e (= py.b/ValueError
                           (py/global-get (py/dict-new) {:py/str "TypeError"}))]
-                 (py/conj (py/conj (py/conj (py/conj (py/conj [] a) b) c) d) e)))]
+                 (py/vconj (py/vconj (py/vconj (py/vconj (py/vconj [] a) b) c) d) e)))]
       (testing (str k)
         (is (= [7 1 true true true] result))))))
 
@@ -1653,6 +1653,46 @@
                                            '(get (cell/get py.b/builtins) :keys))]
         (testing (str k)
           (is (= table-order result)))))))
+
+
+(defn- definition-keys
+  "Every literal key a map AST defines with `yin/def`, at any depth."
+  [ast]
+  (set (keep (fn [node]
+               (when (and (map? node)
+                          (= :application (:type node))
+                          (= 'yin/def (get-in node [:operator :name])))
+                 (get-in node [:operands 0 :value])))
+             (tree-seq coll? seq ast))))
+
+
+(deftest two-emitters-one-source-test
+  (testing "the bundled tree's py/ keys, stripped, are the module's exports"
+    (is (= prelude/module-exports
+           (set (keep #(when (= "py" (namespace %)) (prelude/strip %))
+                      (definition-keys prelude/uast))))))
+  (testing "the module tree's qualified keys are the runtime keys and the
+            state slot"
+    (is (= (conj (set prelude/runtime-keys) 'py.rt/state)
+           (set (filter namespace (definition-keys prelude/module-uast))))))
+  (testing "Rule R holds over the module tree"
+    (is (nil? (vm/ast-reserved-defect prelude/module-uast)))))
+
+
+(deftest run-main-and-object-class-test
+  (testing "py/object-class answers the builtin object class; py/run-main
+            runs the body as py/run-module does"
+    (doseq [[k result]
+            (run-with-prelude
+              prelude/uast
+              '(py/vconj
+                 (py/vconj [] (= (py/object-class) py.b/object))
+                 (get (py/run-main
+                        (fn [g gf]
+                          (py/print (py/vconj [] (py/lnot 0)))))
+                      :py/out)))]
+      (testing (str k)
+        (is (= [true [[true]]] result))))))
 
 
 (deftest prelude-notation-test

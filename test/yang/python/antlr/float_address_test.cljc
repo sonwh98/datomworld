@@ -222,10 +222,10 @@
             host (JVM goldens)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "09131b20d81c468468c952051974373c"
-                  "8963dd82f17c4154c8bc974158a06976"))
+                  "88599f9cad1df9bdfee55dfd1f1b11f0"
+                  "e4ec26eca59827d1311630bb16d62f2e"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))
-    (is (= :segment/blake3-2d60190887dc1ca388d7a7b75467757c3f0e6c4b2d909603735c9a9852b0e3e3
+    (is (= :segment/blake3-7f326170d637f1962cce851ac1b70de16c64f7f5dea38f553465fd8abdb80af0
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
 
 
@@ -245,25 +245,25 @@
     (testing "A, A' and the record: one address on every host (JVM goldens)"
       (is (= (keyword
                (str "segment/blake3-"
-                    "8b09d94fd093759cf7a6f58c69c01a9b"
-                    "f6a47ed89f42174a5367b1b2461cf30e"))
+                    "894324a208e0978e6d6de96d371a6d6d"
+                    "a23b5880be4e066a929f926feea0a700"))
              (:root a)))
       (is (= (keyword
                (str "segment/blake3-"
-                    "26b026cf477c69abebb975397ddae0eb"
-                    "4d7eb2c5f417ded8218c25208600aabc"))
+                    "25258ce1f531c8b6a045356a3deeac66"
+                    "a91efbe51c5183e6402cb6092d9b4a79"))
              (:root a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "f0de9df6e0f5bd4e8d1de106d3618231"
-                    "83b290674b18d252ac7ab49fe891cf32"))
+                    "2138c265a0fea995d1b066962a326b11"
+                    "d04b6c2cf68b1980fb2ff101d765f25d"))
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "91b76c3c80254abf5407f850a8311cb6"
-                    "d5f613ecfb94f5c6e525121dfed1b7ec"))
+                    "abc9443cea78d48715d40c22ee38316e"
+                    "50f8330b6717810334f243ffa57ab807"))
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]
@@ -390,11 +390,11 @@
                                                :cljs :default) e
                                        [:thrown (ex-message e)]))]))
                       runners))
-          form (list 'py/conj
-                     (list 'py/conj
-                           (list 'py/conj
-                                 (list 'py/conj
-                                       (list 'py/conj [] '(py/key true))
+          form (list 'py/vconj
+                     (list 'py/vconj
+                           (list 'py/vconj
+                                 (list 'py/vconj
+                                       (list 'py/vconj [] '(py/key true))
                                        (list 'py/key
                                              {:py/float (cbor/float64 1)}))
                                  (list 'py/key
@@ -452,9 +452,9 @@
       (is (= (b64 nan) (b64 computed)))
       (is (not= (jing/segment-key nan) (jing/segment-key (cbor/float64 1)))))
     (testing "py/finite? on every VM: false for NaN and both infinities"
-      (let [form '(py/conj
-                    (py/conj
-                      (py/conj (py/conj [] (py/finite? 1.5))
+      (let [form '(py/vconj
+                    (py/vconj
+                      (py/vconj (py/vconj [] (py/finite? 1.5))
                                (py/finite? (data/float-value ##Inf)))
                       (py/finite? (data/float-value ##-Inf)))
                     (py/finite? (- (data/float-value ##Inf)

@@ -156,7 +156,7 @@
   [rs cases]
   (let [form (list 'let ['caught caught]
                    (reduce (fn [acc [form _]]
-                             (list 'py/conj acc (exact-literals form)))
+                             (list 'py/vconj acc (exact-literals form)))
                            [] cases))]
     (doseq [[k result] (run-with-prelude rs prelude/uast form)]
       (is (= (canon-ints (float-bits (mapv second cases)))
@@ -301,7 +301,7 @@
   '(fn [x]
      (if (= (get x :tuple) nil) (decode-number x)
          (py/tuple
-           (py/conj (py/conj [] (decode-number (get (get x :tuple) 0)))
+           (py/vconj (py/vconj [] (decode-number (get (get x :tuple) 0)))
                     (decode-number (get (get x :tuple) 1)))))))
 
 
@@ -444,7 +444,7 @@
      ['(let [qr (get (py/divmod
                        (py/neg (py/int-lit "10000000000000001"))
                        (py/int-lit "10000000000000000")) :items)]
-         (py/conj (py/conj [] (get qr 0)) (integer/format (get qr 1))))
+         (py/vconj (py/vconj [] (get qr 0)) (integer/format (get qr 1))))
       [-2 "18446744073709551615"]]
      ['(py/floordiv true true) 1]
      ['(py/floordiv (py/neg (py/int-lit "10000000000000000"))

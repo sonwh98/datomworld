@@ -440,7 +440,7 @@
                                                          :spec {:params ["s" "f"]})
                                                   :defaults [])
                                            :kwdefaults [])
-                                    :code (fn [args] (py/print (py/conj [] (py/arg args 0))))))))
+                                    :code (fn [args] (py/print (py/vconj [] (py/arg args 0))))))))
           a' (vm/semantic-bytecode->ast
                (tree-of (:derived (derive* def-and-while hooks/profile))))]
       (every= [true false {:py/out ["7" "5"], :py/exception nil}]
@@ -771,10 +771,10 @@
                 (fn [_]
                   (u/sexp->uast
                     (run-module-form
-                      '(do (py/print (py/conj [] (py.sp/recursion-limit)))
+                      '(do (py/print (py/vconj [] (py.sp/recursion-limit)))
                            (py.sp/set-recursion-limit! 50)
                            (py/print
-                             (py/conj [] (py.sp/recursion-limit)))))))))))
+                             (py/vconj [] (py.sp/recursion-limit)))))))))))
   (testing "an invalid argument raises the Python error and keeps the limit"
     (doseq [[arg error message]
             [[0 "ValueError"
@@ -795,7 +795,7 @@
                                     (list 'py.sp/set-recursion-limit! arg))
                               '(fn [e]
                                  (do (py/print
-                                       (py/conj [] (py.sp/recursion-limit)))
+                                       (py/vconj [] (py.sp/recursion-limit)))
                                      (py/raise e)))
                               '(fn [] :py/None))))))))))
   (testing "a valid change persists across an escape: the limit is outside
@@ -811,7 +811,7 @@
                            (do (py.sp/set-recursion-limit! 50)
                                (py/raise-new py.b/ValueError {:py/str "x"})))
                          (fn [e]
-                           (py/print (py/conj [] (py.sp/recursion-limit))))
+                           (py/print (py/vconj [] (py.sp/recursion-limit))))
                          (fn [] :py/None)))))))))
   (testing "at depth 5, a limit of 5 or below raises RecursionError and keeps
             the old limit; 6 is accepted"
@@ -839,12 +839,12 @@
                                           (list 'py.sp/set-recursion-limit! n))
                                     '(fn [e]
                                        (do (py/print
-                                             (py/conj []
+                                             (py/vconj []
                                                       (py.sp/recursion-limit)))
                                            (py/raise e)))
                                     '(fn []
                                        (py/print
-                                         (py/conj []
+                                         (py/vconj []
                                                   (py.sp/recursion-limit)))))))))))))))
 
 

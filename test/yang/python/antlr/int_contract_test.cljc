@@ -201,7 +201,7 @@
 
 (defn- conj-all
   [xs]
-  (reduce (fn [acc x] (list 'py/conj acc x)) [] xs))
+  (reduce (fn [acc x] (list 'py/vconj acc x)) [] xs))
 
 
 (defn- int-form
@@ -290,7 +290,7 @@
   '(fn [thunk]
      (py/try thunk
              (fn [e]
-               (data/into (py/conj []
+               (data/into (py/vconj []
                                    (get (cell/get (get (cell/get e) :class))
                                         :name))
                           (get (get (get (cell/get e) :attrs) "args") :items)))

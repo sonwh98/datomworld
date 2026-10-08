@@ -573,7 +573,31 @@
                                     {:yin.module/primitives
                                      {'+ (:yin.k/profile
                                            (vm/profile-of vm/primitives
-                                                          '+))}})))))))))
+                                                          '+))}})))))
+        (let [cell-new (get-in module/cell-profiles ['new :yin.k/profile])
+              declared (body [{:name 'cell/new, :kind :primitive,
+                               :profile cell-new}]
+                             {:yin.module/primitives {'cell/new cell-new}})
+              run-over (fn [modules]
+                         (let [pair (link-pair)
+                               root ((:vm (get backends backend))
+                                     use-m
+                                     (assoc (composition pair)
+                                            :modules modules))]
+                           (refusal-of
+                             #(drive root (responder pair {'m declared})))))]
+          (testing "a qualified host export of an equal profile discharges"
+            (is (nil? (run-over (module/register-cell-module
+                                  (module/default-registry))))))
+          (testing "a host export of another profile is refused by name"
+            (let [refusal (run-over
+                            (module/register-host-module
+                              (module/default-registry) 'cell
+                              {'new (get module/cell-module 'new)}
+                              {'new (vm/primitive-profile 'new :pure [1]
+                                                          #{} :none)}))]
+              (is (= :unresolved-free (:reason refusal)))
+              (is (= 'cell/new (:name refusal))))))))))
 
 
 (deftest a-body-read-applied-before-its-definition-keeps-its-obligation-test

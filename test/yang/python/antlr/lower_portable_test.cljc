@@ -135,3 +135,27 @@
     (is (= :diagnostics port))
     (is (= :yang.python.antlr/unhandled-rule (:yang.python.antlr/diagnostic d)))
     (is (= "no_such_rule" (:rule d)))))
+
+
+(deftest linked-wrapper-test
+  (let [main (u/app (u/v 'py/run-main)
+                    (u/lam ['%globals '%globals-fn]
+                           (lower/lower-module-body x-equals-1)))
+        linked (lower/lower-packet x-equals-1 {:prelude :linked})
+        symbols (filter symbol? (tree-seq coll? seq linked))]
+    (testing "require py, allocate the task's runtime state, run the body"
+      (is (= (u/mark-tails
+               (u/seq-nodes [(u/app (u/v 'require) (u/lit 'py))
+                             (u/app (u/v 'py/init!))
+                             main]))
+             linked)))
+    (testing "the linked program holds no definition and no runtime key"
+      (is (not-any? #{'yin/def} symbols))
+      (is (not-any? #(#{"py.b" "py.rt"} (namespace %)) symbols)))
+    (testing "the bundled profile is the default"
+      (is (= (lower/lower-packet x-equals-1)
+             (lower/lower-packet x-equals-1 {:prelude :bundled}))))
+    (testing "the stage state selects the profile"
+      (let [[_ [[_ envelope]]] (lower/lower-transform {:prelude :linked}
+                                                      x-equals-1)]
+        (is (= [linked] (:yin/batch envelope)))))))
