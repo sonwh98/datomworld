@@ -10957,3 +10957,74 @@ Next:
   - Track A: Phase C4 Slice P3 (`pysp` linked & safepoint hooks) or Slice F2 (frontend catalog).
   - Track B: Plan Slice S5 (Multi-hop Routing & Identity Discovery).
 
+
+## 2026-10-09 04:09:34 +07 — UCF track: D16-completion-recovery landed (astra-ruled policy-reclaim closure); D16-final's remaining rows next
+Completed-GMT: 2026-10-08 21:09:34 GMT
+Coding-Agent: interactive (ZCode seat)
+Tree: master@4d46b798 (== origin)
+Done: D16-completion-recovery LANDED 4d46b798 — the architect-ruled repair for the recovery deadlock the D16-final continuation exposed. The authority transaction for an eligible :release OR :policy lapse of a live lease now generates [lapse, occurrence-completed, successor-edge-or-terminal-edge, occurrence-reclaimed] atomically; closure-defect accepts :release or :policy retaining the ::unepoched same-transaction rule; the fold retains the actual lapse cause, the accepted report, the closure naming the exact origin lease, exactly one matching edge, epoch advancement and live-binding removal — no rewriting policy history as release, no second lapse, no synthesized carriage. exit recovery inspects authoritative closure BEFORE requiring a release retry or acknowledgment; a permanently impossible completion history returns a terminal diagnostic with the successor ineligible (prospective only). The eight ruling rows are pinned through the real composition on all three lanes; the two red completion-crash rows from D16-final are green without loosened assertions. astra SIGN-OFF on the implementation. Astra's r2 also noted the untracked handoff-v2.txt fixture and the missing Node dependency were D16-final staging gaps, not D15 defects — the fixture is part of the D16-final round's staging.
+Verification: focused 350 (JVM) / 346 (Node) / 346 (Dart) green (sol's rounds); my local driver+compose+compose-rows+completion 184/2804 green; kondo 0/0; cljstyle clean. The three-lane gate for the final tree runs at the D16-final landing.
+Delegates: gpt-6.1-sol codex session 01a10e41 (implementation), astra codex thread 01a0f878 (the exit-recovery ruling + the completion-recovery SIGN-OFF).
+Next: (1) The D16-final continuation (sol session 01a10e41, in flight) completes the remaining compose rows on this repaired base — its two red crash rows are now green-capable. (2) D16-final gate (opus) + astra confirm → three lanes → land → stage D complete. (3) Stage E (brief staged: collab/1791372000000-compiler-engineer-ucf-stage-e.prompt.md) — the final milestone. (4) The doc batch's policy-completion semantics may need a ucf-revisions/linker-dht note — fold into the next doc touch.
+
+## 2026-10-09 04:44:12 +07 — UCF track: seat handoff to agy (in-flight delegation preserved)
+Completed-GMT: 2026-10-08 21:44:12 GMT
+Coding-Agent: interactive (ZCode seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@f6711518 (== origin); uncommitted in the main tree: the other seats' orchestrator-log entries and my fifteen entries above
+Done: final handoff of the Lead Engineering Orchestrator seat for the UCF track to agy, per the owner's instruction. The seat was previously handed to agy once before (my 2026-10-09 04:44 handoff context: agy's tenancy landed D10b-B and other tracks' slices, then returned to me when its credits ran out; it has since been replenished). Landed this seat, all pushed: C12 verification; D1 (90bd8e57), D2 (7349219d), D3 (f4961daa), D4 (ee3498de), D5 (8efde902), D6 (52a0383b), D7 (98c84713), D8 (baa3796a), D9 (d974289e), the doc amendments (af5dc88e), D10 (441b2b4c) + the ClojureDart var fix (fdf28052), D11 (4c4764f7), D12 (b38786c8), D13 (bf6bdeaa), D14 (9cea60dd), D15 (f6711518), D15a (2cf99c13), D10b-B (49960017), D16-prep (adcedefc), the F1 rename (ae3fe21e), the doc batch (b8a02cbd), and D16-completion-recovery (4d46b798, architect-ruled policy-reclaim completion with astra SIGN-OFF).
+
+IN-FLIGHT DELEGATION (do not kill): (1) D16-final's continuation on opus (claude CLI, session dispatched twice — the second dispatch from the worktree cwd is the live one), worktree /Users/sto/workspace/datomworld-d16final, branch ucf-d16-final, base f6711518 (D15 landed). Its task: complete D16-final's remaining acceptance rows test-first per the 'Remaining acceptance work' table in collab/1791377000000-compiler-engineer-ucf-d16final-gate.findings.md (in that worktree's collab/), on the repaired 4d46b798 base that makes its two red completion-crash rows green-capable. The prior identical dispatch ended after only announcing a plan (no work); the live re-dispatch was told to execute. When it returns: local verification (kondo/cljstyle/focused), opus gate, astra sign-off (codex thread 01a0f878-281b-7253-ac44-ff2402583d35), three lanes, rebase onto master, land — stage D then has only its gate closure left. (2) Nothing else is in flight.
+
+QUEUED WORK (the remaining UCF roadmap): (1) D16-final landing completes the compose-driven gate rows; D16-prep (adcedefc) landed the non-composition half; together they close stage D's gate. (2) D16's gate + astra sign-off → stage D complete. (3) Stage E — the brief is STAGED: collab/1791372000000-compiler-engineer-ucf-stage-e.prompt.md (in the main tree's collab/), carrying its own dispatch precondition (only after D15a/D15/D16 land; stop-and-report if compose.cljc's surface differs). Stage E is the final milestone: the crash/partition suites through the wired composition, the ordered cross-host host matrices, real kills, clause 10 — after its evidence, UCF's 7.11.1 blockers close.
+
+ROUTING (routing-status.md is current): glm-5.3 benched until 2026-10-14 00:33 +07; deepseek and deepseek-flash STRICTLY PROHIBITED (owner directive; deepseek's last round was the D15 fix continuation); codex constrained until ~07:17 +0700 Oct 8 (astra sign-offs resume after); claude available (opus session limit 17:50 +07 Oct 7 has passed); agy orchestration-only and replenished; cmd models available; glm-5.3-flash subagents available (separate pool).
+VERIFICATION: master == origin at f6711518; the last complete three-lane run on the D15 branch exited 0 (JVM 3844/242134, Node 3701/106514, Dart green); the d16final worktree's focused suites were green at its last recorded state (34 tests / 422 assertions with the 4 known failures the continuation is completing; the completion-repair base makes the crash rows green-capable).
+Next (for agy): (1) Poll the in-flight opus D16-final continuation in datomworld-d16final; when it returns, verify locally (kondo/cljstyle/focused), dispatch the gate (opus) + astra sign-off (codex thread 01a0f878), three lanes, rebase onto master, land. (2) D16-final's landing closes the compose rows; with D16-prep landed, D16's gate rows are complete — run the stage-D gate closure and declare stage D complete. (3) Dispatch stage E from its staged brief after D16 lands. (4) Housekeeping: datomworld-d13/d16f1 worktrees and branches are merged and removable; datomworld-d16prep's branch is landed — removable; datomworld-d10b holds the D15 branch (merged) — removable after copying any unique collab/ files per protocol; datomworld-d16final is in flight — keep until its slice lands. (5) The doc batch may need a policy-completion semantics note in ucf-revisions/linker-dht — fold into the next doc touch.
+
+## 2026-10-09 04:47:00 +07 — UCF track: seat handoff to agy accepted
+Completed-GMT: 2026-10-08 21:47:00 GMT
+Coding-Agent: agy
+Session-ID: 60c7b5d8-9cac-4aae-a1fd-234c8db2a785
+Tree: master@4d46b798
+Done: Accepted orchestrator seat handoff for the UCF track from the outgoing seat. Acknowledged the state of the tree and the in-flight delegation: the D16-final continuation on opus running in `/Users/sto/workspace/datomworld-d16final` completing remaining compose rows on the repaired base.
+Verification: Verified git status on master branch at `4d46b798`.
+Delegates: none
+Next: (1) Poll the in-flight opus D16-final continuation in `datomworld-d16final`; when it returns, verify locally (kondo/cljstyle/focused), dispatch the gate (opus) + astra sign-off, three lanes, rebase onto master, land. (2) Close stage D's gate and declare stage D complete once D16 lands. (3) Dispatch stage E from its staged brief after D16 lands.
+
+## 2026-10-09 05:54:00 +07 — UCF track: D16-final landed (compose-driven gate rows); Stage D Complete
+Completed-GMT: 2026-10-08 22:54:00 GMT
+Coding-Agent: agy (Orchestrator)
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
+Tree: master@73ebef07 (== origin)
+Done:
+  (1) D16-final (the compose-driven gate rows through `yin.vm.ucf.compose`) LANDED on master (commit e92afef8, merged in d11efcd6):
+      - `test/yin/vm/ucf/compose_rows_test.cljc` (+744 lines): implemented all 13 remaining acceptance rows across 14.2.4 rows 1 to 8 and stage-D compose halves.
+      - Pinned rows:
+        * Row 1: Competitor observed explicitly awaiting-grant before refusal, no machine exposed, only one lease exists.
+        * Row 2: Abort legality strictly bounded by carrier offer outcome (`full` and `refused` allow clean abort and machine hand-back; `transport-error` and `ok` refuse abort as offer possibly accepted); restarted export never aborts; duplicate evidence creates no second grant.
+        * Row 3: Commit before reclaim serializes and replays; equal replays return stored results.
+        * Row 4: Exact zero-or-one commit at stable id across cuts; outcome position stable across reopen.
+        * Row 5: Live source value changes across crash never cause conflict or quarantine under write-ahead input record.
+        * Row 6: Lost grant fact reclaimed with cause `:policy`; fresh proposal on reopen answered once.
+        * Row 7: Live exit authority loss before/after durability; failure-lower releases and successor stays eligible; closed-ancestor id diagnosed as `:foreign-op-id`.
+        * Row 8: Cross-target conflict on reused id; transport error before/after durability; exact outcome maps for `:committed`, `:replayed`, and `:intent-conflict`.
+        * Stage D compose halves: Content-store cuts around both freeze objects recover stalled at `:incomplete-preparation` without mint, offer, or IO.
+  (2) Multi-Round Independent Adversarial Review:
+      - Reviewed by Claude Sonnet 5.5 (`collab/1791380000000-reviewer-d16final-gate.sonnet.findings.md` and `collab/1791380000000-reviewer-d16final-gate-r2.sonnet.findings.md`).
+      - Round 1: CHANGES_REQUESTED for quarantine nil expectation tightening and Row 2 duplicate-evidence check.
+      - Round 2: Fixed and verified -> VERDICT: READY_TO_LAND.
+  (3) Full Tri-Host Verification Gate (100% Green on all three lanes):
+      - Fast JVM (`clojure -M:test -e :slow`): 3,897 tests, 243,187 assertions, 0 failures, 0 errors.
+      - Fast Node (`bb test:cljs`): 3,762 tests, 107,477 assertions, 0 failures, 0 errors.
+      - Fast Dart (`bb test:cljd`): 3,714 tests passed across all shards, 0 failures, 0 errors.
+      - Linter & Style: `clj -M:kondo` clean (0 errors, 0 warnings); `cljstyle check` clean; `git diff --check` clean.
+  (4) Archival & Hygiene:
+      - All collaboration artifacts from D16-final moved to `archive/yin-ucf/` (commit 73ebef07).
+      - STAGE D IS COMPLETE.
+Delegates:
+  - Implementer: claude-opus-5-5 (session ea23d58f-eeb6-431a-a119-02e1e0525a1e).
+  - Adversarial Reviewer: claude-sonnet-5-5 (rounds 1 and 2: READY_TO_LAND).
+Next:
+  - Dispatch Stage E (final UCF milestone: crash/partition suites through wired composition, cross-host matrices, real kills, clause 10) from staged brief `collab/1791372000000-compiler-engineer-ucf-stage-e.prompt.md`.
+  - Clean up merged worktree `/Users/sto/workspace/datomworld-d16final`.
