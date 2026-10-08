@@ -82,8 +82,10 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | than the prior Opus generation. **Best for:** Code migration,      | loops or simple code generation where Sonnet 5 suffices.            |
 |                             | software optimization, and complex agentic coding.                 |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `claude-sonnet-5`           | Optimal blend of speed, intelligence, and price. **Best for:**     | Less rigorous for security or capability bounds. **Avoid for:**     |
-|                             | Everyday coding, QA, verification, and general-purpose tasks.      | Deep architectural security design; extremely complex agentic work. |
+| `claude-sonnet-5-5`         | Frontier agentic workhorse; substantial gains in reasoning depth,  | Can struggle with high-order axiomatic proofs or subtle security    |
+|                             | instruction following, and rigorous code audits. Low latency and    | capability proofs vs Fable 5.1 / Astra. **Avoid for:** Final        |
+|                             | high cost-efficiency. **Best for:** Core implementation, deep QA   | architectural sign-offs on high-risk cryptographic or consensus     |
+|                             | adversarial code reviews, multi-file refactors, and test suites.   | boundaries where Opus 5.5 / Fable 5.1 / Astra is mandated.          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `deepseek-flash`            | V4.1-Flash outpaces V4-Pro in speed, cost, and agentic benchmarks. | Can hallucinate on deep invariant constraints. **Avoid for:**       |
 |                             | **Best for:** QA parity checks, scoped subagent work, and          | Complex system design, AST lowering.                                |
