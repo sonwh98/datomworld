@@ -1,0 +1,4 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+PHASE lifted
+REPL-NAMESPACES []

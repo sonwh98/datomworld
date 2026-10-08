@@ -1,0 +1,677 @@
+(ns yin.vm.ucf.compose
+  "The composition of M-next D slice D15 (r3 1.5, 1.11 and 1.12; UCF
+   7.11's wiring; linker-dht 14.2.1's exclusivity gate): the one entry
+   point stage E drives -- plain functions over the landed holder and
+   authority namespaces, loadable and drivable with no yin.repl
+   namespace anywhere below it.
+
+   The authority side.  `open!` opens the arbitration authority over
+   the caller's journal backend and applies the exclusivity gate: an
+   exclusive handoff is offered only when `authority/exclusive-capable?`
+   holds for the composition's required failure model, and an authority
+   that cannot carry it -- a memory backend, a weaker failure model, no
+   lock -- answers :yin.k/unsatisfied, never a silent downgrade to
+   fork.  Fork is offered only when the caller selects fork, and every
+   composition is labelled with the policy it runs (:yin.k/exclusive,
+   :yin.k/fork).  Beside the authority the composition owns the judge
+   (dao.lease over the authority, wired to its tick log and every
+   holder's lease-fact medium), one front per holder, the target and
+   outcome readers, and the diagnostic stream.
+
+   The holder side.  `holder` and `source` assemble the landed driver
+   (D13/D14/D15a's phases) over the composition-supplied seams -- the
+   inbound appender, the durable positional reply and outcome inboxes
+   (dao.stream.journal, the complete-retention substrate the D15a
+   assembly contract requires; never an evicting ring), the
+   authenticated ledger reader, the lease clock, the progress journal
+   and the protection declarations -- beside the caller's receiver,
+   attach, observe and serve seams.  The carrier for bodies and code is
+   the node's existing content store (:store); no second loader, no
+   second DHT step owner, lives here.
+
+   The steps.  `control-step` is the custody control plane -- every
+   holder's `driver/control-step` (renewals, pending releases, request
+   retries), then every front, then the judge, in holder order -- and
+   `program-step` is the custody program step (`driver/program-step`
+   per holder).  `stop` latches every holder's local stop; the control
+   plane keeps running while a bounded drain calls `control-step`, and
+   no program work runs once the latch is set.  `owed-control-write?`
+   is the aggregate cadence bit: the holders' owed control writes, the
+   fronts' unread requests and the judge's undelivered queue.  No
+   thread, timer or step owner lives here: the REPL's tick, or a test,
+   or stage E calls the steps."
+  (:require [dao.lease :as lease]
+            [dao.stream :as stream]
+            [dao.stream.journal :as journal]
+            [dao.stream.memory-log :as memory-log]
+            [dao.stream.ringbuffer :as ring]
+            [yin.vm.ucf.authority :as authority]
+            [yin.vm.ucf.authority.admission :as admission]
+            [yin.vm.ucf.authority.front :as front]
+            [yin.vm.ucf.authority.grant :as grant]
+            [yin.vm.ucf.holder.driver :as driver]))
+
+
+;; =============================================================================
+;; Assembly
+;; =============================================================================
+
+
+(def default-inbound-capacity
+  "The composition's default inbound ring capacity, in elements.  The
+   backpressure a holder's request stream gives its front; a test or
+   stage E overrides it per holder with :inbound."
+  64)
+
+
+(def front-budget
+  "How many requests one front step reads, the same bound the driver
+   suites drive their fronts with."
+  16)
+
+
+(defn- check!
+  [ok what data]
+  (when-not ok
+    (throw (ex-info (str "The custody composition needs " what)
+                    (into {} (cons {:yin.k/hint :assembly} data))))))
+
+
+(defn- check-interval!
+  "The renewal interval gate the driver runs at its own assembly, run
+   here so an unsizable composition refuses at open, before any medium
+   is minted."
+  [units interval]
+  (check! (lease/duration? interval)
+          "a renewal interval: a single-entry {unit positive-integer} map"
+          {:renewal-interval interval})
+  (let [[unit magnitude] (first interval)]
+    (check! (some? (get units unit))
+            "a renewal interval whose unit is in the unit table"
+            {:renewal-interval interval :units units})
+    (check! (<= magnitude (quot lease/magnitude-limit (get units unit)))
+            "a renewal interval within the per-unit bound"
+            {:renewal-interval interval})))
+
+
+(defn- check-common!
+  [{:keys [store diagnostics medium clock renewal-interval units]}]
+  (check-interval! units renewal-interval)
+  (check! (and (map? store)
+               (fn? (:put-bytes-fn store))
+               (fn? (:get-bytes-fn store)))
+          "a content store: a dao.jing byte-store handle" {})
+  (check! (some? diagnostics) "a diagnostic stream: a writer" {})
+  (check! (some? medium) "a carrier medium name" {})
+  (check! (fn? clock) "a lease clock: (fn [] reading)" {}))
+
+
+(defn- log-handle
+  "A fresh memory log: the composition's tick and lease-fact media."
+  []
+  (:dao.stream/handle
+    (memory-log/create! {:dao.stream/type :dao.stream/memory-log})))
+
+
+(defn- ring-handle
+  [capacity]
+  (:dao.stream/handle
+    (ring/create! {:dao.stream/type ring/transport-type
+                   ring/capacity-key capacity})))
+
+
+(defn- fresh-journal
+  "A fresh journal over frames the composition keeps, so `restart` can
+   reopen the same history."
+  []
+  (let [frames (atom [])
+        backend (journal/memory-backend frames nil)]
+    {:backend backend
+     :journal (:dao.stream/handle (journal/open! backend nil))}))
+
+
+(defn- oldest
+  [h]
+  (:dao.stream/cursor (stream/cursor h :dao.stream/oldest)))
+
+
+;; =============================================================================
+;; The durable positional inboxes (D15a's production adapters)
+;; =============================================================================
+
+
+(defn inbox-over-journal
+  "The version-1 positional inbox descriptor over journal handle `h`,
+   its records attributed to `author`: complete retention, stable
+   identity, non-destructive reads at dense exact positions -- the
+   substrate D15a's assembly requires and the reply-transport research
+   named (a ring or a bare memory log is disqualified: one evicts, both
+   mint a fresh identity per process).  Answers the closed result union
+   the driver's assembly validates: :record, :empty at the tail,
+   :unavailable for inaccessible history.  A journal never gaps."
+  [h author]
+  (let [identity (:dao.stream/identity (stream/descriptor h))]
+    {:version 1
+     :identity identity
+     :read-at!
+     (fn [position]
+       (let [answer (stream/next
+                      h
+                      {:dao.stream.memory-log/identity identity
+                       :dao.stream.memory-log/position position})]
+         (case (:dao.stream/outcome answer)
+           :dao.stream/ok {:status :record :position position
+                           :author author
+                           :record (:dao.stream/value answer)}
+           (:dao.stream/blocked :dao.stream/end) {:status :empty}
+           {:status :unavailable})))}))
+
+
+(defn inbox-over-outcomes
+  "The version-1 positional inbox descriptor over the authority's
+   outcome reader `r`, its outcomes attributed to `author` (the
+   arbitration identity): positions dense from zero in ledger t order,
+   stable across reopen -- the projection's own cursor form, read
+   positionally without minting."
+  [r author]
+  (let [identity (:dao.stream/identity (stream/descriptor r))]
+    {:version 1
+     :identity identity
+     :read-at!
+     (fn [position]
+       (let [answer (stream/next
+                      r
+                      {:yin.vm.ucf.authority.admission/outcomes identity
+                       :yin.vm.ucf.authority.admission/position position})]
+         (case (:dao.stream/outcome answer)
+           :dao.stream/ok {:status :record :position position
+                           :author author
+                           :record (:dao.stream/value answer)}
+           :dao.stream/blocked {:status :empty}
+           {:status :unavailable})))}))
+
+
+;; =============================================================================
+;; The authenticated ledger reader (r3 1.5's third path)
+;; =============================================================================
+
+
+(defn- ledger-reader
+  "The holder's ledger read over the authority's own journal: every
+   record from the origin, attributed to the arbitration identity, or
+   nil when the medium cannot be attached at all.  A read that fails
+   mid-history answers the stream outcome in the record's place, which
+   the holder's own history check reads as the transport error it is --
+   unavailable, never an empty prefix."
+  [a arb]
+  (fn []
+    (let [h (:journal a)
+          origin (stream/cursor h :dao.stream/oldest)]
+      (when (= :dao.stream/ok (:dao.stream/outcome origin))
+        (loop [cursor (:dao.stream/cursor origin) records []]
+          (let [answer (stream/next h cursor)]
+            (case (:dao.stream/outcome answer)
+              :dao.stream/ok (recur (:dao.stream/cursor answer)
+                                    (conj records [arb (:dao.stream/value answer)]))
+              (:dao.stream/blocked :dao.stream/end) records
+              (conj records [arb answer]))))))))
+
+
+;; =============================================================================
+;; Open, and the exclusivity gate
+;; =============================================================================
+
+
+(defn arbitration
+  "The arbitration medium map this composition's exclusive exports
+   carry.  Nil for a fork, which arbitrates nothing."
+  [c]
+  (when-some [i (:identity c)]
+    {:dao.stream/identity i
+     :dao.stream/descriptor {:dao.stream/type :dao.stream/journal}}))
+
+
+(defn- bare-composition
+  [{:keys [mode failure-model renewal-interval store diagnostics medium
+           clock units export-version inbound-capacity]}]
+  {:mode mode
+   :yin.k/policy (case mode :exclusive :yin.k/exclusive :yin.k/fork)
+   :failure-model failure-model
+   :renewal-interval renewal-interval
+   :store store
+   :diagnostics diagnostics
+   :medium medium
+   :clock clock
+   :units units
+   :export-version export-version
+   :inbound-capacity (or inbound-capacity default-inbound-capacity)
+   :authority nil
+   :identity nil
+   :judge nil
+   :ticks nil
+   :outcome-reader nil
+   :outcome-inbox nil
+   :stopped? false
+   :fronts {}
+   :holders {}
+   :holder-configs {}
+   :inbounds {}
+   :lease-media {}
+   :progress {}})
+
+
+(defn- open-exclusive
+  [config]
+  (let [r (authority/open! (:backend config))
+        a (::authority/authority r)]
+    (cond
+      (nil? a)
+      {:yin.k/status :yin.k/unsatisfied
+       :yin.k/reason :authority-refused
+       :yin.k/defect (:yin.k/defect r)}
+
+      ;; the gate (r3 1.11): exclusive only on a capable authority --
+      ;; refused with the declaration beside it, never downgraded to fork
+      (not (authority/exclusive-capable? a (:failure-model config)))
+      (do (authority/close! a)
+          {:yin.k/status :yin.k/unsatisfied
+           :yin.k/reason :exclusive-uncapable
+           :yin.k/policy :yin.k/exclusive
+           :yin.k/failure-model (:failure-model config)
+           :dao.stream.journal/durability (authority/durability a)})
+
+      :else
+      (let [arb (:dao.stream/identity r)
+            ticks (log-handle)
+            outcome-reader (admission/outcome-reader a)
+            c (assoc (bare-composition config)
+                     :authority a
+                     :identity arb
+                     :ticks ticks
+                     :outcome-reader outcome-reader
+                     :outcome-inbox (inbox-over-outcomes outcome-reader arb)
+                     :judge (-> (lease/initial-judge
+                                  (merge (grant/judge-config a (:duration config))
+                                         {:resolver (fn [source _] source)
+                                          :self arb}))
+                                (lease/wire-tick ticks (oldest ticks) :ticks)))]
+        {:yin.k/status :open
+         ::composition c
+         :dao.stream/identity arb}))))
+
+
+(defn open!
+  "Open the custody composition over `config`:
+
+     :mode             :exclusive or :fork (required; fork is never the
+                       default and never a downgrade)
+     :failure-model    the exclusive composition's required failure
+                       model, :process-crash or :power-loss
+     :backend          the authority's dao.stream.journal backend
+                       (exclusive only; fork selects no authority)
+     :duration         the grant duration map (exclusive only)
+     :renewal-interval the renewal interval, strictly below half the
+                       duration (both modes: the driver assembly needs it)
+     :store            the node's existing content store (a dao.jing
+                       byte-store handle): the carrier for bodies and code
+     :diagnostics      the composition's diagnostic stream (a writer)
+     :medium           the carrier medium name offers carry
+     :clock            (fn [] reading), the lease clock
+     :units            an optional unit table, dao.lease's default
+     :export-version   an optional body-version override of the lift
+     :inbound-capacity the default inbound ring capacity
+
+   Answers {:yin.k/status :open ::composition c :dao.stream/identity i},
+   or a data refusal.  An exclusive composition over an authority that
+   cannot carry its required failure model -- a memory backend, a
+   weaker model -- answers :yin.k/unsatisfied with
+   :yin.k/reason :exclusive-uncapable and the backend's durability
+   declaration beside it; nothing is composed and fork is not offered."
+  [{:keys [mode backend duration] :as config}]
+  (let [config (update config :units #(or % lease/default-units))]
+    (check! (contains? #{:exclusive :fork} mode)
+            ":mode :exclusive or :fork, selected by the caller" {:mode mode})
+    (check-common! config)
+    (case mode
+      :fork (check! (nil? backend)
+                    "no :backend with :mode :fork: fork selects no authority"
+                    {:backend backend})
+      :exclusive (do (check! (some? backend) "an authority journal backend" {})
+                     (check! (contains? #{:process-crash :power-loss}
+                                        (:failure-model config))
+                             "a failure model: :process-crash or :power-loss"
+                             {:failure-model (:failure-model config)})
+                     (check! (some? duration) "a grant duration map" {})))
+    (case mode
+      :fork {:yin.k/status :open
+             ::composition (bare-composition config)
+             :yin.k/policy :yin.k/fork}
+      :exclusive (open-exclusive config))))
+
+
+(defn close!
+  "Retire the composition's authority.  The media, journals and the
+   store are their owners' -- the caller's backend, store and handles
+   are not touched.  Idempotent."
+  [c]
+  (when-some [a (:authority c)]
+    (authority/close! a))
+  nil)
+
+
+;; =============================================================================
+;; The holder side
+;; =============================================================================
+
+
+(defn- holder-media
+  "The per-holder media the composition mints (or takes from `config`'s
+   :inbound): the inbound stream, the reply journal -- one durable
+   substrate the front appends to and the holder reads positionally --
+   the lease-fact medium, the progress journal with its backend, and
+   the inboxes.  A fork holds no authority, so its inboxes read inert
+   logs nothing ever appends to: the fork path sends and reads nothing."
+  [c h config]
+  (let [fork? (= :fork (:mode c))
+        inbound (or (:inbound config) (ring-handle (:inbound-capacity c)))
+        reply (if fork? (log-handle) (:journal (fresh-journal)))
+        lease (log-handle)
+        progress (fresh-journal)]
+    {:inbound inbound
+     :reply reply
+     :lease-medium lease
+     :backend (:backend progress)
+     :journal (:journal progress)
+     :reply-inbox (inbox-over-journal reply (:identity c))
+     :outcome-inbox (if fork?
+                      (inbox-over-journal (log-handle) nil)
+                      (:outcome-inbox c))
+     :read-ledger! (if fork?
+                     (fn [] nil)
+                     (ledger-reader (:authority c) (:identity c)))
+     :enroll! (when-not fork? (fn [] (authority/enroll! (:authority c))))}))
+
+
+(defn- driver-config
+  "The landed driver's config for holder `h`: the holder's own keys from
+   `config` (bytes and address, or the machine and arbitration; the
+   protection declaration, the receiver, the attach dispatch, the
+   observer, the exporter's server; an optional renewal-interval
+   override) over the composition's seams and media."
+  [c h media config]
+  (merge {:me h
+          :renewal-interval (:renewal-interval c)
+          :units (:units c)
+          :export-version (:export-version c)
+          :clock (:clock c)
+          :store (:store c)
+          :medium (:medium c)
+          :journal (:journal media)
+          :append-request! (fn [request]
+                             (stream/append! (:inbound media) request))
+          :reply-inbox (:reply-inbox media)
+          :outcome-inbox (:outcome-inbox media)
+          :read-ledger! (:read-ledger! media)
+          :append-diagnostic! (fn [d] (stream/append! (:diagnostics c) d))}
+         (dissoc config :inbound)
+         (when-some [enroll! (:enroll! media)]
+           {:enroll! enroll!})))
+
+
+(defn- front-of
+  "The holder's front over its media: the resolver names this holder
+   alone on its own inbound, and the lease-medium lookup answers this
+   holder alone -- one front per holder, as C11 composed it."
+  [c h media]
+  (front/front {:authority (:authority c)
+                :inbound (:inbound media)
+                :reply (:reply media)
+                :diagnostics (:diagnostics c)
+                :resolver (fn [_identity _value] h)
+                :store (:store c)
+                :lease-media (fn [author]
+                               (when (= author h) (:lease-medium media)))}))
+
+
+(defn- add-holder
+  [c h config make]
+  (check! (map? config) (str "holder " (pr-str h) "'s config") {})
+  (check! (not (contains? (:holders c) h))
+          "a fresh holder identity" {:holder h})
+  (let [media (holder-media c h config)
+        cfg (driver-config c h media config)
+        c' (-> c
+               (assoc-in [:inbounds h] (:inbound media))
+               (assoc-in [:lease-media h] (:lease-medium media))
+               (assoc-in [:progress h] {:backend (:backend media)
+                                        :journal (:journal media)})
+               (assoc-in [:holder-configs h] cfg)
+               (assoc-in [:holders h] (make cfg)))]
+    (if (= :fork (:mode c'))
+      c'
+      (-> c'
+          (assoc-in [:fronts h] (front-of c' h media))
+          (update :judge lease/wire-facts
+                  (:lease-medium media) (oldest (:lease-medium media)) h)))))
+
+
+(defn holder
+  "Add candidate `h` over the checkpoint the composition fetched:
+   `config` carries :bytes and :address (required) beside the holder's
+   own seams -- :protection, :receiver, :attach!, :observe!, :serve! --
+   and an optional :inbound stream overriding the composition's ring
+   (the bounded medium a test or stage E supplies).  The composition
+   supplies the rest of the driver's assembly: the inbound appender,
+   the reply and outcome inboxes, the ledger reader, the lease clock,
+   the progress journal, the content store and the carrier medium."
+  [c h config]
+  (add-holder c h config driver/initial))
+
+
+(defn source
+  "Add the source half: `config` carries :machine -- the machine at its
+   liftable safepoint, holding no custody -- beside the holder seams of
+   `holder` (no :bytes and :address: the driver mints those).  An
+   exclusive composition offers the export on its own arbitration; a
+   fork composition (the composition's fork decision, labelled
+   :yin.k/fork) lifts without an occurrence, an offer or a journal
+   bracket, and the driver answers the bytes."
+  [c h config]
+  (let [config (if (= :fork (:mode c))
+                 config
+                 (assoc config :arbitration (arbitration c)))]
+    (add-holder c h config driver/source)))
+
+
+(defn restart
+  "Recover holder `h` from its progress journal after a process
+   restart: a fresh handle over the same journal backend, folded by
+   `driver/reopen` -- a journaled grant never restores execution; it
+   releases and re-enters candidacy, and a complete fenced source
+   reopens fenced, resending its offer.  A stopped composition
+   reapplies the local stop latch: reopen never re-establishes it from
+   persisted state."
+  [c h]
+  (let [journal' (:dao.stream/handle
+                   (journal/open! (get-in c [:progress h :backend]) nil))
+        reopened (driver/reopen (assoc (get-in c [:holder-configs h])
+                                       :journal journal'))]
+    (-> c
+        (assoc-in [:progress h :journal] journal')
+        (assoc-in [:holders h] (if (:stopped? c)
+                                 (driver/stop reopened)
+                                 reopened)))))
+
+
+(defn journal-of
+  "Holder `h`'s progress journal handle: the whole durable history a
+   `restart` folds."
+  [c h]
+  (get-in c [:progress h :journal]))
+
+
+(defn hand-off
+  "The composition's explicit export of holder `h`'s parked continuation
+   (`driver/hand-off`): the exit half arms over the safepoint the next
+   control and program steps drive to its report, release and closure."
+  [c h]
+  (update-in c [:holders h] driver/hand-off))
+
+
+(defn enroll
+  "Holder `h`'s bracketed enrollment (`driver/enroll`) over the
+   composition's enrollment seam."
+  [c h]
+  (update-in c [:holders h] driver/enroll))
+
+
+(defn abort
+  "The composition's abort of holder `h`'s source export
+   (`driver/abort`): legal only before any possibly accepted offer
+   attempt, or on authoritative evidence none was admitted."
+  [c h]
+  (update-in c [:holders h] driver/abort))
+
+
+(defn enroll!
+  "Enroll one target on the authority (`authority/enroll!`), the
+   enrolled boundary admission appends to.  A fork has no authority and
+   answers :yin.k/unsatisfied."
+  [c]
+  (if-some [a (:authority c)]
+    (authority/enroll! a)
+    {:yin.k/status :yin.k/unsatisfied :yin.k/reason :fork}))
+
+
+(defn target-reader
+  "The reader of enrolled target `i` (`authority/target-reader`): its
+   committed appends at positions dense in ledger t order, blocked at
+   the tail, end after its close.  Nil for a target this authority
+   never enrolled, and for a fork."
+  [c i]
+  (when-some [a (:authority c)]
+    (authority/target-reader a i)))
+
+
+(defn outcome-reader
+  "The authority's outcome projection reader (`admission/outcome-reader`):
+   the :committed outcome of every fenced admission, in ledger t order,
+   at positions stable across reopen.  Nil for a fork."
+  [c]
+  (:outcome-reader c))
+
+
+;; =============================================================================
+;; The steps
+;; =============================================================================
+
+
+(defn- ordered-holders
+  [c]
+  (sort-by str (keys (:holders c))))
+
+
+(defn- step-holders
+  [c step]
+  (reduce (fn [c h] (update-in c [:holders h] step))
+          c (ordered-holders c)))
+
+
+(defn- step-fronts
+  [c]
+  (reduce (fn [c h] (update-in c [:fronts h] front/step front-budget))
+          c (sort-by str (keys (:fronts c)))))
+
+
+(defn- step-judge
+  "One judge pass at the clock's own reading: the tick is appended, then
+   the judge runs under the authority's lock, granting, refusing and
+   lapsing what its media carried this tick."
+  [c]
+  (stream/append! (:ticks c) (lease/tick ((:clock c))))
+  (assoc c :judge (grant/step! (:authority c) (:judge c))))
+
+
+(defn control-step
+  "One custody control-plane tick: every holder's control step -- the
+   renewals, pending releases and request retries of the split driver,
+   never a lower, an execution or a program observation -- then the
+   judge -- grants, refusals and lapses at the clock's own reading --
+   then every front -- each request carried and answered -- in holder
+   order, one owner for each component.  The fronts follow the judge so
+   a lease fact a front carries reaches the judge one tick later, by
+   which time the holder has already read the front's reply: the reply
+   is always observable before the transition it evidences, which is
+   what keeps a program step's independent binding check (the ledger)
+   from racing the control step's carriage evidence (the inbox).  Safe
+   to call during hydration and through the bounded shutdown drain: it
+   is the whole of custody progress those states allow."
+  [c]
+  (if (not (map? c))
+    c
+    (let [c (step-holders c driver/control-step)]
+      (if (= :fork (:mode c))
+        c
+        (-> c step-judge step-fronts)))))
+
+
+(defn program-step
+  "One custody program tick: every holder's `driver/program-step` --
+   activation under independently revalidated tenure, execution, replay,
+   emission, live observation and export preparation.  The REPL calls
+   this only while the shell is admitted and running; a stopped or
+   journal-stalled holder performs no program work whatever the caller
+   does."
+  [c]
+  (if (map? c)
+    (step-holders c driver/program-step)
+    c))
+
+
+(defn step
+  "One whole composition tick -- the control plane, then the program
+   plane -- for tests and stage E's combined driving.  The REPL uses
+   the split entries."
+  [c]
+  (program-step (control-step c)))
+
+
+(defn stop
+  "Latch the local stop on every holder (`driver/stop`): program work
+   ends, control cleanup -- releases, retries, late grants answered
+   with a release -- continues on every later `control-step`.
+   Idempotent, and reapplied by `restart` while the composition stays
+   stopped."
+  [c]
+  (if (map? c)
+    (-> c (step-holders driver/stop) (assoc :stopped? true))
+    c))
+
+
+(defn owed-control-write?
+  "The aggregate cadence bit (the D15a seam ruling): true while any
+   holder owes a control write its protocol has not discharged with
+   authenticated evidence -- a proposal, renewal, release, offer or
+   report still eligible to be attempted -- or a front may still hold
+   unread requests, or the judge an undelivered grant.  Pure and total
+   over the composition value."
+  [c]
+  (boolean
+    (and (map? c)
+         (or (some driver/owed-control-write? (vals (:holders c)))
+             ;; a front that spent its whole read budget may owe more;
+             ;; one halted at the tail owes nothing
+             (some #(nil? (get % :yin.vm.ucf.authority.front/halted))
+                   (vals (:fronts c)))
+             (seq (get-in c [:judge :queue]))))))
+
+
+(defn status
+  "The composition's plain summary for the operator and stage E: the
+   policy it runs, and each holder's phase, status and detail."
+  [c]
+  {:yin.k/policy (:yin.k/policy c)
+   :holders (into {}
+                  (map (fn [[h st]]
+                         [h (select-keys st [:phase :status :detail])]))
+                  (:holders c))})

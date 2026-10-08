@@ -1,0 +1,16 @@
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.repl.main-test
+Bye
+
+Bye
+Serving daostream:ws://127.0.0.1:8080/repl (bound #:dao.data{:type :map, :truncated? false, :count 2, :entries [[#:dao.data{:type :keyword, :value :host, :truncated? false} #:dao.data{:type :string, :value "127.0.0.1", :truncated? false}] [#:dao.data{:type :keyword, :value :port, :truncated? false} #:dao.data{:type :number, :value 8080, :truncated? false}]]})
+;; requests end
+Endpoint stopped: #:dao.data{:type :map, :truncated? false, :count 1, :entries [[#:dao.data{:type :keyword, :value :reason, :truncated? false} #:dao.data{:type :keyword, :value :requested, :truncated? false}]]}
+;; requests end
+
+
+Ran 41 tests containing 339 assertions.
+0 failures, 0 errors.

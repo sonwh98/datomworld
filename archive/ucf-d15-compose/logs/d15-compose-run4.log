@@ -1,0 +1,14 @@
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.compose-test
+
+FAIL in (a-parked-continuation-hands-off-and-a-candidate-runs-the-successor-test) (compose_test.cljc:501)
+a second holder runs the successor over the same authority
+the second holder has its own front, one owner each
+expected: (= 1 (count (keys (get-in c' [:fronts "h2"]))))
+  actual: (not (= 1 11))
+
+Ran 5 tests containing 49 assertions.
+1 failures, 0 errors.

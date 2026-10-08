@@ -1,0 +1,8 @@
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+Execution error (FileNotFoundException) at yin.repl.main-test/eval5402$loading (main_test.cljc:1).
+Could not locate yin/vm/ucf/compose__init.class, yin/vm/ucf/compose.clj or yin/vm/ucf/compose.cljc on classpath.
+
+Full report at:
+/var/folders/n0/xl3_1xkn0yd5trpq843l81840000gn/T/clojure-12417928582980464940.edn

@@ -1,0 +1,13 @@
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.compose-test
+
+FAIL in (the-plain-composition-loads-and-drives-with-no-yin-repl-test) (compose_test.cljc:501)
+a fresh process loads and drives the composition with no yin.repl namespace: []
+expected: (= ["PHASE lifted" "REPL-NAMESPACES []"] lines)
+  actual: (not (= ["PHASE lifted" "REPL-NAMESPACES []"] []))
+
+Ran 4 tests containing 39 assertions.
+1 failures, 0 errors.

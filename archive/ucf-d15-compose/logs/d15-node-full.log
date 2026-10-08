@@ -1,0 +1,58 @@
+
+Testing dao.await-test
+
+Testing dao.data-test
+
+Testing dao.data.btree-async-test
+
+Testing dao.data.btree-durability-test
+
+Testing dao.data.btree-protocols-test
+
+Testing dao.data.btree-test
+
+Testing dao.data.btree-transients-test
+
+Testing dao.gui.compiler-cljs-test
+
+Testing dao.gui.event.arena-test
+
+Testing dao.gui.event.bind-test
+"dao.gui.event output gone; dropping pending" {:destination :gesture, :outcome :dao.stream/closed}
+
+Testing dao.gui.event.core-test
+
+Testing dao.gui.event.fixture-test
+
+Testing dao.gui.event.longpress-test
+
+Testing dao.gui.event.machine-test
+
+Testing dao.gui.event.pan-test
+
+Testing dao.gui.event.pointer-test
+
+Testing dao.gui.event.policy-test
+
+Testing dao.gui.event.terminal-test
+
+Testing dao.gui.event.transform-test
+
+Testing dao.jing-test
+
+Testing dao.jing.cbor-conformance-test
+CONFORMANCE node cases=372 run=366 skipped=["coll/map-both-slash-keywords" "coll/map-nan-payload-duplicate" "coll/set-nan-payload-duplicate" "coll/set-vector-list-collapse" "host/character" "host/nested-in-vector"]
+CONFORMANCE-DIGEST node canonical n=208 6d1c64719d96c11f79d575bd3122ad1bba1ba9efcc56dce63b195423575cf2cb
+CONFORMANCE-DIGEST node refusal n=154 1b929147af85f703c700a1f0d9cfbe74c55e5e28302a862086516fe749ec1b82
+
+Testing dao.jing.cbor-content-equality-test
+
+Testing dao.jing.cbor-fixtures-test
+
+Testing dao.jing.cbor-test
+SKIP node coll/map-both-slash-keywords: ClojureScript keyword equality compares the joined name, so (keyword nil "a/b") and (keyword "a" "b") are one map key: the host cannot hold this value (reported as a J1 finding)
+SKIP node coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP node coll/set-nan-payload-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP node coll/map-nan-payload-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP node host/character: ClojureScript has no character type: a char literal is a string
+SKIP node host/nested-in-vector: its unsupported member is a character; ClojureScript has none

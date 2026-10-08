@@ -1,0 +1,4 @@
+Loading initial Timbre config from: :default
+src/cljc/yin/vm/ucf/compose.cljc:374:6: warning: unused binding h
+test/yin/vm/ucf/compose_test.cljc:9:14: warning: namespace clojure.string is required but never used
+linting took 6758ms, errors: 0, warnings: 2

@@ -1,0 +1,108 @@
+Completed-GMT: 2026-10-08 05:39:57 GMT Completed-Local: 2026-10-08 12:39:57 +07
+
+# D15 gate review: the composition and the REPL wiring
+
+**Verdict: NOT READY.**
+
+The step placement in `step-all` is correct. The custody-aware `moved?` is correct. The default (`:custody` nil) behaves exactly as before. Four contract items fail:
+
+- **Durability:** the composition cannot recover after a real process restart.
+- **Shutdown drain:** it stops as soon as the endpoint stops, and does not run at all when there is no endpoint.
+- **Close before exit:** nothing closes the custody journals before the process exits.
+- **Exclusivity gate:** a fork composition can be made to run an exclusive export.
+
+I edited nothing in the repo and ran no suite; every test count below is the engineer's.
+
+## Blocking findings
+
+### 1. The holder-side journals are in memory only, so nothing survives a process restart
+This contract is item 2 of the research's "binding prerequisites" ("pin the recovery guarantee against the declared durability"), r3 1.10, and residual 4 ("restart resends from it").
+
+- **Every holder journal is in memory.** `compose.cljc:123-130` `fresh-journal` is `journal/memory-backend (atom [])`. It is used for every holder's progress journal and every reply journal (`compose.cljc:377-379`).
+  - The reply journal's backend is thrown away (`(:journal (fresh-journal))`, line 377), so even an in-process reopen of the reply history is impossible.
+  - No config key lets a caller supply a durable backend, such as `dao.stream.journal.file`, for either journal.
+  - `restart` (`compose.cljc:486-503`) reopens the composition's own memory backend (line 496).
+- **The gate's promise does not cover the holder side.** An exclusive composition that passed `exclusive-capable?` for `:process-crash` (file authority) still journals its intents to a backend that declares `:failure-model :none`.
+- **A cross-process restart would be refused.** D15a's driver records each inbox's identity and refuses a changed one (`driver.cljc:1796-1800`, `:inbox-identity`). A restarted process would mint a fresh reply journal with a new identity, so even a durable progress journal would be refused.
+- **Rows 7 and 4 are only proven in-process.** "Restart sends it" and the hydration row's "pending release" both reuse the same atom inside one process. That is not a restart.
+- **Required:** composition-supplied durable backends for the per-holder progress and reply journals, kept so `restart` reopens them by identity. Plus one crash row over kept frames, using the existing `fresh-journal`/`reopened-journal` pattern from `driver_test.cljc:490-524`.
+
+### 2. The shutdown drain ignores custody, and without an endpoint there is no drain
+This is residual 4, row 6: "on each host's loop … the release is delivered once the stream accepts it".
+
+- **No endpoint, no drain, on all three hosts:**
+  - JVM: `drain-server!` is wrapped in `(when server …)` (`main.cljc:1140`).
+  - Node and Dart: with `server'` nil the stopping tick goes straight to `:else (finish!)` (`main.cljc:1320`, `1449`).
+  - So a REPL without `--port` gets zero custody control ticks after the stopping tick.
+- **With an endpoint, the drain ends when the endpoint stops, whatever custody still owes.** `serve/stopped?` is true for nil or an unbound endpoint (`serve.cljc:568-571`). In practice custody gets about one drain tick; the engineer's own whole-drain row reports `stopped?` true after at least 2 attempts.
+- **Row 6's delivery claim is not proven on any host loop.** It is shown only by `(iterate #(first (repl/shutdown-tick % nil 0)) …)` in `main_test`, which keeps calling past `stopped?` — something no host loop does.
+- **The JVM `poll-loop!` row** (`the-jvm-loop-drains-custody-control…`) asserts only that every attempt was `:full`. It never shows a delivery.
+- **Required:**
+  - Enter the bounded drain when there is an endpoint *or* custody owes a write.
+  - Keep stepping while `(or (not stopped?) (custody-owed? state))` within the existing `stop-ticks` budget. This adds no new owner or timer.
+  - Exercise each host loop's exit condition, not a synthetic iterate.
+  - If the Architect reads "the existing drain" as "only when there is an endpoint", that is a ruling to obtain. It should not be assumed.
+
+### 3. Nothing closes the custody journals before exit
+r3 1.12 says "The journal is closed before exit".
+
+- **No close on any exit path.** `main.cljc` never calls `compose/close!`; every host's exit path calls only `close-index-store!` (`main.cljc:857-865`).
+- **`compose/close!` only closes the authority.** It explicitly leaves the progress and reply journals alone (`compose.cljc:352-359`). So even a caller has no "close custody" entry point.
+- **Node and Dart would close a stale value.** Their `finish!` reads `(:state @box)`, but the box's `:state` is only updated on the `:else` branch of the stopping tick (`main.cljc` around 1323-1331 and 1452-1460). The final `shutdown-tick`'s custody value is dropped on the `stopped?` and budget-exhausted branches, so a close added later would close an outdated value.
+
+### 4. The exclusivity gate is incomplete: a fork composition can run an exclusive export
+- **A fork composition passes the caller's `:arbitration` through.** `compose/source` in fork mode passes the caller's config unchanged (`compose.cljc:480-483`). The driver treats any non-nil `:arbitration` as an exclusive first export (`driver.cljc:334-349`; the fork decision is "nil :arbitration", line 90).
+  - The result is labelled `:yin.k/fork` but mints, journals and offers into an inbound that no front reads, with no authority or judge behind it.
+  - Fork must refuse `:arbitration` (and exclusive-header bytes in `holder`), not pass them through.
+- **A holder's config overrides the composition's own seams.** `driver-config` merges `(dissoc config :inbound)` *over* the seams (`compose.cljc:402-418`). A holder config can therefore replace `:journal`, `:reply-inbox`, `:outcome-inbox`, `:read-ledger!`, `:append-request!`, `:clock` or `:store`. That lets in:
+  - a ring-backed reply inbox, which the research disqualified;
+  - a progress journal that `restart` (line 496) will not reopen.
+- **Required:** merge the composition's seams last, or refuse those keys in a holder config.
+- **What does hold:** exclusive on memory is refused with `:yin.k/unsatisfied`, closes the authority, and offers no fork (`compose.cljc:275-281`, with tests).
+
+## Non-blocking findings
+
+### 5. The default inbound ring evicts; it does not apply backpressure
+- **The docstring is wrong.** `default-inbound-capacity` (`compose.cljc:60-64`) and the ring in `holder-media` (line 376) are an evict-oldest ring, which never answers `:full`. Its docstring calls it "the backpressure".
+- **Dropped requests surface as gaps.** Requests the ring drops reach the front as `::gap` (`front.cljc:289-313`) and are recovered only by driver retries.
+- **The drain rows don't test the production medium.** They depend on a hand-built `gated-stream`, so the default production inbound never shows the tested `:full` behaviour. Fix the docstring, or use a bounded medium that answers `:full`.
+
+### 6. The inbox adapters conform to the D15a contract within one process
+- **`inbox-over-journal`** (`compose.cljc:143-167`):
+  - version 1, with the identity taken from the journal's descriptor;
+  - reads are positional and non-destructive (`stream/next` on a constructed cursor);
+  - `:ok` maps to `:record`, `blocked`/`end` to `:empty`, anything else to `:unavailable`.
+- **`inbox-over-outcomes`** (`compose.cljc:170-191`) is equally positional, matching research §4.
+- **The only gap is identity across a restart**, which is finding 1.
+
+### 7. The ledger reader reaches into authority internals and rereads the whole ledger
+- `ledger-reader` reads the authority's `:journal` key (`compose.cljc:208`) rather than a public reader. That ties the composition to the authority's internal layout.
+- It replays the whole ledger from the origin on every call, for every holder, on every tick. The cost grows linearly with the ledger. This is acceptable for now; flag it for stage E.
+
+### 8. Step placement and the default behaviour are correct
+- **Control step:** immediately after `repl.dht/step` and before the refusal and `admitting?` branches (`main.cljc:993`).
+- **Program step:** after `driver/repl-step`, before `serve/step`, guarded on `:running?`. The stop latch replaces it when the shell has stopped, and the refusal branch latches too (`main.cljc:1007-1011`).
+- **`moved?`:** includes `custody-owed?` (`main.cljc:1034`).
+- **No second owner:** no new thread, timer, loader or DHT step owner. `compose` requires no loader or DHT namespace (`compose.cljc:43-52`).
+- **Default is unchanged:** with `:custody` nil, all four helpers are no-ops (`main.cljc:918-966`). The `:else` branch's switch to `(:repl state)` is identical when custody is nil. `drain-server!`'s new signature has no other callers.
+- **Not covered by the wiring:** the Flutter embed's drain (`src/cljd/yin/repl/flutter.cljd:63-76`) and the browser demo's ticker bypass `step-all` and carry no custody. That is acceptable, but it should be noted.
+
+### 9. Test gaps
+- **Gate refusals on a file backend:** no row covers a file backend with lock kind `:none`, or `:power-loss` required on a file that declares only `:process-crash`. Only the memory refusal is tested.
+- **Fork plus `:arbitration`:** no row (finding 4).
+- **The "no yin.repl loaded" subprocess row drives only a fork** (`compose_test.cljc:508-535`). The exclusive path's yin.repl-free claim rests on the require graph; Node and Dart rest on the require graph entirely (the engineer disclosed this).
+- **Test-first was not followed** for the compose rows (disclosed).
+
+### 10. The allowlist entry is acceptable
+- **Precedent holds:** the entry in `store_write_audit_test.clj:364-372` has the same shape and reason as `yin.repl.link`'s `composition` entry (lines 329-332). `:store` there is a dao.jing byte store, never a VM store.
+- **Sites match:** the three named sites match the three `:store`-keyed maps in `compose.cljc`.
+- **Out of scope:** the file is outside the permitted diff, so it needs the orchestrator's explicit acceptance (it was disclosed).
+
+### 11. The gate is checked only at `open!`
+The authority is not re-checked before `source` makes an offer. A poisoned authority refuses appends anyway, so this is an observation, not a defect.
+
+## What is needed before re-gating
+1. Durable, reopenable progress and reply backends supplied by the composition, plus a crash row over kept frames.
+2. A shutdown drain that also runs and continues while custody owes a write, within `stop-ticks`, on all three hosts, with row 6 exercised through each host loop's exit condition.
+3. Custody closed before exit, using the final tick's state, and `compose/close!` covering the holders' journals.
+4. Fork refusing `:arbitration`, and holder configs unable to override composition-owned seams.

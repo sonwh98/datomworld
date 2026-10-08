@@ -1,0 +1,7 @@
+
+Running tests in #{"test"}
+Execution error (FileNotFoundException) at yin.vm.ucf.compose-test/eval5404$loading (compose_test.cljc:1).
+Could not locate yin/vm/ucf/compose__init.class, yin/vm/ucf/compose.clj or yin/vm/ucf/compose.cljc on classpath.
+
+Full report at:
+/var/folders/n0/xl3_1xkn0yd5trpq843l81840000gn/T/clojure-8895546658513228971.edn

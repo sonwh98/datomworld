@@ -1,0 +1,16 @@
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.dbg-test
+RUNNING {:phase :running, :status :yin.k/ok} lease "cd376385-8427-4b63-a213-083af9a32e10"
+SAFEPOINT
+tick 0 phase :safepoint status :yin.k/ok detail {:exit :yin.k/result, :step :minted} lease-entry {:dao.lease/lease "cd376385-8427-4b63-a213-083af9a32e10", :yin.k/epoch 0}
+tick 1 phase :safepoint status :yin.k/ok detail {:export :yin.k/result, :step :prepared} lease-entry {:dao.lease/lease "cd376385-8427-4b63-a213-083af9a32e10", :yin.k/epoch 0}
+tick 2 phase :safepoint status :yin.k/ok detail {:export :yin.k/result, :step :fenced} lease-entry {:dao.lease/lease "cd376385-8427-4b63-a213-083af9a32e10", :yin.k/epoch 0}
+tick 3 phase :safepoint status :yin.k/ok detail {:exit :yin.k/result, :step :reported} lease-entry {:dao.lease/lease "cd376385-8427-4b63-a213-083af9a32e10", :yin.k/epoch 0}
+tick 4 phase :releasing status :yin.k/ended detail {:cause :stale, :dao.lease/lease "cd376385-8427-4b63-a213-083af9a32e10", :dao.lease/observed-lease nil} lease-entry {:dao.lease/lease nil, :yin.k/epoch 1, :yin.k/closed {:dao.lease/lease "cd376385-8427-4b63-a213-083af9a32e10", :yin.k/result :segment/blake3-e91688f6d4f36f2882350c0b8a9b5db7e20b5659d7ec3a6d0bd564748f579f64}}
+tick 5 phase :failed status :yin.k/ended detail {:cause :stale, :dao.lease/lease "cd376385-8427-4b63-a213-083af9a32e10", :dao.lease/observed-lease nil, :dao.lease/released true} lease-entry {:dao.lease/lease nil, :yin.k/epoch 1, :yin.k/closed {:dao.lease/lease "cd376385-8427-4b63-a213-083af9a32e10", :yin.k/result :segment/blake3-e91688f6d4f36f2882350c0b8a9b5db7e20b5659d7ec3a6d0bd564748f579f64}}
+
+Ran 1 tests containing 2 assertions.
+0 failures, 0 errors.

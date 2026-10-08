@@ -1,0 +1,91 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.compose-test
+
+FAIL in (a-whole-exclusive-handoff-runs-on-a-file-backed-authority-test) (compose_test.cljc:162)
+the exit completes: report, release, closure, result body
+{:phase :failed, :status :yin.k/ended, :detail {:cause :stale, :dao.lease/lease "d0bda5bf-d288-4a21-aa29-8cfc73b66425", :dao.lease/observed-lease nil, :dao.lease/released true}}
+expected: (pred st)
+  actual: false
+
+FAIL in (a-whole-exclusive-handoff-runs-on-a-file-backed-authority-test) (compose_test.cljc:443)
+the exit completes: report, release, closure, result body
+expected: (= :exited (:phase st))
+  actual: (not (= :exited :failed))
+
+FAIL in (a-whole-exclusive-handoff-runs-on-a-file-backed-authority-test) (compose_test.cljc:444)
+the exit completes: report, release, closure, result body
+expected: (= :yin.k/ok (:status st))
+  actual: (not (= :yin.k/ok :yin.k/ended))
+
+FAIL in (a-whole-exclusive-handoff-runs-on-a-file-backed-authority-test) (compose_test.cljc:445)
+the exit completes: report, release, closure, result body
+expected: (some? (:yin.k/result (:detail st)))
+  actual: (not (some? nil))
+
+FAIL in (a-whole-exclusive-handoff-runs-on-a-file-backed-authority-test) (compose_test.cljc:446)
+the exit completes: report, release, closure, result body
+the result body stands in the content store
+expected: (not= :yin.vm.ucf.compose-test/absent ((:get-bytes-fn (:store w)) (:yin.k/result (:detail st)) :yin.vm.ucf.compose-test/absent))
+  actual: (not (not= :yin.vm.ucf.compose-test/absent :yin.vm.ucf.compose-test/absent))
+
+FAIL in (a-whole-exclusive-handoff-runs-on-a-file-backed-authority-test) (compose_test.cljc:451)
+the exit completes: report, release, closure, result body
+the closure's edge is terminal to the result's address
+expected: (= (:yin.k/result (:detail st)) (:yin.k/result closed))
+  actual: (not (= nil :segment/blake3-907c668536ea963e238fd66cea356ae73227ced6f627abaeb6c414d741f4e015))
+
+ERROR in (the-plain-composition-loads-and-drives-with-no-yin-repl-test) (Reflector.java:426)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: java.lang.IllegalArgumentException: No matching field found: getInputStream for class java.lang.ProcessBuilder
+ at clojure.lang.Reflector.getInstanceField (Reflector.java:426)
+    clojure.lang.Reflector.invokeNoArgInstanceMember (Reflector.java:469)
+    yin.vm.ucf.compose_test$fn__20966.invokeStatic (compose_test.cljc:490)
+    yin.vm.ucf.compose_test/fn (compose_test.cljc:474)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.boundedLength (RT.java:1810)
+    clojure.lang.RestFn.applyTo (RestFn.java:133)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+Ran 4 tests containing 39 assertions.
+6 failures, 1 errors.

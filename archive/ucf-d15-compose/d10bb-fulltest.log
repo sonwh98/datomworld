@@ -1,0 +1,621 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (109.0.0 available)
++ analyzer 6.4.1 (14.5.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.7
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @16:30:45
+  yin.repl.slice-peer
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 49, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 85, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 184, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 243, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 353, column: 48, file: yin/repl.cljc
+DYNAMIC WARNING: can't resolve member osError on target type dynamic of library dart:core  at line: 211, column: 38, file: yin/repl/state.cljc
+DYNAMIC WARNING: can't resolve member errorCode on target type dynamic of library dart:core  (no source location)
+Compilation succeeded - You rock! 🤘 @16:30:53
+Generated: /Users/sto/workspace/datomworld-d10b/build/yin-repl-peer
+Loading initial Timbre config from: :default
+[:yin-repl] Compiling ...
+[:yin-repl] Build completed. (184 files, 183 compiled, 0 warnings, 8.89s)
+Loading initial Timbre config from: :default
+fetched Java/Python3LexerBase.java f8d057a0cbd0fa0d895d1aa27aa8914c3e85a1eaa95f7161da9a6e617c65f5ec
+fetched Java/Python3ParserBase.java 2ae0ab2905c50c2675f1b827bc6ba4bc3d01d78cafcd92ad8e0d36f15682b773
+vendored Python3Lexer.g4 58c4dfa0b12dfb856b7348b99199bf1a3fdc7901d7fc4575ddf9584aeb831c19
+vendored Python3Parser.g4 74fa61c519832b694718c8006741a045a687725a9f0a06645dfdfa4c7ebce65d
+generated 4 java files; classes in build/antlr/python3/classes
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing dao.await-test
+
+Testing dao.data.btree-async-test
+
+Testing dao.data.btree-durability-test
+
+Testing dao.data.btree-protocols-test
+
+Testing dao.data.btree-test
+
+Testing dao.data.btree-transients-test
+
+Testing dao.data-test
+
+Testing dao.gui.compiler-test
+
+Testing dao.gui.event.arena-test
+
+Testing dao.gui.event.bind-test
+"dao.gui.event output gone; dropping pending" {:destination :gesture, :outcome :dao.stream/closed}
+
+Testing dao.gui.event.core-test
+
+Testing dao.gui.event.fixture-test
+
+Testing dao.gui.event.longpress-test
+
+Testing dao.gui.event.machine-test
+
+Testing dao.gui.event.pan-test
+
+Testing dao.gui.event.pointer-test
+
+Testing dao.gui.event.policy-test
+
+Testing dao.gui.event.terminal-test
+
+Testing dao.gui.event.transform-test
+
+Testing dao.gui.runtime-test
+
+Testing dao.jing.cbor-conformance-test
+CONFORMANCE jvm cases=372 run=367 skipped=["coll/map-integer-width-duplicate" "coll/set-decimal-scale-collapse" "coll/set-signed-zero-collapse" "coll/set-vector-list-collapse" "num/js-unsafe-integer"]
+CONFORMANCE-DIGEST jvm refusal n=154 1b929147af85f703c700a1f0d9cfbe74c55e5e28302a862086516fe749ec1b82
+CONFORMANCE-DIGEST jvm canonical n=208 6d1c64719d96c11f79d575bd3122ad1bba1ba9efcc56dce63b195423575cf2cb
+
+Testing dao.jing.cbor-content-equality-test
+
+Testing dao.jing.cbor-fixtures-test
+
+Testing dao.jing.cbor-test
+SKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart
+
+Testing dao.jing.content.step-test
+
+Testing dao.jing.content-test
+
+Testing dao.jing.dht.facade-test
+
+Testing dao.jing.dht.kad-test
+
+Testing dao.jing.dht.socket-test
+
+Testing dao.jing.dht-test
+
+Testing dao.jing.file-test
+
+Testing dao.jing.hash-registry-contract-test
+
+FAIL in (architectural-lint-sweeps-production-sources) (hash_registry_contract_test.cljc:479)
+source sweep: no equality comparison against dao.jing default minting vars
+Found forbidden equality validation in src/cljc/yin/vm/ucf/handoff.cljc: (defn- validate-code-v2 "Every code entry hashes to its own key and is admissible under the\n   profile's own validator." [engine code] (doseq [[a v] code] (when (and (contains? #{:register :stack} engine) (nil? (guarded-hash (if (= :stack engine) dcode/image-hash rcode/register-hash) v))) (undecodable! #:yin.k{:segment a, :kind :code})) (case engine :semantic (do (when-not (= a (ucf/code-address v)) (refuse! :yin.k/hash-mismatch #:yin.k{:segment a})) (when-some [defect (code/well-formed-vector? v)] (undecodable! #:yin.k{:segment a, :pc (:pc defect), :defect defect}))) :stack (do (when-not (and (vector? v) (= a (dcode/image-hash v))) (refuse! :yin.k/hash-mismatch #:yin.k{:segment a})) (when-some [defect (when (seq v) (dcode/image-defect v))] (undecodable! #:yin.k{:segment a, :defect defect}))) :register (do (when-not (and (map? v) (= a (rcode/register-hash v))) (refuse! :yin.k/hash-mismatch #:yin.k{:segment a})) (when-some [defect (when (seq (:instructions v)) (rcode/register-image-defect v))] (undecodable! #:yin.k{:segment a, :defect defect}))) :walker (when-not (and (vector? v) (< 1 (count v)) (= a (first v)) (= a (jing/segment-key (subvec v 1)))) (refuse! :yin.k/hash-mismatch #:yin.k{:segment a})) (undecodable! #:yin.k{:kind :unsupported-profile}))))
+expected: (not (flags-equality-validation? form))
+  actual: (not (not true))
+
+Testing dao.jing.mem-test
+
+Testing dao.jing.stream-test
+
+Testing dao.jing-test
+
+Testing dao.lease-composition-test
+
+Testing dao.lease-test
+
+Testing dao.postgraphics.lowering-test
+
+Testing dao.postgraphics.math-test
+
+Testing dao.postgraphics.packing-test
+
+Testing dao.postgraphics.raster-test
+
+Testing dao.postgraphics.terminal-test
+
+Testing dao.pretty-test
+
+Testing dao.space.dht-test
+
+Testing dao.space.index-numeric-test
+
+Testing dao.space.index-test
+
+Testing dao.space.positional-query-test
+
+Testing dao.space.query-numeric-test
+
+Testing dao.space.query-test
+
+Testing dao.space.schema-test
+
+Testing dao.space.stigmergy-test
+
+Testing dao.space.store.fs-test
+
+Testing dao.space.transact-test
+
+Testing dao.space.transactor-test
+
+Testing dao.stream.apply-test
+
+Testing dao.stream.base64-test
+
+Testing dao.stream.cbor-test
+
+Testing dao.stream.chunks-test
+
+Testing dao.stream.datagram.jvm-test
+
+Testing dao.stream.datagram-test
+
+Testing dao.stream.forward-test
+
+Testing dao.stream.journal.file-test
+
+Testing dao.stream.journal-test
+
+Testing dao.stream.memory-log-test
+
+Testing dao.stream.middleware-test
+
+Testing dao.stream.observe-test
+
+Testing dao.stream.observer-test
+
+Testing dao.stream.remote-meet-test
+
+Testing dao.stream.remote-pair-test
+
+Testing dao.stream.remote-test
+
+Testing dao.stream.ringbuffer-test
+
+Testing dao.stream.rpc-test
+
+Testing dao.stream.transit-test
+
+Testing dao.stream.udp-raw-test
+
+Testing dao.stream.udp-test
+
+Testing dao.stream.waitset.cadence-test
+
+Testing dao.stream.waitset.driver-test
+
+Testing dao.stream.waitset-test
+
+Testing dao.stream.ws.jvm-test
+
+Testing dao.stream.ws-codec-test
+
+Testing dao.stream.ws-project-cross-jvm-test
+;; SKIPPED a-dart-dialer-reads-a-jvm-server: build/ws-project-peer is absent -- compile it first: clojure -M:clojuredart:cljd compile dao.stream.ws-project-peer && dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart -o build/ws-project-peer
+
+Testing dao.stream.ws-project-jvm-test
+
+Testing dao.stream.ws-project-test
+
+Testing dao.stream.ws-test
+
+Testing dao.stream-test
+
+Testing datomworld.demo.artifact-runner-test
+
+Testing datomworld.demo.artifact-scene-test
+
+Testing datomworld.demo.continuation-handoff-test
+
+Testing datomworld.demo.earth-moon-scene-test
+
+Testing datomworld.demo.solar-system-scene-test
+
+Testing datomworld.demo.voxel-controls-test
+
+Testing datomworld.demo.voxel-input-test
+
+Testing datomworld.demo.voxel-runner-test
+
+Testing datomworld.demo.voxel-scene-test
+
+Testing yang.clojure.stream-eval-test
+
+Testing yang.clojure-test
+FFI hello world
+
+Testing yang.frontend-test
+
+Testing yang.php-test
+
+Testing yang.python.antlr.cst-export-test
+
+Testing yang.python.antlr.e2e-c1-test
+
+Testing yang.python.antlr.e2e-c2-test
+
+Testing yang.python.antlr.e2e-test
+
+Testing yang.python.antlr.float-address-test
+
+Testing yang.python.antlr.float-text-test
+
+Testing yang.python.antlr.int-contract-test
+
+Testing yang.python.antlr.int-conv-test
+
+Testing yang.python.antlr.int-heap-test
+
+Testing yang.python.antlr.int-literal-test
+
+Testing yang.python.antlr.int-ops-parser-test
+
+Testing yang.python.antlr.int-ops-test
+
+Testing yang.python.antlr.lower-portable-test
+
+Testing yang.python.antlr.lower-test
+
+Testing yang.python.antlr.prelude-parity-test
+
+Testing yang.python.antlr.safepoint-test
+
+Testing yang.python.antlr.scope-test
+
+Testing yang.python-test
+
+Testing yang.safepoint-test
+
+Testing yin.repl.adapter-test
+
+Testing yin.repl.ast-index-test
+
+Testing yin.repl.ast-query-e2e-test
+
+Testing yin.repl.build-test
+
+Testing yin.repl.connect-test
+
+Testing yin.repl.dht-head-test
+
+Testing yin.repl.dht-test
+
+Testing yin.repl.driver-test
+
+Testing yin.repl.embed-test
+
+Testing yin.repl.host.jvm-test
+
+Testing yin.repl.index-test
+
+Testing yin.repl.main-test
+Bye
+
+
+Testing yin.repl.query-test
+
+Testing yin.repl.require-test
+
+Testing yin.repl.serve-connect-wire-test
+
+Testing yin.repl.serve-test
+
+Testing yin.repl.state-test
+
+Testing yin.repl.store-test
+
+Testing yin.repl-test
+
+Testing yin.vm.ast-walker-test
+
+Testing yin.vm.attach-image-test
+
+Testing yin.vm.cell-test
+
+Testing yin.vm.code-test
+
+Testing yin.vm.completion-test
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.data-test
+
+Testing yin.vm.debruijn.register-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.debruijn-code-test
+
+Testing yin.vm.debruijn-linearize-test
+
+Testing yin.vm.debruijn-register-benchmark-test
+
+[R3] de Bruijn stack VM vs register VM (informational)
+
+[R3] tail-countdown (10 timed runs, value 0)
+  stack    run=4.99ms lower=0.15ms load=0.342ms instrs=56 bytes=998 steps=10518 peak-frames=1 peak-cont=0
+  register run=3.579ms lower=0.262ms load=0.605ms instrs=35 bytes=4295 steps=6012 peak-frames=1 peak-cont=0
+  register/stack: run=0.717 lower=1.74 load=1.769 steps=0.571 bytes=4.303
+
+[R3] fibonacci (10 timed runs, value 144)
+  stack    run=3.781ms lower=0.237ms load=0.433ms instrs=92 bytes=1618 steps=11850 peak-frames=1 peak-cont=11
+  register run=4.28ms lower=0.456ms load=0.908ms instrs=53 bytes=7059 steps=6740 peak-frames=1 peak-cont=11
+  register/stack: run=1.132 lower=1.921 load=2.096 steps=0.568 bytes=4.362
+
+[R3] lexical-binding (50 timed runs, value 36)
+  stack    run=0.381ms lower=0.253ms load=0.379ms instrs=92 bytes=1541 steps=84 peak-frames=8 peak-cont=0
+  register run=0.887ms lower=0.374ms load=0.89ms instrs=55 bytes=7702 steps=46 peak-frames=8 peak-cont=0
+  register/stack: run=2.327 lower=1.476 load=2.346 steps=0.547 bytes=4.998
+
+[R3] corpus: literal map (50 timed runs, value {:x 10, :y 20})
+  stack    run=0.155ms lower=0.004ms load=0.154ms instrs=2 bytes=128 steps=2 peak-frames=0 peak-cont=0
+  register run=0.182ms lower=0.01ms load=0.182ms instrs=2 bytes=359 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=1.17 lower=2.405 load=1.179 steps=1.0 bytes=2.804
+
+[R3] corpus: addition (50 timed runs, value 30)
+  stack    run=0.16ms lower=0.018ms load=0.166ms instrs=8 bytes=127 steps=8 peak-frames=0 peak-cont=0
+  register run=0.21ms lower=0.033ms load=0.205ms instrs=5 bytes=614 steps=5 peak-frames=0 peak-cont=0
+  register/stack: run=1.31 lower=1.826 load=1.23 steps=0.625 bytes=4.834
+
+[R3] corpus: nested application (50 timed runs, value 6)
+  stack    run=0.255ms lower=0.033ms load=0.171ms instrs=14 bytes=224 steps=14 peak-frames=0 peak-cont=0
+  register run=0.265ms lower=0.062ms load=0.258ms instrs=8 bytes=1019 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=1.038 lower=1.86 load=1.51 steps=0.571 bytes=4.549
+
+[R3] corpus: if true branch (50 timed runs, value 100)
+  stack    run=0.173ms lower=0.03ms load=0.167ms instrs=12 bytes=219 steps=11 peak-frames=0 peak-cont=0
+  register run=0.267ms lower=0.054ms load=0.221ms instrs=9 bytes=942 steps=8 peak-frames=0 peak-cont=0
+  register/stack: run=1.542 lower=1.767 load=1.316 steps=0.727 bytes=4.301
+
+[R3] corpus: if false branch (50 timed runs, value 200)
+  stack    run=0.176ms lower=0.03ms load=0.159ms instrs=12 bytes=219 steps=10 peak-frames=0 peak-cont=0
+  register run=0.232ms lower=0.053ms load=0.25ms instrs=9 bytes=942 steps=7 peak-frames=0 peak-cont=0
+  register/stack: run=1.319 lower=1.749 load=1.571 steps=0.7 bytes=4.301
+
+[R3] corpus: lambda application (50 timed runs, value 11)
+  stack    run=0.168ms lower=0.035ms load=0.167ms instrs=14 bytes=231 steps=14 peak-frames=1 peak-cont=1
+  register run=0.264ms lower=0.058ms load=0.248ms instrs=9 bytes=1167 steps=9 peak-frames=1 peak-cont=1
+  register/stack: run=1.568 lower=1.664 load=1.482 steps=0.642 bytes=5.051
+
+[R3] corpus: closure value (50 timed runs, value {:type :closure, :arity 1})
+  stack    run=0.147ms lower=0.01ms load=0.146ms instrs=4 bytes=72 steps=2 peak-frames=0 peak-cont=0
+  register run=0.191ms lower=0.021ms load=0.194ms instrs=4 bytes=583 steps=2 peak-frames=0 peak-cont=0
+  register/stack: run=1.303 lower=2.01 load=1.331 steps=1.0 bytes=8.097
+
+[R3] corpus: higher order (50 timed runs, value 15)
+  stack    run=0.18ms lower=0.05ms load=0.181ms instrs=20 bytes=335 steps=20 peak-frames=1 peak-cont=2
+  register run=0.302ms lower=0.083ms load=0.299ms instrs=13 bytes=1720 steps=13 peak-frames=1 peak-cont=2
+  register/stack: run=1.673 lower=1.655 load=1.648 steps=0.65 bytes=5.134
+
+[R3] corpus: collection primitives (50 timed runs, value 9)
+  stack    run=0.177ms lower=0.023ms load=0.147ms instrs=6 bytes=163 steps=6 peak-frames=0 peak-cont=0
+  register run=0.193ms lower=0.026ms load=0.191ms instrs=4 bytes=567 steps=4 peak-frames=0 peak-cont=0
+  register/stack: run=1.086 lower=1.088 load=1.299 steps=0.666 bytes=3.478
+
+Testing yin.vm.debruijn-register-compile-test
+
+Testing yin.vm.debruijn-register-contract-test
+
+Testing yin.vm.debruijn-register-effects-test
+
+Testing yin.vm.debruijn-resolve-test
+
+Testing yin.vm.debruijn-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.effect-forgery-test
+
+Testing yin.vm.encoder-test
+
+Testing yin.vm.engine-gate-test
+
+Testing yin.vm.engine-test
+
+Testing yin.vm.ffi.remote-serve.responder-test
+
+Testing yin.vm.ffi.remote-serve-test
+
+Testing yin.vm.ffi-test
+
+Testing yin.vm.heap-reclamation-test
+
+Testing yin.vm.host-typed-values-test
+
+Testing yin.vm.integer-test
+
+Testing yin.vm.ledger-test
+
+Testing yin.vm.linearize-test
+
+Testing yin.vm.linker.closure-test
+
+Testing yin.vm.linker.dht-end-to-end-test
+
+Testing yin.vm.linker.dht-test
+
+Testing yin.vm.linker.head-follow-test
+
+Testing yin.vm.linker.head-test
+
+Testing yin.vm.linker.head-ws-test
+
+Testing yin.vm.linker.publish-test
+
+Testing yin.vm.linker.remote-transfer-test
+
+Testing yin.vm.linker.sign-test
+
+Testing yin.vm.linker-authority-ingestion-test
+
+Testing yin.vm.linker-authority-test
+
+Testing yin.vm.linker-manifest-test
+
+Testing yin.vm.linker-require-test
+
+Testing yin.vm.linker-step-test
+
+Testing yin.vm.linker-test
+
+Testing yin.vm.macro-build-test
+
+Testing yin.vm.macro-test
+
+Testing yin.vm.mint-test
+
+Testing yin.vm.module-test
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.pipeline-test
+
+Testing yin.vm.rule-r-test
+
+Testing yin.vm.semantic-engine-test
+
+Testing yin.vm.semantic-ffi-test
+
+Testing yin.vm.semantic-stream-observer-test
+
+Testing yin.vm.semantic-test
+
+Testing yin.vm.store-write-audit-test
+
+Testing yin.vm.stream-poll-test
+
+Testing yin.vm.telemetry-test
+
+Testing yin.vm.ucf.authority.admission-test
+
+Testing yin.vm.ucf.authority.completion-fold-test
+
+Testing yin.vm.ucf.authority.completion-test
+
+Testing yin.vm.ucf.authority.front-test
+
+Testing yin.vm.ucf.authority.grant-test
+
+Testing yin.vm.ucf.authority.inherited-test
+
+Testing yin.vm.ucf.authority.input-test
+
+Testing yin.vm.ucf.authority.reclaim-test
+
+Testing yin.vm.ucf.authority-test
+
+Testing yin.vm.ucf.checkpoint-test
+
+Testing yin.vm.ucf.crash-cut-test
+
+Testing yin.vm.ucf.custody-test
+
+Testing yin.vm.ucf.durability-test
+
+Testing yin.vm.ucf.handoff-test
+
+Testing yin.vm.ucf.handoff-v1-test
+
+Testing yin.vm.ucf.handoff-v2-authority-test
+
+Testing yin.vm.ucf.handoff-v2-census-test
+
+Testing yin.vm.ucf.handoff-v2-custody-test
+
+Testing yin.vm.ucf.handoff-v2-gates-test
+
+Testing yin.vm.ucf.handoff-v2-holder-test
+
+Testing yin.vm.ucf.handoff-v2-layout-test
+
+Testing yin.vm.ucf.handoff-v2-test
+
+Testing yin.vm.ucf.handoff-v2-validity-test
+
+Testing yin.vm.ucf.handoff-v2-values-test
+
+Testing yin.vm.ucf.handoff-v2-walker-test
+
+Testing yin.vm.ucf.holder.driver-test
+
+Testing yin.vm.ucf.holder.evidence-test
+
+Testing yin.vm.ucf.holder.export-test
+
+Testing yin.vm.ucf.holder.reader-test
+
+Testing yin.vm.ucf.holder.writer-test
+
+Testing yin.vm.ucf.ledger-fixture-test
+
+Testing yin.vm.ucf.ledger-test
+
+Testing yin.vm.ucf.lift-v1-test
+
+Testing yin.vm.ucf.remote-test
+
+Testing yin.vm.ucf.scalar-round-trip-test
+
+Testing yin.vm.ucf-test
+
+Testing yin.vm-test
+
+Ran 3625 tests containing 237389 assertions.
+1 failures, 0 errors.
+Error while executing task: test:clj
+bb test exit=1

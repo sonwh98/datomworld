@@ -1,0 +1,8 @@
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+Syntax error compiling at (yin/repl/main_test.cljc:1616:7).
+Unable to resolve symbol: finally in this context
+
+Full report at:
+/var/folders/n0/xl3_1xkn0yd5trpq843l81840000gn/T/clojure-4166070142692925783.edn

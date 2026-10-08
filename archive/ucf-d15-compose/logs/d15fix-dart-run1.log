@@ -1,0 +1,169 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (109.0.0 available)
++ analyzer 6.4.1 (14.5.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.7
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @14:01:58
+  yin.repl.main-test
+  yin.vm.ucf.compose-test
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 49, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 85, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 184, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 243, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 353, column: 48, file: yin/repl.cljc
+DYNAMIC WARNING: can't resolve member osError on target type dynamic of library dart:core  at line: 211, column: 38, file: yin/repl/state.cljc
+DYNAMIC WARNING: can't resolve member errorCode on target type dynamic of library dart:core  (no source location)
+Compilation succeeded - All clear! 👌 @14:02:36
+Running 2 test files in 2 shards
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 99.0.0 (109.0.0 available)
+  analyzer 12.1.0 (14.5.0 available)
+  clock 1.1.2 (1.1.3 available)
+  frontend_server_client 4.0.0 (4.1.0 available)
+  glob 2.1.3 (2.2.0 available)
+  io 1.0.5 (1.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  mime 2.0.0 (2.1.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  pool 1.5.2 (1.5.3 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  source_maps 0.10.13 (0.10.14 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  test 1.31.1 (1.32.0 available)
+  test_api 0.7.12 (0.7.14 available)
+  test_core 0.6.18 (0.6.20 available)
+  unorm_dart 0.3.1+1 (0.3.3 available)
+  vector_math 2.4.2 (2.4.3 available)
+  vm_service 15.2.0 (15.3.0 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+20 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart
+00:00 +0: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/an-endpoint-that-never-bound-is-not-waited-on
+00:00 +1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/every-vm-is-selectable-and-answers-through-the-streams
+00:01 +2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/every-vm-is-selectable-and-answers-through-the-streams
+00:02 +3: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/every-vm-is-selectable-and-answers-through-the-streams
+00:02 +4: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/every-vm-is-selectable-and-answers-through-the-streams
+00:02 +5: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_1_test.dart: null yin.vm.ucf.compose-test/close!-releases-the-journal-backends-the-composition-opened-test
+00:03 +6: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-dart-loop-spends-its-whole-drain-budget-while-custody-still-owes-test
+00:03 +7: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-dart-loop-spends-its-whole-drain-budget-while-custody-still-owes-test
+00:03 +8: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-dart-loop-spends-its-whole-drain-budget-while-custody-still-owes-test
+Bye
+00:04 +9: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-dart-loop-spends-its-whole-drain-budget-while-custody-still-owes-test
+;; the endpoint did not report :stopped; exiting anyway
+00:04 +9 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_1_test.dart: null yin.vm.ucf.compose-test/a-parked-continuation-hands-off-and-a-candidate-runs-the-successor-test
+00:04 +9 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-dart-loop-spends-its-whole-drain-budget-while-custody-still-owes-test [E]
+  NoSuchMethodError: Closure call with mismatched arguments: function 'the_dart_loop_spends_its_whole_drain_budget_while_custody_still_owes_test.thunk$13533_$AUTO_$2.maybe_f$3.<anonymous closure>'
+  Receiver: Closure: () => dynamic
+  Tried calling: the_dart_loop_spends_its_whole_drain_budget_while_custody_still_owes_test.thunk$13533_$AUTO_$2.maybe_f$3.<anonymous closure>(0)
+  Found: the_dart_loop_spends_its_whole_drain_budget_while_custody_still_owes_test.thunk$13533_$AUTO_$2.maybe_f$3.<anonymous closure>() => dynamic
+  dart:core                                            _objectNoSuchMethod
+  lib/cljd-out/yin/repl/main.dart 1431:31              ifn_run_dart$BANG__M__18695hm$1.$_invoke$4.finish$BANG_$1
+  lib/cljd-out/yin/repl/main.dart 1606:8               ifn_run_dart$BANG__M__18695hm$1.$_invoke$4.tick$1
+  test/cljd-out/yin/repl/main-test_test.dart 12436:22  pump_while
+  test/cljd-out/yin/repl/main-test_test.dart 15190:14  the_dart_loop_spends_its_whole_drain_budget_while_custody_still_owes_test.thunk$13533_$AUTO_$2.maybe_f$3
+  dart:async                                           runZoned
+  test/cljd-out/yin/repl/main-test_test.dart 15424:11  the_dart_loop_spends_its_whole_drain_budget_while_custody_still_owes_test.thunk$13533_$AUTO_$2
+  test/cljd-out/yin/repl/main-test_test.dart 15432:8   the_dart_loop_spends_its_whole_drain_budget_while_custody_still_owes_test.<fn>.<fn>.maybe_f$4
+  dart:async                                           runZoned
+  test/cljd-out/yin/repl/main-test_test.dart 15465:11  the_dart_loop_spends_its_whole_drain_budget_while_custody_still_owes_test.<fn>.<fn>
+  
+00:04 +10 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_1_test.dart: null yin.vm.ucf.compose-test/a-parked-continuation-hands-off-and-a-candidate-runs-the-successor-test
+00:04 +11 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_1_test.dart: null yin.vm.ucf.compose-test/a-parked-continuation-hands-off-and-a-candidate-runs-the-successor-test
+00:04 +12 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_1_test.dart: null yin.vm.ucf.compose-test/a-parked-continuation-hands-off-and-a-candidate-runs-the-successor-test
+00:04 +13 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/declared-principals-are-strict-hex-and-reach-the-composition
+00:04 +14 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/declared-principals-are-strict-hex-and-reach-the-composition
+00:04 +15 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/declared-principals-are-strict-hex-and-reach-the-composition
+00:04 +16 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/an-uncomposed-port-reports-the-missing-host
+00:04 +17 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/moved?-is-true-while-custody-owes-a-control-plane-write-test
+00:04 +18 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/keygen-writes-a-new-key-file-and-never-overwrites-one
+00:04 +19 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/results-leave-the-vm-on-the-output-medium
+00:04 +20 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/moved?-is-true-for-lines-pending-writes-and-endpoint-movement
+00:05 +21 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/dht-serve-fetches-only
+00:05 +22 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-served-endpoint-shares-the-local-shells-shell
+00:05 +23 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/dht-init-publishes-with-a-key-and-localhost-peer
+00:05 +24 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/help-documents-every-flag-and-subcommand
+00:05 +25 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-exit-path-closes-the-custody-journals-before-the-host-exits-test
+00:05 +26 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/dht-follow-of-an-undeclared-principal-refuses-startup
+00:05 +27 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/help-answers-the-usage-and-exits-zero-without-composing
+00:05 +28 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/a-key-file-loads-the-stable-key-or-refuses-startup-with-its-reason
+00:05 +29 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/dht-manifest-suspends-following-for-the-run
+00:05 +30 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test
+00:06 +31 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/an-ephemeral-bind-is-refused-with-its-reason
+00:06 +32 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/with-the-dht-store-still-hydrating-a-renewal-and-a-pending-release-are-still-sent-test
+00:07 +33 -1: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-dart-loop-drains-custody-without-an-endpoint-test
+Bye
+00:07 +33 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-dart-loop-drains-custody-without-an-endpoint-test [E]
+  NoSuchMethodError: Closure call with mismatched arguments: function 'the_dart_loop_drains_custody_without_an_endpoint_test.thunk$13533_$AUTO_$1.maybe_f$1.<anonymous closure>'
+  Receiver: Closure: () => dynamic
+  Tried calling: the_dart_loop_drains_custody_without_an_endpoint_test.thunk$13533_$AUTO_$1.maybe_f$1.<anonymous closure>(0)
+  Found: the_dart_loop_drains_custody_without_an_endpoint_test.thunk$13533_$AUTO_$1.maybe_f$1.<anonymous closure>() => dynamic
+  dart:core                                            _objectNoSuchMethod
+  lib/cljd-out/yin/repl/main.dart 1431:31              ifn_run_dart$BANG__M__18695hm$1.$_invoke$4.finish$BANG_$1
+  lib/cljd-out/yin/repl/main.dart 1602:8               ifn_run_dart$BANG__M__18695hm$1.$_invoke$4.tick$1
+  test/cljd-out/yin/repl/main-test_test.dart 12436:22  pump_while
+  test/cljd-out/yin/repl/main-test_test.dart 14953:14  the_dart_loop_drains_custody_without_an_endpoint_test.thunk$13533_$AUTO_$1.maybe_f$1
+  dart:async                                           runZoned
+  test/cljd-out/yin/repl/main-test_test.dart 15126:11  the_dart_loop_drains_custody_without_an_endpoint_test.thunk$13533_$AUTO_$1
+  test/cljd-out/yin/repl/main-test_test.dart 15134:8   the_dart_loop_drains_custody_without_an_endpoint_test.<fn>.<fn>.maybe_f$2
+  dart:async                                           runZoned
+  test/cljd-out/yin/repl/main-test_test.dart 15167:11  the_dart_loop_drains_custody_without_an_endpoint_test.<fn>.<fn>
+  
+00:07 +33 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-index-store-flag-parses-on-every-hosts-arguments
+00:07 +34 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/a-printed-join-token-is-what-join-parses
+00:07 +35 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/keygen-subcommand-takes-a-file
+00:07 +36 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/booting-yields-one-shell-one-input-medium-and-one-cursor
+00:07 +37 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/value-history-commands-and-error-recovery-on-every-vm
+00:07 +38 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-bounded-drain-calls-custody-control-every-tick-delivers-the-release-and-runs-no-program-test
+00:07 +39 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/arguments-behave-as-they-do-in-v1-except-telemetry
+00:07 +40 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/startup-composes-or-refuses-before-any-shell-or-server
+00:07 +41 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/dht-follow-parses-a-principal-at-a-loopback-address
+00:07 +42 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-explicit-stop-trigger-is-a-line-producer
+00:07 +43 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-drain-enters-on-an-endpoint-or-owed-custody-and-ends-only-when-both-are-done-test
+00:07 +44 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/a-quit-shell-stops-the-endpoint-before-the-host-exits
+00:07 +45 -2: /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/a-token-with-a-third-part-is-refused-with-the-pin-message
+00:08 +46 -2: Some tests failed.
+
+Failing tests:
+  /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-dart-loop-drains-custody-without-an-endpoint-test
+  /Users/sto/workspace/datomworld-d10b/build/cljd-agg/shard_0_test.dart: null yin.repl.main-test/the-dart-loop-spends-its-whole-drain-budget-while-custody-still-owes-test

@@ -1,0 +1,8 @@
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+Syntax error reading source at (yin/repl/main_test.cljc:1683:1).
+EOF while reading, starting at line 1659
+
+Full report at:
+/var/folders/n0/xl3_1xkn0yd5trpq843l81840000gn/T/clojure-2776058495529365660.edn

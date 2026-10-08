@@ -1,0 +1,49 @@
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.repl.main-test
+
+FAIL in (moved?-is-true-while-custody-owes-a-control-plane-write-test) (main_test.cljc:1677)
+the write discharged once the stream took it
+expected: (not (compose/owed-control-write? c))
+  actual: (not (not true))
+
+FAIL in (moved?-is-true-while-custody-owes-a-control-plane-write-test) (main_test.cljc:1679)
+a settled custody composition lets the tick owner idle
+expected: (false? (repl/moved? settled nil []))
+  actual: (not (false? true))
+Bye
+
+
+FAIL in (with-the-dht-store-still-hydrating-a-renewal-and-a-pending-release-are-still-sent-test) (main_test.cljc:1561)
+a renewal is still sent
+the paused holder renewed under the control step alone
+expected: (= 1 (count (compose-test/inbound-requests inbound :yin.k/renewal)))
+  actual: (not (= 1 0))
+
+FAIL in (with-the-dht-store-still-hydrating-a-renewal-and-a-pending-release-are-still-sent-test) (main_test.cljc:1570)
+a renewal is still sent a pending release is still sent
+the restarted holder released under the control step alone
+expected: (= 1 (count (compose-test/inbound-requests inbound :yin.k/release)))
+  actual: (not (= 1 0))
+Bye
+Serving daostream:ws://127.0.0.1:8080/repl (bound #:dao.data{:type :map, :truncated? false, :count 2, :entries [[#:dao.data{:type :keyword, :value :host, :truncated? false} #:dao.data{:type :string, :value "127.0.0.1", :truncated? false}] [#:dao.data{:type :keyword, :value :port, :truncated? false} #:dao.data{:type :number, :value 8080, :truncated? false}]]})
+;; requests end
+Endpoint stopped: #:dao.data{:type :map, :truncated? false, :count 1, :entries [[#:dao.data{:type :keyword, :value :reason, :truncated? false} #:dao.data{:type :keyword, :value :requested, :truncated? false}]]}
+;; requests end
+
+
+FAIL in (the-bounded-drain-calls-custody-control-every-tick-delivers-the-release-and-runs-no-program-test) (main_test.cljc:1590)
+the stopping tick itself still ran the control plane
+expected: (= 1 (count (release-attempts (get-in state' [:repl :custody]))))
+  actual: (not (= 1 0))
+
+FAIL in (the-bounded-drain-calls-custody-control-every-tick-delivers-the-release-and-runs-no-program-test) (main_test.cljc:1597)
+one release attempt per control tick, the stopping tick's
+                   included: every drain tick called the control plane
+expected: (= (inc drain-ticks) (count attempts))
+  actual: (not (= 4 3))
+
+Ran 41 tests containing 339 assertions.
+6 failures, 0 errors.
