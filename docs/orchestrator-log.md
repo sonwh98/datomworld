@@ -10865,3 +10865,39 @@ Delegates:
 Next:
   - Track A: Complete Phase C4 Slice P2 (Linked Unit Emitter & Module Dicts).
   - Track B: Plan Slice S5 (Multi-hop Routing & Identity Discovery).
+
+## 2026-10-08 17:20:00 +07 — Track A: Slice L-f (large-module linking) landed on master
+Completed-GMT: 2026-10-08 10:20:00 GMT
+Coding-Agent: agy (interactive orchestrator seat)
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
+Tree: master@86866c8d (== origin/master)
+Done:
+  (1) Track A Slice L-f (Large-Module Linking: Default Bounds, Steps 2-4 Derivation, Linear Occurrence Walk) landed on master (86866c8d):
+      - R1/R2: Raised `linker/default-bounds` to `{:max-parts 65536, :max-depth 256, :max-bytes 16777216}`. Added caller bounds plumbing to `publish-module!` and `link-local`.
+      - R3: In `verified-policy-outcome`, derivation fetch of manifest tree completes at step 4 (`:scan? false`), verifying identity and whole-value shape without invoking unused step 5a scanners.
+      - R4/R5: Replaced quadratic Datalog queries (`tree-occurrence-query`, `tree-definition-query`, `tree-application-query`) with an $O(N)$ linear occurrence-scoped direct walk `tree-places`, reducing free-name, definition, and application scanning on a 6006-row module to ~12 ms each.
+      - R6: Added `:derivation` option to `yin.repl.link/composition` (`:verifying` default; `:trusted` for self-publishing compositions).
+      - Conformance Tests: 20 fixtures plus `(wide-module 12)` held equal to `vm/occurrence-rules` oracle; shared-row exact-path fixture verified; guarded slow synthetic module (`wide-module 1000`, 6006 rows) publishes in 38.7 s.
+      - Documentation: Updated `docs/design/yin.vm.linker.md` (§4.1, §4.2, §6.3, §6.4, §8.1) and `docs/design/yang.antlr.md` (§8.5.6).
+  (2) Independent Adversarial Review:
+      - Reviewed by Codex (`gpt-6.1-sol`): verdict REVISE (findings F1–F4) in `archive/linker-l-f/1791406500000-reviewer-l-f.codex.findings.md`.
+  (3) Formal Architectural Sign-Off & Rulings:
+      - Evaluated and ACCEPTED by Lead System Architect Codex (`gpt-6-astra`) in `archive/linker-l-f/1791407000000-architect-l-f-signoff.codex.findings.md`:
+        * F1: Sizing waiver for slow quadratic Datalog oracle on 6006 rows; 20 fixtures + `wide-module 12` + slow publication test form the accepted gate.
+        * F2: Formally amended §3.3 slow test expectation to accept `:refused :undeclared-free` on `:yin.ast/code` pending Slice L-b.
+        * F3: Confirmed REPL link attempt budget is an independent deferred liveness item; confirmed `:trusted` serving policy for self-publishing P2 harness.
+        * F4: Updated design doc text to clarify separate invocations of shared walk.
+      - All L-f collaboration artifacts archived under `archive/linker-l-f/` under git tracking.
+Verification (Multi-Host Gate Complete):
+  - Fast JVM (`bb test:clj`): 3823 tests, 241908 assertions, 0 failures, 1 error (known baseline UCF census txt).
+  - Fast Node (`bb test:cljs`): 3680 tests, 106300 assertions, 0 failures, 1 error (baseline UCF census txt).
+  - Fast Dart (`bb test:cljd`): 3631 passed, 1 failed (baseline UCF census txt).
+  - Slow suites (`clojure -M:test -i :slow`, `bb test:slow:cljs`, `bb test:slow:cljd`): Synthetic module passed on all 3 hosts.
+  - Linter: `clj -M:kondo` clean (0 errors, 0 warnings on modified files); `git diff --check` clean.
+Delegates:
+  - Lead System Architect: claude-fable-5-1 (remediation spec) & gpt-6-astra (sign-off: ACCEPTED).
+  - Implementation Engineer: claude-opus-5-5 (L-f implementation).
+  - Adversarial Reviewer: gpt-6.1-sol (Codex).
+Next:
+  - Rebase Track A Phase C4 Slice P2 worktree (`/Users/sto/workspace/datomworld-p1`) on master.
+  - Complete remaining P2 linked e2e legs, adversarial review, and sign-off.
