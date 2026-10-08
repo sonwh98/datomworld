@@ -1,0 +1,16 @@
+The Slice P2 specification is written to `collab/1791403000000-architect-c4-p2-spec.claude-fable-5-1.findings.md`, in the requested §0 to §6 shape, with ASCII box tables, no em dashes and no first-person pronouns.
+
+**What the research found, and how the spec handles it**
+
+- **L-a has not landed.** Publication already accepts a qualified host export such as `cell/new` under the manifest's primitives, but both step-5b discharge points look only at the receiver's primitive map, so every host export the prelude reads would be refused today. The spec folds the minimal half of L-a into P2: one pure registry helper plus one arm in the linker and one in the engine, matching by profile address only. Limits and versions in profile identity stay deferred to the linker seat.
+- **L-b has not landed.** The tree format refuses sibling reads, so the AST walker cannot link the prelude. The linked profile covers the semantic, stack and register VMs; a test pins the walker's refusal so L-b's landing flips a visible assertion.
+- **The scanner rules break the current layout.** Any definition inside a closure body is conditional, and the `then` chain the prelude uses today puts every definition but the first inside a body. The module emitter therefore emits one wide application with the definitions as operands, plus module-level literal placeholders for the keys `py/init!` defines at run time.
+- **Stripping `py/` collides with primitives.** Two prelude keys, `py/conj` and `py/not`, would shadow the primitives `conj` and `not` inside the module's own closures. The spec renames them in the single source and adds a disjointness test.
+
+**What could not be verified**
+
+The Step 0 probe `collab/p2probe.clj` is written but was never executed: this session's permission mode blocked launching the JVM. The spec makes running it the engineer's first deliverable and states what each outcome means, including the stop condition if the wide layout still retains prelude keys.
+
+**Next**
+
+Dispatch the Implementation Engineer with the spec; sign-off follows the report at `collab/1791403000000-engineer-c4-p2.<model>.findings.md`.

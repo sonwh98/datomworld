@@ -1,0 +1,25 @@
+I stopped at step 0, as the spec requires when the probe fails. Nothing under `src/`, `test/` or `docs/` changed, no lanes were run, and nothing is staged or committed. The report is at `collab/1791403000000-engineer-c4-p2.claude-opus-5-5.findings.md`.
+
+**What the probe showed.** `clj -M collab/p2probe.clj` ran (the session's permissions allow `clj` but not `clojure`).
+- **Expected parts held.** No stripped key collides with a primitive name, so the two renames (`py/conj` to `py/vconj`, `py/not` to `py/lnot`) are enough. The free names are exactly 14 primitives plus the 40 `host-names`. Integer limits are not part of any profile address.
+- **Not expected:** both layouts were refused when publishing (`:incomplete-closure`), before any link outcome existed.
+
+**Blocker 1: a size bound.** The linker's default `:max-parts` is 4096, and every tree row counts as one part. The `py` tree has 5648 rows in the wide layout and 6322 in the chain layout. `publish-module!` uses the default bounds, and any receiver fetching the module would refuse it the same way.
+
+**Blocker 2: time.** I raised the bound for diagnosis only, with `with-redefs` in a probe copy. The publish then completed but took 46 minutes on the JVM, with each `link-local` taking 8 to 15 minutes. Stack sampling puts about 97% of that time in `yin.vm.linker/tree-free-name-occurrences` (a Datalog query with a `not` clause over the tree rows). Verification runs it for every format, the semantic one included.
+
+**The wide layout itself works.** With the bound raised:
+- The semantic, stack and register formats link `:ok`, keeping only the 14 primitives and 40 host exports.
+- No `py`, `py.b` or `py.rt` key is retained.
+- The AST walker is refused `:undeclared-free` (first name `float?`), as the spec expects until L-b lands.
+
+So the placeholder design and the wide layout behave as the spec says; only the bound and the link cost stop the slice.
+
+**Decisions for the Architect.** Both fixes are in code the spec forbids me to touch:
+- **Bound:** let callers pass their own bounds, raise the default, or shrink or split the `py` module.
+- **Link cost:** a cheaper way to find free names in the tree than the current Datalog query.
+- **Measurement needed:** whether each task's `(require 'py)` pays the same verification cost. I did not check this, and it decides whether the linked end-to-end tests are feasible at all.
+
+The renames, the module emitter, the lowering changes and the linker change are independent of both blockers and could go ahead once the Architect rules. The diagnostic scripts are `collab/p2probe-walk.clj`, `collab/p2probe-walk-defs.clj` and `collab/p2probe-sample.clj`; they are not staged.
+
+The Gmail, Google Calendar and Google Drive connectors need authorization in your claude.ai connector settings before they can be used; this task did not need them.

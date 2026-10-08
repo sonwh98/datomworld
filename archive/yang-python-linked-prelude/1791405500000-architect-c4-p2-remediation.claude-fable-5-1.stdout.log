@@ -1,0 +1,17 @@
+Both hits are false positives (the loop index `i` and the `-i :slow` flag). The ruling is written and the tree is clean.
+
+**Ruling written** to `collab/1791405500000-architect-c4-p2-remediation.claude-fable-5-1.findings.md`. Nothing under `src/`, `test/` or `docs/` was changed, nothing staged or committed. One diagnostic script was added under `collab/` and will never be staged.
+
+**What the findings turned out to be**
+
+- F1 is a protocol-level sizing default, not just the publisher's. The same 4096-part bound governs every receiver's tree fetch, the serving runtimes in `yin.repl.link`, and the DHT closure walk, so a caller-bounds-only fix would need every peer to agree out of band. Ruling: raise the default parts bound to 65536, keep bytes and depth as they are, and add the bounds plumbing the design already describes to `publish-module!` and `link-local`. The depth bound now also guards against the rejected chain layout.
+- F2 has two parts. First, a design-conformance gap: under the verifying policy the code fetches the manifest tree through a full link that runs the step-5a scanners and then discards their result, where the design text asks for steps 2 to 4 only. That is three of the four scanner runs. Second, the free-name query's `not` clause enumerates every occurrence tuple per variable occurrence. Measured on the wide layout: 5926 variable occurrences against 13800 tuples, versus a direct occurrence-scoped walk computing the same relation in 26 ms. Ruling: the derivation fetch stops at step 4, and the tree scanner becomes a direct walk held equal to the Datalog rules by a conformance test, including a shared-row fixture so it can never undercount. The rules stay normative and stay in `vm/free-names`.
+- The receiving side pays F2 today because the serving composition hard-codes the default verifying policy. Ruling: the policy becomes a composition option, so a test namespace that publishes `py` into its own store may serve its corpus legs trusted, with one verifying publish per host as evidence.
+
+**Restructuring**
+
+- A new linker slice, L-f, carries the bounds, the step-2-to-4 fetch, the walk, the serving option, a synthetic prelude-sized module test with no frontend dependency, and the design edits. It lands first on its own branch from master under a non-author review.
+- P2 keeps its spec with amendments: step 0 re-run after rebase, corpus legs served trusted, two new acceptance rows for publication cost and a derived size budget, and the prohibition on scanner edits now pointing at L-f. The prelude-side steps 1 to 4 and 8 may start now on the P2 branch since they depend on neither finding.
+- Rejected: query-engine changes in this remediation and any decomposition of `py` to dodge a bound or a scanner. Both are logged as deferred items with owners.
+
+**Next for the orchestrator**: route L-f as its own Engineer brief and worktree per the ruling's section 5, and let the P2 engineer resume steps 1 to 4 in parallel.

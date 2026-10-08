@@ -1,0 +1,37 @@
+I've finished the parts of P2 that don't depend on L-f (steps 1–4 and the bundled re-pins of step 6), and the fast checks pass. Nothing is staged or committed.
+
+**Test results (JVM):**
+- **Lint:** 0 errors, 0 warnings.
+- **`bb test:clj`:** 3807 tests, 0 failures, 1 error. The error is the known baseline: `yin.vm.ucf.handoff-v2-census-test` can't find `test/resources/yin/vm/ucf/handoff-v2.txt`.
+- **Parity and lowering suites (slow tests included):** 67 tests, 0 failures. `float-address-test` and the linker manifest and require namespaces are also green.
+- **Still failing, as expected:** `walker-is-excluded-test` (A10, a slow test). `publish-module!` is still refused `:incomplete-closure` until L-f raises the parts bound. The fast lane skips this test, so it stays green.
+- The L-a tests failed first on exactly the missing discharge and pass after the change.
+
+**What changed:**
+- **Linker and engine (L-a):** new `module/host-export-profile`. Step 5b in `linker/declared-discharge` and `engine/discharge-defect` now accepts a host-module export, such as `cell/new`, when its profile address is equal. A linked module's entry never counts as a host export.
+- **Prelude:**
+  - `py/conj` is now `py/vconj` and `py/not` is now `py/lnot`, everywhere they appear.
+  - New `py/object-class` and `py/run-main`.
+  - New `runtime-keys`, `strip`, `module-uast` (one application over all definitions, placeholders first), `module-exports` and `module-spec`.
+  - Counts: 279 exports, 61 runtime keys, 341 definitions in the module tree. No host export falls back to an empty effect set.
+- **Lowering:**
+  - A class with no base calls `(py/object-class)`.
+  - Both wrappers call `py/run-main`.
+  - `lower-packet`, `lower-transform` and `open-stage` take a `:prelude` option, `:bundled` or `:linked`.
+- **Tests:** a new `linked_prelude_test.cljc` (A8, A10, and unit tests for `strip`, `module-uast`, `module-exports` and `module-spec`). I also added A9, a `py/run-main`/`py/object-class` test, a linked-wrapper test and the L-a tests.
+
+**Where the spec didn't match the code (details in the report):**
+1. The spec's options-map arity for `open-stage` takes the same number of arguments as the existing `medium` arity, so both can't exist. The 4-argument form now treats a map as options and anything else as `medium`; existing callers behave the same.
+2. `safepoint.cljc` does use `py/conj`, though the spec says it doesn't. So the hook prelude's root golden moved too, which section 4.9 doesn't list. I re-pinned it along with the five expected goldens.
+3. `py/init!` also defines `py.rt/state`. So A8's "runtime keys equal what `py/init!` defines" only holds without that key, which is what A9 and P1's count of 61 assume. The test is written that way.
+4. Section 4.9 says the moved `lower_test` golden is the `sum` one. It's actually `program-shape-test` (`x = 1`).
+
+I didn't run `cljstyle`, because it needed approval. The one-character renames may leave continuation lines in nested `(py/vconj ...)` forms one column out of alignment.
+
+**Waiting for L-f:**
+- Rebase, then re-run step 0.
+- Pin A10's walker name, plus the A1 manifest address and A3 program root.
+- Write A12 and the harness tests (A2, A4–A7, the verifying-serve test).
+- Run the Node, Dart and slow lanes, then step 8.
+
+The interim report is the new Part 2 at the top of `collab/1791403000000-engineer-c4-p2.claude-opus-5-5.findings.md`; the step 0 report follows it as Part 1. The full JVM log is `target/p2-test-clj.log`.
