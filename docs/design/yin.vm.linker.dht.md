@@ -3451,12 +3451,26 @@ collection requires authoritative closure and permanent replay rejection.
    Remote outbound ok, a lease stamp, and absence of lapse prove nothing
    about commitment. An unreachable authority suspends protected admission.
 6. At the next safepoint or halt, publish the successor, report resumed
-   with predecessor O and lease, then release. The authority's transaction
-   validates that holder and successor, closes O, and records completion.
+   with predecessor O and lease, then release. Offer admission may initially
+   answer `:awaiting-completion`; it is not a prerequisite for reporting. An
+   accepted report commits the completion identity. A release or policy lapse
+   of the current live lease records one transaction, in order: lapse,
+   occurrence-completed, exact successor or terminal edge, occurrence-reclaimed.
+   Completion requires an unclosed/unquarantined occurrence, supported epoch
+   advancement and successor uniqueness. The fold retains the actual lapse
+   cause, report and closing lease; closure requires the matching lapse earlier
+   in that same transaction, and the edge requires that closure and exact report.
    A successor offer is eligible only after that predecessor completion;
    an orphan append/report cannot run a second branch. Closure fences the
    old lease. An authenticated release after failed lower returns O to
    offered through reclaim, not completed: no successor was reported.
+   Recovery checks exact authoritative closure before retrying or acknowledging
+   release. Policy-reclaim completion needs no release acknowledgment: finish a
+   terminal exit or retry the same successor offer until admitted, without guest
+   execution or program IO. Missing/incomplete evidence suspends; an unreported
+   reclaimed origin follows checkpoint re-candidacy. Quarantine, exhaustion or
+   historical reported policy reclaim without closure terminates with a diagnostic
+   and successor ineligibility. No retroactive standalone closure repair is allowed.
 7. Reclaim atomically invalidates tenure and advances epoch before any
    new grant. Regrant the last authoritative checkpoint, replaying durable
    inputs and op ids. If replay evidence is unavailable, fail-stop before
@@ -3517,7 +3531,11 @@ stubs. Also run the ordered cross-host candidate pairs of 14.1.1.
 - Setup: Crash after successor append, after resumed report, after release
   append, and after authoritative closure. Action: reopen authority and
   redeliver evidence. Assert: before closure no successor is eligible;
-  recover/regrant the last recorded checkpoint. After closure O never
+  recover/regrant the last recorded checkpoint only when no report was accepted.
+  An eligible accepted report completes atomically on policy reclaim, retaining
+  cause policy, the exact edge and one epoch advancement; an unknown transaction
+  acceptance is reconciled by reopening. Repeated reopen duplicates neither edge
+  nor epoch advancement, and recovery manufactures no release carriage. After closure O never
   grants again and the recorded successor is eligible once. Failure-lower
   release reoffers instead of completing. Lost permanent authority fails
   stop, while a recoverable restart advances epoch before new admission.

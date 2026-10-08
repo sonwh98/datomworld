@@ -485,7 +485,7 @@
 
 
 (defn- closure-defect
-  "Why `fact` is not the closure of an occurrence by the release lapse
+  "Why `fact` is not the closure of an occurrence by a release or policy lapse
    of a reported lease earlier in this transaction, or nil."
   [projection fact]
   (let [l (:dao.lease/lease fact)
@@ -495,7 +495,7 @@
       (not (custody/occurrence? o)) :malformed-fact
       (nil? granted) :unknown-lease
       (not= o (:yin.k/occurrence granted)) :wrong-occurrence
-      (not (and (= :release (:dao.lease/cause granted))
+      (not (and (contains? #{:release :policy} (:dao.lease/cause granted))
                 (contains? (::unepoched projection) l)))
       :unreleased
       (not (contains? granted :yin.k/result)) :unreported

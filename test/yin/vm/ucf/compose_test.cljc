@@ -112,7 +112,7 @@
     (vm/run (assoc m2 :store {'c cref} :yin.k/gate :running))))
 
 
-(defn- log-writer
+(defn log-writer
   "The composition's diagnostic stream."
   []
   (:dao.stream/handle
@@ -124,12 +124,15 @@
 ;; =============================================================================
 
 
-(defn- temp-dir
+(defn temp-dir
+  "A fresh scratch directory name, public for the D16 row files that
+  build worlds beside this one."
   []
   (str "target/test-compose-" (random-uuid)))
 
 
-(defn- cleanup-dir!
+(defn cleanup-dir!
+  "Remove scratch `dir` on every host, public for the D16 row files."
   [dir]
   #?(:cljd (try (.deleteSync (dart-io/Directory. dir) .recursive true)
                 (catch Object _ nil))

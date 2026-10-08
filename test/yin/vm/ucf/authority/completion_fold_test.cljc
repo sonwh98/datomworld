@@ -150,8 +150,8 @@
            (apply defect (conj reported-base [l r] [c e])))
         "or in a later one")
     (is (= :unreleased
-           (apply defect (conj reported-base [(lapse :policy) c e r])))
-        "a closure needs a release")
+           (apply defect (conj reported-base [(lapse :policy) r] [c e])))
+        "a policy closure still requires its lapse in the same transaction")
     (is (= :unreleased (apply defect (conj reported-base [l r c e])))
         "the closure precedes the epoch change")
     (is (= :unreported (apply defect (conj base [l c e r])))
@@ -166,6 +166,25 @@
     (is (= :wrong-occurrence
            (apply defect (conj reported-base
                                [l (assoc c :yin.k/occurrence x) e r]))))))
+
+
+(deftest policy-completion-retains-cause-and-all-edge-checks
+  (let [[_ closure edge reclaim] (completion)
+        policy (lapse :policy)
+        reported-base (conj base [(reported)])
+        projection (apply fold (conj reported-base [policy closure edge reclaim]))
+        defect (fn [facts] (::ledger/defect (apply fold (conj reported-base facts))))]
+    (is (nil? (::ledger/defect projection)))
+    (is (= :policy (get-in projection [:leases "lease-1" :dao.lease/cause])))
+    (is (= (address "2") (get-in projection [:leases "lease-1" :yin.k/result])))
+    (is (= {:dao.lease/lease "lease-1" :yin.k/successor s}
+           (get-in projection [:occurrences o :yin.k/closed])))
+    (is (= 1 (get-in projection [:occurrences o :yin.k/epoch])))
+    (is (nil? (get-in projection [:occurrences o :dao.lease/lease])))
+    (is (= :unknown-lease (defect [policy (assoc closure :dao.lease/lease "wrong") edge reclaim])))
+    (is (= :successor-mismatch (defect [policy closure (completion/succeeded o x) reclaim])))
+    (is (= :successor-mismatch (defect [policy closure (completion/terminated o (address "3")) reclaim])))
+    (is (= :unpaired-edge (defect [policy closure edge edge reclaim])))))
 
 
 (deftest the-fold-keeps-the-chain-acyclic

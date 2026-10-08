@@ -1228,8 +1228,36 @@
   (assoc state :phase :exited :status :yin.k/ok :detail detail))
 
 
+(defn- end-recovered-exit
+  [state cause]
+  (let [detail {:cause cause :yin.k/occurrence (:occurrence state)
+                :dao.lease/lease (:lease state)
+                :yin.k/successor (get-in state [:exit :occurrence])
+                :yin.k/result (get-in state [:exit :address])}
+        diagnostic {:yin.k/diagnostic :yin.k/run-ended
+                    :yin.k/occurrence (:occurrence state)
+                    :dao.lease/lease (:lease state) :yin.k/end detail}]
+    (append-diagnostic! state diagnostic)
+    (-> state
+        (assoc :phase :failed :status :yin.k/ended :detail detail)
+        (update :diagnostics conj diagnostic))))
+
+
+(defn- matching-exit-closure?
+  [state projection]
+  (let [cell (:exit state)
+        closed (get-in projection [:occurrences (:occurrence state) :yin.k/closed])]
+    (and (some? closed)
+         (= (:lease state) (:dao.lease/lease closed))
+         (= (:address cell) (get-in projection [:leases (:lease state) :yin.k/result]))
+         (if (= :yin.k/result (:role cell))
+           (and (nil? (:yin.k/successor closed))
+                (= (:address cell) (:yin.k/result closed)))
+           (= (:occurrence cell) (:yin.k/successor closed))))))
+
+
 (defn- exit-closure-step
-  "The authoritative closure (the grantor's transition on the release
+  "The authoritative closure (the grantor's transition on a release or policy
    lapse of a reported lease), read from the ledger fold.  Until it
    stands the exit waits; once it does, a halted result is done and a
    continuation drives the successor's offer to its admission -- the
@@ -1238,14 +1266,10 @@
   (let [cell (:exit state)
         o1 (:occurrence state)
         closed (get-in projection [:occurrences o1 :yin.k/closed])]
-    (if (or (nil? closed)
-            (not= (:lease state) (:dao.lease/lease closed))
-            (not= (:address cell) (get-in projection [:leases (:lease state) :yin.k/result]))
-            (if (= :yin.k/result (:role cell))
-              (or (some? (:yin.k/successor closed))
-                  (not= (:address cell) (:yin.k/result closed)))
-              (not= (:occurrence cell) (:yin.k/successor closed))))
-      (with-status state :yin.k/ok {:exit (:role cell) :step :closure})
+    (if-not (matching-exit-closure? state projection)
+      (if (and (:restarted? state) (some? closed))
+        (end-recovered-exit state :completion-mismatch)
+        (with-status state :yin.k/ok {:exit (:role cell) :step :closure}))
       (if (= :yin.k/result (:role cell))
         (exited state
                 {:yin.k/result (:address cell)
@@ -1300,8 +1324,7 @@
    stands; a tenure that ended before the report committed leaves the
    successor an orphan and the exit over."
   [state]
-  (let [state (drain-control state)
-        records (read-ledger! state)]
+  (let [records (read-ledger! state)]
     (if (nil? records)
       (unsatisfied state :no-arbitration
                    {:dao.stream/identity (:arbitration state)})
@@ -1309,7 +1332,13 @@
             defect (history-defect mine-records)
             projection (when (nil? defect)
                          (fold (:arbitration state) mine-records))
-            o1 (:occurrence state)]
+            o1 (:occurrence state)
+            state (if (and projection (nil? defect))
+                    (drain-control
+                      (cond-> state
+                        (matching-exit-closure? state projection)
+                        (assoc-in [:exit :closure] (get-in projection [:occurrences o1 :yin.k/closed]))))
+                    state)]
         (cond
           (:inbox-refused? state) state
           (or (some? defect) (nil? projection))
@@ -1317,6 +1346,26 @@
 
           (some? (get-in projection [:occurrences o1 :yin.k/closed]))
           (exit-closure-step state projection)
+
+          (get-in projection [:occurrences o1 :yin.k/quarantined])
+          (end-recovered-exit state :quarantined-occurrence)
+
+          (get-in projection [:occurrences o1 :yin.k/exhausted])
+          (end-recovered-exit state :exhausted-occurrence)
+
+          (and (some? (get-in projection [:leases (:lease state) :dao.lease/cause]))
+               (= (get-in state [:exit :address])
+                  (get-in projection [:leases (:lease state) :yin.k/result])))
+          (end-recovered-exit state :incomplete-completion-history)
+
+          (and (:restarted? state)
+               (some? (get-in projection [:leases (:lease state) :dao.lease/cause])))
+          (-> state
+              (dissoc :release :holder :evidence)
+              (assoc :phase :proposing :lease nil :proposal nil :exit nil
+                     :bytes (get-in state [:restart-checkpoint :bytes])
+                     :address (get-in state [:restart-checkpoint :address]))
+              (with-status :yin.k/awaiting-grant {:yin.k/occurrence o1}))
 
           (and (:restarted? state)
                (not= (get-in state [:exit :address])
@@ -1680,6 +1729,7 @@
             (assoc-in state [:proposal :carried] false))
 
           (and (map? (:release state))
+               (not (and (:restarted? state) (get-in state [:exit :closure])))
                (= :yin.k/release (get record :yin.k/reply))
                (= (get-in (:release state)
                           [:request :yin.k/request-id])

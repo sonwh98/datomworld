@@ -1937,11 +1937,16 @@ the keys named here, and the sequence state behind the operation id.
 completion. The holder's exit sequence is: append the successor value to
 the carrier, append `:yin.k/resumed` (evidence) to the arbitration medium,
 append `:dao.lease/released`. Completion is the **grantor's ledger
-transition** -- observing the release (or the `:resumed` evidence followed
-by release) and closing the occurrence's tenure. A crash after successor
-publication but before the ledger transition leaves an orphan successor,
-not a grant. The lease lapses and the grantor may re-grant the last
-recorded occurrence. For enrolled consumers, durable input replay and
+transition** -- a `:release` or `:policy` lapse of the current live lease
+with an accepted report atomically records, in order, the lapse,
+occurrence-completed, exact successor or terminal edge, and occurrence-reclaimed.
+The occurrence must be unclosed and unquarantined, epoch advancement supported,
+and the successor unique. The actual lapse cause is retained: policy completion
+is not release carriage. The closure and edge require the matching lapse earlier
+in that same transaction; a report alone is not completion. A crash after an
+accepted report therefore completes on eligible policy reclaim during reopen.
+Publication without an accepted report leaves an orphan successor, not a grant;
+the grantor may re-grant the last recorded occurrence. For enrolled consumers, durable input replay and
 atomic intent comparison prevent a divergent same-id effect from
 committing. Without those gates, the re-grant is at-least-once or
 fail-stop, not harmless exactly-once recovery. The orphan remains
@@ -2006,7 +2011,8 @@ runs these steps in order, and serves nothing before the last:
 
 1. Open the ledger and fold it.
 2. Reclaim every tenure it shows live, cause `:policy`, in grant
-   order, each lapse with its epoch change as one transaction
+   order, each lapse with its epoch change as one transaction; an eligible
+   accepted report also records closure and its exact edge in that transaction
    (7.7.8). Nothing is regranted.
 3. Rebuild the judge from the ledger after those reclaims: its seen
    facts from every recorded grant and lapse (a lapse of cause
@@ -2406,7 +2412,21 @@ admissions answer `:suspended`. Recovery or compensation is a
 governance decision outside this protocol. An unauthenticated claim
 of a conflict quarantines nothing. (M-next C, slice C8.) A
 quarantined occurrence cannot complete: a report is refused, and a
-release records only the lapse and its epoch change.
+release or policy lapse records only the lapse and its epoch change.
+
+**Completion recovery (D16-completion-recovery).** A recovered exit checks the
+authoritative closure before any release retry or acknowledgment, comparing the
+exact origin lease, reported body address and successor occurrence (or terminal
+result). When it matches, finish the terminal exit or retry the same successor
+offer until admitted; do not obtain or invent release carriage for a lease
+already closed by policy reclaim. Unmatched journal intents remain history.
+Unavailable/incomplete ledger evidence suspends. An unreported reclaimed origin
+returns to ordinary checkpoint candidacy with its speculative successor
+ineligible. Quarantine, exhaustion, or a historical accepted report followed by
+a policy lapse without closure terminates recovery with a diagnostic, rather
+than waiting forever. The repair is prospective: no retroactive standalone
+closure transaction over such old history is authorized. Repeated reopen neither
+duplicates an edge nor advances an already-reclaimed lease's epoch again.
 
 ## §7.8 Lifecycle: lift on park, lower on resume
 

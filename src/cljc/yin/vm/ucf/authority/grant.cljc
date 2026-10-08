@@ -184,7 +184,8 @@
 
 (defn- lapse-decision
   "Decide lapse fact `f` of lease l: the lapse and its occurrence's epoch
-   change in one transaction.  The lapse recorded for l with the same
+   change in one transaction, completing an eligible accepted report on
+   release or policy reclaim. The lapse recorded for l with the same
    cause is a replay."
   [f l]
   (fn [p]
@@ -368,7 +369,8 @@
 (defn reopen!
   "Open the authority over journal `backend` (authority/open! with
    `opts`) and reclaim every tenure its ledger shows live, cause
-   :policy, each as one lapse transaction that raises the epoch, before
+   :policy, each as one lapse transaction that completes any eligible
+   accepted report and raises the epoch, before
    the authority is handed out.  Nothing is regranted, and
    dao.lease/restart is not used.  Answers authority/open!'s answer
    with `:yin.k/reclaimed-leases`, the leases reclaimed in order; or, with the

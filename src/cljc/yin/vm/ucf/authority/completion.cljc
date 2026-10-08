@@ -17,12 +17,12 @@
    continuation; the bytes are not stored.
 
    Completion is the grantor's transition, not the report.  When the
-   judge's writer records a `:release` lapse of a reported lease
+   judge's writer records a `:release` or `:policy` lapse of a reported lease
    (yin.vm.ucf.authority.grant), `closure` adds the closure and its one
    edge to that lapse's transaction, between the lapse and its epoch
    change, so no reader sees a closure without its edge or its lapse.
    The edge goes to the successor occurrence, or, for a halted result,
-   is a terminal edge to the result's address.  A release with no
+   is a terminal edge to the result's address.  A release or policy lapse with no
    report, a reclaim of any other cause, an exhausting reclaim (a lease
    bound at the epoch bound), a quarantined occurrence and a successor
    the ledger has meanwhile seen all leave a plain reclaim: the
@@ -63,7 +63,7 @@
 
 
 (defn completed
-  "The closure of occurrence `o` by the release of lease `l`."
+  "The closure of occurrence `o` by release or policy reclaim of lease `l`."
   [o l]
   {:yin.k/custody :yin.k/completed
    :yin.k/occurrence o
@@ -176,12 +176,12 @@
 
 
 ;; =============================================================================
-;; Completion, in the release lapse's transaction
+;; Completion, in the release or policy lapse's transaction
 ;; =============================================================================
 
 (defn closure
   "The facts that complete the occurrence of lapse fact `f` against
-   projection p: its closure and its one edge, when f is a `:release`
+   projection p: its closure and its one edge, when f is a `:release` or `:policy`
    lapse of a live, reported lease on an unquarantined occurrence whose
    reclaim does not exhaust it, and whose successor, if the report named
    a continuation, the ledger has not seen; else none.  The edge goes to
@@ -192,10 +192,11 @@
         entry (get-in p [:leases l])
         o (:yin.k/occurrence entry)
         s (:yin.k/successor entry)]
-    (if (and (= :release (:dao.lease/cause f))
+    (if (and (contains? #{:release :policy} (:dao.lease/cause f))
              (contains? entry :yin.k/result)
              (not (contains? entry :dao.lease/cause))
              (= l (get-in p [:occurrences o :dao.lease/lease]))
+             (not (get-in p [:occurrences o :yin.k/closed]))
              (not (get-in p [:occurrences o :yin.k/quarantined]))
              (not= (:max-epoch p) (:yin.k/epoch entry))
              (not (and (some? s) (ledger/successor-seen? p s))))

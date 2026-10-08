@@ -231,8 +231,8 @@
     (is (= 1 (:yin.k/epoch (occ a r))))))
 
 
-(deftest only-a-release-completes
-  (doseq [cause [:policy :silence :cap]]
+(deftest only-release-or-policy-completes
+  (doseq [cause [:silence :cap]]
     (testing (name cause)
       (let [[frames a] (granted)]
         (report! a r "lease-1" succ-1)
@@ -243,6 +243,32 @@
         (is (nil? (:yin.k/closed (occ a r))))
         (is (= :refused (:yin.k/status (offer! a succ-1)))
             "the reported successor never becomes eligible")))))
+
+
+(deftest policy-reclaim-completes-the-accepted-report-atomically
+  (doseq [terminal? [false true]]
+    (let [[frames instance] (granted)
+          body (if terminal? (halted) succ-1)
+          address (:address (enc body))]
+      (is (= :committed (:yin.k/status (report! instance r "lease-1" body))))
+      (is (= :dao.stream/ok (lapse! instance "lease-1" :policy)))
+      (is (= [(lease/lapsed "lease-1" :policy)
+              (completion/completed r "lease-1")
+              (if terminal? (completion/terminated r address) (completion/succeeded r s1))
+              (custody/reclaimed r "lease-1" 1)]
+             (record-facts (last (records frames)))))
+      (is (= :policy (get-in (authority/projection instance) [:leases "lease-1" :dao.lease/cause])))
+      (is (= address (get-in (authority/projection instance) [:leases "lease-1" :yin.k/result])))
+      (is (= "lease-1" (get-in (occ instance r) [:yin.k/closed :dao.lease/lease])))
+      (is (= 1 (:yin.k/epoch (occ instance r))))
+      (is (nil? (:dao.lease/lease (occ instance r))))
+      (let [before @frames]
+        (is (= :dao.stream/ok (lapse! instance "lease-1" :policy)))
+        (authority/close! instance)
+        (let [rep (reopen frames)]
+          (is (= [] (:yin.k/reclaimed-leases rep)))
+          (is (= before @frames))
+          (authority/close! (::authority/authority rep)))))))
 
 
 ;; =============================================================================
@@ -410,7 +436,7 @@
     (let [[_ a] (granted)
           succ-2 (park s1 3 (origin r "lease-2"))]
       (report! a r "lease-1" succ-1)
-      (lapse! a "lease-1" :policy)
+      (lapse! a "lease-1" :silence)
       (grant! a r "lease-2" "holder-a")
       (report! a r "lease-2" succ-2)
       (lapse! a "lease-2" :release)
@@ -510,6 +536,18 @@
     (authority/close! a)))
 
 
+(defn- recover-reported
+  [frames]
+  (let [rep (reopen frames)
+        instance (::authority/authority rep)]
+    (is (= :open (:yin.k/status rep)))
+    (is (= ["lease-1"] (:yin.k/reclaimed-leases rep)))
+    (is (= :policy (get-in (authority/projection instance) [:leases "lease-1" :dao.lease/cause])))
+    (is (some? (:yin.k/closed (occ instance r))))
+    (authority/close! instance)
+    (after-closure frames)))
+
+
 (deftest a-crash-after-the-successor-append
   (let [[frames a] (granted)]
     ;; the successor is on its carrier; the authority has heard nothing
@@ -522,7 +560,7 @@
     (let [[frames a] (granted)]
       (report! a r "lease-1" succ-1)
       (authority/close! a)
-      (before-closure frames)))
+      (recover-reported frames)))
   (doseq [[cut persisted] cuts]
     (testing (str "a cut on the report: " (name cut))
       (let [[frames a0] (granted)
@@ -530,7 +568,7 @@
             a (auth frames cut)]
         (is (= :suspended (:yin.k/status (report! a r "lease-1" succ-1))))
         (is (nil? (authority/projection a)) "the authority is poisoned")
-        (before-closure frames)
+        (if (zero? persisted) (before-closure frames) (recover-reported frames))
         (is (= persisted (count (facts frames :yin.k/resumed))))))))
 
 
@@ -539,7 +577,7 @@
     (let [[frames a] (granted)]
       (report! a r "lease-1" succ-1)
       (authority/close! a)
-      (before-closure frames)))
+      (recover-reported frames)))
   (doseq [[cut persisted] cuts]
     (testing (str "a cut on the completion: " (name cut))
       (let [[frames a0] (granted)
@@ -549,11 +587,11 @@
         (is (= :dao.stream/transport-error (lapse! a "lease-1" :release)))
         (is (nil? (authority/projection a)))
         (if (zero? persisted)
-          (before-closure frames)
+          (recover-reported frames)
           (after-closure frames))
-        (is (every? #(= (count (facts frames %)) persisted)
+        (is (every? #(= (count (facts frames %)) 1)
                     [:yin.k/completed :yin.k/succeeded])
-            "closure and edge persist together or not at all")))))
+            "an accepted report completes exactly once, on release or policy reopen")))))
 
 
 (deftest a-crash-after-closure
@@ -717,16 +755,16 @@
           (is (= :open (:yin.k/status rep)))
           (is (= 1 (count (lapses-of frames "lease-1")))
               "reclaimed exactly once")
-          (is (every? #(= (count (facts frames %)) persisted)
+          (is (= (if (zero? persisted) :policy :release)
+                 (get-in (authority/projection a2) [:leases "lease-1" :dao.lease/cause])))
+          (is (every? #(= (count (facts frames %)) 1)
                       [:yin.k/completed :yin.k/succeeded])
-              "closure and terminal edge persist together or not at all")
+              "release or policy reopen records one complete terminal transaction")
           (authority/close! a2)
           (let [rep3 (reopen frames)]
             (is (= [] (:yin.k/reclaimed-leases rep3))
                 "the next reopen replays")
-            (is (= (if (zero? persisted)
-                     :dao.stream/ok
-                     :dao.stream/invalid-value)
+            (is (= :dao.stream/invalid-value
                    (grant! (::authority/authority rep3)
                            r "lease-2" "holder-b")))))))))
 
@@ -746,6 +784,25 @@
         "a plain reclaim")
     (is (nil? (:yin.k/closed (occ a r))))
     (is (= :orphan (refusal (offer! a succ-1))))))
+
+
+(deftest policy-reclaim-cannot-complete-quarantined-or-exhausted-reports
+  (doseq [obstruction [:quarantine :exhaustion] terminal? [false true]]
+    (let [[frames instance] (granted (when (= :exhaustion obstruction) {::authority/max-epoch 0}))
+          body (if terminal? (halted) succ-1)]
+      (is (= :committed (:yin.k/status (report! instance r "lease-1" body))))
+      (when (= :quarantine obstruction) (quarantine! instance r))
+      (is (= :dao.stream/ok (lapse! instance "lease-1" :policy)))
+      (is (= [(lease/lapsed "lease-1" :policy)
+              (custody/reclaimed r "lease-1" (if (= :exhaustion obstruction) 0 1))]
+             (record-facts (last (records frames)))))
+      (is (nil? (:yin.k/closed (occ instance r))))
+      (is (empty? (facts frames :yin.k/succeeded)))
+      (is (= (:address (enc body)) (get-in (authority/projection instance) [:leases "lease-1" :yin.k/result])))
+      (is (true? (get (occ instance r) (if (= :exhaustion obstruction) :yin.k/exhausted :yin.k/quarantined))))
+      (when-not terminal? (is (= :orphan (refusal (offer! instance body)))))
+      (is (= :dao.stream/invalid-value (grant! instance r "lease-2" "holder-b")))
+      (authority/close! instance))))
 
 
 (deftest a-report-on-a-quarantined-occurrence-is-refused

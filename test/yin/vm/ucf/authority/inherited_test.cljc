@@ -477,14 +477,14 @@
       (is (= :dao.stream/invalid-value (grant! a s1b "lease-9" "holder-z"))
           "never granted")
       (is (false? (admission/ancestor? (authority/projection a) r s1b)))))
-  (testing "a reported successor whose release was a plain reclaim"
+  (testing "a reported successor whose silence lapse was a plain reclaim"
     (let [frames (fresh-frames)
           a (auth frames)
           store (mem/create-content-mem)]
       (offer! a store (park r))
       (grant! a r "lease-1" "holder-a")
       (report! a "holder-a" r "lease-1" succ-1)
-      (lapse! a "lease-1" :policy)
+      (lapse! a "lease-1" :silence)
       (is (= :refused (offer! a store succ-1)))
       (is (false? (admission/ancestor? (authority/projection a) r s1))))))
 
