@@ -361,7 +361,15 @@
     ["post-harvest" "assoc"] 1
     ["post-harvest" "dissoc"] 1
     ["make-ctx" :map] 1
-    ["expand-batch" "assoc"] 2}})
+    ["expand-batch" "assoc"] 2}
+   ;; the custody composition's carrier descriptors (D15): `:store` names
+   ;; the node's dao.jing content store the composition serves bodies and
+   ;; code from -- offers put bodies in it, drivers fence into it -- never
+   ;; a VM store; the same shape as yin.repl.link's composition
+   "src/cljc/yin/vm/ucf/compose.cljc"
+   {["bare-composition" :map] 1
+    ["driver-config" :map] 1
+    ["front-of" :map] 1}})
 
 
 (deftest every-store-mutation-is-on-the-allowlist

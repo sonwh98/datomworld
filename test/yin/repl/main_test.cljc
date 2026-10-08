@@ -6,7 +6,10 @@
                       [yin.repl.host :as host]]
                 :cljs [[yin.repl.connect :as connect]])
             [dao.stream :as stream]
+            [dao.stream.journal.file :as file-journal]
             [dao.stream.rpc :as rpc]
+            #?@(:cljs [[dao.stream.waitset.driver :as waitset]]
+                :cljd [[dao.stream.waitset.driver :as waitset]])
             [dao.stream.transit :as transit]
             [yin.repl.main :as repl]
             [yin.repl.dht :as repl.dht]
@@ -15,7 +18,9 @@
             [yin.repl.host.common :as host-common]
             [yin.repl.net-fixture :as fixture]
             [yin.repl.serve :as serve]
-            [yin.vm.linker.sign :as sign]))
+            [yin.vm.linker.sign :as sign]
+            [yin.vm.ucf.compose :as compose]
+            [yin.vm.ucf.compose-test :as compose-test]))
 
 
 ;; =============================================================================
@@ -1493,3 +1498,437 @@
       (let [started (repl/startup args)]
         (is (re-find re (str (:refusal started))) (pr-str args started))
         (is (nil? (:state started)))))))
+
+
+;; =============================================================================
+;; The custody seam: hydration, the bounded shutdown drain, and cadence
+;; (r3 1.12 as amended by residual 4).  The composition under the shell is a
+;; real exclusive one over a file-backed authority; its holder stands where
+;; only the shell's own custody program step would ever lower it, so every
+;; program-side guarantee below is observable as its absence.
+;; =============================================================================
+
+
+(defn- paused-world
+  "An exclusive world (yin.vm.ucf.compose-test/exclusive-world) whose
+   holder stands at a paused activation: its proposal was carried and
+   its grant accepted under control ticks alone, so no machine exists
+   and nothing but a custody program step could create one.  `:inbound`
+   overrides the composition's ring; `:journals` overrides the
+   composition's journal substrate."
+  [& {:keys [inbound journals]}]
+  (let [w (compose-test/exclusive-world :inbound inbound :journals journals)
+        c (compose-test/drive (:c w) "h1" (compose-test/phase-of :proposing) 60)
+        c (compose-test/drive-control c "h1" (compose-test/phase-of :activating) 12)]
+    (assoc w :c c)))
+
+
+(defn- release-attempts
+  "The release attempt records of the world's holder, in journal order."
+  [c]
+  (filterv #(and (= :yin.k/attempt (:yin.k/journal %))
+                 (= :yin.k/release (:yin.k/action %)))
+           (compose-test/journal-records-of c "h1")))
+
+
+(defn- custody-state
+  "A booted repl state carrying composition `c` as the shell's custody
+   seam, with a typed line deposited."
+  [c line]
+  (let [state (assoc-in (repl/boot {}) [:repl :custody] c)]
+    (driver/submit-line! (:input state) line)
+    state))
+
+
+(defn- dht-solo-spec
+  [dir]
+  {:type :dht :dir dir :peers [] :publish? false
+   :bind-host "127.0.0.1" :bind-port 0
+   :max-inbound-bytes repl.dht/default-max-inbound-bytes})
+
+
+(deftest with-the-dht-store-still-hydrating-a-renewal-and-a-pending-release-are-still-sent-test
+  (let [w (paused-world)
+        dir (temp-dir)]
+    (try
+      (let [inbound (get-in (:c w) [:inbounds "h1"])
+            ;; a real solo node, its hydration held open by hand: the state
+            ;; mid-hydration is in, and nothing else about the store differs
+            state (assoc-in (repl/boot {:index-store-spec (dht-solo-spec dir)})
+                            [:repl :custody] (:c w))
+            _ (driver/submit-line! (:input state) "(+ 40 2)")
+            state (assoc-in state [:repl :dht :yin.repl.dht/hydrating] ::held)]
+        (is (false? (repl.dht/admitting? (:repl state)))
+            "the store hydrates: the shell admits nothing")
+        (testing "a renewal is still sent"
+          (reset! (:clock w) {:s 20})
+          (let [[state' _ _] (repl/step-all state nil 0)]
+            (is (= 1 (count (compose-test/inbound-requests inbound :yin.k/renewal)))
+                "the paused holder renewed under the control step alone")
+            (is (= [] (first (driver/take-outbox state')))
+                "and the typed line still waits: hydration held evaluation")
+            (testing "a pending release is still sent"
+              (let [c' (compose/restart (get-in state' [:repl :custody]) "h1")
+                    [_state'' _ _] (repl/step-all (assoc-in state'
+                                                            [:repl :custody] c')
+                                                  nil 1)]
+                (is (= 1 (count (compose-test/inbound-requests
+                                  inbound :yin.k/release)))
+                    "the restarted holder released under the control step alone")))))
+        (repl/close-index-store! state))
+      (finally
+        (compose-test/cleanup-world! w)
+        (cleanup-dir! dir)))))
+
+
+(defn- drain-until
+  "The bounded drain exactly as every host loop runs it: ask the endpoint
+  to stop once, then `shutdown-tick` until the drain's own exit
+  condition (`shutdown-drained?` -- the endpoint stopped AND custody
+  owing nothing) holds or the `stop-ticks` budget ends.  Answers
+  `[state server spent-budget?]`."
+  [state server]
+  (loop [state state
+         server (when server (serve/stop! server))
+         n 0]
+    (let [[state' server' _lines _stopped?] (repl/shutdown-tick state server n)]
+      (if (or (repl/shutdown-drained? state' server') (>= n repl/stop-ticks))
+        [state' server' (>= n repl/stop-ticks)]
+        (recur state' server' (inc n))))))
+
+
+(defn- drain-for
+  "A fixed number of drain ticks, for the per-tick cadence pins; the
+  drain's exit conditions are `drain-until`'s and the host loops' own."
+  [state server n]
+  (loop [state state server server n n]
+    (if (zero? n)
+      [state server]
+      (let [[state' server' _lines _stopped?] (repl/shutdown-tick state server 0)]
+        (recur state' server' (dec n))))))
+
+
+(defn- no-endpoint-state
+  "A shell that has quit over a restarted holder owing a release its
+  gated inbound holds back: the state the no-endpoint drain rows drive,
+  and the custody composition it carries."
+  [w]
+  (let [c (compose/restart (:c w) "h1")
+        state (custody-state c "(quit)")]
+    [state c]))
+
+
+(deftest the-drain-enters-on-an-endpoint-or-owed-custody-and-ends-only-when-both-are-done-test
+  (let [gate (atom false)
+        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+    (try
+      (let [_ (reset! gate true)
+            [state' _c] (no-endpoint-state w)
+            [state' _ _] (repl/step-all state' nil 0)
+            never-bound (serve/serve! {:bind-port 8080 :host nil})]
+        (testing "entry: an absent endpoint with owed custody still drains"
+          (is (false? (:running? state')) "the shell stopped")
+          (is (true? (repl/shutdown-enter? state' nil))
+              "a REPL without --port enters the drain on its owed custody
+               writes alone")
+          (is (false? (repl/shutdown-drained? state' nil))
+              "custody alone holds the drain open"))
+        (testing "an already-stopped endpoint with owed custody is not done either"
+          (is (true? (serve/stopped? never-bound)))
+          (is (true? (repl/shutdown-enter? state' never-bound)))
+          (is (false? (repl/shutdown-drained? state' never-bound))
+              "the endpoint owes nothing; the owed release does"))
+        (testing "a settled composition with no endpoint needs no drain"
+          (reset! gate false)
+          (let [[settled _ _spent?] (drain-until state' nil)]
+            (is (true? (repl/shutdown-drained? settled nil)))
+            (is (false? (repl/shutdown-enter? settled nil))
+                "nothing owed, nothing to drain"))))
+      (finally
+        (compose-test/cleanup-world! w)))))
+
+
+(deftest the-bounded-drain-calls-custody-control-every-tick-delivers-the-release-and-runs-no-program-test
+  (let [gate (atom false)
+        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+    (try
+      (let [_ (reset! gate true)
+            ;; the restarted holder owes a release its full inbound holds back
+            state (custody-state (compose/restart (:c w) "h1") "(quit)")
+            [state' _ _] (repl/step-all state nil 0)
+            _ (is (false? (:running? state')) "the shell stopped")
+            _ (is (true? (get-in state' [:repl :custody :holders "h1" :stopped?]))
+                  "the stop latch was set in the program step's place")
+            _ (is (= 1 (count (release-attempts (get-in state' [:repl :custody]))))
+                  "the stopping tick itself still ran the control plane")
+            [state'' _] (drain-for state' nil 3)
+            held (get-in state'' [:repl :custody])
+            attempts (release-attempts held)
+            _ (is (= 4 (count attempts))
+                  "one release attempt per control tick, the stopping tick's
+                   included: every drain tick called the control plane")
+            _ (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
+                  "the full stream held every one back")
+            _ (is (false? (repl/shutdown-drained? state'' nil))
+                  "custody still owes: three ticks in, the drain's exit
+                   condition is not met")
+            _ (reset! gate false)
+            [state''' _ spent?] (drain-until state'' nil)
+            st (get-in state''' [:repl :custody :holders "h1"])]
+        (is (false? spent?)
+            "the delivered release ended the drain, well inside the budget")
+        (is (true? (get-in st [:release :carried]))
+            "the release is delivered once the stream accepts it")
+        (is (= :failed (:phase st))
+            "the stopped holder ends its cleanup, never a fresh candidacy")
+        (is (true? (get-in st [:detail :dao.lease/released])))
+        (is (zero? @(:attaches w))
+            "no program step ran: nothing was ever attached, before or after
+             the shell stopped"))
+      (finally
+        (compose-test/cleanup-world! w)))))
+
+
+(deftest a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test
+  (let [gate (atom false)
+        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+    (try
+      (let [_ (reset! gate true)
+            c (compose/restart (:c w) "h1")
+            server (serve/serve! {:bind-port 8080 :host (host-adapter)})
+            state (custody-state c "(quit)")
+            [state' server' _] (repl/step-all state server 0)
+            ;; the bounded drain exactly as the host loops run it: the
+            ;; endpoint stops on the first drain tick, and the drain keeps
+            ;; stepping for the owed release until the budget ends
+            [state'' server'' spent?] (drain-until state' server')
+            c'' (get-in state'' [:repl :custody])
+            attempts (release-attempts c'')]
+        (is (true? (serve/stopped? server''))
+            "the endpoint stopped at once: the drain that followed was
+             custody's alone")
+        (is (true? spent?)
+            "the owed release held the drain open for the whole budget: the
+             budget, not the endpoint and not the release, ended it")
+        (is (= (+ repl/stop-ticks 2) (count attempts))
+            "a custody control tick for every drain tick -- the stopping
+             tick, the whole budget, and the budget's own last tick")
+        (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
+            "the stream stayed full for the whole drain")
+        (is (some #(and (= :yin.k/intent (:yin.k/journal %))
+                        (= :yin.k/release (:yin.k/action %)))
+                  (compose-test/journal-records-of c'' "h1"))
+            "the release intent is durable in the progress journal")
+        (testing "a restart sends it"
+          (reset! gate false)
+          (let [c''' (compose/control-step (compose/restart c'' "h1"))]
+            (is (some #(= :dao.stream/ok (:yin.k/append %))
+                      (release-attempts c'''))
+                "the recovered holder sent the identical release"))))
+      (finally
+        (compose-test/cleanup-world! w)))))
+
+
+(deftest the-exit-path-closes-the-custody-journals-before-the-host-exits-test
+  (let [root (temp-dir)
+        w (paused-world :journals (compose/file-journals root))]
+    (try
+      (let [state (custody-state (:c w) "(quit)")]
+        (repl/close-index-store! state)
+        (doseq [kind ["progress" "reply"]]
+          (let [reopened (file-journal/backend! (str root "/h1-" kind))]
+            (is (= :dao.stream/ok (:dao.stream/outcome reopened))
+                (str "the " kind
+                     " journal's directory is unlocked: the exit path closed
+                      the custody composition's journals before the process
+                      exit"))
+            (file-journal/close! (get reopened ::file-journal/backend)))))
+      (finally
+        (compose-test/cleanup-world! w)
+        (cleanup-dir! root)))))
+
+
+(deftest moved?-is-true-while-custody-owes-a-control-plane-write-test
+  (let [gate (atom false)
+        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+    (try
+      (let [_ (reset! gate true)
+            state (custody-state (compose/restart (:c w) "h1") "(+ 1 2)")
+            [state' _ _] (repl/step-all state nil 0)]
+        (is (compose/owed-control-write? (get-in state' [:repl :custody]))
+            "the owed release stands while the stream is full")
+        (is (true? (repl/moved? state' nil []))
+            "a custody control-plane write holds the tick owner's base cadence")
+        (reset! gate false)
+        (let [settled (loop [state state' k 0]
+                        (let [c (get-in state [:repl :custody])]
+                          (if (or (not (compose/owed-control-write? c)) (>= k 40))
+                            state
+                            (recur (first (repl/step-all state nil k)) (inc k)))))
+              c (get-in settled [:repl :custody])]
+          (is (not (compose/owed-control-write? c))
+              "the write discharged once the stream took it")
+          (is (false? (repl/moved? settled nil []))
+              "a settled custody composition lets the tick owner idle")))
+      (finally
+        (compose-test/cleanup-world! w)))))
+
+
+#?(:cljd nil
+   :clj
+   (deftest the-jvm-loop-drains-custody-without-an-endpoint-and-closes-its-journals-test
+     (let [gate (atom false)
+           root (temp-dir)
+           w (paused-world :inbound (compose-test/gated-stream "h1-in" gate)
+                           :journals (compose/file-journals root))]
+       (try
+         (let [_ (reset! gate true)
+               [state c] (no-endpoint-state w)
+               exits (atom 0)
+               ;; the stream opens partway through the drain
+               opener (future (Thread/sleep 150) (reset! gate false))]
+           (repl/poll-loop! state nil true (fn [] (swap! exits inc)))
+           @opener
+           (is (= 1 @exits)
+               "the step owner returned through its exit with no endpoint at
+                all: the custody-owed entry drained, and the delivered
+                release -- not the budget -- ended it")
+           (let [attempts (release-attempts c)]
+             (is (<= 3 (count attempts))
+                 "the drain stepped the custody control plane with no server
+                  to drain")
+             (is (some #(= :dao.stream/ok (:yin.k/append %)) attempts)
+                 "the release left once the stream opened")))
+         (testing "the journals the composition opened were closed before the exit"
+           (let [reopened (file-journal/backend! (str root "/h1-progress"))]
+             (is (= :dao.stream/ok (:dao.stream/outcome reopened))
+                 "the exit path closed the custody composition's journals
+                  before the process exit")
+             (file-journal/close! (get reopened ::file-journal/backend))))
+         (finally
+           (compose-test/cleanup-world! w)
+           (cleanup-dir! root))))))
+
+
+#?(:cljs
+   (do
+     (defn- pump-while
+       "Drive a wake owner's own tick synchronously while `pred` is false,
+        at most `budget` ticks, then disarm it: the host loop's real
+        branch and exit logic on the test's clock -- the timers each tick
+        arms are the owner's fallback, never the test's wait."
+       [w pred budget]
+       (loop [n 0]
+         (when (and (not (pred)) (< n budget))
+           ((:tick w))
+           (recur (inc n))))
+       (waitset/disarm! w))
+
+     (deftest the-node-loop-drains-custody-without-an-endpoint-test
+       (let [gate (atom false)
+             w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+         (try
+           (let [_ (reset! gate true)
+                 [state c] (no-endpoint-state w)
+                 exits (atom 0)
+                 wake (repl/run-node! state nil nil (fn [_status] (swap! exits inc)))]
+             ;; the first tick runs the quit line and enters the drain on
+             ;; owed custody alone -- there is no endpoint at all
+             ((:tick wake))
+             (is (= 0 @exits)
+                 "the no-endpoint owner did not exit: custody still owes")
+             (dotimes [_ 3] ((:tick wake)))
+             (is (= 0 @exits)
+                 "three full-stream drain ticks later it still owes")
+             (is (<= 3 (count (release-attempts c)))
+                 "every one of those ticks ran the custody control plane")
+             (reset! gate false)
+             (pump-while wake #(pos? @exits) 300)
+             (is (= 1 @exits)
+                 "the delivered release -- not the budget -- ended the drain")
+             (is (some #(= :dao.stream/ok (:yin.k/append %))
+                       (release-attempts c))
+                 "the release left once the stream opened"))
+           (finally
+             (compose-test/cleanup-world! w)))))
+
+     (deftest the-node-loop-spends-its-whole-drain-budget-while-custody-still-owes-test
+       (let [gate (atom false)
+             w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+         (try
+           (let [_ (reset! gate true)
+                 [state c] (no-endpoint-state w)
+                 exits (atom 0)
+                 wake (repl/run-node! state nil nil (fn [_status] (swap! exits inc)))]
+             (pump-while wake #(pos? @exits) 400)
+             (is (= 1 @exits)
+                 "the budget, never the owed write alone, ends the drain")
+             (let [attempts (release-attempts c)]
+               (is (= (+ repl/stop-ticks 2) (count attempts))
+                   "one custody control tick per drain tick: the stopping
+                    tick, the whole budget, and the budget's own last tick")
+               (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
+                   "the stream stayed full for the whole budget")))
+           (finally
+             (compose-test/cleanup-world! w)))))))
+
+
+#?(:cljd
+   (do
+     (defn- pump-while
+       "Drive a wake owner's own tick synchronously while `pred` is false,
+        at most `budget` ticks, then disarm it: the host loop's real
+        branch and exit logic on the test's clock -- the timer each tick
+        arms is the owner's fallback, never the test's wait."
+       [w pred budget]
+       (loop [n 0]
+         (when (and (not (pred)) (< n budget))
+           ((:tick w))
+           (recur (inc n))))
+       (waitset/disarm! w))
+
+     (deftest the-dart-loop-drains-custody-without-an-endpoint-test
+       (let [gate (atom false)
+             w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+         (try
+           (let [_ (reset! gate true)
+                 [state c] (no-endpoint-state w)
+                 exits (atom 0)
+                 wake (repl/run-dart! state nil true (fn [_status] (swap! exits inc)))]
+             ((:tick wake))
+             (is (= 0 @exits)
+                 "the no-endpoint owner did not exit: custody still owes")
+             (dotimes [_ 3] ((:tick wake)))
+             (is (= 0 @exits)
+                 "three full-stream drain ticks later it still owes")
+             (is (<= 3 (count (release-attempts c)))
+                 "every one of those ticks ran the custody control plane")
+             (reset! gate false)
+             (pump-while wake #(pos? @exits) 300)
+             (is (= 1 @exits)
+                 "the delivered release -- not the budget -- ended the drain")
+             (is (some #(= :dao.stream/ok (:yin.k/append %))
+                       (release-attempts c))
+                 "the release left once the stream opened"))
+           (finally
+             (compose-test/cleanup-world! w)))))
+
+     (deftest the-dart-loop-spends-its-whole-drain-budget-while-custody-still-owes-test
+       (let [gate (atom false)
+             w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+         (try
+           (let [_ (reset! gate true)
+                 [state c] (no-endpoint-state w)
+                 exits (atom 0)
+                 wake (repl/run-dart! state nil true (fn [_status] (swap! exits inc)))]
+             (pump-while wake #(pos? @exits) 400)
+             (is (= 1 @exits)
+                 "the budget, never the owed write alone, ends the drain")
+             (let [attempts (release-attempts c)]
+               (is (= (+ repl/stop-ticks 2) (count attempts))
+                   "one custody control tick per drain tick: the stopping
+                    tick, the whole budget, and the budget's own last tick")
+               (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
+                   "the stream stayed full for the whole budget")))
+           (finally
+             (compose-test/cleanup-world! w)))))))

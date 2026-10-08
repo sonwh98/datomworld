@@ -866,11 +866,19 @@
    is served and dialed over, and `:write-heads!` the file replace
    `heads.edn` is written with (yin.repl.dht/open).  A `(require ...)` of
    a name that is absent while a followed principal has no installed
-   head stays pending until that head is installed."
+   head stays pending until that head is installed.
+
+   `:custody` is an optional custody composition value
+   (yin.vm.ucf.compose): the shell only carries it, as data, so the
+   host's single step owner can advance it (yin.repl.main/step-all --
+   the custody control step runs during hydration and through the
+   bounded shutdown drain; the custody program step runs only while
+   the shell is admitted and running).  Nothing in the shell reads or
+   steps it; nil, the default, is today's behaviour."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
-            index-store-spec dht-key principals ws-host write-heads!]
+            index-store-spec dht-key principals ws-host write-heads! custody]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
@@ -933,6 +941,7 @@
         :link-policy (checked-link-policy link-policy)
         :dht-key dht-key
         :pending-run nil
+        :custody custody
         :running? true}))))
 
 

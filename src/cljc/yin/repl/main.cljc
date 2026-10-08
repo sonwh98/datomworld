@@ -25,7 +25,8 @@
             [yin.repl.serve :as serve]
             [yin.repl.state :as state]
             [yin.repl.store :as store]
-            [yin.vm.linker.sign :as sign]))
+            [yin.vm.linker.sign :as sign]
+            [yin.vm.ucf.compose :as compose]))
 
 
 (def tick-millis
@@ -595,7 +596,9 @@
   "Create the composition: one shell, one input medium, one cursor held only by
    the step owner, and the host WebSocket adapter `(connect ...)` attaches
    through.  The parsed `:index-store-spec` reaches the shell's store
-   selection, which resolves and opens it once at construction."
+   selection, which resolves and opens it once at construction.  A custody
+   composition (:custody, yin.vm.ucf.compose) rides the shell as data; the
+   step owner below is the only thing that steps it."
   ([] (boot {}))
   ([opts] (driver/create-state
             {:host (or (:adapter opts) (host/websocket))
@@ -604,7 +607,8 @@
                               :dht-key (:dht-key opts)
                               :principals (:principals opts)
                               :ws-host (:ws-host opts)
-                              :write-heads! (:write-heads! opts)}
+                              :write-heads! (:write-heads! opts)
+                              :custody (:custody opts)}
                        (:vm-type opts) (assoc :vm-type (:vm-type opts))))})))
 
 
@@ -850,14 +854,25 @@
      :cljs (.exit js/process 1)))
 
 
-(defn close-index-store!
-  "Release the index store's lifecycle resources before the host exits
-   (in durable mode, the exclusive directory lock).  The shell has already
-   stopped when a host calls this; the memory store has nothing to
-   release.  A DHT store's head board and dials have been asked to stop
-   and drained by then (`stop-tick`); `yin.repl.dht/close!` is the last
-   resort for whatever the budget left."
+(defn- custody-of
   [state]
+  (get-in state [:repl :custody]))
+
+
+(defn close-index-store!
+  "Release the composition's lifecycle resources before the host exits:
+   the custody composition's journals first (compose/close! -- the
+   authority and every journal backend the composition opened; it never
+   throws, so a failed close never blocks the exit), then the index
+   store's own resources (in durable mode, the exclusive directory
+   lock).  The shell has already stopped when a host calls this; the
+   memory store has nothing to release.  A DHT store's head board and
+   dials have been asked to stop and drained by then (`stop-tick`);
+   `yin.repl.dht/close!` is the last resort for whatever the budget
+   left."
+  [state]
+  (when-some [c (custody-of state)]
+    (compose/close! c))
   (repl.dht/close! (:repl state))
   (store/close! (get-in state [:repl :index-store])))
 
@@ -918,38 +933,93 @@
      :cljs (.exit js/process exit)))
 
 
+(defn- custody-control-step
+  "The custody control plane's tick (r3 1.12): the renewals, pending
+   releases and request retries of every holder, the judge step and the
+   front steps of whatever custody composition the shell carries.  It
+   runs immediately after the DHT step and before the refusal and
+   admission branches, so custody progress and cleanup do not wait for
+   a hydration to finish and survive a refused store.  No program work
+   happens here whatever the shell's state."
+  [state]
+  (if-some [c (custody-of state)]
+    (assoc-in state [:repl :custody] (compose/control-step c))
+    state))
+
+
+(defn- custody-program-step
+  "The custody program step's tick: activation, execution and export
+   preparation under the split driver's own revalidated tenure.  It runs
+   after the shell's own step and before the endpoint's, and never once
+   the shell has stopped -- the stop latch is set in the shell's place."
+  [state]
+  (if-some [c (custody-of state)]
+    (assoc-in state [:repl :custody] (compose/program-step c))
+    state))
+
+
+(defn- custody-stop
+  "Latch the local stop on every holder of the shell's custody
+   composition (compose/stop): program work ends, control cleanup
+   continues through the bounded shutdown drain.  Idempotent, and a
+   no-op with no composition."
+  [state]
+  (if-some [c (custody-of state)]
+    (assoc-in state [:repl :custody] (compose/stop c))
+    state))
+
+
+(defn- custody-owed?
+  "True while the shell's custody composition owes a control-plane
+   write (compose/owed-control-write?): a pending write keeps the tick
+   owner's cadence at the base interval, like the driver's own."
+  [state]
+  (if-some [c (custody-of state)]
+    (compose/owed-control-write? c)
+    false))
+
+
 (defn step-all
   "One tick of the single step owner: the local shell first, then the served
    endpoint, against the same shell value.  A DHT index store's node is stepped
    first (yin.repl.dht/step): its lines print before the shell's, a
    hydration still outstanding leaves every typed line waiting in the
-   input medium, and a refused one stops the shell.  A `--port` process
+   input medium, and a refused one stops the shell.  The custody control
+   plane is stepped next, before the refusal and admission branches, so
+   renewals, pending releases and request retries continue during
+   hydration and past a refusal.  A `--port` process
    serves one shared shell, as v1's atom made it: the driver evaluates this
    tick's local
    lines first, so a definition typed at the local prompt is already in the
    shell the endpoint evaluates remote requests against in the same tick, and
    the endpoint's shell (remote definitions included) is threaded back
-   before the next tick.  A require parked on a closure load the node ended this
-   tick is re-checked once, before any typed line, with no line of its
-   own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2): its
-   text prints after the node's lines.  Returns `[state server lines]`;
+   before the next tick.  The custody program step follows the driver's own
+   step and precedes the endpoint's; once the shell has stopped it is
+   replaced by the stop latch, so no custody program call runs after
+   `:running?` turns false.  A require parked on a closure load the node
+   ended this tick is re-checked once, before any typed line, with no line
+   of its own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2):
+   its text prints after the node's lines.  Returns `[state server lines]`;
    the caller only prints."
   [state server now]
   (let [[repl dht-lines events] (repl.dht/step (:repl state) now)
-        state (assoc state :repl repl)]
+        state (custody-control-step (assoc state :repl repl))]
     (cond
       (repl.dht/refusal repl)
-      [(assoc state :running? false) server dht-lines]
+      [(custody-stop (assoc state :running? false)) server dht-lines]
 
       (not (repl.dht/admitting? repl))
       [state server dht-lines]
 
       :else
-      (let [[repl rechecked] (shell/recheck-on-load-events repl events)
+      (let [[repl rechecked] (shell/recheck-on-load-events (:repl state) events)
             dht-lines (cond-> dht-lines
                         (seq rechecked) (conj rechecked))
             state (assoc state :repl repl)
             stepped (driver/repl-step state now)
+            stepped (if (:running? stepped)
+                      (custody-program-step stepped)
+                      (custody-stop stepped))
             [entries state'] (driver/take-outbox stepped)
             server' (when server
                       (serve/step (assoc-in server [:repl] (:repl state'))
@@ -967,12 +1037,14 @@
   "The tick owner's cadence bit, computed from this tick's own results: true
    when there are lines to print, when the endpoint reports movement (a
    woken probe, a published notice), or when either composition still owes a
-   write.  A pending write keeps cadence at the base interval; it must never
-   wait out a backoff ceiling."
+   write -- the shell's own or a custody control-plane one.  A pending write
+   keeps cadence at the base interval; it must never wait out a backoff
+   ceiling."
   [state server lines]
   (boolean (or (seq lines)
                (driver/pending-write? state)
                (repl.dht/busy? (:repl state))
+               (custody-owed? state)
                (and server (serve/moved? server)))))
 
 
@@ -1036,7 +1108,10 @@
    `serve/stopped?` is the whole of the endpoint's exit condition, and
    `yin.repl.dht/stopped?` for the shell's head board: an endpoint that never
    bound is done on the first tick, because no host exists to report a
-   `:stopped` fact for it, and so is a shell with no board."
+   `:stopped` fact for it, an absent endpoint -- a shell run without
+   `--port` -- never had one, and so is a shell with no board.  The custody
+   composition is not stepped here: `shutdown-tick` is the drain tick that
+   wraps this one with the custody control plane."
   [state server now]
   (let [[repl dht-lines _] (repl.dht/step (:repl state) now)
         state (assoc state :repl repl)
@@ -1049,6 +1124,49 @@
      (into (vec dht-lines) (map entry-text) entries)
      (and (or (nil? server') (serve/stopped? server'))
           (repl.dht/stopped? repl))]))
+
+
+(defn shutdown-enter?
+  "Whether a shell that just stopped enters the bounded shutdown drain at
+   all (r3 1.12 as amended by residual 4 and the D15 gate's shutdown row):
+   there is an endpoint to stop, a head board that still owes its
+   stop-and-drain, or a custody composition that still owes a
+   control-plane write.  A REPL run without --port enters the drain on its
+   owed custody writes alone -- a release owed at quit is sent, never
+   dropped by the process exit."
+  [state server]
+  (boolean (or server
+               (get-in state [:repl :dht])
+               (custody-owed? state))))
+
+
+(defn shutdown-drained?
+  "The bounded shutdown drain's exit condition, the one every host loop
+   tests: the endpoint has stopped -- an absent endpoint owes nothing --
+   AND the shell's head board owes nothing at exit, AND the custody
+   composition owes no further control-plane write.  A pending release,
+   renewal or undelivered reply still owed keeps the drain stepping
+   within its `stop-ticks` budget; the budget, not this predicate, is
+   what bounds a write that can never complete."
+  [state server]
+  (boolean (and (serve/stopped? server)
+                (repl.dht/stopped? (:repl state))
+                (not (custody-owed? state)))))
+
+
+(defn shutdown-tick
+  "One tick of the bounded shutdown drain (r3 1.12, residual 4), the tick
+   every host's drain loop calls: the custody control plane keeps running --
+   the holders' local stop latch is set here, at drain entry, on every host,
+   including paths that reached the drain without another normal `step-all`
+   -- and the head board and the endpoint drain (an absent endpoint drains
+   nothing and answers stopped).  No custody program step runs: program
+   execution stays stopped once the shell has.  Returns
+   `[state server lines stopped?]`; the budget (`stop-ticks`) and the exit
+   condition (`shutdown-enter?`, `shutdown-drained?`) are the caller's."
+  [state server now]
+  (let [state (custody-control-step (custody-stop state))]
+    (stop-tick state server now)))
 
 
 ;; =============================================================================
@@ -1065,25 +1183,35 @@
        (flush))
 
      (defn- drain!
-       "The shell has quit, so the head board and the endpoint stop before the
-        host exits: ask each once, then keep stepping both until they report
-        stopped or the bounded budget runs out.  A connected client must
-        observe the ended answer, not the bare close a process exit would
-        leave behind.  The bounded drain sleeps the base interval; it is a
-        budget, not a cadence.  Answers the drained state."
+       "The shell has quit, so the head board, the endpoint and the custody
+        control plane stop before the host exits: ask the board and the
+        endpoint once, then keep stepping all three until the endpoint has
+        stopped AND the board owes nothing AND custody owes no further
+        control write (`shutdown-drained?`), or the bounded budget runs
+        out.  The drain is entered at all only when one of them owes
+        something (`shutdown-enter?` -- a shell with no endpoint enters it
+        on owed custody writes alone).  A connected client must observe the
+        ended answer, not the bare close a process exit would leave behind.
+        The bounded drain sleeps the base interval; it is a budget, not a
+        cadence.  The custody control plane steps on every one of its ticks
+        (`shutdown-tick`); the state it reaches is durable in the progress
+        journal, so what the budget leaves outstanding is a restart's to
+        resend.  Answers the drained state."
        [state server w]
-       (loop [state (update state :repl repl.dht/stop!)
-              server (some-> server serve/stop!)
-              remaining stop-ticks]
-         (let [[state' server' lines stopped?]
-               (stop-tick state server (System/currentTimeMillis))]
-           (doseq [line lines]
-             (println line))
-           (cond
-             stopped? state'
-             (zero? remaining) (do (println stop-timeout-text) state')
-             :else (do (wake/sleep! w tick-millis)
-                       (recur state' server' (dec remaining)))))))
+       (if (shutdown-enter? state server)
+         (loop [state (update state :repl repl.dht/stop!)
+                server (some-> server serve/stop!)
+                remaining stop-ticks]
+           (let [[state' server' lines _stopped?]
+                 (shutdown-tick state server (System/currentTimeMillis))]
+             (doseq [line lines]
+               (println line))
+             (cond
+               (shutdown-drained? state' server') state'
+               (zero? remaining) (do (println stop-timeout-text) state')
+               :else (do (wake/sleep! w tick-millis)
+                         (recur state' server' (dec remaining))))))
+         state))
 
      (defn poll-loop!
        "The sole owner of REPL and endpoint state on the JVM.  It carries both
@@ -1123,9 +1251,9 @@
                 (println)
                 (close-index-store! state')
                 (let [status (exit-status state')]
-                    (if (zero? status)
-                      (exit!)
-                      (.halt (Runtime/getRuntime) (int status))))))))))
+                  (if (zero? status)
+                    (exit!)
+                    (.halt (Runtime/getRuntime) (int status))))))))))
 
      (defn- read-loop!
        "The reader parks in `read-line` and appends, nudging the step owner's
@@ -1197,7 +1325,7 @@
 
 #?(:cljs
    (do
-     (defn- run-node!
+     (defn run-node!
        "The tick owner on Node: one wake source arms exactly one timer per
         round, at the interval `cadence-step` computes over
         `default-cadence`.  Returns the wake so the composition can wire its
@@ -1207,66 +1335,75 @@
         `repl-step` is synchronous and the Node event loop is single
         threaded, so a tick cannot overlap itself.  The box is host cadence
         plumbing: the tick is the only reader and writer of it.  `:stopping`
-        is nil while the shell runs and a tick budget afterwards: the head
-        board and the endpoint are asked to stop once and stepped at the
-        base interval (a bounded drain, not a curve) until both report it."
-       [state server rl]
-       (let [box (atom {:state state :server server :stopping nil
-                        :cadence (cadence/init default-cadence)})
-             wake-ref (volatile! nil)
-             finish! (fn []
-                       (wake/disarm! @wake-ref)
-                       (when rl (.close rl))
-                       (close-index-store! (:state @box))
-                       (js/process.exit (exit-status (:state @box))))
-             tick (fn []
-                    ;; The interval timer this namespace replaced fired
-                    ;; again whatever happened, so a tick whose body throws
-                    ;; must not kill the owner: arm the fallback first and
-                    ;; let the body's own `arm!` replace it. `finish!`
-                    ;; disarms, so a finished owner parks nothing.
-                    (wake/arm! @wake-ref tick-millis)
-                    (let [{:keys [state server stopping cadence]} @box]
-                      (if (nil? stopping)
-                        (let [[state' server' lines] (step-all state server
-                                                               (js/Date.now))]
-                          (reset! box {:state state'
-                                       :server server'
-                                       :stopping nil
-                                       :cadence cadence})
-                          (doseq [line lines]
-                            (js/console.log line))
-                          (cond
-                            (:running? state')
-                            (let [{:keys [cadence-state sleep-ms]}
-                                  (cadence/cadence-step
-                                    cadence (moved? state' server' lines))]
-                              (swap! box assoc :cadence cadence-state)
-                              (when (and (seq lines) rl) (.prompt rl))
-                              (wake/arm! @wake-ref sleep-ms))
+        is nil while the shell runs and a tick budget afterwards: the drain
+        is entered when there is an endpoint to stop, a head board that
+        still owes its stop-and-drain, or custody owes a control write
+        (`shutdown-enter?` -- a REPL without --port drains its owed custody
+        writes too), the head board and the endpoint are asked to stop
+        once, and the drain steps at the base interval until the endpoint
+        has stopped AND the board owes nothing AND custody owes nothing
+        (`shutdown-drained?`) or the budget ends.  `exit!`, the process
+        exit by default, is the seam a test injects to drive the owner to
+        its end."
+       ([state server rl] (run-node! state server rl #(js/process.exit %)))
+       ([state server rl exit!]
+        (let [box (atom {:state state :server server :stopping nil
+                         :cadence (cadence/init default-cadence)})
+              wake-ref (volatile! nil)
+              finish! (fn []
+                        (wake/disarm! @wake-ref)
+                        (when rl (.close rl))
+                        (close-index-store! (:state @box))
+                        (exit! (exit-status (:state @box))))
+              tick (fn []
+                     ;; The interval timer this namespace replaced fired
+                     ;; again whatever happened, so a tick whose body throws
+                     ;; must not kill the owner: arm the fallback first and
+                     ;; let the body's own `arm!` replace it. `finish!`
+                     ;; disarms, so a finished owner parks nothing.
+                     (wake/arm! @wake-ref tick-millis)
+                     (let [{:keys [state server stopping cadence]} @box]
+                       (if (nil? stopping)
+                         (let [[state' server' lines] (step-all state server
+                                                                (js/Date.now))]
+                           (reset! box {:state state'
+                                        :server server'
+                                        :stopping nil
+                                        :cadence cadence})
+                           (doseq [line lines]
+                             (js/console.log line))
+                           (cond
+                             (:running? state')
+                             (let [{:keys [cadence-state sleep-ms]}
+                                   (cadence/cadence-step
+                                     cadence (moved? state' server' lines))]
+                               (swap! box assoc :cadence cadence-state)
+                               (when (and (seq lines) rl) (.prompt rl))
+                               (wake/arm! @wake-ref sleep-ms))
 
-                            ;; With neither a board nor an endpoint the
-                            ;; first stop tick answers stopped.
-                            :else
-                            (do (swap! box assoc
-                                       :state (update state' :repl repl.dht/stop!)
-                                       :server (some-> server' serve/stop!)
-                                       :stopping stop-ticks)
-                                (wake/arm! @wake-ref tick-millis))))
-                        (let [[state' server' lines stopped?]
-                              (stop-tick state server (js/Date.now))]
-                          (swap! box assoc :state state' :server server')
-                          (doseq [line lines]
-                            (js/console.log line))
-                          (cond
-                            stopped? (finish!)
-                            (zero? stopping)
-                            (do (js/console.log stop-timeout-text) (finish!))
-                            :else (do (swap! box assoc :stopping (dec stopping))
-                                      (wake/arm! @wake-ref tick-millis)))))))]
-         (vreset! wake-ref (wake/make-wake tick))
-         (wake/arm! @wake-ref tick-millis)
-         @wake-ref))
+                             (shutdown-enter? state' server')
+                             (do (swap! box assoc
+                                        :state (update state' :repl repl.dht/stop!)
+                                        :server (when server'
+                                                  (serve/stop! server'))
+                                        :stopping stop-ticks)
+                                 (wake/arm! @wake-ref tick-millis))
+
+                             :else (finish!)))
+                         (let [[state' server' lines _stopped?]
+                               (shutdown-tick state server (js/Date.now))]
+                           (swap! box assoc :state state' :server server')
+                           (doseq [line lines]
+                             (js/console.log line))
+                           (cond
+                             (shutdown-drained? state' server') (finish!)
+                             (zero? stopping)
+                             (do (js/console.log stop-timeout-text) (finish!))
+                             :else (do (swap! box assoc :stopping (dec stopping))
+                                       (wake/arm! @wake-ref tick-millis)))))))]
+          (vreset! wake-ref (wake/make-wake tick))
+          (wake/arm! @wake-ref tick-millis)
+          @wake-ref)))
 
      (defn -main
        [& args]
@@ -1322,7 +1459,7 @@
        (.write io/stdout prompt)
        (.flush io/stdout))
 
-     (defn- run-dart!
+     (defn run-dart!
        "One wake source owns the tick: exactly one `Timer` armed per round, at
         the interval `cadence-step` computes over `default-cadence`, because a
         synchronous poll loop would deadlock the Dart event loop: IO never
@@ -1331,71 +1468,81 @@
         stop signals) as `nudge!` callers.
 
         `:stopping` is nil while the shell runs and a tick budget afterwards:
-        the head board and the endpoint are asked to stop once and stepped
-        at the base interval (a bounded drain, not a curve) until both report
-        it, so the host does not exit with a live listener."
-       [state server headless?]
-       (let [box (atom {:state state :server server :stopping nil
-                        :cadence (cadence/init default-cadence)})
-             wake-ref (volatile! nil)
-             finish! (fn []
-                       (wake/disarm! @wake-ref)
-                       (close-index-store! (:state @box))
-                       (io/exit (exit-status (:state @box)))
-                       nil)
-             tick (fn []
-                    ;; The periodic timer this namespace replaced fired
-                    ;; again whatever happened, so a tick whose body throws
-                    ;; must not kill the owner: arm the fallback first and
-                    ;; let the body's own `arm!` replace it. `finish!`
-                    ;; disarms, so a finished owner parks nothing.
-                    (wake/arm! @wake-ref tick-millis)
-                    (let [{:keys [state server stopping cadence]} @box
-                          now (.-millisecondsSinceEpoch
-                                (dart-core/DateTime.now))]
-                      (if (nil? stopping)
-                        (let [[state' server' lines]
-                              (step-all state server now)]
-                          (reset! box {:state state'
-                                       :server server'
-                                       :stopping nil
-                                       :cadence cadence})
-                          (doseq [line lines]
-                            (write-line! line))
-                          (cond
-                            (:running? state')
-                            (let [{:keys [cadence-state sleep-ms]}
-                                  (cadence/cadence-step
-                                    cadence (moved? state' server' lines))]
-                              (swap! box assoc :cadence cadence-state)
-                              (when (and (seq lines) (not headless?))
-                                (print-prompt!))
-                              (wake/arm! @wake-ref sleep-ms))
+        the drain is entered when there is an endpoint to stop, a head
+        board that still owes its stop-and-drain, or custody owes a
+        control write (`shutdown-enter?` -- a REPL without --port drains
+        its owed custody writes too), the head board and the endpoint are
+        asked to stop once, and the drain steps at the base interval
+        until the endpoint has stopped AND the board owes nothing AND
+        custody owes nothing (`shutdown-drained?`) or the budget ends, so
+        the host does not exit with a live listener or a dropped
+        release.  `exit!`, the process exit by default, is the seam
+        a test injects to drive the owner to its end."
+       ([state server headless?]
+        (run-dart! state server headless? #(io/exit %)))
+       ([state server headless? exit!]
+        (let [box (atom {:state state :server server :stopping nil
+                         :cadence (cadence/init default-cadence)})
+              wake-ref (volatile! nil)
+              finish! (fn []
+                        (wake/disarm! @wake-ref)
+                        (close-index-store! (:state @box))
+                        (exit! (exit-status (:state @box)))
+                        nil)
+              tick (fn []
+                     ;; The periodic timer this namespace replaced fired
+                     ;; again whatever happened, so a tick whose body throws
+                     ;; must not kill the owner: arm the fallback first and
+                     ;; let the body's own `arm!` replace it. `finish!`
+                     ;; disarms, so a finished owner parks nothing.
+                     (wake/arm! @wake-ref tick-millis)
+                     (let [{:keys [state server stopping cadence]} @box
+                           now (.-millisecondsSinceEpoch
+                                 (dart-core/DateTime.now))]
+                       (if (nil? stopping)
+                         (let [[state' server' lines]
+                               (step-all state server now)]
+                           (reset! box {:state state'
+                                        :server server'
+                                        :stopping nil
+                                        :cadence cadence})
+                           (doseq [line lines]
+                             (write-line! line))
+                           (cond
+                             (:running? state')
+                             (let [{:keys [cadence-state sleep-ms]}
+                                   (cadence/cadence-step
+                                     cadence (moved? state' server' lines))]
+                               (swap! box assoc :cadence cadence-state)
+                               (when (and (seq lines) (not headless?))
+                                 (print-prompt!))
+                               (wake/arm! @wake-ref sleep-ms))
 
-                            ;; With neither a board nor an endpoint the
-                            ;; first stop tick answers stopped.
-                            :else
-                            (do (swap! box assoc
-                                       :state (update state' :repl repl.dht/stop!)
-                                       :server (some-> server' serve/stop!)
-                                       :stopping stop-ticks)
-                                (wake/arm! @wake-ref tick-millis)
-                                nil)))
-                        (let [[state' server' lines stopped?]
-                              (stop-tick state server now)]
-                          (swap! box assoc :state state' :server server')
-                          (doseq [line lines]
-                            (write-line! line))
-                          (cond
-                            stopped? (finish!)
-                            (zero? stopping) (do (write-line! stop-timeout-text)
-                                                 (finish!))
-                            :else (do (swap! box assoc :stopping (dec stopping))
-                                      (wake/arm! @wake-ref tick-millis)
-                                      nil))))))]
-         (vreset! wake-ref (wake/make-wake tick))
-         (wake/arm! @wake-ref tick-millis)
-         @wake-ref))
+                             (shutdown-enter? state' server')
+                             (do (swap! box assoc
+                                        :state (update state' :repl repl.dht/stop!)
+                                        :server (when server'
+                                                  (serve/stop! server'))
+                                        :stopping stop-ticks)
+                                 (wake/arm! @wake-ref tick-millis)
+                                 nil)
+
+                             :else (finish!)))
+                         (let [[state' server' lines _stopped?]
+                               (shutdown-tick state server now)]
+                           (swap! box assoc :state state' :server server')
+                           (doseq [line lines]
+                             (write-line! line))
+                           (cond
+                             (shutdown-drained? state' server') (finish!)
+                             (zero? stopping) (do (write-line! stop-timeout-text)
+                                                  (finish!))
+                             :else (do (swap! box assoc :stopping (dec stopping))
+                                       (wake/arm! @wake-ref tick-millis)
+                                       nil))))))]
+          (vreset! wake-ref (wake/make-wake tick))
+          (wake/arm! @wake-ref tick-millis)
+          @wake-ref)))
 
      (defn -main
        [& args]
