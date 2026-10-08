@@ -136,9 +136,14 @@
    kept here.  `follow` are the principal ids (`ed25519:<hex>`) whose
    published heads the DHT source follows (yin.vm.linker.dht.head.md
    5.6): a name that is `:absent` while one of them has no installed head
-   is pending on it, not refused."
+   is pending on it, not refused.
+
+   `derivation` is the composition's derivation policy (section 8.1) for
+   the manifest links it serves from a content source: `:verifying`, the
+   default, or `:trusted`, which only a composition that is its own
+   publisher asks for. The response names the trust it applied."
   [{:keys [name-env content-store content-client dht? principals key
-           follow]}]
+           follow derivation]}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
@@ -150,6 +155,7 @@
    :principals (vec (distinct (cond-> (vec principals)
                                 key (conj (:public key)))))
    :follow (vec follow)
+   :derivation (or derivation :verifying)
    :content (cond
               dht? {:kind :dht}
 
@@ -246,8 +252,10 @@
 
 (defn- attempt
   "Link one resolved name to its manifest image, or `::pending`.  The
-   requester's contract and name travel as `link-manifest` expects them;
-   step 5b is deferred to the receiving task."
+   requester's contract and name travel as `link-manifest` expects them,
+   under the composition's derivation policy; step 5b is deferred to the
+   receiving task.  A lowered format's response carries the derivation
+   record and the trust the policy applied."
   [source request address]
   (try
     (let [res (linker/link-manifest (attempt-runtime source)
@@ -256,12 +264,14 @@
                                     {}
                                     {:contract (:yin.link/contract request)
                                      :name (:yin.link/name request)
+                                     :derivation (:derivation source)
                                      :defer-discharge true})]
       (if (linker/ok? res)
-        {:status :ok
-         :image {:value (:value res)}
-         :manifest (:manifest res)
-         :obligations (:obligations res)}
+        (merge {:status :ok
+                :image {:value (:value res)}
+                :manifest (:manifest res)
+                :obligations (:obligations res)}
+               (select-keys res [:derivation :trust]))
         res))
     (catch #?(:cljd Object :clj Throwable :cljs :default) e
       (when-not (budget-spent? e) (throw e))
@@ -408,8 +418,11 @@
    order -- and is reported under `:pending`; its cursor stays, so a
    later round re-reads and re-attempts it.  A response the response
    medium refuses reports its request pending the same way, and the
-   round reports no progress.  `dht` is the shell's DHT node, which a DHT
-   source reads and advances.  Returns
+   round reports no progress.  A content source links each manifest under
+   the composition's `:derivation` policy (`composition`'s option,
+   `:verifying` unless the composition asked for `:trusted`), and an
+   `:ok` response of a lowered format names its `:trust`.  `dht` is the
+   shell's DHT node, which a DHT source reads and advances.  Returns
    `{:pair pair :pending pending :progress? bool :dht node}`,
    `:progress?` true when at least one response was appended, so the
    shell knows the round moved something; a pending entry a DHT load

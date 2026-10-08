@@ -314,13 +314,26 @@ function slots; this revision replaces one, renames one, and adds four:
   name, or a call of a primitive that receives a function argument,
   because the callee may apply what it is handed. Dominance between
   two positions is decided by the linker from these fields and the
-  format's order (step 5a). For the AST record all three scanners are
-  Datalog over the rows: `yin.vm/free-names` today returns a symbol
-  set, and is extended (or wrapped by an occurrence-scoped query over
-  the same rules) to return each occurrence's path; the definitions
-  scanner is the store-key query behind `yin.vm/ast-requirements`
-  with the binding row's path and its enclosing tags; the application
-  scanner is the application-row query over the same relation. For
+  format's order (step 5a). For the AST record the three scanners
+  compute `yin.vm/free-names`' occurrence-scoped relation and the
+  definition and application queries over the rows: the free-name
+  scanner yields each free occurrence's path, the definitions scanner
+  is the store-key query behind `yin.vm/ast-requirements` with the
+  binding row's path and its enclosing tags, and the application
+  scanner is the application-row query over the same relation. Each
+  scanner uses the same direct occurrence walk, invoked separately,
+  that threads the binder set and the enclosing tags down each path.
+  Each scanner then filters and sorts its own records by path; this is
+  three traversals, not a single fused execution pass, and sorting adds
+  cost beyond the traversal. Each scanner is held equal
+  to its Datalog definition (`yin.vm/occurrence-rules` for free names)
+  by a conformance test, because the rules' `not` clause is quadratic
+  in the tree under the planner of today (measured: 8 to 15 minutes
+  against 26 ms for a 5688-row module), and the definition and
+  application queries took 52 s and 33 s on a 6006-row module against
+  about 12 ms each for the walk. The rules stay the normative
+  definition; a scanner that departs from them changes this text
+  first. For
   the vector formats all three are operand scans by pc (`:var`
   against `:store-put` and `:define`, `:load-free` against `:define`
   and `:store-put`, the call opcodes for applications) with
@@ -417,6 +430,11 @@ Step by step, for all four formats:
    and visits each address once. The composition supplies bounds in the
    runtime: `:max-parts`, `:max-depth`, `:max-bytes`; exceeding any is
    `:parts-limit` naming the bound and the address at which it was hit.
+   A bound the composition leaves out takes `default-bounds`: 65536
+   parts, depth 256, 16 MiB. The parts figure is set by an honest image,
+   a prelude-sized module of about 6000 rows with room to grow; the byte
+   bound is the envelope that keeps a hostile walk finite; and the depth
+   bound refuses a module laid out as one long chain.
    The result of step 2 is the root value plus, for a multi-part
    format, the map of every fetched part by address.
 3. **Verify format identity.** `(:identity-matches-fn format)` over the
@@ -865,8 +883,11 @@ function over explicit state.
 
 A `request` is plain data and nothing else. Its closed key set is
 `:yin.link/id`, `:yin.link/format`, `:yin.link/contract`, and
-exactly one of `:yin.link/name` or `:yin.link/identity`. The two
-admissible shapes:
+exactly one of `:yin.link/name` or `:yin.link/identity`, plus the
+optional `:yin.link/scan? false`, which completes the link at step 4
+with no obligations: the `:verifying` derivation policy's fetch of a
+manifest's tree (section 8.1) is its one user. The two admissible
+shapes:
 
 ```clojure
 ;; by module name: the linker resolves the manifest (section 8)
@@ -959,6 +980,13 @@ loads a fetched image supplies the format record's `:contract`.
 `discharge`, the pure step 5b over obligations and a receiver, are both
 exported so tests and compositions holding a payload can run the checks
 without a stream.
+
+The REPL's serving composition (`yin.repl.link/composition`) links each
+manifest it serves under its own `:derivation` option, `:verifying` by
+default; a composition that is its own publisher, such as a test
+harness that published the module into the store it serves, may ask for
+`:trusted`. The response of a lowered format carries the derivation
+record and names the `:trust` the policy applied (section 8.1).
 
 No new interpreter may be written against `fetch`. The VM path of
 section 7 is written against `step`.
@@ -1681,7 +1709,9 @@ Rules:
   a verifying link accepts a claim it did not recompute.
   - Under `:verifying`, for every image it delivers the linker fetches
     the manifest's tree through the `:yin.ast/code` record (steps 2 to
-    4, so the tree itself is verified), re-lowers it under the exact
+    4, so the tree itself is verified, and no further: the tree's own
+    obligations are the walker's business, scanned only when the tree is
+    the requested image), re-lowers it under the exact
     per-format profile the derivation record names (`"ast-to-bytecode"`
     for `:yin.semantic/code`, the stack lowering for
     `:yin.debruijn.code`, the register lowering for

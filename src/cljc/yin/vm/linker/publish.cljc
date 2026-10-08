@@ -95,24 +95,26 @@
    own content, `:verifying` with discharge deferred, as a serving
    composition does (yin.vm.linker.dht.md 4.1): a fresh local runtime per
    call, so no request reaches any peer.  `opts` overrides the link
-   options."
+   options; its `:bounds` are the runtime's composition bounds (section
+   4.2 step 2), every one left out taking `linker/default-bounds`."
   ([handle address format] (link-local handle address format nil))
   ([handle address format opts]
    (linker/link-manifest
      (linker/local-runtime
        handle {:formats (into {} (map (fn [f] [(:format f) f]))
                               (conj code-formats linker/manifest-format
-                                    linker/record-format))})
+                                    linker/record-format))
+               :bounds (:bounds opts)})
      address (:format format) {:primitives vm/primitives}
      (merge {:contract (:contract format)
              :derivation :verifying
              :defer-discharge true}
-            opts))))
+            (dissoc opts :bounds)))))
 
 
-(defn publish-module!
-  "Mint all four code formats, derivation records, and one schema-1 manifest."
-  [handle {:keys [name ast exports requires primitives] :as spec}]
+(defn- publish-closure!
+  "`publish-module!` under the composition bounds of `opts`."
+  [handle {:keys [name ast exports requires primitives] :as spec} opts]
   (let [undefined (first (remove (definitions ast) exports))
         tree (when-not undefined
                (try (vm/ast->semantic-bytecode ast)
@@ -125,7 +127,7 @@
         requirement
         (when (and tree (not defect) (not= :refused (:status tree)))
           (some (fn [[n address]]
-                  (let [w (closure/walk handle address)]
+                  (let [w (closure/walk handle address opts)]
                     (case (:yin.link.closure/outcome w)
                       :complete nil
                       :invalid (refusal :yin.link.publish/invalid-requirement
@@ -187,19 +189,31 @@
                                     primitives))
                       :yin.module/footprint fp}
             address (jing/materialize! handle manifest)
-            walked (closure/walk handle address)]
+            walked (closure/walk handle address opts)]
         (if (not= :complete (:yin.link.closure/outcome walked))
           (refusal :yin.link.publish/incomplete-closure
                    {:address address :walk walked})
           (let [links (into {}
                             (map (fn [f]
-                                   [(:format f) (link-local handle address f)]))
+                                   [(:format f)
+                                    (link-local handle address f
+                                                (select-keys opts
+                                                             [:bounds]))]))
                             code-formats)]
             {:address address :manifest manifest
              :identities {:yin.semantic/code sem
                           :yin.debruijn.code h
                           :yin.debruijn.register r}
              :links links}))))))
+
+
+(defn publish-module!
+  "Mint all four code formats, derivation records, and one schema-1 manifest.
+   `opts` `{:bounds {...}}` are the composition bounds (section 4.2 step
+   2) of every closure walk and local link the publication runs, every
+   bound left out taking `linker/default-bounds`."
+  ([handle spec] (publish-module! handle spec nil))
+  ([handle spec opts] (publish-closure! handle spec opts)))
 
 
 ;; =============================================================================

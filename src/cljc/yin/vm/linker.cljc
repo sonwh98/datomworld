@@ -38,7 +38,6 @@
             [dao.jing :as jing]
             [dao.jing.content :as jing-content]
             [dao.jing.cbor :as cbor]
-            [dao.space.query :as query]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yin.vm :as vm]
@@ -306,166 +305,166 @@
   (neg? (path-order d u)))
 
 
-(def ^:private tree-occurrence-query
-  "`vm/free-names`' free-name query over the row and occurrence
-   relations, extended to return each occurrence's path (section 4.1):
-   the same rules, one more find column."
-  '[:find ?name ?path
-    :in $ast $occ % ?root
-    :where
-    [$occ ?root ?path ?v]
-    [$ast ?v :variable ?name]
-    (not (occ-bound? ?root ?path ?name))])
+(defn- tree-child-places
+  "`[[step child-id] ...]` for every `:node` and `:nodes` slot of `row`,
+   in slot order, enumerated from `vm/semantic-bytecode-grammar` exactly
+   as `vm/occurrences` enumerates them: a `:node` slot's step is its row
+   position, a `:nodes` slot's the pair `[position i]` (section 6.1)."
+  [row]
+  (let [slots (get vm/semantic-bytecode-grammar (nth row 1))
+        n (min (count slots) (- (count row) 2))]
+    (loop [j 0, places []]
+      (if (>= j n)
+        places
+        (let [pos (+ j 2)
+              x (nth row pos)]
+          (recur (inc j)
+                 (case (nth (nth slots j) 1)
+                   :node (if (some? x) (conj places [pos x]) places)
+                   :nodes (into places
+                                (map-indexed (fn [i cid] [[pos i] cid]) x))
+                   places)))))))
 
 
-(def ^:private tree-definition-query
-  "The definition query behind `vm/ast-requirements` (section 4.1): the
-   `:vm/store-put` rows and the definition forms (an application of the
-   `yin/def` operator with exactly two operands, the first a literal),
-   each binding joined with its binding row's occurrence path -- the
-   definitions scanner extends a definition's path one step past its
-   operands, to the invocation position (see
-   `tree-definition-occurrences`)."
-  '[:find ?key ?path
-    :in $ $occ ?root
-    :where
-    [$occ ?root ?path ?v]
-    (or-join [?v ?key]
-             [?v :vm/store-put ?key _]
-             (and [?v :application ?op ?operands _]
-                  [?op :variable yin/def]
-                  [(count ?operands) 2]
-                  [(nth ?operands 0) ?name-id]
-                  [?name-id :literal ?key]))])
+(defn- tree-places
+  "Every occurrence of the tree `{:root root :rows {id row}}` that names
+   a row, as `[path row bound in-body? conditional?]`, in no particular
+   order: the occurrence relation of `vm/occurrences` (section 6.1),
+   computed by one walk from the root that threads each path's enclosing
+   context down it. `bound` is the set of names the `:lambda` binders on
+   the path hold, a binder's params joining it on entering its body
+   (slot 3), exactly the binders `vm/occurrence-rules` finds at a proper
+   prefix of the path; `in-body?` is whether a lambda body encloses the
+   occurrence, and `conditional?` whether a lambda body or an `:if`
+   branch (slots 3 and 4) does -- section 4.1's enclosing tags, the
+   section 2.3 grammar's own positions. Each occurrence is classified by
+   its own path, never by its row: a structurally shared row yields one
+   entry per place."
+  [{:keys [root rows]}]
+  (loop [frontier [[[] root #{} false false]]
+         acc (transient [])]
+    (if (empty? frontier)
+      (persistent! acc)
+      (let [[path id bound in-body? conditional?] (peek frontier)
+            frontier (pop frontier)
+            row (get rows id)]
+        (if (nil? row)
+          (recur frontier acc)
+          (let [tag (nth row 1)
+                body-bound (when (= :lambda tag) (into bound (nth row 2)))]
+            (recur (into frontier
+                         (map (fn [[step cid]]
+                                (let [path' (conj path step)]
+                                  (cond
+                                    (and body-bound (= 3 step))
+                                    [path' cid body-bound true true]
+
+                                    (and (= :if tag) (or (= 3 step) (= 4 step)))
+                                    [path' cid bound in-body? true]
+
+                                    :else
+                                    [path' cid bound in-body? conditional?]))))
+                         (tree-child-places row))
+                   (conj! acc [path row bound in-body? conditional?]))))))))
 
 
-(def ^:private tree-application-query
-  "The application-row query over the same relation (section 4.1): one
-   application site per `:application` row, carried with the row's
-   operand count -- the site is recorded where the application happens,
-   which is only after the operands have run."
-  '[:find ?path ?n
-    :in $ $occ ?root
-    :where
-    [$occ ?root ?path ?v]
-    [?v :application _ ?operands _]
-    [(count ?operands) ?n]])
-
-
-(defn- tree-row-at
-  "The row `path` names from the tree's root, nil when the path leaves
-   the tree. A step is a `:node` slot's row position or a `[position i]`
-   pair into a `:nodes` slot's vector (section 6.1)."
-  [{:keys [root rows]} path]
-  (loop [id root, steps (seq path)]
-    (if (nil? steps)
-      (get rows id)
-      (let [row (get rows id)
-            step (first steps)
-            child (when row
-                    (if (vector? step)
-                      (let [slot (nth row (nth step 0))]
-                        (when (vector? slot) (nth slot (nth step 1))))
-                      (nth row step)))]
-        (recur child (next steps))))))
-
-
-(defn- tree-enclosure
-  "Whether the occurrence at `path` lies inside a lambda body, and
-   whether an `:if` branch or a lambda body encloses it -- section 4.1's
-   `:in-body?` and `:conditional?`. Each proper prefix of `path` names
-   the row the next step leaves: a `:lambda`'s body slot is 3, an `:if`'s
-   branches 3 and 4 (the section 2.3 grammar's own positions)."
-  [tree path]
-  (loop [i 0, in-body? false, conditional? false]
-    (if (or (and in-body? conditional?) (>= i (count path)))
-      [in-body? conditional?]
-      (let [row (tree-row-at tree (subvec path 0 i))
-            tag (and row (nth row 1))
-            step (nth path i)]
-        (recur (inc i)
-               (or in-body? (and (= :lambda tag) (= 3 step)))
-               (or conditional?
-                   (and (= :lambda tag) (= 3 step))
-                   (and (= :if tag) (or (= 3 step) (= 4 step)))))))))
-
-
-(defn- tree-rows
-  "The row and occurrence relations the tree scanners query, with the
-   tree's root."
-  [tree]
-  (let [root (:root tree)
-        db (query/relation (vals (:rows tree)))
-        occ (query/relation (vm/occurrences tree))]
-    {:root root, :db db, :occ occ}))
+(defn- path-sorted
+  "`records` in the tree's own path order (section 4.1)."
+  [records]
+  (vec (sort-by (comp second :at) path-order records)))
 
 
 (defn- tree-free-name-occurrences
   "Every free `:variable` occurrence of the tree `{:root root :rows {id
    row}}` as a section 4.1 record `{:name sym :at [root path] :in-body?
-   b}`, in the tree's own path order: `vm/free-names`' occurrence rules
-   wrapped to carry each occurrence's path (section 4.1). The definition
+   b}`, in the tree's own path order: `vm/free-names`' occurrence
+   relation (`vm/occurrence-rules`), computed by `tree-places`' walk
+   instead of the rules' query -- a `:variable` occurrence is free when
+   no binder on its own path holds its name. Occurrence-scoped, never
+   row-scoped, so a structurally shared `:variable` row bound at one
+   place and free at another yields one record, at the free place.
+   Linear in the occurrences, where the rules' `not` clause is quadratic
+   under today's planner; the rules stay the normative definition, and a
+   conformance test holds this scanner equal to them. The definition
    operator is syntax, never a name (Rule R): the validator admits it
    only as a definition's operator, so it is never an occurrence."
   [tree]
-  (let [{:keys [root db occ]} (tree-rows tree)]
-    (->> (query/collect
-           (query/q tree-occurrence-query db occ
-                    vm/occurrence-rules root))
-         (remove (fn [[name _]] (vm/reserved-name? name)))
-         (map (fn [[name path]]
-                (let [[in-body? _] (tree-enclosure tree path)]
-                  {:name name, :at [root path], :in-body? in-body?})))
-         (sort-by (comp second :at) path-order)
-         vec)))
+  (let [root (:root tree)]
+    (path-sorted
+      (keep (fn [[path row bound in-body?]]
+              (when (= :variable (nth row 1))
+                (let [sym (nth row 2)]
+                  (when-not (or (contains? bound sym) (vm/reserved-name? sym))
+                    {:name sym, :at [root path], :in-body? in-body?}))))
+            (tree-places tree)))))
+
+
+(defn- tree-binding
+  "`[key step]` for a row that binds a constant store key, else nil: a
+   `:vm/store-put` row binds its key at its own position (`step` nil),
+   and a definition form -- an application of the definition operator
+   with exactly two operands, the first a literal -- binds the literal's
+   value at its invocation position, one `step` past its operands (the
+   store-key query behind `vm/ast-requirements`, section 4.1)."
+  [rows row]
+  (case (nth row 1)
+    :vm/store-put [(nth row 2) nil]
+    :application
+    (let [op (get rows (nth row 2))
+          operands (nth row 3)
+          key-row (when (and op
+                             (= :variable (nth op 1))
+                             (= vm/definition-operator (nth op 2))
+                             (= 2 (count operands)))
+                    (get rows (nth operands 0)))]
+      (when (and key-row (= :literal (nth key-row 1)))
+        [(nth key-row 2) [3 2]]))
+    nil))
 
 
 (defn- tree-definition-occurrences
   "Every constant store key the tree binds at module level as a section
    4.1 record `{:name key :at [root path] :conditional? b}`: the
-   store-key query behind `vm/ast-requirements` (`:vm/store-put` rows
-   and definition forms), each binding carried with its enclosing tags
-   (section 4.1). A definition's binding is recorded at its invocation
-   position -- the application row's own path extended one step past
-   its two operands, where the engine writes the key only after the
-   value operand has run -- so a read inside the value operand precedes
-   the definition and keeps its obligation, exactly as for application
-   sites (a `:vm/store-put` row binds at its own execution position and
-   keeps its own path). The definition operator is syntax, never a name
-   (Rule R): the validator has refused every tree that could rebind or
-   alias it, and no engine resolves it, so every definition form is a
-   store."
+   `:vm/store-put` rows and definition forms of `vm/ast-requirements`'
+   store-key query, found over `tree-places`' walk, each binding carried
+   with its enclosing tags (section 4.1). A definition's binding is
+   recorded at its invocation position -- the application row's own path
+   extended one step past its two operands, where the engine writes the
+   key only after the value operand has run -- so a read inside the
+   value operand precedes the definition and keeps its obligation,
+   exactly as for application sites (a `:vm/store-put` row binds at its
+   own execution position and keeps its own path). The definition
+   operator is syntax, never a name (Rule R): the validator has refused
+   every tree that could rebind or alias it, and no engine resolves it,
+   so every definition form is a store. A conformance test holds this
+   scanner equal to the store-key query."
   [tree]
-  (let [{:keys [root db occ]} (tree-rows tree)]
-    (->> (query/collect
-           (query/q tree-definition-query db occ root))
-         (map (fn [[key path]]
-                (let [row (tree-row-at tree path)
-                      at-path (if (and row (= :application (nth row 1)))
-                                (conj path [3 2])
-                                path)
-                      [_ conditional?] (tree-enclosure tree at-path)]
-                  {:name key, :at [root at-path],
-                   :conditional? conditional?})))
-         (sort-by (comp second :at) path-order)
-         vec)))
+  (let [{:keys [root rows]} tree]
+    (path-sorted
+      (keep (fn [[path row _ _ conditional?]]
+              (when-let [[key step] (tree-binding rows row)]
+                {:name key,
+                 :at [root (if step (conj path step) path)],
+                 :conditional? conditional?}))
+            (tree-places tree)))))
 
 
 (defn- tree-application-sites
-  "Every application row of the tree as a section 4.1 record `{:at
-   [root path]}` -- one application site at its invocation position: the
-   row's own path extended one step past its operands, the position at
-   which the walker applies the operator after evaluating them
-   (section 4.1), so a definition inside an operand dominates an
-   application of the enclosing form."
+  "Every application occurrence of the tree as a section 4.1 record
+   `{:at [root path]}` -- one application site at its invocation
+   position: the occurrence's own path extended one step past its
+   operands, the position at which the walker applies the operator after
+   evaluating them (section 4.1), so a definition inside an operand
+   dominates an application of the enclosing form. Found over
+   `tree-places`' walk; a conformance test holds it equal to the
+   application-row query over the occurrence relation."
   [tree]
-  (let [{:keys [root db occ]} (tree-rows tree)]
-    (->> (query/collect
-           (query/q tree-application-query db occ root))
-         (map (fn [[path n]]
-                {:at [root (conj path [3 n])]}))
-         (sort-by (comp second :at) path-order)
-         vec)))
+  (let [root (:root tree)]
+    (path-sorted
+      (keep (fn [[path row]]
+              (when (= :application (nth row 1))
+                {:at [root (conj path [3 (count (nth row 3))])]}))
+            (tree-places tree)))))
 
 
 (defn- stack-free-occurrences
@@ -1313,8 +1312,12 @@
   "The safe finite composition bounds a fetch falls back to where the
    caller supplies none (section 4.2 step 2): generous for every honest
    image the compositions hold, finite for a hostile one, so no fetch
-   path walks an unbounded worklist."
-  {:max-parts 4096, :max-depth 256, :max-bytes 16777216})
+   path walks an unbounded worklist. The parts figure is set by the
+   honest image of a prelude-sized module, one tree of about 6000 rows,
+   with room to grow; the byte bound is the envelope that keeps the
+   walk finite against a hostile image whatever its part count, and the
+   depth bound refuses a module laid out as one long chain."
+  {:max-parts 65536, :max-depth 256, :max-bytes 16777216})
 
 
 (defn- bounded
@@ -1367,33 +1370,44 @@
    the root (`:parts-fn` returns nil for a single payload, a sequence --
    possibly empty -- for a multi-part format); a multi-part whole is the
    tree assembled by prepending each part's address, the shape
-   `validate-rows` takes (section 5.1)."
-  [format identity address parts]
-  (let [root-value (get parts address)
-        multi? (some? ((:parts-fn format) root-value))
-        whole (if multi?
-                {:root identity,
-                 :rows (into {}
-                             (map (fn [[a v]] [a (into [a] v)]))
-                             parts)}
-                root-value)]
-    (if-not (matches-identity? format identity root-value)
-      (refused :hash-mismatch
-               {:expected identity, :actual (identity-of format root-value)})
-      (if-let [defect (validation-defect format whole)]
-        (refused :descriptor-defect {:identity identity, :defect defect})
-        (let [joined (undischarged
-                       ((:obligations-fn format) whole)
-                       (scanned format :definitions-fn whole)
-                       (scanned format :applications-fn whole))]
-          (or (:defect joined)
-              (merge {:status :ok,
-                      :format (:format format),
-                      :identity identity,
-                      :address address,
-                      :value whole,
-                      :obligations (:obligations joined)}
-                     (when multi? {:parts parts}))))))))
+   `validate-rows` takes (section 5.1).
+
+   With `scan?` false the check stops after step 4: the outcome carries
+   the verified `:value` (and `:parts`) and no `:obligations` key. Only
+   the `:verifying` derivation policy's fetch of a manifest's tree asks
+   for it (section 8.1): that tree's obligations are the walker's,
+   scanned only when the tree is the requested image."
+  ([format identity address parts]
+   (verify format identity address parts true))
+  ([format identity address parts scan?]
+   (let [root-value (get parts address)
+         multi? (some? ((:parts-fn format) root-value))
+         whole (if multi?
+                 {:root identity,
+                  :rows (into {}
+                              (map (fn [[a v]] [a (into [a] v)]))
+                              parts)}
+                 root-value)]
+     (if-not (matches-identity? format identity root-value)
+       (refused :hash-mismatch
+                {:expected identity, :actual (identity-of format root-value)})
+       (if-let [defect (validation-defect format whole)]
+         (refused :descriptor-defect {:identity identity, :defect defect})
+         (let [verified (merge {:status :ok,
+                                :format (:format format),
+                                :identity identity,
+                                :address address,
+                                :value whole}
+                               (when multi? {:parts parts}))]
+           (if-not scan?
+             verified
+             (let [joined (undischarged
+                            ((:obligations-fn format) whole)
+                            (scanned format :definitions-fn whole)
+                            (scanned format :applications-fn whole))]
+               (or (:defect joined)
+                   (assoc verified
+                          :obligations (:obligations joined)))))))))))
 
 
 ;; =============================================================================
@@ -1450,7 +1464,7 @@
 (def ^:private request-keys
   "The closed key set of a link request (section 6.3)."
   #{:yin.link/id :yin.link/format :yin.link/contract :yin.link/name
-    :yin.link/identity})
+    :yin.link/identity :yin.link/scan?})
 
 
 (defn- portable-scalar?
@@ -1557,13 +1571,15 @@
 (defn- completion
   "The completion of link `id` for `outcome` (section 6.3): the verified
    image under `:image` with its obligations beside it, or the refusal
-   or loss tagged with the id."
+   or loss tagged with the id. A link completed at step 4 has no
+   obligations key."
   [id outcome]
   (if (ok? outcome)
-    {:yin.link/id id,
-     :status :ok,
-     :image (dissoc outcome :status :obligations),
-     :obligations (:obligations outcome)}
+    (cond-> {:yin.link/id id,
+             :status :ok,
+             :image (dissoc outcome :status :obligations)}
+      (contains? outcome :obligations)
+      (assoc :obligations (:obligations outcome)))
     (assoc outcome :yin.link/id id)))
 
 
@@ -1580,7 +1596,9 @@
   "Admit one link request (section 6.3) and return `[state link-id]`.
    `request` is plain data: `:yin.link/id`, `:yin.link/format`,
    `:yin.link/contract`, and exactly one of `:yin.link/name` or
-   `:yin.link/identity`. Admission (step 0) and the index lookup (step
+   `:yin.link/identity`; `:yin.link/scan? false` completes the link at
+   step 4, unscanned (`verify`'s five-arity, section 8.1's derivation
+   tree). Admission (step 0) and the index lookup (step
    1) touch no stream, so a request they refuse completes at the next
    `step` under its id -- or under `:yin.link/id nil` when the id is not
    a well-formed `[origin counter]` pair or already names a link whose
@@ -1617,7 +1635,8 @@
                       :parts {},
                       :bytes 0,
                       :enqueued #{address},
-                      :awaiting nil})
+                      :awaiting nil,
+                      :scan? (not (false? (:yin.link/scan? request)))})
            (update :order conj id))
        id])))
 
@@ -1651,7 +1670,8 @@
                              :awaiting nil)]
             (if (= (:at link') (count (:queue link')))
               (finish state id (verify record (:identity link)
-                                       (:address link) (:parts link')))
+                                       (:address link) (:parts link')
+                                       (:scan? link)))
               (assoc-in state [:links id] link'))))))))
 
 
@@ -2141,27 +2161,33 @@
    discharged -- the manifest flow owns the receiver half. Returns
    `[state completion]`, the completion carrying the verified image
    under `:image` with its obligations beside it, or the refusal under
-   its id."
-  [state drive format-kw identity contract]
-  (let [id [::manifest (:next-fetch state)]
-        request {:yin.link/id id,
-                 :yin.link/format format-kw,
-                 :yin.link/contract contract,
-                 :yin.link/identity identity}
-        [state _] (request-link (update state :next-fetch inc) request)]
-    (loop [state state]
-      (let [r (step (drive state) fetch-budget)]
-        (if-let [c (some (fn [c] (when (= id (:yin.link/id c)) c))
-                         (:completions r))]
-          [(:state r) c]
-          (recur (:state r)))))))
+   its id. With `scan?` false the link completes at step 4, the image
+   unscanned and no obligations beside it."
+  ([state drive format-kw identity contract]
+   (drive-link state drive format-kw identity contract true))
+  ([state drive format-kw identity contract scan?]
+   (let [id [::manifest (:next-fetch state)]
+         request (cond-> {:yin.link/id id,
+                          :yin.link/format format-kw,
+                          :yin.link/contract contract,
+                          :yin.link/identity identity}
+                   (not scan?) (assoc :yin.link/scan? false))
+         [state _] (request-link (update state :next-fetch inc) request)]
+     (loop [state state]
+       (let [r (step (drive state) fetch-budget)]
+         (if-let [c (some (fn [c] (when (= id (:yin.link/id c)) c))
+                          (:completions r))]
+           [(:state r) c]
+           (recur (:state r))))))))
 
 
 (defn- verified-policy-outcome
   "The `:verifying` policy's checks once the record's addresses hold
    (section 8.1): the profile the record names must be the one this
    linker implements for the format; the manifest's tree is fetched and
-   verified through `ast-format`; and the two de Bruijn formats'
+   verified through `ast-format` at steps 2 to 4 and no further -- its
+   obligations are the walker's, scanned only when the tree is the
+   requested image; and the two de Bruijn formats'
    recomputed identity must equal the record's output. The semantic
    format's recomputation runs in `linked-image`, against the fetched
    image, through `yin.vm.ledger`'s own check. Returns `[state
@@ -2175,7 +2201,7 @@
                       {:format format-kw, :profile profile,
                        :implemented implemented, :missing :profile})]
       (let [[state tc] (drive-link state drive :yin.ast/code tree-addr
-                                   vm/ast-contract)]
+                                   vm/ast-contract false)]
         (if (refused? tc)
           [state (refused :unverified-derivation
                           {:format format-kw, :profile profile,
