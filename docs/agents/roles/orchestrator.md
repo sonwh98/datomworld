@@ -263,11 +263,15 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
     rerun its affected checks. A failure means the work is not ready; do not
     amend, revert, or otherwise rewrite history without user authorization.
 11. **Archive completed-task artifacts.** After their work is committed, move
-    prompts and findings from `collab/` into the flat, gitignored root `archive/`
-    under their exact filenames. Never delete, truncate, rename, or overwrite an
-    artifact; use `mv -n` and leave collisions in `collab/` until the reused task
-    name is resolved. Archive only committed work and only when no uncommitted
-    tracked changes could make task ownership ambiguous.
+    prompts, findings, and logs from `collab/` into git-tracked, subsystem-organized
+    subfolders under `archive/` (e.g. `archive/yang-python/`,
+    `archive/dao-stream/`, `archive/yin-ucf/`, `archive/yin-linker/`) under their exact
+    filenames. Do not dump them flat into root `archive/`, and organize them by design
+    subsystem rather than generic slice codes or temporary folder names. Never delete, truncate,
+    rename, or overwrite an artifact; use `mv -n` and leave collisions in `collab/` until the reused
+    task name is resolved. Archive only committed work and only when no uncommitted
+    tracked changes could make task ownership ambiguous. Commit and push the archived
+    subsystem directory to `master`.
 
 If the remaining budget cannot finish the next coherent unit, leave the tree
 readable and record incomplete work in the findings rather than leaving a
