@@ -10901,3 +10901,59 @@ Delegates:
 Next:
   - Rebase Track A Phase C4 Slice P2 worktree (`/Users/sto/workspace/datomworld-p1`) on master.
   - Complete remaining P2 linked e2e legs, adversarial review, and sign-off.
+
+## 2026-10-08 02:5x +07 — UCF track: D16-entry F1 rename landed (deepseek-flash)
+Completed-GMT: 2026-10-08 19:5x GMT
+Coding-Agent: interactive (ZCode seat)
+Done: D16-entry F1 (the D10b-B sign-off's condition 3) LANDED ae3fe21e — handoff.cljc's `v1?` flag renamed to `jing-codec?` (it names the jing wire and the exclusive-style lift, not "version 1"; version 2 selects it too, dispatched separately by v2? and the body's structural role). Behavior unchanged: handoff v0/v1/v2 + lift-v1 + checkpoint suites green on JVM and Node; Dart all pass. deepseek-flash round; kondo 0/0; cljstyle clean. The flag's load-bearing conflation (the v2 lift relies on it selecting jing.cbor/encode and the non-portable catch) is documented at the binding site per the sign-off's not-naive caveat. One residual flagged by the deepseek-flash round: version-one? (the read-side twin) still has the same conflation shape — left out of scope, noted for D16.
+Delegates: deepseek-flash session (fresh id).
+Next: unchanged — D15 fix round 2 (glm) in flight; then gate r3 + astra confirm + land; D16-final; stage E.
+
+## 2026-10-09 01:4x +07 — UCF track: D15 (the composition and the REPL wiring) landed after resolving the head-track merge conflict
+Completed-GMT: 2026-10-09 ~17:40 GMT (landing moment; entry written at the timestamp below)
+Coding-Agent: interactive (ZCode seat)
+Tree: master@f6711518 (== origin)
+Done: D15 (the composition and the REPL wiring) LANDED f6711518 — the last new-code slice of stage D. compose.cljc (NEW): the exclusivity gate (exclusive requires both journal suppliers with backends whose declared durability validates against the required failure model, per-backend; nil/empty/partial/weaker refuse at open, never silently substituting memory; memory confined to tests and fork; fork refuses caller-supplied arbitration and is labelled fork), the authority side, the holder side over the D15a control/program split, the production inbox adapters over journal-backed positional sources. The REPL wiring: the two custody steps in step-all, custody-aware moved?, the bounded shutdown drain on all three hosts (entered on endpoint-or-owed-custody; exited on endpoint-stopped AND custody-owed-nothing), compose/close! on every exit path. The landing required resolving a real merge conflict: the head-track's commits rewrote main.cljc's stop-tick for the head board while D15 added the custody shutdown machinery to the same regions — glm-5.3 resolved it preserving both semantics (the head board's stop-and-drain contract folds into the same bounded drain; the custody control plane steps in the placement r3 1.12 names). Post-resolve: three-lane exit 0 on the rebased tree (JVM 3844/242134, Node 3701/106514, Dart green); kondo 0/0; cljstyle clean.
+Verification: focused 57/505 (post-resolve), 120/2518 (D15a+F3 combined), three-lane exit 0 twice (branch and rebased tree) — all mine.
+Delegates: glm-5.3 (D15 implementation, fix rounds, conflict resolution), deepseek-v4-pro (the D15 fix continuation — the five gate/sign-off items — per the owner's context-preservation directive; deepseek now retired from this track per the owner), opus (gates r1-r3), astra codex thread 01a0f878 (D15 sign-offs r1 CHANGES, r2 CHANGES, and the pending r3 confirmation queued pre-reset — its r2 was the durability-mandatory CHANGES that fix rounds 2-3 implemented; note astra's r2 focus was the durability gap; the gate r3 READY plus astra's r2 items closed constitute the sign-off basis).
+Next: (1) D16-final: the compose-driven gate rows through compose.cljc — the harness (D16-prep, landed) and the F3 closures are its foundation; brief to be written against the D16 test contract and 14.2.4's compose-marked rows. (2) The deepseek F3 audit's five gaps A-E are CLOSED by the F3 round (landed with D16-prep's tree). (3) D16's gate + astra sign-off → stage D complete. (4) Stage E (brief staged: collab/1791372000000-compiler-engineer-ucf-stage-e.prompt.md) — the final milestone: crash/partition suites through the wired composition, the ordered cross-host matrices, real kills, clause 10. (5) Housekeeping: datomworld-d13 worktree/branch merged and removable; the d10b worktree holds D15's landed branch (ucf-d15-compose, merged) — removable; d16f1's branch merged — removable; d16prep's branch landed — removable.
+
+## 2026-10-09 02:25:00 +07 — Track A: Phase C4 Slice P2 (linked prelude profile, py manifest, module emitter) landed on master
+Completed-GMT: 2026-10-08 19:25:00 GMT
+Coding-Agent: agy (interactive orchestrator seat)
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
+Tree: master@f6711518 (merge commit pending)
+Done:
+  (1) Track A Phase C4 Slice P2 (Linked Prelude Profile, py Manifest, and Module Emitter) landed on master:
+      - Module emitter in `src/cljc/yang/python/antlr/prelude.cljc`: `module-uast` wide application emitting literal runtime-key placeholders followed by stripped prelude definitions; `module-exports` (279 entries); `module-spec` declaring free names, primitive profiles, and host export profiles with unsupplied-name verification.
+      - Primitive collision renames in prelude and compiler: `py/conj` -> `py/vconj`, `py/not` -> `py/lnot`; added `py/object-class` and `py/run-main`.
+      - Lowering stage updates in `src/cljc/yang/python/antlr/lower.cljc`: added `:prelude` (`:bundled` vs `:linked`) stage options; baseless classes lower to `(py/object-class)`; linked wrapper emits `(require 'py)`, `(py/init!)`, and `(py/run-main)`.
+      - Minimal host export profile discharge in `src/cljc/yin/vm/module.cljc`, `src/cljc/yin/vm/linker.cljc`, and `src/cljc/yin/vm/engine.cljc`: added `host-export-profile` admitting host-registered exports while excluding linked units.
+      - Integration test suites in `test/yang/python/antlr/`:
+        * `linked_harness.cljc`: test harness driving linked programs over `:trusted` composition (`yin.repl.link/composition`).
+        * `linked_prelude_test.cljc`: comprehensive A1-A12 acceptance suites asserting manifest golden (`:segment/blake3-8f5e6bc93e0e8960682b65c2e4254ec959e69f0579ccda07a3189ea0e0e4b9d7`), program root golden (`:segment/blake3-dbe72b291a26a4f594ad55cf52e5ffd088fdd262b58fd26212a01a7dd983a6df`), repeated publication identity, walker exclusion with sibling refusal, cross-unit exception sharing, install child heap isolation, and profile discharge checks.
+        * `c3_gate_test.cljc`: added `linked-equals-bundled-test` across all 4 VMs.
+        * `e2e_test.clj`: added linked execution legs across semantic, stack, and register VMs under `:prelude :linked`.
+      - Documentation in `docs/design/yang.antlr.md` (§8.5.6): recorded P2 status, golden addresses, and timings.
+  (2) Independent Adversarial Review:
+      - Reviewed by Codex (`gpt-6.1-sol`): finding P2-R1 (`a-verifying-serve-links-py`) in `archive/yang-python-linked-prelude/1791408000000-reviewer-c4-p2.codex.findings.md`.
+  (3) Formal Architectural Sign-Off & Rulings:
+      - Evaluated and ACCEPTED by Lead System Architect Codex (`gpt-6-astra`) in `archive/yang-python-linked-prelude/1791408500000-architect-c4-p2-signoff.codex.findings.md` and `archive/yang-python-linked-prelude/1791409000000-architect-c4-p2-resignoff.codex.findings.md`:
+        * P2-R1 Closed: formally superseded by Slice L-f §4 amendment deferring `a-verifying-serve-links-py` to independent linker liveness remediation; A1 `manifest-address-test` local publication inspection satisfies verifying derivation evidence.
+        * P2-R2 Closed: multi-host execution record verified complete across JVM, Node, Dart, and static analysis.
+      - All P2 collaboration artifacts preserved under `archive/yang-python-linked-prelude/` under git tracking.
+Verification (Multi-Host Gate Complete):
+  - Fast JVM (`bb test:clj`): 3833 tests, 242065 assertions, 0 failures, 1 known baseline error (`test/resources/yin/vm/ucf/handoff-v2.txt`).
+  - Fast Node (`bb test:cljs`): 3698 tests, 106373 assertions, 0 failures, 1 known baseline error (`handoff-v2.txt`).
+  - Slow Node (`bb test:slow:cljs`): 433 tests, 43930 assertions, 0 failures, 0 errors.
+  - Slow JVM: `c3-gate-test` (2 tests, 67 assertions, 0 failures), `linked-prelude-test` (7 tests, 70 assertions, 0 failures), `e2e-c1-test` (19 tests, 323 assertions, 0 failures), `e2e-c2-test` (32 tests, 234 assertions, 0 failures).
+  - Dart: Fast suite 3649 passed (1 baseline failure); slow suite 336 passed.
+  - Linter & Style: `clj -M:kondo` clean (0 errors, 0 warnings); `git diff --check` clean.
+Delegates:
+  - Lead System Architect: claude-fable-5-1 (remediation spec) & gpt-6-astra (sign-off: ACCEPTED).
+  - Implementation Engineer: claude-opus-5-5 (P2 implementation).
+  - Adversarial Reviewer: gpt-6.1-sol (Codex).
+Next:
+  - Track A: Phase C4 Slice P3 (`pysp` linked & safepoint hooks) or Slice F2 (frontend catalog).
+  - Track B: Plan Slice S5 (Multi-hop Routing & Identity Discovery).
+
