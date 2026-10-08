@@ -285,7 +285,7 @@
         encode (value-encoder vm serve!
                               (atom (cond-> (assoc (new-found)
                                                    :order order
-                                                   :v1 true
+                                                   :jing-codec true
                                                    :ordering true)
                                       v2 (assoc :v2 v2))))]
     (vreset! self encode)
@@ -334,7 +334,7 @@
               ;; as-is, and the stream codec's frozen version-0 domain --
               ;; `portable-value?` -- does not admit them
               (jing.cbor/numeric? x)
-              (if (:v1 @found)
+              (if (:jing-codec @found)
                 x
                 (non-portable! :host-object
                                {:yin.k/hint
@@ -632,7 +632,7 @@
    no custody and returns `pending` as it was."
   [found entry pending]
   (let [reason (:yin.k/reason pending)]
-    (if-not (and (:v1 @found)
+    (if-not (and (:jing-codec @found)
                  (contains? #{:put :ffi-request :link-request} reason))
       pending
       (let [target (:dao.stream/identity
@@ -793,8 +793,8 @@
 
 (defn- portable-response?
   "True when install `response` survives the body's own codec."
-  [v1? response]
-  (if v1?
+  [jing-codec? response]
+  (if jing-codec?
     (try (jing.cbor/encode response) true
          (catch #?(:cljd Object :clj Throwable :cljs :default) _ false))
     (cbor/portable-value? response)))
@@ -810,12 +810,12 @@
    root's version and enrolled set, no header, and its phase, a wire
    phase (`:running` or `:parked`), and parent always travel."
   [vm serve! opts]
-  (let [v1? (::v1 opts)]
+  (let [jing-codec? (::jing-codec opts)]
     (into {}
           (map (fn [[m {:keys [vm phase parent response]}]]
-                 (when-not (portable-response? v1? response)
+                 (when-not (portable-response? jing-codec? response)
                    (non-portable! :install-response {:yin.k/name m}))
-                 (when (and v1? (not (contains? #{:running :parked} phase)))
+                 (when (and jing-codec? (not (contains? #{:running :parked} phase)))
                    (non-portable! :incomplete-install
                                   {:yin.k/name m :yin.k/phase phase}))
                  (let [r (export-task vm serve!
@@ -1353,7 +1353,7 @@
                    (into {}
                          (map (fn [[key value]] [(encode key) (encode value)]))
                          (ordered found key (get (:module-stores vm) module-id))))]
-    (if (or (:v1 @found) (:full-census @found))
+    (if (or (:jing-codec @found) (:full-census @found))
       (loop [stores {}]
         (if-some [module-id (first (sort-by str (set/difference (:stores @found)
                                                                 (set (keys stores)))))]
@@ -1446,20 +1446,24 @@
              child? (::child opts)
              v2? (= 2 (:version opts))
              engine (when v2? (engine-of vm))
-             v1? (boolean (or (some? header) (::v1 opts) v2?))
+             ;; `jing-codec?` names the jing wire and the exclusive-style
+             ;; lift, not "version 1": version 2 selects it too, and the
+             ;; version is dispatched separately, by `v2?` and the body's
+             ;; validated structural role (v2 amendment, section 10).
+             jing-codec? (boolean (or (some? header) (::jing-codec opts) v2?))
              keyed (or (:serve-keyed opts) (fn [_ h] (serve! h)))
              ;; grounded: ClojureDart compiles a many-key assoc onto nil
              ;; as a conj, whose answer is a list no dissoc accepts
              opts (assoc (or opts {})
                          :path (or (:path opts) [])
-                         ::v1 v1?
+                         ::jing-codec jing-codec?
                          ::enrolled (or (:yin.k/enrolled header)
                                         (::enrolled opts)
                                         #{})
                          :serve-keyed keyed)
              serve! (fn [id h] (keyed [(:path opts) id] h))
              {:keys [encode-bytes decode-bytes]}
-             (if v1?
+             (if jing-codec?
                {:encode-bytes jing.cbor/encode :decode-bytes jing.cbor/decode}
                {:encode-bytes cbor/encode :decode-bytes cbor/decode})
              walked (if (and v2? (not= :semantic engine))
@@ -1506,7 +1510,7 @@
                               (get-in vm [:control :pc])))
                _ (when (and (= :halted kind) (seq (:wait-set vm)))
                    (non-portable! :inconsistent-halt {}))
-               _ (when (and v1? (not child?) (not= :halted kind)
+               _ (when (and jing-codec? (not child?) (not= :halted kind)
                             (let [n (:yin.k/next-op-seq header)]
                               (and (jing.cbor/numeric? n)
                                    (jing.cbor/num= n checkpoint/max-exact))))
@@ -1518,15 +1522,15 @@
                    (non-portable! :reason-mismatch
                                   {:yin.k/pc (:pc active-rec)}))
                found (atom (cond-> (assoc (new-found)
-                                          :v1 v1?
+                                          :jing-codec jing-codec?
                                           :full-census (::recovery opts)
                                           :recovery-cell-ids (:yin.k/recovery-cell-ids vm)
                                           :enrolled (::enrolled opts))
                              v2? (assoc :v2 {:engine engine})
-                             v1? (assoc :order
-                                        (canonical-order
-                                          vm serve!
-                                          (when v2? {:engine engine})))))
+                             jing-codec? (assoc :order
+                                                (canonical-order
+                                                  vm serve!
+                                                  (when v2? {:engine engine})))))
                encode (value-encoder vm serve! found)
                frames (mapv (partial lift-frame! vm serve! found encode)
                             (:wait-set vm))
@@ -1597,7 +1601,7 @@
                                   {:yin.k/hint :parked-reference
                                    :yin.k/parked-id p}))
                body (cond-> {handoff-tag true
-                             :yin.k/version (cond v2? 2 v1? 1 :else 0)
+                             :yin.k/version (cond v2? 2 jing-codec? 1 :else 0)
                              :yin.k/kind kind
                              :yin.k/contract (if v2?
                                                (get ucf/profiles engine)
@@ -1622,9 +1626,9 @@
                       (assoc :yin.k/parked-id (:id value))
                       (= :halted kind)
                       (assoc :yin.k/result result)
-                      (and v1? (not child?) header)
+                      (and jing-codec? (not child?) header)
                       (merge (header-of header kind)))
-               bytes (if v1?
+               bytes (if jing-codec?
                        (try (encode-bytes body)
                             (catch #?(:cljd Object
                                       :clj Throwable
@@ -1636,7 +1640,7 @@
                                                 (jing.cbor/refusal e)}))))
                        (encode-bytes body))
                address (bytes-address bytes)
-               _ (when (and v1? (not child?))
+               _ (when (and jing-codec? (not child?))
                    (let [r (checkpoint/inspect address bytes)]
                      (when (contains? r :yin.k/status)
                        (refuse! (:yin.k/status r) (dissoc r :yin.k/status)))))
