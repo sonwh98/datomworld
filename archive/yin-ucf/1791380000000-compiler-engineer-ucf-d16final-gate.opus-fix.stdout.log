@@ -1,0 +1,18 @@
+I applied both assertion changes and updated the findings file. The focused suites (compose-test, compose-rows-test, `yin.repl.main-test`) now run 97 tests / 1,303 assertions with 0 failures and 0 errors. I did not rerun the full JVM suite, and I made no git writes.
+
+- **Row 5 quarantine check:** instead of `(not (true? …))`, the row now asserts that the occurrence exists in the projection and that its `:yin.k/quarantined` value is `nil`. I used `nil` because the ledger only ever writes `true`, so an occurrence that was never quarantined has no key at all.
+- **Row 2, no second grant:** in the cases where abort is refused (`transport-error`, `ok`), the test now lets the offer through and drives the holder to `:running` plus 6 more ticks. It then asserts:
+  - after `transport-error`, the same offer was sent more than once; after `ok`, exactly once;
+  - one admitted variant and one lease for the occurrence;
+  - one grant acknowledgment in the journal and one attach.
+
+  The first run failed because I expected repeat sends after `ok` too; the first offer is admitted, so it is never resent. I fixed the expectation, not the code.
+- **Findings file:** I added a review-round section to the top of `collab/1791377000000-compiler-engineer-ucf-d16final-gate.findings.md`. It records:
+  - both assertion changes;
+  - the freeze stall as the safe, intended end state for Stage D, with liveness deferred to Stage E;
+  - the deferred Stage E items, listed by name;
+  - the reviewer's still-unmet READY_TO_LAND items: a JVM, Node and Dart run for this slice, and kondo/cljstyle output seen first-hand.
+
+  The freeze-stall ruling is credited to you, because I haven't seen an Architect document for it. The Row 5 write-ahead reading is marked as awaiting Architect confirmation, since you didn't give a ruling on it.
+
+CHANGES APPLIED

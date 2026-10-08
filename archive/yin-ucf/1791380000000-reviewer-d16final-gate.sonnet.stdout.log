@@ -1,0 +1,21 @@
+My ruling is **CHANGES_REQUESTED**. The tests look sound, but the gate's required verification isn't done yet.
+
+I wrote the full review to `collab/1791380000000-reviewer-d16final-gate.sonnet.findings.md`.
+
+- **Containment:** Only `test/yin/vm/ucf/compose_rows_test.cljc` and `compose_test.cljc` changed. Nothing under `src/` and nothing in `compose.cljc`. The new rows drive `compose` through its public fronts, not holder internals.
+- **Reproduction:** I ran the `compose-test` and `compose-rows-test` namespaces. Result: 54 tests, 934 assertions, 0 failures. The two Row 7 completion-crash cuts pass on `4d46b798`.
+- **Evidence gaps:**
+  - **Row 2:** it exercises only one crash point.
+  - **Row 5:** it tests a rewritten live value, not a kept-cursor eviction. Its quarantine assertion (`(not (true? …))`) would also pass on a nil lookup.
+  - **Rows 1, 2, 6 and 8:** parts of each remain open. They should be handed to Stage E by name.
+- **Needs an Architect ruling:**
+  - The permanent `:incomplete-preparation` stall after an interrupted freeze.
+  - The reading that the write-ahead input record makes Row 5's `:intent-conflict` path unreachable.
+  - Whether `full` and `refused` are provably unadmitted, which the abort rule assumes.
+- **Needed before it can land:**
+  - A full JVM fast lane plus Node and Dart runs, with counts recorded.
+  - kondo and cljstyle output on the two changed test files.
+  - The Row 5 and Row 2 assertion fixes.
+  - Written dispositions for the open items above.
+
+I didn't run Node, Dart, the full fast lane, kondo or cljstyle. I expect `READY_TO_LAND` once those are green.

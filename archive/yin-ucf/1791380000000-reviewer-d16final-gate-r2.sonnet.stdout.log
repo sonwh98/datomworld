@@ -1,0 +1,12 @@
+The Round 2 findings are written to `collab/1791380000000-reviewer-d16final-gate-r2.sonnet.findings.md`. My verdict is READY_TO_LAND for the test content, on condition that the Node, Dart and full JVM lanes pass at landing.
+
+- **Row 5:** the quarantine check now asserts `(nil? …)` and confirms the occurrence exists, so a wrong lookup path can no longer pass.
+- **Row 2:** the duplicate-evidence check is in. It asserts one admitted variant, one lease, one grant acknowledgment and one attach.
+- **Dispositions:** the implementer's findings now name the Stage E carry-overs and the freeze-liveness disposition.
+- **Tests:** `clojure -M:test -n yin.vm.ucf.compose-test -n yin.vm.ucf.compose-rows-test` gives 54 tests, 949 assertions, 0 failures and 0 errors.
+- **Lint:** `clj -M:kondo --lint` on both changed test files reports 0 errors and 0 warnings.
+
+Still open, and listed as landing preconditions:
+- **Lanes:** Node, Dart and one full JVM `bb test` have not been run.
+- **cljstyle:** I did not run it.
+- **Architect rulings:** neither the freeze-liveness ruling nor the row 5 write-ahead ruling is on file; both are relayed by the owner only. I asked for each to be filed before Stage E.
