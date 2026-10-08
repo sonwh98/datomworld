@@ -233,6 +233,9 @@ handoff slots. Each slot contains:
 
 The composition mints the offer cursor it will retain and the acknowledgement
 cursor `endpoint-step` will retain for every slot before starting the listener.
+An endpoint may be composed on a descriptor naming port 0 and told the bound
+port once the host reports it (`endpoint-bound!`); session handles minted from
+then on name it. A dialed descriptor never names port 0.
 No connection can therefore deposit an offer before its reader position exists.
 
 The transport has at most one outstanding attachment in a slot. After

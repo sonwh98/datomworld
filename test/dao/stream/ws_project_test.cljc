@@ -951,3 +951,44 @@
           "each channel ring is closed"))
     (project/accept-step! acceptor 3)
     (is (empty? (project/sessions acceptor)) "the next tick reaps them")))
+
+
+(deftest the-cause-is-the-first-terminal-event
+  (doseq [kind [:ws/closed :ws/ended :ws/not-found :ws/transport-error]]
+    (testing (str kind)
+      (let [{:keys [medium project]} (composed)]
+        (is (nil? (project/cause project)) "an open projection has no cause")
+        (deposit! medium (event me kind))
+        (project/step! project)
+        (is (project/closed? project))
+        (is (= kind (project/cause project))))))
+  (testing "a transport error followed by its closed keeps the first"
+    (let [{:keys [medium project]} (composed)]
+      (deposit! medium (event me :ws/transport-error))
+      (deposit! medium (event me :ws/closed))
+      (project/step! project)
+      (is (= :ws/transport-error (project/cause project))))))
+
+
+(deftest the-medium-end-is-its-own-cause
+  (let [{:keys [medium project]} (composed)]
+    (stream/close! medium)
+    (project/step! project)
+    (is (project/closed? project))
+    (is (= :dao.stream/end (project/cause project)))))
+
+
+(deftest opened-is-recorded-and-another-attachments-opened-is-not
+  (let [{:keys [medium project]} (composed)]
+    (is (false? (project/opened? project)))
+    (deposit! medium (event me :ws/opened))
+    (project/step! project)
+    (is (true? (project/opened? project)))
+    (is (not (project/closed? project)) ":ws/opened is not terminal"))
+  (let [{:keys [medium project]} (composed)
+        before (project/reading-cursor project)]
+    (deposit! medium (event "other" :ws/opened))
+    (project/step! project)
+    (is (false? (project/opened? project)))
+    (is (not= before (project/reading-cursor project))
+        "the foreign event is read past")))

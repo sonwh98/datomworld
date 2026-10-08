@@ -28,7 +28,9 @@
    cursor and its outstanding bookkeeping.  Terminal status
    (`:detached`/`:ended`/`:not-found`/`:transport-error`) is observed from
    the RPC client's own `:terminal`, the single source of terminal truth;
-   `observe-terminal` turns that into the one connection notice each
+   a `/detached` is refined by the dial's neutral cause to `:ended` or
+   `:transport-error` when the channel composition knows better, and only
+   then; `observe-terminal` turns that into the one connection notice each
    terminal reason publishes exactly once."
   (:require [clojure.string :as str]
             [dao.data :as data]
@@ -406,9 +408,13 @@
 
 
 (defn reattachable?
-  "True when the RPC client's terminal reason is the one reconnectable one."
-  [client]
-  (= :dao.stream.rpc/detached (:terminal client)))
+  "True when the binding may be reattached: the RPC client's terminal is
+   the one reconnectable one and the connection's observed status did
+   not refine it to a permanent conclusion."
+  [connection client]
+  (and (= :dao.stream.rpc/detached (:terminal client))
+       (not (contains? #{:ended :not-found :transport-error}
+                       (:status connection)))))
 
 
 (defn reattach
@@ -419,7 +425,7 @@
    The RPC client's response cursor and its collision-checked random id
    allocator survive; only the writer and reader reflections change."
   [connection client now]
-  (if-not (reattachable? client)
+  (if-not (reattachable? connection client)
     (failure :yin.repl.connect/not-reattachable
              (str "Only a dropped connection reattaches; this one ended as "
                   (pr-str (:terminal client))))
@@ -474,16 +480,38 @@
     nil))
 
 
+(defn- refined-terminal
+  "The RPC terminal, refined when it is /detached by what the dial
+   knows: the peer's ended signal missed during the drain is the ended
+   terminal; a connection that never opened is a reachability failure.
+   Every other cause, and no cause, keeps the reattachable detach."
+  [connection terminal]
+  (if-not (= :dao.stream.rpc/detached terminal)
+    terminal
+    (let [d (:dial connection)]
+      (case (remote-channel/cause d)
+        :ended :dao.stream.rpc/ended
+        :unreachable :dao.stream.rpc/transport-error
+        :expired (if (remote-channel/opened? d)
+                   terminal
+                   :dao.stream.rpc/transport-error)
+        terminal))))
+
+
 (defn observe-terminal
   "Given `connection` and the RPC client's current `:terminal`, return
    `[connection event]`.  The first terminal fact is the binding's
    conclusion, published once: a connection already at a terminal status is
    left alone, since a close/error race may repeat the same terminal on a
-   later poll."
+   later poll.  A `/detached` is refined by the dial's neutral cause
+   (`refined-terminal`); no cause is read before the RPC client has a
+   terminal."
   [connection terminal]
   (if (or (nil? terminal) (contains? terminal-statuses (:status connection)))
     [connection nil]
-    (if-let [[status ev] (terminal-transition connection terminal)]
+    (if-let [[status ev] (terminal-transition
+                           connection
+                           (refined-terminal connection terminal))]
       [(assoc connection :status status) ev]
       [connection nil])))
 

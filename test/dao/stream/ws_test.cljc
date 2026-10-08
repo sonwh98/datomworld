@@ -557,3 +557,32 @@
     (ws/endpoint-stop! endpoint)
     (is (= 2 (count @closes)))
     (is (= 2 (count (values control))))))
+
+
+(def ^:private port-zero
+  (assoc descriptor :dao.stream/identity "ws://127.0.0.1:0/yin/repl" :ws/port 0))
+
+
+(deftest a-served-descriptor-may-name-port-zero-and-a-dialed-one-may-not
+  (is (ws/servable-descriptor? port-zero))
+  (is (not (ws/descriptor? port-zero)))
+  (is (ws/servable-descriptor? descriptor))
+  (is (not (ws/servable-descriptor? (assoc descriptor :ws/port -1))))
+  (is (some? (one-slot-endpoint (buffer) (buffer) (buffer) {:descriptor port-zero})))
+  (let [attacher (ws/make-attacher
+                   {:traffic {:dao.stream/handle (buffer) :dao.stream/surface #{:writer}}
+                    :admission admission
+                    :connect! (fn [_ _] {:send! (fn [_]) :close! (fn [& _] nil)})})]
+    (is (= :dao.stream/invalid-descriptor
+           (:dao.stream/outcome (attacher port-zero))))))
+
+
+(deftest endpoint-bound-renames-later-session-handles
+  (let [endpoint (one-slot-endpoint (buffer) (buffer) (buffer) {:descriptor port-zero})
+        _ (is (identical? endpoint (ws/endpoint-bound! endpoint 4567)))
+        accepted (ws/accept-connection! endpoint "/yin/repl"
+                                        {:send! (fn [_]) :close! (fn [& _] nil)})
+        d (stream/descriptor (:ws/handle accepted))]
+    (is (= :ws/pending (:ws/status accepted)))
+    (is (= "ws://127.0.0.1:4567/yin/repl" (:dao.stream/identity d)))
+    (is (= 4567 (get-in d [:dao.stream/descriptor :ws/port])))))

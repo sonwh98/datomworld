@@ -1,0 +1,28 @@
+I've implemented S4 (D1 to D8) and the doc amendments, uncommitted and awaiting review. JVM and Dart lanes pass apart from one test that was already broken. Two checks didn't run: the Node lane and `cljstyle check`, because `npm ci` and `cljstyle` both needed permission this session didn't have.
+
+The report is at `collab/1791404000000-engineer-stream-s4.claude-opus-5-5.findings.md`.
+
+**Test results**
+- **JVM (`bb test:clj`):** 3818 tests, with 2 failures and 1 error.
+  - Both failures were `head-board-test` asserting that port 0 is refused, which D4 now allows. I changed that test afterwards; its namespace passes on its own (14 tests), but I haven't re-run the full lane since.
+  - The error is the already-broken test: `handoff-v2-census-test` can't find `test/resources/yin/vm/ucf/handoff-v2.txt`, which isn't tracked in git.
+- **Dart (`bb test:cljd`):** 3625 passed, 1 failed, the same `handoff-v2` test.
+- **Slow `main_test` facts, including fact 4:** 2 tests, 0 failures.
+- **Boundary grep gates (D9):** both print nothing.
+- **kondo:** 0 errors, 0 warnings on the 18 changed files. The repo-wide run reports 27 errors and 67 warnings, all in files this slice doesn't touch.
+
+**Main deviation, which needs the Architect's view:** the brief's `lost` treats `:gone?` as meaning "expired". In practice the link also sets it on any ring end, so as written every dropped, ended or refused connection came out `:expired`. I check the projection first instead:
+- a closed projection gives the cause;
+- otherwise `:gone?` means `:expired`.
+
+This is exact on the dialing side, because only the projection closes that ring. The more robust alternative is to record the expiry explicitly in `ws-project`, which goes slightly beyond D1; that is open question 1 in the report.
+
+**Other deviations, all in the report:**
+- A name dial on a refused connection is lost inside `resolve-step`, so those transitions also record a cause. A name the peer doesn't serve keeps `:cause nil`, and a new test pins that.
+- The missed-`end` connect test blackholes the client before the stop. Without that, the stop's last pass delivers `end` and RPC reports `ended` itself, so the refinement is never exercised.
+- Two tests the brief didn't list had to change because port 0 is no longer refused: one in `remote_channel_test` and the `head_board_test` case above.
+- I didn't keep a 2-argument `stop-tick` for compatibility; the two `main_test` callers now pass a state.
+- The DHT stopping guard sits in `step-follow` rather than `step-link`, so `step-links` keeps its original text.
+- The `ws.cljc` change is about 25 lines rather than "eleven or fewer"; the brief's own code is already longer, and it contains D5 only.
+
+**Before landing**, someone with the right permissions needs to run `npm ci` and `bb test:cljs` (and check that the `Testing <ns>` lines from 4.8 appear), `cljstyle check`, and one more full `bb test:clj`.

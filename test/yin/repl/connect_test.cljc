@@ -292,7 +292,7 @@
     w))
 
 
-(deftest a-connection-that-never-opens-is-detached-at-give-up-after
+(deftest a-connection-that-never-opens-is-a-transport-error-at-give-up-after
   (let [w (never-opening)
         result (open! w 1000)]
     (is (= :yin.repl.connect/attached (get result connect/outcome-key))
@@ -308,17 +308,69 @@
     (is (= :lost (:status (:dial @(:connection w)))))
     (is (= :dao.stream.remote/channel-gone
            (:dao.stream.remote/reason (:outcome (:dial @(:connection w))))))
-    (is (= :dao.stream.rpc/detached (:terminal @(:client w))))
-    (is (= :detached (:status (first (connect/observe-terminal
-                                       @(:connection w)
-                                       (:terminal @(:client w))))))))
-  (testing "a refused connection is detached within two ticks, no deadline"
+    (is (= :dao.stream.rpc/detached (:terminal @(:client w)))
+        "the RPC terminal is the transport-free detach")
+    (is (= :expired (remote-channel/cause (:dial @(:connection w)))))
+    (is (false? (remote-channel/opened? (:dial @(:connection w)))))
+    (let [[connection event] (connect/observe-terminal
+                               @(:connection w) (:terminal @(:client w)))]
+      (is (= :transport-error (:status connection)))
+      (is (str/includes? (connect/text-key event) "reachability failure"))
+      (is (false? (connect/reattachable? connection @(:client w))))))
+  (testing "a refused connection is a transport error within two ticks, no deadline"
     (let [w (unserved)]
       (open! w 1000)
       (tick! w 1000)
       (tick! w 1001)
       (is (= :lost (:status (:dial @(:connection w)))))
-      (is (= :dao.stream.rpc/detached (:terminal @(:client w)))))))
+      (is (= :dao.stream.rpc/detached (:terminal @(:client w))))
+      (is (= :unreachable (remote-channel/cause (:dial @(:connection w)))))
+      (let [[connection event] (connect/observe-terminal
+                                 @(:connection w) (:terminal @(:client w)))]
+        (is (= :transport-error (:status connection)))
+        (is (str/includes? (connect/text-key event) "reachability failure"))))))
+
+
+(deftest an-ended-signal-missed-during-the-drain-is-ended-not-detached
+  (let [w (world)
+        _ (open! w 0)
+        now (tick-until! w 0 #(not (rpc/cursor-pending? @(:client w))))
+        _ (is (not (rpc/cursor-pending? @(:client w))) "the cursor is minted")]
+    (stream/close! (:answers w))
+    ;; The end answer to the client's outstanding next is lost on the way;
+    ;; the close with the ended code still arrives.
+    (net/blackhole! (:net w) :client)
+    (swap! (:server w) remote-channel/stop! {:ended? true})
+    (let [now (tick-until! w (inc now) #(:terminal @(:client w)))
+          connection @(:connection w)
+          client @(:client w)]
+      (is (= :dao.stream.rpc/detached (:terminal client))
+          "the end answer was missed, so RPC reads only the loss")
+      (is (= :ended (remote-channel/cause (:dial connection))))
+      (let [[observed event] (connect/observe-terminal connection (:terminal client))]
+        (is (= :ended (:status observed)))
+        (is (str/includes? (connect/text-key event) "nothing to reattach"))
+        (is (false? (connect/reattachable? observed client))
+            "rpc alone would still call this detached")
+        (is (= :yin.repl.connect/not-reattachable
+               (get (connect/reattach observed client now) connect/outcome-key)))))))
+
+
+(deftest a-dropped-connection-stays-detached-and-reattachable
+  (let [w (world)
+        _ (open! w 0)
+        now (tick-until! w 0 #(not (rpc/cursor-pending? @(:client w))))]
+    (swap! (:connection w) connect/close!)
+    (let [now (tick-until! w (inc now)
+                           #(= :dao.stream.rpc/detached (:terminal @(:client w))))
+          [observed _] (connect/observe-terminal @(:connection w)
+                                                 (:terminal @(:client w)))]
+      (is (= :dropped (remote-channel/cause (:dial @(:connection w)))))
+      (is (= :detached (:status observed)))
+      (is (true? (connect/reattachable? observed @(:client w))))
+      (is (= :yin.repl.connect/reattached
+             (get (connect/reattach observed @(:client w) now)
+                  connect/outcome-key))))))
 
 
 (deftest open-without-now-never-expires
@@ -364,10 +416,17 @@
               "reachability failure"]]]
       (let [[connection event] (connect/observe-terminal base reason)]
         (is (= status (:status connection)) reason)
-        (is (str/includes? (connect/text-key event) fragment) reason)))))
+        (is (str/includes? (connect/text-key event) fragment) reason)))
+    (is (= :detached (:status (first (connect/observe-terminal
+                                       base :dao.stream.rpc/detached))))
+        "no lost dial, no refinement")))
 
 
 (deftest reattachable-is-true-for-a-detached-client-only
-  (is (true? (connect/reattachable? {:terminal :dao.stream.rpc/detached})))
-  (is (false? (connect/reattachable? {:terminal :dao.stream.rpc/ended})))
-  (is (false? (connect/reattachable? {:terminal nil}))))
+  (let [detached {:terminal :dao.stream.rpc/detached}]
+    (is (true? (connect/reattachable? {:status :detached} detached)))
+    (is (false? (connect/reattachable? {:status :ended} detached)))
+    (is (false? (connect/reattachable? {:status :transport-error} detached)))
+    (is (false? (connect/reattachable? {:status :detached}
+                                       {:terminal :dao.stream.rpc/ended})))
+    (is (false? (connect/reattachable? {:status :detached} {:terminal nil})))))

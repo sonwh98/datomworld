@@ -854,8 +854,9 @@
   "Release the index store's lifecycle resources before the host exits
    (in durable mode, the exclusive directory lock).  The shell has already
    stopped when a host calls this; the memory store has nothing to
-   release.  A DHT store's head board listener and dials are released
-   first (yin.repl.dht/close!)."
+   release.  A DHT store's head board and dials have been asked to stop
+   and drained by then (`stop-tick`); `yin.repl.dht/close!` is the last
+   resort for whatever the budget left."
   [state]
   (repl.dht/close! (:repl state))
   (store/close! (get-in state [:repl :index-store])))
@@ -876,7 +877,13 @@
         dht? (= :dht (:type spec))]
     (cond-> (vec (:startup-lines opts))
       (seq (:rejected opts)) (conj telemetry-text)
-      (:port opts)
+      (and (:port opts) (zero? (:port opts)))
+      (conj (str "serving on all interfaces on an ephemeral port; the Serving"
+                 " line names it once bound. Anyone who can reach this port"
+                 " can evaluate code in this shell; there is no"
+                 " authentication."))
+
+      (and (:port opts) (not (zero? (:port opts))))
       (conj (str "serving on all interfaces: ws://127.0.0.1:" (:port opts)
                  (let [ip (local-ip)]
                    (if (= "127.0.0.1" ip)
@@ -1021,16 +1028,27 @@
 
 
 (defn stop-tick
-  "One shutdown tick for an endpoint that has already been asked to stop.
-   Returns `[server lines stopped?]`.
+  "One shutdown tick for the shell's head board and the endpoint, both of
+   which have already been asked to stop (`yin.repl.dht/stop!`,
+   `serve/stop!`).  Returns `[state server lines stopped?]`, the node's
+   lines before the endpoint's.
 
-   `serve/stopped?` is the whole of the exit condition: an endpoint that never
+   `serve/stopped?` is the whole of the endpoint's exit condition, and
+   `yin.repl.dht/stopped?` for the shell's head board: an endpoint that never
    bound is done on the first tick, because no host exists to report a
-   `:stopped` fact for it."
-  [server now]
-  (let [server' (serve/step server now)
-        [entries server''] (serve/take-outbox server')]
-    [server'' (mapv entry-text entries) (serve/stopped? server'')]))
+   `:stopped` fact for it, and so is a shell with no board."
+  [state server now]
+  (let [[repl dht-lines _] (repl.dht/step (:repl state) now)
+        state (assoc state :repl repl)
+        [server' entries] (if server
+                            (let [[entries server'] (serve/take-outbox
+                                                      (serve/step server now))]
+                              [server' entries])
+                            [nil []])]
+    [state server'
+     (into (vec dht-lines) (map entry-text) entries)
+     (and (or (nil? server') (serve/stopped? server'))
+          (repl.dht/stopped? repl))]))
 
 
 ;; =============================================================================
@@ -1046,25 +1064,26 @@
        (print prompt)
        (flush))
 
-     (defn- drain-server!
-       "The shell has quit, so the endpoint stops before the host exits: ask it
-        once, then keep stepping until it reports `:stopped` or the bounded
-        budget runs out.  A connected client must observe the ended answer, not
-        the bare close a process exit would leave behind.  The bounded drain
-        sleeps the base interval; it is a budget, not a cadence."
-       [server w]
-       (when server
-         (loop [server (serve/stop! server)
-                remaining stop-ticks]
-           (let [[server' lines stopped?]
-                 (stop-tick server (System/currentTimeMillis))]
-             (doseq [line lines]
-               (println line))
-             (cond
-               stopped? nil
-               (zero? remaining) (println stop-timeout-text)
-               :else (do (wake/sleep! w tick-millis)
-                         (recur server' (dec remaining))))))))
+     (defn- drain!
+       "The shell has quit, so the head board and the endpoint stop before the
+        host exits: ask each once, then keep stepping both until they report
+        stopped or the bounded budget runs out.  A connected client must
+        observe the ended answer, not the bare close a process exit would
+        leave behind.  The bounded drain sleeps the base interval; it is a
+        budget, not a cadence.  Answers the drained state."
+       [state server w]
+       (loop [state (update state :repl repl.dht/stop!)
+              server (some-> server serve/stop!)
+              remaining stop-ticks]
+         (let [[state' server' lines stopped?]
+               (stop-tick state server (System/currentTimeMillis))]
+           (doseq [line lines]
+             (println line))
+           (cond
+             stopped? state'
+             (zero? remaining) (do (println stop-timeout-text) state')
+             :else (do (wake/sleep! w tick-millis)
+                       (recur state' server' (dec remaining)))))))
 
      (defn poll-loop!
        "The sole owner of REPL and endpoint state on the JVM.  It carries both
@@ -1100,10 +1119,10 @@
                                               (moved? state' server' lines))]
                     (wake/sleep! w sleep-ms)
                     (recur state' server' cadence-state)))
-              (do (drain-server! server' w)
-                  (println)
-                  (close-index-store! state')
-                  (let [status (exit-status state')]
+              (let [state' (drain! state' server' w)]
+                (println)
+                (close-index-store! state')
+                (let [status (exit-status state')]
                     (if (zero? status)
                       (exit!)
                       (.halt (Runtime/getRuntime) (int status))))))))))
@@ -1188,9 +1207,9 @@
         `repl-step` is synchronous and the Node event loop is single
         threaded, so a tick cannot overlap itself.  The box is host cadence
         plumbing: the tick is the only reader and writer of it.  `:stopping`
-        is nil while the shell runs and a tick budget afterwards: the
-        endpoint is asked to stop once and stepped at the base interval (a
-        bounded drain, not a curve) until it reports it."
+        is nil while the shell runs and a tick budget afterwards: the head
+        board and the endpoint are asked to stop once and stepped at the
+        base interval (a bounded drain, not a curve) until both report it."
        [state server rl]
        (let [box (atom {:state state :server server :stopping nil
                         :cadence (cadence/init default-cadence)})
@@ -1226,24 +1245,24 @@
                               (when (and (seq lines) rl) (.prompt rl))
                               (wake/arm! @wake-ref sleep-ms))
 
-                            server'
+                            ;; With neither a board nor an endpoint the
+                            ;; first stop tick answers stopped.
+                            :else
                             (do (swap! box assoc
-                                       :server (serve/stop! server')
+                                       :state (update state' :repl repl.dht/stop!)
+                                       :server (some-> server' serve/stop!)
                                        :stopping stop-ticks)
-                                (wake/arm! @wake-ref tick-millis))
-
-                            :else (finish!)))
-                        (let [[server' lines stopped?]
-                              (stop-tick server (js/Date.now))]
+                                (wake/arm! @wake-ref tick-millis))))
+                        (let [[state' server' lines stopped?]
+                              (stop-tick state server (js/Date.now))]
+                          (swap! box assoc :state state' :server server')
                           (doseq [line lines]
                             (js/console.log line))
                           (cond
                             stopped? (finish!)
                             (zero? stopping)
                             (do (js/console.log stop-timeout-text) (finish!))
-                            :else (do (swap! box assoc
-                                             :server server'
-                                             :stopping (dec stopping))
+                            :else (do (swap! box assoc :stopping (dec stopping))
                                       (wake/arm! @wake-ref tick-millis)))))))]
          (vreset! wake-ref (wake/make-wake tick))
          (wake/arm! @wake-ref tick-millis)
@@ -1312,9 +1331,9 @@
         stop signals) as `nudge!` callers.
 
         `:stopping` is nil while the shell runs and a tick budget afterwards:
-        the endpoint is asked to stop once and stepped at the base interval
-        (a bounded drain, not a curve) until it reports it, so the host does
-        not exit with a live listener."
+        the head board and the endpoint are asked to stop once and stepped
+        at the base interval (a bounded drain, not a curve) until both report
+        it, so the host does not exit with a live listener."
        [state server headless?]
        (let [box (atom {:state state :server server :stopping nil
                         :cadence (cadence/init default-cadence)})
@@ -1353,24 +1372,25 @@
                                 (print-prompt!))
                               (wake/arm! @wake-ref sleep-ms))
 
-                            server'
+                            ;; With neither a board nor an endpoint the
+                            ;; first stop tick answers stopped.
+                            :else
                             (do (swap! box assoc
-                                       :server (serve/stop! server')
+                                       :state (update state' :repl repl.dht/stop!)
+                                       :server (some-> server' serve/stop!)
                                        :stopping stop-ticks)
                                 (wake/arm! @wake-ref tick-millis)
-                                nil)
-
-                            :else (finish!)))
-                        (let [[server' lines stopped?] (stop-tick server now)]
+                                nil)))
+                        (let [[state' server' lines stopped?]
+                              (stop-tick state server now)]
+                          (swap! box assoc :state state' :server server')
                           (doseq [line lines]
                             (write-line! line))
                           (cond
                             stopped? (finish!)
                             (zero? stopping) (do (write-line! stop-timeout-text)
                                                  (finish!))
-                            :else (do (swap! box assoc
-                                             :server server'
-                                             :stopping (dec stopping))
+                            :else (do (swap! box assoc :stopping (dec stopping))
                                       (wake/arm! @wake-ref tick-millis)
                                       nil))))))]
          (vreset! wake-ref (wake/make-wake tick))

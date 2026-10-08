@@ -89,11 +89,15 @@
 
 (defn- host-adapter
   "An injected host listener: `:bind!` and `:unbind!` are ordinary functions
-   that deposit lifecycle data.  Nothing here binds a port."
+   that deposit lifecycle data.  Nothing here binds a port; a bind to port 0
+   reports 43210, as a host's ephemeral bind reports the port it chose."
   []
   {:bind! (fn [config]
             ((:deposit! config) :bind-succeeded
-                                {:host (:bind-host config) :port (:bind-port config)})
+                                {:host (:bind-host config)
+                                 :port (if (= 0 (:bind-port config))
+                                         43210
+                                         (:bind-port config))})
             {:listener :injected})
    :unbind! (fn [_resources deposit!]
               (deposit! :stopped {:reason :requested})
@@ -121,6 +125,11 @@
     (let [banner (str/join "\n" (repl/banner (repl/parse-args ["--port" "8080"])))]
       (is (str/includes? banner "ws://127.0.0.1:8080"))
       (is (str/includes? banner (str "ws://" (repl/local-ip) ":8080")))
+      (is (str/includes? banner "no authentication"))))
+  (testing "--port 0 names the ephemeral bind instead of port 0"
+    (let [banner (str/join "\n" (repl/banner {:port 0}))]
+      (is (str/includes? banner "ephemeral"))
+      (is (not (str/includes? banner ":0")))
       (is (str/includes? banner "no authentication"))))
   (testing "telemetry is rejected rather than ignored"
     (let [opts (repl/parse-args ["--telemetry-stream" "daostream:ws://x" "--telemetry"])]
@@ -230,11 +239,12 @@
   (let [server (serve/serve! {:bind-port 8080 :host (host-adapter)})
         server (serve/step server 1)]
     (is (= :running (:status server)))
-    (let [[server _lines stopped?] (repl/stop-tick (serve/stop! server) 2)]
+    (let [state (repl/boot (repl/parse-args []))
+          [_ server _lines stopped?] (repl/stop-tick state (serve/stop! server) 2)]
       (is (= :stopping (:status server)))
       (is (false? stopped?)
           "stop! initiates; only the host close completion is the stopped fact")
-      (let [[server' lines stopped?'] (repl/stop-tick server 3)]
+      (let [[_ server' lines stopped?'] (repl/stop-tick state server 3)]
         (is (true? stopped?'))
         (is (= :stopped (:status server')))
         (is (str/includes? (str/join " " lines) "Endpoint stopped"))))))
@@ -242,7 +252,8 @@
 
 (deftest an-endpoint-that-never-bound-is-not-waited-on
   (let [server (serve/serve! {:bind-port 8080 :host nil})
-        [server' lines stopped?] (repl/stop-tick (serve/stop! server) 1)]
+        [_ server' lines stopped?] (repl/stop-tick (repl/boot (repl/parse-args []))
+                                                   (serve/stop! server) 1)]
     (is (true? stopped?)
         "no host close completion can arrive for a listener that never bound")
     (is (= :failed (:status server'))
@@ -378,11 +389,13 @@
         (cleanup-dir! dir)))))
 
 
-(deftest an-ephemeral-bind-is-refused-with-its-reason
+(deftest an-ephemeral-bind-serves-and-the-serving-line-names-the-port
   (let [server (serve/serve! {:bind-port 0 :host (host-adapter)})
-        [_ server' lines] (repl/step-all (repl/boot {}) server 0)]
-    (is (= :failed (:status server')))
-    (is (str/includes? (str/join " " lines) "ephemeral-port-unsupported"))))
+        [_ server' lines] (repl/step-all (repl/boot {}) server 0)
+        text (str/join " " lines)]
+    (is (= :running (:status server')))
+    (is (str/includes? text "Serving daostream:ws://"))
+    (is (str/includes? text "43210"))))
 
 
 ;; =============================================================================
@@ -479,10 +492,9 @@
      ;; =========================================================================
 
      (defn- free-port!
-       "One currently-free TCP port.  `serve!` fixes its descriptor at
-        composition, so an ephemeral bind cannot serve; the race between this
-        close and the fixture's bind is accepted and a collision fails the
-        fixture loudly with the endpoint's own bind-failed notice."
+       "One currently-free TCP port.  The race between this close and the
+        fixture's bind is accepted and a collision fails the fixture loudly
+        with the endpoint's own bind-failed notice."
        []
        (let [socket (java.net.ServerSocket. 0)]
          (try (.getLocalPort socket)
@@ -1039,8 +1051,7 @@
 
      (defn- free-port!
        "One currently-free TCP port, handed to `on-port` once the probe socket
-        is closed.  `serve!` fixes its descriptor at composition, so an
-        ephemeral bind cannot serve."
+        is closed."
        [on-port]
        (let [net (js/require "net")
              server (.createServer net)]

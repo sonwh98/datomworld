@@ -712,6 +712,68 @@
         "every connection closed")))
 
 
+(defn- attached-pair
+  "A publisher at :a with its board bound and a reader at :b attached to
+   it."
+  [key]
+  (let [w (world)
+        w (assoc w
+                 :a (publisher w key (temp-dir))
+                 :b (reader w key (temp-dir)))]
+    (run w 100 #(= :attached (get-in % [:b :repl :dht ::repl.dht/follow :links
+                                        (sign/principal (:public key))
+                                        :dial :status])))))
+
+
+(deftest the-board-exit-is-driver-paced
+  (let [key (sign/generate)
+        principal (sign/principal (:public key))
+        w (attached-pair key)
+        _ (is (seq (:listeners @(:ws w))) "the board is bound")
+        w (update-in w [:a :repl] repl.dht/stop!)
+        _ (is (false? (repl.dht/stopped? (:repl (:a w))))
+              "stop! initiates; the board still owes its release")
+        ;; the reader reports the loss once, by its dial or its follower
+        losses (fn [w]
+                 (+ (count (lines-with w :b (str "lost the head board of " principal)))
+                    (count (lines-with w :b (str "cannot follow " principal)))))
+        lost-before (losses w)
+        w (run w 5 #(repl.dht/stopped? (:repl (:a %))))]
+    (is (true? (repl.dht/stopped? (:repl (:a w)))) (pr-str (get-in w [:lines :a])))
+    (is (empty? (:listeners @(:ws w))) "no listener")
+    (is (= ["dht: the head board stopped"]
+           (lines-with w :a "dht: the head board stopped"))
+        (pr-str (get-in w [:lines :a])))
+    (let [w (tick w)]
+      (is (< lost-before (losses w)) (pr-str (get-in w [:lines :b])))
+      (is (empty? (get-in w [:a :repl :dht ::repl.dht/follow :links]))
+          "the stopping node composes no dial")
+      (close! w))))
+
+
+(deftest close-is-the-last-resort-and-idempotent
+  (testing "a shell never stopped: close! closes the dials and the board"
+    (let [w (attached-pair (sign/generate))]
+      (is (nil? (repl.dht/close! (:repl (:a w)))))
+      (is (nil? (repl.dht/close! (:repl (:b w)))))
+      (net/pump! (:ws w))
+      (is (empty? (:listeners @(:ws w))) "nothing listens")
+      (is (every? #(deref (:closed? %)) (:conns @(:ws w))) "every connection closed")
+      (is (nil? (repl.dht/close! (:repl (:a w)))) "close! again does not throw")
+      (close! w)))
+  (testing "a shell already stopped: close! runs no stopping step"
+    (let [w (attached-pair (sign/generate))
+          w (update-in w [:a :repl] repl.dht/stop!)
+          w (run w 5 #(repl.dht/stopped? (:repl (:a %))))
+          _ (is (true? (repl.dht/stopped? (:repl (:a w)))))
+          unbinds (atom 0)
+          w (assoc-in w [:a :repl :dht ::repl.dht/publisher :server :host :unbind!]
+                      (fn [& _] (swap! unbinds inc) nil))]
+      (is (nil? (repl.dht/close! (:repl (:a w)))))
+      (is (zero? @unbinds) "a stopped board is not unbound again")
+      (close! w))))
+
+
 ;; =============================================================================
 ;; heads.edn is read bounded and strictly UTF-8
 ;; =============================================================================

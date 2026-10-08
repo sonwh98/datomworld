@@ -10,7 +10,9 @@
    names this channel, appends the :ws/value of each :ws/payload onto
    the ring, and drops :ws/error diagnostics. A terminal lifecycle
    event (:ws/closed, :ws/ended) or a failure resolution (:ws/not-found,
-   :ws/transport-error) makes the projection close the ring, and so
+   :ws/transport-error) makes the projection close the ring and
+   record which one as its cause, read by the composition above
+   through `cause`, and so
    does the traffic medium's own end: the projection is over and
    nothing more can arrive, so a link waiting on the ring observes the
    loss instead of blocking forever -- channel loss is then the link's
@@ -64,16 +66,17 @@
                     {:attachment attachment :traffic traffic
                      :cursor cursor :ring ring})))
   (atom {:attachment attachment :traffic traffic :cursor cursor
-         :ring ring :closed? false}))
+         :ring ring :closed? false :cause nil :opened? false}))
 
 
 (defn- project!
   "Apply one deposited event (3.1): another attachment's event and
    every non-payload, non-terminal kind are ignored here; a :ws/error
    is dropped as a diagnostic; a :ws/payload's :ws/value is appended
-   onto the ring; a terminal event or failure resolution closes the
-   ring. True only for the terminal case."
-  [state event]
+   onto the ring; a :ws/opened is recorded on `project`; a terminal
+   event or failure resolution closes the ring. Answers the terminal
+   kind, else nil."
+  [project state event]
   (when (= (:ws/attachment event) (:attachment state))
     (let [kind (:ws/event event)]
       (cond
@@ -84,8 +87,11 @@
 
         (= :ws/error kind) nil
 
+        (= :ws/opened kind)
+        (do (swap! project assoc :opened? true) nil)
+
         (contains? terminal-events kind)
-        (do (stream/close! (:ring state)) true)
+        (do (stream/close! (:ring state)) kind)
 
         :else nil))))
 
@@ -119,14 +125,14 @@
                  :dao.stream/ok
                  (let [event (:dao.stream/value r)]
                    (swap! project assoc :cursor (:dao.stream/cursor r))
-                   (if (project! s event)
-                     (do (swap! project assoc :closed? true)
+                   (if-some [kind (project! project s event)]
+                     (do (swap! project assoc :closed? true :cause kind)
                          project)
                      (recur (if bounded? (dec remaining) -1))))
 
                  :dao.stream/end
                  (do (stream/close! (:ring s))
-                     (swap! project assoc :closed? true)
+                     (swap! project assoc :closed? true :cause :dao.stream/end)
                      project)
 
                  :dao.stream/gap
@@ -143,6 +149,22 @@
    itself answered end."
   [project]
   (:closed? @project))
+
+
+(defn cause
+  "What closed the projection: the terminal :ws/event kind, or
+   :dao.stream/end for the traffic medium's own end; nil while open."
+  [project]
+  (:cause @project))
+
+
+(defn opened?
+  "True once the attachment's :ws/opened passed through this projection.
+   Only a dialing end's adapter deposits :ws/opened (dao.stream.ws
+   `opened!`); an accepted connection is open at adoption and its
+   projection never sees one."
+  [project]
+  (:opened? @project))
 
 
 (defn reading-cursor

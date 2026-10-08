@@ -58,17 +58,28 @@
   nil)
 
 
+(defn- ephemeral-port
+  "A free port for a bind to 0: the first port from 49152 past the
+   listener count that no listener holds."
+  [net]
+  (let [listeners (:listeners @net)]
+    (first (remove #(contains? listeners %)
+                   (iterate inc (+ 49152 (count listeners)))))))
+
+
 (defn listen-on
   "The `:bind!` seam over `net`: a port already listened on throws, as
-   a host bind does."
+   a host bind does.  A bind to port 0 is allocated a free port, which
+   `:bind-succeeded` reports, as a host's ephemeral bind does."
   [net]
   (fn [{:keys [bind-host bind-port accept! deposit!]}]
     (when (contains? (:listeners @net) bind-port)
       (throw (ex-info "address in use" {:port bind-port})))
-    (swap! net assoc-in [:listeners bind-port]
-           {:accept! accept! :deposit! deposit!})
-    (deposit! :bind-succeeded {:host bind-host :port bind-port})
-    {:dao.stream/outcome :dao.stream/ok :port bind-port}))
+    (let [port (if (= 0 bind-port) (ephemeral-port net) bind-port)]
+      (swap! net assoc-in [:listeners port]
+             {:accept! accept! :deposit! deposit!})
+      (deposit! :bind-succeeded {:host bind-host :port port})
+      {:dao.stream/outcome :dao.stream/ok :port port})))
 
 
 (defn unbind-on

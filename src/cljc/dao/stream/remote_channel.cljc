@@ -297,16 +297,21 @@
    surface the handle lacks is `::invalid-table` with `:detail
    {:identity id :surface S}`.  The spec's optional `:bind-host` and
    `:bind-port` are where the listener binds; the descriptor still
-   names `:host` and `:port`.
+   names `:host` and `:port`.  `:port` 0 is an ephemeral bind: the
+   descriptor is provisional until the host's `:bind-succeeded` reports
+   the bound port, which `:spec` and `:descriptor` then name; a host
+   that reports none is `::port-unreported`.
 
    Answers a server value: `:status :starting` with `:spec`,
-   `:descriptor` (the formatted ws descriptor), `:endpoint`, `:acceptor`,
+   `:descriptor` (the formatted ws descriptor), `:ephemeral?` (true
+   until an ephemeral bind is finalized), `:endpoint`, `:acceptor`,
    `:listener` (what `:bind!` answered), `:lifecycle`,
    `:lifecycle-cursor`, `:lifecycle-gaps` and `:diagnostic-count` (every
    diagnostic kept, monotonic, while `:diagnostics` holds the last 8).
    Refusals are data, `:status :refused` with `:reason`:
    `::no-transport` (a transport other than :ws, or no `:bind!`),
-   `::no-port` (not a positive integer), `::invalid-table`,
+   `::no-port` (not a non-negative integer, or 0 beside a positive
+   `:bind-port`), `::invalid-table`,
    `::bind-failed` (`:bind!` threw or answered an outcome that is not
    ok; `:detail` nil).  An invalid bound is the composition error the
    validating layer throws, before anything listens."
@@ -316,7 +321,10 @@
       (not (and (ws-transport? spec) (fn? (:bind! host))))
       (refused {:spec spec} ::no-transport {})
 
-      (not (and (integer? (:port spec)) (pos? (:port spec))))
+      (not (and (integer? (:port spec)) (not (neg? (:port spec)))
+                (not (and (zero? (:port spec))
+                          (integer? (:bind-port spec))
+                          (pos? (:bind-port spec))))))
       (refused {:spec spec} ::no-port {})
 
       (some? (table-refusal table names))
@@ -362,6 +370,7 @@
                        (stream/append! lifecycle {:kind kind :value value}))
             server {:spec spec
                     :descriptor descriptor
+                    :ephemeral? (zero? (:port spec))
                     :host host
                     :bounds b
                     :endpoint endpoint
@@ -447,7 +456,21 @@
   (let [status (:status server)]
     (cond
       (and (= :starting status) (= :bind-succeeded kind))
-      (assoc server :status :serving)
+      (let [port (:port value)]
+        (cond
+          (not (:ephemeral? server))
+          (assoc server :status :serving)
+
+          (and (integer? port) (pos? port))
+          (let [spec (assoc (:spec server) :port port)]
+            (ws/endpoint-bound! (:endpoint server) port)
+            (assoc server :status :serving :spec spec
+                   :descriptor (descriptor-of spec) :ephemeral? false))
+
+          :else
+          (do (release! server)
+              (unbind! server)
+              (refused server ::port-unreported {:detail value}))))
 
       (and (= :starting status) (= :bind-failed kind))
       (refused (release! server) ::bind-failed {:detail value})
@@ -582,7 +605,8 @@
   "Advance the server one tick at the driver's `now`.
 
    Starting or serving: the lifecycle facts first (5.1) -- a bind that
-   succeeds makes it `:serving`, one that fails is the `::bind-failed`
+   succeeds makes it `:serving` (an ephemeral one names the port the
+   host reports, or is `::port-unreported`), one that fails is the `::bind-failed`
    refusal, a gap while starting is the terminal `::lifecycle-lost`
    refusal, a gap while serving is counted under `:lifecycle-gaps`, and
    `:stopped` without `stop!` is `:stopped` with outcome
@@ -652,6 +676,41 @@
    :dao.stream.remote/reason :dao.stream.remote/channel-gone})
 
 
+(def ^:private projection-causes
+  {:ws/ended :ended
+   :ws/closed :dropped
+   :dao.stream/end :dropped
+   :ws/not-found :not-served
+   :ws/transport-error :unreachable})
+
+
+(defn- lost
+  "The dial `d` lost at this step with `outcome` (channel-gone by
+   default), its neutral cause and whether its connection ever opened.
+   A projection that closed names the cause.  A channel the link lost
+   (the channel map's :gone?) while its projection is still open
+   expired: on the dialing end only the projection closes the ring, so
+   the link loses an open ring only at a deadline, and the dial closed
+   the handle itself; the host's :ws/transport-error or :ws/closed that
+   follows is the consequence, not the cause, and is never read,
+   because the cause is computed once, here.  A dial whose channel was
+   never established is :unreachable for a transport-error outcome."
+  ([d] (lost d channel-gone))
+  ([d outcome]
+   (let [ch (ws-project/channel (:dial d))
+         p (:project ch)]
+     (assoc d :status :lost :outcome outcome
+            :cause (cond
+                     (some-> p ws-project/closed?)
+                     (get projection-causes (ws-project/cause p))
+                     (:gone? ch) :expired
+                     (and (nil? ch)
+                          (= :dao.stream/transport-error (:dao.stream/outcome outcome)))
+                     :unreachable
+                     :else nil)
+            :opened? (boolean (some-> p ws-project/opened?))))))
+
+
 (defn- valid-target?
   "Exactly one of a name or a non-empty vector of distinct, non-nil
    identities."
@@ -704,7 +763,11 @@
           (do (close-handles! (vals handles))
               (when-some [h (some-> (:dial d) ws-project/channel :handle)]
                 (stream/close! h))
-              (assoc d :status :lost :outcome r :handles handles)))))))
+              (assoc d :status :lost :outcome r :handles handles
+                     :cause (when (= :dao.stream/transport-error
+                                     (:dao.stream/outcome r))
+                              :unreachable)
+                     :opened? false)))))))
 
 
 (defn dial
@@ -803,14 +866,14 @@
                  :handles {(:dao.stream/identity r) (:dao.stream/handle a)}
                  :identity (:dao.stream/identity r)
                  :outcome r)
-          (assoc d :status :lost :outcome a)))
+          (lost d a)))
 
       (and (= :dao.stream/transport-error (:dao.stream/outcome r))
            (true? (:dao.stream/retry? r)))
       (assoc d :outcome r)
 
       :else
-      (assoc d :status :lost :outcome r))))
+      (lost d r))))
 
 
 (defn- resolve-expired?
@@ -835,8 +898,9 @@
    the dial's first step, when it is `:lost` naming channel-gone; any
    other answer is `:lost` with `:outcome` that answer.  Attached: a
    channel whose projection closed, or whose link expired, is `:lost`
-   with outcome transport-error naming channel-gone.  Lost, closed and
-   refused dials are answered unchanged."
+   with outcome transport-error naming channel-gone.  A dial lost here
+   carries its neutral `cause` and whether it ever `opened?`.  Lost,
+   closed and refused dials are answered unchanged."
   [d now]
   (if-not (contains? #{:resolving :attached} (:status d))
     d
@@ -845,11 +909,31 @@
       (case (:status d)
         :resolving (let [d (resolve-step d)]
                      (if (resolve-expired? d now)
-                       (assoc d :status :lost :outcome channel-gone)
+                       (assoc (lost d) :cause :expired)
                        d))
         :attached (if (channel-lost? d)
-                    (assoc d :status :lost :outcome channel-gone)
+                    (lost d)
                     d)))))
+
+
+(defn cause
+  "Why a :lost dial was lost, one of :ended (the peer closed with the
+   ended signal), :dropped (the connection closed with any other code,
+   or the traffic medium ended), :not-served (the peer disclaimed),
+   :unreachable (the connection never opened: refused, or torn down
+   before it opened), :expired (a request passed give-up-after); nil
+   for a dial that is not lost, or lost by a non-transport attach
+   failure."
+  [d]
+  (:cause d))
+
+
+(defn opened?
+  "True when the dialed connection opened at some point before the
+   dial was lost.  With :expired it separates a peer that stopped
+   answering (true, reattach) from one that never answered (false)."
+  [d]
+  (:opened? d))
 
 
 (defn handle

@@ -585,7 +585,7 @@
            (:reason (rc/serve {:spec (assoc spec :transport :udp) :host host :table table}))))
     (is (= ::rc/no-transport
            (:reason (rc/serve {:spec spec :host (dissoc host :bind!) :table table}))))
-    (doseq [p [0 -1 nil "9"]]
+    (doseq [p [-1 nil "9"]]
       (is (= {:status :refused :reason ::rc/no-port :spec (assoc spec :port p)}
              (rc/serve {:spec (assoc spec :port p) :host host :table table}))
           (pr-str p)))
@@ -1039,3 +1039,207 @@
       (is (= :lost (:status @d)))
       (is (= channel-gone (:outcome @d)))
       (is (= [:v] (values (:req w))) "the loss is false: the value crossed"))))
+
+
+;; =============================================================================
+;; S4: the neutral cause of a lost dial
+;; =============================================================================
+
+(deftest a-dropped-connection-is-lost-dropped
+  (let [w (world)
+        d (first-dial w)]
+    (attach! w 0)
+    (is (= :attached (:status @d)))
+    (is (nil? (rc/cause @d)) "an attached dial has no cause")
+    (doseq [conn (:conns @(:net w))] (net/close-conn! conn 1006 "gone"))
+    (tick! w 1)
+    (is (= :lost (:status @d)))
+    (is (= :dropped (rc/cause @d)))
+    (is (true? (rc/opened? @d)))
+    (is (= channel-gone (:outcome @d)))))
+
+
+(deftest an-ended-stop-is-lost-ended-when-the-end-is-missed
+  (let [w (world)
+        d (first-dial w)]
+    (attach! w 0)
+    (is (= :attached (:status @d)))
+    (swap! (:server w) rc/stop! {:ended? true})
+    (run-until w 1 1 5 #(= :lost (:status @d)))
+    (is (= :lost (:status @d)))
+    (is (= :ended (rc/cause @d)))
+    (is (true? (rc/opened? @d)))
+    (is (= channel-gone (:outcome @d)) "the outcome is unchanged")
+    (is (= [4000] (mapv (comp deref :close-code) (:conns @(:net w))))
+        "closed with the ws ended code")))
+
+
+(defn- stepper
+  "One dial's driver turn over `lnet`: the net, the dial, the net."
+  [lnet d]
+  (fn [now]
+    (net/pump! lnet)
+    (swap! d rc/dial-step now)
+    (net/pump! lnet)))
+
+
+(deftest a-refused-connection-is-lost-unreachable
+  (let [lnet (net/loopback-net)
+        d (atom (rc/dial {:spec spec :host (host-of lnet) :identities ["a"] :now 0}))
+        step! (stepper lnet d)]
+    (is (= :attached (:status @d)) "the attach is deferred to the connection")
+    (step! 0)
+    (step! 1)
+    (is (= :lost (:status @d)))
+    (is (= :unreachable (rc/cause @d)))
+    (is (false? (rc/opened? @d)))
+    (testing "a name dial on the same world"
+      (let [d (atom (dial lnet))
+            step! (stepper lnet d)]
+        (step! 0)
+        (step! 1)
+        (step! 2)
+        (is (= :lost (:status @d)))
+        (is (= :unreachable (rc/cause @d)))
+        (is (false? (rc/opened? @d)))))))
+
+
+(deftest an-expired-link-is-lost-expired
+  (let [w (world liveness)
+        d (first-dial w)
+        h (attach! w 0)
+        c (read-past-value w 0 h)]
+    (net/blackhole! (:net w) :client)
+    (tick! w 1000)
+    (ask! h c)
+    (tick! w 1150)
+    (tick! w 1160)
+    (is (= :lost (:status @d)))
+    (is (= :expired (rc/cause @d)))
+    (is (true? (rc/opened? @d)))
+    (is (= channel-gone (:outcome @d)))))
+
+
+(defn- never-acknowledging
+  "A loopback net whose listener at the spec's port never accepts."
+  []
+  (let [lnet (net/loopback-net)]
+    (swap! lnet assoc-in [:listeners (:port spec)]
+           {:accept! (fn [& _] {}) :deposit! (fn [& _] nil)})
+    lnet))
+
+
+(deftest a-never-opening-connection-is-lost-expired-unopened
+  (let [lnet (never-acknowledging)
+        d (atom (rc/dial {:spec spec :host (host-of lnet) :identities ["a"]
+                          :now 1000 :bounds liveness}))
+        step! (stepper lnet d)]
+    (step! 1000)
+    (step! 1149)
+    (is (= :attached (:status @d)) "not before the deadline")
+    (step! 1150)
+    (step! 1151)
+    (is (= :lost (:status @d)))
+    (is (= :expired (rc/cause @d)))
+    (is (false? (rc/opened? @d))))
+  (testing "the name dial's resolving expiry"
+    (let [lnet (never-acknowledging)
+          d (atom (dial lnet liveness nil))
+          step! (stepper lnet d)]
+      (step! 1000)
+      (step! 1150)
+      (is (= :lost (:status @d)))
+      (is (= :expired (rc/cause @d)))
+      (is (false? (rc/opened? @d))))))
+
+
+(deftest dialing-port-zero-is-lost-invalid-descriptor
+  (let [lnet (net/loopback-net)
+        d (rc/dial {:spec (assoc spec :port 0) :host (host-of lnet)
+                    :identities ["a"] :now 0})]
+    (is (= :lost (:status d)))
+    (is (= :dao.stream/invalid-descriptor (:dao.stream/outcome (:outcome d))))
+    (is (nil? (rc/cause d)))
+    (is (empty? (:conns @lnet)) "nothing connected")))
+
+
+(deftest a-name-the-peer-does-not-serve-is-lost-without-a-cause
+  (let [w (world)
+        lnet (:net w)
+        d (atom (rc/dial {:spec spec :host (host-of lnet) :name "absent"}))
+        w (assoc w :dials [d])]
+    (run-until w 0 1 20 #(not= :resolving (:status @d)))
+    (is (= :lost (:status @d)))
+    (is (= :dao.stream.remote/not-found
+           (:dao.stream.remote/reason (:outcome @d))))
+    (is (nil? (rc/cause @d)) "a resolve answer is not a transport cause")
+    (is (true? (rc/opened? @d)))))
+
+
+;; =============================================================================
+;; S4: ephemeral binds
+;; =============================================================================
+
+(deftest an-ephemeral-serve-advertises-the-bound-port
+  (let [lnet (net/loopback-net)
+        source (toy)
+        server (atom (rc/serve {:spec (assoc spec :port 0) :host (host-of lnet)
+                                :table {(identity-of source)
+                                        {:handle source :surface #{:reader}}}
+                                :names {n (identity-of source)}}))]
+    (is (= :starting (:status @server)))
+    (is (true? (:ephemeral? @server)))
+    (is (= 0 (:ws/port (:descriptor @server))))
+    (swap! server rc/serve-step 0)
+    (let [port (:port (:spec @server))
+          url (str "ws://127.0.0.1:" port "/x")]
+      (is (= :serving (:status @server)))
+      (is (and (integer? port) (pos? port)) "the allocated port")
+      (is (contains? (:listeners @lnet) port))
+      (is (= url (:dao.stream/identity (:descriptor @server))))
+      (is (= port (:ws/port (:descriptor @server))))
+      (is (false? (:ephemeral? @server)))
+      (let [w {:net lnet :server server
+               :dials [(atom (rc/dial {:spec (assoc spec :port port)
+                                       :host (host-of lnet) :name n}))]}
+            h (attach! w 1)]
+        (is (= :attached (:status @(first-dial w))))
+        (read-past-value w 1 h)
+        (let [session (first (vals (rc/sessions @server)))]
+          (is (= url (identity-of (:handle session)))
+              "the session handle names the bound port"))))))
+
+
+(deftest an-ephemeral-bind-that-reports-no-port-is-refused
+  (let [lnet (net/loopback-net)
+        calls (atom 0)
+        silent (fn [{:keys [bind-host deposit!]}]
+                 (deposit! :bind-succeeded {:host bind-host})
+                 {:dao.stream/outcome :dao.stream/ok :port 0})
+        host (assoc (host-of lnet) :bind! silent
+                    :unbind! (counting-unbind lnet calls))
+        server (rc/serve {:spec (assoc spec :port 0) :host host
+                          :table {"t" {:handle (toy) :surface #{:reader}}}})
+        _ (is (= :starting (:status server)))
+        s (rc/serve-step server 0)]
+    (is (= :refused (:status s)))
+    (is (= ::rc/port-unreported (:reason s)))
+    (is (= {:host "127.0.0.1"} (:detail s)))
+    (is (= 1 @calls) "unbind! called once")
+    (is (empty? (rc/sessions s)) "no session")))
+
+
+(deftest port-zero-beside-a-positive-bind-port-is-no-port
+  (let [lnet (net/loopback-net)
+        table {"t" {:handle (toy) :surface #{:reader}}}]
+    (is (= ::rc/no-port
+           (:reason (rc/serve {:spec (assoc spec :port 0 :bind-port 9)
+                               :host (host-of lnet) :table table}))))
+    (is (empty? (:listeners @lnet)) "nothing listened")
+    (let [s (rc/serve {:spec (assoc spec :port 9 :bind-port 0)
+                       :host (host-of lnet) :table table})]
+      (is (= :starting (:status s)))
+      (is (false? (:ephemeral? s)))
+      (let [s (rc/serve-step s 0)]
+        (is (= :serving (:status s)))
+        (is (= 9 (:port (:spec s))) "the advertised port stands")))))

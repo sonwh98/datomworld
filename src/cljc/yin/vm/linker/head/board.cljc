@@ -89,6 +89,12 @@
   (remote-channel/stop! server))
 
 
+(defn stopped?
+  "True once the board's server owes nothing: stopped, or refused."
+  [server]
+  (contains? #{:stopped :refused} (:status server)))
+
+
 (defn dial
   "Compose the reader's end toward the board of `:principal` at the
    portable endpoint `:spec` `{:host h :port p}` over the host assembly
