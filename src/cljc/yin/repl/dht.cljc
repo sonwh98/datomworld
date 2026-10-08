@@ -432,20 +432,52 @@
   (get node ::follower))
 
 
-(defn close!
-  "Release what the head composition holds on the shell's node: the
-   board is stopped (`head.board/stop!`) and its first stopping tick run
-   at the node's last tick reading, which closes every session and
-   pending connection and asks the host to unbind; every dial is closed.
-   The host's `:stopped` completion is not awaited: the board serves a
-   read-only ring that stop does not end, so a reader has nothing to be
-   told but the reattachable close it already has."
+(defn stop!
+  "Initiate the head composition's exit on the shell's node: the board's
+   server is asked to stop (`head.board/stop!`), every follow dial is
+   closed and no dial is composed again, and the node is marked
+   stopping.  Performs no other I/O; `step` completes the stop and
+   `stopped?` reports it.  A shell without a node, or already stopping,
+   is answered unchanged.  The board serves a read-only ring that stop
+   does not end, so a reader has nothing to be told but the reattachable
+   close its connection observes."
   [shell]
   (let [node (:dht shell)]
-    (when-some [server (get-in node [::publisher :server])]
-      (head.board/serve-step (head.board/stop! server) (or (::now node) 0)))
-    (doseq [[_ {:keys [dial]}] (get-in node [::follow :links])]
-      (when dial (head.board/close! dial)))
+    (if (or (nil? node) (::stopping? node))
+      shell
+      (do (doseq [[_ {:keys [dial]}] (get-in node [::follow :links])]
+            (when dial (head.board/close! dial)))
+          (assoc shell :dht
+                 (cond-> (assoc node ::stopping? true)
+                   (get-in node [::publisher :server])
+                   (update-in [::publisher :server] head.board/stop!)
+
+                   (::follow node)
+                   (assoc-in [::follow :links] {})))))))
+
+
+(defn stopped?
+  "True when the head composition owes nothing at exit: no node, no
+   board server, or a board server that is stopped or refused."
+  [shell]
+  (let [server (get-in shell [:dht ::publisher :server])]
+    (or (nil? server) (head.board/stopped? server))))
+
+
+(defn close!
+  "The last resort after the exit drain's budget
+   (`yin.repl.main/stop-ticks`): whatever the board still owes is asked
+   for once more and not awaited.  The ordinary exit is `stop!`, then
+   `step` until `stopped?`.  A shell never stopped is stopped first, so a
+   direct caller (a test, an embedder without a drain) still closes the
+   dials; the board's stopping tick runs at the node's last tick reading
+   only when the board is not already `stopped?`."
+  [shell]
+  (let [shell (stop! shell)
+        node (:dht shell)
+        server (get-in node [::publisher :server])]
+    (when (and server (not (head.board/stopped? server)))
+      (head.board/serve-step server (or (::now node) 0)))
     nil))
 
 
@@ -605,12 +637,22 @@
                "choose another --dht-port"))])]))
 
 
+(defn- stopped-line
+  "The board's end, printed once on its transition to stopped."
+  [outcome]
+  (if (= :confirmed outcome)
+    "dht: the head board stopped"
+    (str "dht: the head board stopped without host completion ("
+         (name outcome) ")")))
+
+
 (defn- step-board
   "Advance the board's endpoint, print the token once when it is bound,
-   and print each deposit refusal: `[pub lines]`."
+   the board's end once when it stops, and each deposit refusal:
+   `[pub lines]`.  A stopping node composes no board."
   [pub node events now]
   (let [bound (some #(when (= :bound (::dht/event %)) %) events)
-        [pub lines] (if (and bound (nil? (:server pub)))
+        [pub lines] (if (and bound (nil? (:server pub)) (not (::stopping? node)))
                       (serve-board pub (::ws node) (:host bound) (:port bound))
                       [pub nil])
         before (get-in pub [:server :status])
@@ -625,7 +667,10 @@
                 (and (= :refused (:status server)) (not= :refused before))
                 (conj (str "dht: the head board could not bind TCP "
                            (address-text host port) ": no board, no join "
-                           "token; choose another --dht-port")))
+                           "token; choose another --dht-port"))
+
+                (and (= :stopped (:status server)) (not= :stopped before))
+                (conj (stopped-line (get-in server [:stop :outcome]))))
         pub (cond-> pub (= :serving (:status server)) (assoc :token? true))
         ;; a gap means refusals were evicted unread: adopt its recovery
         ;; cursor, say so, and drain what the ring still holds
@@ -911,15 +956,21 @@
   [shell node now]
   (if-some [follower (::follower node)]
     (let [before node
-          [follower links dial-lines] (step-links follower node now)
+          ;; a stopping node composes and steps no dial
+          [follower links dial-lines] (if (::stopping? node)
+                                        [follower (get-in node [::follow :links]) []]
+                                        (step-links follower node now))
           [follower node events] (head/step follower node now)
           ;; a lost source: drop its dial; the next is composed after the
-          ;; delay, and the follower mints :oldest on its handle
-          links (reduce (fn [links {:keys [principal]}]
-                          (update links principal
-                                  #(drop-dial follower % now)))
-                        links
-                        (filter #(= :source-lost (:yin.head/event %)) events))
+          ;; delay, and the follower mints :oldest on its handle.  A
+          ;; stopping node schedules none.
+          links (if (::stopping? node)
+                  links
+                  (reduce (fn [links {:keys [principal]}]
+                            (update links principal
+                                    #(drop-dial follower % now)))
+                          links
+                          (filter #(= :source-lost (:yin.head/event %)) events)))
           waiting (get-in node [::follow :waiting])
           [follower node waiting retried] (retry-waiting follower node waiting
                                                          now)

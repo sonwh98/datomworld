@@ -122,13 +122,50 @@
     (is (str/includes? (str/join " " (texts endpoint)) "no-websocket-package"))))
 
 
-(deftest an-ephemeral-bind-names-the-limit-instead-of-a-descriptor-refusal
+(deftest an-ephemeral-bind-advertises-the-bound-port
   (let [{:keys [endpoint host]} (endpoint! {:bind-port 0})]
+    (is (= :starting (:status endpoint)))
+    (is (= 0 (:bind-port (first @(:bound host)))))
+    (is (nil? (serve/url endpoint)) "nothing to type before the bind")
+    (is (nil? (:url (serve/summary endpoint))))
+    (let [endpoint (tick host endpoint 1)
+          port (:port (:spec (:server endpoint)))
+          url (str "daostream:ws://127.0.0.1:" port "/repl")
+          [lines endpoint] (serve/take-outbox endpoint)]
+      (is (= :running (:status endpoint)))
+      (is (and (integer? port) (pos? port)) "the fixture's allocated port")
+      (is (= url (serve/url endpoint)))
+      (is (= url (:url (serve/summary endpoint))))
+      (is (some #{(str "Serving " url)} (mapv :yin.repl.serve/text lines)))
+      (testing "a client connects over the bound URL and round-trips"
+        (let [[endpoint c now] (connect! host endpoint 2)
+              requested (rpc/request! @(:client c) :op/eval ["(+ 1 2)"])
+              _ (reset! (:client c) (:dao.stream.rpc/state requested))
+              id (:dao.stream.rpc/id requested)]
+          (is (= :dao.stream.rpc/requested (:dao.stream.rpc/outcome requested)))
+          (loop [endpoint endpoint now now left 50]
+            (let [endpoint (tick host endpoint now)]
+              (fixture/client-step! c now)
+              (when (and (pos? left) (empty? (:completed @(:client c))))
+                (recur endpoint (inc now) (dec left)))))
+          (is (= [id] (mapv (comp rpc/request-id :dao.stream.rpc/response)
+                            (:completed @(:client c))))))))))
+
+
+(deftest an-ephemeral-bind-whose-host-reports-no-port-fails
+  (let [h (fixture/host)
+        h (assoc-in h [:adapter :bind!]
+                    (fn [config]
+                      (swap! (:bound h) conj config)
+                      ((:deposit! config) :bind-succeeded {:host (:bind-host config)})
+                      {:dao.stream/outcome :dao.stream/ok :port 0}))
+        endpoint (serve/serve! {:bind-port 0 :host (:adapter h)})
+        _ (is (= :starting (:status endpoint)))
+        endpoint (tick h endpoint 1)]
     (is (= :failed (:status endpoint)))
-    (is (empty? @(:bound host)) "nothing was bound")
-    (let [endpoint (serve/step endpoint 1)]
-      (is (str/includes? (str/join " " (texts endpoint))
-                         "ephemeral-port-unsupported")))))
+    (is (str/includes? (str/join " " (texts endpoint)) "reported no bound port"))
+    (is (= 1 (count @(:released h))) "the bound listener was released")
+    (is (true? (serve/stopped? endpoint)))))
 
 
 ;; =============================================================================

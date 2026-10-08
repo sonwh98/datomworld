@@ -84,6 +84,18 @@
         ((:ws/portable-value? codec) x))))
 
 
+(defn servable-descriptor?
+  "The served descriptor gate: `descriptor?`, except that the port may be
+   0, an endpoint bound ephemerally that names its port once the host
+   reports it (`endpoint-bound!`).  A dialed descriptor never names port
+   0; `descriptor?` stays the attacher's gate."
+  ([x] (servable-descriptor? x transit/profile))
+  ([x codec]
+   (or (descriptor? x codec)
+       (and (= 0 (:ws/port x))
+            (descriptor? (assoc x :ws/port 1) codec)))))
+
+
 (defn admission?
   "Assembly-time declaration required for every transport deposit medium."
   [x]
@@ -554,7 +566,7 @@
       (throw (ex-info "endpoint control medium must carry portable values" {:admission control-admission})))
     ;; The one descriptor crosses under every profile the endpoint speaks,
     ;; or the profile that cannot carry it must not be offered.
-    (when-not (every? #(descriptor? descriptor %) codecs)
+    (when-not (every? #(servable-descriptor? descriptor %) codecs)
       (throw (ex-info "invalid served descriptor" {:descriptor descriptor})))
     (doseq [slot slots]
       (checked-target (:offer slot) (:offer-admission slot))
@@ -570,6 +582,7 @@
      :codecs codecs
      :codec-index (zipmap (map :ws/subprotocol codecs) codecs)
      :state (atom {:control control-target
+                   :descriptor descriptor
                    :slots (mapv (fn [slot]
                                   (assoc slot :status :free)) slots)
                    :connections {}})}))
@@ -578,6 +591,16 @@
 (defn endpoint-state
   [endpoint]
   @(:state endpoint))
+
+
+(defn endpoint-bound!
+  "Record the port the host bound, for an endpoint composed on port 0:
+   session handles minted from here name it.  Answers the endpoint."
+  [endpoint port]
+  (swap! (:state endpoint) update :descriptor
+         #(assoc % :ws/port port
+                 :dao.stream/identity (str "ws://" (:ws/host %) ":" port (:ws/path %))))
+  endpoint)
 
 
 (defn- endpoint-target
@@ -618,7 +641,7 @@
    tests)."
   ([endpoint path socket] (accept-connection! endpoint path socket nil))
   ([endpoint _path socket now]
-   (let [descriptor (:descriptor (:config endpoint))
+   (let [descriptor (:descriptor (endpoint-state endpoint))
          offered (:ws/subprotocol socket)
          codec (if (nil? offered)
                  transit/profile

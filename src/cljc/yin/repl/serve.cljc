@@ -28,7 +28,10 @@
    medium's own `end` during the composed 500 ms drain (`repl-bounds`),
    which its RPC client reads as `:ended`, before its connection closes.
    A client whose process is suspended past the profile's idle timeout
-   (60 s) is reaped and observes `:detached` on resume."
+   (60 s) is reaped and observes `:detached` on resume.
+
+   A `--port 0` bind advertises the port the host reports once bound;
+   until then the endpoint has no URL."
   (:require [dao.data :as data]
             [dao.stream :as stream]
             [dao.stream.remote-channel :as remote-channel]
@@ -118,15 +121,24 @@
        (pr-str (data/summarize value diagnostic-bounds))))
 
 
+(defn- port-unreported-text
+  [value]
+  (str ";; endpoint bind failed: the host reported no bound port for an "
+       "ephemeral bind " (pr-str (data/summarize value diagnostic-bounds))))
+
+
 ;; =============================================================================
 ;; serve!
 ;; =============================================================================
 
 (defn url
-  "The endpoint as an operator would type it into `(connect …)`."
+  "The endpoint as an operator would type it into `(connect …)`; nil while
+   the advertised port is 0, an ephemeral bind the host has not yet
+   reported."
   [endpoint]
   (let [{:keys [host port path]} (:spec endpoint)]
-    (str connect/url-prefix connect/ws-scheme host ":" port path)))
+    (when-not (= 0 port)
+      (str connect/url-prefix connect/ws-scheme host ":" port path))))
 
 
 (defn- inert
@@ -169,6 +181,11 @@
                       {:code :yin.repl.endpoint/bind-threw
                        :message "the host listener failed to bind"})
              "the host listener failed to bind")
+
+      ::remote-channel/port-unreported
+      (-> base
+          (assoc :status :failed :bind-note "the host reported no bound port")
+          (publish :yin.repl.serve/notice (port-unreported-text (:detail server))))
 
       (inert base {:code :yin.repl.endpoint/composition-refused
                    :message (str "programming error: the endpoint composition was refused as "
@@ -213,16 +230,6 @@
              {:code :yin.repl.endpoint/advertised-host-required
               :message "a wildcard bind requires an explicit advertised host"}
              (str "binding " bind-host " needs an explicit advertised host"))
-
-      ;; Known limit of this slice, stated rather than hidden behind the
-      ;; channel's port refusal: the advertised descriptor is fixed at
-      ;; `serve`, so a bind to port zero has no advertised port to name.
-      (= 0 advertised-port)
-      (inert base
-             {:code :yin.repl.endpoint/ephemeral-port-unsupported
-              :message (str "an ephemeral bind has no advertised port until it "
-                            "binds, and this slice fixes the descriptor at serve!")}
-             "--port 0 needs an explicit advertised port in this slice")
 
       (not (host-common/binder? host))
       (inert base {:code host-common/missing-code :message host-common/missing-text}
@@ -271,8 +278,9 @@
 
 (defn- refused-text
   [server]
-  (if (= ::remote-channel/bind-failed (:reason server))
-    (bind-failed-text (:detail server))
+  (case (:reason server)
+    ::remote-channel/bind-failed (bind-failed-text (:detail server))
+    ::remote-channel/port-unreported (port-unreported-text (:detail server))
     (str ";; endpoint refused: " (name (:reason server)))))
 
 
@@ -294,9 +302,13 @@
                         :server server
                         :server-seen now-seen
                         :status (repl-status (:status server)))
+        serving? (and changed? (= :serving (:status server)))
+        ;; An ephemeral bind is named by the port the host reported; for
+        ;; any other bind this is the port already advertised.
         endpoint (cond-> endpoint
-                   (and changed? (= :serving (:status server)))
-                   (notice (str "Serving " (url endpoint))))
+                   serving? (assoc-in [:spec :port] (:port (:spec server))))
+        endpoint (cond-> endpoint
+                   serving? (notice (str "Serving " (url endpoint))))
         endpoint (reduce (fn [endpoint fact] (notice endpoint (diagnostic-text fact)))
                          endpoint
                          (take-last (min fresh (count (:diagnostics server)))

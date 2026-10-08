@@ -527,7 +527,9 @@ contract:
   the board composes none, the REPL composes 500 ms.
 - **Lifecycle observation**: the listener's lifecycle medium is a bounded
   ring written only by the host. While starting, `bind-succeeded` serves
-  and `bind-failed` refuses, and a gap or end refuses as lifecycle-lost
+  and, for an ephemeral specification, names the bound port, without which
+  the bind is refused as port-unreported after releasing the listener;
+  `bind-failed` refuses, and a gap or end refuses as lifecycle-lost
   (a lost `bind-failed` cannot be told from a lost `bind-succeeded`), with
   a best-effort release of the listener and the pending connections. While
   serving, diagnostics (`listener-error`, `upgrade-failed`) are kept, the
@@ -563,7 +565,12 @@ keeps the events whose `:ws/attachment` names this channel, appends the
 `:ws/error` diagnostics. A terminal lifecycle event for the attachment
 (`:ws/closed`, `:ws/ended`) or a failure resolution (`:ws/not-found`,
 `:ws/transport-error`) makes `ws-project` close the ring buffer: channel
-loss is then the link's `end` observation (2.4). `ws-project` is a step the
+loss is then the link's `end` observation (2.4). `ws-project` records which
+event closed the ring, and the stepped composition answers it on a lost
+dial as one of five neutral causes, `:ended`, `:dropped`, `:not-served`,
+`:unreachable`, `:expired`, with whether the connection ever opened; a
+consumer refines its own word from them and never from a `:ws/` kind.
+`ws-project` is a step the
 composition drives at its own cadence, as it drives `endpoint-step`.
 `dao.stream.remote-channel` is the stepped composition over this channel:
 `serve`/`serve-step`/`stop!` and `dial`/`dial-step`/`detach!`/`close!` over a
@@ -572,7 +579,9 @@ with its `production-bounds` profile as the composition data of 3.0. The
 specification's `:host` and `:port` are what the descriptor advertises; its
 optional `:bind-host` and `:bind-port` are where the listener binds, each
 defaulting to the advertised one and passed to the host's bind unvalidated
-(port 0 is the host's ephemeral bind behind an explicit advertised port). A
+(port 0 is the host's ephemeral bind; with an advertised port 0 the
+specification is ephemeral, and the bound port the host reports under
+`bind-succeeded` becomes the advertised one). A
 connection that never opens refuses every send (`full`), so the link holds
 no outstanding request to stamp a deadline on; the dial bounds its whole
 resolving phase by the same `give-up-after` from its first step and is then

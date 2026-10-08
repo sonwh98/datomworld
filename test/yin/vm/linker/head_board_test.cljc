@@ -545,13 +545,19 @@
 (deftest a-bind-port-that-is-not-positive-composes-no-endpoint
   (let [calls (atom 0)
         host {:bind! (fn [_] (swap! calls inc) {:dao.stream/outcome :dao.stream/ok})}]
-    (doseq [p [0 nil -1 "7001"]]
+    (doseq [p [nil -1 "7001"]]
       (testing (pr-str p)
         (let [r (head.board/serve {:board (head/board) :principal (principal p1)
                                    :spec {:host "127.0.0.1" :port p}
                                    :host host})]
           (is (= [:refused ::rc/no-port] [(:status r) (:reason r)])))))
-    (is (= 0 @calls) "nothing listened")))
+    (is (= 0 @calls) "nothing listened")
+    (testing "port 0 is an ephemeral bind, finalized by the channel composition"
+      (is (= :starting
+             (:status (head.board/serve {:board (head/board) :principal (principal p1)
+                                         :spec {:host "127.0.0.1" :port 0}
+                                         :host host}))))
+      (is (= 1 @calls)))))
 
 
 (deftest a-host-without-a-listener-or-a-dialer-is-a-refusal

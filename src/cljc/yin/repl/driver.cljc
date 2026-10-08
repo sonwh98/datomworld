@@ -210,26 +210,21 @@
                     (rpc/cursor-pending? (rpc-client state))))))
 
 
-(def queueable-terminals
-  "Terminal reasons after which an ordinary line still has a reattachment
-   decision to wait for.  Only `/detached` reattaches.  A reachability failure
-   may succeed through a *fresh* connection, but that connection cannot inherit
-   this binding's queued lines, so promising to deliver them would be false.
-   Every other terminal returns input to the local shell."
-  #{:dao.stream.rpc/detached})
-
-
 (defn- remote-routed?
   "True while ordinary input belongs to the remote shell.  An operator
    `(disconnect)` ends that immediately — the shell is local again from the next
    line, without waiting for the terminal event the boundary will deposit — while
    an uninvited drop keeps routing so the input can queue for a reattachment.  A
-   terminal with no reattachment behind it ends it too."
+   terminal with no reattachment behind it ends it too: after a terminal an
+   ordinary line still has a reattachment decision to wait for only while the
+   binding is `connect/reattachable?`.  A reachability failure may succeed
+   through a *fresh* connection, but that connection cannot inherit this
+   binding's queued lines, so promising to deliver them would be false."
   [state]
   (and (:adapter state)
        (not (connect/operator-detached? (:connection state)))
-       (let [terminal (remote-terminal state)]
-         (or (nil? terminal) (contains? queueable-terminals terminal)))))
+       (or (nil? (remote-terminal state))
+           (connect/reattachable? (:connection state) (rpc-client state)))))
 
 
 (defn- abandon-unsent
@@ -353,7 +348,7 @@
 
       (and (:connection state)
            (= url (:url (:connection state)))
-           (connect/reattachable? (rpc-client state)))
+           (connect/reattachable? (:connection state) (rpc-client state)))
       (reattach state url)
 
       ;; The operator's own disconnection is in flight: the terminal fact has
