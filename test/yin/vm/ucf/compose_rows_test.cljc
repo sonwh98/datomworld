@@ -330,16 +330,20 @@
   rows 3, 4, 5 and 8.  `:inbound` overrides the source's inbound (the
   held medium the delay rows supply, a [handle sent-atom] pair);
   `:journals` overrides the substrate; `:backend` overrides the
-  authority backend (the poisonable backend of row 8's first check)."
-  [& {:keys [inbound journals backend]}]
+  authority backend (the poisonable backend of row 8's first check);
+  `:wrap-backend` wraps the file backend over the world's own directory
+  (a cut the crash rows reopen past); `:source` overrides the source
+  stream, which must already hold its origin value."
+  [& {:keys [inbound journals backend wrap-backend source]}]
   (let [dir (ct/temp-dir)
         jroot (ct/temp-dir)
         journals (or journals (compose/file-journals jroot))
         authority-backend (or backend
-                              (get (file-journal/backend! dir)
-                                   ::file-journal/backend))
-        source (s2/ring 8)
-        _ (stream/append! source "A")
+                              ((or wrap-backend identity)
+                               (get (file-journal/backend! dir)
+                                    ::file-journal/backend)))
+        source (or source
+                   (doto (s2/ring 8) (stream/append! "A")))
         side (:dao.stream/handle
                (memory-log/create! {:dao.stream/type :dao.stream/memory-log}))
         w {:dir dir
@@ -1819,3 +1823,732 @@
                                                     (s2/ring 8))})]
     (is (= :yin.k/fork (:yin.k/policy c)) "the fork is labelled fork")
     (is (nil? (compose/arbitration c)) "and arbitrates nothing")))
+
+
+;; =============================================================================
+;; Row 2, continued: the carrier's answer decides whether abort is legal
+;; =============================================================================
+
+
+(defn- answering-inbound
+  "A readable log-shaped inbound whose appends answer `@outcome` (an
+  atom): :dao.stream/ok lands the request; any other outcome lands
+  nothing -- the carrier full, refusing, or failing under the send."
+  [identity outcome]
+  (let [values (atom [])]
+    (reify
+      stream/IDaoStreamDescriptor
+      (descriptor
+        [_]
+        {:dao.stream/outcome :dao.stream/ok
+         :dao.stream/identity identity
+         :dao.stream/descriptor {:dao.stream/type :dao.stream.test/channel
+                                 :dao.stream/identity identity}})
+
+
+      stream/IDaoStreamReader
+
+      (cursor
+        [_ _anchor]
+        {:dao.stream/outcome :dao.stream/ok :dao.stream/cursor 0})
+
+      (next
+        [_ cursor]
+        (let [vs @values]
+          (cond
+            (not (and (integer? cursor) (<= 0 cursor (count vs))))
+            {:dao.stream/outcome :dao.stream/invalid-cursor}
+            (< cursor (count vs))
+            {:dao.stream/outcome :dao.stream/ok
+             :dao.stream/value (nth vs cursor)
+             :dao.stream/cursor (inc cursor)}
+            :else {:dao.stream/outcome :dao.stream/blocked})))
+
+
+      stream/IDaoStreamWriter
+
+      (append!
+        [_ x]
+        (let [o @outcome]
+          (when (= :dao.stream/ok o) (swap! values conj x))
+          {:dao.stream/outcome o})))))
+
+
+(defn- offer-attempts
+  "Holder `h`'s journaled offer attempts, each carrying its append's
+  answer."
+  [c h]
+  (filterv #(and (= :yin.k/attempt (:yin.k/journal %))
+                 (= :yin.k/offer (:yin.k/action %)))
+           (ct/journal-records-of c h)))
+
+
+(defn- control-until
+  "Control-only ticks -- the plane that sends offers -- until `pred`
+  holds of the composition or `n` are spent."
+  [c pred n]
+  (step-until c pred n compose/control-step))
+
+
+(deftest row-2-abort-is-legal-only-while-no-offer-can-have-landed-test
+  (doseq [[outcome legal?] [[:dao.stream/full true]
+                            [:dao.stream/refused true]
+                            [:dao.stream/transport-error false]
+                            [:dao.stream/ok false]]]
+    (testing (pr-str outcome)
+      (let [answer (atom outcome)]
+        (exclusive-row
+          (fn [w]
+            (let [source-machine (get-in w [:source-config :machine])
+                  c (control-until (step-until (:c w) #(= :fenced (get-in % [:holders "h1" :detail :step])) 12)
+                                   #(seq (offer-attempts % "h1")) 12)
+                  attempts (offer-attempts c "h1")
+                  o (get-in c [:holders "h1" :export :occurrence])
+                  _ (is (some? o) "the export minted before the offer")
+                  _ (is (every? #(= outcome (:yin.k/append %)) attempts)
+                        "every attempt journaled the carrier's own answer")
+                  _ (is (= :exporting (get-in c [:holders "h1" :phase]))
+                        "the offer phase keeps the source fenced")
+                  c (compose/abort c "h1")
+                  st (get-in c [:holders "h1"])]
+              (if legal?
+                (do (is (= :aborted (:phase st)) (pr-str (select-keys st [:phase :status :detail])))
+                    (is (= {:yin.k/aborted o} (:detail st)))
+                    (is (= :running (vm/gate-mode (:machine st)))
+                        "the aborted export hands back local execution")
+                    (is (vm/blocked? (:machine st)))
+                    (is (= (:wait-set source-machine) (:wait-set (:machine st)))
+                        "the restored machine retains its waits and their ids")
+                    (is (journal-has? c "h1" #(and (= :yin.k/aborted (:yin.k/journal %))
+                                                   (= o (:yin.k/occurrence %))))
+                        "the terminal record is durable before the hand-back")
+                    (reset! answer :dao.stream/ok)
+                    (let [c' (reduce (fn [c _] (compose/step c)) c (range 6))]
+                      (is (= :aborted (get-in c' [:holders "h1" :phase])))
+                      (is (= (count attempts) (count (offer-attempts c' "h1")))
+                          "an aborted export never offers again")
+                      (is (empty? (inbound-of c' "h1" :yin.k/offer)))
+                      (is (nil? (get-in (authority/projection (:authority c'))
+                                        [:occurrences o]))
+                          "the authority never heard of the occurrence")
+                      (is (zero? @(:attaches w)))))
+                (do (is (= :yin.k/refused (:status st)))
+                    (is (= {:yin.k/reason :offer-possibly-accepted} (:detail st)))
+                    (is (= :exporting (:phase st)))
+                    (is (= :exporting (vm/gate-mode (get-in st [:export :m])))
+                        "a refused abort leaves the source fenced")
+                    (is (empty? (get-in st [:export :m :wait-set])))
+                    (is (= (count (:wait-set source-machine))
+                           (count (get-in st [:export :record :wait-set])))
+                        "the fenced record keeps every authentic wait")
+                    (is (not (journal-has? c "h1" #(= :yin.k/aborted (:yin.k/journal %)))))
+                    (is (zero? @(:attaches w)))
+                    (reset! answer :dao.stream/ok)
+                    (let [c' (step-until c #(= :running (get-in % [:holders "h1" :phase])) 60)
+                          c' (reduce (fn [c _] (compose/step c)) c' (range 6))
+                          p (authority/projection (:authority c'))]
+                      (is (if (= :dao.stream/transport-error outcome)
+                            (< 1 (count (offer-attempts c' "h1")))
+                            (= 1 (count (offer-attempts c' "h1"))))
+                          "a failed carrier retried the identical offer; an ok one sent it once")
+                      (is (= 1 (count (get-in p [:occurrences o :yin.k/variants])))
+                          "duplicate offer evidence admits one variant")
+                      (is (= 1 (count (filter #(= o (:yin.k/occurrence %)) (vals (:leases p)))))
+                          "duplicate evidence creates no second grant")
+                      (is (= 1 (count (journal-acks c' "h1"))) "one accepted grant")
+                      (is (= 1 @(:attaches w)) "one activation under the one grant"))))))
+          (fn [] (ct/exclusive-world :inbound (answering-inbound "row-2-inbound" answer))))))))
+
+
+(deftest row-2-a-restarted-export-never-aborts-test
+  (let [answer (atom :dao.stream/full)]
+    (exclusive-row
+      (fn [w]
+        (let [c (control-until (step-until (:c w) #(= :fenced (get-in % [:holders "h1" :detail :step])) 12)
+                               #(seq (offer-attempts % "h1")) 12)
+              o (get-in c [:holders "h1" :export :occurrence])
+              _ (crash-exclusive! w c)
+              rebuilt (rebuilt-exclusive w)]
+          (try
+            (let [c2 (compose/abort (:c rebuilt) "h1")
+                  st (get-in c2 [:holders "h1"])]
+              (is (= :exporting (:phase st)) (pr-str (select-keys st [:phase :status :detail])))
+              (is (= :yin.k/refused (:status st)))
+              (is (= {:yin.k/reason :restarted} (:detail st))
+                  "even an export whose every attempt was refused never
+                   aborts after a restart")
+              (is (= o (get-in st [:export :occurrence])))
+              (is (not (journal-has? c2 "h1" #(= :yin.k/aborted (:yin.k/journal %))))))
+            (finally (ct/close-reconstruction! rebuilt)))))
+      (fn [] (ct/exclusive-world :inbound (answering-inbound "row-2-restart" answer))))))
+
+
+;; =============================================================================
+;; Row 1, continued: the competitor is observed awaiting before refusal
+;; =============================================================================
+
+
+(defn- first-index
+  [xs x]
+  (first (keep-indexed (fn [i y] (when (= x y) i)) xs)))
+
+
+(deftest row-1-the-competitor-awaits-the-grant-then-is-refused-test
+  (exclusive-row
+    (fn [w]
+      (let [c0 (step-until (:c w) #(seq (inbound-of % "h1" :yin.k/offer)) 30)
+            cp (checkpoint-of c0 (:store w) "h1")
+            c0 (compose/holder c0 "h2" (assoc (candidate-seams w)
+                                              :bytes (:bytes cp)
+                                              :address (:address cp)))
+            seen (atom [])
+            c (step-until c0
+                          (fn [c]
+                            (let [st (get-in c [:holders "h2"])]
+                              (swap! seen conj (select-keys st [:phase :status :machine]))
+                              (= :yin.k/not-holder (:status st))))
+                          60)
+            statuses (mapv :status @seen)
+            awaiting (filterv #(= :yin.k/awaiting-grant (:status %)) @seen)]
+        (is (seq awaiting) (str "the competitor was observed awaiting the grant: "
+                                (pr-str (distinct (map #(dissoc % :machine) @seen)))))
+        (is (every? #(= :proposing (:phase %)) awaiting))
+        (is (every? (comp nil? :machine) awaiting)
+            "no machine is exposed while the grant is awaited")
+        (is (< (first-index statuses :yin.k/awaiting-grant)
+               (first-index statuses :yin.k/not-holder))
+            "awaiting precedes the refusal")
+        (is (= "h1" (get-in c [:holders "h2" :detail :dao.lease/holder])))
+        (is (= 1 (count (filter some? (vals (:leases (authority/projection (:authority c))))))))))))
+
+
+;; =============================================================================
+;; Row 3, continued: the commit lands before the reclaim
+;; =============================================================================
+
+
+(deftest row-3-a-commit-before-the-reclaim-replays-for-the-regrant-test
+  (rows-row
+    (fn [w]
+      (let [c (run-to-write (:c @w))
+            c (step-until c #(seq (replies-of % "h1" :yin.k/admit)) 20 compose/control-step)
+            committed (last-admit-reply c "h1")
+            o (get-in c [:holders "h1" :occurrence])
+            id0 {:yin.k/occurrence o :yin.k/seq 0}
+            _ (is (= :committed (:yin.k/admission committed)) (pr-str committed))
+            _ (is (= ["A"] (target-values @w)))
+            _ (reset! (:clock @w) {:s 100})
+            c (reduce (fn [c _] (compose/control-step c)) c (range 6))
+            _ (is (nil? (get-in (authority/projection (:authority c))
+                                [:occurrences o :dao.lease/lease]))
+                  "the reclaim followed the commit")
+            c (candidate-over @w c (checkpoint-of c (:store @w) "h1") "h2")
+            c (step-until c #(= :safepoint (get-in % [:holders "h2" :phase])) 80)
+            h2 (get-in c [:holders "h2"])
+            h2-lease (:lease h2)
+            h2-epoch (get-in h2 [:evidence :yin.k/binding :yin.k/epoch])]
+        (is (= [:replayed] (distinct (admissions-of c "h2")))
+            "the regrant's write at the same id replays the commit")
+        (is (= ["A"] (target-values @w)))
+        (let [ask (fn [c rid]
+                    (let [n (count (replies-of c "h2" :yin.k/admit))]
+                      (stream/append! (get-in c [:inbounds "h2"])
+                                      (admit-request rid (:target @w)
+                                                     (envelope-of h2-lease h2-epoch id0 "A")))
+                      (step-until c #(> (count (replies-of % "h2" :yin.k/admit)) n)
+                                  20 compose/control-step)))
+              c (ask c [:compose-rows/equal-1 o])
+              c (ask c [:compose-rows/equal-2 o])
+              answers (take-last 2 (mapv :yin.k/answer (replies-of c "h2" :yin.k/admit)))]
+          (is (= [:replayed :replayed] (mapv :yin.k/admission answers)))
+          (is (= [(:yin.k/result committed) (:yin.k/result committed)]
+                 (mapv :yin.k/result answers))
+              "both authored equal replays answer the one stored result")
+          (is (= ["A"] (target-values @w)) "never both"))))))
+
+
+;; =============================================================================
+;; Row 4, continued: zero at the cut, stable ids across it
+;; =============================================================================
+
+
+(defn- one-commit?
+  "Whether the admission answers `answers` (the reply journal survives a
+  reopen, so it holds both tenures') carry exactly one commit, every
+  other answer a replay of it."
+  [answers]
+  (and (= 1 (count (filter #{:committed} answers)))
+       (every? #{:committed :replayed} answers)))
+
+
+(deftest row-4-zero-or-one-commit-at-a-stable-id-across-the-cut-test
+  (doseq [cut [:before-commit :after-commit]]
+    (testing (pr-str cut)
+      (rows-row
+        (fn [w]
+          (let [after? (= :after-commit cut)
+                c (run-to-write (:c @w))
+                o (get-in c [:holders "h1" :occurrence])
+                id0 {:yin.k/occurrence o :yin.k/seq 0}
+                sent (inbound-of c "h1" :yin.k/admit)
+                _ (is (= [id0] (mapv #(get-in % [:yin.k/fenced-envelope :yin.k/op-id]) sent)))
+                c (if after? (compose/control-step c) c)
+                at-cut (read-all (compose/outcome-reader c))]
+            (is (= (if after? ["A"] []) (target-values @w))
+                "zero or one commit stands at the cut")
+            (is (= (if after? 1 0) (count at-cut)))
+            (crash-rows! w c)
+            (let [c' (step-until (:c @w) #(= :safepoint (get-in % [:holders "h1" :phase])) 90)
+                  resent (inbound-of c' "h1" :yin.k/admit)
+                  answers (mapv :yin.k/answer (replies-of c' "h1" :yin.k/admit))
+                  outcomes (read-all (compose/outcome-reader c'))]
+              (is (seq resent))
+              (is (every? #(= id0 (get-in % [:yin.k/fenced-envelope :yin.k/op-id])) resent)
+                  "the recovered write carries the stable id")
+              (is (every? #(= "A" (get-in % [:yin.k/fenced-envelope :yin.k/value])) resent)
+                  "and the same intent")
+              (is (one-commit? (mapv :yin.k/admission answers))
+                  (pr-str (mapv :yin.k/admission answers)))
+              (is (= :committed (:yin.k/admission (first answers)))
+                  "the first answer in the surviving reply journal is the commit")
+              (is (every? #(= id0 (:yin.k/op-id %)) answers)
+                  "every answer names the stable id")
+              (is (= 1 (count outcomes)) "one committed outcome in total")
+              (when after?
+                (is (= at-cut outcomes)
+                    "the outcome stands at the same position across reopen"))
+              (is (= ["A"] (target-values @w))))))))))
+
+
+;; =============================================================================
+;; Row 5, continued: a changed live input after recovery
+;; =============================================================================
+
+
+(defn- rewritable-source
+  "A source ring holding \"A\" at its origin whose reads answer each
+  value through `rewrite` (an atom of a map): the live input changing
+  under a recovery while its position stays put."
+  [rewrite]
+  (let [ring (doto (s2/ring 8) (stream/append! "A"))]
+    (reify
+      stream/IDaoStreamDescriptor
+      (descriptor [_] (stream/descriptor ring))
+
+
+      stream/IDaoStreamReader
+
+      (cursor [_ anchor] (stream/cursor ring anchor))
+
+      (next
+        [_ cursor]
+        (let [r (stream/next ring cursor)]
+          (if (contains? r :dao.stream/value)
+            (update r :dao.stream/value #(get @rewrite % %))
+            r)))
+
+
+      stream/IDaoStreamWriter
+
+      (append! [_ x] (stream/append! ring x))
+
+
+      stream/IDaoStreamClosable
+
+      (close! [_] (stream/close! ring)))))
+
+
+(deftest row-5-a-changed-live-input-meets-the-durable-record-test
+  (doseq [cut [:input-uncarried :write-uncarried :write-committed]]
+    (testing (pr-str cut)
+      (let [rewrite (atom {})]
+        (rows-row
+          (fn [w]
+            (let [c (step-until (:c @w) #(= :running (get-in % [:holders "h1" :phase])) 60)
+                  c (case cut
+                      :input-uncarried (step-until c #(seq (inbound-of % "h1" :yin.k/input)) 20)
+                      :write-uncarried (run-to-write c)
+                      :write-committed (step-until (run-to-write c)
+                                                   #(seq (replies-of % "h1" :yin.k/admit))
+                                                   20 compose/control-step))
+                  observed (do (when (= :input-uncarried cut)
+                                 (is (empty? (replies-of c "h1" :yin.k/input))))
+                               @(:observes @w))
+                  _ (crash-rows! w c)
+                  _ (reset! rewrite {"A" "Z"})
+                  c' (step-until (:c @w) #(= :safepoint (get-in % [:holders "h1" :phase])) 90)
+                  answers (mapv (comp :yin.k/admission :yin.k/answer)
+                                (replies-of c' "h1" :yin.k/admit))]
+              (if (= :input-uncarried cut)
+                (do (is (< observed @(:observes @w))
+                        "no durable input: the recovery re-read live")
+                    (is (= ["Z"] (target-values @w))
+                        "the changed live value is the first and only commit")
+                    (is (one-commit? answers) (pr-str answers)))
+                (do (is (= observed @(:observes @w))
+                        "the durable input replayed; nothing was re-read")
+                    (is (= ["A"] (target-values @w))
+                        "the changed live value never reached the target")
+                    (is (one-commit? answers) (pr-str answers))))
+              (is (not-any? #{:intent-conflict :input-conflict} answers)
+                  "the durable record keeps divergence from arising at the id")
+              (let [occurrences (:occurrences (authority/projection (:authority c')))
+                    o (get-in c' [:holders "h1" :occurrence])]
+                (is (contains? occurrences o) "the lookup names a known occurrence")
+                (is (nil? (get-in occurrences [o :yin.k/quarantined]))
+                    "the fold never quarantined it"))))
+          (fn [] (rows-world :source (rewritable-source rewrite))))))))
+
+
+;; =============================================================================
+;; Row 6 (unit), continued: a grant lost to a crash before it was observed
+;; =============================================================================
+
+
+(deftest row-6-an-unobserved-grant-lost-to-a-crash-is-reclaimed-test
+  (exclusive-row
+    (fn [w]
+      (let [leases-of (fn [c] (filterv some? (vals (:leases (authority/projection (:authority c))))))
+            c (step-until (:c w) #(seq (inbound-of % "h1" :yin.k/proposal)) 40)
+            c (step-until c #(seq (leases-of %)) 20 compose/control-step)
+            [lost] (leases-of c)
+            pid0 (:dao.lease/proposal lost)]
+        (is (empty? (journal-acks c "h1")) "the grant was never observed")
+        (is (= [pid0] (distinct (map :dao.lease/proposal (inbound-of c "h1" :yin.k/proposal))))
+            "before the crash every retry was the identical proposal")
+        (crash-exclusive! w c)
+        (let [rebuilt (rebuilt-exclusive w)]
+          (try
+            (let [c2 (step-until (:c rebuilt) #(= :running (get-in % [:holders "h1" :phase])) 90)
+                  p (authority/projection (:authority c2))
+                  resent (inbound-of c2 "h1" :yin.k/proposal)
+                  pid1 (:dao.lease/proposal (first resent))
+                  live (filterv #(nil? (:dao.lease/cause %)) (vals (:leases p)))]
+              (is (= :policy (some (fn [[_ v]]
+                                     (when (= pid0 (:dao.lease/proposal v))
+                                       (:dao.lease/cause v)))
+                                   (:leases p)))
+                  "the authority's reopen reclaimed the unobserved grant")
+              (is (not= pid0 pid1) "the recovery proposes under a fresh id")
+              (is (= [pid1] (distinct (map :dao.lease/proposal resent)))
+                  "and every retry of it is the identical proposal")
+              (is (= 1 (count live)) "never two live leases")
+              (is (= pid1 (:dao.lease/proposal (first live))))
+              (is (= 1 (:yin.k/epoch (first live))) "the regrant is at the next epoch")
+              (is (= #{["h1" pid0] ["h1" pid1]}
+                     (set (filter #(= "h1" (first %)) (keys (:answered p)))))
+                  "each proposal id answered exactly once")
+              (is (= 1 (count (journal-acks c2 "h1")))))
+            (finally (ct/close-reconstruction! rebuilt))))))))
+
+
+;; =============================================================================
+;; Row 7, continued: the authority lost under a live exit
+;; =============================================================================
+
+
+(defn- cut-backend
+  "File backend `b` whose next frame write after `cut` (an atom) is set
+  throws once: `:before` writes nothing, `:after` writes the frame
+  first -- the authority lost before or after its answer was durable."
+  [b cut]
+  (let [write! (:dao.stream.journal/write-frame! b)]
+    (assoc b :dao.stream.journal/write-frame!
+           (fn [bs]
+             (if-some [mode @cut]
+               (do (reset! cut nil)
+                   (when (= :after mode) (write! bs))
+                   (throw (ex-info "the authority was lost" {:cut mode})))
+               (write! bs))))))
+
+
+(deftest row-7-the-authority-lost-under-a-live-exit-test
+  (doseq [mode [:before :after]]
+    (testing (pr-str mode)
+      (let [cut (atom nil)]
+        (rows-row
+          (fn [w]
+            (let [after? (= :after mode)
+                  c (step-until (run-to-write (:c @w))
+                                #(= :safepoint (get-in % [:holders "h1" :phase])) 40)
+                  o (get-in c [:holders "h1" :occurrence])
+                  l (get-in c [:holders "h1" :lease])
+                  _ (reset! cut mode)
+                  c (step-until c (fn [_] (nil? @cut)) 20)
+                  _ (is (empty? (completion-transactions c l)) "the live authority closed nothing")
+                  _ (crash-rows! w c)
+                  reopened (authority/projection (:authority (:c @w)))
+                  _ (is (= after? (some? (get-in reopened [:leases l :yin.k/result])))
+                        "the lost write was the report: durable only past the cut")
+                  c' (step-until (:c @w) #(= :exited (get-in % [:holders "h1" :phase])) 150)
+                  p (authority/projection (:authority c'))]
+              (is (= :exited (get-in c' [:holders "h1" :phase])))
+              (is (some? (get-in p [:occurrences o :yin.k/closed])) "the closure stands")
+              (is (= (if after? 1 2) (get-in p [:occurrences o :yin.k/epoch]))
+                  (str "a durable report closes on the reopen's policy lapse; a lost "
+                       "one returns to candidacy, whose regrant's own exit closes"))
+              (if after?
+                (do (assert-completion-transaction c' o l (get-in reopened [:leases l :yin.k/result])
+                                                   nil :policy)
+                    (is (nil? (get-in c' [:holders "h1" :machine])))
+                    (is (= [:side] (read-all (:side @w)))
+                        "the recovered exit ran no program IO"))
+                (is (= [:side :side] (read-all (:side @w)))
+                    "the regranted re-run repeats the at-least-once effect"))
+              (is (= ["A"] (target-values @w)) "the enrolled write stays exactly-once")))
+          (fn [] (rows-world :wrap-backend #(cut-backend % cut))))))))
+
+
+;; =============================================================================
+;; Row 8, continued: cross-target conflict and the unknown-effect cuts
+;; =============================================================================
+
+
+(deftest row-8-the-same-id-on-another-target-conflicts-test
+  (rows-row
+    (fn [w]
+      (let [c (step-until (run-to-write (:c @w)) #(seq (replies-of % "h1" :yin.k/admit))
+                          20 compose/control-step)
+            st (get-in c [:holders "h1"])
+            o (:occurrence st)
+            id0 {:yin.k/occurrence o :yin.k/seq 0}
+            lease (:lease st)
+            epoch (get-in st [:evidence :yin.k/binding :yin.k/epoch])
+            other (:yin.k/target (compose/enroll! c))
+            _ (is (some? other))
+            n (count (replies-of c "h1" :yin.k/admit))
+            _ (stream/append! (get-in c [:inbounds "h1"])
+                              (admit-request [:compose-rows/cross-target o] other
+                                             (envelope-of lease epoch id0 "A")))
+            c (step-until c #(> (count (replies-of % "h1" :yin.k/admit)) n) 20 compose/control-step)
+            answer (last-admit-reply c "h1")]
+        (is (= :intent-conflict (:yin.k/admission answer)) (pr-str answer))
+        (is (= id0 (:yin.k/op-id answer)))
+        (is (= [] (read-all (compose/target-reader c other)))
+            "the other target received nothing")
+        (is (= ["A"] (target-values @w)))))))
+
+
+(deftest row-8-an-unknown-effect-transport-error-test
+  (doseq [mode [:before :after]]
+    (testing (pr-str mode)
+      (let [cut (atom nil)]
+        (rows-row
+          (fn [w]
+            (let [c (run-to-write (:c @w))
+                  st (get-in c [:holders "h1"])
+                  id0 {:yin.k/occurrence (:occurrence st) :yin.k/seq 0}
+                  _ (reset! cut mode)
+                  c (compose/control-step c)
+                  _ (is (nil? @cut) "the cut fired on the admission's write")
+                  at-cut (target-values @w)
+                  _ (crash-rows! w c)
+                  c' (step-until (:c @w) #(= :safepoint (get-in % [:holders "h1" :phase])) 90)
+                  replies (mapv :yin.k/answer (replies-of c' "h1" :yin.k/admit))
+                  answers (mapv :yin.k/admission replies)]
+              (is (= [] at-cut)
+                  "the live authority serves no effect whose frame is uncertain")
+              (is (= {:yin.k/admission :suspended
+                      :yin.k/op-id id0
+                      :yin.k/incarnation (:lease st)
+                      :yin.k/arbitration {:dao.stream/identity
+                                          (:dao.stream/identity (compose/arbitration c))}}
+                     (first replies))
+                  "the exact suspended outcome: no result, no epoch claim")
+              (is (= :suspended (first answers))
+                  "the transport error answers suspended, never a commit")
+              (is (= (if (= :after mode) 0 1)
+                     (count (filter #{:committed} (rest answers))))
+                  (str "the durable frame decides: a written effect replays, an "
+                       "unwritten one commits once -- " (pr-str answers)))
+              (is (every? #{:committed :replayed} (rest answers)))
+              (is (= 1 (count (read-all (compose/outcome-reader c')))))
+              (is (= ["A"] (target-values @w)))))
+          (fn [] (rows-world :wrap-backend #(cut-backend % cut))))))))
+
+
+(deftest row-8-exact-outcome-maps-through-the-front-test
+  (rows-row
+    (fn [w]
+      (let [c (step-until (run-to-write (:c @w)) #(seq (replies-of % "h1" :yin.k/admit))
+                          20 compose/control-step)
+            st (get-in c [:holders "h1"])
+            o (:occurrence st)
+            id0 {:yin.k/occurrence o :yin.k/seq 0}
+            lease (:lease st)
+            epoch (get-in st [:evidence :yin.k/binding :yin.k/epoch])
+            ask (fn [c rid envelope]
+                  (let [n (count (replies-of c "h1" :yin.k/admit))]
+                    (stream/append! (get-in c [:inbounds "h1"])
+                                    (admit-request rid (:target @w) envelope))
+                    (step-until c #(> (count (replies-of % "h1" :yin.k/admit)) n)
+                                20 compose/control-step)))
+            outcome (fn [admission op-id]
+                      {:yin.k/admission admission
+                       :yin.k/op-id op-id
+                       :yin.k/incarnation lease
+                       :yin.k/effect-result {:dao.stream/outcome :dao.stream/ok}})
+            id5 {:yin.k/occurrence o :yin.k/seq 5}
+            c (ask c [:compose-rows/exact-replay o] (envelope-of lease epoch id0 "A"))
+            c (ask c [:compose-rows/exact-gap o] (envelope-of lease epoch id5 :v5))
+            c (ask c [:compose-rows/exact-conflict o] (envelope-of lease epoch id0 :other))
+            answers (mapv :yin.k/answer (replies-of c "h1" :yin.k/admit))]
+        (is (= [(outcome :committed id0) (outcome :replayed id0) (outcome :committed id5)]
+               (subvec answers 0 3))
+            "commit, equal replay and a fresh id past a gap, each the exact closed map")
+        (is (= :intent-conflict (:yin.k/admission (peek answers))) (pr-str (peek answers)))
+        (is (= id0 (:yin.k/op-id (peek answers))))
+        (is (= lease (:yin.k/incarnation (peek answers))))
+        (is (not (contains? (peek answers) :yin.k/effect-result))
+            "a conflict carries no effect result")
+        (is (= ["A" :v5] (target-values @w)))))))
+
+
+;; =============================================================================
+;; Row 7, continued: a successor whose lower fails, and its ancestor's ids
+;; =============================================================================
+
+
+(deftest row-7-a-successor-whose-lower-fails-releases-and-stays-eligible-test
+  (exclusive-row
+    (fn [w]
+      (let [c (step-until (exit-world w) #(= :exited (get-in % [:holders "h1" :phase])) 80)
+            o (get-in c [:holders "h1" :occurrence])
+            successor (successor-checkpoint c (:store w) "h1")
+            s (:occurrence successor)
+            attaches @(:attaches w)
+            seen (atom [])
+            c (compose/holder c "h9" (assoc (candidate-seams w)
+                                            :attach! (fn [_] {:dao.stream/outcome :dao.stream/not-found})
+                                            :bytes (:bytes successor)
+                                            :address (:address successor)))
+            c (step-until c (fn [c]
+                              (swap! seen conj (select-keys (get-in c [:holders "h9"])
+                                                            [:phase :status :detail :machine]))
+                              (= :failed (get-in c [:holders "h9" :phase])))
+                          60)
+            h9 (get-in c [:holders "h9"])
+            p (authority/projection (:authority c))]
+        (is (some #(= :yin.k/awaiting-grant (:status %)) @seen))
+        (is (some #(= :releasing (:phase %)) @seen) "the failed lower releases first")
+        (is (every? (comp nil? :machine) @seen) "no machine was ever exposed")
+        (is (= {:dao.stream/identity "prog-c" :dao.lease/released true} (:detail h9))
+            "the lower failure names the unattachable stream, after the release")
+        (is (= :yin.k/unsatisfied (:status h9)))
+        (is (= 1 (count (distinct (map :yin.k/request-id (inbound-of c "h9" :yin.k/release)))))
+            "one identical release")
+        (is (nil? (get-in p [:occurrences s :dao.lease/lease])))
+        (is (= 1 (get-in p [:occurrences s :yin.k/epoch])) "the release advanced the epoch once")
+        (is (nil? (get-in p [:occurrences s :yin.k/closed])) "an ordinary failure never closes")
+        (is (some? (get-in p [:occurrences o :yin.k/closed])) "the origin's closure stands")
+        (is (= attaches @(:attaches w)) "the failed lower attached nothing")
+        (let [c (compose/holder c "h10" (assoc (candidate-seams w)
+                                               :bytes (:bytes successor)
+                                               :address (:address successor)))
+              c (step-until c #(= :running (get-in % [:holders "h10" :phase])) 60)
+              st (get-in c [:holders "h10"])]
+          (is (= s (:occurrence st)) "the successor stays eligible after the failed lower")
+          (is (= 1 (get-in st [:evidence :yin.k/binding :yin.k/epoch])))
+          (testing "8. an inherited closed-ancestor id is foreign to the successor"
+            (let [target (:yin.k/target (compose/enroll! c))
+                  _ (stream/append! (get-in c [:inbounds "h10"])
+                                    (admit-request [:compose-rows/ancestor o] target
+                                                   (envelope-of (:lease st) 1
+                                                                {:yin.k/occurrence o :yin.k/seq 0} :v)))
+                  c (reduce (fn [c _] (compose/control-step c)) c (range 3))
+                  diagnostics (filterv #(= :foreign-op-id (:yin.k/defect %))
+                                       (read-all (:diagnostics c)))]
+              (is (empty? (replies-of c "h10" :yin.k/admit)) "a diagnosed request is never replied")
+              (is (= [{:yin.k/diagnostic :yin.k/defective-envelope
+                       :yin.k/defect :foreign-op-id
+                       :yin.k/target target
+                       :yin.k/author "h10"
+                       :yin.k/claimed {:yin.k/incarnation (:lease st)
+                                       :yin.k/epoch 1
+                                       :yin.k/op-id {:yin.k/occurrence o :yin.k/seq 0}}}]
+                     diagnostics))
+              (is (= [] (read-all (compose/target-reader c target)))))))))))
+
+
+;; =============================================================================
+;; The stage-D gate's compose halves, continued: content-store cuts
+;; around both stored objects of the freeze
+;; =============================================================================
+
+
+(defn- cut-store
+  "Content store `base` whose `position`-th put suffers a cut: `:before`
+  stores nothing and throws, `:after` stores the bytes and throws
+  anyway.  `fired` (an atom) takes the cut address: the process dies
+  there."
+  [base position cut fired]
+  (let [n (atom 0)
+        put! (:put-bytes-fn base)]
+    (assoc base :put-bytes-fn
+           (fn [address bytes]
+             (if (= position (swap! n inc))
+               (do (when (= :after cut) (put! address bytes))
+                   (reset! fired address)
+                   (throw (ex-info "the store cut" {:position position})))
+               (put! address bytes))))))
+
+
+(defn- store-records
+  "Holder `h`'s journaled store bracket records of `kind`."
+  [c h kind]
+  (filterv #(and (= :yin.k/store (:yin.k/action %)) (= kind (:yin.k/journal %)))
+           (ct/journal-records-of c h)))
+
+
+(deftest the-wired-compositions-content-store-cuts-test
+  (doseq [position [1 2]
+          cut [:before :after]]
+    (testing (pr-str [position cut])
+      (let [base (mem/create-content-mem)
+            fired (atom nil)
+            w (ct/exclusive-world :store (cut-store base position cut fired))
+            get-bytes (:get-bytes-fn base)]
+        (try
+          (let [c (loop [c (:c w) k 0]
+                    (let [c' (try (compose/step c)
+                                  (catch #?(:cljd Object :clj Throwable :cljs :default) _ c))]
+                      (if (or (some? @fired) (>= k 12)) c' (recur c' (inc k)))))
+                cut-address @fired]
+            (is (some? cut-address) "the cut fired on a freeze put")
+            (is (= position (count (store-records c "h1" :yin.k/intent)))
+                "each object's intent is durable before its put")
+            (is (= (dec position) (count (store-records c "h1" :yin.k/ack)))
+                "the cut object was never acknowledged")
+            (is (= (= :after cut) (not= ::absent (get-bytes cut-address ::absent))))
+            (is (not (journal-has? c "h1" #(= :yin.k/fenced (:yin.k/journal %))))
+                "nothing is fenced across the cut")
+            (is (empty? (inbound-of c "h1" :yin.k/offer)) "nothing was offered")
+            (compose/close! c)
+            (file-journal/close! (:backend w))
+            (let [rebuilt (ct/reopened-world (assoc (select-keys w [:dir :clock :journals :source-config])
+                                                    :store base))]
+              (try
+                (let [o (:yin.k/occurrence (first (store-records c "h1" :yin.k/intent)))
+                      c2 (reduce (fn [c _] (compose/step c)) (:c rebuilt) (range 12))
+                      st (get-in c2 [:holders "h1"])
+                      frames (ct/journal-records-of c2 "h1")]
+                  (is (= :stalled (:phase st)))
+                  (is (= {:yin.k/status :yin.k/unsatisfied
+                          :yin.k/detail {:yin.k/reason :incomplete-preparation
+                                         :yin.k/occurrence o}}
+                         {:yin.k/status (:status st) :yin.k/detail (:detail st)})
+                      "an interrupted freeze recovers stalled, naming its occurrence")
+                  (is (nil? (:machine st)) "never runnable")
+                  (is (= 1 (count (filter #(= :yin.k/minted (:yin.k/journal %)) frames)))
+                      "the recovery never re-minted")
+                  (is (not-any? #(= :yin.k/fenced (:yin.k/journal %)) frames)
+                      "and never fenced over the incomplete objects")
+                  (is (empty? (inbound-of c2 "h1" :yin.k/offer)) "nothing was offered")
+                  (is (nil? (get-in (authority/projection (:authority c2)) [:occurrences o]))
+                      "the authority never heard of the occurrence")
+                  (is (zero? @(:attaches w)) "no program IO through the cut or the recovery")
+                  (is (vm/blocked? (get-in w [:source-config :machine]))))
+                (finally (ct/close-reconstruction! rebuilt)))))
+          (finally
+            (ct/cleanup-dir! (:dir w))
+            (ct/cleanup-dir! (:jroot w))))))))

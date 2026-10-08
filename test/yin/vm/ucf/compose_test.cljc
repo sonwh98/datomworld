@@ -281,15 +281,16 @@
   composition's ring -- the bounded medium the drain rows supply;
   `:journals` overrides the composition's journal substrate (the stable
   recovery configuration the restart rows reopen; file-journals over
-  the world's own scratch root by default).  Public: the REPL wiring
-  rows drive this world."
-  [& {:keys [inbound journals]}]
+  the world's own scratch root by default); `:store` overrides the
+  content store (the cut store of the D16 storage rows).  Public: the
+  REPL wiring rows drive this world."
+  [& {:keys [inbound journals store]}]
   (let [dir (temp-dir)
         jroot (temp-dir)
         journals (or journals (compose/file-journals jroot))
         backend (get (file-journal/backend! dir) ::file-journal/backend)
         clock (atom {:s 1})
-        store (mem/create-content-mem)
+        store (or store (mem/create-content-mem))
         prog (int-stream "prog-c")
         opened (compose/open! {:mode :exclusive
                                :failure-model :process-crash
