@@ -15,6 +15,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.await :as await]
             [dao.jing :as jing]
+            [dao.jing.mem :as mem]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
@@ -28,7 +29,9 @@
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
             [yin.vm.linker :as linker]
+            [yin.vm.linker.publish :as publish]
             [yin.repl :as repl]
+            [yin.repl.link :as link]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
@@ -1269,6 +1272,62 @@
     (testing "the child issued its references and the module linked"
       (is (not (vm/blocked? done)))
       (is (= 7 (vm/value done))))))
+
+
+;; =============================================================================
+;; The serving composition's derivation policy (section 8.1, R6)
+;; =============================================================================
+
+(def ^:private format-contracts
+  {:yin.semantic/code vm/semantic-contract,
+   :yin.debruijn.code vm/stack-contract,
+   :yin.debruijn.register vm/register-contract})
+
+
+(defn- served-response
+  "Publish `answer-module` as `foo` in a fresh store, serve one by-name
+   link request for `format-kw` over a `yin.repl.link` composition of
+   `opts` on that store, and return the response body the interpreter
+   appended."
+  [opts format-kw]
+  (let [store (mem/create-content-mem)
+        {:keys [address]} (publish/publish-module!
+                            store {:name 'foo, :ast answer-module,
+                                   :exports #{'f}, :requires {},
+                                   :primitives {}})
+        source (link/composition (merge {:content-store store,
+                                         :name-env {'foo address}}
+                                        opts))
+        pair (link/make-pair)
+        response-cursor (:dao.stream/cursor
+                          (stream/cursor (:responses pair)
+                                         stream/anchor-oldest))]
+    (stream/append! (:requests pair)
+                    {:yin.link/id [:t0 0],
+                     :yin.link/name 'foo,
+                     :yin.link/format format-kw,
+                     :yin.link/contract (get format-contracts format-kw)})
+    (let [served (link/serve {:pair pair, :source source})
+          r (stream/next (:responses pair) response-cursor)]
+      (jing/close! store)
+      {:pending (:pending served),
+       :response (:dao.stream/value r)})))
+
+
+(deftest a-serving-composition-names-the-trust-it-applied
+  (doseq [format-kw (keys format-contracts)]
+    (testing (str format-kw)
+      (testing "the default composition verifies the derivation"
+        (let [{:keys [pending response]} (served-response {} format-kw)]
+          (is (empty? pending))
+          (is (= :ok (:status response)))
+          (is (= :verified (:trust response)))))
+      (testing "a composition that asks for :trusted says so"
+        (let [{:keys [pending response]}
+              (served-response {:derivation :trusted} format-kw)]
+          (is (empty? pending))
+          (is (= :ok (:status response)))
+          (is (= :composition (:trust response))))))))
 
 
 (defn- drive-await

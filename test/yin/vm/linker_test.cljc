@@ -13,8 +13,10 @@
             [dao.jing.dht :as dht]
             [dao.jing.dht.mesh :as dht-mesh]
             [dao.jing.mem :as mem]
+            [dao.space.query :as query]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
+            [dao.test-slow :as slow]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.code :as code]
@@ -27,6 +29,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.linearize :as lin]
             [yin.vm.linker :as linker]
+            [yin.vm.linker.publish :as publish]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
@@ -606,6 +609,204 @@
                (definitions-fn tree))
             "any :if branch or lambda body enclosing the binding makes
              it conditional")))))
+
+
+(def ^:private shared-row
+  "`((fn [x] x) x)`: content addressing collapses the body's `x` and the
+   operand's `x` to one `:variable` row, bound at its body occurrence and
+   free at its operand occurrence (yin.vm.code-as-tuples.md section 4.5)."
+  (app (lam '[x] (v 'x)) (v 'x)))
+
+
+(def ^:private nested-scopes
+  "`((fn [x] ((fn [y] (x y z)) x)) y)`: an inner binder, an outer one,
+   and names free at one depth and bound at another."
+  (app (lam '[x] (app (lam '[y] (app (v 'x) (v 'y) (v 'z))) (v 'x)))
+       (v 'y)))
+
+
+(defn- oracle-enclosure
+  "`[in-body? conditional?]` of the occurrence at `path`, read off the
+   occurrence relation: whether a proper prefix of `path` is a `:lambda`
+   left through its body (slot 3), and whether one is that or an `:if`
+   left through a branch (slots 3 and 4) -- section 4.1's enclosing tags."
+  [tree path]
+  (let [ids (into {} (map (fn [[_ p id]] [p id])) (vm/occurrences tree))]
+    (reduce (fn [[in-body? conditional?] i]
+              (let [tag (nth (get (:rows tree) (get ids (subvec path 0 i))) 1)
+                    step (nth path i)
+                    body? (and (= :lambda tag) (= 3 step))]
+                [(or in-body? body?)
+                 (or conditional? body?
+                     (and (= :if tag) (contains? #{3 4} step)))]))
+            [false false]
+            (range (count path)))))
+
+
+(defn- oracle-relations
+  [tree]
+  [(query/relation (vals (:rows tree)))
+   (query/relation (vm/occurrences tree))])
+
+
+(defn- oracle-free-occurrences
+  "The free-name records of `tree` as `yin.vm/occurrence-rules` classify
+   them, the reserved names removed: the Datalog relation the linker's
+   free-name walk is held to (section 4.1)."
+  [tree]
+  (let [root (:root tree)
+        [db occ] (oracle-relations tree)]
+    (into #{}
+          (keep (fn [[name path]]
+                  (when-not (vm/reserved-name? name)
+                    {:name name, :at [root path],
+                     :in-body? (first (oracle-enclosure tree path))})))
+          (query/collect
+            (query/q '[:find ?name ?path
+                       :in $ast $occ % ?root
+                       :where
+                       [$occ ?root ?path ?v]
+                       [$ast ?v :variable ?name]
+                       (not (occ-bound? ?root ?path ?name))]
+                     db occ vm/occurrence-rules root)))))
+
+
+(defn- oracle-definitions
+  "The definition records of `tree` from `vm/ast-requirements`' store-key
+   query over the occurrence relation: a definition form's binding at
+   its invocation position, a `:vm/store-put` at its own."
+  [tree]
+  (let [root (:root tree)
+        [db occ] (oracle-relations tree)]
+    (into #{}
+          (map (fn [[key path v]]
+                 (let [at (if (= :application (nth (get (:rows tree) v) 1))
+                            (conj path [3 2])
+                            path)]
+                   {:name key, :at [root at],
+                    :conditional? (second (oracle-enclosure tree path))})))
+          (query/collect
+            (query/q '[:find ?key ?path ?v
+                       :in $ $occ ?root
+                       :where
+                       [$occ ?root ?path ?v]
+                       (or-join [?v ?key]
+                                [?v :vm/store-put ?key _]
+                                (and [?v :application ?op ?operands _]
+                                     [?op :variable yin/def]
+                                     [(count ?operands) 2]
+                                     [(nth ?operands 0) ?name-id]
+                                     [?name-id :literal ?key]))]
+                     db occ root)))))
+
+
+(defn- oracle-applications
+  "The application sites of `tree` from the application-row query over
+   the occurrence relation, each at its invocation position."
+  [tree]
+  (let [root (:root tree)
+        [db occ] (oracle-relations tree)]
+    (into #{}
+          (map (fn [[path n]] {:at [root (conj path [3 n])]}))
+          (query/collect
+            (query/q '[:find ?path ?n
+                       :in $ $occ ?root
+                       :where
+                       [$occ ?root ?path ?v]
+                       [?v :application _ ?operands _]
+                       [(count ?operands) ?n]]
+                     db occ root)))))
+
+
+(defn- wide-module
+  "A synthetic module in the wide layout of `n` definitions: one
+   application of an `n`-parameter lambda to `n` definition forms, the
+   `i`th `(yin/def f<i> (fn [] (+ f<i+1> (* f<i+2> f<i+3>))))`, sibling
+   indexes modulo `n`. Each definition is a lambda reading three
+   siblings and the two primitives `+` and `*`; the tree is six rows per
+   definition plus the shared ones, its deepest occurrence a few steps
+   from the root."
+  [n]
+  (let [f (fn [i] (symbol (str "f" (mod i n))))
+        definition (fn [i]
+                     (app (v 'yin/def)
+                          (lit (f i))
+                          (lam []
+                               (app (v '+)
+                                    (v (f (+ i 1)))
+                                    (app (v '*) (v (f (+ i 2)))
+                                         (v (f (+ i 3))))))))]
+    {:ast (apply app
+                 (lam (mapv (fn [i] (symbol (str "p" i))) (range n))
+                      (lit nil))
+                 (mapv definition (range n))),
+     :exports (set (map f (range n)))}))
+
+
+(def ^:private conformance-fixtures
+  "Every tree fixture of this namespace, the shared-row and nested-scope
+   ones, and a small module in the wide layout."
+  [[:worked-example worked-example]
+   [:closed-program closed-program]
+   [:other-program other-program]
+   [:unknown-free unknown-free]
+   [:nested-capture nested-capture]
+   [:nested-scopes nested-scopes]
+   [:def-then-use def-then-use]
+   [:use-then-def use-then-def]
+   [:branch-def branch-def]
+   [:body-def body-def]
+   [:define-then-apply define-then-apply]
+   [:apply-then-define apply-then-define]
+   [:yin-def-then-read yin-def-then-read]
+   [:yin-def-reads-its-own-name yin-def-reads-its-own-name]
+   [:yin-def-of-the-quoted-symbol yin-def-of-the-quoted-symbol]
+   [:yin-def-rebound-then-def yin-def-rebound-then-def]
+   [:store-put-yin-def-then-def store-put-yin-def-then-def]
+   [:computed-key-then-def computed-key-then-def]
+   [:aliased-yin-def-then-def aliased-yin-def-then-def]
+   [:shared-row shared-row]])
+
+
+(deftest tree-definition-and-application-walks-equal-their-queries
+  (let [{:keys [definitions-fn applications-fn]} linker/ast-format]
+    (doseq [[label ast] (conj conformance-fixtures
+                              [:wide-module (:ast (wide-module 12))])
+            :let [tree (vm/ast->semantic-bytecode ast)
+                  defs (definitions-fn tree)
+                  sites (applications-fn tree)]]
+      (testing label
+        (is (= (oracle-definitions tree) (set defs))
+            "the definitions scanner is the store-key query")
+        (is (= (count defs) (count (set defs))))
+        (is (= (oracle-applications tree) (set sites))
+            "the application sites are the application-row query")
+        (is (= (count sites) (count (set sites))))))))
+
+
+(deftest tree-free-name-walk-equals-the-occurrence-rules
+  (let [scan (:obligations-fn linker/ast-format)]
+    (doseq [[label ast] (conj conformance-fixtures
+                              [:wide-module (:ast (wide-module 12))])
+            :let [tree (vm/ast->semantic-bytecode ast)
+                  root (:root tree)
+                  records (scan tree)]]
+      (testing label
+        (is (= (oracle-free-occurrences tree) (set records))
+            "the walk's records are the rules' relation, enclosure
+             included")
+        (is (every? (fn [r] (= root (first (:at r)))) records)
+            "every record is rooted at the tree's own root")
+        (is (= (count records) (count (set (map :at records))))
+            "one record per occurrence")))
+    (testing "the shared row is free only at its free occurrence"
+      (let [tree (vm/ast->semantic-bytecode shared-row)]
+        (is (= 1 (count (filter (fn [[_ row]] (= [:variable 'x] (subvec row 1)))
+                                (:rows tree))))
+            "premise: one :variable x row serves both occurrences")
+        (is (= [{:name 'x, :at [(:root tree) [[3 0]]], :in-body? false}]
+               (scan tree))
+            "exactly one record, at the operand's path")))))
 
 
 (deftest vector-scanners-yield-position-bearing-records
@@ -1257,6 +1458,41 @@
            (select-keys res [:reason :bound]))
         "the linker's own finite `default-bounds` end the walk")
     (jing/close! store)))
+
+
+(deftest ^:slow a-prelude-sized-module-publishes-under-default-bounds
+  (slow/guard
+    "a-prelude-sized-module-publishes-under-default-bounds"
+    (fn []
+      (let [{:keys [ast exports]} (wide-module 1000)
+            tree (vm/ast->semantic-bytecode ast)
+            store (mem/create-content-mem)
+            res (publish/publish-module!
+                  store {:name 'wide, :ast ast, :exports exports,
+                         :requires {},
+                         :primitives {'+ (get vm/primitives '+),
+                                      '* (get vm/primitives '*)}})]
+        (is (< 5000 (count (:rows tree)))
+            "premise: a prelude-sized tree, past the old parts default")
+        (is (nil? (:status res)) "the closure publishes complete")
+        (is (= 4 (count (:links res))) "and links once per format")
+        (doseq [format-kw [:yin.semantic/code :yin.debruijn.code
+                           :yin.debruijn.register]]
+          (testing (str format-kw)
+            (let [link (get-in res [:links format-kw])]
+              (is (= :ok (:status link)))
+              (is (= #{'+ '*} (set (map :name (:obligations link))))
+                  "the retained obligations are the declared primitives"))))
+        (testing ":yin.ast/code"
+          ;; the tree's step 5a discharges a body read only by a
+          ;; definition preceding every application site, and each
+          ;; definition form is itself one, so a sibling read stays
+          ;; retained and undeclared: the wide layout's known tree gap
+          ;; (slice L-b), not a bound or a scanner cost
+          (let [link (get-in res [:links :yin.ast/code])]
+            (is (= :undeclared-free (:reason link)))
+            (is (contains? exports (:name link)))))
+        (jing/close! store)))))
 
 
 ;; =============================================================================

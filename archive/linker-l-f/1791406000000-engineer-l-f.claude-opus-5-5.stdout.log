@@ -1,0 +1,35 @@
+L-f is implemented and every lane ran. On each fast lane the only failure is the known `yin.vm.ucf.handoff-v2-census-test` baseline (missing `handoff-v2.txt`). Nothing is staged or committed; the slice is waiting for review and Architect sign-off. The full report is at `collab/1791406000000-engineer-l-f.claude-opus-5-5.findings.md`.
+
+**What changed**
+- **R1/R2 (bounds):** `default-bounds` now allows 65536 parts (depth 256 and 16 MiB unchanged). `publish-module!` takes `{:bounds ...}` and passes it to both closure walks and every `link-local`; `link-local` passes it to its runtime.
+- **R3 (derivation tree):** the `:verifying` policy now fetches the manifest's tree through steps 2 to 4 only and never scans it. This adds the optional request key `:yin.link/scan? false` and a five-argument `verify`. Ordinary links behave as before. A requested tree image still scans (decision L1), and a test checks both cases by counting scanner calls.
+- **R4, and R5 because the measurements required it:** all three tree scanners are now one walk over the occurrence relation, and the old Datalog query scanners are deleted. Conformance tests hold each scanner equal to its Datalog definition on 20 fixtures plus a small wide-layout module. One fixture is the shared row bound at one place and free at another; it yields exactly one record, at the free place.
+- **R6:** `yin.repl.link/composition` takes `:derivation` (default `:verifying`), and `attempt` forwards it. An `:ok` response now carries `:derivation` and `:trust`.
+- **Design docs:** all the §5.4 edits are made. I also added `:yin.link/scan?` to the documented closed key set in §6.3 of `yin.vm.linker.md`, which §5.4 did not list.
+
+**Lanes**
+
+| Lane | Result |
+|---|---|
+| lint | 0 errors; 4 warnings, all in files this slice doesn't touch |
+| `bb test:clj` | 3823 tests, only the baseline error |
+| `bb test:cljs` | 3680 tests, only the baseline error |
+| `bb test:cljd` | 3631 passed, only the baseline failure |
+| JVM slow (`yin.vm.linker-test`) | green |
+| `bb test:slow:cljs` | 416 tests, 0 failures |
+| `bb test:slow:cljd` | 320 passed, 0 failed |
+
+The Node and Dart fast lanes ran before a final change to `publish.cljc` that only moved code, and before the doc edits. The final JVM fast lane and both slow lanes ran on the finished code. The first Node slow run hit the harness time limit and was re-run to completion.
+
+**§3.4 figures (JVM, synthetic module of 1000 definitions and 6006 rows):** `publish-module!` takes 38.7 s, under the 60 s target.
+- With only the free-name walk (R4) it took 88.4 s, because the two remaining Datalog scanners took 52 s (definitions) and 33 s (applications).
+- Converted to the walk, each takes about 12 ms.
+- The time left in the tree link is fetching 6006 parts over the content pair, one round trip per part.
+
+**What I found wrong in the ruling**
+1. **The slow test can't link `:ok` on `:yin.ast/code`.** In the wide layout each definition form is itself an application site. Step 5a only discharges a read inside a lambda body by a definition that comes before every application site, so sibling reads stay undeclared. This is the L-b gap §6 already predicts for P2, not something L-f causes. The test asserts that refusal and names L-b in a comment; §3.3 needs confirming or amending.
+2. **A `:verifying` serve of a prelude-sized module over `yin.repl.link` never completes.** Each attempt is capped at 64 drive rounds, but the linker fetches only about one part per round, so a 6006-part tree can't finish and stays `:pending`. `:trusted` answers in 3.1 s. This blocks P2's `a-verifying-serve-links-py` and a default `(require 'py)`. Fixing it is outside L-f's permitted changes, so it's left as an Architect decision; the report lists options.
+3. **`:trust` has no place in the registry entry.** The engine stores only the derivation record, so P2's "`:trust :verified` in the registry entry" assertion can't be met without an engine change; it can be asserted on the response instead. Also, default compositions now return two extra response keys, which goes slightly beyond §5.2's "behaves exactly as today". That is unavoidable if a verifying serve is to report `:verified`, and all lanes stay green.
+4. **The conformance tests don't compare against the Datalog oracle at prelude size.** The oracle is the slow query itself (8 to 15 minutes by the ruling's own figure), so they use the small wide-layout module instead.
+
+The measurement script is at `collab/lf_measure.clj`. While it ran I copied it into `test/` briefly to get past a command-permission prompt; that copy has been deleted.

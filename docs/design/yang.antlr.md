@@ -3048,6 +3048,9 @@ Linker prerequisites, the linker seat's to build:
 |      |                                                     | principal       |
 |      |                                                     | imports         |
 +------+-----------------------------------------------------+-----------------+
+| L-f  | Large-module linking: default bounds, derivation    | P2              |
+|      | fetch at steps 2 to 4, linear free-name scan        |                 |
++------+-----------------------------------------------------+-----------------+
 ```
 
 ```text
@@ -3062,7 +3065,7 @@ Linker prerequisites, the linker seat's to build:
 +-------+----------------------------------------------------------------------+
 | P1    | Single-source prelude, `py/init!`, builtins dict; still bundled      |
 +-------+----------------------------------------------------------------------+
-| P2    | Module emitter, publication, linked profile; needs L-a and the       |
+| P2    | Module emitter, publication, linked profile; needs L-a, L-f and the  |
 |       | float fix                                                            |
 +-------+----------------------------------------------------------------------+
 | P3    | `pysp` linked, `attach!`                                             |

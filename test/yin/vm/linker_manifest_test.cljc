@@ -494,6 +494,117 @@
 
 
 ;; =============================================================================
+;; Section 8.1: the verifying policy fetches the tree at steps 2 to 4
+;; =============================================================================
+
+(defn- counting-ast-format
+  "`linker/ast-format` with its whole-value validator and its three
+   scanners counting their calls into the atom `counts`, by slot."
+  [counts]
+  (reduce (fn [record slot]
+            (let [f (get record slot)]
+              (assoc record slot
+                     (fn [value]
+                       (swap! counts update slot (fnil inc 0))
+                       (f value)))))
+          linker/ast-format
+          [:validate-fn :obligations-fn :definitions-fn :applications-fn]))
+
+
+(defn- counting-runtime
+  "`manifest-runtime` over `store` whose tree record is
+   `counting-ast-format`."
+  [store counts]
+  (lt/local-runtime
+    store
+    {:formats (assoc (into {} (map (fn [f] [(:format f) f])) all-formats)
+                     :yin.ast/code (counting-ast-format counts))}))
+
+
+(deftest a-verifying-derivation-fetches-the-tree-without-scanning-it
+  (doseq [format [linker/semantic-format linker/stack-format
+                  linker/register-format]]
+    (testing (str (:format format))
+      (let [store (mem/create-content-mem)
+            {:keys [address]} (module-manifest store lt/worked-example)
+            counts (atom {})
+            res (linker/link-manifest (counting-runtime store counts) address
+                                      (:format format) lt/receiver
+                                      (linking format :verifying))]
+        (is (linker/ok? res))
+        (is (= :verified (:trust res)))
+        (is (pos? (get @counts :validate-fn 0))
+            "the tree was fetched and verified as content (steps 2 to 4)")
+        (is (= 0 (+ (get @counts :obligations-fn 0)
+                    (get @counts :definitions-fn 0)
+                    (get @counts :applications-fn 0)))
+            "no tree scanner ran: the tree's obligations are the walker's")
+        (jing/close! store))))
+  (testing "a requested tree image still scans (L1)"
+    (let [store (mem/create-content-mem)
+          {:keys [address]} (module-manifest store lt/worked-example)
+          counts (atom {})
+          res (linker/link-manifest (counting-runtime store counts) address
+                                    :yin.ast/code lt/receiver
+                                    (linking linker/ast-format :verifying))]
+      (is (linker/ok? res))
+      (is (= ['+] (mapv :name (:obligations res))))
+      (is (= 1 (get @counts :obligations-fn 0)))
+      (is (= 1 (get @counts :definitions-fn 0)))
+      (is (= 1 (get @counts :applications-fn 0)))
+      (jing/close! store))))
+
+
+;; =============================================================================
+;; Section 4.2 step 2: the bounds a publication and a local link take
+;; =============================================================================
+
+(def ^:private eight-row-module
+  "`(yin/def f (fn [] (+ 40 2)))`: an eight-row tree."
+  {:type :application,
+   :operator {:type :variable, :name 'yin/def},
+   :operands [{:type :literal, :value 'f}
+              {:type :lambda, :params [],
+               :body {:type :application,
+                      :operator {:type :variable, :name '+},
+                      :operands [{:type :literal, :value 40}
+                                 {:type :literal, :value 2}]}}]})
+
+
+(def ^:private eight-row-spec
+  {:name 'eight, :ast eight-row-module, :exports #{'f}, :requires {},
+   :primitives {'+ (get vm/primitives '+)}})
+
+
+(deftest publish-and-link-local-take-caller-bounds
+  (is (= 8 (count (:rows (vm/ast->semantic-bytecode eight-row-module))))
+      "premise: the module's tree is eight rows")
+  (testing "publish-module! under a parts bound below the closure"
+    (let [store (mem/create-content-mem)
+          res (publish/publish-module! store eight-row-spec
+                                       {:bounds {:max-parts 4}})]
+      (is (= :yin.link.publish/incomplete-closure (:reason res)))
+      (is (= :parts-limit (get-in res [:walk :defect :code]))
+          "the walk names the bound that refused it")
+      (jing/close! store)))
+  (testing "the same module under the default bounds"
+    (let [store (mem/create-content-mem)
+          res (publish/publish-module! store eight-row-spec)]
+      (is (some? (:address res)))
+      (is (every? (fn [[_ link]] (linker/ok? link)) (:links res))
+          "every format links")
+      (testing "link-local forwards the caller bounds to its runtime"
+        (is (= {:status :refused, :reason :parts-limit, :bound :max-parts}
+               (select-keys (publish/link-local store (:address res)
+                                                linker/ast-format
+                                                {:bounds {:max-parts 4}})
+                            [:status :reason :bound])))
+        (is (linker/ok? (publish/link-local store (:address res)
+                                            linker/ast-format))))
+      (jing/close! store))))
+
+
+;; =============================================================================
 ;; Step 5a's manifest join (section 8.1, section 4.2 step 5a)
 ;; =============================================================================
 
