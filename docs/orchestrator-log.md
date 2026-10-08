@@ -10825,3 +10825,43 @@ Delegates:
   - Adversarial Reviewer: gpt-6.1-sol (Codex).
 Next:
   - Proceed with Phase C4 Slice P2 (Linked Unit Emitter & Module Dicts) or Track B Slice S4 (Cross-Machine Stream off loopback) per project roadmap.
+
+## 2026-10-08 14:15:00 +07 — Track B: Cross-Machine Stream Slice S4 landed on master
+Completed-GMT: 2026-10-08 07:15:00 GMT
+Coding-Agent: agy (interactive orchestrator seat)
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
+Tree: master@321458f8 (== origin/master)
+Done:
+  (1) Cross-Machine Stream Track Slice S4 (Beyond Loopback: Terminal Causes, Ephemeral Listeners, DHT Stop) landed on master (321458f8):
+      - `docs/design/dao.stream.remote.md` and `docs/design/dao.stream.ws.md`:
+        * Recorded S4 decisions D1 through D9 into design documentation.
+      - `src/cljc/dao/stream/remote_channel.cljc`:
+        * Closed projection first terminal cause resolution: maps projection closure causes (`:ws/ended` -> `:ended`, `:ws/closed` -> `:dropped`, `:ws/not-found` -> `:not-served`, `:ws/transport-error` -> `:unreachable`, `:ws/allocator-error` -> `:unreachable`) before falling back to RPC/wire causes.
+        * D3 `connect/observe-terminal`: refines detached terminal cause using observed reflection projection cause while keeping reattachment gated by `(reattachable? connection client)`.
+        * Diagnostic counters increment accurately on terminal transitions.
+      - `src/cljc/dao/stream/ws.cljc` and `src/cljc/dao/stream/ws_project.cljc`:
+        * D4/D5: Ephemeral port 0 admission in `make-endpoint`. Binds on OS-allocated port in JVM and Node adapters, finalizing dynamic descriptor on `:bind-succeeded` event.
+      - `src/cljc/yin/repl/serve.cljc` and `src/cljc/yin/repl/main.cljc`:
+        * Removed `ephemeral-port-unsupported` restriction from REPL server. Admitted port 0 for ephemeral listener binding with dynamic port reporting.
+      - `src/cljc/yin/repl/dht.cljc`:
+        * D7: Driver-paced DHT head board stop machine in `yin.repl.dht/stop!` and `main/stop-tick`, ensuring orderly drainage without stranded processes.
+      - `test/dao/stream/loopback_net.cljc`:
+        * In-process ephemeral loopback net port allocator and transport boundary conformance.
+      - Boundary Gate D9:
+        * Enforced zero `:ws/`, `dao.stream.ws`, or `ws-project` tokens outside `test/yin/repl/host/`.
+  (2) Independent Adversarial Review:
+      - Independent adversarial review by Codex (`gpt-6.1-sol`): verdict ACCEPT in `archive/stream-crossmachine-s4/1791404500000-reviewer-stream-s4.codex.findings.md`.
+  (3) Formal Architectural Sign-Off:
+      - Final Architectural Sign-Off evaluated and granted as ACCEPTED by Lead System Architect Codex (`gpt-6-astra`) in `archive/stream-crossmachine-s4/1791405000000-architect-stream-s4-signoff.codex.findings.md`.
+      - All S4 collaboration artifacts moved to `archive/stream-crossmachine-s4/` under git tracking.
+Verification (Multi-Host Gate Complete):
+  - JVM (`clojure -M:test`): 209 tests, 1,439 assertions, 0 failures, 0 errors across all affected stream, REPL, and DHT namespaces.
+  - Node / CLJS (`bb test:cljs`): 163 tests, 1,033 assertions, 0 failures, 0 errors across remote-channel, connect, serve, ws, ws-project, dht, and host node suites.
+  - Formatting / Linter: `cljstyle check` clean (exit 0), `clj -M:kondo --lint` 0 errors, 0 warnings on changed files, `git diff --check` clean.
+Delegates:
+  - Lead System Architect: claude-fable-5-1 (specification) & gpt-6-astra (sign-off: ACCEPTED).
+  - Implementation Engineer: claude-opus-5-5 (S4 implementation).
+  - Adversarial Reviewer: gpt-6.1-sol (Codex).
+Next:
+  - Track A: Complete Phase C4 Slice P2 (Linked Unit Emitter & Module Dicts).
+  - Track B: Plan Slice S5 (Multi-hop Routing & Identity Discovery).
