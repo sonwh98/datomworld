@@ -70,7 +70,7 @@
        (let [h (cell/get py.sp/handler)]
          (if (= h :py/None)
            (py/raise (py/call py.b/KeyboardInterrupt []))
-           (do (py/call h (py/conj (py/conj [] sig) :py/None))
+           (do (py/call h (py/vconj (py/vconj [] sig) :py/None))
                :py/None))))]
     [py.sp/poll
      (fn []

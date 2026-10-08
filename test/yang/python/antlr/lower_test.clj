@@ -60,7 +60,7 @@
 
 (defn- call
   [f & args]
-  (py 'py/call f (reduce #(py 'py/conj %1 %2) (u/lit []) args)))
+  (py 'py/call f (reduce #(py 'py/vconj %1 %2) (u/lit []) args)))
 
 
 (defn- builtin
@@ -141,9 +141,9 @@
                      (py 'py/make-function (u/lit "f")
                          (u/lit {:params ["a" "b"], :star? true, :kwonly ["c" "d"],
                                  :kwstar? true})
-                         (py 'py/conj (u/lit []) (gget "k"))
-                         (py 'py/conj (u/lit [])
-                             (py 'py/conj (py 'py/conj (u/lit []) (u/lit "d")) (gget "m")))
+                         (py 'py/vconj (u/lit []) (gget "k"))
+                         (py 'py/vconj (u/lit [])
+                             (py 'py/vconj (py 'py/vconj (u/lit []) (u/lit "d")) (gget "m")))
                          (u/lam [args]
                                 (apply u/app (u/lam '[a b rest c d kw] (u/then none none))
                                        (map #(py 'cell/new (py 'py/arg (u/v args) (u/lit %)))
@@ -345,7 +345,7 @@
       (is (= (u/then
                (py 'py/call
                    (gget "sum")
-                   (py 'py/conj (u/lit [])
+                   (py 'py/vconj (u/lit [])
                        (u/let1 fst (py 'py/iter (gget "y"))
                                (py 'py/make-generator (u/lit "<genexpr>")
                                    (u/lam [g]
@@ -364,10 +364,10 @@
   (testing "positional values and *splices build the argument vector in
             order; keywords and **splices build the keyword pairs"
     (is (= (u/then (py 'py/call-kw (gget "f")
-                       (py 'py/extend (py 'py/conj (u/lit []) (u/lit 1)) (gget "a"))
+                       (py 'py/extend (py 'py/vconj (u/lit []) (u/lit 1)) (gget "a"))
                        (py 'py/kw-extend
-                           (py 'py/conj (u/lit [])
-                               (py 'py/conj (py 'py/conj (u/lit []) (u/lit "k")) (u/lit 2)))
+                           (py 'py/vconj (u/lit [])
+                               (py 'py/vconj (py 'py/vconj (u/lit []) (u/lit "k")) (u/lit 2)))
                            (gget "d")))
                    none)
            (body "f(1, *a, k=2, **d)\n")))))
@@ -379,8 +379,8 @@
             values, as CPython does"
     (is (= (u/then (py 'py/call-kw (gget "f")
                        (py 'py/extend (u/lit []) (gget "b"))
-                       (py 'py/conj (u/lit [])
-                           (py 'py/conj (py 'py/conj (u/lit []) (u/lit "a")) (u/lit 1))))
+                       (py 'py/vconj (u/lit [])
+                           (py 'py/vconj (py 'py/vconj (u/lit []) (u/lit "a")) (u/lit 1))))
                    none)
            (body "f(a=1, *b)\n")))))
 
@@ -395,11 +395,11 @@
 
 (deftest program-shape-test
   (let [program (lower/lower-packet (parser/parse-source "x = 1\n"))]
-    (testing "prelude first, then the module run by py/run-module, with tail
+    (testing "prelude first, then the module run by py/run-main, with tail
               calls marked"
       (is (= (u/mark-tails
                (u/then prelude/uast
-                       (py 'py/run-module
+                       (py 'py/run-main
                            (u/lam '[%globals %globals-fn]
                                   (u/then (gset "x" (u/lit 1)) none)))))
              program)))

@@ -4,7 +4,11 @@
    all four VMs, prints exactly the stdout c3-corpus-v1 holds for it,
    on every host this runs on. A `cpython` program's stdout is CPython
    3.9.6's (c3-corpus-v1.generate.py); a `hand` program's is this
-   support profile's, pinned, because CPython has no such limits."
+   support profile's, pinned, because CPython has no such limits.
+
+   Every `wide` program run linked (C4 slice P2), `py` required from the
+   link pair, prints what it prints bundled on the semantic, stack and
+   register VMs; the walker links `py` only after L-b."
   (:require
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
@@ -12,6 +16,7 @@
     [dao.test-slow :as slow]
     [yang.python.antlr.c3-programs :as programs]
     [yang.python.antlr.int-ops-test :as ops]
+    [yang.python.antlr.linked-harness :as linked]
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.render :as render]))
 
@@ -105,3 +110,22 @@
 
 (deftest ^:slow c3-gate-test
   (slow/guard "c3-gate-test" gate))
+
+
+(defn- linked-equals-bundled
+  []
+  (doseq [[name pk] programs/programs]
+    (when (= "wide" (:profile (program name)))
+      (let [bundled (run-program pk "wide")
+            ast (lower/lower-packet (assoc pk :yang.python.antlr/max-digits 4300)
+                                    {:prelude :linked})]
+        (doseq [[k run] linked/runners]
+          (is (= (get bundled k)
+                 (try (render/output (run ast))
+                      (catch #?(:cljd Object :clj Exception :cljs :default) e
+                        [:thrown (ex-message e)])))
+              (str name " linked " k)))))))
+
+
+(deftest ^:slow linked-equals-bundled-test
+  (slow/guard "linked-equals-bundled-test" linked-equals-bundled))

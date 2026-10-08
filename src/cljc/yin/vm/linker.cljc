@@ -1002,8 +1002,10 @@
 
 (defn- declared-discharge
   "Step 5b for a manifest-declared obligation (section 4.2): a primitive
-   obligation is discharged only by a primitive of equal profile address,
-   a module obligation only by a linked module of equal manifest address.
+   obligation is discharged only by a primitive of equal profile address
+   -- the receiver's own, or a host module export of the qualified name
+   (`module/host-export-profile`) -- a module obligation only by a linked
+   module of equal manifest address.
    Anything else the receiver holds under the name -- same name, other
    profile; same name, other manifest -- resolves nothing, and neither
    does an obligation with no address (two absent addresses are not
@@ -1011,10 +1013,13 @@
   [{:keys [primitives modules]} obligation]
   (case (:kind obligation)
     :primitive
-    (let [entry (get primitives (:name obligation))]
-      (when-not (and (map? entry)
-                     (some? (:profile obligation))
-                     (= (:profile obligation) (:yin.k/profile entry)))
+    (let [entry (get primitives (:name obligation))
+          profile (:profile obligation)]
+      (when-not (and (some? profile)
+                     (or (and (map? entry)
+                              (= profile (:yin.k/profile entry)))
+                         (= profile (module/host-export-profile
+                                      modules (:name obligation)))))
         (refused :unresolved-free
                  {:name (:name obligation), :kind :primitive})))
     :module

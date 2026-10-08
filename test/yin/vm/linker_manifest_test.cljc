@@ -19,6 +19,7 @@
             [yin.vm.linker :as linker]
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker-test :as lt]
+            [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
@@ -657,6 +658,41 @@
                                           :segment/another}}}}
                [mod]))
           "a linked module of another manifest address resolves nothing"))))
+
+
+(deftest a-host-export-obligation-discharges-by-profile-test
+  (let [cell-new (get-in module/cell-profiles ['new :yin.k/profile])
+        obligation {:name 'cell/new, :kind :primitive, :profile cell-new}
+        refused {:status :refused, :reason :unresolved-free,
+                 :name 'cell/new, :kind :primitive}
+        pure-new (vm/primitive-profile 'new :pure [1] #{} :none)]
+    (is (nil? (linker/discharge
+                {:modules (module/register-cell-module
+                            (module/default-registry))}
+                [obligation]))
+        "a host module export of an equal profile discharges")
+    (is (= refused
+           (linker/discharge
+             {:modules (module/register-host-module
+                         (module/default-registry) 'cell
+                         {'new (get module/cell-module 'new)}
+                         {'new pure-new})}
+             [obligation]))
+        "a host export of another profile resolves nothing")
+    (is (= refused
+           (linker/discharge
+             {:modules (module/assoc-module
+                         (module/default-registry) 'cell
+                         {:manifest {:yin.module/name 'cell,
+                                     :yin.module/primitives
+                                     {'new cell-new}},
+                          :address :segment/cell-manifest})}
+             [obligation]))
+        "a linked entry never answers: its primitives are assumptions")
+    (is (= refused
+           (linker/discharge {:modules (module/default-registry)}
+                             [obligation]))
+        "no cell module resolves nothing")))
 
 
 (deftest a-declared-obligation-without-an-address-resolves-nothing

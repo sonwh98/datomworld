@@ -45,8 +45,10 @@
    Generated names come from CST node ids (`%brk17`, `%w17`, ...): unique per
    node, deterministic, and `%` cannot begin a Python identifier. Guest
    locals keep their Python names in the lexical env and lowered code names
-   only `py/`, `py.b/`, `cell/`, `%` names and non-identifier primitives
-   (`=`, `+`), so no guest name can shadow a primitive or prelude name."
+   only `py/`, `cell/`, `%` names and non-identifier primitives (`=`,
+   `+`), so no guest name can shadow a primitive or prelude name. It never
+   names a runtime key (`py.b/*`, `py.rt/*`): an implicit class base is
+   `(py/object-class)`."
   (:require
     [clojure.string :as str]
     [dao.jing.cbor :as cbor]
@@ -218,7 +220,7 @@
 
 (defn- build-vector
   [elems]
-  (reduce (fn [acc e] (app* 'py/conj acc e)) (u/lit []) elems))
+  (reduce (fn [acc e] (app* 'py/vconj acc e)) (u/lit []) elems))
 
 
 (defn- truthy
@@ -501,7 +503,7 @@
   (reduce (fn [acc e]
             (if (p/rule? e "star_expr")
               (app* 'py/extend acc ((:lower ctx) ctx (last (kids ctx e))))
-              (app* 'py/conj acc ((:lower ctx) ctx e))))
+              (app* 'py/vconj acc ((:lower ctx) ctx e))))
           (u/lit [])
           elems))
 
@@ -657,7 +659,7 @@
           (cond
             (scope/comprehension? (:pk ctx) a)
             (if (= 1 (count args))
-              {:args (app* 'py/conj pos (lower-comprehension ctx a :genexp)),
+              {:args (app* 'py/vconj pos (lower-comprehension ctx a :genexp)),
                :kwargs nil}
               (syntax! a "Generator expression must be parenthesized"))
             (p/token? (first ak) "*")
@@ -675,7 +677,7 @@
               (when-not nm (syntax! a "expression cannot contain assignment"))
               (when (contains? seen nm) (syntax! a (str "keyword argument repeated: " nm)))
               (recur (rest as) pos
-                     (app* 'py/conj (or kw (u/lit []))
+                     (app* 'py/vconj (or kw (u/lit []))
                            (build-vector [(u/lit nm) (lower ctx (nth ak 2))]))
                      (conj seen nm)
                      dstar?))
@@ -683,7 +685,7 @@
             (do (when dstar?
                   (syntax! a "positional argument follows keyword argument unpacking"))
                 (when kw (syntax! a "positional argument follows keyword argument"))
-                (recur (rest as) (app* 'py/conj pos (lower ctx (first ak))) kw seen
+                (recur (rest as) (app* 'py/vconj pos (lower ctx (first ak))) kw seen
                        dstar?))))
         {:args pos, :kwargs kw}))))
 
@@ -1137,7 +1139,7 @@
                  (when-not (and (= 1 (count ak)) (p/rule? (first ak) "test"))
                    (unsupported! n "class keyword arguments"))
                  ((:lower ctx) ctx (first ak)))
-               (u/v 'py.b/object))
+               (app* 'py/object-class))
         cls (gen "cls" n)
         body (lower-block (assoc ctx
                                  :scope (:id n)
@@ -1518,7 +1520,7 @@
     "not_test" (let [ks (kids ctx n)]
                  (if (= 1 (count ks))
                    (lower ctx (first ks))
-                   (app* 'py/not (lower ctx (second ks)))))
+                   (app* 'py/lnot (lower ctx (second ks)))))
     "comparison" (lower-comparison ctx n)
     "expr" (lower-expr ctx n)
     "atom_expr" (lower-atom-expr ctx n)
@@ -1579,16 +1581,27 @@
 
 
 (defn lower-packet
-  "The complete program for one ok packet: the prelude, then the module
-   body run by `py/run-module`, with tail calls marked. Its value is
-   `{:py/out [...] :py/exception nil-or-{:type :args}}`. The packet may
-   declare the decimal digit budget of its literals as
-   `:yang.python.antlr/max-digits`."
-  [packet]
-  (u/mark-tails
-    (u/then prelude/uast
-            (app* 'py/run-module
-                  (u/lam [globals-sym globals-fn-sym] (lower-module-body packet))))))
+  "The complete program for one ok packet: the module body run by
+   `py/run-main`, with tail calls marked. Its value is `{:py/out [...]
+   :py/exception nil-or-{:type :args}}`. The packet may declare the
+   decimal digit budget of its literals as `:yang.python.antlr/max-digits`.
+
+   `:prelude` selects how the runtime profile arrives: `:bundled` (the
+   default) carries the prelude tree ahead of the body; `:linked`
+   requires the module `py` from the task's link pair, then allocates the
+   task's runtime state with `(py/init!)`. Either way the body names only
+   `py/` exports, never a runtime key."
+  ([packet] (lower-packet packet {}))
+  ([packet {:keys [prelude], :or {prelude :bundled}}]
+   (let [main (app* 'py/run-main
+                    (u/lam [globals-sym globals-fn-sym]
+                           (lower-module-body packet)))]
+     (u/mark-tails
+       (case prelude
+         :bundled (u/then prelude/uast main)
+         :linked (u/seq-nodes [(app* 'require (u/lit prelude/module-name))
+                               (app* 'py/init!)
+                               main]))))))
 
 
 ;; =============================================================================
@@ -1616,7 +1629,8 @@
    that is not ok, or a lowering diagnostic, becomes one record on port
    `:diagnostics` and no program. The state's `:max-digits`, when the
    composition declares one, is the digit budget of a packet that
-   declares none. Stateless."
+   declares none; its `:prelude` (`:bundled` by default, or `:linked`)
+   is `lower-packet`'s. Stateless."
   [state packet]
   (let [unit (:yang.cst/unit packet)
         packet (if (and (contains? state :max-digits)
@@ -1629,7 +1643,9 @@
         [state [[:program (encoder/source-envelope
                             (get state :medium program-medium)
                             unit
-                            [(lower-packet packet)])]]]
+                            [(lower-packet packet
+                                           {:prelude (get state :prelude
+                                                          :bundled)})])]]]
         ;; ClojureDart's ex-info type is not catchable by name portably;
         ;; anything without a diagnostic in its ex-data is rethrown below
         (catch #?(:cljd Object
@@ -1651,13 +1667,20 @@
   "A lowering stage reading CST packets from `cst-stream`, writing program
    batches to `program-stream`, whose logical identity is `medium`, and
    diagnostics to `diagnostics-stream`. `max-digits`, when given, is the
-   decimal digit budget of every packet that declares none."
+   decimal digit budget of every packet that declares none. The fourth
+   argument may instead be an options map `{:medium :max-digits
+   :prelude}`; `:prelude` is `lower-packet`'s, `:bundled` by default."
   ([cst-stream program-stream diagnostics-stream]
    (open-stage cst-stream program-stream diagnostics-stream program-medium))
-  ([cst-stream program-stream diagnostics-stream medium]
+  ([cst-stream program-stream diagnostics-stream medium-or-opts]
    (stage/open cst-stream
                {:program program-stream, :diagnostics diagnostics-stream}
-               {:medium medium}))
+               (if (map? medium-or-opts)
+                 (let [{:keys [medium], :or {medium program-medium}}
+                       medium-or-opts]
+                   (assoc (select-keys medium-or-opts [:max-digits :prelude])
+                          :medium medium))
+                 {:medium medium-or-opts})))
   ([cst-stream program-stream diagnostics-stream medium max-digits]
    (stage/open cst-stream
                {:program program-stream, :diagnostics diagnostics-stream}

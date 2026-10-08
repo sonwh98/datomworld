@@ -165,7 +165,7 @@
                     (fn [i total]
                       (if (= i 40)
                         (py/tuple
-                          (py/conj (py/conj [] (get (cell/get xs) :items))
+                          (py/vconj (py/vconj [] (get (cell/get xs) :items))
                                    (py/str (integer/format total))))
                         (do
                           ((fn [] (do (py/list []) nil)))
@@ -201,14 +201,14 @@
   []
   (let [put-value (guest
                     '(py/tuple
-                       (py/conj
-                         (py/conj [] (py/int-lit "10000000000000000"))
+                       (py/vconj
+                         (py/vconj [] (py/int-lit "10000000000000000"))
                          (py/list [42]))))
         garbage (guest '((fn [] (do (py/list []) (py/list []) nil))))
         read-value (guest
                      '(py/tuple
-                        (py/conj
-                          (py/conj [] (get (get x :items) 0))
+                        (py/vconj
+                          (py/vconj [] (get (get x :items) 0))
                           (get (cell/get (get (get x :items) 1)) :items))))
         ast (u/let1
               's {:type :stream/make, :buffer 8}
@@ -236,7 +236,7 @@
 (defn- cell-refusal
   []
   (run-all
-    (guest '(py/list (py/conj [] (py/int-lit "10000000000000000"))))
+    (guest '(py/list (py/vconj [] (py/int-lit "10000000000000000"))))
     (fn [final]
       (let [r (handoff/export-task final (fn [_h] nil))]
         (is (= :yin.k/non-portable (:yin.k/status r)))
@@ -251,7 +251,7 @@
         (is (= :cell (:yin.k/kind r))))))
   (run-all
     (guest '(yin/def (quote held)
-              (py/tuple (py/conj [] (py/int-lit "10000000000000000")))))
+              (py/tuple (py/vconj [] (py/int-lit "10000000000000000")))))
     (fn [final]
       (let [r (engine/lift-slice final :segment/own ['held])]
         (is (= {} (:cells r)))

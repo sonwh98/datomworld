@@ -129,18 +129,18 @@
                  (py/mul (py/str "a")
                          (integer/sub (integer/pow 2 53) 1))))
       "MemoryError"]
-     ['(caught (fn [] (py/mul (py/list (py/conj [] 0)) (integer/pow 2 62))))
+     ['(caught (fn [] (py/mul (py/list (py/vconj [] 0)) (integer/pow 2 62))))
       "MemoryError"]
-     ['(caught (fn [] (py/mul (py/list (py/conj (py/conj [] 1) 2)) 524289)))
+     ['(caught (fn [] (py/mul (py/list (py/vconj (py/vconj [] 1) 2)) 524289)))
       "MemoryError"]
-     ['(caught (fn [] (py/mul 524289 (py/tuple (py/conj (py/conj [] 1) 2)))))
+     ['(caught (fn [] (py/mul 524289 (py/tuple (py/vconj (py/vconj [] 1) 2)))))
       "MemoryError"]
      ['(caught (fn [] (py/mul (py/str "ab") 524289))) "MemoryError"]
      ['(py/mul (py/str "") (integer/pow 2 62)) {:py/str ""}]
      ['(py/mul (py/str "ab") 3) {:py/str "ababab"}]
      ['(py/mul (py/str "ab") true) {:py/str "ab"}]
      ['(py/mul (py/str "ab") -3) {:py/str ""}]
-     ['(get (py/mul (py/tuple (py/conj [] 1)) 3) :items) [1 1 1]]
+     ['(get (py/mul (py/tuple (py/vconj [] 1)) 3) :items) [1 1 1]]
      ['(args-of (fn [] (py/mul (py/str "a") (integer/pow 2 63))))
       [{:py/str "cannot fit 'int' into an index-sized integer"}]]
      ['(py/mul (py/str "") (integer/neg (integer/pow 2 63))) {:py/str ""}]
@@ -150,11 +150,11 @@
                                       1))))
       "OverflowError"]
      ['(caught (fn [] (py/mul (py/str "a") (py/float 2.5)))) "TypeError"]
-     ['(let [x (py/list (py/conj [] 1))]
-         (py/conj (py/conj [] (py/is (py/imul x 3) x)) (py/len x)))
+     ['(let [x (py/list (py/vconj [] 1))]
+         (py/vconj (py/vconj [] (py/is (py/imul x 3) x)) (py/len x)))
       [true 3]]
-     ['(let [x (py/list (py/conj [] 1))]
-         (py/conj (py/conj [] (caught (fn [] (py/imul x 1048577))))
+     ['(let [x (py/list (py/vconj [] 1))]
+         (py/vconj (py/vconj [] (caught (fn [] (py/imul x 1048577))))
                   (py/len x)))
       ["MemoryError" 1]]]))
 
@@ -166,10 +166,10 @@
     (fn []
       (check-cases*
         ops/runners
-        [['(py/len (py/mul (py/list (py/conj (py/conj [] 1) 2)) 524288))
+        [['(py/len (py/mul (py/list (py/vconj (py/vconj [] 1) 2)) 524288))
           1048576]
          ['(caught (fn []
-                     (py/mul (py/list (py/conj (py/conj [] 1) 2))
+                     (py/mul (py/list (py/vconj (py/vconj [] 1) 2))
                              524289)))
           "MemoryError"]]))))
 
@@ -182,7 +182,7 @@
     [['(caught (fn [] (py/mul (py/str "a") (integer/pow 2 59))))
       "MemoryError"]
      ['(caught (fn []
-                 (py/mul (py/list (py/conj (py/conj [] 1) 2))
+                 (py/mul (py/list (py/vconj (py/vconj [] 1) 2))
                          (integer/pow 2 59))))
       "MemoryError"]
      ['(py/mul (py/str "ab") 3) {:py/str "ababab"}]]))
@@ -232,9 +232,9 @@
                      "BaseException is not allowed")}]]
      ;; (h) NaN identity in containers
      ['(let [x (py/float (nan))]
-         (py/in x (py/list (py/conj [] x)))) true]
+         (py/in x (py/list (py/vconj [] x)))) true]
      ['(let [x (py/float (nan))]
-         (py/eq (py/tuple (py/conj [] x)) (py/tuple (py/conj [] x)))) true]
+         (py/eq (py/tuple (py/vconj [] x)) (py/tuple (py/vconj [] x)))) true]
      ;; (i) a float in a range, in constant time
      ['(py/in (py/float 2.5) (py/range3 0 10 1)) false]
      ['(py/in (py/float (data/float-value 2)) (py/range3 0 10 1)) true]
@@ -295,7 +295,7 @@
      ['(py/int-conv (py/str "-99999") :py/missing) -99999]
      ['(args-of (fn [] (py/int-conv (py/str "100000") :py/missing)))
       [{:py/str (limit-message 5)}]]
-     ['(caught (fn [] (py/print (py/conj [] 123456)))) "ValueError"]
+     ['(caught (fn [] (py/print (py/vconj [] 123456)))) "ValueError"]
      ;; int(1e300) needs 997 bits
      ['(caught (fn []
                  (py/int-conv
@@ -309,19 +309,19 @@
   ;; tuple, raises before anything reaches py.rt/out.
   (check-cases*
     ops/runners
-    [['(do (py/print (py/conj [] 1))
-           (py/conj
-             (py/conj []
+    [['(do (py/print (py/vconj [] 1))
+           (py/vconj
+             (py/vconj []
                       (caught
                         (fn []
                           (py/print
-                            (py/conj
-                              (py/conj [] 2)
+                            (py/vconj
+                              (py/vconj [] 2)
                               (py/tuple
-                                (py/conj
+                                (py/vconj
                                   []
                                   (py/list
-                                    (py/conj [] (integer/pow 10 4300))))))))))
+                                    (py/vconj [] (integer/pow 10 4300))))))))))
              (cell/get py.rt/out)))
       ["ValueError" [[1]]]]]))
 
@@ -336,7 +336,7 @@
     (check-cases*
       ops/runners
       [['(py/in (py/float-conv (py/str "nan"))
-                (py/list (py/conj [] (py/float-conv (py/str "nan")))))
+                (py/list (py/vconj [] (py/float-conv (py/str "nan")))))
         true]
        [(list 'caught (list 'fn [] (list 'py/int-conv (list 'py/str arabic-12)
                                          :py/missing)))
@@ -386,11 +386,11 @@
   ;; pow(base=a, exp=b) and round(number=a, ndigits=b), through the
   ;; builtins' own binding
   '(fn [op a b]
-     (let [kw (fn [k x] (py/conj (py/conj [] k) x))]
+     (let [kw (fn [k x] (py/vconj (py/vconj [] k) x))]
        (if (= op "pow_kw")
-         (py/call-kw py.b/pow [] (py/conj (py/conj [] (kw "base" a))
+         (py/call-kw py.b/pow [] (py/vconj (py/vconj [] (kw "base" a))
                                           (kw "exp" b)))
-         (py/call-kw py.b/round [] (py/conj (py/conj [] (kw "number" a))
+         (py/call-kw py.b/round [] (py/vconj (py/vconj [] (kw "number" a))
                                             (kw "ndigits" b)))))))
 
 

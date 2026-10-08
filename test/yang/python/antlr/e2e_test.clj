@@ -18,6 +18,7 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as stream]
+    [yang.python.antlr.linked-harness :as linked]
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.parser :as parser]
     [yang.python.antlr.prelude :as prelude]
@@ -140,9 +141,12 @@
    Options: `:hooks`, a hook prelude: the program is safepointed under
    `hooks/profile` and the VMs run the hook prelude, then the derived
    program. `:prep`, applied to each VM before it runs (a composition
-   handing the task its streams)."
+   handing the task its streams). `:prelude :linked` lowers the linked
+   program and runs it on the three vector VMs, `py` served from
+   `yang.python.antlr.linked-harness`; the walker links it only after
+   L-b."
   ([registry source] (run-python registry source {}))
-  ([registry source {:keys [hooks prep], :or {prep identity}}]
+  ([registry source {:keys [hooks prep prelude], :or {prep identity}}]
    (let [opts (assoc base-opts :modules registry)
          session (tu/make-observer-session
                    (prep (tu/create-vm {:modules registry})))
@@ -153,11 +157,28 @@
      (doseq [e (source-events [:e2e 0] source)] (stream/append! src e))
      (parser/step-stage (parser/open-stage src cst))
      (lower/step-stage (lower/open-stage cst program diagnostics
-                                         lower/program-medium
-                                         (::integer/max-digits integer-limits)))
+                                         {:medium lower/program-medium,
+                                          :max-digits (::integer/max-digits
+                                                        integer-limits),
+                                          :prelude (or prelude :bundled)}))
      (let [problems (tu/drain diagnostics)]
-       (if (seq problems)
+       (cond
+         (seq problems)
          {:diagnostics problems}
+
+         (= :linked prelude)
+         (let [ast (run-member (first (tu/drain program)))
+               modules (module/register-effect-handler
+                         registry :module/require module/require-handler)]
+           (into {}
+                 (map (fn [k]
+                        [k (try (render/output
+                                  (vm/value (linked/run-linked
+                                              k ast {:modules modules})))
+                                (catch Exception e [:thrown (ex-message e)]))]))
+                 (keys linked/backends)))
+
+         :else
          (let [ast (if hooks
                      (hooks/program hooks
                                     (vm/semantic-bytecode->ast
@@ -232,30 +253,47 @@
         (concat prelude/host-names (keys vm/primitives))))
 
 
+(def ^:private linked-closed-names
+  "What a linked program may read: the exports of `py` by their qualified
+   names, the host names, and primitives (`require` among them); no
+   definition operator and no runtime key."
+  (into (set (map #(symbol "py" (name %)) prelude/module-exports))
+        (concat prelude/host-names (keys vm/primitives))))
+
+
 (defn- canonical-is-closed
   "The canonical program for `source` reads only `closed-names`, and no
    `py.sp/` name (safepoint ruling: the naive program never needs the hook
-   prelude)."
+   prelude); the linked program reads only `linked-closed-names`."
   [source]
-  (let [free (free-names (lower/lower-packet
-                           (assoc (parser/parse-source source)
-                                  :yang.python.antlr/max-digits
-                                  (::integer/max-digits integer-limits))))
-        open (remove closed-names free)]
+  (let [packet (assoc (parser/parse-source source)
+                      :yang.python.antlr/max-digits
+                      (::integer/max-digits integer-limits))
+        free (free-names (lower/lower-packet packet))
+        open (remove closed-names free)
+        linked-open (remove linked-closed-names
+                            (free-names (lower/lower-packet
+                                          packet {:prelude :linked})))]
     (is (empty? open) (pr-str open))
-    (is (not-any? #(= "py.sp" (namespace %)) free))))
+    (is (not-any? #(= "py.sp" (namespace %)) free))
+    (is (empty? linked-open) (pr-str linked-open))))
 
 
 (defn every-vm=
-  "`expected` from `source` on every VM, run naive and run safepointed
-   under no-op hooks; the canonical program is closed over its base
-   prelude."
+  "`expected` from `source` on every VM, run naive, run safepointed under
+   no-op hooks, and run linked; the canonical program is closed over its
+   base prelude. The linked leg runs the three vector VMs: the walker's
+   link of `py` is refused until L-b."
   [expected source]
   (canonical-is-closed source)
-  (doseq [[label opts] [["naive" {}] ["no-op hooks" {:hooks hooks/noop-uast}]]]
+  (doseq [[label opts vms] [["naive" {} [:ast-walker :semantic :stack :register]]
+                            ["no-op hooks" {:hooks hooks/noop-uast}
+                             [:ast-walker :semantic :stack :register]]
+                            ["linked" {:prelude :linked}
+                             [:semantic :stack :register]]]]
     (let [results (run-python (host-registry) source opts)]
       (is (not (contains? results :diagnostics)) (pr-str results))
-      (doseq [k [:ast-walker :semantic :stack :register]]
+      (doseq [k vms]
         (is (= expected (get results k)) (str label " " k))))))
 
 

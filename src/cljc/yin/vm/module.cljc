@@ -231,6 +231,22 @@
                  :stores {}})))
 
 
+(defn host-export-profile
+  "The profile address host module `ns` publishes for export `name`, when
+   `qualified-sym` is `ns/name` and `registry` holds `ns` as a
+   host-registered entry (`register-host-module`'s shape, `:address`
+   nil); else nil. A linked entry never answers: the
+   `:yin.module/primitives` of a fetched manifest are the primitives that
+   module assumes, not exports it provides."
+  [registry qualified-sym]
+  (when (and (symbol? qualified-sym) (some? (namespace qualified-sym)))
+    (let [entry (module-entry (:modules registry)
+                              (symbol (namespace qualified-sym)))]
+      (when (and (some? entry) (nil? (:address entry)))
+        (get-in entry [:manifest :yin.module/primitives
+                       (symbol (name qualified-sym))])))))
+
+
 ;; =============================================================================
 ;; Effect descriptors
 ;; =============================================================================
