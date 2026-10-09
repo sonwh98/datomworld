@@ -7,7 +7,7 @@
         [:em "code"]
         " across lexical boundaries without accidental capture. Differential geometry taught physics how to move a "
         [:em "vector"]
-        " across a curved manifold without distortion. UCF is both at once: it is hygiene for suspended computation, and it is the connection that parallel-transports a CESK configuration across the distributed spacetime of nodes, runtimes, and checkpoints. The lease is where the curvature shows."],
+        " across a curved manifold without distortion. UCF is both at once: it is hygiene for suspended computation, and it is the connection that parallel-transports a CESK configuration across the distributed spacetime of nodes, runtimes, and checkpoints. The lease is where the curvature shows. A third part extends the transport past the boundary it was designed for: from one yin.vm to a different virtual machine altogether. The extension turned out to be narrow, and the path to seeing that it is narrow is recorded here, wrong turns included."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -235,11 +235,97 @@
            ": they ensure that of all the loops the value might be carried around, exactly one closes as the continuation of the computation, and every other closure is distinguishable as a lapsed incarnation."]
           [:p
            "Hygienic macro systems never needed the second half because lexical scoping is flat. Expansion happens once, at one place, and the result is a tree with no loops. Execution state in a distributed system does not have that luxury. The same checkpoint can be read from a stream by any number of peers at any later time, and the manifold they live on has nontrivial topology: partitions, retries, crash restarts, redelivery. UCF needed both halves because it transports an object that macro systems never had to move: something that is simultaneously code, environment, store, and the future of a running process, across a space where \"the same place\" is not a well-defined notion without a ledger to define it."]
+          [:h2 "Part Three: Transport to a Different Machine"]
+          [:p
+           "Everything above moves a continuation between two instances of the same machine on different hosts. The fibers differ in coordinates (tempids, store keys, host representations) but not in kind: every yin.vm holds the canonical CESK and nothing else. The next question is what changes when the destination is not yin.vm at all but a different virtual machine with its own heap, its own values, and its own compiled code. This part records the decisions and, deliberately, the path that led to them, because the first two answers were wrong in instructive ways."]
+          [:h3 "What the Specification Already Says"]
+          [:p
+           "UCF has one sentence on the subject, and it turns out to be the whole rule: "
+           [:em "a foreign engine conforms by lifting into and lowering from the canonical configuration, never by extending it."]
+           " The specification's foreign engine is a WebAssembly lowering, a JIT, a register allocator: an engine that runs yin's own instruction vector in a physical layout of its choosing, and publishes a static safepoint map from its slots back to canonical ones. A genuinely different VM is harder than that. It does not interpret the yin vector; it runs native code compiled from it, keeps intermediate values in registers, and represents a yin integer or string in whatever way its runtime prefers. The sentence still holds. The work is in saying what it costs."]
+          [:h3 "The First Wrong Turn: Lift to the AST"]
+          [:p
+           "The first proposal was to raise the safepoint one level. A safepoint today is a pair "
+           [:code "(segment-hash, pc)"]
+           ": a content-addressed instruction vector and an index into it. That looked yin-specific, so the proposal was to identify safepoints by Universal AST node instead, treat the AST as the shared structure every VM compiles from, and describe each VM's state space as derived from it through its own compiler. In the geometric language this was a principal bundle whose fiber is the AST, with each VM's state space an associated bundle, and transport induced from the AST level down."]
+          [:p
+           "It was rejected for a reason that was already in the specification. The semantic VM's instruction vector is an "
+           [:em "isomorphic"]
+           " image of the Universal AST: one positional tuple per instruction, pc as index, nothing added and nothing lost. A pair "
+           [:code "(segment-hash, pc)"]
+           " therefore already names a point in the canonical code, and naming the AST node instead buys nothing except a second coordinate system to keep aligned. The owner's ruling that the canonical code form is the positional vector, not entity-attribute-value, was made for code; it applies unchanged to the safepoints into that code. Cross-VM safepoints stay at the semantic VM level. There is one fiber, the canonical CESK, and a VM is a coordinate chart on it, not a different bundle."]
+          [:h3 "Narrowing: the Problem Is the Values"]
+          [:p
+           "With code identity settled, what is actually not canonical across machines? Control is solved: the segment hash plus the contract stamp fix both which instructions and what they mean. The "
+           [:em "structure"]
+           " of the continuation is solved: a frame is a canonical shape, a return pc with a stack base and a captured environment, and every conforming engine must produce that shape. What a native VM represents in its own domain is every component that holds a "
+           [:em "value"]
+           ": the environment, the store, the operand stack, and transitively the environments captured inside frames."]
+          [:p
+           "A note on the operand stack, since the classic CESK machine has no such thing. In Felleisen's formulation the continuation "
+           [:em "is"]
+           " the stack: a list of frames, each remembering what to do with the next value, with already-evaluated arguments held inside the frames. Linearization flattens the AST into push and call instructions, and the values that the AST-walking machine kept inside frames move onto a flat vector the semantic VM calls "
+           [:code "St"]
+           ". Frames keep only a stack base to mark their slice of it. "
+           [:code "St"]
+           " is the image of the argument-holding half of K under linearization, not an addition to CESK, which is why the semantic VM files it under control rather than store. For transport it adds no new problem; it is simply the place a compiling VM is most likely to have put a value in a register."]
+          [:p
+           "So the cross-VM problem is narrow: normalize the value-holding components, and separately make sure a compiled engine can produce them at a safepoint at all. The second is a deoptimization obligation in the JIT sense, and we return to it. The first is the question of a normal form."]
+          [:h3 "Does CBOR Normalize Them?"]
+          [:p
+           "The tempting answer is that the wire codec already does. DaoJing stores canonical CBOR: every host produces the same bytes for the same integers of any width, the same float64, the same strings, keywords, vectors, sets, and maps. Three VMs already agree at this layer, since the JVM, Node, and Dart ports share one Jing. Is that the normalization?"]
+          [:p
+           "It is one of three layers, and the bottom one. CBOR's data model is trees of plain data. The environment, store, and operand stack are not trees of plain data; they are a graph of machine state with identity, with references into the machine, and with references out of it. Each thing in that gap is something no codec can express, and the specification's value grammar is the list of them: a closure points at code and at an environment, so it carries a content hash and an entry pc rather than a tempid; the configuration is a DAG, so sharing is made explicit in a value table rather than duplicated; two cursor references at one position may be independently advanceable, so identity is carried as an emitter-minted cell that is deliberately "
+           [:em "not"]
+           " content-addressed; a cycle is refused; a host function becomes a name resolved under a profile; a stream handle becomes a descriptor the exporter must be able to serve; anything else is refused by path. CBOR carries all of these as ordinary maps and knows nothing of what they mean. Above both layers sits a third that neither touches: whether the receiving VM "
+           [:em "computes"]
+           " on the decoded values the way yin does. A sixty-four bit integer that stays exact, a map key equality that agrees, a negated zero that keeps its sign. Format says nothing about operations."]
+          [:h3 "The Decision: the Transported State Is a Tuple Set"]
+          [:p
+           "The value grammar's seven rules were written for a nested wire form, markers inside markers. The observation that changed the design was that if the transported state is represented as "
+           [:em "tuples"]
+           ", most of those rules stop being special cases. In a tuple store a value is an entity, and two tuples that reference the same entity "
+           [:em "are"]
+           " sharing; the value table disappears. A cycle is a reference back to an earlier entity; the refusal disappears. If value positions hold only scalars and entity references, with a program's own map literal becoming an entity of its own, then there is no map at any value position and the forgery problem disappears by construction. A closure is an entity with a segment hash, an entry pc, and a reference to its environment entity. And the carried slice and the isolated store become the same object: lowering is loading tuples into a fresh execution store, the operation the code loader already performs on its projection path."]
+          [:p
+           "What tuples do not dissolve is exactly the residue that was always the real content of the grammar. An entity id is a tempid, local to one machine, the same problem as "
+           [:code ":segment 123"]
+           ". For an immutable value the entity is content-addressed and deduplication is free. For a cursor cell it must not be, because two cells at one position are distinct, so the id travels as a tempid and is remapped on lowering. This is the specification's separation of content identity from occurrence identity, pushed down to every entity: "
+           [:strong "each entity is either content, hash-addressed and shareable, or identity, carried as a tempid and remapped, and the schema says which."]
+           " References out of the machine are unchanged: a primitive is still a name under a profile, a stream is still a descriptor, a host object is still refused. Totality is unchanged: the lift either produces the full tuple set or refuses naming the entity and attribute. A tuple set needs a canonical ordering before Jing hashes it, which Jing already supplies for datom batches."]
+          [:p
+           "This is consistent with the ruling against entity-attribute-value for code. Code was fixed as a positional vector because sequence is its content and a vector resolves execution order for free. State has no order problem; its problem is identity and sharing, which tuples with entity references were built for. Frames and the operand stack, which are sequences, stay positional inside the state, exactly as instructions stay positional inside a segment."]
+          [:h3 "The Boundary: Tuples Travel, Execution Is Native"]
+          [:p
+           "The last decision fixes what the tuple set is for. It is the "
+           [:em "transport form only"]
+           ". It exists between a lift and a lower. At rest in the tuple space it is queryable by the ordinary query interpreter, so \"which parked continuations close over this stream\" is a Datalog question rather than a decoder walk, and that is a real capability. But nothing executes it. On arrival the destination VM lowers the tuple set into whatever representation makes execution native there: yin.vm's image, a Wasm linear memory, a Dart isolate's heap. The hot loop runs on transients and never touches a tuple. This resolves a tension in an earlier design note that imagined the transition function itself as a Datalog query: that reading is the as-of view over the tuple set at rest, not the execution model."]
+          [:p
+           "In the geometry of Part Two this is the cleanest statement yet. The native representation is the fiber over each point. The tuple set is the point-independent representative that transport actually carries. The connection is the pair of maps between them, and conformance for any VM is exactly:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Lift."]
+            " At a safepoint, project native state to the tuple set, or refuse naming the entity and attribute. Content entities hash; identity entities carry tempids; outward references become names under a profile, stream descriptors, or refusals."]
+           [:li
+            [:strong "Lower."]
+            " Load a tuple set into native state through the destination's own loader, into an isolated store, with identity entities remapped to fresh native ids; or answer profile mismatch, or non-portable for this engine."]
+           [:li
+            [:strong "Parity."]
+            " Lower after lift on the reference machine is the identity. Lift on engine B of lower on B of lift on A yields a tuple set equal in content and preserving every alias of the original. Running the corpus to each safepoint on engine B yields the same tuple set the reference machine yields. The third row is the one that catches a VM whose integers overflow or whose "
+            [:code "+"]
+            " disagrees; it is the only check on the semantic layer that no format can supply."]]
+          [:p
+           "Two obligations remain outside the value question and should not be folded into it. Reconstruction: a compiling engine must keep enough at every safepoint to rebuild the environment, operand stack, and frames, which is deoptimization metadata in the JIT sense, and it is what makes lift total or partial for that engine. We require full coverage, every canonical safepoint a native safepoint, because a declared subset would turn a value into a partial function of its destination, which is the unhygienic shape again. And effects: a native engine's side effects still go through the fenced writer with occurrence, epoch, and operation id. The custody layer of Part Two does not move at all, because it lives in the tuple space above every engine and never asks which one holds the grant."]
+          [:h3 "Why This Is the Hygiene Move Again"]
+          [:p
+           "The path from the first proposal to the decision is the same lesson Part One drew, learned a third time. The AST-level proposal was a renaming scheme: give every reference a second name in a different coordinate system. Hygiene does not work by adding names; it works by making each reference carry the context that gives it meaning, and the canonical vector already does that. The CBOR proposal was the textual macro's mistake: treat the serialized form as the meaning. The tuple decision is syntax objects for state: every entity is a value plus the mark that says whether it is content or identity, and every outward reference is a name plus the profile that binds it. Changing the carrier from nested maps to tuples does not change what must be carried; it only removes the cases where the old carrier had to say the same thing three different ways."]
+          [:p
+           "Status, so the essay does not get ahead of the specification: the decisions in this part are design, not landed code. The nested value grammar is what the current implementation ships and tests. The tuple form of the transported state, its schema, and the conformance harness for a second engine are the next specification change, and they reopen sections with tests behind them."]
           [:h2 "The Lineage"]
           [:p
            "None of this is new; all of it is newly joined. Plan 9 taught that a resource is a name in a namespace and that the namespace is per process, so the same path can mean different files to different processes without conflict. UCF's isolated store is that lesson: the resumed task gets its own namespace, and no ambient binding leaks in. Datomic taught that a fact is immutable and that identity is a value computed over content, so two writers who derive the same fact converge. UCF's "
            [:code ":yin.k/id"]
-           " is that lesson, with the one necessary refinement that content identity and occurrence identity must be kept apart. Lisp taught, through forty years of macro pain, that a name is not a meaning until it carries its binding context. UCF's primitive markers, contract stamps, and content hashes are that lesson applied to a runtime instead of a reader."]
+           " is that lesson, with the one necessary refinement that content identity and occurrence identity must be kept apart. Lisp taught, through forty years of macro pain, that a name is not a meaning until it carries its binding context. UCF's primitive markers, contract stamps, and content hashes are that lesson applied to a runtime instead of a reader. Just-in-time compilers taught that compiled code can be abandoned mid-flight and the interpreter's frame rebuilt from metadata kept at safepoints, and that the reverse, on-stack replacement, enters compiled code at those same points. Part Three's lift and lower are deoptimization and on-stack replacement across a machine boundary, with the tuple set as the interpreter frame they meet at."]
           [:p
            "And differential geometry taught that moving a thing without distortion is not a property of the thing but of the connection you move it with, and that on a curved space the best connection in the world still leaves holonomy around loops which you must measure rather than wish away. UCF's seventh section is that lesson, written in datoms."]
           [:p
