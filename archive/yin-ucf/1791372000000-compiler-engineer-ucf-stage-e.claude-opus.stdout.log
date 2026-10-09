@@ -1,0 +1,158 @@
+The full process matrix is still running in the background: 25 of 196 scenario runs recorded so far, with no failures yet. I'll pick up when it finishes. After that come the Node and Dart lanes for the in-process rows, the cljstyle fix, and then the final report.
+
+Waiting for background work to finish (shell "Run full process matrix in background"). Press Ctrl+C to exit now.
+
+The final full process-matrix run is going in the background. Once it finishes I'll rerun the Node and Dart lanes one at a time against the final code, then write the report.
+
+Waiting for background work to finish (shell "Final full process matrix run"). Press Ctrl+C to exit now.
+
+Completed-GMT: 2026-10-09 06:12:55 GMT
+Completed-Local: 2026-10-09 13:12:55 +07
+
+# UCF M-next E: both host matrices and the crash/partition suite through `yin.vm.ucf.compose`
+
+**Precondition:** met. `src/cljc/yin/vm/ucf/compose.cljc` is on the branch with D15a, D15 and D16 landed, and its public surface matches the D15 brief.
+
+**Outcome:** every row below drives only `yin.vm.ucf.compose`, and everything is green on all three lanes and across real JVM and Node processes. Two parts of the contract cannot be built through the composition as it stands; they are named prerequisites below. Some sub-cases are not done and are listed as incomplete. No production edits and no git writes. The work is in `datomworld-stage-e`, not the `datomworld-e` path the brief named.
+
+**Milestone completion does not claim full UCF closure.** Full acceptance waits for every row of 7.11.1, including the post-M5 gates; 14.1 and 14.2 close different gates with independent evidence. E closes clause 10 and the composition halves of clauses 3 and 8, within the limits below. It neither re-closes nor re-opens the M4 kept-cursor gate. It does not make unprotected external IO transactional: 14.2.1's guarantee is admission, not effect atomicity beyond the enrolled boundary. Governance recovery after quarantine, exhaustion or lost authority state stays outside the automatic protocol.
+
+## Changed files (all new, all under `test/yin/vm/ucf/`)
+
+| File | Lines | What it is |
+|---|---|---|
+| `stage_e_world.cljc` | 1392 | Portable. One "life" of a scenario over a single scratch root holding the durable media: a file authority, `compose/file-journals`, a `dao.jing.file` store and a side log. Each durable medium is wrapped so a named cut fires at an exact boundary: a journal frame, a store put, or a composition tick. Also an interpreter for plain-data life programs, and read-only inspection through `authority/open!` (no reclaim). |
+| `stage_e_scenarios.cljc` | 1307 | Portable. 51 scenarios (lives plus checks) and the in-process runner. |
+| `stage_e_rows_test.cljc` | 70 | 13 deftests running every scenario in one process. This is the isolated-runtime form on all three lanes. |
+| `stage_e_peer.cljc` | 114 | A peer program that runs one life as its own OS process (JVM `-main`, Node `main`). At its cut it prints the event and blocks. |
+| `stage_e_process_test.clj` | 310 | JVM harness. It spawns JVM and Node peers and kills them with `destroyForcibly` at the cut (exit 137). |
+
+**Harness rules:**
+- The harness builds the Node peer itself on each run, so the gate cannot skip. It uses `compile vm-bench --config-merge` to write `target/stage-e-peer.js`; `shadow-cljs.edn` is untouched.
+- It AOT-compiles the JVM peer into a fresh `target/stage-e-classes-<uuid>`.
+- No ports, no wall-clock sleeps: waits are bounded deadline polls, and protocol time moves only through clock readings the judge appends as ticks.
+- Every process is destroyed in a `finally`.
+
+## Test outcomes
+
+| Run | Result |
+|---|---|
+| `bb test:changed:clj` | 28 tests, 572 assertions, 0 failures. Includes all 13 rows deftests and the fast cross-host gate (JVM→Node and Node→JVM handoff). |
+| `bb test:changed:cljs` | 44 tests, 1050 assertions, 0 failures. "Testing yin.vm.ucf.stage-e-rows-test" appears in the output. |
+| `bb test:changed:cljd` | 24 Dart tests, "All tests passed". All 13 rows deftests ran; Dart prints no assertion counts. |
+| `clojure -M:test -n yin.vm.ucf.stage-e-process-test` (includes the `^:slow` matrix) | 13 tests, 2418 assertions, 0 failures. 204 scenario runs: 51 per pair, 196 real SIGKILLs. |
+| clj-kondo / cljstyle | 0 errors, 0 warnings / clean. `git diff --check` is clean. |
+
+Logs and the durability record are in `build/stage-e/` (`proc-final.log`, `final-*.log`, `durability-record-final.edn`). Only the namespaces `bb test:changed` selected were run, not the full three-lane `bb test`.
+
+The full process matrix is tagged `^:slow` because it takes about 20 minutes even with the four pairs in parallel, so `bb test:clj` runs only the fast cross-host gate. The rows deftests run in the fast lanes but take several seconds each on some lanes, which is over the 5 s guideline in `build-n-test.md`.
+
+## Durability record (contract item 6)
+
+| Cell | Transport | Hosts and evidence | Cuts executed |
+|---|---|---|---|
+| Ordered pairs JVM→JVM, JVM→Node, Node→JVM, Node→Node | Separate OS processes over durable file media | Distinct pid per life (asserted); every life on the host its role names (asserted) | All named cuts listed below, 196 kills |
+| JVM, Node, Dart in one runtime | Isolated runtime in one process: fresh compositions over the same durable root, in-memory media killed at the cut | All 13 deftests per lane | Same cut set |
+| Dart process transport | **Not run.** No Dart peer exe was built. Recorded separately and not inferred from the in-process coverage. | — | — |
+
+**Holder matrix (2a), as realized:**
+- The lives in a scenario run one after another.
+- Each life is holder and authority on its own host.
+- The next host reopens and adjudicates the ledger, journals and store the previous host wrote.
+- So every host serves as holder and as authority/consumer of another host's bytes.
+- Nothing ever runs concurrently across hosts (prerequisite P1).
+
+**Cross-host pairs (2b):**
+- Done: the four JVM/Node pairs, including the two same-host controls.
+- Not done: the five pairs involving Dart.
+
+## Rows and the cuts actually executed
+
+Each row ran in process on every lane and across the four process pairs. "Kill" means `destroyForcibly` across processes, or the media going dead in process.
+
+- **Row 7, completion:**
+  - Kills after successor append, after resumed report, after release append, after closure, plus a clean run.
+  - The reopened authority reclaims the live tenure `:policy` and raises the epoch to 1 before any new admission.
+  - Before closure the attempted successor is ineligible, and the origin recovers its last checkpoint.
+  - After closure the origin never grants again, and the recorded successor runs once at epoch 0 on the receiver from stored bytes.
+  - A failure-lower successor releases and is reoffered at epoch 1 instead of completing.
+  - A destroyed authority fails stop as data: here the file backend refuses `:open-failed` before compose is reached.
+- **Row 4, result delivery:**
+  - Kills before commit, after commit, and before the result append (each cut matched on the `:yin.k/admitted` ledger transaction or the reply frame).
+  - One commit, stable id, same intent, recorded result redelivered.
+  - Zero commits in the reply journal when the cut kept the commit; one when it prevented it.
+  - The side effect makes no exactly-once claim.
+- **Row 3, reclaim:**
+  - The killed tenure's exact admit, delivered after the reclaim, answers `:stale` with observed epoch 1.
+  - Two equal replays answer the one stored result.
+  - Never both: the uncarried variant commits on regrant, the committed variant replays.
+- **Row 5, replay divergence:**
+  - Kills with the input carried and with it uncarried, then the value evicted.
+  - With inputs: zero live observes, target `["A"]`, a divergent intent at id0 answers `:intent-conflict` with no commit, and the occurrence is quarantined.
+  - Without inputs: see concern 1.
+- **Row 2, export:**
+  - Kills after every phase: minted, serve and store brackets, both store puts before and after, store ack, before and after fenced, offer intent, attempt, ack.
+  - Before the fence: the source never runs, no fence, no offer, the authority unaware, no IO.
+  - After the fence: abort is refused `:restarted`; one variant, one lease, then a run.
+  - Carriers `full` / `refused` / `transport-error` / `ok` then a kill: abort is legal only for full and refused, and an aborted export stays aborted across the kill.
+- **Row 1, candidates:** two encodings, the second minted on the receiver host. Exactly one holder admitted, the others await or are refused, both variants are admitted, and the source runs only under its own grant.
+- **Row 6, partition (request side only, see P1):**
+  - With requests held, the holder ends on its own `:lease-bound`: no inference from an absent lapse.
+  - Healed, the retries are identical requests.
+  - Consumer partition: the exact 7.9 `:suspended` map, nothing committed, then the restart commits once.
+  - A lost proposal reply: each proposal id is answered exactly once.
+- **Clause 8, after a kill:**
+  - Checked in order: wrong author (diagnosed), stale epoch and stale lease (exact maps), foreign id (diagnosed), equal intent replays with the stored result, fresh id commits (exact map), different intent conflicts and quarantines, then `:suspended` after quarantine and with the authority unreadable.
+  - A cross-target conflict quarantines.
+  - A closed occurrence answers `:stale` with `:closed true`.
+  - A closed ancestor's id at the successor is diagnosed foreign.
+  - Every outcome is compared as data.
+- **Clause 3, sequence:**
+  - A kill between assign and discharge: the counter is restored to exactly 1, with the same id and intent.
+  - An id carried by the checkpoint across a killed exit is retried unchanged by the successor and commits once.
+- **Inbox and journal (D15a, D14):**
+  - Before retention: the same attributed record at the same position.
+  - After retention: one queue entry.
+  - An uncertain retention append, persisted and absent: the driver stalls, then reopen reconciles to one entry.
+  - Proposal intent, proposal attempt, grant ack: a journaled grant never resumes; a fresh tenure follows.
+  - Resumed intent: no report was accepted, so the checkpoint is regranted. Release intent: identical resend, exit completes.
+- **Fork, per host:**
+  - On a memory authority, exclusive is refused `:exclusive-uncapable` with nothing composed.
+  - Fork runs only when selected, is labelled `:yin.k/fork`, and has no bracket, offer or fronts.
+
+**Red/green:** every row failed on its first run (`build/stage-e/run1.log`, `run2.log`). Every one of those failures was a fixture or expectation error, for example handing off a tick after activation is refused `:held` under UCF 7.4.1. None was a product defect, so no row is a red→green cycle driven by a production change.
+
+## Unsupported compositions (named prerequisites)
+
+- **P1. No remote-holder composition.**
+  - `compose/holder-media` (`compose.cljc:606-653`) mints the reply journal and takes the outcome inbox and ledger reader from the composition's own authority.
+  - `holder-config-keys` (`656-680`) refuses `:reply-inbox`, `:outcome-inbox` and `:read-ledger!` from callers.
+  - So these cannot be built through compose:
+    - a holder in a different process from its authority;
+    - a real partition that cuts a holder's ledger reads;
+    - concurrent candidates on different hosts;
+    - concurrent reclaim and admission across processes.
+  - Cross-host evidence is therefore sequential lives only. This needs a ruling.
+- **P2. Forged or unattributed replies.**
+  - Compose attributes the whole reply journal and the outcome inbox to the arbitration identity (`compose.cljc:646-649`).
+  - No seam admits a record from another author, so the "forged reply discharges nothing" clauses cannot be set up through the composition.
+
+## Incomplete work
+
+- Clause 3: carried ids on `:ffi-request` and `:link-request`, and children drawing from the root's sequence (install children).
+- Clause 8: an unreadable accepted checkpoint answering `:suspended`, and the snapshot variant. The `:unreadable` store option exists but no scenario uses it.
+- Row 1: the wakeable source writer, direct resume, and install-child tick variants.
+- Row 8 of 14.2.4: attachment failure, forged binding, overflow and store isolation.
+- All Dart process transport, and every pair involving Dart.
+
+## Unresolved concerns
+
+1. **Row 5 without inputs (needs an Architect ruling).** The recovery re-reads live and gets the eviction as `:dao.stream/gap`. The program writes that value, and it commits at id0 as a fresh effect, because no earlier intent was recorded there to conflict with. I pinned the observed result `[:dao.stream/gap]`, labelled as pending a ruling, since it is not clear this satisfies "missing replay fails closed". D16's matching row stopped at the first re-read and never saw the commit.
+2. **D16's fenced-recovery branch never runs.** Its frame count includes the journal header, so positions 2–8 never reach the fenced frame. In practice, reopening a fenced source makes one administrative attach (`driver.cljc:2431`, allowed by D14 rehydration). E asserts 1 administrative attach and 0 observes before the grant.
+3. **Freeze liveness gap stands.** A kill before the fence leaves the source permanently non-running. E observes this but cannot change product code.
+4. **Classes directories leak.** The harness leaves one `target/stage-e-classes-<uuid>` per run; I removed them by hand this time.
+
+**Document amendments to report (not written):**
+- 14.2.4 row 6 needs either the P1 seam or a restated scope.
+- 7.11.1 clause 8's forged-outcome case needs the P2 seam.
+- The row 5 reading in concern 1.
