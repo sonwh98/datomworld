@@ -98,7 +98,17 @@ bb test:sub:cljs <subsystem>...   # Node lane alone
 bb test:sub:cljd <subsystem>...   # Dart lane alone
 bb test:sub:list <subsystem>...   # Show namespaces, builds, Class B seams & dependents; runs nothing
 bb test:sub <subsystem>... --slow # Include slow tests (-i :slow on JVM, DATOM_SLOW_TESTS=1 on Node/Dart)
+bb -cp src/dev -m affected-test   # Run affected-test self-tests directly in Babashka
 ```
+
+#### Canonical Subsystems (`src/dev/subsystems.edn`)
+
+- **Layer 0 (Core Data & Transport)**: `dao.stream`, `dao.jing`, `dao.data`, `dao.base`
+- **Layer 1 (Space & UI)**: `dao.space`, `dao.gui`, `dao.postgraphics`
+- **Layer 2 (Execution Engine)**: `yin.vm.ucf`, `yin.vm`
+- **Layer 3 (Languages & Interop)**: `yin.repl`, `yang.python`, `yang.base`
+- **Layer 4 (Applications & Demos)**: `demo`, `world`
+- **Infrastructure**: `dev`, `bench`
 
 Prerequisites (`build:yin-repl-peer`, `build:yin-repl-node`, `gen:python-antlr`)
 and lane serialization (`[:clj :cljd]`) are derived purely from text reach of the
@@ -110,6 +120,7 @@ selected namespaces and run automatically when needed.
 2. **G1 Checkpoint**: Run the three-lane subsystem test (`bb test:sub <own>`). Proves the home suite across all three hosts before reporting ready.
 3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change.
 4. **G3 Master**: The mandatory landing gate on master after merge (`bb test`).
+
 
 The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
 slice L5) is two tests:
