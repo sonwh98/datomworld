@@ -10,7 +10,6 @@
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [yang.python.antlr.lower :as lower]
-            [yang.python.antlr.lower-portable-test :refer [packet]]
             [yang.python.antlr.prelude :as prelude]
             [yang.python.antlr.render :as render]
             [yang.python.antlr.safepoint :as hooks]
@@ -34,128 +33,18 @@
 
 
 ;; =============================================================================
-;; Programs: parser CSTs as nested forms
+;; Programs: the shared signal packets of `safepoint-programs`
 ;; =============================================================================
 
-(defn- test-chain
-  "`test` down to `atom-expr`, a single-child chain."
-  [atom-expr]
-  [:test [:or_test [:and_test [:not_test [:comparison [:expr atom-expr]]]]]])
-
-
-(defn- atom-of
-  [x]
-  [:atom_expr [:atom x]])
-
-
-(defn- nm
-  [s]
-  [:name ["NAME" s]])
-
-
-(defn- call1
-  "`f(arg)` as an `atom_expr`."
-  [f arg]
-  [:atom_expr [:atom (nm f)]
-   [:trailer ["OPEN_PAREN" "("]
-    [:arglist [:argument (test-chain (atom-of arg))]]
-    ["CLOSE_PAREN" ")"]]])
-
-
-(def ^:private while-true-pass
-  "while True:\n    pass\n"
-  (packet
-    [:file_input
-     [:stmt [:compound_stmt
-             [:while_stmt ["WHILE" "while"] (test-chain (atom-of ["TRUE" "True"]))
-              ["COLON" ":"]
-              [:block ["NEWLINE" "\n"] ["INDENT" "    "]
-               [:stmt [:simple_stmts [:simple_stmt [:pass_stmt ["PASS" "pass"]]]
-                       ["NEWLINE" "\n"]]]
-               ["DEDENT" "<EOF>"]]]]]
-     ["EOF" "<EOF>"]]))
-
-
-(def ^:private caught
-  "try:\n    while True:\n        pass\nexcept KeyboardInterrupt:\n
-   print('caught')\n"
-  (packet
-    [:file_input
-     [:stmt
-      [:compound_stmt
-       [:try_stmt ["TRY" "try"] ["COLON" ":"]
-        [:block ["NEWLINE" "\n"] ["INDENT" "    "]
-         [:stmt [:compound_stmt
-                 [:while_stmt ["WHILE" "while"] (test-chain (atom-of ["TRUE" "True"]))
-                  ["COLON" ":"]
-                  [:block ["NEWLINE" "\n"] ["INDENT" "        "]
-                   [:stmt [:simple_stmts [:simple_stmt [:pass_stmt ["PASS" "pass"]]]
-                           ["NEWLINE" "\n"]]]
-                   ["DEDENT" ""]]]]]
-         ["DEDENT" ""]]
-        [:except_clause ["EXCEPT" "except"] (test-chain (atom-of (nm "KeyboardInterrupt")))]
-        ["COLON" ":"]
-        [:block ["NEWLINE" "\n"] ["INDENT" "    "]
-         [:stmt [:simple_stmts
-                 [:simple_stmt [:expr_stmt [:testlist_star_expr
-                                            (test-chain (call1 "print" ["STRING" "'caught'"]))]]]
-                 ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
-     ["EOF" "<EOF>"]]))
-
-
-(defn- assign
-  [target value-expr]
-  [:stmt [:simple_stmts
-          [:simple_stmt [:expr_stmt [:testlist_star_expr (test-chain (atom-of (nm target)))]
-                         ["ASSIGN" "="]
-                         [:testlist_star_expr (test-chain value-expr)]]]
-          ["NEWLINE" "\n"]]])
-
-
-(def ^:private def-and-while
-  "def f(n):\n    return n + 1\ni = 0\nwhile i < 5:\n    i = f(i)\n
-   print(i)\n"
-  (packet
-    [:file_input
-     [:stmt [:compound_stmt
-             [:funcdef ["DEF" "def"] (nm "f")
-              [:parameters ["OPEN_PAREN" "("] [:typedargslist [:tfpdef (nm "n")]]
-               ["CLOSE_PAREN" ")"]]
-              ["COLON" ":"]
-              [:block ["NEWLINE" "\n"] ["INDENT" "    "]
-               [:stmt [:simple_stmts
-                       [:simple_stmt
-                        [:flow_stmt
-                         [:return_stmt ["RETURN" "return"]
-                          [:testlist
-                           [:test [:or_test [:and_test [:not_test
-                                                        [:comparison
-                                                         [:expr [:expr (atom-of (nm "n"))]
-                                                          ["ADD" "+"]
-                                                          [:expr (atom-of ["NUMBER" "1"])]]]]]]]]]]]
-                       ["NEWLINE" "\n"]]]
-               ["DEDENT" ""]]]]]
-     (assign "i" (atom-of ["NUMBER" "0"]))
-     [:stmt [:compound_stmt
-             [:while_stmt ["WHILE" "while"]
-              [:test [:or_test [:and_test [:not_test
-                                           [:comparison [:expr (atom-of (nm "i"))]
-                                            [:comp_op ["LESS_THAN" "<"]]
-                                            [:expr (atom-of ["NUMBER" "5"])]]]]]]
-              ["COLON" ":"]
-              [:block ["NEWLINE" "\n"] ["INDENT" "    "]
-               (assign "i" (call1 "f" (nm "i")))
-               ["DEDENT" ""]]]]]
-     [:stmt [:simple_stmts
-             [:simple_stmt [:expr_stmt [:testlist_star_expr
-                                        (test-chain (call1 "print" (nm "i")))]]]
-             ["NEWLINE" "\n"]]]
-     ["EOF" "<EOF>"]]))
-
-
 (def ^:private programs
-  {:while-true-pass while-true-pass, :caught caught, :def-and-while def-and-while})
+  {:while-true-pass programs/while-true-pass,
+   :caught programs/caught,
+   :def-and-while programs/def-and-while})
+
+
+(def ^:private while-true-pass programs/while-true-pass)
+(def ^:private caught programs/caught)
+(def ^:private def-and-while programs/def-and-while)
 
 
 ;; =============================================================================
@@ -840,12 +729,12 @@
                                     '(fn [e]
                                        (do (py/print
                                              (py/vconj []
-                                                      (py.sp/recursion-limit)))
+                                                       (py.sp/recursion-limit)))
                                            (py/raise e)))
                                     '(fn []
                                        (py/print
                                          (py/vconj []
-                                                  (py.sp/recursion-limit)))))))))))))))
+                                                   (py.sp/recursion-limit)))))))))))))))
 
 
 (deftest ^:slow set-recursion-limit-test

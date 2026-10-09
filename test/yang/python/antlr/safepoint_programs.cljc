@@ -1,11 +1,11 @@
 (ns yang.python.antlr.safepoint-programs
-  "Python programs for the safepoint recursion slice, as the CST packets the
-   JVM parser produces for their sources (each def's docstring is the
-   source). The parser is JVM-only; these let every host run the real
-   lowering. `yang.python.antlr.e2e-test` checks each packet against the
-   parser, so the two cannot drift. `tc` is the single-child chain from
-   `test` down to `expr`, `t4` the one from `test` down to `not_test`, `at`
-   an `atom_expr` holding one `atom`, `nm` a `name`."
+  "Python programs for the safepoint slices, as the CST packets the JVM
+   parser produces for their sources (each def's docstring is the source).
+   The parser is JVM-only; these let every host run the real lowering.
+   `yang.python.antlr.e2e-test` checks each packet against the parser, so
+   the two cannot drift. `tc` is the single-child chain from `test` down
+   to `expr`, `t4` the one from `test` down to `not_test`, `at` an
+   `atom_expr` holding one `atom`, `nm` a `name`."
   (:require
     [yang.python.antlr.lower-portable-test :refer [packet]]))
 
@@ -3583,4 +3583,109 @@
                     ["CLOSE_PAREN" ")"]]])]]
               ["CLOSE_PAREN" ")"]]])]]]
        ["NEWLINE" "\n"]]]
+     ["EOF" "<EOF>"]]))
+
+
+;; =============================================================================
+;; The signal programs (slice 1), shared by the bundled and linked suites
+;; =============================================================================
+
+(defn- call-t
+  "`f(arg)` as a `test`; `arg` already a `test`."
+  [f arg]
+  (tc [:atom_expr [:atom (nm f)]
+       [:trailer ["OPEN_PAREN" "("]
+        [:arglist [:argument arg]]
+        ["CLOSE_PAREN" ")"]]]))
+
+
+(defn- assign-t
+  "`name = <test>` as one `stmt`."
+  [name value]
+  [:stmt [:simple_stmts
+          [:simple_stmt [:expr_stmt
+                         [:testlist_star_expr (tc (at (nm name)))]
+                         ["ASSIGN" "="]
+                         [:testlist_star_expr value]]]
+          ["NEWLINE" "\n"]]])
+
+
+(def while-true-pass
+  "while True:\n    pass\n"
+  (packet
+    [:file_input
+     [:stmt [:compound_stmt
+             [:while_stmt ["WHILE" "while"] (tc (at ["TRUE" "True"]))
+              ["COLON" ":"]
+              [:block ["NEWLINE" "\n"] ["INDENT" "    "]
+               [:stmt [:simple_stmts [:simple_stmt [:pass_stmt ["PASS" "pass"]]]
+                       ["NEWLINE" "\n"]]]
+               ["DEDENT" "<EOF>"]]]]]
+     ["EOF" "<EOF>"]]))
+
+
+(def caught
+  "try:\n    while True:\n        pass\nexcept KeyboardInterrupt:\n    print('caught')\n"
+  (packet
+    [:file_input
+     [:stmt
+      [:compound_stmt
+       [:try_stmt ["TRY" "try"] ["COLON" ":"]
+        [:block ["NEWLINE" "\n"] ["INDENT" "    "]
+         [:stmt [:compound_stmt
+                 [:while_stmt ["WHILE" "while"] (tc (at ["TRUE" "True"]))
+                  ["COLON" ":"]
+                  [:block ["NEWLINE" "\n"] ["INDENT" "        "]
+                   [:stmt [:simple_stmts [:simple_stmt [:pass_stmt ["PASS" "pass"]]]
+                           ["NEWLINE" "\n"]]]
+                   ["DEDENT" ""]]]]]
+         ["DEDENT" ""]]
+        [:except_clause ["EXCEPT" "except"] (tc (at (nm "KeyboardInterrupt")))]
+        ["COLON" ":"]
+        [:block ["NEWLINE" "\n"] ["INDENT" "    "]
+         [:stmt [:simple_stmts
+                 [:simple_stmt [:expr_stmt [:testlist_star_expr
+                                            (call-t "print"
+                                                    (tc (at ["STRING" "'caught'"])))]]]
+                 ["NEWLINE" "\n"]]]
+         ["DEDENT" "<EOF>"]]]]]
+     ["EOF" "<EOF>"]]))
+
+
+(def def-and-while
+  "def f(n):\n    return n + 1\ni = 0\nwhile i < 5:\n    i = f(i)\nprint(i)\n"
+  (packet
+    [:file_input
+     [:stmt [:compound_stmt
+             [:funcdef ["DEF" "def"] (nm "f")
+              [:parameters ["OPEN_PAREN" "("] [:typedargslist [:tfpdef (nm "n")]]
+               ["CLOSE_PAREN" ")"]]
+              ["COLON" ":"]
+              [:block ["NEWLINE" "\n"] ["INDENT" "    "]
+               [:stmt [:simple_stmts
+                       [:simple_stmt
+                        [:flow_stmt
+                         [:return_stmt ["RETURN" "return"]
+                          [:testlist
+                           (t4 [:comparison
+                                [:expr
+                                 [:expr (at (nm "n"))]
+                                 ["ADD" "+"]
+                                 [:expr (at ["NUMBER" "1"])]]])]]]]
+                       ["NEWLINE" "\n"]]]
+               ["DEDENT" ""]]]]]
+     (assign-t "i" (tc (at ["NUMBER" "0"])))
+     [:stmt [:compound_stmt
+             [:while_stmt ["WHILE" "while"]
+              (t4 [:comparison [:expr (at (nm "i"))]
+                   [:comp_op ["LESS_THAN" "<"]]
+                   [:expr (at ["NUMBER" "5"])]])
+              ["COLON" ":"]
+              [:block ["NEWLINE" "\n"] ["INDENT" "    "]
+               (assign-t "i" (call-t "f" (tc (at (nm "i")))))
+               ["DEDENT" ""]]]]]
+     [:stmt [:simple_stmts
+             [:simple_stmt [:expr_stmt [:testlist_star_expr
+                                        (call-t "print" (tc (at (nm "i"))))]]]
+             ["NEWLINE" "\n"]]]
      ["EOF" "<EOF>"]]))

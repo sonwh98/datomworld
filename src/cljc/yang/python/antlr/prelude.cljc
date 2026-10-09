@@ -152,7 +152,9 @@
    linker's scanners discharge the bodies that read it before `py/init!`
    defines it. `py/vconj` and `py/lnot` are not `py/conj` and `py/not`
    because a bare key equal to a primitive name would shadow that
-   primitive inside the module.
+   primitive inside the module. `py/rt-ctx` and `py/rt-limit` (P3) hand
+   the hook prelude the two cells this prelude owns, which a linked
+   `pysp` closure cannot name across the module boundary.
 
    Host names the prelude depends on and does not define: `host-names`
    (the cell module from yin.vm.module, the integer module from
@@ -227,6 +229,15 @@
                      :base base)
               :frame frame))]
     [py/abs-depth (fn [c] (+ (get c :base) (get c :depth)))]
+    [py/rt-ctx
+     ;; the dynamic-context cell itself (C4 slice P3): the base prelude
+     ;; owns the record, and the hook prelude counts frames in it, but
+     ;; `py.rt/*` is an internal store key no closure of another module
+     ;; can name, so linked hooks read the cell through this export
+     (fn [] py.rt/ctx)]
+    [py/rt-limit
+     ;; the recursion-limit cell, the same door
+     (fn [] py.rt/limit)]
     [py/restore!
      (fn [saved]
        (cell/set! py.rt/ctx
@@ -238,8 +249,8 @@
     [py/frame
      (fn [kind payload rest]
        (py/vconj (py/vconj (py/vconj (py/vconj (py/vconj [] kind) payload) rest)
-                         (+ 1 (py/frame-depth rest)))
-                (get (cell/get py.rt/ctx) :depth)))]
+                           (+ 1 (py/frame-depth rest)))
+                 (get (cell/get py.rt/ctx) :depth)))]
     [py/pop-frame
      ;; the handler stack below frame hs, at the call depth hs was pushed at
      (fn [hs]
@@ -333,7 +344,7 @@
                            (if (py/truthy
                                  (py/call exit
                                           (py/vconj (py/vconj (py/vconj [] (py/type-of e)) e)
-                                                   :py/None)))
+                                                    :py/None)))
                              :py/None
                              (py/raise e))))
                      (fn [] :py/None)))
@@ -341,7 +352,7 @@
              (if (cell/get hit)
                :py/None
                (py/call exit (py/vconj (py/vconj (py/vconj [] :py/None) :py/None)
-                                      :py/None)))))))]
+                                       :py/None)))))))]
 
     ;; ---------------------------------------------------------- generators
     ;; A generator is a cell holding {:py/type :generator :name s :state st}
@@ -834,15 +845,15 @@
              (let [state (py/bind-keywords
                            fc
                            (py/vconj (py/vconj (py/vconj [] (py/pad args n 0 []))
-                                             (py/pad [] (data/count (get spec :kwonly)) 0 []))
-                                    (if (get spec :kwstar?) (py/dict-new) nil))
+                                               (py/pad [] (data/count (get spec :kwonly)) 0 []))
+                                     (if (get spec :kwstar?) (py/dict-new) nil))
                            kwargs
                            0)
                    slots (py/fill-defaults fc (get state 0) (get fc :defaults) n 0)
                    ko (py/fill-kwdefaults fc (get state 1) (get spec :kwonly) 0)
                    with-star (if star
                                (py/vconj slots
-                                        (py/tuple (if (< n given) (data/subvec args n) [])))
+                                         (py/tuple (if (< n given) (data/subvec args n) [])))
                                slots)
                    with-ko (data/into with-star ko)]
                (if (get spec :kwstar?) (py/vconj with-ko (get state 2)) with-ko))))))]
@@ -1236,7 +1247,7 @@
            (if (if (py/int? a) (py/int? b) false)
              qr
              (py/vconj (py/vconj [] (py/float (get qr 0)))
-                      (py/float (get qr 1)))))))]
+                       (py/float (get qr 1)))))))]
     [py/fpow
      ;; float base ** e for an integer e >= 0
      (fn [base e]
@@ -1618,7 +1629,7 @@
                  (py/float-parts-up a 0))]
          (if (< x 0)
            (py/vconj (py/vconj [] (py/int-result (integer/neg (get p 0))))
-                    (get p 1))
+                     (get p 1))
            p)))]
 
     ;; ---------------------------------------------------------- dicts
@@ -2154,7 +2165,7 @@
          (if (< k (+ before after))
            (py/raise-new py.b/ValueError {:py/str "not enough values to unpack"})
            (data/into (py/vconj (data/subvec xs 0 before)
-                               (py/list (data/subvec xs before (- k after))))
+                                (py/list (data/subvec xs before (- k after))))
                       (data/subvec xs (- k after) k)))))]
     [py/len
      (fn [o]
@@ -2239,8 +2250,8 @@
                    (assoc {}
                           :py/range
                           (py/vconj (py/vconj (py/vconj [] (get x :start))
-                                            (get x :stop))
-                                   (get x :step)))
+                                              (get x :stop))
+                                    (get x :step)))
                    x)))))))]
     [py/snapshot-all
      (fn [xs i acc]
@@ -2497,7 +2508,7 @@
                (py/read-digits cs (+ i 1) base false acc)
                (py/vconj (py/vconj (py/vconj [] i) acc) false))
              (py/vconj (py/vconj (py/vconj [] i) acc)
-                      (if (= acc "") true prev))))))]
+                       (if (= acc "") true prev))))))]
     [py/int-text-error
      (fn [s base]
        (py/raise-new
@@ -3119,9 +3130,10 @@
              definitions)))
 
 
-(defn- free-names
+(defn free-names
   "Every variable name some occurrence of the map AST `ast` reads
-   unbound by an enclosing lambda."
+   unbound by an enclosing lambda. Shared with the hook prelude's module
+   emitter, which declares the same names its manifest must cover."
   [ast]
   (letfn [(walk-node
             [acc node bound]
@@ -3139,9 +3151,9 @@
     (walk-node #{} ast #{})))
 
 
-(defn- defined-keys
+(defn defined-keys
   "Every literal key the map AST `ast` defines with `yin/def`, at any
-   depth."
+   depth. Shared with the hook prelude's module emitter."
   [ast]
   (set (keep (fn [node]
                (when (and (map? node)

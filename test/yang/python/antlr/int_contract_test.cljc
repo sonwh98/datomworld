@@ -291,8 +291,8 @@
      (py/try thunk
              (fn [e]
                (data/into (py/vconj []
-                                   (get (cell/get (get (cell/get e) :class))
-                                        :name))
+                                    (get (cell/get (get (cell/get e) :class))
+                                         :name))
                           (get (get (get (cell/get e) :attrs) "args") :items)))
              (fn [] :value))))
 

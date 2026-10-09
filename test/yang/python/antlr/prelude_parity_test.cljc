@@ -278,7 +278,7 @@
                     '(py/vconj
                        (py/vconj
                          (py/vconj (py/vconj [] (py/range-elem 0 1 5))
-                                  (py/to-vector (py/range3 0 3000 1)))
+                                   (py/to-vector (py/range3 0 3000 1)))
                          (py/range-at (py/range3 0 67108865 1) 67108864))
                        (py/range-at (py/range3 0 67108866 1) 67108865)))]
       (doseq [[k result] results]
@@ -302,9 +302,9 @@
                          (fn [g]
                            (py/print
                              (py/vconj (py/vconj (py/vconj (py/vconj [] 2)
-                                                        (py/truediv 4 2))
-                                               (py/add 1 {:py/float 2.0}))
-                                      {:py/float 0.5}))))))]
+                                                           (py/truediv 4 2))
+                                                 (py/add 1 {:py/float 2.0}))
+                                       {:py/float 0.5}))))))]
       (doseq [[k result] results]
         (testing (str k)
           (is (= {:py/out ["2 2.0 3.0 0.5"], :py/exception nil}
@@ -325,11 +325,11 @@
                        (fn [g]
                          (py/print
                            (py/vconj (py/vconj [] (py/call-ec (fn [k] (do (k 7) 8))))
-                                    (py/try (fn []
-                                              (py/raise-new py.b/ValueError
-                                                            {:py/str "v"}))
-                                            (fn [e] (py/isinstance e py.b/ValueError))
-                                            (fn [] :no)))))))]
+                                     (py/try (fn []
+                                               (py/raise-new py.b/ValueError
+                                                             {:py/str "v"}))
+                                             (fn [e] (py/isinstance e py.b/ValueError))
+                                             (fn [] :no)))))))]
       (doseq [[k result] results]
         (testing (str k)
           (is (= {:py/out ["7 True"], :py/exception nil}
@@ -346,8 +346,8 @@
                                "g"
                                (fn [gen] (do (py/yield gen 1) (py/yield gen 2) :py/None)))]
                        (py/vconj (py/vconj (py/vconj [] (py/gen-switch g [:send :py/None]))
-                                         (py/gen-switch g [:send :py/None]))
-                                (py/gen-switch g [:send :py/None]))))]
+                                           (py/gen-switch g [:send :py/None]))
+                                 (py/gen-switch g [:send :py/None]))))]
       (doseq [[k result] results]
         (testing (str k)
           (is (= [[:yield 1] [:yield 2] [:return :py/None]] result)))))))
@@ -422,7 +422,7 @@
                                  [] []
                                  (fn [args]
                                    (cell/set! log (py/vconj (cell/get log)
-                                                           (py/arg args 1))))))
+                                                            (py/arg args 1))))))
                            g (py/make-generator
                                "g"
                                (fn [gen]
@@ -707,12 +707,12 @@
                        'note '(fn [x] (do (cell/set! log (py/vconj (cell/get log) x)) x))
                        'a '(py/call py.b/any
                                     (py/vconj [] (genexp (py/list [1 2 3 4])
-                                                        (fn [x] (py/lt 2 (note x))))))
+                                                         (fn [x] (py/lt 2 (note x))))))
                        'la '(cell/get log)
                        'r1 '(cell/set! log [])
                        'b '(py/call py.b/all
                                     (py/vconj [] (genexp (py/list [1 2 3])
-                                                        (fn [x] (py/lt (note x) 2)))))
+                                                         (fn [x] (py/lt (note x) 2)))))
                        'lb '(cell/get log)
                        'c '(py/call py.b/sum
                                     (py/vconj [] (genexp (py/range3 1 4 1) (fn [x] x))))
@@ -1049,8 +1049,8 @@
      (py/try thunk
              (fn [e]
                (data/into (py/vconj []
-                                   (get (cell/get (get (cell/get e) :class))
-                                        :name))
+                                    (get (cell/get (get (cell/get e) :class))
+                                         :name))
                           (get (get (get (cell/get e) :attrs) "args") :items)))
              (fn [] :py/None))))
 
@@ -1087,7 +1087,7 @@
                                    (py/vconj
                                      (py/vconj
                                        (py/vconj (py/vconj [] k)
-                                                (= k (py/key big1)))
+                                                 (= k (py/key big1)))
                                        n1)
                                      v)
                                    n2)
@@ -1097,8 +1097,8 @@
                            (py/contains s big))
                          (py/getitem t (py/tuple
                                          (py/vconj [1]
-                                                  (integer/shift-left
-                                                    1 20000)))))))]
+                                                   (integer/shift-left
+                                                     1 20000)))))))]
       (doseq [[k result] results]
         (testing (str k)
           (is (= [[:py.numeric/finite (apply str "1" (repeat 5000 "0")) "1"]
@@ -1297,7 +1297,7 @@
                     (with-float64
                       (list 'let ['shown '(fn [kv]
                                             (py/vconj (py/vconj [] (data/count (get kv 0)))
-                                                     (get kv 1)))
+                                                      (get kv 1)))
                                   'first-key '(fn [kv] (get (get kv 0) 0))]
                             (list 'py/vconj
                                   (list 'py/vconj
@@ -1604,8 +1604,8 @@
                                (fn [e] (py/isinstance e py.b/NameError))
                                (fn [] :no))]
                  (py/vconj (py/vconj (py/vconj (py/vconj [] (= a py.b/len)) b)
-                                   (= c py.b/len))
-                          d)))]
+                                     (= c py.b/len))
+                           d)))]
       (testing (str k)
         (is (= [true 1 true true] result))))))
 

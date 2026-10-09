@@ -221,9 +221,11 @@
 ;; =============================================================================
 
 (def ^:private manifest-golden
+  "P3 moved this once: the two runtime-cell accessors `py/rt-ctx` and
+   `py/rt-limit` the linked hook module reads are new exports."
   (keyword (str "segment/blake3-"
-                "8f5e6bc93e0e8960682b65c2e4254ec9"
-                "59e69f0579ccda07a3189ea0e0e4b9d7")))
+                "b891d48b14e3fc3757535e580a3511e9"
+                "5d8ddf6c57d3e637f1ba0f9a97cb0ee7")))
 
 
 (def ^:private vector-formats
@@ -360,15 +362,15 @@
       '(do (require (quote py))
            (py/init!)
            (yin/def (quote u1-exc)
-                    (py/try (fn []
-                              (py/raise
-                                (py/call (py/global-get (py/dict-new)
-                                                        {:py/str "ValueError"})
-                                         [])))
-                            (fn [e] e)
-                            (fn [] :py/None)))
+             (py/try (fn []
+                       (py/raise
+                         (py/call (py/global-get (py/dict-new)
+                                                 {:py/str "ValueError"})
+                                  [])))
+                     (fn [e] e)
+                     (fn [] :py/None)))
            (yin/def (quote u1-cls)
-                    (py/global-get (py/dict-new) {:py/str "Exception"}))))))
+             (py/global-get (py/dict-new) {:py/str "Exception"}))))))
 
 
 (def ^:private unit-2
