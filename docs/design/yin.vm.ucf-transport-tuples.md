@@ -490,7 +490,9 @@ the empty numbering and performs no search.
    - The `:cells` census is **not expanded**: in `CE(root)` the
      `cells-cref` slot is the constant `[:cells]`. The census is a
      derived index of the cells the task reaches, so it carries no
-     information the reference positions do not, and (consistently with
+     additional information beyond the reached cell identities and
+     their bodies (which already seed the initial labels), and
+     (consistently with
      §8 step 3, which excludes census declaration edges from
      reachability) **census declaration occurrences contribute no
      positions** to any cell.

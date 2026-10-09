@@ -11076,3 +11076,18 @@ Delegates:
 Next:
   - Spec follow-up, not started: tuple schema for transported state, then Architect brief to reopen UCF §7.4.1/§7.5.
   - Delete stale remote branch `worktree-ucf-blog-cross-vm`.
+
+## 2026-10-10 04:50:00 +07 — UCF row carrier (body version 3) design draft published after six codex Architect rounds
+Completed-GMT: 2026-10-09 21:50:00 GMT
+Coding-Agent: claude (Orchestrator + Architect per owner instruction, Fable 5.1, background job)
+Session-ID: e77b6b18-7f5d-48ec-b8f4-0293f11ad5eb
+Tree: master (ff from ucf-transport-tuples)
+Done:
+  (1) `docs/design/yin.vm.ucf-transport-tuples.md`: the transported state of UCF as positional rows with merkle ids (body version 3, semantic profile only). Owner rulings encoded: semantic-VM safepoints; state as tuples; tuples transport-only, execution native. Design choices (labelled as proposals in §10): body version 3 with the existing outer gate; two id spaces (content rows / identity cells) with a root-committed cell census; disjoint [:lit|:row|:cell] value union; closed row table mirroring the v2 body (ordered waits, parked table, installs with child tasks, custody arm by role/kind/policy, r5 pending union with op-ids, env bindings + store-of); canonical cell numbering defined as the output of a renaming-invariant refinement-and-search byte procedure with validation by re-emission; validation in amendment §8 order; three parity laws with explicit domains; SHA-256 pinned for row ids.
+  (2) Codex Architect gpt-6.1-sol, thread 01a121aa-4d3b-7bb1-90d7-eeb2b04e5d75, six rounds: R1 13 findings (CRITICAL: cell contents outside the merkle root) -> e0c843c9; R2 8 -> d819f641; R3 7 (numbering not the min over bijections; classes not orbits; shared child rows; FFI envelope; ordering; metadata; validation order) -> 7e24fa3a; R4 6 -> 9d6c1cec; R5 2 -> ac3227f5; R6 READY_TO_MERGE, one LOW nit applied. Nine open questions answered by the Architect and adopted (§10.1-10.10).
+  (3) Verified: `git diff --check` clean; no code or tests touched. Merge publishes a Draft; it is not implementation acceptance.
+Delegates:
+  - Architect: codex gpt-6.1-sol (thread 01a121aa-4d3b-7bb1-90d7-eeb2b04e5d75), `collab/1791500000000-architect-ucf-transport-tuples-review{,-r2,-r3,-r4,-r5,-r6}.*`.
+Next:
+  - Owner discussion in progress: deriving the de Bruijn stack and register images from the semantic vector (A as the only code identity; chain topology); three owner questions pending.
+  - Implementation-phase obligations before any brief: other-profile row tables, concrete receiver work limits (§10.10), foreign-engine value profiles (§10.6).
