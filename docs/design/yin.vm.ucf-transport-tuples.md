@@ -1,17 +1,20 @@
-# UCF transported state as tuples: the row schema
+# UCF transported state as tuples: the row carrier (body version 3)
 
 Status: **Draft, proposed, not landed.** Written 2026-10-10 from the owner
 discussion recorded in
 `public/chp/blog/hygienic-parallel-transport-universal-continuation-format.blog`
-Part Three and the codex Architect review that accompanied it
-(`collab/1791400000000-architect-ucf-blog-cross-vm-review*.findings.md`).
-Subordinate to [`datom.world.md`](./datom.world.md) and to UCF §7 in
-[`yin.vm.universal-continuation-format.md`](./yin.vm.universal-continuation-format.md);
-follows the row conventions of
-[`yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md). Nothing here is
-implemented. The nested `:yin.k/*` value grammar of UCF §7.5 is what ships
-and is tested through Stage E; this document proposes its replacement as
-the transport form and says what the replacement must preserve.
+Part Three; revised the same day after the codex Architect review
+`collab/1791500000000-architect-ucf-transport-tuples-review.gpt-6.1-sol.findings.md`
+(thirteen findings, all addressed below, and six answers adopted in §10).
+Subordinate to [`datom.world.md`](./datom.world.md), to UCF §7 in
+[`yin.vm.universal-continuation-format.md`](./yin.vm.universal-continuation-format.md),
+and to the version-2 amendment
+[`yin.vm.universal-continuation-format.v2-amendment.md`](./yin.vm.universal-continuation-format.v2-amendment.md),
+whose body is the fact list this carrier must reproduce. Follows the row
+conventions of [`yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md).
+Nothing here is implemented. Body versions 0, 1 and 2 keep their grammar,
+readers and bytes; this document proposes a fourth body version whose
+carrier is rows, and says what it must preserve.
 
 ## 1. Stance
 
@@ -19,330 +22,529 @@ Three owner rulings fix the shape of this document.
 
 1. *Cross-VM safepoints are semantic-VM safepoints.* The Universal AST is
    the canonical code; the instruction vector is its deterministic
-   lowering; a safepoint is `(segment-hash, pc)` into that vector (UCF
-   §7.3.2, §7.4.1). This schema changes nothing about code identity or
-   safepoints. It only changes how the *state* at a safepoint is carried.
-2. *The transported state is a tuple set.* The nested grammar's special
-   cases for sharing, forgery, and the value table collapse into one
-   mechanism, row ids in slots. What does not collapse is the per-entity
-   decision between content and identity, which this schema makes a
-   property of the row kind.
+   lowering; a safepoint is `(segment-address, pc)` into that vector
+   (UCF §7.3.2, §7.4.1). This carrier changes nothing about code
+   identity, safepoints, or execution profiles.
+2. *The transported state is a tuple set.* Sharing and the literal/marker
+   distinction stop being special cases: a reference is a row id in a
+   typed position, sharing is Merkle, and a program's data is wrapped
+   where it can be confused with a reference. What does not collapse is
+   the per-entity decision between content and identity, which this
+   carrier makes a property of the row kind and then commits to the root
+   through a census.
 3. *Tuples are the transport form only.* They exist between a lift and a
-   lower. At rest they are queryable rows like any other. Nothing executes
-   them; the destination lowers them into its native representation.
+   lower. At rest they are rows like any other and queryable by the
+   ordinary interpreter. Nothing executes them; the destination lowers
+   them into its native representation.
 
-The schema is positional rows, not entity-attribute-value, for the same
-reason code is: a row kind fixes a slot list, one table serves both the
-encoder and the decoder, and the row's merkle id commits to its children
-inline. The Architect confirmed that positional code rows and explicit
-state tuples do not conflict (round 2, "properties that passed review");
-EAV was considered and rejected because it would introduce a second
-tuple dialect beside the code rows with no gain in expressiveness.
+This proposal chooses positional rows: a row kind fixes a slot list, one
+table serves encoder and decoder, and a row's Merkle id commits to its
+children inline, as code rows already do. EAV is expressive enough and
+nothing in the invariants rules it out; positional rows are chosen for
+compactness, closedness, and consistency with the existing row
+conventions, not because EAV was rejected by review.
 
-## 2. Two id spaces, one rule
+## 2. Positioning: body version 3, same profiles
 
-Every row is `[id kind & slots]`. The stored payload is the body
-`[kind & slots]`; the id is an address envelope outside the hashed
-payload, exactly as for code rows (code-as-tuples §2.1).
+Body versions 0 and 1 (UCF §7.2.1) and 2 (the amendment) are nested
+canonical-CBOR maps. **This carrier is body version 3.** The outer
+`:yin.k/version` gate of §7.2.1 and amendment §8 step 1 runs first and
+unchanged: a reader that does not speak 3 refuses with
+`:yin.k/profile-mismatch` carrying the version found and the set it
+speaks, before any row is read. A version-3 reader keeps versions 0, 1
+and 2 exactly as their contracts state and never upgrades a body across
+versions.
 
-**Content rows** have `id = (dao.jing/segment-key body)`. Two content rows
-with equal bodies are one row. A content row's id is merkle: it commits
-to every row id in its slots.
+The execution profile is untouched. `:yin.k/contract` carries exactly the
+amendment §1 profile map `{:yin.k/engine e :yin.code/contract c
+:yin.k/version 1}`, from the same registry, under the same whole-tree
+gate (one profile per task and install tree). Code stamps `"v3"`, `"b2"`,
+`"r2"` and the inner version 1 do not move: this is a change of carrier,
+not of instruction, scheduler, or value semantics, exactly the
+distinction the amendment draws between its versions and executable
+code.
 
-**Identity rows** have an id minted by the lift, `:yin.k/c-<n>`, and are
-never content-addressed. They carry state whose sameness is not its
-contents: today, only cursor cells (UCF §7.5.3). Two identity rows with
-equal bodies are two rows, and that is the point.
+This document tables the **semantic** profile's registers, frames and
+closures in full. The stack, register and walker profiles use the same
+carrier with their own `R`, `F`, layout and free-env rows, to be tabled
+in a follow-up against amendment §5.2–5.4; the carrier admits them by
+profile but this draft does not yet specify their rows. Like version 2,
+version 3 transports native suspended state within a profile and does not
+translate between kernels. The foreign-engine case (an engine that
+implements canonical semantic-VM execution in its own layout, UCF §7.4.2)
+is the semantic profile lowered through that engine's value profile, and
+value profiles are a separate document (§10.6).
 
-**The rule.** The row kind decides the id space, the schema fixes it per
-kind, and no row may be in both. A content row may reference an identity
-row by its cell id; that cell id then participates in the content row's
-hash, so two otherwise-equal values wrapping two different cells hash
-differently and never deduplicate into one. This is the alias
-preservation the Architect's round-1 finding 2 required, and it is the
-reason cell ids must be canonically numbered (§5) rather than arbitrary:
-otherwise two lifts of the same state would produce different content
-hashes for every row above a cell.
+## 3. Rows, id spaces, and the census
 
-Cells cannot form cycles with content rows: a cell's slots are a stream
-reference (content) and an opaque position (scalar), never a reference to
-a content row that could reference the cell back. Content rows cannot
-form cycles among themselves because a merkle id cannot contain itself.
-The tuple set is therefore a DAG by construction, and UCF §7.5.3's cycle
-refusal is preserved as a property of the schema rather than a check:
-a value that would need a cycle cannot be lifted into rows, and the lift
-reports it as today, `:yin.k/non-portable` with `:yin.k/kind :cyclic`
-naming the path. Admitting cycles would be a separate ruling (Architect
-round 1, finding 1) and is out of scope.
+Every row is `[id kind & slots]`; the stored payload is the body
+`[kind & slots]`; the id is an address envelope outside the hashed bytes,
+as for code rows (code-as-tuples §2.1).
 
-## 3. Slot kinds
+**Content rows** have `id = (dao.jing/segment-key body)`, the canonical
+CBOR of the body under the established digest. Equal bodies are one row.
+The id is Merkle: it commits to every row id in the body.
 
-A slot holds exactly one of:
+**Identity rows** are cells (UCF §7.5.3). A cell has a task-local id `C`
+in the form `:yin.k/c-<n>`, minted by the lift under §6's canonical
+numbering, never content-addressed, and scoped to the task whose root
+carries it: a cell id means nothing outside its root, in a pool or a
+query, and two tasks' `:yin.k/c-1` are unrelated.
 
-| Slot kind | Holds | Notes |
-|---|---|---|
-| scalar | nil, boolean, number, string, keyword, symbol | Jing's portable scalar domain, including BigInt and float64 carriers (UCF §7.5.1) |
-| plain | a vector, list, set, or map whose every element, key, and value is a scalar or plain | inline, encoded by Jing as data; carries no reference |
-| cref | the id of a content row | |
-| iref | the id of an identity row (a cell id) | |
-| crefs | an ordered vector of content row ids | |
+**The census.** A cell's *contents* (its stream marker and kept position)
+are not reachable through its id, so a content row that references a
+cell commits to the cell's identity but not to what the cell holds. The
+root therefore carries a **cell census**, a content row
 
-A collection that contains anything other than scalars and plains is not
-a slot value; it becomes a row (§4, `:vec` `:list` `:set` `:map`) and the
-slot holds its cref. This is the only place the encoder makes a
-structural decision, and it is decided by content, not by heuristics:
-*does this collection reach a reference?* The forgery problem of UCF
-§7.5.1 does not arise because references are ids in typed slots, not
-maps; a program's map literal is either plain data (inline) or a `:map`
-row whose kind is fixed by the schema, and neither can be mistaken for a
-marker because there are no markers.
+```clojure
+[X :cells  C₁ B₁  C₂ B₂  …]          ; sorted by n; Bᵢ is a cref
+[Bᵢ :cell-body  stream-cref  position]
+```
 
-## 4. The row table
+that maps every cell id to the content row of its body. The census is a
+slot of the root, so the root id commits to every cell's contents. A
+change to any cell's position or stream changes `Bᵢ`, the census, and
+the root. Identity references preserve aliasing; the census
+authenticates contents. The validation rules (§8) require the census to
+list exactly the cells the task reaches: none missing, none extra, per
+root and per install child.
 
-Kinds are closed. A row of an unknown kind, a wrong arity, or a slot of
-the wrong kind is a validation failure (§7). The table is the dictionary
-for both encode and decode. "Innermost last" and "sorted" are part of the
-schema, not conventions, because they determine the merkle id.
+**Acyclicity.** Two edge families exist and are checked separately:
 
-### 4.1 Values
+- *Structural value edges*: a cref in a slot, a cell iref in a value, a
+  census entry. Merkle construction cannot build a cref cycle bottom-up,
+  and a `:cell-body` references only a stream (content) and a position
+  (data), so no cell closes a cycle. The receiver still checks
+  acyclicity over this family explicitly (§8 step 4), because a receiver
+  validates, it does not trust construction.
+- *Context lookup edges*: a `:parked-ref` row names a parked id `P`
+  resolved through the task's parked table; a closure's `store-of` names
+  a manifest address `M` resolved through the module stores; an
+  `:install` pending names a module whose entry holds a child body.
+  These may close cycles and that is legal: a module store that holds a
+  closure whose `store-of` is that same module is the ordinary shape of
+  a linked module, and self- or mutually-referencing parked records
+  resolve through the explicit `P` table exactly as amendment §6 states.
+  A guest value that would need a cycle through *structural* edges is
+  refused at lift as `:yin.k/non-portable` kind `:cyclic` naming the
+  path, unchanged from UCF §7.5.3.
 
-| Kind | Slots | Id space | Decodes to |
-|---|---|---|---|
-| `:vec` | `[crefs-or-slots…]` one slot per element | content | vector |
-| `:list` | same | content | list |
-| `:set` | one slot per element, sorted by Jing canonical order of the element's encoded form | content | set |
-| `:map` | `[k₁ v₁ k₂ v₂ …]` sorted by Jing canonical order of the encoded key | content | map |
-| `:closure` | `[segment-address entry-pc params env-cref store-of]` | content | `{:type :closure …}` (semantic §2.4); `store-of` is a module manifest address or nil (linker M4) |
-| `:env` | `[sym₁ slot₁ sym₂ slot₂ …]` sorted by symbol | content | E, or a captured environment |
-| `:prim` | `[name]` | content | the named primitive after the profile check (UCF §7.5.2); the profile itself lives in requires, not in the row |
-| `:stream` | `[identity descriptor]` | content | an attached handle under a fresh private key; identity and descriptor are plain |
-| `:cell` | `[stream-cref position]` | **identity** | one fresh private cursor entry per cell id, seeded at `position` (opaque, exactly as the transport minted it) |
-| `:reified` | `[regs-cref]` | content | `{:type :reified-continuation …}` |
-| `:parked-ref` | `[parked-id]` | content | a `[:parked id]` value; `parked-id` must resolve in `:sched` (§4.3) |
+## 4. The value union
 
-A `:closure`'s `params` slot is plain (a vector of symbols). A `:prim`
-row is content so that two references to `+` are one row; what it
-*means* is settled at lower by the profile in requires, as today.
+Every position that holds a guest value holds one **encoded value** `V`,
+a two-element vector whose first element is a fixed tag:
 
-### 4.2 Machine state
-
-| Kind | Slots | Id space |
-|---|---|---|
-| `:regs` | `[segment-address pc reason val-slot stack-cref env-cref k-cref pending-cref]` | content |
-| `:stack` | one slot per St entry, bottom first | content |
-| `:k` | `[kframe-cref …]` innermost last | content |
-| `:kframe` | `[frame-type segment-address pc env-cref stack-base call-id stack-cref]` | content |
-| `:pending` | `[reason & variant-slots]` per UCF §7.4.3, see below | content |
-
-`:regs` is UCF §7.4.1's `:yin.k/frame` as a row: `reason` is one of the
-nine safepoint reasons, `pc` is already the resume pc, and `val-slot`
-is nil except where §7.4.3 pre-fills it.
-
-`:kframe` carries what semantic §4.1 gives a return frame (`:segment`,
-`:pc`, `:env`, `:stack-base`) plus `call-id` for `:eval-call` and
-`:request-sent` frames and `stack-cref` for an effect frame that
-snapshots its stack; the slots not used by a frame type are nil. The
-Architect's round-1 finding 7 is the reason `stack-cref` exists: return
-frames keep only a base into the shared operand vector, effect frames may
-carry a stack of their own.
-
-`:pending` keeps UCF §7.4.3's variants verbatim, one slot list per
-reason:
-
-| reason | slots |
+| `V` | Meaning |
 |---|---|
-| `:park` | `[]` |
-| `:next` | `[cell-iref]` |
-| `:put` | `[stream-cref value-slot]` |
-| `:ffi` | `[call-id op request-cref response-cref cell-iref]` |
-| `:ffi-request` | `[call-id request-op request-args-cref request-cref response-cref cell-iref]` |
-| `:call-effect` | per the effect kind, as §7.4.3 specifies |
-| `:link-request` `:link-response` `:install` | per `yin.vm.linker.md` 7.2, 7.3 |
+| `[:lit d]` | a literal: `d` is in the portable literal domain below, carried by Jing as data |
+| `[:row B]` | a reference to the content row `B` (a closure, a collection row, a frame value, a primitive, a stream marker) |
+| `[:cell C]` | a reference to the identity cell `C` |
 
-Every rule of §7.4.3 about these (the response position is a kept
-cursor, outstanding calls route to the emitter's pair) is unchanged; the
-schema only changes how the variant is written down.
+The union is disjoint by the tag, not by the shape or spelling of `d`: a
+literal keyword that happens to equal a row address is `[:lit k]` and
+can never be read as a reference; a literal vector that looks like a
+`[:row …]` pair is `[:lit [...]]`. No decision depends on content, which
+is the UCF §7.5.1 property restated for rows.
 
-### 4.3 Task context
+**The portable literal domain** is UCF §7.5.1's scalar and collection
+arms, closed under nesting: nil, booleans, exact integers of any width
+(Jing major types 0/1, tags 2/3), float64 carriers, strings, keywords,
+symbols, and vectors, lists, sets and maps *all of whose elements, keys
+and values are in the domain*. Scalar and collection carrier classes are
+retained, never coerced (an integral float stays a float). Byte strings
+are not admitted by this carrier and refuse as `:yin.k/non-portable`
+kind `:byte-string`. Metadata: a literal travels with whatever metadata
+Jing's canonical encoding preserves for it, hashed as Jing hashes it; a
+collection that must become a row (because it reaches a reference) has
+no metadata slot, and one that carries metadata refuses as
+`:yin.k/non-portable` kind `:metadata` naming the path. A guest map is
+always wrapped, `[:lit m]` or a `:map` row, and is open data inside the
+wrapper; structural rows are closed.
 
-| Kind | Slots | Id space |
+A collection whose elements include a reference is not a literal; it
+becomes a row (§5.1) and the position holds `[:row B]`. This is the only
+structural decision the encoder makes and it is decided by one question,
+*does this collection reach a reference?*, answered by walking it.
+
+Positions that hold structural data (addresses, pcs, symbols as binding
+names, reasons, phases, ids) are typed by the row table and are not `V`;
+their kinds are fixed per slot, as for code rows.
+
+## 5. The row table
+
+Kinds are closed. An unknown kind, a wrong arity, a slot whose content is
+not of the tabled kind, or a `V` outside §4's union is `:yin.k/undecodable`
+naming the row and slot. "Sorted" means ordered by Jing canonical-byte
+order of the sort key, and the sort key never contains a cell reference
+(§6). Ordered slots are part of the schema because they determine the
+Merkle id.
+
+`N` is an exact CBOR integer in `[0, 2^52−1]` (amendment §2). `A` is a
+code address, `M` a manifest address, `P` a parked id, `C` a cell id,
+`S` a symbol.
+
+### 5.1 Values (content rows)
+
+| Kind | Slots | Decodes to |
 |---|---|---|
-| `:store` | `[key₁ slot₁ key₂ slot₂ …]` sorted by key | content |
-| `:module-store` | `[manifest-address store-cref]` | content |
-| `:sched` | `[id-counter parked-crefs]` where `parked-crefs` is `[pid regs-cref pid regs-cref …]` sorted by pid | content |
-| `:task` | see §4.4 | content |
+| `:vec` | `V …` in order | vector |
+| `:list` | `V …` in order | list |
+| `:set` | `V …` sorted by the element's cell-free skeleton (§6) | set |
+| `:map` | `k₁ V₁ k₂ V₂ …`, each `kᵢ` a `V`, sorted by the key's cell-free skeleton | map |
+| `:bindings` | `S₁ V₁ S₂ V₂ …` sorted by symbol | `{S V}` |
+| `:env` | `bindings-cref  store-of` | E: the named environment plus, when `store-of` is an `M`, `engine/store-of-key` (amendment §2) |
+| `:closure` | `segment-A  entry-pc-N  params  bindings-cref  store-of` | semantic closure (amendment §6 semantic arm); `params` is a plain vector of symbols checked against the addressed lambda |
+| `:prim` | `name-S` | the named primitive after the profile check (UCF §7.5.2); the profile lives in requires |
+| `:stream` | `identity  descriptor` | a stream marker; both plain, authenticated at lift and re-sealed at lower |
+| `:reified` | `regs-cref` | `{:yin.k/tag :yin.k/frame :yin.k/registers R}`: a captured continuation, no wait |
+| `:parked-ref` | `parked-id-P` | `{:yin.k/tag :yin.k/frame :yin.k/parked-id P}`: resolves in the task's parked table; never duplicates `R` |
 
-`:store` is the reachable slice of UCF §7.6.2, restored into an isolated
-execution store. Resource entries do not appear in it: stream handles and
-cursor entries travel as `:stream` and `:cell` rows and lower into the
-receiver's private resource table (linker M4, `yin.vm.linker.md` 7.3),
-beside the program store, never inside it. `:module-store` rows are the
-per-module snapshots of §7.6.2's M4 paragraph, one per manifest address.
-`:sched` is §7.6.3 verbatim: the fresh-name counter and the referenced
-parked records, each a `:regs` row.
+`:reified` and `:parked-ref` keep the two outer discriminants amendment
+§6 requires and lower differently: a reified value becomes a
+receiver-owned native continuation from `R`; a parked reference
+reconstructs the engine's parked value for `P`.
 
-### 4.4 The root
+### 5.2 Semantic registers, waits, frames (content rows)
+
+| Kind | Slots |
+|---|---|
+| `:regs` | `segment-A  pc-N  env-cref  stack-cref  k-cref` |
+| `:stack` | `V …` bottom first |
+| `:k` | `kframe-cref …` bottom to top |
+| `:kframe` | `segment-A  pc-N  env-cref  stack-base-N` |
+| `:wait` | `regs-cref  pending-cref` |
+
+`:regs` is amendment §5.1's `R` for the semantic profile, and nothing
+else: no reason, no pending. A wait is a `:wait` row pairing registers
+with a pending; a reified value and a parked record reference `:regs`
+directly. `:kframe` is exactly the semantic return frame `{:type :return
+segment pc env stack-base}`; the semantic profile has no other frame
+type on the wire (walker effect frames belong to the walker profile's
+own table). Resume pc and return pc must lie inside their segment, the
+return pc immediately after a non-tail call, stack bases nondecreasing
+from outermost to innermost and each at most the enclosing stack length
+(amendment §5.1), all checked in §8.
+
+### 5.3 Pending (content rows)
+
+One kind, `:pending`, whose first slot is the reason and whose remaining
+slots are fixed per reason. The reasons are UCF §7.4.3's closed union as
+the amendment r5 required-keys list fixes them; `:park` and
+`:call-effect` are not reasons and refuse as `:yin.k/undecodable`.
+
+| reason | slots after the reason |
+|---|---|
+| `:next` | `cell-C` |
+| `:put` | `stream-cref  value-V  op-id` |
+| `:ffi` | `cell-C  call-id  op` (op may be nil) |
+| `:ffi-request` | `call-id  request-envelope-V  request-stream-cref  response-stream-cref  response-cell-C  op-id` |
+| `:link-request` | `link-id  name-S  request-stream-cref  response-stream-cref  cell-C  envelope-V  op-id` |
+| `:link-response` | `link-id  name-S  request-stream-cref  response-stream-cref  cell-C` |
+| `:install` | `name-S` |
+
+`op-id` is `{:yin.k/occurrence P :yin.k/seq n}` as plain data or nil,
+present exactly when the write was first attempted through a fenced
+writer, carried verbatim, never minted or renumbered by lift or lower,
+and subject to every rule of §7.4.3 r5 (below the root's
+`:yin.k/next-op-seq`, unique across the task and its children, absent
+when the body has no origin). `request-envelope` and `envelope` are the
+retained requests, retried verbatim. `call-id` and `link-id` are plain.
+An `:install` pending is never sufficient alone: the root's installs
+slot must hold the entry for `name`, else lift refuses
+`:yin.k/non-portable` kind `:incomplete-install` and a body carrying it
+is `:yin.k/undecodable`.
+
+### 5.4 Task context (content rows)
+
+| Kind | Slots |
+|---|---|
+| `:store` | `k₁ V₁ k₂ V₂ …` sorted by the key's cell-free skeleton; the isolated slice of UCF §7.6.2 |
+| `:module-store` | `manifest-M  store-cref` |
+| `:parked-table` | `P₁ regs-cref₁ P₂ regs-cref₂ …` sorted by P |
+| `:install` | `name-S  phase  parent  response-V  child-cref` |
+| `:cells` | the census, §3 |
+| `:cell-body` | `stream-cref  position` (position in the `:dao.stream.remote/v1` portable cursor domain) |
+
+Resource entries never appear in `:store`; streams and cells lower into
+the receiver's private resource table beside the program store (linker
+M4, `yin.vm.linker.md` 7.3). `:module-store` rows are the per-module
+snapshots of §7.6.2's M4 paragraph. The parked table holds exactly the
+reachable records. An `:install` row carries the complete entry of
+§7.4.3 r5: phase `:running` or `:parked`, parent link id (nil where the
+contract permits), the verified response verbatim as a `V`, and the
+child as a cref to a whole `:task` row in the child role.
+
+### 5.5 The root
 
 ```clojure
 [T :task
-   contract        ; plain: {:yin.code/contract "v3" :yin.k/version 2}
-   occurrence      ; plain: :yin.k/o-…  (the lease subject; NOT part of :yin.k/id, see §6)
-   origin          ; plain: {:yin.k/occurrence … :dao.lease/lease … :yin.k/emitter …} or nil
-   arbitration     ; plain: {:dao.stream/identity … :dao.stream/descriptor …}
-   policy          ; plain: :yin.k/exclusive | :yin.k/fork
-   regs-cref       ; the blocked machine's registers
-   store-cref      ; the isolated slice
-   module-stores   ; crefs, sorted by manifest address
-   sched-cref
-   requires        ; plain: UCF §7.6.1's map, unchanged
-   carried]        ; crefs of canonical instruction vectors shipped inline (§7.3.4)
+   version          ; 3                       (gated first, §8)
+   contract         ; the profile map, plain  (amendment §1)
+   kind             ; :blocked | :parked | :halted
+   role             ; :root | :child
+   id-counter       ; N                       (UCF §7.6.3)
+   store-cref
+   module-stores    ; crefs sorted by M
+   parked-cref      ; :parked-table
+   cells-cref       ; :cells census
+   requires         ; plain: UCF §7.6.1's map, unchanged
+   code             ; plain: {A code-payload …}, each payload verified to hash to its key (§7.2.1)
+   installs         ; crefs to :install rows, sorted by module name
+   frames           ; crefs to :wait rows, IN WAIT ORDER   (:blocked, :parked)
+   parked-id        ; P or nil                              (:parked only)
+   result           ; V or nil                              (:halted only)
+   custody]         ; plain, see below
 ```
 
-The root is a content row. Its id is the transported state's
-`:yin.k/id`. Everything UCF §7.2 lists under "what code, what state, what
-world, who may run it" is reachable from it, and nothing else is in the
-set. A halted computation is the sibling root `[R :result contract
-occurrence value-slot]`.
+Kind rules are §7.2.1's: `:blocked` has nonempty frames and neither
+parked-id nor result; `:parked` has frames (possibly empty), a parked-id
+naming a key of the parked table, no result; `:halted` has a result and
+neither frames nor parked-id. Frames restore in carried order and are
+never collapsed to one; a task with an empty ready queue may hold several
+ordered waits.
 
-## 5. Canonical cell numbering
+`custody` is the version-1 header carried as plain data, under the same
+rules (§7.2.1, amendment §3): on a `:root` of kind `:blocked` or
+`:parked` under `:yin.k/exclusive`, exactly `{:yin.k/policy
+:yin.k/occurrence :yin.k/arbitration :yin.k/origin :yin.k/next-op-seq}`
+with origin absent on a first export; a fork root carries `{:yin.k/policy
+:yin.k/fork}` and nothing else; a `:halted` root carries origin only; a
+`:child` carries nil and is validated with its root's occurrence, origin
+and counter passed down. No body carries an epoch.
 
-Cell ids are minted per lift. For the content hashes above them to be
-stable across lifts of the same state, the numbering must be a function
-of the state. The lift numbers cells in first-encounter order of one
-fixed traversal of the root: `regs` (val, then stack bottom-up, then env
-by sorted symbol, then k innermost-last with each frame's env and stack,
-then pending), then `store` by sorted key, then `module-stores` by
-manifest address, then `sched` by sorted pid. A cell encountered again
-keeps its number. Two cells at the same stream and position encountered
-at different points get different numbers, which is the aliasing the
-schema exists to preserve.
+The root is a content row and **its id is the transported state's
+address**, the `B` of UCF §7.3.4 for this carrier. Occurrence and origin
+are inside it, as the governing rule keeps them (§10.1). The code map is
+plain data in the root rather than a row kind: each instruction vector
+keeps its own address `A` computed exactly as UCF §7.3.2 computes it, and
+the carrier verifies, never recomputes, that address.
 
-Under this rule, two lifts of one state produce identical row sets and
-an identical root id, so `:yin.k/id` means what UCF §7.3.4 says it means.
-Two lifts of *different* states that happen to share a closure over the
-same cell will not share that closure's row, because the cell number may
-differ; that cross-lift dedup is deliberately given up. It was never
-promised for identity-bearing values, and content identity for the rows
-*below* a cell (the stream row, plain values) is unaffected.
+## 6. Canonical cell numbering
 
-On lower, every cell id is remapped to a fresh private resource entry
-seeded at the carried position; every iref to it remaps to that entry.
-Two irefs to one cell share one entry; one iref per cell keeps its own.
-This is UCF §7.5.3's lowering rule unchanged.
+Cell ids must be a function of the state, or two lifts of one state give
+two root ids. The numbering is computed **before** any row is hashed and
+without reference to any hash, in one pass:
 
-## 6. Equality and the content address
+1. **Traversal order.** Walk the task in this fixed order, recursing
+   into every reachable structure: frames in wait order, and within a
+   wait its registers then its pending; within registers, env (bindings
+   by sorted symbol, then store-of's module store if not yet walked),
+   stack bottom-up, k bottom-to-top with each frame's env; the parked
+   table by sorted `P`; the store by sorted key skeleton; module stores
+   by sorted `M`; the result; install entries by sorted module name,
+   each child recursively as its own task with its own numbering.
+   Within a value: vectors and lists in order; sets and maps by the
+   element's or key's **cell-free skeleton**, the value's canonical bytes
+   with every cell reference replaced by the constant `[:cell nil]`;
+   closures by segment, entry, then bindings; pendings in slot order.
+2. **Assignment.** The first time a cell is reached it receives the next
+   `n`; a cell reached again keeps its number. Distinct cells at equal
+   streams and positions are distinct and receive distinct numbers.
+3. **Ties.** Two elements of a set, or two keys of a map, with equal
+   skeletons are ordered by the canonical bytes of their referenced
+   cells' *bodies* (stream marker, then position), walked in the
+   element's own traversal order. Two elements that are equal in
+   skeleton and in every referenced cell body are symmetric: either
+   assignment produces the same row set and the same root id, so the
+   choice is immaterial and the encoder takes them in encounter order.
 
-There is no "ordering of the tuple set" to canonicalize, and so no
-dependency on Jing sorting anything but map keys and set elements inside
-a single row. The set is a DAG rooted at `:task`; the root's merkle id
-commits to every reachable row; two sets are equal iff their root ids are
-equal, which under §5 holds iff they were lifted from states equal up to
-cell renaming. Jing supplies deterministic bytes and the hash of each
-row body; the schema supplies the order within a body. This answers the
-Architect's round-1 finding 6 without asking Jing for anything it does
-not do.
+Because skeletons omit cell numbers and ties are broken by cell bodies,
+the ordering never depends on a number the pass has yet to assign. Rows
+are then built and hashed with the numbers fixed. The receiver
+**recomputes the numbering from the decoded rows and refuses**
+(`:yin.k/undecodable`, kind `:noncanonical-cells`) if the carried ids
+differ from the recomputed ones; contiguity alone is not canonicality.
 
-`:yin.k/occurrence` is a slot of the root and therefore inside the hash.
-That is a change from today, where `:yin.k/id` is computed with
-occurrence present too (§7.2 hashes the map minus `:yin.k/id` only), so
-it is not a regression; but it means snapshot variants of one occurrence
-still have distinct ids, exactly as §7.3.4 intends, and the occurrence
-remains the lease subject. **Open question (§9.1):** whether the root
-should hash *without* occurrence and origin so that content identity is
-occurrence-independent, with occurrence carried in the envelope beside
-the root id. The current UCF rule says no; this draft follows it.
+Under this rule two lifts of one state are byte-identical. Two lifts of
+different states sharing a closure over the same cell may number it
+differently and so not share that closure's row across lifts; that
+cross-lift dedup is knowingly given up for identity-bearing values and
+never affected rows below a cell. On lower, each `C` becomes one fresh
+private resource entry seeded at its carried position; every `[:cell C]`
+maps to that entry; two references to one cell share it and one
+reference per cell keeps its own (UCF §7.5.3).
 
-## 7. Validation on lower
+## 7. Equality and the content address
 
-Before the satisfaction check of UCF §7.6.5 and before any native
-allocation, the receiver validates the set as data:
+The transported state is a DAG rooted at the `:task` row. Its address is
+the root id, which commits to every reachable content row, to every cell
+id through the references, and to every cell's contents through the
+census. Two transported states are equal iff their root ids are equal,
+and under §6 that holds iff they were lifted from states equal up to the
+renaming of cell ids that §6 makes canonical. No physical enumeration of
+the row set needs an order, because the root commits to everything and
+the pack, if one is addressed, has its own canonical encoding (§10.2).
+Jing supplies canonical bytes and the digest of each body; this document
+supplies the order within each body and the numbering of cells. Jing is
+asked to sort nothing it does not already sort.
 
-1. Every row's kind is in the table and its arity matches.
-2. Every slot is of the kind the table says; a plain never reaches a
-   reference (checked by walking it); a cref names a row present in the
-   set whose kind is admissible in that slot; an iref names a `:cell`.
-3. Every content row's id equals the Jing address of its body. A
-   mismatch refuses the whole set.
-4. Every row is reachable from the root; unreachable rows refuse the set
-   (the emitter had no reason to send them, and a receiver must not
-   accept state it cannot account for).
-5. Every `:parked-ref` resolves in `:sched`; every `:kframe` with a
-   `call-id` has a matching pending or parked record as §7.4.3 requires.
-6. Cell ids are exactly `:yin.k/c-1 … :yin.k/c-n` for some n, each used
-   at least once (a numbering gap means the lift and the set disagree).
+Occurrence and origin are inside the hash, as in versions 1 and 2 where
+the body address is the hash of the whole body. Snapshot variants of one
+occurrence may therefore have distinct addresses while remaining one
+occurrence, exactly as UCF §7.3.4 intends.
 
-Failure is total and names its place: `{:yin.k/status :yin.k/malformed
-:yin.k/row id :yin.k/slot i :yin.k/kind …}`. Resource references are
-authenticated before lift and re-sealed on lower exactly as the M4
-amendment to §7.5.1 requires; the schema moves none of that.
+## 8. Validation on lower
 
-## 8. Lift and lower, and what they preserve
+Validation is pure until the last step and checks the whole tree before
+one attachment. The order follows amendment §8 and is binding:
 
-For the reference machine:
+1. **Gate.** Decode canonical bytes retaining numeric classes. The root
+   row's kind is `:task` and its version is the exact integer 3, else
+   `:yin.k/profile-mismatch` (version found, supported set). Traverse
+   install children in canonical module-name order; gate every child's
+   version, then every profile map against the registry, then require
+   all versions 3 and all profiles equal to the root's. A malformed
+   install container is `:yin.k/undecodable`; nothing claims to have
+   gated a non-task.
+2. **Structure.** Every row's kind is tabled with the right arity; every
+   structural slot holds its tabled kind; every `V` is in §4's union and
+   every literal in the portable domain; no two rows share an id; exactly
+   one row has role `:root`; kind rules of §5.5 hold; the custody slot
+   matches the role, kind and policy.
+3. **Hashes.** Every content row's id equals the Jing address of its
+   body; every code payload hashes to its key `A` and is well formed
+   under the stamp; the requested body address, if one was given, equals
+   the root id. Mismatch is `:yin.k/hash-mismatch` naming the row or
+   code key.
+4. **Graph.** Every cref names a present row of a kind admissible in that
+   slot; the structural edge family is acyclic; every row is reachable
+   from the root (an unreachable row is `:yin.k/undecodable`); every
+   `[:cell C]` names a census entry and every census entry is reached,
+   per task and per child; every `:parked-ref` and `parked-id` resolves
+   in the parked table; every `store-of` resolves to a carried module
+   store; every `:install` pending has its entry and every entry's child
+   is a `:child` task.
+5. **Canonical numbering.** Recompute §6 and compare (kind
+   `:noncanonical-cells` on mismatch).
+6. **Code and frames.** Each resume pc is a static safepoint whose kinds
+   admit the wait's reason (`:yin.k/reason-mismatch`); a parked record's
+   pc is an explicit-park safepoint; return pcs follow a non-tail call;
+   stack bases are bounded and nondecreasing; closure params agree with
+   the addressed lambda; integer slots are in range.
+7. **Pending and operations.** Reason-specific slot rules; every op-id
+   below `next-op-seq`, unique across the tree, absent without origin;
+   link and FFI correlation fields present.
+8. **Dependency closure.** `requires` evaluated per UCF §7.6.5: missing
+   segments, primitives, modules, streams, cursor profiles are
+   `:yin.k/unsatisfied`; a body with cells claims
+   `:dao.stream.remote/v1`; module-store coverage is complete for every
+   `store-of` reached.
+9. **Custody.** For an exclusive root, the occurrence, baseline and
+   operation inspector and admission checks of §7.7.8; an authority
+   never adds missing header keys.
+10. **Composition.** Protection, resource, primitive and grant inputs of
+    the receiving composition.
+11. **Restore.** Reconstruct isolated code spaces, fresh values, the
+    isolated store, module-store instances (first link wins), one
+    private resource entry per cell, the parked table, children first,
+    then waits in order; adopt `max(local, carried)` for the id counter;
+    publish the machine only after every child succeeds; run, poll,
+    mint, append, close or initialize nothing during lower.
 
-- **lift** walks the wait entry, the K, the pending variant, the
-  reachable slice, the module stores, and the scheduler, producing rows
-  with §5's numbering, or refuses by path as UCF §7.5.4 specifies. The
-  nested grammar's value table (`:yin.k/values`) and cell table
-  (`:yin.k/cells`) have no counterpart: sharing is merkle, cells are
-  rows.
-- **lower** validates (§7), checks satisfaction (§7.6.5), allocates one
-  private resource entry per cell, then decodes rows into the wait-entry
-  shape, the isolated store, the module-store instances, and the
-  scheduler (adopting `max(local, carried)` for the counter).
+Diagnostics use the established families and no new top-level outcome:
+`:yin.k/profile-mismatch`, `:yin.k/undecodable` with `:yin.k/path` as
+`[row-id slot-index …]`, `:yin.k/hash-mismatch`, `:yin.k/unsatisfied`,
+and the lift-side `:yin.k/non-portable` kinds, including the three this
+carrier adds to UCF §7.5.4's set: `:byte-string`, `:metadata`,
+`:noncanonical-cells`.
 
-The laws, as the blog's Part Three states them after review:
+## 9. Lift, lower, and the laws
 
-- **Canonical round trip.** `lift(lower(S)) = S` for every valid set S,
-  compared by root id, which under §5 absorbs cell renumbering.
+**Lift** (reference machine): refuse unless quiescent; number cells (§6);
+walk waits, parked records, the slice, module stores, the result and
+each install child, emitting rows and the census; refuse by path as UCF
+§7.5.4 and §7.2.1 specify. The nested carrier's value table
+(`:yin.k/values`) has no counterpart, sharing being Merkle; its cell
+table becomes the census.
+
+**Lower**: §8 in order, then restore.
+
+The laws, with the domains the Architect's finding 12 requires:
+
+- **Canonical round trip.** For every valid, canonical (§6-numbered)
+  version-3 state `S` within a supported profile,
+  `lift(lower(S)) = S` by root id, under a reconstruction context that
+  preserves every carried canonical field: the id counter is compared as
+  carried, not after `max`; occurrence, origin, cell bodies and op-ids
+  are carried verbatim; resource remapping is undone by the lift's own
+  numbering.
 - **Native observational equivalence.** `lower(lift(m))` need not equal
-  m as native state (fresh ids, seals); it must preserve the next
-  observable step, the pending wait, the result, and the effect trace.
-- **Cross-engine.** Running the corpus to each safepoint on a foreign
-  engine yields the same row set the reference machine yields.
+  `m` as native state (fresh ids, seals, private keys); under equivalent
+  external inputs it must preserve the next observable step, the wait
+  set and its order, the result, and the effect trace.
+- **Cross-engine.** Running the corpus to each safepoint on an engine
+  that implements canonical semantic-VM execution yields, under
+  controlled composition identities (occurrence, origin, resource
+  descriptors fixed by the harness), the same version-3 row set the
+  reference machine yields.
+- **Legacy correspondence.** A version-0/1/2 body normalizes into
+  version 3 with semantic preservation (same lowered machine under
+  native equivalence); exact mutual inversion is required only between
+  version 3 and its one canonical nested projection (§10.3), never
+  against historical nested encodings with arbitrary sharing thresholds
+  and cell names.
 
-The UCF §7.11 harness gains one assertion per law. The existing nested
-grammar's tests become the oracle for the first law during transition:
-`rows→nested` and `nested→rows` must be mutually inverse on the Stage D/E
-corpus.
+The UCF §7.11 harness gains one assertion per law. During transition the
+Stage D/E corpus, re-encoded through the canonical projection, is the
+oracle for the first law.
 
-## 9. Open questions for the Architect
+## 10. Questions the review answered, and what remains
 
-1. **Occurrence inside or beside the hash** (§6). The current UCF rule
-   keeps it inside. If the tuple form is the moment to separate "what
-   state" from "which attempt", the root should hash without occurrence
-   and origin, and `:yin.k/occurrence` should become envelope metadata
-   next to the root id. This touches §7.3.4 and §7.7.
-2. **Packing.** Rows stored individually (shared rows shared across
-   tasks in a Jing pool) or packed per task under one address. Same
-   question code-as-tuples §2.1 leaves open; the two should get one
-   answer.
-3. **The nested grammar's fate.** Retired, or kept as a projection of
-   the rows for channels that want one value per message. If kept, the
-   two must satisfy the mutual-inverse law of §8 permanently, not only
-   during transition.
-4. **Contract stamp.** The schema is a change to the execution contract's
-   transport half; `:yin.k/version` goes to 2. Whether
-   `:yin.code/contract "v3"` also moves depends on whether the Architect
-   reads the transport form as part of the stamped contract (§7.3.3 says
-   the stamp versions the *complete* execution contract).
-5. **Reified continuations.** `:reified` rows reference a `:regs` row,
-   making a reified continuation share structure with a parked one. The
-   semantic VM treats them as distinct value classes; the schema should
-   confirm nothing in the loader depends on them being distinct rows.
-6. **Foreign-engine value profiles.** This schema fixes the carrier. The
-   per-engine profile (which slot kinds an engine lifts and lowers
-   losslessly, and its refusal set) is a separate section, UCF §7.5.5 or
-   a sibling document, and is not drafted here.
+Answers 1–6 are the codex Architect's (round 1); where the Architect
+marked a point as an owner decision it is labelled so.
 
-## 10. What this does not change
+1. **Occurrence inside the hash.** Kept inside, following the governing
+   rule and binding custody context to the published checkpoint. An
+   occurrence-independent execution-state address is an owner-level
+   protocol decision; if ever pursued it must sit beside, not replace, a
+   fully authenticated checkpoint address, and it does not substitute
+   for the census.
+2. **Packing.** Individual immutable content rows plus a self-contained
+   transport pack. When a pack is addressed it gets its own address and
+   canonical encoding, distinct from the semantic root id; cell ids
+   remain root-scoped inside it. Same answer as code-as-tuples §2.1
+   should receive; the loader interface is resolved explicitly, not by
+   layout.
+3. **The nested grammar.** Versions 0, 1 and 2 remain compatibility
+   inputs. One canonical nested projection of version 3 is kept for
+   single-message channels and must stay exactly mutually inverse with
+   the rows. Rows are the carrier authority once specified. Retiring old
+   readers is an owner version-support decision.
+4. **Contract stamp.** The profile map and code contracts do not move; a
+   carrier change is a new body version with its own gate. Any change to
+   instruction or scheduler semantics would separately revise the
+   execution contract and is not proposed here.
+5. **Reified and parked.** Sharing immutable `:regs` rows is acceptable;
+   the two keep distinct outer kinds (§5.1) and distinct lowering. A
+   reified capture has no pending; a parked reference resolves in task
+   context.
+6. **Foreign-engine value profiles.** Required before any implementation
+   brief claims heterogeneous execution conformance, and not drafted
+   here: admitted values, numeric behaviour, key equality, metadata,
+   resource and profile requirements, refusal sets, and safepoint
+   reconstruction obligations. Slot losslessness alone does not
+   establish execution parity, and version 3, like version 2, does not
+   translate between kernels.
 
-Code identity, the contract stamp, safepoints, pending-wait semantics,
-the dependency closure and its satisfaction check, the isolated store,
-the private resource table, module-store instancing, scheduler state,
-custody (occurrence, lease, epoch, admission, the ledger), fencing,
-outcomes, and every refusal kind. The schema is a new carrier for the
-same facts. The Architect's round-2 statement stands as its acceptance
-bar: tuple transport violates none of the six invariants provided
-references and schema validation stay explicit, and §7 of this document
-is where they stay explicit.
+Still open after this revision:
+
+7. The stack, register and walker profile row tables (§2).
+8. Whether a version-3 reader should accept version-2 bodies for lower
+   only, or whether normalization (law 4) is a separate tool.
+9. The exact cell-free skeleton encoding (§6): `[:cell nil]` as the
+   placeholder is a proposal; the Architect should confirm it cannot
+   collide with a literal.
+
+## 11. What this does not change
+
+Code identity, the contract stamp and profile registry, safepoints,
+pending-wait semantics and the r5 required keys, install-child rules,
+the dependency closure and satisfaction check, the isolated store, the
+private resource table, module-store instancing, scheduler state, the
+custody header and admission rules, fencing and operation ids, the
+outcome families, and the existing refusal kinds (three lift kinds are
+added, §8). The carrier is a new body version for the same facts. The
+Architect's round-1 statement is the acceptance bar: tuple transport
+violates none of the six invariants once polymorphic references and
+context edges are specified and validated, and §4, §3 and §8 are where
+they are.
