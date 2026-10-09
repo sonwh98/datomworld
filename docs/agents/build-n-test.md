@@ -85,6 +85,32 @@ dao.stream, codecs) and before a big merge. Not seen: dynamic loads
 (`requiring-resolve`, `resolve`), paths or walk roots built at run time,
 and spawned programs that changed (target/yin-repl.js, Dart peers).
 
+### Subsystem-first tests: `bb test:sub`
+
+`bb test:sub <subsystem>...` (src/dev/affected.clj) runs the tests belonging to
+one or more canonical subsystems (defined in `src/dev/subsystems.edn`). Selection
+is by longest namespace prefix matching.
+
+```sh
+bb test:sub <subsystem>...        # All three lanes in parallel (fast form)
+bb test:sub:clj <subsystem>...    # JVM lane alone
+bb test:sub:cljs <subsystem>...   # Node lane alone
+bb test:sub:cljd <subsystem>...   # Dart lane alone
+bb test:sub:list <subsystem>...   # Show namespaces, builds, Class B seams & dependents; runs nothing
+bb test:sub <subsystem>... --slow # Include slow tests (-i :slow on JVM, DATOM_SLOW_TESTS=1 on Node/Dart)
+```
+
+Prerequisites (`build:yin-repl-peer`, `build:yin-repl-node`, `gen:python-antlr`)
+and lane serialization (`[:clj :cljd]`) are derived purely from text reach of the
+selected namespaces and run automatically when needed.
+
+#### Gate Ladder (docs/design/test.subsystems.md)
+
+1. **G0 Iterate**: Run only the subsystem's JVM lane (`bb test:sub:clj <own>` or `clojure -M:test -n <ns>`).
+2. **G1 Checkpoint**: Run the three-lane subsystem test (`bb test:sub <own>`). Proves the home suite across all three hosts before reporting ready.
+3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change.
+4. **G3 Master**: The mandatory landing gate on master after merge (`bb test`).
+
 The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
 slice L5) is two tests:
 

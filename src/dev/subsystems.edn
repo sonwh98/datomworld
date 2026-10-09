@@ -1,0 +1,75 @@
+;; Canonical Subsystems Definition for datom.world
+;; Longest-prefix match over Clojure/ClojureScript/ClojureDart namespaces.
+;; See docs/design/test.subsystems.md for architectural invariants and gate ladder.
+
+{:subsystems
+ [;; Layer 0: Storage, Stream & Core Data Foundations
+  {:name "dao.stream"
+   :prefixes ["dao.stream"]
+   :layer 0}
+
+  {:name "dao.jing"
+   :prefixes ["dao.jing"]
+   :layer 0}
+
+  {:name "dao.data"
+   :prefixes ["dao.data"]
+   :layer 0}
+
+  {:name "dao.base"
+   :prefixes ["dao.await" "dao.lease" "dao.pretty" "dao.datom" "dao.test-slow"]
+   :layer 0}
+
+  ;; Layer 1: Space, GUI & Graphics
+  {:name "dao.space"
+   :prefixes ["dao.space"]
+   :layer 1}
+
+  {:name "dao.gui"
+   :prefixes ["dao.gui"]
+   :layer 1}
+
+  {:name "dao.postgraphics"
+   :prefixes ["dao.postgraphics"]
+   :layer 1}
+
+  ;; Layer 2: Virtual Machines & Execution
+  {:name "yin.vm.ucf"
+   :prefixes ["yin.vm.ucf"]
+   :layer 2}
+
+  {:name "yin.vm"
+   :prefixes ["yin.vm"]
+   :layer 2}
+
+  ;; Layer 3: Languages & Repl
+  {:name "yin.repl"
+   :prefixes ["yin.repl"]
+   :layer 3}
+
+  {:name "yang.python"
+   :prefixes ["yang.python" "yang.antlr"]
+   :layer 3}
+
+  {:name "yang.base"
+   :prefixes ["yang.clojure" "yang.php" "yang.frontend" "yang.safepoint"
+              "yang.stage" "yang.tails" "yang.io"]
+   :layer 3}
+
+  ;; Layer 4: Demos & World Applications
+  {:name "demo"
+   :prefixes ["datomworld" "yin.demo"]
+   :layer 4}
+
+  {:name "world"
+   :prefixes ["world"]
+   :layer 4}
+
+  ;; Development & Benchmarking Tooling
+  {:name "dev"
+   :prefixes ["affected" "affected-test" "cljd-agg"]
+   :layer :dev}
+
+  {:name "bench"
+   :prefixes ["bench"]
+   :layer :bench}]}

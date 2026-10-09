@@ -8,6 +8,7 @@
      bb -cp src/dev -m affected-test"
   (:require
     [affected :as a]
+    [clojure.string :as str]
     [clojure.test :refer [deftest is testing run-tests]]))
 
 
@@ -311,13 +312,22 @@
 
 
 (deftest parse-args-reads-the-options
-  (is (= {:list? true :base "HEAD" :lanes [:cljs] :changed nil}
+  (is (= {:list? true :base "HEAD" :lanes [:cljs] :changed nil
+          :subsystems [] :slow? false}
          (a/parse-args ["--list" "--base" "HEAD" "--lane" "cljs"])))
   (is (= {:list? false :base nil :lanes [:clj :cljs :cljd]
-          :changed ["a.clj" "b.edn"]}
+          :changed ["a.clj" "b.edn"] :subsystems [] :slow? false}
          (a/parse-args ["--changed" "a.clj" "b.edn"])))
+  (is (= {:list? true :base nil :lanes [:clj] :changed nil
+          :subsystems ["yin.vm.ucf" "dao.stream"] :slow? true}
+         (a/parse-args ["--subsystem" "yin.vm.ucf" "--subsystem" "dao.stream"
+                        "--lane" "clj" "--list" "--slow"])))
   (is (thrown? clojure.lang.ExceptionInfo
         (a/parse-args ["--lane" "jvm"])))
+  (is (thrown? clojure.lang.ExceptionInfo
+        (a/parse-args ["--subsystem"])))
+  (is (thrown? clojure.lang.ExceptionInfo
+        (a/parse-args ["--subsystem" "--slow"])))
   (testing "an empty --changed list is an error, not an empty change"
     (is (thrown? clojure.lang.ExceptionInfo (a/parse-args ["--changed"])))
     (is (thrown? clojure.lang.ExceptionInfo
@@ -361,6 +371,36 @@
       (is (empty? (errors ["src/cljc/gone/x.cljc"] true))))
     (testing "git-derived paths are real by construction"
       (is (empty? (errors ["docs/gone.md"] false))))))
+
+
+(deftest subsystems-orphan-and-coverage-check
+  (let [index (a/scan-index)
+        sub-cfg (a/load-subsystems-config)
+        test-nses (into #{} (comp (filter :test?) (map :ns)) index)
+        all-nses (into #{} (keep :ns) index)]
+    (testing "subsystems configuration exists and parses"
+      (is (some? sub-cfg))
+      (is (seq (:subsystems sub-cfg))))
+    (testing "every test namespace maps to exactly one subsystem"
+      (doseq [t test-nses]
+        (let [s (a/match-subsystem sub-cfg t)]
+          (is (some? s) (str "test namespace has no subsystem: " t)))))
+    (testing "every prefix matches at least one namespace in the codebase"
+      (let [matches-prefix? (fn [p ns-str]
+                              (or (= ns-str p)
+                                  (str/starts-with? ns-str (str p "."))
+                                  (str/starts-with? ns-str (str p "-"))))]
+        (doseq [s (:subsystems sub-cfg)
+                p (:prefixes s)]
+          (is (seq (filter #(matches-prefix? p (str %)) all-nses))
+              (str "prefix matches no namespace: " p)))))
+    (testing "selection by subsystem name returns the expected set"
+      (let [ucf-tests (a/select-subsystems index sub-cfg ["yin.vm.ucf"])]
+        (is (= 40 (count ucf-tests)))
+        (is (contains? ucf-tests 'yin.vm.ucf.compose-test))))
+    (testing "unknown subsystem throws"
+      (is (thrown? clojure.lang.ExceptionInfo
+            (a/select-subsystems index sub-cfg ["unknown.subsystem"]))))))
 
 
 (defn -main

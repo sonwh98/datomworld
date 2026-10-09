@@ -33,6 +33,7 @@
   (:require
     [babashka.fs :as fs]
     [babashka.process :as p]
+    [clojure.edn :as edn]
     [clojure.string :as str]
     [edamame.core :as e]))
 
@@ -368,6 +369,86 @@
               test-nses
               (into #{} (mapcat :tests) (vals reasons)))}))
 
+(def subsystems-config-path "src/dev/subsystems.edn")
+
+
+(defn load-subsystems-config
+  ([] (load-subsystems-config subsystems-config-path))
+  ([path]
+   (when (fs/exists? path)
+     (edn/read-string (slurp path)))))
+
+
+(defn match-subsystem
+  "Maps a namespace symbol to its canonical subsystem map via longest prefix match."
+  [sub-cfg ns-sym]
+  (let [ns-str (str ns-sym)
+        matches (for [s (:subsystems sub-cfg)
+                      p (:prefixes s)
+                      :when (or (= ns-str p)
+                                (str/starts-with? ns-str (str p "."))
+                                (str/starts-with? ns-str (str p "-")))]
+                  {:sub s :prefix p :len (count p)})]
+    (:sub (first (sort-by (comp - :len) matches)))))
+
+
+(defn select-subsystems
+  "Returns set of test namespaces belonging to `sub-names`."
+  [index sub-cfg sub-names]
+  (let [valid-names (into #{} (map :name) (:subsystems sub-cfg))
+        unknown (remove valid-names sub-names)]
+    (when (seq unknown)
+      (throw (ex-info (str "unknown subsystem: " (str/join ", " unknown))
+                      {:unknown unknown})))
+    (let [target-subs (set sub-names)
+          test-nses (into #{} (comp (filter :test?) (map :ns)) index)]
+      (into #{}
+            (filter (fn [ns-sym]
+                      (when-let [s (match-subsystem sub-cfg ns-sym)]
+                        (target-subs (:name s)))))
+            test-nses))))
+
+
+(defn subsystem-seams
+  "Computes Class B seams and dependent subsystems for `sub-names`."
+  [index sub-cfg sub-names]
+  (let [graph (ns-graph index)
+        sub-by-name (into {} (map (juxt :name identity)) (:subsystems sub-cfg))
+        target-subs (into #{} (keep sub-by-name) sub-names)
+        source-nses (into #{} (comp (remove :test?) (keep :ns)) index)
+        test-nses (into #{} (comp (filter :test?) (keep :ns)) index)
+        target-tests (filter (fn [t]
+                               (when-let [s (match-subsystem sub-cfg t)]
+                                 (some #(= (:name s) (:name %)) target-subs)))
+                             test-nses)
+        class-b (for [t target-tests
+                      dep (forward-closure graph #{t})
+                      :when (source-nses dep)
+                      :let [dep-sub (match-subsystem sub-cfg dep)
+                            t-sub (match-subsystem sub-cfg t)]
+                      :when (and dep-sub t-sub
+                                 (number? (:layer dep-sub))
+                                 (number? (:layer t-sub))
+                                 (> (:layer dep-sub) (:layer t-sub)))]
+                  [t dep (:name dep-sub)])
+        target-sources (into #{}
+                             (filter (fn [s-ns]
+                                       (when-let [s (match-subsystem sub-cfg s-ns)]
+                                         (some #(= (:name s) (:name %)) target-subs))))
+                             source-nses)
+        other-tests (remove (fn [t]
+                              (when-let [s (match-subsystem sub-cfg t)]
+                                (some #(= (:name s) (:name %)) target-subs)))
+                            test-nses)
+        dependent-tests (for [t other-tests
+                              :let [reaches (forward-closure graph #{t})]
+                              :when (some target-sources reaches)
+                              :let [s (match-subsystem sub-cfg t)]
+                              :when s]
+                          (:name s))]
+    {:class-b (distinct class-b)
+     :dependents (into (sorted-set) dependent-tests)}))
+
 
 (defn- lane-file?
   [lane {:keys [ext path]}]
@@ -456,17 +537,23 @@
 
 (defn parse-args
   [args]
-  (loop [opts {:list? false :base nil :lanes [] :changed nil}
+  (loop [opts {:list? false :base nil :lanes [] :changed nil
+               :subsystems [] :slow? false}
          [a & more :as args] args]
     (cond (empty? args)
           (update opts :lanes #(if (empty? %) lanes (vec (distinct %))))
           (= "--list" a) (recur (assoc opts :list? true) more)
+          (= "--slow" a) (recur (assoc opts :slow? true) more)
           (= "--base" a) (recur (assoc opts :base (first more)) (rest more))
           (= "--lane" a)
           (let [lane (keyword (first more))]
             (when-not (some #{lane} lanes)
               (throw (ex-info (str "unknown lane: " (first more)) {})))
             (recur (update opts :lanes conj lane) (rest more)))
+          (= "--subsystem" a)
+          (if (or (empty? more) (str/starts-with? (first more) "--"))
+            (throw (ex-info "--subsystem needs a subsystem name" {}))
+            (recur (update opts :subsystems conj (first more)) (rest more)))
           (= "--changed" a)
           (let [[files rest-args] (split-with #(not (str/starts-with? % "--"))
                                               more)]
@@ -587,58 +674,63 @@
 
 
 (defn- lane-command
-  [lane nses]
-  (case lane
-    :clj (into ["clojure" "-M:test" "-e" ":slow"]
-               (mapcat #(vector "-n" (str %)) nses))
-    :cljs ["clj" "-M:cljs" "-m" "shadow.cljs.devtools.cli" "compile" "test"
-           "--config-merge" (str "{:ns-regexp \"" (ns-regexp nses) "\"}")]
-    :cljd ["bb" "src/dev/cljd_agg.clj" "--only" (str/join "," nses)]))
+  ([lane nses] (lane-command lane nses false))
+  ([lane nses slow?]
+   (case lane
+     :clj (into ["clojure" "-M:test" (if slow? "-i" "-e") ":slow"]
+                (mapcat #(vector "-n" (str %)) nses))
+     :cljs ["clj" "-M:cljs" "-m" "shadow.cljs.devtools.cli" "compile" "test"
+            "--config-merge" (str "{:ns-regexp \"" (ns-regexp nses) "\"}")]
+     :cljd ["bb" "src/dev/cljd_agg.clj" "--only" (str/join "," nses)])))
 
 
 (defn- log-file
-  [lane]
-  (str log-dir "/changed-" (name lane) ".log"))
+  ([lane] (log-file lane "changed-"))
+  ([lane prefix]
+   (str log-dir "/" prefix (name lane) ".log")))
 
 
 (defn- run-lane!
-  [lane nses]
-  (let [log (log-file lane)
-        env (cond-> (into {} (System/getenv))
-              (= :cljs lane) (dissoc "DATOM_SLOW_TESTS"))
-        start (System/nanoTime)
-        _ (println (format "%s: %d namespaces, log %s" (name lane)
-                           (count nses) log))
-        exit (-> (p/process (lane-command lane nses)
-                            {:out (fs/file log) :err :out :env env})
-                 deref
-                 :exit)
-        secs (/ (- (System/nanoTime) start) 1e9)
-        summary (parse-summary lane (slurp log))]
-    (println (format "%s: done, exit %d, %.0f s" (name lane) exit secs))
-    (assoc summary :lane lane :namespaces (count nses) :exit exit
-           :seconds secs
-           :status (if (and (zero? exit) (= 0 (:failures summary)))
-                     "pass" "FAIL"))))
+  ([lane nses] (run-lane! lane nses "changed-" false))
+  ([lane nses prefix slow?]
+   (let [log (log-file lane prefix)
+         env (cond-> (into {} (System/getenv))
+               slow? (assoc "DATOM_SLOW_TESTS" "1")
+               (and (not slow?) (= :cljs lane)) (dissoc "DATOM_SLOW_TESTS"))
+         start (System/nanoTime)
+         _ (println (format "%s: %d namespaces, log %s" (name lane)
+                            (count nses) log))
+         exit (-> (p/process (lane-command lane nses slow?)
+                             {:out (fs/file log) :err :out :env env})
+                  deref
+                  :exit)
+         secs (/ (- (System/nanoTime) start) 1e9)
+         summary (parse-summary lane (slurp log))]
+     (println (format "%s: done, exit %d, %.0f s" (name lane) exit secs))
+     (assoc summary :lane lane :namespaces (count nses) :exit exit
+            :seconds secs
+            :status (if (and (zero? exit) (= 0 (:failures summary)))
+                      "pass" "FAIL")))))
 
 
 (defn- run-lanes!
   "Run the non-empty lanes in parallel; each pair in `serial` runs in
    order inside one thread."
-  [selected serial]
-  (let [groups (reduce (fn [gs [a b]]
-                         (if (and (selected a) (selected b))
-                           (-> (remove #(some #{a b} %) gs)
-                               vec
-                               (conj [a b]))
-                           gs))
-                       (mapv vector (keys selected))
-                       serial)]
-    (->> groups
-         (mapv (fn [group]
-                 (future (mapv #(run-lane! % (selected %)) group))))
-         (mapcat deref)
-         (sort-by (comp #(.indexOf ^java.util.List lanes %) :lane)))))
+  ([selected serial] (run-lanes! selected serial "changed-" false))
+  ([selected serial prefix slow?]
+   (let [groups (reduce (fn [gs [a b]]
+                          (if (and (selected a) (selected b))
+                            (-> (remove #(some #{a b} %) gs)
+                                vec
+                                (conj [a b]))
+                            gs))
+                        (mapv vector (keys selected))
+                        serial)]
+     (->> groups
+          (mapv (fn [group]
+                  (future (mapv #(run-lane! % (selected %) prefix slow?) group))))
+          (mapcat deref)
+          (sort-by (comp #(.indexOf ^java.util.List lanes %) :lane))))))
 
 
 (defn- print-table
@@ -652,70 +744,136 @@
                      (if seconds (format "%.0f" seconds) "-") status))))
 
 
+(defn- print-subsystem-selection
+  [index sub-names tests selected seams]
+  (let [total (count (into #{} (comp (filter :test?) (map :ns)) index))]
+    (println (format "Read %d code files under src/ and test/." (count index)))
+    (println "Subsystems:" (str/join ", " sub-names))
+    (doseq [lane (keys selected)]
+      (let [nses (selected lane)]
+        (println (format "%s: %d namespaces" (name lane) (count nses)))
+        (doseq [n nses] (println "  " n))))
+    (println (format "Selected %d of %d test namespaces." (count tests) total))
+    (when seams
+      (println)
+      (println "Class B seams (test reaches higher-layer source):")
+      (if (empty? (:class-b seams))
+        (println "  none")
+        (doseq [[t dep s] (sort-by (juxt (comp str first) (comp str second))
+                                   (:class-b seams))]
+          (println (format "  %s -> %s (%s)" t dep s))))
+      (println)
+      (println "Dependent subsystems (tests in other subsystems that reach this source):")
+      (if (empty? (:dependents seams))
+        (println "  none")
+        (doseq [s (:dependents seams)]
+          (println "  " s))))))
+
+
 (defn -main
   [& args]
-  (let [{:keys [list? base changed] :as opts}
+  (let [{:keys [list? base changed subsystems slow?] :as opts}
         (try (parse-args args)
              (catch clojure.lang.ExceptionInfo ex
                (println (ex-message ex))
                (System/exit 1)))
-        index (scan-index)
-        explicit? (some? changed)
-        root (str (fs/canonicalize
-                    (first (git-lines "rev-parse" "--show-toplevel"))))
-        given (vec changed)
-        changed (if explicit?
-                  (mapv #(normalize-path root (if (fs/absolute? %)
-                                                (str (fs/canonicalize %))
-                                                %))
-                        given)
-                  (changed-files base))
-        outside (keep (fn [[g c]] (when-not c g)) (map vector given changed))
-        changed (vec (remove nil? changed))
-        errors (into (mapv #(str "outside the repo: " %) outside)
-                     (input-errors
-                       {:index index
-                        :changed changed
-                        :explicit? explicit?
-                        :exists? (fn [path]
-                                   (or (fs/exists? path)
-                                       (in-base-tree? base path)))}))
-        _ (when (seq errors)
-            (run! println errors)
-            (System/exit 1))
-        {:keys [wide tests] :as sel} (select index changed)
-        selected (into (array-map)
-                       (map (juxt identity #(lane-tests index tests %)))
-                       (:lanes opts))]
-    (print-selection index sel selected)
-    (when (seq wide)
-      (System/exit wide-exit))
-    (when-not list?
-      (let [run (into (array-map) (filter (comp seq val)) selected)
-            skipped (for [[lane nses] selected :when (empty? nses)]
-                      {:lane lane :namespaces 0 :status "skipped"})
-            prereqs (prerequisites index run)
-            serial (serialized-pairs index run)]
-        (doseq [task [:build:yin-repl-peer :build:yin-repl-node
-                      :gen:python-antlr]]
-          (if (prereqs task)
-            (do (println "Prerequisite" (name task)
-                         "(a selected test or its requires name its output)")
-                (let [{:keys [exit]} (p/shell {:continue true} "bb"
-                                              (name task))]
-                  (when-not (zero? exit)
-                    (println (name task) "failed, exit" exit)
-                    (System/exit 1))))
-            (println "Skipping" (name task)
-                     "(no selected test reaches its output)")))
-        (doseq [[a b] serial]
-          (println "Serializing" (name a) "then" (name b)
-                   "(a JVM test runs the cljd compiler)"))
-        (fs/create-dirs log-dir)
-        (let [rows (sort-by (comp #(.indexOf ^java.util.List lanes %) :lane)
-                            (concat (run-lanes! run serial) skipped))]
-          (print-table rows)
-          (System/exit (if (some #(= "FAIL" (:status %)) rows) 1 0)))))))
+        index (scan-index)]
+    (if (seq subsystems)
+      (let [sub-cfg (load-subsystems-config)
+            _ (when-not sub-cfg
+                (println "could not read" subsystems-config-path)
+                (System/exit 1))
+            tests (try (select-subsystems index sub-cfg subsystems)
+                       (catch clojure.lang.ExceptionInfo ex
+                         (println (ex-message ex))
+                         (System/exit 1)))
+            selected (into (array-map)
+                           (map (juxt identity #(lane-tests index tests %)))
+                           (:lanes opts))
+            seams (when list? (subsystem-seams index sub-cfg subsystems))]
+        (print-subsystem-selection index subsystems tests selected seams)
+        (when-not list?
+          (let [run (into (array-map) (filter (comp seq val)) selected)
+                skipped (for [[lane nses] selected :when (empty? nses)]
+                          {:lane lane :namespaces 0 :status "skipped"})
+                prereqs (prerequisites index run)
+                serial (serialized-pairs index run)]
+            (doseq [task [:build:yin-repl-peer :build:yin-repl-node
+                          :gen:python-antlr]]
+              (if (prereqs task)
+                (do (println "Prerequisite" (name task)
+                             "(a selected test or its requires name its output)")
+                    (let [{:keys [exit]} (p/shell {:continue true} "bb"
+                                                  (name task))]
+                      (when-not (zero? exit)
+                        (println (name task) "failed, exit" exit)
+                        (System/exit 1))))
+                (println "Skipping" (name task)
+                         "(no selected test reaches its output)")))
+            (doseq [[a b] serial]
+              (println "Serializing" (name a) "then" (name b)
+                       "(a JVM test runs the cljd compiler)"))
+            (fs/create-dirs log-dir)
+            (let [rows (sort-by (comp #(.indexOf ^java.util.List lanes %) :lane)
+                                (concat (run-lanes! run serial "sub-" slow?) skipped))]
+              (print-table rows)
+              (System/exit (if (some #(= "FAIL" (:status %)) rows) 1 0))))))
+      (let [explicit? (some? changed)
+            root (str (fs/canonicalize
+                        (first (git-lines "rev-parse" "--show-toplevel"))))
+            given (vec changed)
+            changed (if explicit?
+                      (mapv #(normalize-path root (if (fs/absolute? %)
+                                                    (str (fs/canonicalize %))
+                                                    %))
+                            given)
+                      (changed-files base))
+            outside (keep (fn [[g c]] (when-not c g)) (map vector given changed))
+            changed (vec (remove nil? changed))
+            errors (into (mapv #(str "outside the repo: " %) outside)
+                         (input-errors
+                           {:index index
+                            :changed changed
+                            :explicit? explicit?
+                            :exists? (fn [path]
+                                       (or (fs/exists? path)
+                                           (in-base-tree? base path)))}))
+            _ (when (seq errors)
+                (run! println errors)
+                (System/exit 1))
+            {:keys [wide tests] :as sel} (select index changed)
+            selected (into (array-map)
+                           (map (juxt identity #(lane-tests index tests %)))
+                           (:lanes opts))]
+        (print-selection index sel selected)
+        (when (seq wide)
+          (System/exit wide-exit))
+        (when-not list?
+          (let [run (into (array-map) (filter (comp seq val)) selected)
+                skipped (for [[lane nses] selected :when (empty? nses)]
+                          {:lane lane :namespaces 0 :status "skipped"})
+                prereqs (prerequisites index run)
+                serial (serialized-pairs index run)]
+            (doseq [task [:build:yin-repl-peer :build:yin-repl-node
+                          :gen:python-antlr]]
+              (if (prereqs task)
+                (do (println "Prerequisite" (name task)
+                             "(a selected test or its requires name its output)")
+                    (let [{:keys [exit]} (p/shell {:continue true} "bb"
+                                                  (name task))]
+                      (when-not (zero? exit)
+                        (println (name task) "failed, exit" exit)
+                        (System/exit 1))))
+                (println "Skipping" (name task)
+                         "(no selected test reaches its output)")))
+            (doseq [[a b] serial]
+              (println "Serializing" (name a) "then" (name b)
+                       "(a JVM test runs the cljd compiler)"))
+            (fs/create-dirs log-dir)
+            (let [rows (sort-by (comp #(.indexOf ^java.util.List lanes %) :lane)
+                                (concat (run-lanes! run serial "changed-" slow?) skipped))]
+              (print-table rows)
+              (System/exit (if (some #(= "FAIL" (:status %)) rows) 1 0)))))))))
 
 
 (when (= *file* (System/getProperty "babashka.file"))

@@ -117,4 +117,57 @@
                      :task (System/exit
                              (:exit (apply shell {:continue true}
                                            "bb" "src/dev/affected.clj"
-                                           "--list" *command-line-args*)))}}}
+                                           "--list" *command-line-args*)))}
+
+  ;; Subsystem tests (src/dev/affected.clj): canonical subsystems defined
+  ;; in src/dev/subsystems.edn. Positional arguments name subsystems; flags
+  ;; pass through (--lane L, --list, --slow).
+  test:sub {:doc "Subsystem tests, three lanes in parallel: bb test:sub <subsystem>... [--slow]"
+            :task (let [[subs flags] (split-with (fn [arg] (not (clojure.string/starts-with? arg "--")))
+                                                 *command-line-args*)
+                        sub-args (mapcat (fn [s] ["--subsystem" s]) subs)]
+                    (System/exit
+                      (:exit (apply shell {:continue true}
+                                    "bb" "src/dev/affected.clj"
+                                    (concat sub-args flags)))))}
+
+  test:sub:clj {:doc "JVM lane of test:sub: bb test:sub:clj <subsystem>... [--slow]"
+                :task (let [[subs flags] (split-with (fn [arg] (not (clojure.string/starts-with? arg "--")))
+                                                     *command-line-args*)
+                            sub-args (mapcat (fn [s] ["--subsystem" s]) subs)]
+                        (System/exit
+                          (:exit (apply shell {:continue true}
+                                        "bb" "src/dev/affected.clj"
+                                        "--lane" "clj"
+                                        (concat sub-args flags)))))}
+
+  test:sub:cljs {:doc "Node lane of test:sub: bb test:sub:cljs <subsystem>... [--slow]"
+                 :task (let [[subs flags] (split-with (fn [arg] (not (clojure.string/starts-with? arg "--")))
+                                                      *command-line-args*)
+                             sub-args (mapcat (fn [s] ["--subsystem" s]) subs)]
+                         (System/exit
+                           (:exit (apply shell {:continue true}
+                                         "bb" "src/dev/affected.clj"
+                                         "--lane" "cljs"
+                                         (concat sub-args flags)))))}
+
+  test:sub:cljd {:doc "Dart lane of test:sub: bb test:sub:cljd <subsystem>... [--slow]"
+                 :task (let [[subs flags] (split-with (fn [arg] (not (clojure.string/starts-with? arg "--")))
+                                                      *command-line-args*)
+                             sub-args (mapcat (fn [s] ["--subsystem" s]) subs)]
+                         (System/exit
+                           (:exit (apply shell {:continue true}
+                                         "bb" "src/dev/affected.clj"
+                                         "--lane" "cljd"
+                                         (concat sub-args flags)))))}
+
+  test:sub:list {:doc "What test:sub would run, prerequisites and seams: bb test:sub:list <subsystem>..."
+                 :task (let [[subs flags] (split-with (fn [arg] (not (clojure.string/starts-with? arg "--")))
+                                                      *command-line-args*)
+                             sub-args (mapcat (fn [s] ["--subsystem" s]) subs)]
+                         (System/exit
+                           (:exit (apply shell {:continue true}
+                                         "bb" "src/dev/affected.clj"
+                                         "--list"
+                                         (concat sub-args flags)))))}
+  }}
