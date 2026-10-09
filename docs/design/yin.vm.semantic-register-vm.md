@@ -324,17 +324,22 @@ exactly the grammar the de Bruijn register `lift` already recovers
 is a flat instruction sequence with a recoverable grammar").
 
 The grammar is exhaustive over §2.3: every opcode appears in exactly
-one production. `expr(rd)` denotes an expression whose **result
-destination** is `rd`; the result relation is defined recursively, not
-by "the last instruction writes `rd`", so that a conditional (which
-ends in a `:jump` or a label) and a nested conditional both have a
-result destination.
+one production. `expr(rd)` denotes an expression whose **outcome** is
+either a *result* delivered into `rd` or *terminal* (control leaves the
+path and `rd` is never written). The outcome relation is defined
+recursively, not by "the last instruction writes `rd`", so that a
+conditional (which ends in a `:jump` or a label) and a nested
+conditional both have a result destination, and so that a `resume`
+anywhere in an expression makes the enclosing path terminal from that
+point. Every expression, `resume` included, **mints** its `rd` (§3.3),
+so that minting stays uniform; a `resume`'s `rd` is simply never
+defined.
 
 ```
 body         ::= expr(r) [:return r]                ; non-main bodies
                | expr(r) [:halt r]                  ; the main sequence
 expr(rd)     ::= atom(rd) | call(rd) | if(rd) | define(rd)
-               | effect(rd) | resume                ; resume has no rd (below)
+               | effect(rd) | resume(rd)            ; resume: terminal outcome (below)
 
 atom(rd)     ::= [:const rd v]
                | [:var rd name]
@@ -357,7 +362,7 @@ effect(rd)   ::= expr(s) [:stream-cursor rd s]
                | expr(c) [:stream-next rd c]
                | expr(s) expr(v) [:stream-put rd s v]
                | expr(a₁) … expr(aₙ) [:ffi-call rd op [a₁ … aₙ]]              ; n ≥ 0
-resume       ::= expr(v) [:resume parked-id v]        ; terminates its path; no destination
+resume(rd)   ::= expr(v) [:resume parked-id v]        ; terminal: rd is minted, never written
 ```
 
 Children appear in the order written, which is the evaluation order
@@ -366,9 +371,20 @@ Children appear in the order written, which is the evaluation order
 instruction and is never a child expression. `if(rd)` has result
 destination `rd` by definition, and both arms are `expr(rd)`, so a
 nested conditional in an arm is itself an `if(rd)` into the same
-register. `resume` is the one expression form with no destination: it
-transfers control to a parked activation and never produces a value on
-its own path.
+register.
+
+**Outcomes.** `atom`, `define`, `effect` and a non-tail `call` have a
+result outcome. `resume(rd)` and a tail `call(rd)` have a terminal
+outcome (§2.4: a tail call completes through `K`). An `if(rd)` has a
+result outcome if at least one arm does, and a terminal outcome if both
+arms do. An expression containing a terminal child is **terminal from
+that child onward**: for `call(rd)` with a terminal operand, say, the
+remaining operands and the `:call` itself are layout syntax on that
+path. A **wholly terminal body** (`body ::= expr(r) [:return r]` with
+`expr(r)` terminal) still carries its structural `[:return r]`, and `r`
+is a minted, never-defined register; the terminator is layout syntax.
+Every supported AST program is accepted; terminal outcomes narrow
+nothing, they only mark what runtime cannot reach.
 
 ### 3.2 Exclusive definitions by structured paths
 
@@ -468,8 +484,11 @@ adding register rules; items 1-5 (one segment, instruction shape, pcs
    no `:jump`/`:branch-false` target and no `body-pc` crosses a body
    boundary except the `:closure`'s own `body-pc`. Each body ends in
    `:return` (`:halt` for main) and parses under §3.1.
-7. Register ids in a body are exactly `0..k-1` for some `k`, each with
-   at least one definition; a body never names another body's register.
+7. Register ids in a body are exactly `0..k-1` for some `k`; each is
+   either defined at least once or is the minted destination of a
+   terminal-outcome expression (a `resume`, a tail `call`, or an `if`
+   both of whose arms are terminal) and then has no definition and no
+   runtime read; a body never names another body's register.
 8. **Definite assignment**: on every runtime path from the body's start
    to an instruction, every register it reads has been written. Checked
    by a forward walk over the structured control flow of §3.1: the
@@ -481,14 +500,23 @@ adding register rules; items 1-5 (one segment, instruction shape, pcs
    validated structurally (item 10) rather than for assignment.
 9. **Exclusive definitions by structured paths** (§3.2).
 10. `:call` and `:ffi-call` argument vectors contain registers only;
-    `tail?` is a boolean; the instructions textually following a tail
-    `:call` on its path are exactly the layout syntax §3.1 requires (an
-    arm's `:jump`, a body's `:return`) and nothing else.
+    `tail?` is a boolean. **Layout syntax**: the instructions textually
+    following a runtime terminator (a tail `:call`, a `:resume`) on its
+    path, up to the end of the enclosing structures, are exactly what
+    §3.1's enclosing productions require (the rest of an enclosing
+    call's operands and its `:call`, an arm's `:jump`, a body's
+    `:return`) and nothing else; they are validated for shape and
+    kinds here and are unreachable **from that terminal path** (they
+    may still be reachable from a continuing arm through a shared
+    join, which is why liveness is computed over the stated CFG edges
+    rather than by "no predecessors").
 11. Rule R (`:reserved-name`): no `:var` names `yin/def`, no `:closure`
     binds it, no `:store-get`/`:store-put` key names it, every `:define`
     names a symbol other than `yin/def`. Unchanged.
 12. `:resume`'s `parked-id` and `value-reg` are well kinded; `:resume`
-    ends its path, and the layout syntax after it is as in item 10.
+    is a runtime terminator, and the layout syntax after it is as in
+    item 10, wherever it occurs (as a body's whole expression, an arm,
+    or an operand).
 13. **Canonical numbering**: re-projecting the parsed tree of each body
     under §3.3 reproduces the body's register ids exactly
     (`:noncanonical-registers` otherwise). This is what makes A the
@@ -523,11 +551,13 @@ tail call raises the `tail` form of whichever row its effect falls in.
 | install | the child runs | same state, pending `:install` + the body's install entry | on `linked`: the module symbol to `rd` or through return; on `refused`: raises |
 | halt | `:halt r`, or `:return r` with empty `K` | — | not resumable; a `:yin.k/result` travels |
 
-Two states are not safepoints and travel differently: an **explicit
-park** (`:park rd`) raises no wait; its `act` record is the body's
+Two cases sit outside the table: an **explicit park** (`:park rd`) is a
+**no-wait safepoint**: it is a migration safepoint like every row
+above, but it raises no wait entry; its `act` record is the body's
 parked record and a body of kind `:parked` names it by id (UCF §7.4.3
-r5, "explicit park is the no-wait shape"); a **reified continuation**
-(`:current-continuation`) is a captured value, never a task safepoint.
+r5, "explicit park is the no-wait shape"). A **reified continuation**
+(`:current-continuation`) is the one thing here that is *not* a
+safepoint: it is a captured value, never a task state.
 Whole-task quiescence (empty ready queue, UCF §7.4.1) and the existing
 refusal conditions (unsupported observation states, pending close) are
 unchanged.
@@ -599,10 +629,13 @@ A foreign engine's static safepoint map keeps `:yin.safepoint/segment`,
 `:yin.safepoint/pc` and `:yin.safepoint/engine`, replaces
 `:stack-effect` with the per-pc **def and use sets** and `L(pc)` derived
 from A (§8.1), and keeps `:yin.safepoint/layout` as a map from physical
-location to virtual register. The reconstruction obligation is: at a
-safepoint, produce every register in `L(pc)`, `E`, `K` with each frame's
-window and `rd`, the delivery record, the pending state, and the
-captured store context. A physical-slot map alone does not discharge it
+location to virtual register. The reconstruction obligation is: for an
+`act` state, produce every register in `saved(pc, rd) = L(pc) − {rd}`
+(never the not-yet-produced destination), `E`, `K` with each frame's
+validated window and `rd`, the delivery record, the pending state, and
+the captured store context; for a `tail` state, produce `K` with its
+validated frames, the delivery record and the pending state, and **no**
+current window or `E`. A physical-slot map alone does not discharge it
 when values are spilled, rematerialized, or shared between locations;
 the engine owes the values, however it kept them. `lift(lower(frame)) =
 frame` holds for admitted canonical frames, as today.
@@ -670,8 +703,11 @@ For each body, from the vector alone:
   `:branch-false`; the target of `:jump`; **none** for `:return`,
   `:halt`, `:resume`, and a `:call` with `tail? true` (a runtime
   terminator). Layout-syntax instructions after a runtime terminator
-  are nodes of the graph with no predecessors; their `L` is computed
-  like any other node's and is never consulted at runtime. The fixed
+  are nodes of the graph unreachable **from that terminal path**; they
+  may have predecessors through a continuing arm's join or through
+  other unreachable nodes, and their `L` is computed over the stated
+  edges like any other node's and is never consulted on the terminal
+  path. The fixed
   point is reached in one pass per nesting level because the graph is
   structured. At a `:return r`/`:halt r`, `L = {r}`.
 - The **saved-window rule** (§2.4): a frame, wait, parked record or
@@ -711,12 +747,20 @@ unchanged.
      interval with `end < p` (freeing its slot; among several, in
      increasing `end`, then increasing virtual id); then for each
      interval starting at `p` (in increasing virtual id), assign the
-     lowest-numbered free temporary `Tᵢ`. A `:call`'s destination may
-     share a slot with an argument whose interval ends at `p` only if
-     the kernel's `:call` reads all sources before writing `rd`, which
-     the r2 kernel does; otherwise sources and destination of one
-     instruction never share (the rule is pinned by the r2 contract and
-     recorded in the descriptor).
+     lowest-numbered free temporary `Tᵢ`. **No same-instruction
+     source/destination reuse**: a source whose interval ends at `p`
+     is still assigned when `p`'s destination is allocated (expiry is
+     `end < p`), so the destination never takes a source's slot. This
+     is the conservative rule, chosen because it is fully specified
+     here and affects emitted bytes; the kernel's read-before-write
+     order is not relied upon.
+   - *Reservation vs liveness.* An interval reserves a slot across its
+     whole extent, which can exceed runtime liveness (a shared
+     destination's slot is held through both arms). Reservation
+     decides allocation; it never decides what is live. The `live`
+     operands (step 3) and every saved window come from §8.1's
+     liveness, and the physical-image `body-liveness` check stays an
+     acceptance gate so that the two are never confused.
    - *Parameters.* `L0..Lₙ₋₁` are reserved and never coalesced with
      temporaries (register design §4.2); canonical parameters stay in
      `E` and are read through `:load-bound`.
@@ -891,10 +935,10 @@ the answers are adopted above:
    trampoline; the closed `tail` state and the semantic restore helper
    are specified in §2.4.
 
-Nothing remains open in this document before freeze. Items that belong
-to the phase-3 implementation brief rather than to the design: the
-exact r2 source/destination-overlap rule the descriptor records (§8.2
-step 2), and the reference implementation `L` is checked against.
+Nothing remains open in this document before freeze. The one item
+that belongs to the phase-3 implementation brief rather than to the
+design is the choice of the independent reference implementation that
+§8.1's `L` is checked against.
 
 ## 12. What this does not change
 
