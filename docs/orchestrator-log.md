@@ -11091,3 +11091,21 @@ Delegates:
 Next:
   - Owner discussion in progress: deriving the de Bruijn stack and register images from the semantic vector (A as the only code identity; chain topology); three owner questions pending.
   - Implementation-phase obligations before any brief: other-profile row tables, concrete receiver work limits (§10.10), foreign-engine value profiles (§10.6).
+
+## 2026-10-10 10:50:00 +07 — A-only code identity (phase 1) and semantic-register-vm design frozen (phase 2)
+Completed-GMT: 2026-10-10 03:50:00 GMT
+Coding-Agent: claude (Orchestrator + Architect per owner instruction, Fable 5.1, background job)
+Session-ID: e77b6b18-7f5d-48ec-b8f4-0293f11ad5eb
+Tree: master (ff from a-only-code-identity, then semantic-register-vm)
+Done:
+  (1) Owner rulings 2026-10-10, verbatim: "yes, A is the only code identity"; "rebuilding the semantic-vm as as register shaped instead of stack-shaped is the right way to go, delaying this will only add tech debt in the future" (with virtual registers; delete the stack VM and rename on cutover); "The AST is the source of truth but the semantic vm is the canonical projection of it. the ast-walker and the semantic-vm are isopmorphic"; "'one truth many interpretation' is not violated"; row ids use Jing's default digest, not a separate SHA-256 pin.
+  (2) Phase 1 (identity): dated amendment blocks with blanket precedence in `yin.vm.debruijn.stack.md`, `yin.vm.debruijn.register.md`, `yin.vm.debruijn.targets.md`, `yin.vm.universal-continuation-format.v2-amendment.md` §4, `yin.vm.linker.md` §3: H and R become integrity checksums of lowerings of A; requests, service, pins, UCF code maps and executable admission name A; three-step admission procedure; walker admission verifies tree -> A. Codex Architect thread 01a121d7-5ba4-71b1-a70b-f6b4cf3d056a: R2 CHANGES_REQUESTED (13 missed naming contracts + linker), R3 CHANGES_REQUESTED (walker identity), R4 READY_TO_MERGE. Merged 2daa17fb.
+  (3) Phase 2 (design): `docs/design/yin.vm.semantic-register-vm.md` -- C = <seg, pc, W> with a sparse virtual-register window, parameters in E; body-local pre-order minting; instruction table = r2 shapes with names, no live operands; exhaustive expression-structured grammar with a recursive result-or-terminal outcome relation and exclusive definitions by structured paths; saved(p, rd) = W restricted to L(p) minus {rd}; closed act/tail states and deliver records, tail completion through K (no trampoline); rewritten safepoint table; stamp v4; A->R (resolve + pinned interval allocation, conservative overlap, structural slot for definition-less ids) and A->H (parse + adapter + existing lower-stack walk); b2/r2 retained only if bytes AND contracts unchanged; blast radius; eight-phase migration. Same thread: R1 CHANGES_REQUESTED (13), R2 (4), R3 (3), R4 (2), R5 READY_TO_FREEZE. Merged as a Draft; freeze is the phase-2 gate, not implementation acceptance.
+  (4) Also this session: row carrier (body version 3) draft reviewed over seven rounds and merged (f633adf3); blog Part Two recast merged; carrier digest corrected to Jing default.
+  (5) Verified: `git diff --check` clean on every commit; no code or tests touched. yang.python source is unaffected by the rebuild (AST-level only); its tests re-point loader lines.
+Delegates:
+  - Architect: codex gpt-6.1-sol, threads 01a121aa-4d3b-7bb1-90d7-eeb2b04e5d75 (carrier) and 01a121d7-5ba4-71b1-a70b-f6b4cf3d056a (proposal, identity, design); artifacts `collab/1791500000000-*`, `collab/1791510000000-*`.
+Next:
+  - Phase 3 brief: linearizer (`project` per §3.3), loader rules (§3.4, both load paths), static analysis (§8.1 def/use/L/saved), with an independent liveness reference implementation; gates per §10.
+  - Confirm whether the C4 linked-prelude scanners read instruction shapes (yang.python side effect).
+  - Stale `:segment/sha256-...` spellings in UCF prose (editorial; code mints BLAKE3).
