@@ -460,39 +460,71 @@ their multiplicity. All byte comparisons are bytewise on those CBOR
 bytes. Let the cells be `n` in number; if `n = 0` the procedure returns
 the empty numbering and performs no search.
 
-1. **Class labels** are byte strings. A cell's initial label is the
-   CBOR of `[:body <stream-marker-bytes> <position-bytes>]`.
+1. **Class labels** are CBOR byte strings. Wherever a label is embedded
+   in a larger encoding it is embedded as a CBOR byte string (major
+   type 2), never re-parsed. A cell's initial label is the CBOR of
+   `[:body <stream-marker-bytes> <position-bytes>]`.
 2. **Class encoding** `CE(x)` of any encoded value or row, structural
-   and hash-free:
+   and hash-free. **Every identity-bearing position encodes the cell's
+   current label, never its incoming id**; the identity positions are
+   exactly: `[:cell C]` values, the bare `cell-C` and `response-cell-C`
+   slots of `:pending` rows, and the keys of the `:cells` census.
    - `[:lit d]` → `[:lit d]`.
-   - `[:cell C]` → `[:cell <label of C>]` (full tag retained, §10.9).
+   - `[:cell C]`, and a bare `C` slot → `[:cell <label of C>]` (full
+     tag retained, §10.9).
    - `[:row B]` → `[:row <CE(row B)>]`, the row expanded in place; the
      expansion is finite because the structural edge family is acyclic
      (§8 step 3).
    - A row `[kind s₁ … sₖ]` → `[kind CE(s₁) … CE(sₖ)]` with each slot
      encoded as: a structural datum (`A`, `M`, `P`, `S`, `N`, `D`, a
-     reason, a phase) as itself; a `V` as above; a cref as the expanded
-     row; a crefs vector as the vector of expansions.
+     reason, a phase, a version, a role, a kind) as itself; a `C` as
+     above; a `V` as above; a cref as the expanded row; a crefs vector
+     as the vector of expansions.
    - For `:set` rows, and for the key-value pairs of `:map`, `:store`
-     and `:bindings` rows and the entries of `:parked-table`, `:cells`
-     and the installs and module-stores slots: encode each element (or
-     each `[key value]` pair as a two-element vector), then **sort the
-     resulting vector of encodings bytewise, retaining duplicates**.
-     Ordered rows (`:vec`, `:list`, `:stack`, `:k`, frames) keep their
-     order.
+     and `:bindings` rows, the entries of `:parked-table`, and the
+     installs and module-stores slots of the root: encode each element
+     (or each `[key value]` pair as a two-element vector), then **sort
+     the resulting vector of encodings bytewise, retaining duplicates**.
+     Ordered rows (`:vec`, `:list`, `:stack`, `:k`) and the ordered
+     `frames` slot keep their order.
+   - The `:cells` census is **not expanded**: in `CE(root)` the
+     `cells-cref` slot is the constant `[:cells]`. The census is a
+     derived index of the cells the task reaches, so it carries no
+     information the reference positions do not, and (consistently with
+     §8 step 3, which excludes census declaration edges from
+     reachability) **census declaration occurrences contribute no
+     positions** to any cell.
    - Context lookups (`P` in `:parked-ref` and `parked-id`, `M` in
      `store-of`) are not expanded; they appear as the plain datum.
    - An install child's `:task` row is **not expanded**: children are
      numbered first, as their own tasks with their own cells (task
-     boundary), and a child cref appears in the parent's encodings as
-     `[:child <child root id>]`, the child's already-canonical root id.
+     boundary; this runs bottom-up inside §8 step 6 and needs no
+     restoration), and a child cref appears in the parent's encodings
+     as `[:child <child root id>]`, the child's already-canonical root
+     id as a byte string.
 3. **Positions.** A position is the CBOR of the path from the task's
-   root to a cell reference, a vector of steps, each step one of
-   `[kind slot-index]` for a tabled slot, `[kind :elem CE(e)]` for an
-   element of a sorted row, `[kind :key CE(k)]` and `[kind :val CE(k)]`
-   for the key and value sides of a keyed row's pair, and `[:frame i]`
-   for the `i`th wait. Where several equal elements exist, equal
-   positions are repeated, one per occurrence.
+   root to one identity-bearing occurrence of a cell: a vector of
+   steps, built by descending from the root and appending exactly one
+   step per slot category crossed, with the occurrence itself
+   contributing no step. The categories, and their one spelling each:
+   - *Fixed slot* (any tabled slot that is not one of the categories
+     below, including a `:pending` row's `cell-C` slots):
+     `[kind slot-index]`, the slot's 0-based index in the row table.
+   - *Ordered repeated entry* (`:vec`, `:list`, `:stack` elements; `:k`
+     frames; the root's `frames`): `[kind i]` with `i` the 0-based
+     position; for `frames` the step is `[:task :frame i]`.
+   - *Unordered element* (`:set`): `[kind :elem CE(e)]`; never an index.
+   - *Keyed pair* (`:map`, `:store`, `:bindings`, `:parked-table`, and
+     the root's installs and module-stores slots, keyed by module name
+     and `M`): `[kind :key CE(k)]` when descending into the key,
+     `[kind :val CE(k)]` when descending into the value; never an
+     index. For `:bindings`, `:parked-table`, installs and module
+     stores the key is a structural datum and `CE(k)` is the datum.
+   - *Task boundary*: a path never crosses into an install child; a
+     child's cells have paths rooted at the child's own root.
+   Equal occurrences yield equal positions, one per occurrence, and
+   positions never contain a source enumeration index of an unordered
+   container.
 4. **Signature and refinement.** A cell's signature is the CBOR of
    `[:sig <old label> <sorted vector of its positions, duplicates
    retained>]`; its new label is that byte string. Repeat until no
@@ -503,9 +535,11 @@ the empty numbering and performs no search.
 5. **Search.** Order classes bytewise by label. If every class is a
    singleton, assign `1 … n` in that order and stop. Otherwise take the
    first non-singleton class and, **for each of its members in turn**,
-   give that member the label `[:ind <search depth> <old label>]`
-   (distinct from every refinement label by its tag; no ordering
-   relative to other labels is needed), refine to stability, and
+   give that member the label that is the CBOR byte string of
+   `[:ind <depth> <old label>]`, where `depth` is 0 at the top-level
+   search and increases by one per level of recursion (distinct from
+   every refinement label by its tag; no ordering relative to other
+   labels is needed), refine to stability, and
    recurse. Every branch is explored. Each complete leaf yields a
    numbering; build the §5 rows under it and take the **root body's
    canonical CBOR bytes** (the digest preimage, not the digest) as the
