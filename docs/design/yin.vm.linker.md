@@ -199,6 +199,56 @@ a choice.
 
 ## 3. Identities: three kinds, one address space
 
+> **Amendment 2026-10-10: A is the only code identity.** Owner ruling,
+> verbatim: *"yes, A is the only code identity"*, where A is the
+> `:yin.semantic/code` identity of §5.2: the `segment-key` of the
+> semantic VM's canonical instruction vector (UCF §7.3.2). **This
+> amendment takes precedence over every statement in this document**
+> that treats H or R as a format identity, request key, index key,
+> derivation output, pin, or admission identity, in §3, §4 (the pipeline
+> and its identity checks), §5.3-5.5, §6.2 (the format index) and §8.1
+> (derivation records). Under it:
+> - The *format identity* row of the table below has one member for
+>   every executable backend: A. The "contract-pinned identities (H, R)"
+>   family is retired as a family of names; H and R are integrity
+>   checksums of the stack and register images as lowerings of A under
+>   their format contracts, computed as their designs state, and used in
+>   step 3 of §4.2 to verify that native bytes are that lowering. A
+>   request names `{:format f :hash A}`; the format index maps `[A f]`
+>   to the storage address of the native image for `f`, within one
+>   semantic and lowering contract revision (coexisting revisions make
+>   the revision part of the key); for the semantic format the storage
+>   address is A itself, and the canonical vector stays obtainable
+>   independently of any native-image entry. The derivation record of
+>   §8.1 for format `f` leads from the canonical tree to A and from A to
+>   the native image, recording the checksum as evidence, not identity.
+> - **The AST walker** (`:yin.ast/code`, §5.1): the tree's root row
+>   address is retained as a *syntax-content address* (code-as-tuples
+>   §4.1) and is **superseded as an executable identity**. Walker
+>   admission fetches the tree by its storage address, validates it
+>   (code-as-tuples §2), and verifies that lowering it under the declared
+>   contract produces the requested A; the verification direction is
+>   **tree → A**, and no reconstruction of a tree from A is required or
+>   assumed. A trusted derivation record never replaces that check.
+> - I5 keeps both checks, with the identity check now directed by A: step
+>   2 proves the retrieved value is the content at its storage address;
+>   step 3 proves it is the lowering of the verified canonical vector A
+>   under `f`, which for `:yin.semantic/code` is address-equals-identity
+>   as today and for the de Bruijn formats is derivation verification
+>   (§5.5 generalized: re-lower from A, or compare the held bytes'
+>   checksum with the checksum of that lowering). A native image whose A
+>   is not obtainable and verified before admission is refused (I8).
+> - "Strict decoupling holds only for H and R" and §3's storage-vs-
+>   contract-pinned distinction are superseded: every identity is now
+>   storage-derived, which is the stance UCF already takes ("UCF must not
+>   mint a second addressing scheme") and §12's open amendment resolves
+>   in that direction.
+> - The de Bruijn designs carry coordinated amendments of the same date
+>   (`yin.vm.debruijn.stack.md`, `yin.vm.debruijn.register.md`,
+>   `yin.vm.debruijn.targets.md`), as does the UCF v2 amendment §4.
+> Detailed rewriting of §4-§8 under this rule follows in a later
+> revision; nothing in M1-M5's landed code changes by this amendment.
+
 The linker moves between three kinds of name. Confusing them was the
 defect B6 guarded against with D9, and the unification here adds a third.
 

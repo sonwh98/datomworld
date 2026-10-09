@@ -2,6 +2,67 @@
 
 Status: B0-B3 implemented and merged; B4-B7 not started
 
+> **Amendment 2026-10-10: A is the only code identity.** Owner ruling,
+> verbatim: *"yes, A is the only code identity"*, where A is the content
+> address of one segment of the semantic VM's canonical instruction
+> vector (`ucf/code-address`; UCF §7.3.2). **This amendment takes
+> precedence over every statement in this document**, wherever it
+> occurs and however often it is repeated, that makes H a *name*: a
+> request key, fetch key, index key, publication output, pin, dependency
+> identity, captured-code identity, cache authority, or executable
+> admission identity. H remains a *value*: the integrity checksum of the
+> stack image, computed as D9 states, used to verify that held or
+> received native bytes are the lowering of A under this format's
+> contract. Named instances, so that none is read as surviving by
+> omission: §1 "the sole sharing identity, H"; §2 "code-image identity",
+> "H is the only executable and sharing identity", the H-keyed caches
+> (lines 250-252 of the pre-amendment text) which become derivation
+> caches of A; §3.1 "the only executable identities"; §5 parked and
+> reified payloads carrying H as image identity and the restore check
+> against it (A identifies captured code; H may remain an integrity
+> check under the selected lowering contract); §7.2's request key,
+> `:call-hash H`, the H index, requests carrying H and acceptance of
+> fetch-by-H; B7's ordering of SCC members by image hash and D5's
+> definition units named by `:call-hash H` (the replacement SCC-unit
+> grammar is deferred to its own design; no other executable identity is
+> invented); D8 "fetched by H"; D12 "H is the only identity on the
+> sharing path"; D16's H-to-address indexes. Code is requested, served,
+> pinned, keyed in UCF code maps, and admitted for execution by A.
+> - **Admission procedure** (amending D8/D14's procedure, not their
+>   integrity principle): (1) obtain the canonical vector and verify it
+>   against A, validating its contract; (2) derive the native image from
+>   it, or verify held native bytes against that deterministic lowering;
+>   (3) apply native validation and the receiver closure checks. A kernel
+>   that holds only H-addressed bytes with no A *obtainable and verified
+>   before admission* (held, carried, or fetched; a claimed address or a
+>   pairing datom is not enough) refuses. Checking an image against its
+>   own H proves that image's integrity, not its relationship to A.
+> - The upstream topology "both are lowered from the same tuples;
+>   neither image is derived from the other" (§1 here, register design
+>   §1-§2, targets §3) is **superseded**: the stack image is derived from
+>   A. H and R remain **independent sibling lowerings of A**; neither
+>   native image is derived from the other. The resolved tuples remain a
+>   stage value with no identity.
+> - Invariant I (share executable code over a `dao.stream` linker) is
+>   unchanged in substance; what the linker serves is A. The
+>   authoritative linker contract (`yin.vm.linker.md`) carries a
+>   coordinated amendment of the same date.
+> - The principle *"one truth, many interpretations"* (axiom 2 of
+>   `datom.world.md`, quoted in the register design §1) **is not
+>   violated**, in the owner's words. The one truth is the Universal
+>   AST; the semantic, stack and register VMs remain its interpretations.
+>   Only the register design's narrower topology sentence, "no projection
+>   is compiled from another" as applied at the de Bruijn layer, is
+>   superseded: the stack and register images are now derived from A.
+>
+> A second owner ruling of the same date, *"rebuilding the semantic-vm as
+> register shaped instead of stack-shaped is the right way to go"*, with
+> virtual registers, changes the *shape* of A and therefore this
+> document's lowering input; that is a separate design
+> (`yin.vm.semantic-register-vm.md`, forthcoming) and is not applied here.
+> Architect review of both rulings:
+> `collab/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`.
+
 This document specifies a second executable path for `yin.vm`. The existing
 path lowers named Universal AST datoms to `:yin.code/*` and executes that
 image. This design defines a sibling VM for a derived linear image. No second
@@ -16,7 +77,9 @@ stream.
 
 Three artifacts are associated with one named AST. The named datoms are the
 bijective source representation. The executable de Bruijn image is the
-execution artifact and the sole sharing identity, H. The merged projection is
+execution artifact and the sole sharing identity, H *(superseded
+2026-10-10: A is the only code identity; H is a derived checksum, see the
+amendment above)*. The merged projection is
 an alpha-canonical, lossy historical artifact. It is dormant, has no consumer
 in this design, and is not itself executable.
 
@@ -206,9 +269,11 @@ the descriptor hash, including its lowering-contract version, and the
 canonical positional instruction vector: pc-indexed tuples, refs resolved to
 pcs, no header, and exact scalar bytes. Provenance is
 a diagnostic side table indexed by pc and is outside the hash. H is the only
-executable and sharing identity. No projection fingerprint or second identity
+executable and sharing identity *(superseded 2026-10-10: requests,
+service, pins and admission name A; H verifies a held image against
+`stack-lower(A)`; see the amendment at the top)*. No projection fingerprint or second identity
 is attached to the image, request, response, verification, or cache. Any later
-cache is keyed by H.
+cache is keyed by H *(as a derivation cache of A)*.
 No cache is specified by B0 through B5; any later cache is an explicit value
 keyed by H. A receiver hashes the received canonical wire bytes before
 decoding; those bytes are H's preimage. `jing/segment-key` is only the storage
@@ -905,7 +970,9 @@ DECIDED:
     its primitive/module tables with no free-env or store shadowing. B6 refuses
     `:unresolved-free` and `:shadowed-free`; an image with no free operands
     passes trivially.
-12. D12 sharing identity: H is the only identity on the sharing path. The
+12. D12 sharing identity: H is the only identity on the sharing path
+    *(superseded 2026-10-10 by the owner ruling "A is the only code
+    identity"; see the amendment at the top)*. The
     merged projection remains dormant, untouched, and has no new dependents.
     This serves invariant I and "derive, do not persist" because H is already
     alpha-invariant for binder names.

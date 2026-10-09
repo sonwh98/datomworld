@@ -2,9 +2,57 @@
 
 Status: design, revised; not implemented
 
+> **Amendment 2026-10-10: A is the only code identity.** Owner ruling,
+> verbatim: *"yes, A is the only code identity"* (A = `ucf/code-address`
+> of the semantic VM's canonical vector, UCF §7.3.2). **This amendment
+> takes precedence over every statement in this document**, however
+> often repeated, that makes R (or H) a *name*: a request key, fetch
+> key, index key, publication output, pin, dependency identity,
+> captured-code identity, cache authority, or executable admission
+> identity. R remains a *value*: the integrity checksum of the register
+> image, used to verify that held or received native bytes are the
+> lowering of A under this format's contract. Named instances, so none
+> survives by omission: the status sentence and §1 "neither is derived
+> from the other" (the register image is derived from A; R and H remain
+> independent sibling lowerings of A, neither derived from the other);
+> §1 "independently addressable by its own R" and the independently
+> addressable H/R of line 51; §1.1 "R is the only identity used to
+> fetch, verify, cache, or execute register bytes", "a linker request
+> must name both the format and R", and "a receiver verifies a fetched
+> register image with R alone" (a receiver verifies A and the lowering
+> relationship before execution, per the admission procedure in the
+> stack design's amendment); invariant 3 (line 106) and DECIDED 2 (line
+> 1123) on peer executable-format identities (the checksum-equality laws
+> are retained); §2's topology diagram and §2.1's D9/D12 bullets (the
+> input to `lower-register` becomes A, with name resolution a shared
+> function both lowerers call whose output is a stage value with no
+> identity); §3 (line 319) R as executable-format identity with
+> verification-then-execution without A; §5.1's captured image identity
+> `{:format … :hash H/R}` and its fetch-by-R/H (A identifies captured
+> code; native same-model restore constraints stand until the new
+> continuation design replaces them); R5 and §9's R index, same-root
+> pairing datoms, and the cross-stream fetch-by-R end condition
+> (replaced by A; the `(R, H)` pairing becomes both being functions of
+> A). Invariant I is unchanged in substance; the linker contract
+> (`yin.vm.linker.md`) carries a coordinated amendment of the same date. The principle *"one truth, many interpretations"* quoted
+> in §1 **is not violated** (owner, 2026-10-10): the Universal AST is the
+> one truth and the three VMs remain its interpretations. Only §1's
+> narrower topology sentence, "no projection is compiled from another"
+> as applied at the de Bruijn layer, is superseded, since the register
+> image is now derived from A. R1's lowering walk changes input and is not a plug-in allocator over a
+> vector (Architect, `collab/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`
+> finding 6).
+>
+> A second ruling of the same date makes the canonical semantic vector
+> register-shaped with virtual registers (*"rebuilding the semantic-vm as
+> register shaped ... is the right way to go"*); its design
+> (`yin.vm.semantic-register-vm.md`, forthcoming) will restate §4's
+> input and lowering contract. Not applied here.
+
 This document specifies a register execution path that is a peer of the
 committed de Bruijn stack path. Both are projections of the same de Bruijn
-encoding of the named semantic tuples; neither is derived from the other.
+encoding of the named semantic tuples; neither is derived from the other
+*(superseded 2026-10-10; see the amendment above)*.
 It does not replace the named datoms, the stack image, the stack VM, or the
 dormant projection. The first deliverable is a pure resolved-tuples-to-
 register lowerer and validator. The register VM kernel is a committed later
@@ -96,7 +144,9 @@ positional register vector, exactly as B1's `image-hash` hashes the stack
 descriptor hash and the canonical stack vector. R is the only identity used
 to fetch, verify, cache, or execute register bytes. A linker request must
 name both the format and R, for example
-`{:format :yin.debruijn.register :hash R}`.
+`{:format :yin.debruijn.register :hash R}` *(superseded 2026-10-10: a
+request names A and the format; R verifies the held image against
+`register-lower(A)`; see the amendment at the top)*.
 
 R is alpha-invariant for binder renames for the same reason H is: the
 register vector carries `:load-bound` depth and position operands and

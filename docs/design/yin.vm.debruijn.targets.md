@@ -1,6 +1,36 @@
 # yin.vm de Bruijn target hosts and emitters
 
-Status: design only, not authorized for implementation. Exploratory
+Status: design only, not authorized for implementation.
+
+> **Amendment 2026-10-10: A is the only code identity.** Owner ruling,
+> verbatim: *"yes, A is the only code identity"*. **This amendment takes
+> precedence over every statement in this document**, however often
+> repeated, that makes R or H a *name* (request, fetch, index, cache,
+> pin, dependency or admission identity); R and H remain integrity
+> checksums of their native images as lowerings of A. Named instances,
+> so none survives by omission: the status paragraph's "emitters are
+> peer lowerings of the resolved tuples" (emitters derive from A);
+> Direction B "an image with identity R" (line 70) and the consequences
+> paragraph assigning serving to H and verification identity to R (line
+> 322); §3 item 1 and T-D5/T-D11's artifact keys `(R, target,
+> emitter-version)` (now `(A, target-or-profile, emitter-version)`); §3
+> item 2, T-D12 `raise`, T8, the §3.5/line 556 reconstruction path
+> through H/R and `raise`, and the open scheduling question at line 1248
+> (all retired: a host obtains A and derives R; no decompiler path);
+> §3.4 "H and R the only identities on the sharing path"; the Level-2
+> requirements of fetch-by-R (lines 1099, 1181; fetch is by A). The
+> `(R, H)` pairing as a composition fact is replaced by both being
+> functions of A; R and H remain independent sibling lowerings of A.
+> Everything about foreign kernels executing the register image, Level
+> 0/1/2, and Direction A artifacts being non-executable is unchanged.
+>
+> A second ruling of the same date makes the canonical semantic vector
+> register-shaped with virtual registers; its design
+> (`yin.vm.semantic-register-vm.md`, forthcoming) will restate §3.7's
+> reasons for targeting the register image in terms of a forthcoming
+> A-derived lowering, whose simplicity is not assumed here. Not applied.
+
+Exploratory
 architecture for an OPTIONAL compilation and foreign-host pipeline. Its
 emitters are peer lowerings of the resolved tuples, the de Bruijn encoding
 of the named semantic tuples that the stack and register lowerers already
@@ -1132,7 +1162,8 @@ DECIDED:
     target, emitter-version)` where R is `lower-register` of the same
     resolved tuples; the pairing is composition data, as R's pairing
     with H is, and gives the tuples no identity.
-12. T-D12 raise: a Clojure process holding only a stack image fetched by
+12. T-D12 raise *(retired 2026-10-10: code is fetched by A and R is
+    derived from A; see the amendment at the top)*: a Clojure process holding only a stack image fetched by
     H obtains R through `raise`, the inverse of `lower-stack` on images
     it produced, then `lower-register`; the two laws of section 3.1 and
     the derived-R law of T8 are its completion criteria, `:not-raisable`

@@ -216,6 +216,24 @@ separate and always remains exporting (section 10).
 
 ## 4. Code identity and image layout
 
+> **Amendment 2026-10-10: A is the only code identity.** Owner ruling,
+> verbatim: *"yes, A is the only code identity"*. The table below records
+> the address functions version 2 bodies carry; version-2 bytes are
+> unchanged and describe the **historical** contract, not a continuing
+> authorization for A-less executable admission under the new contract
+> (no byte rewriting and no compatibility shim). For every later body
+> version, `:yin.k/code` and `:yin.k/requires :yin.k/segments` are keyed
+> by the semantic A for all profiles; H and R are not keys. A stack or
+> register body of a later version names its code by A plus its profile;
+> the receiver derives the native image from A under the profile's
+> lowering contract, or verifies held native bytes against that
+> lowering, with H and R serving as integrity checks of native
+> components. The "native address domains" of §2 collapse to A at that
+> version, and §4.1's ordered layouts name A: offsets are derived from
+> the native lowering, never carried as identities. The exact row
+> grammar for the stack, register and walker profiles stays deferred
+> (`yin.vm.ucf-transport-tuples.md`, body version 3, semantic only).
+
 These are the address functions, with no UCF wrapper hash substituted:
 
 | Profile | `:yin.k/code` value | Key computation |
