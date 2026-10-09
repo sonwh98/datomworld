@@ -331,9 +331,15 @@ recursively, not by "the last instruction writes `rd`", so that a
 conditional (which ends in a `:jump` or a label) and a nested
 conditional both have a result destination, and so that a `resume`
 anywhere in an expression makes the enclosing path terminal from that
-point. Every expression, `resume` included, **mints** its `rd` (§3.3),
-so that minting stays uniform; a `resume`'s `rd` is simply never
-defined.
+point. Three notions are kept distinct throughout: a register id is
+**minted** by exactly one expression (§3.3; every expression mints,
+`resume` included); an id has zero or more **syntactic definitions**,
+the instructions whose `rd` slot names it (a tail `:call` names its
+`rd` syntactically though it never writes it at runtime; a `:resume`
+has no `rd` slot and so gives its minted id no syntactic definition);
+and an id has zero or more **runtime writes**, the syntactic
+definitions reachable on some path. "Terminal" is about runtime
+writes, never about syntax.
 
 ```
 body         ::= expr(r) [:return r]                ; non-main bodies
@@ -373,18 +379,37 @@ destination `rd` by definition, and both arms are `expr(rd)`, so a
 nested conditional in an arm is itself an `if(rd)` into the same
 register.
 
-**Outcomes.** `atom`, `define`, `effect` and a non-tail `call` have a
-result outcome. `resume(rd)` and a tail `call(rd)` have a terminal
-outcome (§2.4: a tail call completes through `K`). An `if(rd)` has a
-result outcome if at least one arm does, and a terminal outcome if both
-arms do. An expression containing a terminal child is **terminal from
-that child onward**: for `call(rd)` with a terminal operand, say, the
-remaining operands and the `:call` itself are layout syntax on that
-path. A **wholly terminal body** (`body ::= expr(r) [:return r]` with
-`expr(r)` terminal) still carries its structural `[:return r]`, and `r`
-is a minted, never-defined register; the terminator is layout syntax.
-Every supported AST program is accepted; terminal outcomes narrow
-nothing, they only mark what runtime cannot reach.
+**Outcomes.** An expression's outcome on a path is *result* if
+evaluation of that path ends with a runtime write of its `rd` and
+continues to the successor, and *terminal* if control leaves the path
+before that (no normal result on that path). Composition is conditional
+on children continuing:
+
+- `atom(rd)`: result.
+- `define(rd)`, `effect(rd)`: terminal if a child is terminal, else
+  result.
+- `call(rd)`: children are evaluated in order; if any child is
+  terminal the call is terminal from that child onward; otherwise
+  result when `tail?` is false and terminal when `tail?` is true (§2.4:
+  a tail call completes through `K`, so its syntactic `rd` is never a
+  runtime write).
+- `if(rd)`: terminal if the test is terminal; otherwise result if at
+  least one arm has a result outcome, terminal if both arms are
+  terminal. Mixed arms are a result outcome on the continuing arm and
+  terminal on the other, which is exactly what definite assignment
+  (§3.4 item 8) handles by excluding terminal arms from the join.
+- `resume(rd)`: terminal.
+
+An expression containing a terminal child is terminal **from that
+child onward**: the remaining children and the expression's own
+instruction are layout syntax on that path (§3.4 item 10), and any
+syntactic definitions among them are not runtime writes on that path.
+A **wholly terminal body** (`body ::= expr(r) [:return r]` with
+`expr(r)` terminal on every path) still carries its structural
+`[:return r]` as layout syntax; `r` is minted, may have syntactic
+definitions (a tail call's `rd`) or none (a `resume`'s), and has no
+runtime write. Every supported AST program is accepted; terminal
+outcomes narrow nothing, they only mark what runtime cannot reach.
 
 ### 3.2 Exclusive definitions by structured paths
 
@@ -423,9 +448,12 @@ pinned here so that A is a function of the AST and this walk alone:
 2. **Minting**: registers are **body-local**, numbered from 0 in the
    order destinations are minted. A destination is minted **when its
    expression is entered, before any of its children** (pre-order),
-   with two refinements: an arm of a conditional is lowered *into* the
+   with one refinement: an arm of a conditional is lowered *into* the
    conditional's existing `rd` and mints no destination of its own
-   (its children still mint theirs); and `resume` mints nothing. So for
+   (its children still mint theirs). `resume` mints its destination
+   like every other expression, although no instruction will ever name
+   it syntactically (§3.1); this keeps minting uniform and canonical
+   numbering a function of the tree alone. So for
    `(f (g x) y)`: `rd(f-call)=0`, then `rd(f)=1`, then `rd(g-call)=2`,
    `rd(g)=3`, `rd(x)=4`, then `rd(y)=5`; the emitted order is
    `[:var 1 f] [:var 3 g] [:var 4 x] [:call 2 3 [4] false] [:var 5 y]
@@ -435,8 +463,8 @@ pinned here so that A is a function of the AST and this walk alone:
    expression. Pre-order is chosen over post-order for one reason: it
    is uniform across every node type, including the conditional, which
    must have its destination before either arm is lowered.
-3. **Every expression except `resume` receives a destination**, used or
-   not. There are no discarded expressions in the current AST (no
+3. **Every expression receives a destination**, used or not, written
+   or not. There are no discarded expressions in the current AST (no
    sequencing form); if one is added, its non-final forms still mint and
    write registers, and the saved-window rule keeps them out of frames.
 4. **Tail flag**: copied from `:yin/tail?` as the front end marks it.
@@ -484,11 +512,14 @@ adding register rules; items 1-5 (one segment, instruction shape, pcs
    no `:jump`/`:branch-false` target and no `body-pc` crosses a body
    boundary except the `:closure`'s own `body-pc`. Each body ends in
    `:return` (`:halt` for main) and parses under §3.1.
-7. Register ids in a body are exactly `0..k-1` for some `k`; each is
-   either defined at least once or is the minted destination of a
-   terminal-outcome expression (a `resume`, a tail `call`, or an `if`
-   both of whose arms are terminal) and then has no definition and no
-   runtime read; a body never names another body's register.
+7. Register ids in a body are exactly `0..k-1` for some `k`, each
+   minted by exactly one expression of the body's tree (§3.3). Each id
+   has at least one syntactic definition unless it is the minted
+   destination of a `resume`, which has none. A runtime read of an id
+   requires a runtime write before it on every path (item 8); an id
+   with syntactic definitions but no runtime write (a tail call's `rd`,
+   a destination inside layout syntax) is legal and is never read at
+   runtime. A body never names another body's register.
 8. **Definite assignment**: on every runtime path from the body's start
    to an instruction, every register it reads has been written. Checked
    by a forward walk over the structured control flow of §3.1: the
@@ -630,10 +661,11 @@ A foreign engine's static safepoint map keeps `:yin.safepoint/segment`,
 `:stack-effect` with the per-pc **def and use sets** and `L(pc)` derived
 from A (§8.1), and keeps `:yin.safepoint/layout` as a map from physical
 location to virtual register. The reconstruction obligation is: for an
-`act` state, produce every register in `saved(pc, rd) = L(pc) − {rd}`
-(never the not-yet-produced destination), `E`, `K` with each frame's
-validated window and `rd`, the delivery record, the pending state, and
-the captured store context; for a `tail` state, produce `K` with its
+`act` state, produce the segment `A` and resume `pc`, every register in
+`saved(pc, rd) = L(pc) − {rd}` (never the not-yet-produced
+destination), `E`, `K` with each frame's validated window and `rd`, the
+delivery record, the pending state, and the captured store context; for
+a `tail` state, produce the segment and the tail `site`, `K` with its
 validated frames, the delivery record and the pending state, and **no**
 current window or `E`. A physical-slot map alone does not discharge it
 when values are spilled, rematerialized, or shared between locations;
@@ -733,16 +765,28 @@ unchanged.
    output is a stage value with no identity.
 2. **Allocate per body**, by a pinned interval algorithm over **pc
    order** (pre-order ids are not pc-ordered, §3.3):
-   - *Intervals.* Each virtual register `v` has one interval
-     `[start(v), end(v)]` in pcs: `start(v)` is the pc of its first
-     definition in textual order; `end(v)` is the greatest pc at which
-     `v ∈ L(pc)` or `v` is defined, so an interval covers every
-     definition and every live point. A register with several leaf
+   - *Intervals.* Each virtual register `v` with at least one syntactic
+     definition has one interval `[start(v), end(v)]` in pcs: `start(v)`
+     is the pc of its first syntactic definition in textual order;
+     `end(v)` is the greatest pc at which `v ∈ L(pc)` or `v` is
+     syntactically defined, so an interval covers every definition
+     (layout-syntax ones included, since they are emitted and must be
+     in bounds) and every live point. A register with several leaf
      definitions (a conditional's `rd`, §3.2) therefore has **one
      interval spanning the whole `if(rd)` subtree** from its first arm
      definition to its last use: one physical slot is reserved across
      the entire structured extent, so an alternate arm's own values can
      never collide with the shared destination.
+   - *Definition-less ids.* A minted id with no syntactic definition
+     (a `resume`'s destination) has no interval and no slot of its
+     own. Where layout syntax must still name it (a wholly terminal
+     body's structural `[:return r]`), the operand lowers to the
+     **structural slot** `Tₖ`, where `k` is the number of temporaries
+     the scan assigned; the body's temporary count is then `k+1` so the
+     operand is in bounds. The structural slot is never written, never
+     read at runtime, never a saved value and never in any `live`
+     operand; it exists so that every emitted native operand is a valid
+     register index. Deterministic by construction.
    - *Scan.* Walk pcs in increasing order. At pc `p`: first expire every
      interval with `end < p` (freeing its slot; among several, in
      increasing `end`, then increasing virtual id); then for each
@@ -765,7 +809,8 @@ unchanged.
      temporaries (register design §4.2); canonical parameters stay in
      `E` and are read through `:load-bound`.
    - *Count.* Physical temporaries = the maximum number of
-     simultaneously assigned slots; recorded in the body descriptor.
+     simultaneously assigned slots, plus one when the body has a
+     structural slot; recorded in the body descriptor.
    No host map iteration order enters the result; every tie is broken
    by pc, then virtual id.
 3. **Fill `live`.** Exactly the r2 boundary opcodes carry a `live`
