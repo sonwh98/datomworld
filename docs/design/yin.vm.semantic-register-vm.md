@@ -337,9 +337,11 @@ point. Three notions are kept distinct throughout: a register id is
 the instructions whose `rd` slot names it (a tail `:call` names its
 `rd` syntactically though it never writes it at runtime; a `:resume`
 has no `rd` slot and so gives its minted id no syntactic definition);
-and an id has zero or more **runtime writes**, the syntactic
-definitions reachable on some path. "Terminal" is about runtime
-writes, never about syntax.
+and an id has zero or more **runtime writes**, the reachable
+instructions that actually write it (a reachable tail `:call` names
+its `rd` and never writes it, so it is a syntactic definition and not a
+runtime write; every other reachable syntactic definition is a runtime
+write). "Terminal" is about runtime writes, never about syntax.
 
 ```
 body         ::= expr(r) [:return r]                ; non-main bodies
@@ -418,10 +420,13 @@ of one register may be several, one per *leaf arm* of a (possibly
 nested) conditional whose result destination is that register, and
 these are on pairwise exclusive paths by the structure of §3.1. The
 validator does not check pairs; it walks the structure: for each
-register, the set of its defining instructions must be exactly the set
+register, the set of its syntactic definitions must be exactly the set
 of leaf results of one `expr(rd)` subtree (a single instruction, or the
 leaf arms of nested `if(rd)`s), and no instruction outside that subtree
-defines it.
+defines it. That set may be **empty**: a subtree every leaf of which is
+a `resume` (a bare `resume(rd)`, or an `if(rd)` whose arms are both
+such subtrees) supplies no syntactic definition of `rd` at all, and the
+rule is satisfied with the empty set.
 
 ### 3.3 The lowering walk and the minting order
 
@@ -514,8 +519,9 @@ adding register rules; items 1-5 (one segment, instruction shape, pcs
    `:return` (`:halt` for main) and parses under §3.1.
 7. Register ids in a body are exactly `0..k-1` for some `k`, each
    minted by exactly one expression of the body's tree (§3.3). Each id
-   has at least one syntactic definition unless it is the minted
-   destination of a `resume`, which has none. A runtime read of an id
+   has at least one syntactic definition unless its entire result
+   subtree supplies none (§3.2: every leaf of the subtree is a
+   `resume`), in which case it is **definition-less**. A runtime read of an id
    requires a runtime write before it on every path (item 8); an id
    with syntactic definitions but no runtime write (a tail call's `rd`,
    a destination inside layout syntax) is legal and is never read at
@@ -778,15 +784,20 @@ unchanged.
      the entire structured extent, so an alternate arm's own values can
      never collide with the shared destination.
    - *Definition-less ids.* A minted id with no syntactic definition
-     (a `resume`'s destination) has no interval and no slot of its
-     own. Where layout syntax must still name it (a wholly terminal
-     body's structural `[:return r]`), the operand lowers to the
-     **structural slot** `Tₖ`, where `k` is the number of temporaries
-     the scan assigned; the body's temporary count is then `k+1` so the
-     operand is in bounds. The structural slot is never written, never
-     read at runtime, never a saved value and never in any `live`
-     operand; it exists so that every emitted native operand is a valid
-     register index. Deterministic by construction.
+     (§3.4 item 7) has no interval and no slot of its own. Where layout
+     syntax must still name it (a wholly terminal body's structural
+     `[:return r]`; an enclosing instruction in layout syntax after a
+     terminal operand), the operand lowers to the **structural slot**
+     `Tₖ`, where `k` is the scan's **peak** count of simultaneously
+     assigned temporaries; the body's temporary count is then `k+1` so
+     the operand is in bounds. The structural slot is never written,
+     never read at runtime, and never a saved runtime value: saved
+     windows are `saved(p, rd)` at *reachable* safepoints (§8.1), and
+     no reachable instruction names a definition-less id. It **may**
+     appear in a static `live` operand of an instruction in an
+     unreachable CFG component (step 3), because those operands are
+     computed over the whole graph; that membership is a static fact
+     with no runtime capture. Deterministic by construction.
    - *Scan.* Walk pcs in increasing order. At pc `p`: first expire every
      interval with `end < p` (freeing its slot; among several, in
      increasing `end`, then increasing virtual id); then for each
@@ -816,12 +827,17 @@ unchanged.
 3. **Fill `live`.** Exactly the r2 boundary opcodes carry a `live`
    operand (register design §4.4: `:call`, `:stream-put`, `:stream-next`,
    `:ffi-call`, `:current-continuation`, `:park`). For each, `live` is
-   the physical image of `saved(pc+1, rd)` of §2.4 (that is,
-   `L(pc+1) − {rd}`), and for a tail `:call` it is empty, because its
-   successor set is empty; this agrees with the register design's
-   `body-liveness`, which already excludes the destination and treats
-   tail calls as successor-less, and that function may be used to
-   compute it over the physical image.
+   the physical image of `L(pc+1) − {rd}`, computed **statically over
+   the whole CFG of the body, unreachable components included**, and
+   for a tail `:call` it is empty, because its successor set is empty.
+   This is exactly what the register design's `body-liveness` computes
+   over the physical image (it excludes the destination and treats
+   tail calls as successor-less), and that function is the acceptance
+   gate for the operands. A `live` operand on an instruction that is
+   unreachable from every path is a static fact of the native format
+   and never a runtime saved window; the two notions are kept apart as
+   the reservation-vs-liveness note above keeps reservation apart from
+   both.
 4. **Layout.** Bodies and pcs keep A's layout; the register image's
    `{:bodies … :instructions …}` shape is filled from the body ranges.
    R = `register-hash` of the result, as a checksum.
