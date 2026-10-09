@@ -11029,20 +11029,35 @@ Next:
   - Dispatch Stage E (final UCF milestone: crash/partition suites through wired composition, cross-host matrices, real kills, clause 10) from staged brief `collab/1791372000000-compiler-engineer-ucf-stage-e.prompt.md`.
   - Clean up merged worktree `/Users/sto/workspace/datomworld-d16final`.
 
-## 2026-10-09 23:06:00 +07 — UCF blog: Part Three (cross-VM transport) landed after codex Architect review
-Completed-GMT: 2026-10-09 16:06:00 GMT
-Coding-Agent: claude (Orchestrator, Fable 5.1, background job)
-Session-ID: e77b6b18-7f5d-48ec-b8f4-0293f11ad5eb
-Tree: master@78ae1e69 (== origin)
+
+## 2026-10-09 23:12:00 +07 — yang.python: Phase C4 Slice I1 (Static Absolute Imports) LANDED
+Completed-GMT: 2026-10-09 16:12:00 GMT
+Coding-Agent: agy (Lead Engineering Orchestrator)
+Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
+Tree: master@2f5eb826
 Done:
-  (1) Owner discussion on extending UCF parallel transport to a different VM. Owner rulings: cross-VM safepoints stay at the semantic-VM level (`(segment-hash, pc)`), not AST nodes; the problem narrows to the value-holding components E, S, St; the transported state is represented as tuples; tuples are the transport form only, execution is native at the destination.
-  (2) `public/chp/blog/hygienic-parallel-transport-universal-continuation-format.blog`: added Part Three recording the decisions and the path (AST-level proposal rejected, CBOR as bytes layer only, §7.5 as the reference layer, tuple set with per-entity content-or-identity, lift/lower/parity conformance), one Lineage sentence (deopt/OSR), a design-status qualifier (22dcbcc5).
-  (3) Architect review, codex gpt-6.1-sol thread 01a12162-1813-7152-947a-0f5b3c71e7eb, read-only. Round 1 CHANGES_REQUESTED, 12 findings; 1-10 and 12 applied (bbffe4b4): vector is a deterministic lowering not an isomorphism; cycle refusal retained; identity discipline is not the whole grammar; Jing does not canonicalize tuple order; St claim restricted to return frames; conformance inherits the full UCF contract with round-trip (§7.4.2 direction) and observational parity stated separately; full coverage grounded in §7.4.2; effects inherit the complete custody contract; dao.space note superseded; Part One store paragraph follows the M4 resource split. Round 2 READY_TO_MERGE, one LOW nit applied (78ae1e69).
-  (4) Finding 11 (owner-written Part Two: resumption race as "holonomy", epoch as "gauge") NOT applied; Architect and orchestrator both read it as a gluing/sections problem, filed as essay accuracy, reserved for the owner.
-  (5) Verified: file parses as EDN with all four blog keys; `git diff --check` clean. No code or tests touched.
+  (1) Phase C4 Slice I1 (Static Absolute Imports & Module System, docs/design/yang.antlr.md §8.5.6) LANDED on master at commit `2f5eb826`:
+      - Runtime: `py/import`, `py/module-run`, `py/run-main` running under `"__main__"`, module objects with `{:py/type :module :name s :dict d}` cell representation, uniform `<module 'name'>` rendering, `sys.modules` (`py.rt/modules`) pre-seeded with `sys` and `builtins`, and the `ImportError` class.
+      - Compiler / Lowering: `lower/module-packet` and `lower/module-spec` (`pym.<name>` for module `<name>`), hoisting one `(require 'pym.i)` per static import in the unit beside the wrapper's `py` require.
+      - Del Semantics: Lowering of `del` statements covering name targets and attribute targets (`del m.y`).
+  (2) Independent Adversarial Review Round 1 & Round 2:
+      - Round 1 (`collab/1791549000000-reviewer-c4-i1.gpt-6.1-sol.stdout.log`): `REQUEST_CHANGES` by `gpt-6.1-sol` on 3 findings:
+        * P1: Scope analysis omitted `del_stmt` targets (causing local deletions to hit global scope instead of raising UnboundLocalError).
+        * P2: Module global `del x` used `py/global-get` falling back to builtins (causing `del len` to succeed silently).
+        * P3: Class namespace `del x` allowed repeated deletion without raising `NameError`.
+      - Fixes Applied:
+        * `src/cljc/yang/python/antlr/scope.cljc`: Added `del_stmt` target collection in `target-names`.
+        * `src/cljc/yang/python/antlr/prelude.cljc`: Added `py/global-del` (strict module dict check) and `py/class-ns-del` (strict class attrs check).
+        * `src/cljc/yang/python/antlr/lower.cljc`: Updated `del-name` to use `py/class-ns-del` and `py/global-del`.
+      - Round 2 (`collab/1791552000000-reviewer-c4-i1-r2.findings.md`): `VERDICT: READY_TO_LAND` with "No actionable findings" confirmed by `gpt-6.1-sol`.
+  (3) Tri-Host Verification Gate Passed Cleanly:
+      - JVM: `yang.python.antlr.import-test` (18 tests, 75 assertions, 0 failures), `yang.python.antlr.e2e-test` (42 tests, 727 assertions, 0 failures), `float-address-test` (12 tests, 105 assertions, 0 failures), `linked-prelude-test` (13 tests, 110 assertions, 0 failures), `linked-safepoint-test` (14 tests, 88 assertions, 0 failures).
+      - Node.js: `bb test:sub:cljs yang.python` (14 namespaces, 187 tests, 0 failures, status: pass).
+      - Dart: `bb test:sub:cljd yang.python` (14 namespaces, 187 tests across 8 shards, 0 failures, status: pass).
+  (4) Merged cleanly to `master` and cleaned up worktree `.claude/worktrees/yang-python-c4-i1`.
 Delegates:
-  - Architect: codex gpt-6.1-sol (thread 01a12162-1813-7152-947a-0f5b3c71e7eb), prompts/findings `collab/1791400000000-architect-ucf-blog-cross-vm-review{,-r2}.*`.
+  - Implementer: glm-5.3 (initial implementation).
+  - Adversarial Reviewer: gpt-6.1-sol (Codex session `01a1210c-5c28-7311-b9d6-77800883f6b4`, Rounds 1 and 2).
+  - Orchestration & P1-P3 Bug Remediation: agy.
 Next:
-  - Owner decision on finding 11 (Part Two holonomy framing).
-  - Spec follow-up, not started: one-page tuple schema for transported state (entities, attributes, content-or-identity per attribute, canonical ordering and id-renaming equality), then an Architect brief for reopening UCF §7.4.1/§7.5.
-  - Delete stale remote branch `worktree-ucf-blog-cross-vm` (8b6d8068, pre-rebase; master contains the work).
+  - Proceed to Phase C4 Slice I2 (packages & relative imports) and Slice F3 (REPL Python frontend registration).
