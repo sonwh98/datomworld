@@ -158,6 +158,10 @@
                               "set()"
                               (seq-repr "{" "}" (:py/set v)))
       (contains? v :py/instance) (str "<" (:py/instance v) " object>")
+      ;; CPython prints an address; a snapshot has none, so the text is
+      ;; the deterministic form without it
+      (contains? v :py/generator) (str "<generator object " (:py/generator v) ">")
+      (contains? v :py/iterator) (str "<" (:py/iterator v) " object>")
       (contains? v :py/class) (str "<class '" (:py/class v) "'>")
       (contains? v :py/function) (str "<function " (:py/function v) ">")
       :else (pr-str v))

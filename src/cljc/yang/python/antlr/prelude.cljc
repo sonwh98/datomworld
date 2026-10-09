@@ -565,7 +565,9 @@
            (py/gen-result (py/gen-switch it (py/outcome :send :py/None)) default)
            (if (= t :iterator)
              (py/gen-result (py/iter-outcome it) default)
-             (py/type-error {:py/str "object is not an iterator"})))))]
+             (if (= t :instance)
+               (py/gen-result (py/user-adv it) default)
+               (py/type-error {:py/str "object is not an iterator"}))))))]
     [py/yield-from
      ;; `yield from x` (PEP 380): each message the outer generator receives
      ;; goes to the delegate, each value the delegate yields is the outer's;
@@ -587,16 +589,89 @@
      ;; send, throw or close: None advances it, another value sent is an
      ;; AttributeError and a throw is raised in the outer as is.
      (fn [d msg]
-       (let [gen? (= (py/content-type d) :generator)
-             v (get msg 1)]
+       (if (= (py/content-type d) :instance)
+         (py/user-delegate-step d msg)
+         (let [gen? (= (py/content-type d) :generator)
+               v (get msg 1)]
+           (if (= (get msg 0) :throw)
+             (if (py/subclass? (py/type-of v) py.b/GeneratorExit)
+               (do (if gen? (py/gen-close d) :py/None)
+                   (py/outcome :raise v))
+               (if gen? (py/stop-as-return (py/gen-switch d msg)) (py/outcome :raise v)))
+             (if gen?
+               (py/gen-switch d msg)
+               (if (= v :py/None) (py/iter-outcome d) (py/attr-error "send")))))))]
+    ;; User-defined iterators (ruling 8). The special methods are looked up
+    ;; on the type, never the instance; StopIteration is caught around the
+    ;; one advancement only, and its value is kept for delegation.
+    [py/guarded
+     ;; thunk's value as a :yield outcome, a StopIteration raised inside it
+     ;; as a :return outcome carrying its value, any other exception as a
+     ;; :raise outcome; every consumer delivers :raise at its own boundary
+     (fn [thunk]
+       (let [out (cell/new :py/None)]
+         (do (py/try (fn [] (cell/set! out (py/outcome :yield (thunk))))
+                     (fn [e]
+                       (if (py/subclass? (py/type-of e) py.b/StopIteration)
+                         (cell/set! out (py/outcome :return
+                                                    (get (get (cell/get e) :attrs)
+                                                         "value"
+                                                         :py/None)))
+                         (cell/set! out (py/outcome :raise e))))
+                     (fn [] :py/None))
+             (cell/get out))))]
+    [py/user-adv
+     (fn [it]
+       (let [m (py/class-lookup (py/type-of it) "__next__")]
+         (if (= m :py/missing)
+           (py/type-error {:py/str "object is not an iterator"})
+           (py/guarded (fn [] (py/call (py/bind it m) []))))))]
+    [py/user-step
+     (fn [it]
+       (let [o (py/user-adv it)]
+         (if (= (get o 0) :yield)
+           (get o 1)
+           (if (= (get o 0) :raise) (py/raise (get o 1)) :py/stop))))]
+    [py/user-iterator?
+     (fn [r]
+       (let [k (py/kind r)]
+         (if (if (= k :generator) true (= k :iterator))
+           true
+           (if (= k :instance)
+             (not (= (py/class-lookup (py/type-of r) "__next__") :py/missing))
+             false))))]
+    [py/user-iter
+     (fn [x]
+       (let [m (py/class-lookup (py/type-of x) "__iter__")]
+         (if (= m :py/missing)
+           (py/type-error {:py/str "object is not iterable"})
+           (let [r (py/call (py/bind x m) [])]
+             (if (py/user-iterator? r)
+               r
+               (py/type-error {:py/str "iter() returned non-iterator"}))))))]
+    [py/user-forward
+     ;; an optional send, throw or close of the delegate's type, called with
+     ;; args; :py/missing when its type has none
+     (fn [d name args]
+       (let [m (py/class-lookup (py/type-of d) name)]
+         (if (= m :py/missing)
+           :py/missing
+           (py/guarded (fn [] (py/call (py/bind d m) args))))))]
+    [py/user-delegate-step
+     (fn [d msg]
+       (let [v (get msg 1)]
          (if (= (get msg 0) :throw)
            (if (py/subclass? (py/type-of v) py.b/GeneratorExit)
-             (do (if gen? (py/gen-close d) :py/None)
-                 (py/outcome :raise v))
-             (if gen? (py/stop-as-return (py/gen-switch d msg)) (py/outcome :raise v)))
-           (if gen?
-             (py/gen-switch d msg)
-             (if (= v :py/None) (py/iter-outcome d) (py/attr-error "send"))))))]
+             (let [c (py/user-forward d "close" [])]
+               (if (= c :py/missing)
+                 (py/outcome :raise v)
+                 (if (= (get c 0) :raise) c (py/outcome :raise v))))
+             (let [o (py/user-forward d "throw" (py/vconj [] v))]
+               (if (= o :py/missing) (py/outcome :raise v) o)))
+           (if (= v :py/None)
+             (py/user-adv d)
+             (let [o (py/user-forward d "send" (py/vconj [] v))]
+               (if (= o :py/missing) (py/attr-error "send") o))))))]
     [py/stop-as-return
      ;; a StopIteration a generator delegate raises back from a throw is the
      ;; delegation's completion with its value, as CPython's _gen_throw
@@ -2057,7 +2132,9 @@
                  (py/gen-step it)
                  (if (= t :iterator)
                    (py/iter-step it)
-                   (py/type-error {:py/str "object is not iterable"}))))))
+                   (if (= t :instance)
+                     (py/user-step it)
+                     (py/type-error {:py/str "object is not iterable"})))))))
          (if (= (get it :py/type) :range)
            (py/range-at it i)
            (if (= (get it :py/type) :tuple)
@@ -2092,7 +2169,7 @@
              (assoc (assoc (assoc (assoc {} :py/type :keys-iter) :obj x)
                            :size (data/count (get (cell/get x) :keys)))
                     :what (if (= t :dict) "dictionary" "Set"))
-             x))))]
+             (if (= t :instance) (py/user-iter x) x)))))]
     [py/iter
      ;; iter(x): a generator or iterator is its own iterator; anything else
      ;; a loop walks gets a sequence iterator over what the loop would walk
@@ -2100,16 +2177,18 @@
        (let [k (py/kind x)]
          (if (if (= k :generator) true (= k :iterator))
            x
-           (if (if (py/str? x)
-                 true
-                 (if (= k :list)
+           (if (= k :instance)
+             (py/user-iter x)
+             (if (if (py/str? x)
                    true
-                   (if (= k :dict)
+                   (if (= k :list)
                      true
-                     (if (= k :set) true (if (= k :tuple) true (= k :range))))))
-             (cell/new (assoc (assoc (assoc {} :py/type :iterator) :src (py/iterable x))
-                              :i 0))
-             (py/type-error {:py/str "object is not iterable"})))))]
+                     (if (= k :dict)
+                       true
+                       (if (= k :set) true (if (= k :tuple) true (= k :range))))))
+               (cell/new (assoc (assoc (assoc {} :py/type :iterator) :src (py/iterable x))
+                                :i 0))
+               (py/type-error {:py/str "object is not iterable"}))))))]
     [py/iter-step
      ;; one advancement of a sequence iterator: the next element, or
      ;; :py/stop, after which it stays exhausted (its source dropped). A
@@ -2282,7 +2361,11 @@
                    (assoc {} :py/function (get c :name))
                    (if (= t :set)
                      (assoc {} :py/set (py/snapshot-all (get c :keys) 0 []))
-                     :py/object))))))))]
+                     (if (= t :generator)
+                       (assoc {} :py/generator (get c :name))
+                       (if (= t :iterator)
+                         (assoc {} :py/iterator "iterator")
+                         :py/object))))))))))]
     [py/snapshot-exc
      (fn [e]
        (if (= (py/content-type e) :instance)

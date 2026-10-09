@@ -12,6 +12,7 @@
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.parser :as parser]
     [yang.python.antlr.prelude :as prelude]
+    [yang.python.antlr.render :as render]
     [yin.vm :as vm]
     [yin.vm.data :as data]
     [yin.vm.debruijn-linearize :as dl]
@@ -1282,3 +1283,324 @@
       (testing (str k)
         (is (= (live-after-collection k (changing-caller-source 10) "h")
                (live-after-collection k (changing-caller-source 1000) "h")))))))
+
+
+;; =============================================================================
+;; S5 acceptance: user-defined iterators, snapshot rendering, dropped generators
+;; =============================================================================
+
+(deftest user-iterator-class-test
+  (testing "a class with __iter__ and __next__ drives for, list, next and
+            unpacking; a shared iterator keeps its position across loops"
+    (every-vm= (prints "[3, 4, 5]" "done" "[1, 2, 3]" "1 2")
+               (lines "class Count:"
+                      "    def __init__(self, n):"
+                      "        self.i = 0"
+                      "        self.n = n"
+                      "    def __iter__(self):"
+                      "        return self"
+                      "    def __next__(self):"
+                      "        if self.i >= self.n:"
+                      "            raise StopIteration"
+                      "        self.i += 1"
+                      "        return self.i"
+                      "c = Count(5)"
+                      "for x in c:"
+                      "    if x == 2:"
+                      "        break"
+                      "print(list(c))"
+                      "print(next(c, 'done'))"
+                      "print(list(Count(3)))"
+                      "a, b = Count(2)"
+                      "print(a, b)"))))
+
+
+(deftest user-iterator-special-lookup-test
+  (testing "__iter__ may return a generator; an invalid __iter__ result, a
+            missing __iter__ and an instance-only __next__ are TypeErrors"
+    (every-vm= (prints "[1, 2]" "TypeError" "TypeError" "TypeError")
+               (lines "class Gen:"
+                      "    def __iter__(self):"
+                      "        yield 1"
+                      "        yield 2"
+                      "print(list(Gen()))"
+                      "class Bad:"
+                      "    def __iter__(self):"
+                      "        return 1"
+                      "try:"
+                      "    list(Bad())"
+                      "except TypeError:"
+                      "    print('TypeError')"
+                      "class NoIter:"
+                      "    pass"
+                      "try:"
+                      "    list(NoIter())"
+                      "except TypeError:"
+                      "    print('TypeError')"
+                      "class Shadow:"
+                      "    def __init__(self):"
+                      "        self.__next__ = lambda: 1"
+                      "    def __iter__(self):"
+                      "        return self"
+                      "try:"
+                      "    next(Shadow())"
+                      "except TypeError:"
+                      "    print('TypeError')"))))
+
+
+(deftest user-iterator-exceptions-test
+  (testing "StopIteration, and a subclass of it, ends only the advancement;
+            other exceptions propagate; a StopIteration raised by the loop
+            body is not swallowed"
+    (every-vm= (prints "[1, 2]" "ValueError" "body")
+               (lines "class Done(StopIteration):"
+                      "    pass"
+                      "class It:"
+                      "    def __init__(self):"
+                      "        self.i = 0"
+                      "    def __iter__(self):"
+                      "        return self"
+                      "    def __next__(self):"
+                      "        self.i += 1"
+                      "        if self.i > 2:"
+                      "            raise Done()"
+                      "        return self.i"
+                      "print(list(It()))"
+                      "class Boom:"
+                      "    def __iter__(self):"
+                      "        return self"
+                      "    def __next__(self):"
+                      "        raise ValueError('boom')"
+                      "try:"
+                      "    list(Boom())"
+                      "except ValueError:"
+                      "    print('ValueError')"
+                      "try:"
+                      "    for x in It():"
+                      "        raise StopIteration"
+                      "except StopIteration:"
+                      "    print('body')"))))
+
+
+(def ^:private echo-class
+  (lines "class Echo:"
+         "    def __init__(self):"
+         "        self.i = 0"
+         "        self.log = []"
+         "    def __iter__(self):"
+         "        return self"
+         "    def __next__(self):"
+         "        self.i += 1"
+         "        if self.i > 2:"
+         "            raise StopIteration('fin')"
+         "        return self.i"
+         "    def send(self, v):"
+         "        self.log.append(v)"
+         "        return 'got'"
+         "    def throw(self, *args):"
+         "        self.log.append('t')"
+         "        return 'thrown'"
+         "    def close(self):"
+         "        self.log.append('c')"))
+
+
+(deftest user-iterator-yield-from-test
+  (testing "yield from keeps the StopIteration value of a user iterator and
+            forwards optional send, throw and close"
+    (every-vm= (prints "1 2 fin" "1" "got" "thrown" "[7, 't', 'c']")
+               (str echo-class
+                    (lines "def outer():"
+                           "    r = yield from Echo()"
+                           "    yield r"
+                           "g = outer()"
+                           "print(next(g), next(g), next(g))"
+                           "e = Echo()"
+                           "def o2():"
+                           "    yield from e"
+                           "h = o2()"
+                           "print(next(h))"
+                           "print(h.send(7))"
+                           "print(h.throw(KeyError))"
+                           "h.close()"
+                           "print(e.log)")))))
+
+
+(def ^:private fwd-class
+  (lines "class Fwd:"
+         "    def __init__(self):"
+         "        self.n = 0"
+         "    def __iter__(self):"
+         "        return self"
+         "    def __next__(self):"
+         "        return 1"
+         "    def send(self, v):"
+         "        if v == 'stop':"
+         "            raise StopIteration('sent-done')"
+         "        if v == 'bad':"
+         "            raise KeyError('k')"
+         "        if v == 'worse':"
+         "            raise IndexError('i')"
+         "        return v"
+         "    def throw(self, *a):"
+         "        self.n += 1"
+         "        if self.n == 1:"
+         "            raise StopIteration('t-done')"
+         "        raise IndexError('t')"
+         "    def close(self):"
+         "        raise RuntimeError('c')"
+         "class Plain:"
+         "    def __iter__(self):"
+         "        return self"
+         "    def __next__(self):"
+         "        return 1"
+         "def outer(f):"
+         "    try:"
+         "        r = yield from f"
+         "        print('r', r)"
+         "    except KeyError:"
+         "        print('outer KeyError')"
+         "    yield 'after'"
+         "def started(f):"
+         "    g = outer(f)"
+         "    next(g)"
+         "    return g"))
+
+
+(deftest user-iterator-forwarding-outcomes-test
+  (testing "send and throw results are yielded outward, a StopIteration from
+            either completes the delegation with its value, any other
+            exception is raised at the yield-from site (catchable by the
+            outer generator, else propagated), and close errors win over
+            GeneratorExit; missing methods follow PEP 380"
+    (every-vm= (prints "x" "r sent-done" "after" "outer KeyError" "after"
+                       "r t-done" "after" "IndexError" "IndexError"
+                       "RuntimeError" "AttributeError" "outer KeyError"
+                       "after")
+               (str fwd-class
+                    (lines "print(started(Fwd()).send('x'))"
+                           "print(started(Fwd()).send('stop'))"
+                           "print(started(Fwd()).send('bad'))"
+                           "print(started(Fwd()).throw(ValueError))"
+                           "try:"
+                           "    started(Fwd()).send('worse')"
+                           "except IndexError:"
+                           "    print('IndexError')"
+                           "f = Fwd()"
+                           "f.n = 1"
+                           "try:"
+                           "    started(f).throw(ValueError)"
+                           "except IndexError:"
+                           "    print('IndexError')"
+                           "try:"
+                           "    started(Fwd()).close()"
+                           "except RuntimeError:"
+                           "    print('RuntimeError')"
+                           "try:"
+                           "    started(Plain()).send(5)"
+                           "except AttributeError:"
+                           "    print('AttributeError')"
+                           "print(started(Plain()).throw(KeyError))")))))
+
+
+(deftest iterator-snapshot-render-test
+  (testing "the sequence iterator's diagnostic form, directly and printed"
+    (is (= "<iterator object>" (render/repr {:py/iterator "iterator"})))
+    (is (= "[<iterator object>]" (render/repr [{:py/iterator "iterator"}])))
+    (every-vm= (prints "<iterator object>" "<iterator object>")
+               (lines "it = iter([1, 2])"
+                      "print(it)"
+                      "next(it)"
+                      "print(it)"))))
+
+
+(deftest generator-snapshot-render-test
+  (testing "a printed generator renders without a CPython address, whatever
+            its state"
+    (every-vm= (prints "<generator object g>" "<generator object g>"
+                       "<generator object g>")
+               (lines "def g():"
+                      "    yield 1"
+                      "x = g()"
+                      "print(x)"
+                      "next(x)"
+                      "print(x)"
+                      "x.close()"
+                      "print(x)")))
+  (testing "the renderer's own forms"
+    (is (= "<generator object g>" (render/repr {:py/generator "g"})))
+    (is (= "[<generator object g>]" (render/repr [{:py/generator "g"}])))))
+
+
+(defn- dropped-source
+  "`n` generators, each stepped once and dropped, beside one suspended
+   generator named keep."
+  [n]
+  (lines "def d(n):"
+         "    x = [n]"
+         "    yield x"
+         "    yield n"
+         "def keep():"
+         "    yield 1"
+         "    yield 2"
+         "k = keep()"
+         "next(k)"
+         "i = 0"
+         (str "while i < " n ":")
+         "    g = d(i)"
+         "    next(g)"
+         "    i += 1"))
+
+
+(defn- cycled-source
+  "`n` generators, each delegating through `yield from` to an inner one
+   holding a list local, resumed four times by alternating callers (a
+   function and a fresh generator) and then dropped, beside one suspended
+   generator named keep."
+  [n]
+  (lines "def inner(n):"
+         "    x = [n]"
+         "    i = 0"
+         "    while i < 6:"
+         "        yield x"
+         "        i += 1"
+         "def d(n):"
+         "    yield from inner(n)"
+         "def keep():"
+         "    yield 1"
+         "    yield 2"
+         "def by_function(x):"
+         "    return next(x)"
+         "def by_generator(x):"
+         "    yield next(x)"
+         "k = keep()"
+         "next(k)"
+         "i = 0"
+         (str "while i < " n ":")
+         "    g = d(i)"
+         "    j = 0"
+         "    while j < 4:"
+         "        if j % 2 == 0:"
+         "            by_function(g)"
+         "        else:"
+         "            next(by_generator(g))"
+         "        j += 1"
+         "    i += 1"))
+
+
+(deftest dropped-generators-after-repeated-suspension-test
+  (testing "after a forced collection the complete reachable graph is the
+            same after 5 and after 40 generators were resumed repeatedly by
+            changing callers, through yield from, and dropped"
+    (doseq [k [:ast-walker :semantic :stack :register]]
+      (testing (str k)
+        (is (= (live-after-collection k (cycled-source 5) "keep")
+               (live-after-collection k (cycled-source 40) "keep")))))))
+
+
+(deftest dropped-generators-are-collected-test
+  (testing "after a forced collection the live heap is the same after 5 and
+            after 60 suspended generators were dropped"
+    (doseq [k [:ast-walker :semantic :stack :register]]
+      (testing (str k)
+        (is (= (live-after-collection k (dropped-source 5) "keep")
+               (live-after-collection k (dropped-source 60) "keep")))))))
