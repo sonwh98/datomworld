@@ -112,13 +112,16 @@ restoration never is. When a pack is addressed (§10.2) this map is what
 is hashed, and a `:yin.k/root` that does not name a `:task` row in
 `:rows` is `:yin.k/undecodable`.
 
-**Content rows** have `id = (dao.jing/segment-key body)` under the one
-digest this carrier pins, SHA-256, the same digest the semantic profile's
-code addresses `:segment/sha256-…` use; an id carrying any other
-multihash is `:yin.k/undecodable`. The carrier fixes the digest rather
-than dispatching on each supplied address, because a canonical address
-scheme must be unique to be canonical. Equal bodies are one row. The id
-is Merkle: it commits to every row id in the body.
+**Content rows** have `id = (dao.jing/segment-key body {:algorithm
+:sha256})`: this carrier pins SHA-256 explicitly, because
+`segment-key`'s one-argument default is Jing's own default algorithm
+(BLAKE3 at the time of writing) and a canonical address scheme must be
+unique to be canonical. An id carrying any other multihash is
+`:yin.k/undecodable`. Code addresses `A` are not touched by this pin:
+they keep their governing address function (`ucf/code-address`), and
+the carrier verifies them under it. The digest choice is a proposal
+(§10). Equal bodies are one row. The id is Merkle: it commits to every
+row id in the body.
 
 **Identity rows** are cells (UCF §7.5.3). A cell has a task-local id `C`
 in the form `:yin.k/c-<n>`, minted by the lift under §6's canonical
@@ -224,11 +227,13 @@ slot holds plain canonical-bytes data and is validated by the rule that
 governs it (an install response by the linker's delivery checks, an
 op-id by §7.4.3 r5), not by the literal domain. Table rows mark these
 slots `D`. A retained **FFI request envelope is not structural data**:
-its arguments are guest values, which the existing encoder encodes
-recursively (`handoff.cljc`) so that closures stay portable and
-resource references go through the census; it is a closed row
-(`:ffi-envelope`, §5.3) whose correlation fields are `D` and whose
-arguments are `V`.
+`dao.stream.apply/request?` permits unknown envelope keys, and its
+arguments are guest values. It therefore travels as the existing
+encoder carries it (`handoff.cljc`): the **complete envelope,
+recursively encoded as a `V`** (a `:map` row, or `[:lit m]` when it
+reaches no reference), so that every key is preserved, closures stay
+portable, and resource references go through the census. No closed
+envelope row narrows the open request protocol.
 
 Positions that hold structural data (addresses, pcs, symbols as binding
 names, reasons, phases, ids) are typed by the row table and are not `V`;
@@ -313,21 +318,16 @@ the amendment r5 required-keys list fixes them; `:park` and
 | `:next` | `cell-C` |
 | `:put` | `stream-cref  value-V  op-id-D` |
 | `:ffi` | `cell-C  call-id-D  op` (op may be nil) |
-| `:ffi-request` | `call-id-D  envelope-cref  request-stream-cref  response-stream-cref  response-cell-C  op-id-D` |
+| `:ffi-request` | `call-id-D  envelope-V  request-stream-cref  response-stream-cref  response-cell-C  op-id-D` |
 | `:link-request` | `link-id-D  name-S  request-stream-cref  response-stream-cref  cell-C  envelope-D  op-id-D` |
 | `:link-response` | `link-id-D  name-S  request-stream-cref  response-stream-cref  cell-C` |
 | `:install` | `name-S` |
 
-The retained FFI request is a closed content row:
-
-| Kind | Slots |
-|---|---|
-| `:ffi-envelope` | `call-id-D  op  args-cref` where `args-cref` targets a `:vec` row (or the slot holds `[:lit []]` when there are no arguments) |
-
-so that the arguments are guest values encoded recursively, closures
-stay portable, and resource references enter the census. Lower
-reconstructs the retained request verbatim from these fields and never
-recomputes the arguments. Correlation must agree, not merely be present:
+The retained FFI request's `envelope-V` is the complete envelope map,
+recursively encoded under §4's ordinary rules: `[:lit m]` when it
+reaches no reference (the common case, arguments such as `[1 2]`), a
+`:map` row otherwise. Lower decodes it and retries it verbatim; it
+never recomputes the arguments. Correlation must agree, not merely be present:
 a cell's `:cell-body` stream is the pending's response stream; an
 envelope's link id or call id equals the pending's; a `:link-request`
 envelope names the pending's module. `op-id` is `{:yin.k/occurrence P :yin.k/seq n}` as plain data or nil,
@@ -451,49 +451,81 @@ pruning, and the representative it returns is canonical because the
 procedure is deterministic and renaming-invariant, not because of any
 symmetry argument.
 
-**The procedure.** Let the cells be `n` in number.
+**The procedure.** Its input is the abstract task: the structure of
+§5 with cells as identities, before any numbering. Every encoding below
+is canonical CBOR (`dao.jing.cbor.md`) of a *synthetic vector
+structure*; vectors are used throughout, never host maps or sets, so
+that elements or keys that become equal after class substitution keep
+their multiplicity. All byte comparisons are bytewise on those CBOR
+bytes. Let the cells be `n` in number; if `n = 0` the procedure returns
+the empty numbering and performs no search.
 
-1. **Class encoding.** A *class encoding* of a value is its canonical
-   bytes with every cell reference spelled `[:cell <class>]`, the full
-   value-union tag retained (§10.9), where `<class>` is the cell's
-   current class label; unordered containers inside it are ordered by
-   the class encodings of their elements; context lookups (parked ids,
-   store-of) are not expanded, they appear as the plain `P` or `M`. No
-   Merkle id enters a class encoding: rows are expanded structurally
-   for this purpose, and the expansion is bounded by the row DAG.
-2. **Refinement.** Initial class of a cell: the canonical bytes of its
-   body (stream marker, position). Repeat: for each cell, its new
-   signature is the pair *(old class, the sorted multiset of the
-   positions at which it is referenced)*, a position being the path from
-   the root in a fixed traversal (waits in order; within a wait
-   registers then pending; env bindings by symbol, stack bottom-up, k
-   bottom-to-top; parked table by `P`; store by key; module stores by
-   `M`; result; installs by module name with each child as its own task)
-   in which an unordered container's element is named by its class
-   encoding. New class labels are the signatures' canonical bytes,
-   ordered bytewise. Stop when the partition stops changing. Keeping
-   the old class in the signature makes refinement monotone, so the
-   partition stabilizes in at most `n − k` splitting rounds from `k`
-   initial classes plus one stability check; this bounds partition
+1. **Class labels** are byte strings. A cell's initial label is the
+   CBOR of `[:body <stream-marker-bytes> <position-bytes>]`.
+2. **Class encoding** `CE(x)` of any encoded value or row, structural
+   and hash-free:
+   - `[:lit d]` → `[:lit d]`.
+   - `[:cell C]` → `[:cell <label of C>]` (full tag retained, §10.9).
+   - `[:row B]` → `[:row <CE(row B)>]`, the row expanded in place; the
+     expansion is finite because the structural edge family is acyclic
+     (§8 step 3).
+   - A row `[kind s₁ … sₖ]` → `[kind CE(s₁) … CE(sₖ)]` with each slot
+     encoded as: a structural datum (`A`, `M`, `P`, `S`, `N`, `D`, a
+     reason, a phase) as itself; a `V` as above; a cref as the expanded
+     row; a crefs vector as the vector of expansions.
+   - For `:set` rows, and for the key-value pairs of `:map`, `:store`
+     and `:bindings` rows and the entries of `:parked-table`, `:cells`
+     and the installs and module-stores slots: encode each element (or
+     each `[key value]` pair as a two-element vector), then **sort the
+     resulting vector of encodings bytewise, retaining duplicates**.
+     Ordered rows (`:vec`, `:list`, `:stack`, `:k`, frames) keep their
+     order.
+   - Context lookups (`P` in `:parked-ref` and `parked-id`, `M` in
+     `store-of`) are not expanded; they appear as the plain datum.
+   - An install child's `:task` row is **not expanded**: children are
+     numbered first, as their own tasks with their own cells (task
+     boundary), and a child cref appears in the parent's encodings as
+     `[:child <child root id>]`, the child's already-canonical root id.
+3. **Positions.** A position is the CBOR of the path from the task's
+   root to a cell reference, a vector of steps, each step one of
+   `[kind slot-index]` for a tabled slot, `[kind :elem CE(e)]` for an
+   element of a sorted row, `[kind :key CE(k)]` and `[kind :val CE(k)]`
+   for the key and value sides of a keyed row's pair, and `[:frame i]`
+   for the `i`th wait. Where several equal elements exist, equal
+   positions are repeated, one per occurrence.
+4. **Signature and refinement.** A cell's signature is the CBOR of
+   `[:sig <old label> <sorted vector of its positions, duplicates
+   retained>]`; its new label is that byte string. Repeat until no
+   class splits. Keeping the old label makes refinement monotone, so
+   the partition stabilizes in at most `n − k` splitting rounds from
+   `k` initial classes plus one stability check; this bounds partition
    rounds only, not signature-processing or search work.
-3. **Search.** If every class is a singleton, assign `1 … n` in class
-   order and stop. Otherwise take the first non-singleton class in
-   class order and, **for each of its members in turn**, give that
-   member a fresh singleton class ordered before all others, refine to
-   stability, and recurse. Every branch is explored. Each complete
-   leaf yields a numbering; build the §5 rows under it and take the
-   root's Merkle bytes as the leaf's key. The canonical numbering is the
-   leaf with the least key. Two leaves with equal keys have equal
-   complete commitments and are immaterial under the digest assumption.
+5. **Search.** Order classes bytewise by label. If every class is a
+   singleton, assign `1 … n` in that order and stop. Otherwise take the
+   first non-singleton class and, **for each of its members in turn**,
+   give that member the label `[:ind <search depth> <old label>]`
+   (distinct from every refinement label by its tag; no ordering
+   relative to other labels is needed), refine to stability, and
+   recurse. Every branch is explored. Each complete leaf yields a
+   numbering; build the §5 rows under it and take the **root body's
+   canonical CBOR bytes** (the digest preimage, not the digest) as the
+   leaf's key. The procedure's output is the row set of the leaf with
+   the bytewise least key. Two leaves with equal keys have emitted
+   identical rows: they differ only in which source cell received
+   which number, which the transported representation cannot observe.
 
-**Validation.** The receiver recomputes the procedure from the decoded
-rows and refuses with `:yin.k/undecodable` kind `:noncanonical-cells` if
-the carried numbering differs; contiguity alone is not canonicality.
-This is a lower-side structural refusal, not a lift kind. A receiver
-whose work bound (§10.10) is exceeded before the procedure completes
-refuses with a structured resource refusal before any attachment and
-never labels the state `:noncanonical-cells`, never falls back to
-encounter order, and never accepts an unfinished check.
+**Validation.** Canonicality is a property of the emitted rows, not of
+a source-cell-to-number bijection, so the receiver does not compare
+numberings. It decodes the rows to the abstract task, runs the
+procedure, re-emits rows, and compares the resulting root id with the
+carried root id: unequal is `:yin.k/undecodable` kind
+`:noncanonical-cells`. Every labeling that yields the selected
+commitment is thereby accepted, and no encounter-order tie-break ever
+decides validity. This is a lower-side structural refusal, not a lift
+kind. A receiver whose work bound (§10.10) is exceeded before the
+procedure completes refuses with a structured resource refusal before
+any attachment and never labels the state `:noncanonical-cells`, never
+falls back to encounter order, and never accepts an unfinished check.
 
 Under this rule two lifts of one state are byte-identical. Two lifts of
 different states sharing a closure over the same cell may number it
@@ -533,9 +565,11 @@ one attachment. The order follows amendment §8 and is binding:
    integer 3, else `:yin.k/profile-mismatch` (version found, supported
    set). Reject duplicate row ids and a `:yin.k/root` that names no
    `:task` row (`:yin.k/undecodable`). Walk install children from the
-   root in canonical module-name order with a visited set, following
-   only `:install` child crefs; a cref outside the rows, a revisit, or a
-   non-`:task` child stops the gate as `:yin.k/undecodable`. Gate every
+   root in canonical module-name order with an **active recursion-path
+   set** (§3), following only `:install` child crefs; a cref outside the
+   rows, a child already on the active path, or a non-`:task` child
+   stops the gate as `:yin.k/undecodable`; a child reached again off
+   the path is gated once and its result cached. Gate every
    child's version, then every profile map against the registry (only
    the semantic profile is supported, §2), then require all versions 3
    and all profiles equal to the root's. Malformed task structure is
@@ -744,8 +778,10 @@ name them as choices being accepted: a new body version (3) rather than
 another carrier identification; the canonical representative of §6 as
 defined by its procedure; the wire unit and pack framing of §3; the
 explicit fork-policy spelling of §5.5; semantic-only initial scope; the
-byte-string and metadata restrictions of §4; and positional rows over
-EAV (§1).
+byte-string and metadata restrictions of §4; SHA-256 as the row digest
+(§3); and positional rows over EAV (§1). Preserving the complete FFI
+envelope (§5.3) is *not* on this list: it is the inherited behaviour,
+and narrowing it would have been the new protocol decision.
 
 Still open after this revision: none beyond the other-profile tables
 (§10.7) and the work-bound limits (§10.10).
