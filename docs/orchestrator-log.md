@@ -11028,3 +11028,21 @@ Delegates:
 Next:
   - Dispatch Stage E (final UCF milestone: crash/partition suites through wired composition, cross-host matrices, real kills, clause 10) from staged brief `collab/1791372000000-compiler-engineer-ucf-stage-e.prompt.md`.
   - Clean up merged worktree `/Users/sto/workspace/datomworld-d16final`.
+
+## 2026-10-09 23:06:00 +07 — UCF blog: Part Three (cross-VM transport) landed after codex Architect review
+Completed-GMT: 2026-10-09 16:06:00 GMT
+Coding-Agent: claude (Orchestrator, Fable 5.1, background job)
+Session-ID: e77b6b18-7f5d-48ec-b8f4-0293f11ad5eb
+Tree: master@78ae1e69 (== origin)
+Done:
+  (1) Owner discussion on extending UCF parallel transport to a different VM. Owner rulings: cross-VM safepoints stay at the semantic-VM level (`(segment-hash, pc)`), not AST nodes; the problem narrows to the value-holding components E, S, St; the transported state is represented as tuples; tuples are the transport form only, execution is native at the destination.
+  (2) `public/chp/blog/hygienic-parallel-transport-universal-continuation-format.blog`: added Part Three recording the decisions and the path (AST-level proposal rejected, CBOR as bytes layer only, §7.5 as the reference layer, tuple set with per-entity content-or-identity, lift/lower/parity conformance), one Lineage sentence (deopt/OSR), a design-status qualifier (22dcbcc5).
+  (3) Architect review, codex gpt-6.1-sol thread 01a12162-1813-7152-947a-0f5b3c71e7eb, read-only. Round 1 CHANGES_REQUESTED, 12 findings; 1-10 and 12 applied (bbffe4b4): vector is a deterministic lowering not an isomorphism; cycle refusal retained; identity discipline is not the whole grammar; Jing does not canonicalize tuple order; St claim restricted to return frames; conformance inherits the full UCF contract with round-trip (§7.4.2 direction) and observational parity stated separately; full coverage grounded in §7.4.2; effects inherit the complete custody contract; dao.space note superseded; Part One store paragraph follows the M4 resource split. Round 2 READY_TO_MERGE, one LOW nit applied (78ae1e69).
+  (4) Finding 11 (owner-written Part Two: resumption race as "holonomy", epoch as "gauge") NOT applied; Architect and orchestrator both read it as a gluing/sections problem, filed as essay accuracy, reserved for the owner.
+  (5) Verified: file parses as EDN with all four blog keys; `git diff --check` clean. No code or tests touched.
+Delegates:
+  - Architect: codex gpt-6.1-sol (thread 01a12162-1813-7152-947a-0f5b3c71e7eb), prompts/findings `collab/1791400000000-architect-ucf-blog-cross-vm-review{,-r2}.*`.
+Next:
+  - Owner decision on finding 11 (Part Two holonomy framing).
+  - Spec follow-up, not started: one-page tuple schema for transported state (entities, attributes, content-or-identity per attribute, canonical ordering and id-renaming equality), then an Architect brief for reopening UCF §7.4.1/§7.5.
+  - Delete stale remote branch `worktree-ucf-blog-cross-vm` (8b6d8068, pre-rebase; master contains the work).
