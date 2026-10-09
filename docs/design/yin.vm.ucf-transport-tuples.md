@@ -119,9 +119,14 @@ algorithm, BLAKE3 at the time of writing (`dao.jing.cbor.md`,
 `dao.jing.hash-registry.md`). The carrier mints no second addressing
 scheme beside A. Uniqueness, which a canonical address scheme needs, is
 supplied by the **carrier version**, not by naming an algorithm here:
-body version 3 means "row ids are minted under Jing's default at
-version 3", and a change of Jing's default is a carrier version bump,
-exactly as it would be for A. Addresses are self-describing
+**body version 3 uses BLAKE3 permanently**; this is an immutable
+mapping from carrier version to digest, never the reader's current
+default, and a later Jing default requires another carrier version,
+exactly as it would for A. Version-3 verification and re-emission (§6,
+§8) always use BLAKE3, whatever the reader's default is at the time;
+this matters because root body bytes contain child-row addresses, so
+the numbering procedure's leaf keys depend on the digest and are
+canonical *within* a carrier version. Addresses are self-describing
 (`:segment/blake3-…`, `:segment/sha256-…`); a reader verifies each id
 under the algorithm its address names, as Jing always does, and refuses
 an id whose algorithm is not the one version 3 mints under
