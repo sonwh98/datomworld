@@ -166,7 +166,7 @@
                       (if (= i 40)
                         (py/tuple
                           (py/vconj (py/vconj [] (get (cell/get xs) :items))
-                                   (py/str (integer/format total))))
+                                    (py/str (integer/format total))))
                         (do
                           ((fn [] (do (py/list []) nil)))
                           (let [n (py/add

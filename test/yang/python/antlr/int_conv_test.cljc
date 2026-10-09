@@ -155,7 +155,7 @@
       [true 3]]
      ['(let [x (py/list (py/vconj [] 1))]
          (py/vconj (py/vconj [] (caught (fn [] (py/imul x 1048577))))
-                  (py/len x)))
+                   (py/len x)))
       ["MemoryError" 1]]]))
 
 
@@ -312,16 +312,16 @@
     [['(do (py/print (py/vconj [] 1))
            (py/vconj
              (py/vconj []
-                      (caught
-                        (fn []
-                          (py/print
-                            (py/vconj
-                              (py/vconj [] 2)
-                              (py/tuple
-                                (py/vconj
-                                  []
-                                  (py/list
-                                    (py/vconj [] (integer/pow 10 4300))))))))))
+                       (caught
+                         (fn []
+                           (py/print
+                             (py/vconj
+                               (py/vconj [] 2)
+                               (py/tuple
+                                 (py/vconj
+                                   []
+                                   (py/list
+                                     (py/vconj [] (integer/pow 10 4300))))))))))
              (cell/get py.rt/out)))
       ["ValueError" [[1]]]]]))
 
@@ -389,9 +389,9 @@
      (let [kw (fn [k x] (py/vconj (py/vconj [] k) x))]
        (if (= op "pow_kw")
          (py/call-kw py.b/pow [] (py/vconj (py/vconj [] (kw "base" a))
-                                          (kw "exp" b)))
+                                           (kw "exp" b)))
          (py/call-kw py.b/round [] (py/vconj (py/vconj [] (kw "number" a))
-                                            (kw "ndigits" b)))))))
+                                             (kw "ndigits" b)))))))
 
 
 (def ^:private number-op

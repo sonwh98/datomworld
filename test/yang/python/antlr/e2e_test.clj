@@ -886,7 +886,8 @@
     (doseq [v [#'programs/recursion #'programs/unwind #'programs/generators
                #'programs/probe #'programs/admission #'programs/rebase
                #'programs/throwclose #'programs/nested-admission
-               #'programs/delegation]]
+               #'programs/delegation #'programs/while-true-pass
+               #'programs/caught #'programs/def-and-while]]
       (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
              (map node-shape (:yang.cst/nodes @v)))
           (str v)))))

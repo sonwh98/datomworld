@@ -302,7 +302,7 @@
      (if (= (get x :tuple) nil) (decode-number x)
          (py/tuple
            (py/vconj (py/vconj [] (decode-number (get (get x :tuple) 0)))
-                    (decode-number (get (get x :tuple) 1)))))))
+                     (decode-number (get (get x :tuple) 1)))))))
 
 
 (def operate

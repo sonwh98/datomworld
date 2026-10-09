@@ -1,11 +1,12 @@
 (ns yang.python.antlr.linked-harness
-  "The linked profile's composition for the Python tests (C4 slice P2,
-   docs/design/yang.antlr.md 8.5.6): the namespace that requires this is
-   the publisher of `py`, so it publishes the module once per process into
-   an in-memory content store and serves it to every linked run over a
-   `yin.repl.link` composition under `:trusted` derivation (the remediation
-   ruling's R6). The `:verifying` evidence is `publish-module!`'s own
-   `link-local` links, which `linked-prelude-test` asserts.
+  "The linked profile's composition for the Python tests (C4 slices P2
+   and P3, docs/design/yang.antlr.md 8.5.6): the namespace that requires
+   this is the publisher of `py` and `pysp`, so it publishes each module
+   once per process into one in-memory content store and serves them to
+   every linked run over a `yin.repl.link` composition under `:trusted`
+   derivation (the remediation ruling's R6). The `:verifying` evidence is
+   `publish-module!`'s own `link-local` links, which `linked-prelude-test`
+   asserts.
 
    A linked run builds the program's task on one of the three vector VMs
    with a link pair, then runs the VM and serves the pair alternately
@@ -15,6 +16,7 @@
   (:require
     [dao.jing.mem :as mem]
     [yang.python.antlr.prelude :as prelude]
+    [yang.python.antlr.safepoint :as safepoint]
     [yin.repl.link :as link]
     [yin.vm :as vm]
     [yin.vm.data :as data]
@@ -39,13 +41,16 @@
 
 (defn registry
   "The full host registry a linked Python composition registers: the
-   `require` handler, then `cell`, `data` and `integer` under `limits`."
+   `require` handler, then `cell`, `data`, `integer` under `limits`, and
+   `stream` — the hook module `pysp` polls a signal stream, so the
+   safepointed composition needs it even though `py` does not."
   ([] (registry integer-limits))
   ([limits]
    (-> (module/default-registry)
        module/register-cell-module
        (data/register-data-module {::data/max-items 1048576})
-       (prelude/register-integer-module limits))))
+       (prelude/register-integer-module limits)
+       module/register-stream-module)))
 
 
 (def published
@@ -58,15 +63,33 @@
       {:store store, :result result, :address (:address result)})))
 
 
+(def published-pysp
+  "`pysp` published once into `py`'s own content store, which its pinned
+   requirement already lives in: the same shape as `published`."
+  (delay
+    (let [{:keys [store address]} @published
+          result (publish/publish-module!
+                   store (safepoint/module-spec (registry) address))]
+      {:store store, :result result, :address (:address result)})))
+
+
 (defn source
   "The serving composition over the published store: `name-env` defaults
    to `{py <address>}`, derivation `:trusted`, the test being the
-   publisher."
+   publisher. `pysp`-serving sources pass their own `name-env`, the
+   safepointed runs' `{'py a :pysp b}` both."
   ([] (source {'py (:address @published)}))
   ([name-env]
    (link/composition {:content-store (:store @published),
                       :name-env name-env,
                       :derivation :trusted})))
+
+
+(defn safepoint-source
+  "The serving composition over both published modules: `pysp` requires
+   `py`, so a safepointed linked run resolves both names."
+  []
+  (source {'py (:address @published), 'pysp (:address @published-pysp)}))
 
 
 (def ^:private semantic-loader
@@ -141,15 +164,18 @@
 (defn run-linked
   "The finished task of the linked program `ast` on `backend`. Options:
    `:modules` (default the full registry), `:link-source` (default the
-   `:trusted` composition over `py`). A refused link throws as the task's
+   `:trusted` composition over `py`), and `:prep`, applied to the task
+   before it runs (a composition handing the task its streams, binding
+   `pysp`'s signal stream among them). A refused link throws as the task's
    own error."
   ([backend ast] (run-linked backend ast {}))
-  ([backend ast {:keys [modules link-source]}]
+  ([backend ast {:keys [modules link-source prep]}]
    (let [pair (link/make-pair)
          task ((get backends backend)
                ast
                (composition (or modules (registry)) pair))]
-     (first (drive task pair (or link-source (source)))))))
+     (first (drive (if prep (prep task) task)
+                   pair (or link-source (source)))))))
 
 
 (defn runners-under

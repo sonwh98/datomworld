@@ -2919,7 +2919,16 @@ test exposes incorrect restoration on any VM.
 Safepoints. Linked, `pysp` requires `py`, inverting today's load order.
 Its cursor cannot be created at install and a module closure cannot read
 an ambient signal stream, so the wrapper passes the stream to
-`(pysp/attach! signals)`.
+`(pysp/attach! signals)`. Landed (P3): the module emitter, exports and
+publication spec live beside the bundled emitter in
+`yang.python.antlr.safepoint`, one definition list feeding both; the
+hooks reach the cells the base prelude owns through the exports
+`py/rt-ctx` and `py/rt-limit` and the builtin classes through the
+builtins dict (`py.sp/class`), because `py.rt/*` and `py.b/*` are
+internal store keys no foreign module closure can name, and the linked
+entry wrapper `linked-program` is `(require 'py)`, `(require 'pysp)`,
+`(py/init!)`, `(pysp/attach! py.sp/signals)` ahead of `A'`, whose own
+require and init are idempotent re-entries.
 
 - Frontend marks stay (ruling 15; decision 6 settled). Occurrence-scoped
   marks are preserved through publication and transformation, and loop
@@ -3127,18 +3136,29 @@ precompiled CST packets or rows, since the parser is JVM-only):
   install child at `validated` has an empty heap and no `:cell` lift
   refusal; a wrong host-module profile is refused by name; a missing
   name-environment entry is refused with no bundled fallback (semantic,
-  stack, register; the walker under L-b). Landed with the `py` manifest
-  at
-  `:segment/blake3-8f5e6bc93e0e8960682b65c2e4254ec959e69f0579ccda07a3189ea0e0e4b9d7`
-  and the linked `x = 1` program root at
+  stack, register; the walker under L-b). Landed with the linked `x = 1`
+  program root at
   `:segment/blake3-dbe72b291a26a4f594ad55cf52e5ffd088fdd262b58fd26212a01a7dd983a6df`
-  (JVM goldens in `linked_prelude_test`). Measured on the JVM: `publish-module!` of `py`
+  (JVM golden in `linked_prelude_test`); the `py` manifest golden the
+  slice pinned at
+  `:segment/blake3-8f5e6bc93e0e8960682b65c2e4254ec959e69f0579ccda07a3189ea0e0e4b9d7`
+  was moved once, by P3's two accessors, to
+  `:segment/blake3-b891d48b14e3fc3757535e580a3511e95d8ddf6c57d3e637f1ba0f9a97cb0ee7`
+  (every golden moves once when the wrapper or the definition list it
+  addresses changes). Measured on the JVM: `publish-module!` of `py`
   takes about 37 to 45 s; one linked run takes about 4.4 to 5.3 s against
   0.4 to 1.0 s bundled, about 80% of it the CBOR decode of the served
   image (reflective `alength` in `dao.jing.cbor/blen`).
 - P3: safepoint slice 1's acceptance re-runs under the linked profile on
   every VM; stage input contains no prelude row; a derived program with
-  no `pysp` binding reports the unresolved hook name.
+  no `pysp` binding reports the unresolved hook name. Landed, with slice
+  2's recursion acceptance re-run linked too (depth tracking across the
+  module boundary), in `linked_safepoint_test`: `pysp` publishes to one
+  pinned manifest address on each host
+  (`:segment/blake3-6133313d60c4080c0803daa6de5b53b195fa6c650af4b4b9e354ce247950fa87`,
+  JVM golden), and its requirement pins `py` by
+  manifest address, so a `pysp`-free name environment still runs the
+  naive linked program and refuses the derived one by hook name.
 - F3: at the REPL, `x = 1` then `print(x)` prints `1`; the probe answers
   incomplete until a multi-line `def` closes.
 - I1: `print("a"); import m; print("b")` orders `a`, `m`'s output, `b`;
