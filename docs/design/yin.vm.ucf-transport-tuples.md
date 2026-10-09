@@ -112,16 +112,21 @@ restoration never is. When a pack is addressed (§10.2) this map is what
 is hashed, and a `:yin.k/root` that does not name a `:task` row in
 `:rows` is `:yin.k/undecodable`.
 
-**Content rows** have `id = (dao.jing/segment-key body {:algorithm
-:sha256})`: this carrier pins SHA-256 explicitly, because
-`segment-key`'s one-argument default is Jing's own default algorithm
-(BLAKE3 at the time of writing) and a canonical address scheme must be
-unique to be canonical. An id carrying any other multihash is
-`:yin.k/undecodable`. Code addresses `A` are not touched by this pin:
-they keep their governing address function (`ucf/code-address`), and
-the carrier verifies them under it. The digest choice is a proposal
-(§10). Equal bodies are one row. The id is Merkle: it commits to every
-row id in the body.
+**Content rows** have `id = (dao.jing/segment-key body)`: **the same
+call, and therefore the same digest, as code addresses `A`**
+(`ucf/code-address` is `(jing/segment-key v)`), which is Jing's default
+algorithm, BLAKE3 at the time of writing (`dao.jing.cbor.md`,
+`dao.jing.hash-registry.md`). The carrier mints no second addressing
+scheme beside A. Uniqueness, which a canonical address scheme needs, is
+supplied by the **carrier version**, not by naming an algorithm here:
+body version 3 means "row ids are minted under Jing's default at
+version 3", and a change of Jing's default is a carrier version bump,
+exactly as it would be for A. Addresses are self-describing
+(`:segment/blake3-…`, `:segment/sha256-…`); a reader verifies each id
+under the algorithm its address names, as Jing always does, and refuses
+an id whose algorithm is not the one version 3 mints under
+(`:yin.k/undecodable`). Equal bodies are one row. The id is Merkle: it
+commits to every row id in the body.
 
 **Identity rows** are cells (UCF §7.5.3). A cell has a task-local id `C`
 in the form `:yin.k/c-<n>`, minted by the lift under §6's canonical
@@ -629,8 +634,9 @@ one attachment. The order follows amendment §8 and is binding:
    `:install` pending has its entry and every entry's child is a
    `:child` task. After this step every traversal below is finite and
    safe.
-4. **Hashes.** Every content row's id equals the SHA-256 address of its
-   body; every code payload hashes to its key `A` and is well formed
+4. **Hashes.** Every content row's id equals `(jing/segment-key body)`
+   under the algorithm version 3 mints with, and its address names that
+   algorithm; every code payload hashes to its key `A` and is well formed
    under the stamp; the requested body address, if one was given, equals
    the root id. Mismatch is `:yin.k/hash-mismatch` naming the row or
    code key.
@@ -814,8 +820,11 @@ name them as choices being accepted: a new body version (3) rather than
 another carrier identification; the canonical representative of §6 as
 defined by its procedure; the wire unit and pack framing of §3; the
 explicit fork-policy spelling of §5.5; semantic-only initial scope; the
-byte-string and metadata restrictions of §4; SHA-256 as the row digest
-(§3); and positional rows over EAV (§1). Preserving the complete FFI
+byte-string and metadata restrictions of §4; binding the row digest to
+the carrier version rather than to a named algorithm (§3; the owner
+ruled 2026-10-10 that rows use the same digest as code addresses, which
+is Jing's default, rather than a separate SHA-256 pin); and positional
+rows over EAV (§1). Preserving the complete FFI
 envelope (§5.3) is *not* on this list: it is the inherited behaviour,
 and narrowing it would have been the new protocol decision.
 
