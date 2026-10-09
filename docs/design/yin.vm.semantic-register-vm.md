@@ -35,12 +35,18 @@ Consequences this document takes as fixed:
    `yin.vm.debruijn.register.md`, `yin.vm.debruijn.targets.md`,
    `yin.vm.linker.md` §3, UCF v2 amendment §4).
 2. The AST walker and the semantic VM are **isomorphic**: equal
-   observable behaviour on every program. The walker is the oracle this
-   rebuild must match, and the register vector is the *image of the
+   observable behaviour on every program over the shared supported AST
+   vocabulary (`yin.vm.semantic.md` §2.4; the walker's `:vm/store-update`
+   arm is outside it and lowering rejects it). The walker is the oracle
+   this rebuild must match, and the register vector is the *image of the
    walker's expression evaluation*: one register per value the walker
    holds in flight (`:value`, the `:evaluated` vectors of its frames).
    That is what makes the grammar of §3 expression-structured rather
-   than an arbitrary three-address program.
+   than an arbitrary three-address program. "Isomorphic" is a
+   correspondence of observable behaviour and of evaluation structure
+   (§2.5), not a literal step-for-step state bijection: administrative
+   steps on either side (the walker's frame pushes, the register
+   machine's jumps) have no single-step counterpart.
 3. This is one rebuild of the canonical projection: not a new VM
    family, not a fifth UCF profile. "One truth, many interpretations"
    (axiom 2) is not violated; the walker, this VM, and the de Bruijn
@@ -146,89 +152,162 @@ $$\begin{aligned}
 `define` writes through `engine/store-put`, which refuses the reserved
 key (Rule R unchanged); the definition operator is never resolved.
 
+**The saved window.** Wherever a transition saves the current
+activation for later delivery of a value into `rd`, the window it saves
+is
+
+$$\mathrm{saved}(p, rd) = W\!\restriction\!(L(p) \setminus \{rd\})$$
+
+where `L(p)` is the standard live-in set at the resume pc `p` (§8.1),
+which may well contain `rd` (later instructions read the delivered
+value), so the subtraction is explicit and is the rule everywhere:
+call frames, parks, captures, waits, foreign-engine reconstruction and
+the `live` operands of §8.2. Nothing else is ever saved from `W`.
+
 **call** with `f = W[fn-reg]`, `a = [W[r] for r in arg-regs]`:
 
 $$\begin{aligned}
 &f = \mathrm{clo}(ps,b,seg',E_c),\ \neg tail:&&
-\to \langle seg',\,b,\,\{\},\,E_c[ps \mapsto a],\,S,\,K \Vert [\mathrm{ret}(seg,pc{+}1,E,\,W\!\restriction\!L(pc{+}1),\,rd)]\rangle\\
+\to \langle seg',\,b,\,\{\},\,E_c[ps \mapsto a],\,S,\,K \Vert [\mathrm{ret}(seg,pc{+}1,E,\,\mathrm{saved}(pc{+}1,rd),\,rd)]\rangle\\
 &f = \mathrm{clo}(ps,b,seg',E_c),\ tail:&&
 \to \langle seg',\,b,\,\{\},\,E_c[ps \mapsto a],\,S,\,K\rangle\\
-&f\ \text{primitive},\ f(a) = v:&&
+&f\ \text{primitive},\ f(a) = v,\ \neg tail:&&
 \to \langle seg,pc{+}1,\,W[rd \leftarrow v],E,S,K\rangle\\
-&f\ \text{primitive},\ f(a) = \epsilon:&&
-\to \mathrm{effect}(\epsilon,\ \langle seg,pc{+}1,\,W\!\restriction\!L(pc{+}1),\,E,S,K\rangle,\ \mathrm{deliver}(rd, tail))
+&f\ \text{primitive},\ f(a) = v,\ tail:&&
+\to \mathrm{return}(v)\ \text{(below: the value goes to }K\text{'s top frame, never to }rd)\\
+&f\ \text{primitive},\ f(a) = \epsilon,\ \neg tail:&&
+\to \mathrm{effect}(\epsilon,\ \mathrm{act}(seg,pc{+}1,E,\mathrm{saved}(pc{+}1,rd),K),\ \mathrm{deliver}(\mathrm{rd}, rd))\\
+&f\ \text{primitive},\ f(a) = \epsilon,\ tail:&&
+\to \mathrm{effect}(\epsilon,\ \mathrm{tail}(seg,pc,K),\ \mathrm{deliver}(\mathrm{return}))\\
+&f = \kappa\ \text{(a reified continuation)}:&&
+\to \text{restore }\kappa\text{ and deliver }a_1\text{ per }\kappa\text{'s own deliver; the caller's activation and }K\text{ are discarded}\\
+&f\ \text{not callable}:&& \to \text{error, as today}
 \end{aligned}$$
 
 A callee activation starts with an **empty window**; its parameters are
-in `E`. A non-tail call saves the caller's window restricted to the
-registers live at the successor, `W↾L(pc+1)` (§8.1), together with the
-delivery destination `rd`. A tail call saves nothing: the callee's
-eventual return delivers through the frame already on `K`.
+in `E` (duplicate-parameter resolution, nil-fill and extra-argument
+dropping are `bind-params`' and are unchanged). A non-tail call saves
+the caller's window restricted by the saved-window rule, with the
+delivery destination `rd`. **A tail call never writes `rd` and never
+resumes its own activation**: whatever the callee produces, a closure's
+eventual `:return`, a pure primitive's immediate value, or an effect's
+completion, is delivered through `K`. This makes tail completion
+uniform and makes the instructions textually after a tail call layout
+syntax (§3.3 item 4). Invoking a reified continuation is abortive, as
+`semantic/apply-call`'s `:continuation` arm is today: the argument is
+validated (exactly one), ownership of `κ` is checked under the UCF
+rules for source-owned continuation values, the current activation and
+`K` are discarded, `κ`'s captured state is restored, and the argument is
+delivered exactly once per `κ`'s recorded `deliver`.
 
 **return** with `K = K' ∥ [ret(seg', pc', E', W', rd')]`:
 
-$$\to \langle seg',\,pc',\,W'[rd' \leftarrow W[I.value\text{-}reg]],\,E',\,S,\,K'\rangle$$
+$$\to \langle seg',\,pc',\,W'[rd' \leftarrow v],\,E',\,S,\,K'\rangle,\qquad v = W[I.value\text{-}reg]$$
 
-and with `K = []`: halted with result `W[value-reg]`. The result is
-written **exactly once**, into the saved frame's destination, as the
-frame is popped.
+and with `K = []`: halted with result `v`. The result is written
+**exactly once**, into the popped frame's destination. `return(v)` as
+used above is this transition applied to a value that did not come from
+the current window.
 
 **Delivery.** Every suspended or deferred computation records where its
-result goes, as `deliver(rd, tail)`: when `tail` is false the value is
-written to `rd` in the restored window and control continues at the
-recorded pc; when `tail` is true there is no current activation to
-write into, and the value is delivered **through the return
-transition** to the frame on top of `K` (or halts the task when `K` is
-empty). This single rule covers primitive effects, `:park`,
-`:current-continuation`, stream and FFI waits, and the walker's
-`eval-call` completion. An effectful tail call therefore completes by
-return, never by writing a register of a body that no longer runs.
+result goes, as a closed typed record:
+
+```clojure
+{:deliver :rd     :rd r}        ; write-result: v → W[r], continue at the recorded pc
+{:deliver :return}              ; through-return: return(v) against K
+```
+
+and the suspended state it belongs to is one of two closed shapes:
+
+```clojure
+act  = {seg pc E window K}      ; a resumable activation; window = saved(pc, rd)
+tail = {seg site K}             ; no activation: the tail site (for diagnostics
+                                ;   and provenance), K, and nothing to resume into
+```
+
+A `tail` state carries no window and no `E` of its own; the store
+context any later code needs is in the frames of `K`. Delivery of `v`
+to an `act` with `{:deliver :rd r}` restores it, writes `W[r ← v]`, and
+continues at `pc`; delivery to a `tail` with `{:deliver :return}` runs
+`return(v)` against `K`, which pops a frame or halts. The engine seam
+already supports this: `handle-effect`'s `restore-fn(base, entry, value)`
+treats the VM payload as data and does not require a current
+activation, so the semantic restore helper decodes the completion and
+either resumes an `act` or runs `return(v)`; no trampoline activation
+is synthesized. The two shapes cover primitive effects, `:park`,
+`:current-continuation`, stream and FFI waits (including the
+`request-sent` phase, which advances the FFI protocol without
+delivering anything to guest code), link waits (whose three phases
+preserve the delivery record until install completes), and halting. An
+effectful tail call therefore completes by return, never by writing a
+register of a body that no longer runs.
 
 **stream-next** (cursor ref `c = W[cursor-reg]`), by outcome:
 
 $$\begin{aligned}
 &ok\ v,\ c':&& \to \langle seg,pc{+}1,\,W[rd \leftarrow v],E,\,S[c \mapsto c'],K\rangle\\
-&blocked:&& \to \text{parked}\ \{seg,\ pc{+}1,\ E,\ W\!\restriction\!L(pc{+}1),\ K,\ \mathrm{deliver}(rd,\mathrm{false}),\ \text{cell}\ c\}\\
+&blocked:&& \to \text{wait}\ \{\mathrm{act}(seg,pc{+}1,E,\mathrm{saved}(pc{+}1,rd),K),\ \{\text{:deliver :rd :rd } rd\},\ \text{pending: cell } c\}\\
 &end:&& \to \langle seg,pc{+}1,\,W[rd \leftarrow \mathrm{nil}],E,S,K\rangle\\
 &gap\ c':&& \to \langle seg,pc{+}1,\,W[rd \leftarrow \text{:dao.stream/gap}],E,\,S[c \mapsto c'],K\rangle
 \end{aligned}$$
 
 `stream-put`, `stream-make`, `stream-cursor`, `stream-close`, `gensym`,
-`store-get`, `store-put`: as today, reading their operands from `W` and
-writing `rd`; a blocking `stream-put` parks with
-`deliver(rd, false)` and the retained value `W[value-reg]`.
+`store-get`, `store-put`: as today, reading their register operands
+from `W` and their literal operands from the instruction, and writing
+`rd`. A blocking `stream-put` waits as `act(seg, pc+1, E,
+saved(pc+1, rd), K)` with `{:deliver :rd}` and the **retained value
+`W[value-reg]` in the pending record**, where it belongs even though
+`value-reg` may be absent from the saved window.
 
-**ffi-call** (`a = [W[r] for r in arg-regs]`): park frame
-`{eval-call, seg, pc+1, E, W↾L(pc+1), K, deliver(rd, false)}` under a
-fresh id `p`; append `request(p, I.op, a)`; on the correlated response,
-its `ok` value is delivered to `rd` (or its `error` raises) at `pc+1`.
+**ffi-call** (`a = [W[r] for r in arg-regs]`): the wait
+`act(seg, pc+1, E, saved(pc+1, rd), K)` with `{:deliver :rd}` is
+recorded under a fresh call id `p` (`eval-call`); `request(p, I.op, a)`
+is appended; a `full` append keeps the request retained
+(`request-sent` phase, which when it later appends advances to the
+response wait and delivers nothing to guest code); on the correlated
+response its `ok` value is delivered to `rd` at `pc+1`, its `error`
+raises, and the parked bookkeeping for `p` is removed.
 
-**park**: the record `{seg, pc+1, E, W↾L(pc+1), K, deliver(rd, false)}`
-is written to `:parked` under a fresh id; the task halts with that
-record as its value. The not-yet-produced value of `rd` is excluded from
-the saved window by construction, since `rd` is not live-in at `pc+1`
-(it is defined there by the delivery).
+**park**: the record `act(seg, pc+1, E, saved(pc+1, rd), K)` with
+`{:deliver :rd}` is written to `:parked` under a fresh id; the task
+halts with that record as its value. The not-yet-produced value of
+`rd` is excluded from the saved window by the saved-window rule.
+Explicit park raises **no wait entry** (UCF §7.4.3 r5: the parked
+record is the no-wait shape).
 **resume** (`v = W[value-reg]`, `I.id` the parked id): the parked
-configuration is restored and `v` is delivered per its recorded
-`deliver`.
+`act` is restored and `v` is delivered per its `deliver`. `:resume`
+ends its own path.
 **current-continuation**: `W[rd ← κ]` where
-`κ = {seg, pc+1, E, W↾L(pc+1), K, deliver(rd, false)}` reified as data.
-Invoking `κ` with a value delivers that value to `rd` in the captured
-window and continues at `pc+1`; `κ` itself is never captured inside its
-own destination, because `rd` is excluded from `W↾L(pc+1)`.
+`κ = act(seg, pc+1, E, saved(pc+1, rd), K)` with `{:deliver :rd}`,
+reified as data. `κ` is a captured value, never a safepoint. Invoking
+it (`:call` arm above) delivers the argument to `rd` in the captured
+window and continues at `pc+1`; `κ` is never captured inside its own
+destination because the saved-window rule excludes `rd`.
 
-### 2.5 Isomorphism with the walker
+### 2.5 Correspondence with the walker
 
-Each register corresponds to one walker in-flight value: an
-application's operator value and each operand value are the walker's
-`:evaluated` entries; the application's `rd` is the walker's `:value`
-on return from the call; a conditional's `rd` is the walker's `:value`
-after either arm. A `ret` frame corresponds to the walker's continuation
-frame with its saved env and `:evaluated` prefix (the window) and the
-place the result goes (`rd`). The parity test lane (§10, phase 4) runs
-every corpus program on both and compares values, store, effect traces
-and halting; the structural correspondence above is also checked by a
-trace test that aligns walker steps with register writes.
+The correspondence is per supported walker frame and effect phase, and
+it allows administrative steps on both sides:
+
+| walker state | register machine |
+|---|---|
+| `:value` after evaluating a node | the node's `rd`, written |
+| `eval-operator`, `eval-operand` frames with their `:evaluated` prefix | the pc inside the call's operand sequence, plus the operator and argument registers already written in `W` |
+| `eval-test` | the test's `rd` written, then `:branch-false` |
+| `eval-stream-put-target` / `eval-stream-put-val` | the pc before the value expression, with the target register written; then the value register, then `:stream-put` |
+| stream source and cursor frames | the pc before the corresponding stream instruction |
+| `eval-define`, `eval-resume-val` | the child's `rd` written, then `:define` / `:resume` |
+| a non-tail call's continuation frame (saved env, `:evaluated` prefix) | a `ret` frame: saved `E`, `saved(pc+1, rd)` as the window, `rd` |
+| `request-sent` | the retained-request phase: the FFI protocol advances, nothing is delivered to guest code |
+| `eval-call` completion | correlated response decoding, parked bookkeeping removal, delivery to `rd` |
+| walker frame pushes/pops; register `:jump` / `:return` administrative steps | no single-step counterpart; the correspondence holds at the next value-producing step |
+
+Expression frames correspond to **pc and `W`**, not to `ret` frames; a
+`ret` frame corresponds only to a suspended caller activation. The
+parity lane (§10, phase 4) runs every corpus program on both machines
+and compares values, store, effect traces and halting; a trace test
+aligns walker value-producing steps with register writes under the
+table above, administrative steps skipped.
 
 ## 3. The canonical grammar
 
@@ -244,41 +323,64 @@ exactly the grammar the de Bruijn register `lift` already recovers
 (`debruijn_register_compile.cljc`, "the register image, viewed per body,
 is a flat instruction sequence with a recoverable grammar").
 
+The grammar is exhaustive over §2.3: every opcode appears in exactly
+one production. `expr(rd)` denotes an expression whose **result
+destination** is `rd`; the result relation is defined recursively, not
+by "the last instruction writes `rd`", so that a conditional (which
+ends in a `:jump` or a label) and a nested conditional both have a
+result destination.
+
 ```
-body        ::= expr terminator
-terminator  ::= [:return r] | [:halt r]            ; r = the body expr's rd
-expr(rd)    ::= atom(rd)
-              | call(rd)
-              | if(rd)
-              | define(rd)
-              | effect(rd)
-atom(rd)    ::= [:const rd v] | [:var rd name] | [:closure rd params body-pc]
-call(rd)    ::= expr(f) expr(a₁) … expr(aₙ) [:call rd f [a₁ … aₙ] tail?]
-if(rd)      ::= expr(c) [:branch-false c Lalt]
-                expr-into(rd) [:jump Lend]
-                Lalt: expr-into(rd)
-                Lend:
-define(rd)  ::= expr(rs) [:define rd name rs]
-effect(rd)  ::= expr(args…) [<stream-or-ffi-op> rd …]
-              | [:current-continuation rd] | [:park rd]
-              | expr(v) [:resume parked-id v]        ; no rd; terminates the path
-expr-into(rd) ::= an expr whose last instruction writes rd
+body         ::= expr(r) [:return r]                ; non-main bodies
+               | expr(r) [:halt r]                  ; the main sequence
+expr(rd)     ::= atom(rd) | call(rd) | if(rd) | define(rd)
+               | effect(rd) | resume                ; resume has no rd (below)
+
+atom(rd)     ::= [:const rd v]
+               | [:var rd name]
+               | [:closure rd params body-pc]
+               | [:gensym rd prefix]                 ; zero children, literal operand
+               | [:store-get rd key]                 ; zero children, literal operand
+               | [:store-put rd key value]           ; zero children, two literal operands
+               | [:stream-make rd buffer]            ; zero children, literal operand
+               | [:current-continuation rd]
+               | [:park rd]
+
+call(rd)     ::= expr(f) expr(a₁) … expr(aₙ) [:call rd f [a₁ … aₙ] tail?]      ; n ≥ 0
+if(rd)       ::= expr(c) [:branch-false c Lalt]
+                 expr(rd) [:jump Lend]
+                 Lalt: expr(rd)
+                 Lend:                                ; result destination: rd, by this rule
+define(rd)   ::= expr(rs) [:define rd name rs]
+effect(rd)   ::= expr(s) [:stream-cursor rd s]
+               | expr(s) [:stream-close rd s]
+               | expr(c) [:stream-next rd c]
+               | expr(s) expr(v) [:stream-put rd s v]
+               | expr(a₁) … expr(aₙ) [:ffi-call rd op [a₁ … aₙ]]              ; n ≥ 0
+resume       ::= expr(v) [:resume parked-id v]        ; terminates its path; no destination
 ```
 
-`expr-into(rd)` is how both arms of a conditional write the same
-register: the arm's own top-level expression is lowered with `rd` as its
-destination. Nested conditionals compose (an arm may itself be an `if`
-into the same `rd`).
+Children appear in the order written, which is the evaluation order
+(§3.3). A literal operand (`v`, `name`, `params`, `body-pc`, `prefix`,
+`key`, `value`, `buffer`, `op`, `parked-id`, `tail?`) is carried in the
+instruction and is never a child expression. `if(rd)` has result
+destination `rd` by definition, and both arms are `expr(rd)`, so a
+nested conditional in an arm is itself an `if(rd)` into the same
+register. `resume` is the one expression form with no destination: it
+transfers control to a parked activation and never produces a value on
+its own path.
 
-### 3.2 Exclusive arm definitions
+### 3.2 Exclusive definitions by structured paths
 
-A register has at most one definition on any path. The two arms of a
-conditional are the only case of two static definitions of one
-register, and they are on exclusive paths. The validator checks:
-(a) every definition of a register is either unique in the body or is
-the last instruction of one arm of a conditional whose other arm's last
-instruction defines the same register; (b) no instruction after `Lend`
-redefines it.
+A register has at most one definition on any path. Static definitions
+of one register may be several, one per *leaf arm* of a (possibly
+nested) conditional whose result destination is that register, and
+these are on pairwise exclusive paths by the structure of §3.1. The
+validator does not check pairs; it walks the structure: for each
+register, the set of its defining instructions must be exactly the set
+of leaf results of one `expr(rd)` subtree (a single instruction, or the
+leaf arms of nested `if(rd)`s), and no instruction outside that subtree
+defines it.
 
 ### 3.3 The lowering walk and the minting order
 
@@ -287,41 +389,64 @@ pinned here so that A is a function of the AST and this walk alone:
 
 1. **Order**: operator, then operands left to right; a conditional's
    test, then its consequent, then its alternate (both emitted; one
-   runs); `define`'s value operand; lambda bodies **out of line, after
-   the sequence that references them, in discovery order** (first
-   `:closure` emitted, first body placed), each body a contiguous range
-   ending in `:return`; the main sequence ends in `:halt`.
+   runs); `define`'s value operand; a stream instruction's operands in
+   the order §3.1 writes them. **Occurrences expand positionally**: an
+   AST node referenced from two sites is lowered twice, at two places,
+   as today's linearizer and both de Bruijn lowerers do; nothing is
+   deduplicated. **Saturation**: omitted operands take the loader's
+   defaults before lowering (`gensym`'s `"id"` prefix, `call`'s
+   `tail? false`, `ffi-call`'s argc), so the vector is saturated as
+   UCF §7.3.2 requires. Lambda bodies are **out of line, after the
+   sequence that references them, in queue order**: a `:closure`
+   emitted anywhere (in the main sequence or inside a body being
+   emitted) appends its body to one FIFO queue; the main sequence is
+   emitted first, then bodies are dequeued and emitted one at a time,
+   each a contiguous range ending in `:return`; bodies discovered while
+   emitting a queued body go to the back of the same queue. The main
+   sequence ends in `:halt`.
 2. **Minting**: registers are **body-local**, numbered from 0 in the
    order destinations are minted. A destination is minted **when its
-   expression is entered, before any of its children** (pre-order). So
-   for `(f (g x) y)`: `rd(f-call)=0`, then `rd(f)=1`, then
-   `rd(g-call)=2`, `rd(g)=3`, `rd(x)=4`, then `rd(y)=5`; the emitted
-   order is `[:var 1 f] [:var 3 g] [:var 4 x] [:call 2 3 [4] false]
-   [:var 5 y] [:call 0 1 [2 5] tail?]`. A conditional's `rd` is minted
-   on entry, before its test, and both arms are lowered `expr-into(rd)`.
-   Pre-order is chosen over post-order for one reason: it is uniform
-   across every node type, including the conditional, which must have
-   its destination before either arm is lowered. The alternative (mint
-   after children, special-case `if`) was rejected as two rules where
-   one suffices.
-3. **Every expression receives a destination**, used or not. There are
-   no discarded expressions in the current AST (no sequencing form); if
-   one is added, its non-final forms still mint and write registers,
-   and the window rule (§8.1) keeps them out of frames.
-4. **Tail flag**: copied from `:yin/tail?` as the front end marks it,
-   as today. A tail `:call` is a terminator of its path: nothing follows
-   it in its arm or body except the structural `:return` the grammar
-   requires, which is unreachable at runtime and retained so that every
-   body parses uniformly. (Open question §11.1 asks whether to drop it.)
+   expression is entered, before any of its children** (pre-order),
+   with two refinements: an arm of a conditional is lowered *into* the
+   conditional's existing `rd` and mints no destination of its own
+   (its children still mint theirs); and `resume` mints nothing. So for
+   `(f (g x) y)`: `rd(f-call)=0`, then `rd(f)=1`, then `rd(g-call)=2`,
+   `rd(g)=3`, `rd(x)=4`, then `rd(y)=5`; the emitted order is
+   `[:var 1 f] [:var 3 g] [:var 4 x] [:call 2 3 [4] false] [:var 5 y]
+   [:call 0 1 [2 5] tail?]`. Note that pre-order ids are therefore
+   **not** in definition (pc) order; §8.2's allocator orders by pc, not
+   by id. A zero-child atom mints its `rd` on entry like any other
+   expression. Pre-order is chosen over post-order for one reason: it
+   is uniform across every node type, including the conditional, which
+   must have its destination before either arm is lowered.
+3. **Every expression except `resume` receives a destination**, used or
+   not. There are no discarded expressions in the current AST (no
+   sequencing form); if one is added, its non-final forms still mint and
+   write registers, and the saved-window rule keeps them out of frames.
+4. **Tail flag**: copied from `:yin/tail?` as the front end marks it.
+   A tail `:call` completes through `K` (§2.4) and so is a **runtime
+   terminator** of its path. Instructions that textually follow it on
+   that path (an arm's `:jump Lend`, the body's `:return r`) are
+   **layout syntax**: the grammar requires them so that every body
+   parses uniformly and arms delimit uniformly, the validator treats
+   them as structurally present and runtime-unreachable, and the
+   liveness of §8.1 is computed over the real successor relation, in
+   which a tail `:call` has no successor. The alternative, dropping the
+   structural `:return`, was rejected (§11.1).
 5. **No moves, folds, or rewrites** are permitted in lowering. The
    projection emits exactly what the walk visits.
 
 A is `(jing/segment-key vector)` over the saturated positional vector
 exactly as UCF §7.3.2 states, with provenance in a side table outside
-the hash, as today. Because every input to the walk is fixed above and
-nothing depends on allocation, scheduling, host iteration order, or
-names of anything but what the AST already names, **A is a
-deterministic function of the AST and this walk**. A remains an exact
+the hash, as today. Because every input to the walk is fixed above
+(order, occurrence expansion, saturation, queue order, minting
+including the arm and `resume` refinements) and nothing depends on
+allocation, scheduling, host iteration order, or names of anything but
+what the AST already names, **A is a deterministic function of the AST
+and this walk**. "Canonical vector" means **the unique projection**,
+not any expression-structured vector with contiguous ids: the validator
+enforces this by the round-trip rule of §3.4 item 13 (re-number the
+parsed tree under §3.3 and compare). A remains an exact
 identity, not an alpha-equivalence: binder names are in the vector
 (`:var name`, `:closure params`), so renaming a binder changes A while
 the derived H and R, which resolve names away, may stay equal. That
@@ -333,24 +458,41 @@ The loader's rules, replacing `yin.vm.semantic.md` §2.6 items 6-8 and
 adding register rules; items 1-5 (one segment, instruction shape, pcs
 `0..n-1`, sorted, refs resolve) stand:
 
-6. Every body is a contiguous pc range beginning at a `:closure`'s
-   `body-pc` (or 0 for the main sequence), ending in `:return` (`:halt`
-   for main), and parsing under §3.1. Bodies do not overlap or nest.
-7. Register ids in a body are exactly `0..k-1` for some `k`, each with a
-   definition; a body never names another body's register.
-8. **Definite assignment**: on every path from the body's start to an
-   instruction, every register it reads has been written. Checked by a
-   forward walk over the structured control flow (§3.1 gives the only
-   branching form).
-9. **Exclusive arm definitions** (§3.2).
+6. **Body partition and ownership.** The pcs `0..n-1` are partitioned
+   into contiguous bodies: the main sequence at 0 and one body per
+   `:closure` instruction, beginning at that instruction's `body-pc`.
+   Every pc belongs to exactly one body; every non-main body is the
+   `body-pc` of **exactly one** `:closure` (its owner); the owner
+   relation is a tree rooted at the main sequence (acyclic: a body's
+   owner is in a different body, and following owners reaches main);
+   no `:jump`/`:branch-false` target and no `body-pc` crosses a body
+   boundary except the `:closure`'s own `body-pc`. Each body ends in
+   `:return` (`:halt` for main) and parses under §3.1.
+7. Register ids in a body are exactly `0..k-1` for some `k`, each with
+   at least one definition; a body never names another body's register.
+8. **Definite assignment**: on every runtime path from the body's start
+   to an instruction, every register it reads has been written. Checked
+   by a forward walk over the structured control flow of §3.1: the
+   assigned set after a conditional is the intersection of the assigned
+   sets of its continuing arms, an arm that ends in a runtime terminator
+   (tail `:call`, `:resume`) being excluded from the intersection; the
+   walk follows the real successor relation, so layout-syntax
+   instructions after a runtime terminator are not on any path and are
+   validated structurally (item 10) rather than for assignment.
+9. **Exclusive definitions by structured paths** (§3.2).
 10. `:call` and `:ffi-call` argument vectors contain registers only;
-    `tail?` is a boolean; a tail `:call` is followed in its path only by
-    the structural terminator.
+    `tail?` is a boolean; the instructions textually following a tail
+    `:call` on its path are exactly the layout syntax §3.1 requires (an
+    arm's `:jump`, a body's `:return`) and nothing else.
 11. Rule R (`:reserved-name`): no `:var` names `yin/def`, no `:closure`
     binds it, no `:store-get`/`:store-put` key names it, every `:define`
     names a symbol other than `yin/def`. Unchanged.
 12. `:resume`'s `parked-id` and `value-reg` are well kinded; `:resume`
-    ends its path.
+    ends its path, and the layout syntax after it is as in item 10.
+13. **Canonical numbering**: re-projecting the parsed tree of each body
+    under §3.3 reproduces the body's register ids exactly
+    (`:noncanonical-registers` otherwise). This is what makes A the
+    unique projection rather than one of several equivalent spellings.
 
 Violation is a load error naming the pc and rule, first defect wins,
 as today. Both load paths (direct vector; projection to datoms) run the
@@ -363,55 +505,91 @@ same rules (code-as-tuples §7.2 unchanged).
 A safepoint is a transition at which the machine parks. The semantic
 kinds are unchanged; the state columns are new.
 
-| Safepoint kind | Raised by | Resume pc | Window saved | Delivery |
-|---|---|---|---|---|
-| explicit park | `:park rd` | `pc+1` | `W↾L(pc+1)` | `rd` ← resume value |
-| blocked read | `:stream-next rd c` → `blocked` | `pc+1` | `W↾L(pc+1)` | `rd` ← read value; nil on `end`; `:dao.stream/gap` on gap |
-| blocked write | `:stream-put rd s v` → `full` | `pc+1` | `W↾L(pc+1)`; retained value `W[v]` in pending | `rd` ← written value on retry `ok` |
-| FFI call, sent | `:ffi-call rd op args` → `ok` | `pc+1` | `W↾L(pc+1)` | `rd` ← correlated `ok` value; `error` raises |
-| FFI call, retained | `:ffi-call` → `full` | `pc+1` | as sent; envelope retained verbatim | as sent, once appended and correlated |
-| effectful call, non-tail | `:call rd f args false` whose operator yields a blocking effect | `pc+1` | `W↾L(pc+1)` | `rd` ← the effect's resume value, per its kind |
-| effectful call, tail | `:call rd f args true` likewise | — (no current activation) | none | **through return**: the value is delivered to the top frame of `K` as `:return` would deliver it |
-| link request / response / install | the `:module/require` effect's three wait states | `pc+1` | `W↾L(pc+1)` | `rd` ← the module symbol on `linked`; refusal raises |
-| halt | `:halt r`, or `:return r` with empty `K` | — | — | not resumable; a `:yin.k/result` travels |
+Every wait is one of the two closed states of §2.4 (`act` with
+`{:deliver :rd}` or `tail` with `{:deliver :return}`); an effectful
+tail call raises the `tail` form of whichever row its effect falls in.
+`saved` is `saved(pc+1, rd)` of §2.4.
 
-`:current-continuation` is not a safepoint (it reifies and continues),
-unchanged. The "effectful call, tail" row is new as a row: in the stack
-machine a tail effect's resume value landed in `val` and the body's
-`:return` then delivered it; here the body has no activation to resume
-into, so the delivery rule of §2.4 routes it through `K`. This is the
-one place the rewrite is more than notation, and the Architect's
-requirement that "write-result" and "tail-return" delivery be
-distinguished is met by the `deliver(rd, tail)` record.
+| Safepoint kind | Raised by | State | Delivery |
+|---|---|---|---|
+| blocked read | `:stream-next rd c` → `blocked` | `act`, pending cell `c` | `rd` ← read value; nil on `end`; `:dao.stream/gap` on gap |
+| blocked write | `:stream-put rd s v` → `full` | `act`, pending retains `W[v]` and the stream | `rd` ← written value on retry `ok` |
+| FFI call, sent | `:ffi-call rd op args` → `ok` | `act`, pending `:ffi` (call id, response cell) | `rd` ← correlated `ok` value; `error` raises; bookkeeping removed |
+| FFI call, retained | `:ffi-call` → `full` | `act`, pending `:ffi-request` (envelope verbatim) | none at this phase; on append `ok` the entry becomes the sent phase |
+| effectful call, non-tail | `:call rd f args false` whose operator yields a blocking effect | `act`, pending per the effect kind | per the kind's row |
+| effectful call, tail | `:call rd f args true` likewise | `tail`, pending per the effect kind | **through return** against `K` |
+| link request | `:module/require` miss, request in hand | `act` or `tail`, pending `:link-request` | none at this phase; on append `ok` the entry becomes link response |
+| link response | request appended; polling for the correlated response | same state, pending `:link-response` | none at this phase; a matching `ok` makes it install; refusal raises |
+| install | the child runs | same state, pending `:install` + the body's install entry | on `linked`: the module symbol to `rd` or through return; on `refused`: raises |
+| halt | `:halt r`, or `:return r` with empty `K` | — | not resumable; a `:yin.k/result` travels |
+
+Two states are not safepoints and travel differently: an **explicit
+park** (`:park rd`) raises no wait; its `act` record is the body's
+parked record and a body of kind `:parked` names it by id (UCF §7.4.3
+r5, "explicit park is the no-wait shape"); a **reified continuation**
+(`:current-continuation`) is a captured value, never a task safepoint.
+Whole-task quiescence (empty ready queue, UCF §7.4.1) and the existing
+refusal conditions (unsupported observation states, pending close) are
+unchanged.
+
+The "effectful call, tail" row is the one place the rewrite is more
+than notation: in the stack machine a tail effect's resume value landed
+in `val` and the body's `:return` then delivered it; here the body has
+no activation to resume into, so §2.4's `tail` state routes delivery
+through `K`. Write-result and through-return delivery are distinguished
+by the closed `deliver` record.
 
 ### 4.2 The UCF frame
 
 `:yin.k/frame` (UCF §7.4.1) becomes, for the semantic profile:
 
 ```clojure
-{:yin.k/segment  A
+;; an act state (write-result delivery)
+{:yin.k/state    :act
+ :yin.k/segment  A
  :yin.k/pc       n                       ; the resume pc, already pc+1
  :yin.k/reason   …                       ; unchanged
- :yin.k/window   {r (encoded) …}         ; W↾L(pc), sorted by r
- :yin.k/deliver  {:yin.k/rd r}           ; or {:yin.k/through-return true}
+ :yin.k/window   {r (encoded) …}         ; saved(pc, rd), sorted by r
+ :yin.k/deliver  {:yin.k/deliver :rd :yin.k/rd r}
  :yin.k/env      {sym encoded …}         ; E, unchanged
  :yin.k/k        [ {:yin.k/frame-type :return
                     :yin.k/segment A :yin.k/pc n
                     :yin.k/env {…} :yin.k/window {…} :yin.k/rd r} … ]
  :yin.k/pending  {…}}                    ; unchanged, §7.4.3
+
+;; a tail state (through-return delivery)
+{:yin.k/state    :tail
+ :yin.k/segment  A :yin.k/site n         ; the tail call site, for provenance only
+ :yin.k/reason   …
+ :yin.k/deliver  {:yin.k/deliver :return}
+ :yin.k/k        [ … ]                   ; the frames delivery will pop
+ :yin.k/pending  {…}}
 ```
 
-`:yin.k/val` and `:yin.k/stack` are gone; `:stack-base` is gone. The
-window's **membership is validated**, not trusted: the receiver
-recomputes `L(pc)` from A (§8.1) and refuses a window with a register
+`:yin.k/val`, `:yin.k/stack` and `:stack-base` are gone. The window's
+**membership is validated**, not trusted: the receiver recomputes
+`saved(pc, rd)` from A (§8.1) and refuses a window with a register
 outside it (`:window-extra`), missing from it (`:window-missing`), or
-containing the delivery destination (`:window-self`). Two captures of
-equal state therefore encode identically, and dead values never travel.
+containing the delivery destination (`:window-self`). Those three are
+the membership diagnostics; the full frame validator also checks
+representation (integer ids, sorted unique keys), body scope (every
+register of the window belongs to the body `pc` is in), site/pc pairing
+(`pc` is a safepoint successor of the right kind for `reason`;
+`site` is a tail call), destination equality (`rd` is the `rd` of the
+instruction at `pc−1`), delivery mode (`:act` carries `:rd`, `:tail`
+carries `:return` and no window or env), return-frame sites (each
+`:return` frame's `pc` follows a non-tail call whose `rd` it names, and
+its window is `saved(pc, rd)` of that body), `K` structure (frames
+innermost last, each well-formed), and pending compatibility with
+`reason`. Two captures of equal state therefore encode identically, and
+dead values never travel.
 
 The row carrier (`yin.vm.ucf-transport-tuples.md` §5.2) changes
 accordingly: `:regs` becomes `[segment-A pc env-cref window-cref
-deliver]`, `:window` is a keyed row `[r₁ V₁ r₂ V₂ …]` sorted by `r`,
-`:kframe` becomes `[segment-A pc env-cref window-cref rd]`, and
+k-cref deliver-D]` for an `act` and a sibling `:tail-state [segment-A
+site k-cref deliver-D]` is added; `deliver` is structural data of the
+closed shape above; `:window` is a keyed row `[r₁ V₁ r₂ V₂ …]` sorted by
+`r`; `:kframe` becomes `[segment-A pc env-cref window-cref rd]`; and
 `:stack` and `stack-base` are removed. That amendment is written when
 this design lands (§10 phase 6).
 
@@ -455,11 +633,14 @@ is implemented, since nothing of version 3 has landed; versions 0-2 keep
 their bytes as historical contracts and describe the old machine).
 
 The de Bruijn contracts `"b2"` and `"r2"` are **not re-versioned by
-this document**. Their descriptors and execution contracts are
-unchanged; what changes is their input (A instead of resolved tuples).
-Whether their bytes survive is the byte-identity question of §8.4,
-decided by evidence, and a re-version follows only if the evidence says
-the bytes move.
+this document**. They are retained only if **both** their bytes on the
+corpus (§8.4) **and** their normative contracts (descriptors,
+validators, allocation rules, execution and live-operand rules) remain
+unchanged; a changed contract is versioned even when the corpus
+goldens happen to match, and a changed byte is versioned even when the
+contract text did not move. What changes here is their input (A
+instead of resolved tuples), which touches the register design's §4
+allocation contract (§8.2), so `"r2"` is the one expected to move.
 
 ## 7. What A is, restated
 
@@ -483,19 +664,24 @@ For each body, from the vector alone:
 
 - `def(pc)` = `{rd}` for a value-producing instruction, `{}` otherwise;
   `use(pc)` = its register operands.
-- `L(pc)`, the **live-in set** at `pc`: registers read at or after `pc`
-  on some path without an intervening write, computed by standard
-  backward liveness over the body's structured control flow (§3.1 gives
-  the only branching form, so the fixed point is reached in one pass
-  per nesting level). At a `:return`/`:halt`, `L` is `{value-reg}`; at
-  a tail `:call`, `L` after it is `{}`.
-- The **window rule**: a frame or capture at resume pc `p` carries
-  exactly `W↾L(p)`, and `rd ∉ L(p)` always holds for the instruction at
-  `p−1` that delivers to `rd`, because `rd` is defined, not used, by the
-  delivery.
+- `L(pc)`, the **live-in set** at `pc`: standard backward liveness over
+  the body's explicit control-flow graph, in which the successors of
+  `pc` are: `pc+1` for a non-terminator; the two targets of
+  `:branch-false`; the target of `:jump`; **none** for `:return`,
+  `:halt`, `:resume`, and a `:call` with `tail? true` (a runtime
+  terminator). Layout-syntax instructions after a runtime terminator
+  are nodes of the graph with no predecessors; their `L` is computed
+  like any other node's and is never consulted at runtime. The fixed
+  point is reached in one pass per nesting level because the graph is
+  structured. At a `:return r`/`:halt r`, `L = {r}`.
+- The **saved-window rule** (§2.4): a frame, wait, parked record or
+  capture whose delivery is `{:deliver :rd r}` at resume pc `p` carries
+  exactly `W↾(L(p) − {r})`. `L(p)` normally *does* contain `r` (later
+  instructions read the delivered value); the subtraction is explicit,
+  never assumed. A `tail` state carries no window.
 
-These replace UCF §7.4.2's `stack-effect` and `lexically-required`
-static facts; `lexically-required` (names a pc can read from `E`) is
+These replace UCF §7.4.2's `stack-effect` static fact with `def`, `use`
+and `L`; `lexically-required` (names a pc can read from `E`) is
 unchanged.
 
 ### 8.2 A → R: the de Bruijn register image
@@ -509,19 +695,44 @@ unchanged.
    `[:closure rd arity body-pc]`; names go to the diagnostic side table.
    This is `yin.vm.debruijn/resolve-name` applied per `:var`, and the
    output is a stage value with no identity.
-2. **Allocate per body.** Virtual registers are definition-ordered by
-   construction (pre-order minting). Linear scan: process pcs in order;
-   at a definition assign the lowest physical temporary `Tᵢ` not live;
-   a register's lifetime ends at its last use (from §8.1); the two
-   exclusive arm definitions of one virtual register receive the same
-   physical register (they are one lifetime); parameters are `L0..Lₙ₋₁`
-   and are never coalesced with temporaries (register design §4.2).
-   Tie-breaks: lowest virtual id. Physical count = `n + max live
-   temporaries`, recorded in the body descriptor.
-3. **Fill `live`.** For every boundary instruction (`:call`, stream
-   ops, `:ffi-call`, `:current-continuation`, `:park`), the `live`
-   operand is `L(pc+1)` mapped to physical registers, which is what the
-   register design's `body-liveness` computes today.
+2. **Allocate per body**, by a pinned interval algorithm over **pc
+   order** (pre-order ids are not pc-ordered, §3.3):
+   - *Intervals.* Each virtual register `v` has one interval
+     `[start(v), end(v)]` in pcs: `start(v)` is the pc of its first
+     definition in textual order; `end(v)` is the greatest pc at which
+     `v ∈ L(pc)` or `v` is defined, so an interval covers every
+     definition and every live point. A register with several leaf
+     definitions (a conditional's `rd`, §3.2) therefore has **one
+     interval spanning the whole `if(rd)` subtree** from its first arm
+     definition to its last use: one physical slot is reserved across
+     the entire structured extent, so an alternate arm's own values can
+     never collide with the shared destination.
+   - *Scan.* Walk pcs in increasing order. At pc `p`: first expire every
+     interval with `end < p` (freeing its slot; among several, in
+     increasing `end`, then increasing virtual id); then for each
+     interval starting at `p` (in increasing virtual id), assign the
+     lowest-numbered free temporary `Tᵢ`. A `:call`'s destination may
+     share a slot with an argument whose interval ends at `p` only if
+     the kernel's `:call` reads all sources before writing `rd`, which
+     the r2 kernel does; otherwise sources and destination of one
+     instruction never share (the rule is pinned by the r2 contract and
+     recorded in the descriptor).
+   - *Parameters.* `L0..Lₙ₋₁` are reserved and never coalesced with
+     temporaries (register design §4.2); canonical parameters stay in
+     `E` and are read through `:load-bound`.
+   - *Count.* Physical temporaries = the maximum number of
+     simultaneously assigned slots; recorded in the body descriptor.
+   No host map iteration order enters the result; every tie is broken
+   by pc, then virtual id.
+3. **Fill `live`.** Exactly the r2 boundary opcodes carry a `live`
+   operand (register design §4.4: `:call`, `:stream-put`, `:stream-next`,
+   `:ffi-call`, `:current-continuation`, `:park`). For each, `live` is
+   the physical image of `saved(pc+1, rd)` of §2.4 (that is,
+   `L(pc+1) − {rd}`), and for a tail `:call` it is empty, because its
+   successor set is empty; this agrees with the register design's
+   `body-liveness`, which already excludes the destination and treats
+   tail calls as successor-less, and that function may be used to
+   compute it over the physical image.
 4. **Layout.** Bodies and pcs keep A's layout; the register image's
    `{:bodies … :instructions …}` shape is filled from the body ranges.
    R = `register-hash` of the result, as a checksum.
@@ -538,11 +749,20 @@ the consumption-event allocator (now explicit last-use linear scan).
 1. Resolve as in §8.2 step 1.
 2. **Parse** each body under §3.1 into its expression tree; the
    validator has already established that it parses.
-3. **Emit** the tree with the existing `lower-stack` walk
+3. **Adapt** the recovered trees to the input shape `lower-stack`
+   consumes today, resolved tuples plus side table (register design
+   §2.1): one resolved record per occurrence (occurrences stay
+   positionally expanded, never re-shared), defaults as saturated,
+   `:yin/tail?` from the `:call`'s `tail?`, binder arities from the
+   `:closure` instructions, and bodies in the §3.3 queue order so that
+   discovery order is preserved.
+4. **Emit** with the existing `lower-stack` walk
    (`yin.vm.debruijn-linearize`), which is the named linearizer's
    flattening: operator, `:push`, operands with `:push` each, `:call
-   argc tail?`, labels for conditionals, bodies out of line in discovery
-   order. H = `image-hash` of the result, as a checksum.
+   argc tail?`, labels for conditionals, bodies out of line in
+   discovery order. Absolute pcs are recomputed by that emission (the
+   stack image's layout is its own). H = `image-hash` of the result, as
+   a checksum.
 
 This is a whole-body lowering by the recovered grammar, not an
 instruction-by-instruction expansion; the Architect's finding that
@@ -552,37 +772,47 @@ pushes.
 
 ### 8.4 The byte-identity question
 
-For every corpus program `P`: does `H(lower-stack(parse(resolve(A(P)))))`
-equal today's `H(lower-stack(resolve(P)))`, and does R likewise? The
-emitter walk in §8.3 is the same walk as today's, over the same tree, so
-H is expected to hold; R depends on whether §8.2's explicit linear scan
-reproduces R1's reservation-and-release timing, which is not expected
-to hold exactly. The decision is made from the evidence (§10 phase 5):
-equal bytes keep `"b2"`/`"r2"` as they are; unequal bytes re-version the
-affected contract plainly, with its goldens regenerated, and nothing
-pretends otherwise.
+For every corpus program `P`: are the emitted vectors and their encoded
+bytes of `lower-stack(adapt(parse(resolve(A(P)))))` equal to today's
+`lower-stack(resolve(P))`, and likewise for the register image? The
+comparison is of the actual vectors and canonical bytes, with the
+checksums as a summary, never checksums alone. The emitter walk in
+§8.3 is the same walk as today's, over the same tree, so H is expected
+to hold; R depends on whether §8.2's interval scan reproduces R1's
+reservation-and-release timing, which is not expected to hold exactly.
+The decision is made from the evidence (§10 phase 5) **together with
+§6's contract test**: a contract is kept only if bytes and normative
+rules are both unchanged; otherwise it is re-versioned plainly, with
+its goldens regenerated, and nothing pretends otherwise.
 
 ## 9. Blast radius
 
 Per the Architect's enumeration, with this design's confirmation:
 
 **Rewrite.** `yin.vm.semantic.md` §2, §4, §5 (this document replaces
-them); `yin.vm.linearize` (both lanes); the semantic kernel
-(`yin.vm.semantic`); `yin.vm.code` (operand table, rules); UCF §7.3.2
-(table), §7.4.1-7.4.2 (as §4 here), the value grammar's frame arms;
-the v2 amendment's semantic registers and frames (§5.1) and identity
-sections; the row carrier §5.2 and its validation; the de Bruijn
-register design §2 and §4 (input and lowering, per §8.2) and the
-register `lift`'s output contract; the targets design's §3.7 reasons;
-`ucf`, `ucf.handoff`, `completion`; the semantic, code, linearizer,
+them); `yin.vm` (contract and schema declarations, `semantic-contract`,
+`semantic-bytecode-grammar`); `yin.vm.linearize` (both lanes); the
+semantic kernel (`yin.vm.semantic`); `yin.vm.code` (operand table,
+rules); UCF §7.3.2 (table), §7.4.1-7.4.2 (as §4 here), the value
+grammar's frame and closure-marker arms and reified-continuation
+encoding, the dependency census over frames; the v2 amendment's
+semantic registers and frames (§5.1) and identity sections; the row
+carrier §5.2 and its validation; the de Bruijn resolver/lowerer
+adapters (§8.2 step 1, §8.3 step 3), the register design §2 and §4
+(input, allocation, validation, per §8.2) and the register `lift`'s
+output contract; the targets design's §3.7 reasons; the pipeline
+composition that wires lowerings; the linker's derivation verification
+(`yin.vm.linker.md` §3 amendment, §5.5) for the new lowerings; `ucf`,
+`ucf.handoff`, `completion`; the semantic, code, linearizer,
 continuation-invoke, safepoint, lift, handoff and cross-engine tests.
 
 **Notational or focused.** code-as-tuples §5 (instruction contract) and
 §7.2 (validator interface); UCF revision history and implementation
 plan; the stack and register native VM documentation and restore
-adapters; blog Part Three's `St` paragraph; REPL/session composition,
-encoder loaders, telemetry and benchmark fixtures that name the old
-shape.
+adapters, **only if their contracts survive §8.4** (otherwise they are
+rewrites under a new version); blog Part Three's `St` paragraph;
+REPL/session composition, encoder loaders, telemetry and benchmark
+fixtures that name the old shape.
 
 **Corpora.** Source programs, expected results, errors and effect
 traces are preserved. Every semantic vector, A, pc, saved frame and
@@ -592,69 +822,79 @@ if §8.4 says the bytes held.
 
 **Untouched in substance.** The Universal AST and front ends; Rule R;
 the stream protocol; FFI correlation; lease, custody, fencing,
-admission, durable dedup; integer and scalar encoding; Stage E's
-holder/authority logic (its integration evidence is invalid until rerun
-over the new transport, especially crash cuts and successor
-publication).
+custody/resource admission policy, durable dedup (executable admission,
+by contrast, changed under phase 1 and is not untouched); integer and
+scalar encoding; Stage E's holder/authority logic (its integration
+evidence is invalid until rerun over the new transport, especially
+crash cuts and successor publication).
 
 ## 10. Migration
 
 Eight phases, each gated; the old evaluator survives only as an oracle
-until phase 8. (Phase 1 is in flight as of this writing.)
+until phase 8.
 
-1. **Identity.** Amend the A-only identity contracts (done:
-   `a-only-code-identity` branch). Independent of this VM.
+1. **Identity.** Amend the A-only identity contracts. **Complete**
+   (merged to master 2026-10-10, `2daa17fb`). Independent of this VM.
 2. **Freeze.** This document's §3 (grammar, minting), §4 (windows,
    delivery, safepoint table), §6 (stamps), §3.4 (rejection rules) are
    reviewed and frozen. Gate: Architect sign-off on the frozen text.
-3. **Linearizer and validator.** `project` per §3.3 and the loader
-   rules of §3.4, both load paths. Gate: deterministic vectors across
-   JVM/Node/Dart on the corpus; malformed-input refusal rows for every
-   rule; direct and datom load paths agree (code-as-tuples §7.2 law).
+3. **Linearizer, validator, static analysis.** `project` per §3.3, the
+   loader rules of §3.4 (both load paths), **and the §8.1 analysis
+   (def, use, `L`, `saved`)**, which the phase-4 evaluator needs for
+   every call save and capture and so cannot wait for phase 5. Gate:
+   deterministic vectors across JVM/Node/Dart on the corpus;
+   malformed-input refusal rows for every rule including item 13;
+   direct and datom load paths agree (code-as-tuples §7.2 law); `L`
+   agrees with a reference implementation on the corpus.
 4. **Evaluator.** `yin.vm.semantic-register` beside `yin.vm.semantic`.
    Gate: walker parity on the full B0 corpus (values, store, effects,
-   halting); Rule R rows; effects, non-tail and tail recursion,
-   continuation invocation, park/resume, gensym, module `store-of`.
-5. **Derivations.** §8.1-8.3 implemented; the lexical-address law
+   halting) under the §2.5 correspondence; Rule R rows; effects,
+   non-tail and tail recursion, pure and effectful tail completion,
+   continuation invocation (including abortive invoke and ownership
+   refusal), park/resume, gensym, module `store-of`, FFI
+   retained-request and response phases.
+5. **Derivations.** §8.2-8.3 implemented; the lexical-address law
    (`addresses(H) = addresses(R) = addresses(resolve(A))`) and
    behavioural parity of all three kernels on the corpus; the §8.4
-   byte-identity decision recorded with its evidence.
-6. **Continuation format.** §4.2 frames, window validation, the
-   safepoint harness of §4.1 (bidirectional lift/lower rows for every
-   kind, pending waits, nested and reified captures, module contexts,
-   refusals); the row carrier amended. Gate: UCF §7.11's harness green
-   for the semantic profile.
-7. **Stage D/E rerun.** Handoff, fencing, durability, crash-cut and
-   cross-process acceptance over the new transport, three hosts.
+   byte-and-contract decision recorded with its evidence.
+6. **Continuation format.** §4.2 frames and both state shapes, the
+   full frame validator, the safepoint harness of §4.1 (bidirectional
+   lift/lower rows for every kind and both delivery modes, pending
+   waits, nested and reified captures, module contexts, refusals); the
+   row carrier amended. Gate: UCF §7.11's harness green **for every
+   engine intended to reconstruct canonical frames** (the semantic
+   kernel, the stack and register kernels through their layouts), not
+   the semantic profile alone.
+7. **Stage D/E rerun.** Handoff, fencing, custody, durability,
+   crash-cut and cross-process acceptance over the new transport, three
+   hosts.
 8. **Cutover.** Delete `yin.vm.semantic` (old), rename
    `yin.vm.semantic-register` to `yin.vm.semantic`, remove the old H/R
    request paths and the `raise` dependency, finalize documentation.
    No compatibility shim.
 
-## 11. Open questions
+## 11. Questions resolved by the freeze review
 
-1. **The structural `:return` after a tail call** (§3.3 item 4). Keeping
-   it makes every body parse uniformly and keeps §3.4 rule 6 simple;
-   dropping it saves one unreachable instruction per tail-position body.
-   Recommendation: keep; uniformity of the grammar is worth more than
-   one tuple.
-2. **Body-local vs segment-wide register ids** (§2.2). Body-local was
-   chosen so that windows are per activation and small and so that the
-   de Bruijn register image's per-body banks map directly. The
-   alternative, segment-wide ids, would let a validator check
-   cross-body misuse by range alone but makes windows carry an
-   activation's position in a global space. Recommendation: body-local,
-   as written.
-3. **Whether `L(pc)` should be carried in UCF frames as a checkable
-   claim** (a `:yin.k/live` key the receiver verifies) or purely
-   recomputed. Recommendation: recomputed; a claim adds bytes and a
-   second way to be wrong.
-4. **Delivery through return for tail effects** (§2.4): confirm that
-   the engine's `handle-effect` restore path can route a resume value to
-   `K`'s top frame without a current activation, or whether the wait
-   entry should synthesize a one-instruction trampoline activation.
-   Recommendation: route through `K`; the trampoline is the stack
-   machine's shape reappearing.
+All four were answered by the Architect (phase-2 review, item 10) and
+the answers are adopted above:
+
+1. **The structural `:return` after a tail call**: kept, defined as
+   layout syntax rather than "invariably unreachable" (§3.3 item 4);
+   structural branch delimiters after terminal arms are likewise
+   permitted and validated structurally (§3.4 items 8, 10).
+2. **Body-local register ids**: kept, with validated body ownership and
+   scope (§3.4 item 6).
+3. **A carried live claim**: not carried; the window's keys are the
+   membership claim and are validated by recomputation (§4.2).
+4. **Tail effects**: routed directly through `K`; the engine seam's
+   `restore-fn(base, entry, value)` needs no current activation, so no
+   trampoline; the closed `tail` state and the semantic restore helper
+   are specified in §2.4.
+
+Nothing remains open in this document before freeze. Items that belong
+to the phase-3 implementation brief rather than to the design: the
+exact r2 source/destination-overlap rule the descriptor records (§8.2
+step 2), and the reference implementation `L` is checked against.
 
 ## 12. What this does not change
 
