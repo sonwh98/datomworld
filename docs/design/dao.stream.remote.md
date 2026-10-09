@@ -791,9 +791,10 @@ possesses the resource, as that contract requires. What a lease governs:
   or by a bounded buffer.
 - NAT mappings and punch state: no; possessed by the NAT box, so no judge
   can exist, and keep-alive cadence is the peer's own (section 4).
-- Board postings: no; records under the board's retention, each carrying the
-  lease id of the registration or pair it belongs to, and a reader treats a
-  posting whose lease has a `:lapsed` on the board as stale.
+- Board postings: no; records under the board's retention. Only pair postings
+  carry pair lease identities; registrations are unleased observations whose
+  freshness is reader-local age. A reader treats a pair posting whose lease
+  has a `:lapsed` on the board as stale.
 
 **Mechanism: no new wire shape.** A grantor enters two conventional streams
 in its table, `lease-proposals` with surface `#{:writer}` and
@@ -873,3 +874,63 @@ plan lists the successor vocabulary (section 1), the network-path fates
 no network or capability concept.
 
 [impl-plan]: ./dao.stream.remote.implementation-plan.md
+
+## S5 implementation seams and verification scope
+
+`remote-pair/links` owns a bounded cache of complete pair descriptors and exposes
+`:attach`, `:resolve`, `:open!`, `:step`, `:channel-end` and `:release!`.
+`attacher` remains its compatibility projection. `:open!` initializes transport
+bindings without an inner application probe. The input reflection is projected
+into a bounded local ring: mirror and link observers retain independent opaque
+cursors. The outer cursor is minted once at newest. Initialization failures,
+input/projection gaps, terminal output failures and stepped deadlines retire the
+binding. A failed second attachment closes the newly owned first reflection.
+Release closes owned reflections and the projection ring, leaving source media
+and caller-owned base connections open. Link drain/outstanding/filed/deadline
+policy passes through every level; accepted appends are never replayed.
+
+`remote-channel/dial` also accepts an explicit finite `:route` descriptor and
+`:channels` map of already established base channel ends. `:encoded-size` must
+measure the negotiated codec's bytes. Preflight bounds depth, nodes and encoded
+descriptor bytes before acquiring pair handles. Both directions may supply
+`:table` and `:names`; `update-tables` validates and installs explicit snapshots
+before the next mirror pass, on accepting, dialing and pair compositions.
+`route-driver` and `route-driver-step` share a finite work allowance and retain a
+round-robin position across visits. Portable execution reads no clock and starts
+no scheduler. `remote/confirmation` observes correlated source-probe evidence;
+local descriptor success alone is not route confirmation. `remote/probe!` uses
+an ordinary descriptor request for keep-alive. `remote/links` release abandons
+pending link state without closing its channel's source media.
+
+`remote-route` derives local candidates from caller-chosen boards, preserving
+board/incarnation provenance and observation deadlines. Aliases are local data.
+No bootstrap yields `:no-route`; alternatives advance sequentially within attempt
+and establishment bounds. `resolution-step` emits action data for the owning
+driver. It does not dial a payload's claimed address or follow other boards.
+`acknowledge-ready` requires both correlated sides and initialized local inputs.
+An explicit `:ready?` option is a low-level composition assertion for an already
+established path, not discovery evidence or authentication. Claimed peer names,
+stream names, source identities and channel identities remain distinct.
+The portable punch interpreter checks source and request ID and expires to relay;
+there is no production UDP branch in remote-channel.
+
+Meeting constructors require an advertised channel and caller-supplied fresh
+incarnation. Grants use that real channel in all remote descriptors and include
+the incarnation in pair, renewal and lease identities. Correlated live requests
+reuse their grant; malformed facts consume bounded work and diagnostics. Only
+pair allocation is capacity-gated; readiness and registration remain available.
+`production-meeting` adds finite epoch, ring and codec-byte bounds. Grant output
+is bounded and retries only local full. Reclaim closes owned rings once and queues
+renewal unwiring. The driver retains a judge result before `cleanup!`, or uses
+`judge-step!` to perform both in order. `snapshot` supplies the new table value.
+An optional explicitly wired `:lapses {:handle h :cursor c}` carries judge lapse
+records to the board with grantor provenance. Historical judge state is bounded
+by lifetime admissions; `rotate!` requires a caller-assembled fresh incarnation
+and judge and refuses until resources, lease output and renewal readers are
+quiescent. No historical ledger is pruned in place.
+
+These are implementation seams, not a production acceptance declaration.
+Portable deterministic ring fixtures distinguish multi-hop protocol composition
+from real sockets, browser execution and cross-machine/NAT evidence. S5's required
+matrix must pass independently; existing transport host byte/admission gates
+remain applicable.

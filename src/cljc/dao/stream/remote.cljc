@@ -336,26 +336,28 @@
    installed answers, and the give-up-after liveness bound, all
    composition data; and the last `now` a driver stepped it at."
   [cd chan policy]
-  (atom {:channel cd
-         :reader (:reader chan)
-         :writer (:writer chan)
-         :cursor (:dao.stream/cursor
-                   (stream/cursor (:reader chan) :dao.stream/oldest))
-         :outstanding {}
-         :pending {}
-         :filed {}
-         :filed-cursors {}
-         :filed-seq 0
-         :events (:dao.stream.remote/events policy)
-         :resend-after (:dao.stream.remote/resend-after policy)
-         :budget (:dao.stream.remote/budget policy)
-         :drain-budget (:dao.stream.remote/drain-budget policy)
-         :max-outstanding (:dao.stream.remote/max-outstanding policy)
-         :max-filed (:dao.stream.remote/max-filed policy)
-         :give-up-after (:dao.stream.remote/give-up-after policy)
-         :now nil
-         :next-id 0
-         :channel-gone? false}))
+  (let [initial (stream/cursor (:reader chan) :dao.stream/oldest)]
+    (atom {:channel cd
+           :reader (:reader chan)
+           :writer (:writer chan)
+           :cursor (:dao.stream/cursor initial)
+           :cursor-initialized? (= :dao.stream/ok (:dao.stream/outcome initial))
+           :outstanding {}
+           :pending {}
+           :filed {}
+           :filed-cursors {}
+           :filed-seq 0
+           :events (:dao.stream.remote/events policy)
+           :resend-after (:dao.stream.remote/resend-after policy)
+           :budget (:dao.stream.remote/budget policy)
+           :drain-budget (:dao.stream.remote/drain-budget policy)
+           :max-outstanding (:dao.stream.remote/max-outstanding policy)
+           :max-filed (:dao.stream.remote/max-filed policy)
+           :give-up-after (:dao.stream.remote/give-up-after policy)
+           :now nil
+           :next-id 0
+           :request-prefix (:dao.stream.remote/request-prefix policy)
+           :channel-gone? false})))
 
 
 (defn- mint-id!
@@ -363,7 +365,7 @@
   [link]
   (let [n (:next-id @link)]
     (swap! link assoc :next-id (inc n))
-    n))
+    (if-some [prefix (:request-prefix @link)] [prefix n] n)))
 
 
 (defn- emit!
@@ -555,6 +557,7 @@
   "The attach probe's ok: record the source's descriptor and declared
    surface, plus :closable."
   [refl answer]
+  (swap! refl update :confirmations (fnil inc 0))
   (swap! refl assoc
          :source-descriptor (:dao.stream/descriptor answer)
          :surface (conj (into #{} (:dao.stream.remote/surface answer))
@@ -673,6 +676,10 @@
                        (= (:dao.stream/identity v) (:identity @refl)))
               (swap! link update :outstanding dissoc id)
               (swap! refl update :ids disj id)
+              (when (= :dao.stream/descriptor op)
+                (swap! refl update :responses (fnil inc 0))
+                (swap! refl assoc :probe-outcome
+                       (if e (translated e) (bare-outcome v))))
               (cond
                 (= :dao.stream.remote/not-found e)
                 (do (swap! refl assoc :gone? true)
@@ -750,8 +757,20 @@
                  (not (named? (:req e))))
         (count-ask! link (:dao.stream.remote/id (:req e)))))
     (retry-pending! link)
+    (when-not (:cursor-initialized? @link)
+      (let [r (stream/cursor (:reader @link) :dao.stream/oldest)]
+        (cond
+          (= :dao.stream/ok (:dao.stream/outcome r))
+          (swap! link assoc :cursor (:dao.stream/cursor r) :cursor-initialized? true)
+          (or (contains? #{:dao.stream/end :dao.stream/closed} (:dao.stream/outcome r))
+              (contains? #{:dao.stream.remote/not-found :dao.stream.remote/channel-gone}
+                         (:dao.stream.remote/reason r))
+              (and (= :dao.stream/transport-error (:dao.stream/outcome r))
+                   (false? (:dao.stream/retry? r))))
+          (channel-loss! link))))
     (loop [remaining (:drain-budget @link)]
-      (when-not (and remaining (zero? remaining))
+      (when (and (:cursor-initialized? @link) (not (:channel-gone? @link))
+                 (not (and remaining (zero? remaining))))
         (let [r (stream/next (:reader @link) (:cursor @link))]
           (case (:dao.stream/outcome r)
             :dao.stream/ok
@@ -1051,8 +1070,37 @@
             r))))))
 
 
+(defprotocol IReflectionObservation
+
+  (confirmation
+    [handle]
+    "Local source-probe evidence, without initiating another request. Attach and
+     descriptor success alone do not confirm the source.")
+
+  (probe!
+    [handle]
+    "Issue one ordinary exact-identity descriptor probe, unless one is pending.
+     Driver time must have been supplied to the link before this operation."))
+
+
 (deftype ReflectionHandle
   [state]
+
+  IReflectionObservation
+
+  (confirmation
+    [_]
+    (select-keys @state [:source-descriptor :surface :gone? :closed? :confirmations :responses :probe-outcome]))
+
+
+  (probe!
+    [_]
+    (let [link (:link @state)]
+      (drain! link)
+      (when-not (or (:closed? @state) (:gone? @state) (:channel-gone? @link)
+                    (outstanding-for link state :dao.stream/descriptor nil))
+        (send-request! link state (wire-request link state :dao.stream/descriptor [])))))
+
 
   stream/IDaoStreamDescriptor
 
@@ -1158,7 +1206,8 @@
                                   :dao.stream.remote/drain-budget
                                   :dao.stream.remote/max-outstanding
                                   :dao.stream.remote/max-filed
-                                  :dao.stream.remote/give-up-after])
+                                  :dao.stream.remote/give-up-after
+                                  :dao.stream.remote/request-prefix])
         _ (when-not (every? #(pos-int-or-nil? (get policy %))
                             [:dao.stream.remote/drain-budget
                              :dao.stream.remote/max-outstanding
@@ -1206,7 +1255,14 @@
      :step
      (fn [cd now]
        (when (contains? channels cd)
-         (link-step! (link-for! cd) now)))}))
+         (link-step! (link-for! cd) now)))
+     :release!
+     (fn [cd]
+       (when-some [link (get @by-channel cd)]
+         (channel-loss! link)
+         (swap! link assoc :pending {} :filed {} :filed-cursors {})
+         (swap! by-channel dissoc cd))
+       {:dao.stream/outcome :dao.stream/ok})}))
 
 
 (defn attacher

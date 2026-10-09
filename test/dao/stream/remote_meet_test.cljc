@@ -164,6 +164,9 @@
                          :capacity 8 :max-pairs max-pairs
                          :decision decision :judge-atom judge-atom
                          :duration duration :ring! ring :self :M
+                         :incarnation "epoch-1"
+                         :advertised-channel {:dao.stream/type :dao.stream.test/channel
+                                              :dao.stream/identity :M}
                          :fanout fanout})
         ticks (ring 16)
         facts (ring 16)
@@ -205,7 +208,8 @@
 (defn- tick!
   [sys ms]
   (stream/append! (:ticks sys) (lease/tick {:ms ms}))
-  (swap! (:judge-atom sys) (:judge-step sys)))
+  (swap! (:judge-atom sys) (:judge-step sys))
+  (meet/cleanup! (:m sys)))
 
 
 ;; =============================================================================
@@ -874,3 +878,59 @@
                       (:dao.stream.remote/reason
                         (stream/next in-refl 0)))
                 "the reconnect finds the pair alive")))))))
+
+
+(deftest s5-publication-correlation-and-cleanup-test
+  (let [sys (meeting-system {:max-pairs 2 :duration {:ms 10} :tolerance {:ms 0} :holder :a})
+        m (:m sys)
+        request {:meet/pair :b :meet/from :a :meet/request :fresh
+                 :meet/peer :a :meet/incarnation :requester}]
+    (tick! sys 1)
+    (stream/append! (:requests sys) request)
+    (stream/append! (:requests sys) request)
+    (stream/append! (:requests sys) 42)
+    (stream/append! (:requests sys) {:meet/here :a :meet/pair :b})
+    (meet/step! m 0)
+    (let [posts (filterv :meet/pair-for (values (:board sys)))
+          post (first posts)
+          in-id (get-in post [:dao.stream.remote/in :dao.stream/identity])
+          out-id (get-in post [:dao.stream.remote/out :dao.stream/identity])
+          renewal-id (get-in post [:dao.stream.remote/renewal :dao.stream/identity])
+          owned (mapv #(get-in @(:table sys) [% :handle]) [in-id out-id renewal-id])
+          reclaim (meet/reclaim-fn m)]
+      (is (= 2 (count posts)))
+      (is (= (first posts) (second posts)))
+      (is (= 1 (meet/active-pairs m)))
+      (is (= (:advertised-channel @m) (get-in post [:dao.stream.remote/in :dao.stream/channel])))
+      (is (= :fresh (:meet/request post)))
+      (is (= 2 (count (:diagnostics @m))))
+      (is (= (:dao.lease/lease post) (get-in @(:table sys) [in-id :dao.lease/lease])))
+      (is (= 2 (count (:facts @(:judge-atom sys)))))
+      (reclaim [in-id out-id])
+      (reclaim [in-id out-id])
+      (meet/cleanup! m)
+      (is (= 1 (count (:facts @(:judge-atom sys)))))
+      (is (= 0 (meet/active-pairs m)))
+      (is (every? #(= :dao.stream/closed (:dao.stream/outcome (stream/append! % :after))) owned))
+      (is (empty? (:renewals @m)))
+      (is (empty? (:correlations @m))))))
+
+
+(deftest s5-incarnation-and-epoch-admission-test
+  (let [a (meeting-system {:max-pairs 2 :duration {:ms 10} :tolerance {:ms 0} :holder :a})
+        b (meeting-system {:max-pairs 2 :duration {:ms 10} :tolerance {:ms 0} :holder :a})]
+    (swap! (:m a) assoc :incarnation "before" :max-grants 1)
+    (swap! (:m b) assoc :incarnation "after")
+    (doseq [sys [a b]]
+      (tick! sys 1)
+      (stream/append! (:requests sys) {:meet/pair :b :meet/from :a})
+      (meet/step! (:m sys) 0))
+    (is (not= (:dao.lease/lease (first (values (:board a))))
+              (:dao.lease/lease (first (values (:board b))))))
+    (let [post (first (values (:board a)))
+          subject (mapv #(get-in post [% :dao.stream/identity]) [:dao.stream.remote/in :dao.stream.remote/out])]
+      ((meet/reclaim-fn (:m a)) subject)
+      (stream/append! (:requests a) {:meet/pair :c :meet/from :a})
+      (meet/step! (:m a) 1)
+      (is (= 0 (meet/active-pairs (:m a))))
+      (is (= :dao.stream.remote-meet/past-bound (:meet/refused (last (values (:board a)))))))))

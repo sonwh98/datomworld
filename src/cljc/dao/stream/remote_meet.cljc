@@ -62,7 +62,9 @@
      (if (= :dao.stream/append! (:dao.stream.remote/op req))
        (update req :dao.stream.remote/args
                (fn [[v]]
-                 [(assoc v :meet/from (:dao.stream.remote/channel ctx))]))
+                 [(if (map? v)
+                    (assoc v :meet/from (:dao.stream.remote/channel ctx))
+                    v)]))
        req))
    :dao.stream.middleware/out
    (fn [_ctx _req outcome] outcome)})
@@ -82,6 +84,8 @@
      :dao.stream.middleware/verify
      (fn [d _ctx req]
        (when (and (= :dao.stream/append! (:dao.stream.remote/op req))
+                  (map? (first (:dao.stream.remote/args req)))
+                  (contains? (first (:dao.stream.remote/args req)) :meet/pair)
                   (number? (:meet/max-pairs d))
                   (>= (:meet/active-pairs d 0) (:meet/max-pairs d)))
          :dao.stream.remote-meet/past-bound))}))
@@ -117,6 +121,38 @@
   16)
 
 
+(defn- bounded-medium
+  [h encoded-size limit]
+  (if-not encoded-size h
+          (reify
+            stream/IDaoStreamDescriptor
+            (descriptor [_] (stream/descriptor h))
+
+
+            stream/IDaoStreamReader
+
+            (cursor [_ anchor] (stream/cursor h anchor))
+
+            (next [_ c] (stream/next h c))
+
+
+            stream/IDaoStreamWriter
+
+            (append!
+              [_ v]
+              (try
+                (if (> (encoded-size v) limit)
+                  {:dao.stream/outcome :dao.stream/invalid-value}
+                  (stream/append! h v))
+                (catch #?(:cljd dynamic :clj Throwable :cljs :default) _error
+                  {:dao.stream/outcome :dao.stream/invalid-value})))
+
+
+            stream/IDaoStreamClosable
+
+            (close! [_] (stream/close! h)))))
+
+
 (defn meeting
   "M's own state for the meeting board's interpreter (never the
    mirror's own table entries, which read and write the same raw
@@ -133,11 +169,23 @@
    constructor (`dao.stream.ringbuffer/create!`'s own handle, or a
    test double)."
   [{:keys [requests board table capacity max-pairs decision judge-atom
-           duration ring! self fanout]}]
-  (atom {:requests requests
+           duration ring! self fanout advertised-channel incarnation max-grants
+           encoded-size fact-bytes value-bytes lapses]}]
+  (when-not (and (some? incarnation) (stream/valid-descriptor? advertised-channel)
+                 (not= :dao.stream.remote-meet/served (:dao.stream/type advertised-channel)))
+    (throw (ex-info "meeting requires fresh incarnation and advertised channel"
+                    {:incarnation incarnation :advertised-channel advertised-channel})))
+  (when-not (every? #(and (integer? %) (pos? %))
+                    [capacity (or max-pairs 32) (or fanout default-fanout) (or max-grants 1024)
+                     (or fact-bytes 16384) (or value-bytes 65536)])
+    (throw (ex-info "invalid meeting bounds" {:capacity capacity :max-pairs max-pairs
+                                              :fanout fanout :max-grants max-grants})))
+  (when-not (and (lease/duration? duration) (or (nil? encoded-size) (fn? encoded-size)))
+    (throw (ex-info "invalid meeting duration or codec measurement" {:refused :profile})))
+  (atom {:requests (bounded-medium requests encoded-size (or fact-bytes 16384))
          :requests-cursor (:dao.stream/cursor
                             (stream/cursor requests stream/anchor-oldest))
-         :board board
+         :board (bounded-medium board encoded-size (or fact-bytes 16384))
          :table table
          :capacity capacity
          :max-pairs max-pairs
@@ -146,8 +194,19 @@
          :judge-atom judge-atom
          :duration duration
          :ring! ring!
+         :encoded-size encoded-size :value-bytes (or value-bytes 65536)
          :self self
          :fanout (or fanout default-fanout)
+         :advertised-channel advertised-channel
+         :incarnation incarnation
+         :max-grants (or max-grants 1024)
+         :grants 0
+         :correlations {}
+         :pending-publications {}
+         :pending-unwire []
+         :diagnostics []
+         :now nil
+         :lapses lapses
          :renewals {}
          :next-id 0}))
 
@@ -163,39 +222,59 @@
   [m prefix]
   (let [n (:next-id @m)]
     (swap! m update :next-id inc)
-    (str prefix "-" n)))
+    (str (:incarnation @m) "-" prefix "-" n)))
 
 
 (defn reclaim-fn
-  "The idempotent reclaim procedure for a relay pair's lease: `subject`
-   is `[in-id out-id]`, this namespace's own grant shape. Removes both
-   identities from the table, and with them the holder's renewal
-   medium entry the grant created (dao.stream.remote.md, section 6:
-   the reclaim procedure removes the subject entries and the renewal
-   entry together) -- absent already, a no-op, so a repeated call (the
-   judge re-reaches a still-pending lease every pass) stays
-   idempotent -- and decrements the meeting's own active-pairs count
-   exactly once, guarded on the table still holding the subject. Hand
-   this to `dao.lease/make-judge`'s `:reclaim`; this namespace never
-   drives the judge itself."
+  "Close owned relay/renewal rings once and queue post-judge unwiring.
+   The driver calls cleanup! after retaining the returned judge state."
   [m]
-  (fn [subject]
-    (let [[in-id out-id] subject
-          table (:table @m)
-          renewal-id (get (:renewals @m) in-id)
-          had? (contains? @table in-id)]
-      (swap! table dissoc in-id out-id renewal-id)
-      (swap! m update :renewals dissoc in-id)
-      (when had? (swap! m update :active-pairs dec))
+  (fn [[in-id out-id]]
+    (let [{:keys [table renewals]} @m
+          renewal-id (get renewals in-id)
+          owned (select-keys @table [in-id out-id renewal-id])]
+      (when (seq owned)
+        (doseq [[_ {:keys [handle]}] owned]
+          (when (stream/closable? handle) (stream/close! handle)))
+        (when-some [h (:handle (get owned renewal-id))]
+          (swap! m update :pending-unwire conj h))
+        (swap! table dissoc in-id out-id renewal-id)
+        (swap! m (fn [state]
+                   (-> state
+                       (update :active-pairs dec)
+                       (update :renewals dissoc in-id)
+                       (update :pending-publications
+                               (fn [records]
+                                 (into {} (remove (fn [[_ record]]
+                                                    (= in-id (get-in record [:post :dao.stream.remote/in :dao.stream/identity])))
+                                                  records))))
+                       (update :correlations
+                               (fn [records]
+                                 (into {} (remove (fn [[_ post]]
+                                                    (= in-id (get-in post [:dao.stream.remote/in :dao.stream/identity])))
+                                                  records))))))))
       true)))
 
 
+(defn cleanup!
+  "Apply queued unwiring after the judge's returned state is installed."
+  [m]
+  (let [{:keys [judge-atom pending-unwire]} @m]
+    (swap! judge-atom #(reduce lease/unwire-facts % pending-unwire))
+    (swap! m assoc :pending-unwire []))
+  m)
+
+
+(defn snapshot
+  "Current explicit table snapshot for the driver's channel update seam."
+  [m]
+  @(:table @m))
+
+
 (defn- remote-descriptor
-  [channel-id identity]
+  [channel identity]
   {:dao.stream/type :dao.stream/remote
-   :dao.stream/identity identity
-   :dao.stream/channel {:dao.stream/type :dao.stream.remote-meet/served
-                        :dao.stream/identity channel-id}})
+   :dao.stream/identity identity :dao.stream/channel channel})
 
 
 (defn- grant-pair!
@@ -216,72 +295,130 @@
    own pair descriptor's two remote descriptors, the renewal
    medium's, and the grant."
   [m holder]
-  (let [{:keys [table capacity ring! judge-atom duration]} @m
+  (let [{:keys [table capacity ring! judge-atom duration advertised-channel encoded-size value-bytes]} @m
         pair-id (mint-id! m "pair")
         in-id (str pair-id "-in")
         out-id (str pair-id "-out")
-        renewal-id (str pair-id "-renewal")]
-    (swap! table assoc
-           in-id {:handle (ring! capacity) :surface #{:reader :writer}}
-           out-id {:handle (ring! capacity) :surface #{:reader :writer}}
-           renewal-id {:handle (ring! capacity) :surface #{:writer}})
-    (let [renewal-handle (:handle (get @table renewal-id))
-          grant (lease/grant pair-id [in-id out-id] holder duration)]
-      (swap! judge-atom lease/wire-facts renewal-handle
-             (:dao.stream/cursor
-               (stream/cursor renewal-handle stream/anchor-oldest))
-             holder)
-      (swap! judge-atom lease/author-grant grant)
-      (swap! m assoc-in [:renewals in-id] renewal-id)
-      (swap! m update :active-pairs inc)
-      {:pair-id pair-id
-       :grant grant
-       :in (remote-descriptor pair-id in-id)
-       :out (remote-descriptor pair-id out-id)
-       :renewal (remote-descriptor pair-id renewal-id)})))
+        renewal-id (str pair-id "-renewal")
+        acquired (atom [])
+        original-judge @judge-atom]
+    (when-not (contains? @m :base-fact-count)
+      (swap! m assoc :base-fact-count (count (:facts original-judge))))
+    (try
+      (doseq [id [in-id out-id renewal-id]]
+        (let [h (ring! capacity)]
+          (when-not (and (stream/reader? h) (stream/writer? h) (stream/closable? h))
+            (throw (ex-info "invalid owned relay medium" {:identity id})))
+          (swap! acquired conj (bounded-medium h encoded-size value-bytes))))
+      (swap! table assoc
+             in-id {:handle (nth @acquired 0) :surface #{:reader :writer} :dao.lease/lease pair-id}
+             out-id {:handle (nth @acquired 1) :surface #{:reader :writer} :dao.lease/lease pair-id}
+             renewal-id {:handle (nth @acquired 2) :surface #{:writer} :dao.lease/lease pair-id})
+      (let [renewal-handle (:handle (get @table renewal-id))
+            grant (lease/grant pair-id [in-id out-id] holder duration)]
+        (swap! judge-atom lease/wire-declared-facts
+               {:handle renewal-handle
+                :cursor (:dao.stream/cursor (stream/cursor renewal-handle stream/anchor-oldest))
+                :source holder
+                :medium {:retention :evict-oldest :capacity capacity
+                         :value-domain :portable-values :attribution :per-author-media}})
+        (swap! judge-atom lease/author-grant grant)
+        (swap! m assoc-in [:renewals in-id] renewal-id)
+        (swap! m update :active-pairs inc)
+        (swap! m update :grants inc)
+        {:pair-id pair-id
+         :grant grant
+         :in (remote-descriptor advertised-channel in-id)
+         :out (remote-descriptor advertised-channel out-id)
+         :renewal (remote-descriptor advertised-channel renewal-id)})
+      (catch #?(:cljd dynamic :clj Throwable :cljs :default) error
+        (doseq [h @acquired] (stream/close! h))
+        (swap! table dissoc in-id out-id renewal-id)
+        (reset! judge-atom original-judge)
+        (throw error)))))
+
+
+(defn- diagnostic!
+  [m reason]
+  (swap! m update :diagnostics #(vec (take-last 64 (conj % {:reason reason})))))
+
+
+(defn- publish!
+  [m key post]
+  (let [r (stream/append! (:board @m) post)]
+    (when (= :dao.stream/full (:dao.stream/outcome r))
+      (swap! m update :pending-publications
+             #(if (contains? % key) % (assoc % key {:post post :since (:now @m)}))))))
 
 
 (defn- handle-request!
   [m v]
-  (cond
-    (contains? v :meet/here)
-    ;; A registration is a board record, not a lease: no lease id is
-    ;; minted for it, nothing granted, nothing judged (section 6: a
-    ;; board posting carries the lease id of the pair it belongs to,
-    ;; and a registration belongs to no pair).
-    (stream/append! (:board @m)
-                    {:meet/seen (:meet/here v)
-                     :meet/reflexive (:meet/from v)})
-
-    (contains? v :meet/pair)
-    (let [holder (or (:meet/from v) (:meet/pair v))
-          {:keys [active-pairs max-pairs]} @m]
-      ;; Capacity is enforced again here, at grant time: several
-      ;; requests may have been accepted against one published count,
-      ;; and the gate is never asked retroactively. The refusal is a
-      ;; present answer -- a board posting the asker reads through its
-      ;; own reflection, naming the ask and why -- never silence.
-      (if (and (number? max-pairs) (>= active-pairs max-pairs))
+  (let [operations (when (map? v) (filter #(contains? v %) [:meet/here :meet/pair :meet/ready]))
+        correlation (when (map? v) (select-keys v [:meet/request :meet/peer :meet/incarnation]))]
+    (if-not (and (= 1 (count operations))
+                 (some? (get v (first operations)))
+                 (or (not (contains? v :meet/request))
+                     (and (some? (:meet/request v)) (some? (:meet/incarnation v)))))
+      (diagnostic! m :malformed)
+      (case (first operations)
+        :meet/here
         (stream/append! (:board @m)
-                        {:meet/pair-for (:meet/pair v)
-                         :meet/asker (:meet/from v)
-                         :meet/refused :dao.stream.remote-meet/past-bound})
-        (let [{:keys [pair-id grant in out renewal]}
-              (grant-pair! m holder)]
-          ;; The complete grant rides the posting: the holder observes
-          ;; it before acting (dao.lease.md, The holder), the pair
-          ;; descriptors beside it, and the renewal medium's
-          ;; descriptor for the renewals the judge now counts.
-          (stream/append! (:board @m)
-                          {:meet/pair-for (:meet/pair v)
-                           :meet/asker (:meet/from v)
-                           :dao.lease/lease pair-id
-                           :dao.lease/grant grant
-                           :dao.stream.remote/in in
-                           :dao.stream.remote/out out
-                           :dao.stream.remote/renewal renewal}))))
+                        (merge correlation {:meet/seen (:meet/here v)
+                                            :meet/reflexive (:meet/from v)}
+                               (when-some [channel (:meet/channel v)] {:meet/channel channel})))
+        :meet/ready
+        (if (and (contains? #{:in :out} (:meet/side v))
+                 (some? (:meet/request v)) (some? (:meet/incarnation v)))
+          (stream/append! (:board @m) v)
+          (diagnostic! m :malformed-ready))
+        :meet/pair
+        (let [key [(:meet/from v) (:meet/incarnation v) (:meet/request v)]
+              correlated? (some? (:meet/request v))
+              existing (when correlated? (get-in @m [:correlations key]))
+              {:keys [active-pairs max-pairs grants max-grants]} @m]
+          (cond
+            existing (publish! m (:dao.lease/lease existing) existing)
+            (or (>= grants max-grants)
+                (and (number? max-pairs) (>= active-pairs max-pairs)))
+            (stream/append! (:board @m)
+                            (merge correlation {:meet/pair-for (:meet/pair v)
+                                                :meet/asker (:meet/from v)
+                                                :meet/refused :dao.stream.remote-meet/past-bound}))
+            :else
+            (let [{:keys [pair-id grant in out renewal]}
+                  (grant-pair! m (or (:meet/from v) (:meet/pair v)))
+                  post (merge correlation
+                              {:meet/pair-for (:meet/pair v) :meet/asker (:meet/from v)
+                               :meet/grantor (:self @m) :meet/grantor-incarnation (:incarnation @m)
+                               :dao.lease/lease pair-id :dao.lease/grant grant
+                               :dao.stream.remote/in in :dao.stream.remote/out out
+                               :dao.stream.remote/renewal renewal})]
+              (when correlated? (swap! m assoc-in [:correlations key] post))
+              (publish! m pair-id post))))))))
 
-    :else nil))
+
+(defn- observe-lapses!
+  [m]
+  (when (:lapses @m)
+    (loop [remaining (:fanout @m)]
+      (when (pos? remaining)
+        (let [{:keys [handle cursor]} (:lapses @m)
+              r (stream/next handle cursor)]
+          (case (:dao.stream/outcome r)
+            :dao.stream/ok
+            (do (swap! m assoc-in [:lapses :cursor] (:dao.stream/cursor r))
+                (let [fact (:dao.stream/value r)]
+                  (when (= :dao.lease/lapsed (:dao.lease/status fact))
+                    (publish! m [:lapse (:dao.lease/lease fact)]
+                              (assoc fact :meet/lapsed (:dao.lease/lease fact)
+                                     :meet/grantor (:self @m)
+                                     :meet/grantor-incarnation (:incarnation @m)))))
+                (recur (dec remaining)))
+            :dao.stream/gap
+            (do (swap! m assoc-in [:lapses :cursor] (:dao.stream/cursor r))
+                (diagnostic! m :lapse-observation-gap)
+                (recur (dec remaining)))
+            nil))))))
 
 
 (defn step!
@@ -293,23 +430,74 @@
    request. At most `:fanout` requests are handled in one pass --
    section 4's bounded meeting work -- and the cursor is preserved
    after each, so the remainder waits for later passes. Returns `m`."
+  ([m] (step! m (:now @m)))
+  ([m now]
+   (swap! m assoc :now now)
+   (cleanup! m)
+   (observe-lapses! m)
+   (doseq [[key {:keys [post since]}] (:pending-publications @m)]
+     (let [expired? (and now since (>= (- now since) 30000))
+           r (when-not expired? (stream/append! (:board @m) post))]
+       (when (or expired? (not= :dao.stream/full (:dao.stream/outcome r)))
+         (swap! m update :pending-publications dissoc key))))
+   (let [{:keys [active-pairs max-pairs decision]} @m]
+     (stream/append! decision {:meet/active-pairs active-pairs
+                               :meet/max-pairs max-pairs}))
+   (loop [budget (:fanout @m)]
+     (when (pos? budget)
+       (let [cursor (:requests-cursor @m)
+             r (stream/next (:requests @m) cursor)]
+         (case (:dao.stream/outcome r)
+           :dao.stream/ok
+           (do (swap! m assoc :requests-cursor (:dao.stream/cursor r))
+               (try (handle-request! m (:dao.stream/value r))
+                    (catch #?(:cljd dynamic :clj Throwable :cljs :default) _error
+                      (diagnostic! m :allocation-or-input)))
+               (recur (dec budget)))
+
+           :dao.stream/gap
+           (do (swap! m assoc :requests-cursor (:dao.stream/cursor r))
+               (recur (dec budget)))
+
+           nil))))
+   m))
+
+
+(defn judge-step!
+  "Step the explicitly wired judge, retain its result, then unwind reclaimed
+   renewal readers. The driver deposits lease ticks before calling this."
   [m]
-  (let [{:keys [active-pairs max-pairs decision]} @m]
-    (stream/append! decision {:meet/active-pairs active-pairs
-                              :meet/max-pairs max-pairs}))
-  (loop [budget (:fanout @m)]
-    (when (pos? budget)
-      (let [cursor (:requests-cursor @m)
-            r (stream/next (:requests @m) cursor)]
-        (case (:dao.stream/outcome r)
-          :dao.stream/ok
-          (do (swap! m assoc :requests-cursor (:dao.stream/cursor r))
-              (handle-request! m (:dao.stream/value r))
-              (recur (dec budget)))
+  (swap! (:judge-atom @m) lease/judge-step)
+  (cleanup! m))
 
-          :dao.stream/gap
-          (do (swap! m assoc :requests-cursor (:dao.stream/cursor r))
-              (recur (dec budget)))
 
-          nil))))
-  m)
+(defn rotate!
+  "Install a caller-assembled fresh epoch only when old leases, output and
+   renewal readers are quiescent. Historical judge state is never pruned.
+   A long-lived lease keeps admissions refused at the epoch cap."
+  [m incarnation judge]
+  (let [state @m old @(:judge-atom state)]
+    (if-not (and (some? incarnation) (not= incarnation (:incarnation state))
+                 (zero? (:active-pairs state)) (empty? (:renewals state))
+                 (empty? (:pending-unwire state)) (empty? (:pending-publications state))
+                 (empty? (:queue old)) (empty? (:ledger old))
+                 (= (count (:facts old)) (:base-fact-count state))
+                 (map? judge) (set? (:resolver-bindings judge))
+                 (empty? (:queue judge)) (empty? (:ledger judge)))
+      {:dao.stream/outcome :dao.stream/refused :reason ::epoch-live}
+      (do (reset! (:judge-atom state) judge)
+          (swap! m assoc :incarnation incarnation :next-id 0 :grants 0
+                 :correlations {} :base-fact-count (count (:facts judge)))
+          {:dao.stream/outcome :dao.stream/ok}))))
+
+
+(defn production-meeting
+  "Finite S5 meeting profile. encoded-size measures negotiated codec bytes.
+   Pass (entries @meeting) and explicit snapshot to the channel composition."
+  [opts]
+  (when-not (fn? (:encoded-size opts))
+    (throw (ex-info "production meeting requires negotiated encoded byte measurement"
+                    {:refused :encoded-size})))
+  (meeting (merge {:capacity 64 :max-pairs 32 :max-grants 1024
+                   :fanout 16 :fact-bytes 16384 :value-bytes 65536
+                   :duration {:ms 120000}} opts)))

@@ -40,7 +40,21 @@
   [handles]
   (fn [descriptor]
     (if-some [h (get handles (:dao.stream/identity descriptor))]
-      {:dao.stream/outcome :dao.stream/ok :dao.stream/handle h}
+      {:dao.stream/outcome :dao.stream/ok :dao.stream/handle
+       (reify stream/IDaoStreamReader
+         (cursor [_ anchor] (stream/cursor h anchor))
+
+         (next [_ c] (stream/next h c))
+
+
+         stream/IDaoStreamWriter
+
+         (append! [_ v] (stream/append! h v))
+
+
+         stream/IDaoStreamClosable
+
+         (close! [_] {:dao.stream/outcome :dao.stream/ok}))}
       {:dao.stream/outcome :dao.stream/not-found})))
 
 
@@ -327,3 +341,109 @@
             "the reflection, attached only through the pair, reads
              the served stream verbatim -- the relaying peer's mirror
              never interprets what crossed")))))
+
+
+(deftest second-attach-rolls-back-test
+  (let [closed (atom 0)
+        in (reify stream/IDaoStreamClosable
+             (close!
+               [_]
+               (swap! closed inc)
+               {:dao.stream/outcome :dao.stream/ok}))
+        attach! (pair/attacher
+                  {:dao.stream.remote.pair/attach!
+                   (fn [d]
+                     (if (= "in" (:dao.stream/identity d))
+                       {:dao.stream/outcome :dao.stream/ok :dao.stream/handle in}
+                       {:dao.stream/outcome :dao.stream/not-found}))})]
+    (is (= :dao.stream/not-found
+           (:dao.stream/outcome
+             (attach! (outer-descriptor "svc" (pair-descriptor "p" "in" "out"))))))
+    (is (= 1 @closed))))
+
+
+(deftest terminal-initial-cursor-test
+  (let [in (reify stream/IDaoStreamReader
+             (cursor
+               [_ _anchor]
+               {:dao.stream/outcome :dao.stream/transport-error
+                :dao.stream.remote/reason :dao.stream.remote/not-found})
+
+             (next [_ _cursor] {:dao.stream/outcome :dao.stream/end}))
+        attach! (pair/attacher
+                  {:dao.stream.remote.pair/attach! (lower-attach! {"in" in "out" (ring 8)})})
+        h (:dao.stream/handle
+            (attach! (outer-descriptor "svc" (pair-descriptor "p" "in" "out"))))]
+    (is (= :dao.stream.remote/channel-gone
+           (:dao.stream.remote/reason (stream/cursor h stream/anchor-oldest))))))
+
+
+(deftest independent-channel-observers-and-release-test
+  (let [in (ring 8) out (ring 8)
+        cd (pair-descriptor "p" "in" "out")
+        links (pair/links {:dao.stream.remote.pair/attach! (lower-attach! {"in" in "out" out})
+                           :dao.stream.remote.pair/max-entries 1
+                           :dao.stream.remote.pair/max-reflections 2
+                           :dao.stream.remote/max-outstanding 2})
+        a ((:attach links) (outer-descriptor "a" cd))
+        b ((:attach links) (outer-descriptor "b" cd))
+        end ((:channel-end links) cd)
+        c1 (:dao.stream/cursor (stream/cursor (:reader end) stream/anchor-oldest))
+        c2 (:dao.stream/cursor (stream/cursor (:reader end) stream/anchor-oldest))]
+    (is (:initialized? end))
+    (stream/append! in {:test/request :from-peer})
+    ((:step links) cd 1)
+    (is (= {:test/request :from-peer} (:dao.stream/value (stream/next (:reader end) c1))))
+    (is (= {:test/request :from-peer} (:dao.stream/value (stream/next (:reader end) c2))))
+    (is (= :dao.stream/full (:dao.stream/outcome ((:attach links) (outer-descriptor "c" cd)))))
+    (is (= :dao.stream/full (:dao.stream/outcome
+                              ((:attach links) (outer-descriptor "d" (pair-descriptor "q" "in" "out"))))))
+    (stream/close! (:dao.stream/handle a))
+    (is (= :dao.stream/ok (:dao.stream/outcome (stream/descriptor (:dao.stream/handle b)))))
+    ((:release! links) cd)
+    ((:release! links) cd)
+    (is (= 0 ((:entries links))))
+    (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! in :source-still-open))))))
+
+
+(deftest pair-policy-deadline-and-outstanding-test
+  (let [in (ring 8) out (ring 16) events (ring 16)
+        cd (pair-descriptor "p" "in" "out")
+        links (pair/links {:dao.stream.remote.pair/attach! (lower-attach! {"in" in "out" out})
+                           :dao.stream.remote/events events
+                           :dao.stream.remote/max-outstanding 2
+                           :dao.stream.remote/max-filed 2
+                           :dao.stream.remote/drain-budget 1
+                           :dao.stream.remote/give-up-after 5})]
+    ((:open! links) cd 10)
+    (let [h (:dao.stream/handle ((:attach links) (outer-descriptor "svc" cd)))]
+      (is (= :dao.stream/ok (:dao.stream/outcome (stream/append! h :first))))
+      (is (= :dao.stream/full (:dao.stream/outcome (stream/append! h :unsent))))
+      ((:step links) cd 15)
+      ((:step links) cd 16)
+      (is (= 0 ((:entries links))))
+      (is (= 1 (count (filter #(= :dao.stream.remote/append-unknown (:dao.stream.remote/event %)) (values events)))))
+      (is (= 1 (count (filter #(= [:first] (:dao.stream.remote/args %)) (values out))))))))
+
+
+(deftest reattachment-does-not-accept-old-request-ids-test
+  (let [in (ring 16) out (ring 16)
+        cd (pair-descriptor "p" "in" "out")
+        links (pair/links {:dao.stream.remote.pair/attach! (lower-attach! {"in" in "out" out})})
+        old (:dao.stream/handle ((:attach links) (outer-descriptor "svc" cd)))
+        old-id (:dao.stream.remote/id (first (values out)))]
+    ((:release! links) cd)
+    (let [fresh (:dao.stream/handle ((:attach links) (outer-descriptor "svc" cd)))
+          new-id (:dao.stream.remote/id (last (values out)))
+          answer {:dao.stream/identity "svc" :dao.stream/outcome :dao.stream/ok
+                  :dao.stream/descriptor {:dao.stream/type :test/source :dao.stream/identity "svc"}
+                  :dao.stream.remote/surface #{:reader :writer}}]
+      (is (not= old-id new-id))
+      (stream/append! in (assoc answer :dao.stream.remote/id old-id))
+      (stream/descriptor fresh)
+      (is (nil? (:source-descriptor (remote/confirmation fresh))))
+      (stream/append! in (assoc answer :dao.stream.remote/id new-id))
+      (stream/descriptor fresh)
+      (is (= "svc" (get-in (remote/confirmation fresh) [:source-descriptor :dao.stream/identity])))
+      (is (:closed? (remote/confirmation old))))
+    ((:release! links) cd)))

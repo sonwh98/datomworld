@@ -43,6 +43,7 @@
   (:require [clojure.string :as str]
             [dao.stream :as stream]
             [dao.stream.remote :as remote]
+            [dao.stream.remote-route :as route]
             [dao.stream.ringbuffer :as ringbuffer]
             [dao.stream.ws :as ws]
             [dao.stream.ws-project :as ws-project]))
@@ -798,9 +799,15 @@
    Without `:connect!`, or for a transport other than :ws, `{:status
    :refused :reason ::no-transport}`.  An invalid bound is the
    composition error the validating layer throws."
-  [{:keys [spec host bounds events identities now] n :name}]
+  [{:keys [spec host bounds events identities now table names] n :name :as opts}]
   (let [b (merge production-bounds bounds)]
     (cond
+      (table-refusal (or table {}) names)
+      {:status :refused :reason ::invalid-table :detail (table-refusal (or table {}) names)}
+
+      (:route opts)
+      (route/dial opts)
+
       (not (valid-target? n identities))
       {:status :refused :reason ::invalid-target :spec spec :name n
        :identities identities}
@@ -830,7 +837,8 @@
                                :traffic (writer-target traffic)
                                :cursor (mint traffic stream/anchor-newest)
                                :ring (buffer capacity)
-                               :table {}
+                               :table (or table {})
+                               :names names
                                :step-budget (:step-budget b)
                                :mirror-budget (:mirror-budget b)
                                :chase-budget (:chase-budget b)}))
@@ -902,18 +910,23 @@
    carries its neutral `cause` and whether it ever `opened?`.  Lost,
    closed and refused dials are answered unchanged."
   [d now]
-  (if-not (contains? #{:resolving :attached} (:status d))
-    d
-    (let [d (update d :since #(if (some? %) % now))]
-      (ws-project/dial-step! (:dial d) now)
-      (case (:status d)
-        :resolving (let [d (resolve-step d)]
-                     (if (resolve-expired? d now)
-                       (assoc (lost d) :cause :expired)
-                       d))
-        :attached (if (channel-lost? d)
-                    (lost d)
-                    d)))))
+  (if (:route-state d)
+    (try (route/step d now)
+         (catch #?(:cljd dynamic :clj Throwable :cljs :default) _error
+           (assoc (route/close! d) :status :lost :cause :dropped
+                  :failure {:stage :route-step :exception? true})))
+    (if-not (contains? #{:resolving :attached} (:status d))
+      d
+      (let [d (update d :since #(if (some? %) % now))]
+        (ws-project/dial-step! (:dial d) now)
+        (case (:status d)
+          :resolving (let [d (resolve-step d)]
+                       (if (resolve-expired? d now)
+                         (assoc (lost d) :cause :expired)
+                         d))
+          :attached (if (channel-lost? d)
+                      (lost d)
+                      d))))))
 
 
 (defn cause
@@ -966,13 +979,15 @@
    Idempotent; identity on a dial that has no connection or is already
    detaching, lost or closed."
   [d]
-  (let [h (some-> (:dial d) ws-project/channel :handle)]
-    (if (or (nil? h)
-            (:detaching? d)
-            (contains? #{:lost :closed :refused} (:status d)))
-      d
-      (do (stream/close! h)
-          (assoc d :detaching? true)))))
+  (if (:route-state d)
+    (assoc (route/close! d) :status :lost :cause :dropped)
+    (let [h (some-> (:dial d) ws-project/channel :handle)]
+      (if (or (nil? h)
+              (:detaching? d)
+              (contains? #{:lost :closed :refused} (:status d)))
+        d
+        (do (stream/close! h)
+            (assoc d :detaching? true))))))
 
 
 (defn close!
@@ -980,9 +995,37 @@
    attached.  Idempotent; answers the dial, `:closed`.  A closed dial is
    not stepped again: a redial composes a fresh one."
   [d]
-  (if (= :closed (:status d))
-    d
-    (do (when-some [h (some-> (:dial d) ws-project/channel :handle)]
-          (stream/close! h))
-        (close-handles! (cons (:handle d) (vals (:handles d))))
-        (assoc d :status :closed))))
+  (if (:route-state d)
+    (route/close! d)
+    (if (= :closed (:status d))
+      d
+      (do (when-some [h (some-> (:dial d) ws-project/channel :handle)]
+            (stream/close! h))
+          (close-handles! (cons (:handle d) (vals (:handles d))))
+          (assoc d :status :closed)))))
+
+
+(defn update-tables
+  "Install explicit table/name snapshots before the next mirror pass.
+   Returns the retained composition value; never closes table-owned media."
+  [composition table names]
+  (if-some [detail (table-refusal table names)]
+    (throw (ex-info "invalid remote channel table snapshot" detail))
+    (do
+      (when-some [a (or (:acceptor composition) (:dial composition))]
+        (swap! a assoc :table table :names names))
+      (if (:route-state composition)
+        (route/update-tables composition table names)
+        (assoc composition :table table :names names)))))
+
+
+(defn route-driver
+  "Preflight and compose finite route plans with a shared work allowance."
+  [plans bounds]
+  (route/driver plans bounds))
+
+
+(defn route-driver-step
+  "Advance every planned channel fairly at supplied now; retain returned state."
+  [state now]
+  (route/driver-step state now))
