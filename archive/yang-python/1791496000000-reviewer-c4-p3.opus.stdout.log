@@ -1,0 +1,40 @@
+The focused JVM suite (including the slow linked tests) is still running in the background. I'll write the verdict when it finishes.
+
+So far I've found nothing that blocks landing:
+- **Load order:** `py`'s spec requires nothing, and `pysp` requires `py` at its pinned manifest address.
+- **Run isolation:** each task gets its own module store, so `attach!` being idempotent can't carry a cursor over from one run to the next.
+- **Lint:** kondo shows 0 errors and 0 warnings on the touched files.
+- **cljstyle:** the check was blocked by a permission prompt, so it hasn't run.
+
+Low-priority notes so far:
+1. **Fail-closed test doesn't match the docs.** The fail-closed test runs with a name environment that includes `pysp`. That differs from what the design doc says: "a `pysp`-free name environment still runs the naive linked program and refuses the derived one by hook name". No test uses a `pysp`-free environment.
+2. **Stale status line.** `docs/design/yang.antlr.md:2642` still says only F1, P1 and P2 have landed.
+3. **Wider `py` surface.** The new exports `py/rt-ctx` and `py/rt-limit` hand any module that requires `py` the depth and limit cells. This is a small widening, because `py/restore!` already lets such a module write the context.
+4. **Small bundled cost.** Every bundled call safepoint now makes two extra function calls.
+5. **Formatting noise.** The diff includes a large whitespace-only realignment of `py/vconj` lines.
+
+My verdict is **READY_TO_LAND**. The findings are in `collab/1791496000000-reviewer-c4-p3.opus.findings.md`.
+
+**What I ran:**
+- **Tests:** the five P3 test namespaces on the JVM, slow tests included, passed: 69 tests, 814 assertions, 0 failures. This was a narrower set than the engineers' 147-test run.
+- **Lint:** kondo shows 0 errors and 0 warnings on the touched files.
+- **Not run:**
+  - `cljstyle check`, because its permission prompt was declined.
+  - The Node runtime lane.
+  - The slow Dart lane.
+
+  All three still need to run before landing.
+
+**The four invariants from the brief all hold:**
+- **Load order:** `pysp` requires `py`, and `py` requires nothing.
+- **Signal delivery:** `KeyboardInterrupt` gets raised under the linked prelude on all three VMs. That covers the bare case, the caught case, the no-signal case and a registered Python handler.
+- **Recursion depth:** tracking works across the module boundary. The linked runs print the same results as the bundled suite at both the default limit and limit 100.
+- **No site marks** appear in the prelude bodies, and hook insertion is deterministic.
+
+I also checked that `attach!` can't carry a stale signal cursor from one run into the next. Module stores belong to each task's own VM state, so its "already attached" guard only applies within one task.
+
+**Non-blocking follow-ups:**
+1. **Fail-closed test doesn't match the docs.** The test always serves `pysp` in the name environment. The updated design doc claims a run with no `pysp` in the name environment refuses the program by hook name, and no test checks that. Either the test needs that case or the doc line needs rewording.
+2. **Stale status line.** `docs/design/yang.antlr.md:2642` still says only F1, P1 and P2 have landed.
+3. **Wider `py` surface.** The new `py/rt-ctx` and `py/rt-limit` exports let any module that requires `py` read and write the recursion-limit and context cells. That's a small change, since `py/restore!` already lets them write the context. It's worth an Architect note if per-module capability limits are later applied to `py`.
+4. **Small bundled cost.** Bundled runs now make two extra function calls at every call safepoint.
