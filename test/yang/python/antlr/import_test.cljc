@@ -216,8 +216,7 @@
                        (= 'py/delattr (get-in n [:operator :name]))
                        (= "y" (get-in n [:operands 1 :value]))))
                 (nodes body)))))
-  (testing "del x reads the global first (NameError when unbound), then
-            removes it"
+  (testing "del x uses strict py/global-del (NameError when unbound in module)"
     (let [pk (portable/packet
                [:file_input
                 (statement [:del_stmt ["DEL" "del"]
@@ -228,8 +227,26 @@
           body (lower/lower-module-body pk)
           ops (set (map #(get-in % [:operator :name])
                         (filter #(= :application (:type %)) (nodes body))))]
-      (is (contains? ops 'py/global-get))
-      (is (contains? ops 'py/global-del-quiet)))))
+      (is (contains? ops 'py/global-del))))
+  (testing "scope collects del targets as local cells in function scope"
+    (let [pk (portable/packet
+               [:file_input
+                [:stmt [:compound_stmt
+                        [:funcdef ["DEF" "def"] [:name ["NAME" "f"]]
+                         [:parameters ["OPEN_PAREN" "("] ["CLOSE_PAREN" ")"]]
+                         ["COLON" ":"]
+                         [:block ["NEWLINE" "\n"] ["INDENT" "    "]
+                          (statement [:del_stmt ["DEL" "del"]
+                                      [:exprlist
+                                       (chain [:expr :atom_expr :atom]
+                                              [:name ["NAME" "x"]])]])
+                          ["DEDENT" "<EOF>"]]]]]
+                ["EOF" "<EOF>"]])
+          analysis (scope/analyze pk)
+          f-scope (some (fn [s] (when (contains? (set (:locals s)) "x") s))
+                        (vals (:scopes analysis)))]
+      (is (some? f-scope) "x is treated as a local cell of f")
+      (is (= :cell (:kind (scope/resolve analysis (:id f-scope) "x")))))))
 
 
 ;; =============================================================================

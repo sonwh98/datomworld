@@ -1919,11 +1919,29 @@
                                    (py/reindex ks2 0 {})))
                  :py/None)))))]
     [py/global-del-quiet (fn [g n] (py/dict-del-quiet g n))]
+    [py/global-del
+     ;; strict `del x` at module level: must be bound in the module's own dict,
+     ;; never falling back to builtins; absent is NameError
+     (fn [g n]
+       (if (py/dict-has? g n)
+         (py/dict-del-quiet g n)
+         (py/raise-new py.b/NameError
+                       (py/str (data/str-concat "name '" (get n :py/str)
+                                                "' is not defined")))))]
     [py/delattr-quiet
      (fn [o name]
        (let [c (cell/get o)]
          (do (cell/set! o (assoc c :attrs (data/dissoc (get c :attrs) name)))
              :py/None)))]
+    [py/class-ns-del
+     ;; strict `del x` inside class body: must exist in class attrs, else NameError
+     (fn [cls name]
+       (let [c (cell/get cls)]
+         (if (not (= (get (get c :attrs) name :py/missing) :py/missing))
+           (do (cell/set! cls (assoc c :attrs (data/dissoc (get c :attrs) name)))
+               :py/None)
+           (py/raise-new py.b/NameError
+                         (py/str (data/str-concat "name '" name "' is not defined"))))))]
     [py/delattr
      ;; `del o.name` (C4 I1): a module binding removed from the module's
      ;; dict, AttributeError naming the attribute when it is absent; the

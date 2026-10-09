@@ -3180,9 +3180,9 @@ precompiled CST packets or rows, since the parser is JVM-only):
   require — an import-free program's tree is unchanged, so its linked
   program root golden did not move. Each import-free golden moved once
   with the prelude change: the `py` manifest to
-  `:segment/blake3-607cef06002c49a1cebdf836b751077f6d77c4618ebb317cc0533ef895d297a1`
+  `:segment/blake3-ad6f34e349ce527382ddd039236197a700c6c1182f163bc3b8bcf13449f1c3d8`
   and, through the requirement pin, the `pysp` manifest to
-  `:segment/blake3-a842d2ad662f1d0a0dd7fb92922221343603472bac591073ac23ba82c9772d54`
+  `:segment/blake3-79432fa68e23ce3d1a4fbf4f882713b8ba9fe0cb74467285cb832e25c7458da9`
   (JVM goldens in `linked_prelude_test` and `linked_safepoint_test`);
   the bundled prelude root, program root, derivation record and
   prelude-id goldens in `float_address_test` moved once each; the hook

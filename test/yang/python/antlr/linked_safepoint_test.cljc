@@ -241,8 +241,8 @@
   "I1 moved this once: the pinned `py` requirement is py's own manifest
    address, which I1's module runtime moved."
   (keyword (str "segment/blake3-"
-                "a842d2ad662f1d0a0dd7fb9292222134"
-                "3603472bac591073ac23ba82c9772d54")))
+                "79432fa68e23ce3d1a4fbf4f882713b8"
+                "ba9fe0cb74467285cb832e25c7458da9")))
 
 
 (defn- pysp-manifest-address

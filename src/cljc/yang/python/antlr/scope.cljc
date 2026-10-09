@@ -214,6 +214,9 @@
                     ;; an import binds names in the scope it runs in
                     ;; (module level: globals; a function body: locals)
                     "import_stmt" (run! bind! (import-bindings pk n))
+                    "del_stmt" (do (run! bind! (target-names pk (first (p/child-rules pk n
+                                                                                      "exprlist"))))
+                                   (run! walk (p/children pk n)))
                     "expr_stmt" (do (run! #(run! bind! (target-names pk %))
                                           (expr-stmt-targets pk n))
                                     (run! walk (p/children pk n)))

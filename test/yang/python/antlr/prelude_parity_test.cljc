@@ -1590,7 +1590,8 @@
 
 (deftest shadow-then-delete-builtin-test
   (testing "a module key shadows the builtin; deleting it restores the
-            builtin; a name in neither is NameError"
+            builtin; a name in neither is NameError; deleting a builtin without
+            global binding raises NameError"
     (doseq [[k result]
             (run-with-prelude
               prelude/uast
@@ -1598,16 +1599,24 @@
                      a (py/global-get g {:py/str "len"})
                      _ (py/global-set g {:py/str "len"} 1)
                      b (py/global-get g {:py/str "len"})
-                     _ (py/global-del-quiet g {:py/str "len"})
+                     _ (py/global-del g {:py/str "len"})
                      c (py/global-get g {:py/str "len"})
-                     d (py/try (fn [] (py/global-get g {:py/str "nosuch"}))
+                     d (py/try (fn [] (py/global-del g {:py/str "len"}))
                                (fn [e] (py/isinstance e py.b/NameError))
-                               (fn [] :no))]
-                 (py/vconj (py/vconj (py/vconj (py/vconj [] (= a py.b/len)) b)
-                                     (= c py.b/len))
-                           d)))]
+                               (fn [] false))
+                     cls (py/make-class "C" :py/None)
+                     _ (cell/set! cls (assoc (cell/get cls) :attrs {"x" 1}))
+                     del-ok (do (py/class-ns-del cls "x") true)
+                     del-err (py/try (fn [] (py/class-ns-del cls "x"))
+                                     (fn [e] (py/isinstance e py.b/NameError))
+                                     (fn [] false))]
+                 (py/vconj (py/vconj (py/vconj (py/vconj (py/vconj (py/vconj [] (= a py.b/len)) b)
+                                                         (= c py.b/len))
+                                               d)
+                                     del-ok)
+                           del-err)))]
       (testing (str k)
-        (is (= [true 1 true true] result))))))
+        (is (= [true 1 true true true true] result))))))
 
 
 (deftest builtin-mutation-test

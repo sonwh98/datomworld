@@ -505,13 +505,8 @@
       :cell (u/seq-nodes
               [(app* 'py/local-get (u/v (symbol name)) (u/lit {:py/str name}))
                (app* 'cell/set! (u/v (symbol name)) (u/lit :py/unbound))])
-      :class-attr (u/seq-nodes
-                    [(app* 'py/class-ns-get (u/v (:class ctx)) (u/lit name)
-                           (u/lam [] none))
-                     (app* 'py/delattr-quiet (u/v (:class ctx)) (u/lit name))])
-      :global (u/seq-nodes
-                [(app* 'py/global-get (u/v globals-sym) (global-key name))
-                 (app* 'py/global-del-quiet (u/v globals-sym) (global-key name))]))))
+      :class-attr (app* 'py/class-ns-del (u/v (:class ctx)) (u/lit name))
+      :global (app* 'py/global-del (u/v globals-sym) (global-key name)))))
 
 
 ;; -----------------------------------------------------------------------------

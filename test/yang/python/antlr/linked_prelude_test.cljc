@@ -225,8 +225,8 @@
    (`py/import`, module objects, sys.modules and its two pre-seeded
    modules) and the `ImportError` class."
   (keyword (str "segment/blake3-"
-                "607cef06002c49a1cebdf836b751077f"
-                "6d77c4618ebb317cc0533ef895d297a1")))
+                "ad6f34e349ce527382ddd039236197a7"
+                "00c6c1182f163bc3b8bcf13449f1c3d8")))
 
 
 (def ^:private vector-formats
