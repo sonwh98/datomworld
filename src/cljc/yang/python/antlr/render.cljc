@@ -163,6 +163,9 @@
       (contains? v :py/generator) (str "<generator object " (:py/generator v) ">")
       (contains? v :py/iterator) (str "<" (:py/iterator v) " object>")
       (contains? v :py/class) (str "<class '" (:py/class v) "'>")
+      ;; C4 I1: the uniform module repr; CPython's built-in marker is not
+      ;; distinguished
+      (contains? v :py/module) (str "<module '" (:py/module v) "'>")
       (contains? v :py/function) (str "<function " (:py/function v) ">")
       :else (pr-str v))
     (= :py/method v) "<bound method>"

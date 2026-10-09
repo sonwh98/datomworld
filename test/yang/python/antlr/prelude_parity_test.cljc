@@ -1641,9 +1641,15 @@
 
 (deftest seeded-builtins-test
   (testing "py.b/builtins holds exactly the class names and the twenty-five
-            function names, keyed as a module dict is, in table order"
+            function names, keyed as a module dict is, in table order, then
+            the four standard dunders of the builtins module object (C4 I1:
+            that module's dict is the builtins namespace itself)"
     (let [table-order (mapv (fn [row] {:py/str (first row)})
-                            (concat prelude/builtin-classes prelude/builtin-functions))]
+                            (concat prelude/builtin-classes
+                                    prelude/builtin-functions))
+          with-dunders (into table-order (map (fn [nm] {:py/str nm}))
+                             ["__name__" "__package__" "__spec__"
+                              "__loader__"])]
       (is (= (set (map (fn [nm] {:py/str nm})
                        (concat (map first prelude/builtin-classes)
                                builtin-function-names)))
@@ -1652,7 +1658,7 @@
       (doseq [[k result] (run-with-prelude prelude/uast
                                            '(get (cell/get py.b/builtins) :keys))]
         (testing (str k)
-          (is (= table-order result)))))))
+          (is (= with-dunders result)))))))
 
 
 (defn- definition-keys
@@ -1693,6 +1699,46 @@
                       :py/out)))]
       (testing (str k)
         (is (= [true [[true]]] result))))))
+
+
+(deftest module-objects-test
+  (testing "a module object's dict is its namespace (C4 I1): __name__ set
+            at creation, attribute read/write/delete dict operations,
+            __dict__ the dict itself, a second import answered from
+            sys.modules, and a None-spec miss ImportError"
+    (let [checks ['(py/getattr m "__name__")
+                  '(py/getattr m "v")
+                  '(do (py/setattr m "v" 5) (py/getattr m "v"))
+                  '(py/delattr m "v")
+                  '(py/is hit m)
+                  '(not (= (py/modules-ref (py/str "sys")) :py/missing))
+                  '(py/try
+                     (fn []
+                       (do (py/import (py/str "nope") :py/None :py/None)
+                           false))
+                     (fn [e] (py/isinstance e py.b/ImportError))
+                     (fn [] false))]
+          printed (reduce (fn [acc c] (list 'py/vconj acc c)) [] checks)
+          form (list 'py/run-module
+                     (list 'fn ['g 'gf]
+                           (list 'let
+                                 ['m (list 'py/module-run
+                                           '(py/str "m")
+                                           :py/None
+                                           (list 'fn ['d 'gf2]
+                                                 '(py/dict-set d
+                                                               {:py/str "v"}
+                                                               7)))
+                                  'hit (list 'py/import
+                                             '(py/str "m")
+                                             {:name "m", :package? false}
+                                             :py/None)]
+                                 (list 'py/print printed))))]
+      (doseq [[k result] (run-with-prelude prelude/uast form)]
+        (testing (str k)
+          (is (= {:py/out [["m" 7 5 nil true true true]], :py/exception nil}
+                 result)
+              (pr-str result)))))))
 
 
 (deftest prelude-notation-test

@@ -238,9 +238,11 @@
 ;; =============================================================================
 
 (def ^:private pysp-manifest-golden
+  "I1 moved this once: the pinned `py` requirement is py's own manifest
+   address, which I1's module runtime moved."
   (keyword (str "segment/blake3-"
-                "6133313d60c4080c0803daa6de5b53b1"
-                "95fa6c650af4b4b9e354ce247950fa87")))
+                "a842d2ad662f1d0a0dd7fb9292222134"
+                "3603472bac591073ac23ba82c9772d54")))
 
 
 (defn- pysp-manifest-address

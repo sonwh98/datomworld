@@ -32,6 +32,12 @@
      eager; a generator expression is an anonymous generator whose first
      iterable is evaluated and `iter()`-checked at creation, every other
      clause lazily, at each resume.
+   - `import m` (C4 I1, single undotted names) lowers at the statement to
+     `(py/import m pym.m/spec pym.m/body)` plus the binding of the
+     module object, one `(require 'pym.m)` hoisted per import in the
+     program wrapper (linked only); `sys` and `builtins` come pre-seeded
+     with no delivery. `del m.y` is a delattr call, `del x` an unbind.
+     Dotted, aliased and from-imports are I2's.
    - A function whose body yields is a generator function: its code binds
      the arguments and allocates the cells, then returns
      `(py/make-generator name (fn [%gen] body))`; each `yield v` is
@@ -57,8 +63,10 @@
     [yang.python.antlr.scope :as scope]
     [yang.python.antlr.uast :as u]
     [yang.stage :as stage]
+    [yin.vm :as vm]
     [yin.vm.encoder :as encoder]
-    [yin.vm.integer :as integer]))
+    [yin.vm.integer :as integer]
+    [yin.vm.module :as module]))
 
 
 ;; =============================================================================
@@ -92,15 +100,9 @@
    "async_funcdef" "async def",
    "async_stmt" "async statement",
    "annassign" "annotated assignment",
-   "del_stmt" "del statement",
-   "import_stmt" "import",
-   "import_name" "import",
-   "import_from" "import",
-   "import_as_name" "import",
-   "import_as_names" "import",
-   "dotted_as_name" "import",
-   "dotted_as_names" "import",
-   "dotted_name" "import",
+   "import_from" "from import",
+   "import_as_name" "from import",
+   "import_as_names" "from import",
    "assert_stmt" "assert statement",
    "match_stmt" "match statement",
    "subject_expr" "match statement",
@@ -149,7 +151,7 @@
     "augassign" "except_clause" "block" "comp_op" "trailer" "subscriptlist"
     "subscript_" "sliceop" "arglist" "argument" "testlist_comp"
     "dictorsetmaker" "strings" "comp_for" "comp_iter" "comp_if" "with_item"
-    "yield_arg"})
+    "yield_arg" "dotted_name" "dotted_as_name" "dotted_as_names"})
 
 
 (def handled-rules
@@ -160,7 +162,8 @@
     "global_stmt" "nonlocal_stmt" "if_stmt" "while_stmt" "for_stmt"
     "try_stmt" "with_stmt" "funcdef" "classdef" "test" "test_nocond"
     "lambdef" "lambdef_nocond" "or_test" "and_test" "not_test" "comparison"
-    "expr" "star_expr" "atom_expr" "atom" "name" "yield_stmt" "yield_expr"})
+    "expr" "star_expr" "atom_expr" "atom" "name" "yield_stmt" "yield_expr"
+    "del_stmt" "import_stmt" "import_name"})
 
 
 (defn- default-arm
@@ -487,6 +490,167 @@
       :cell (app* 'cell/set! (u/v (symbol name)) (u/lit :py/unbound))
       :class-attr (app* 'py/delattr-quiet (u/v (:class ctx)) (u/lit name))
       :global (app* 'py/global-del-quiet (u/v globals-sym) (global-key name)))))
+
+
+(declare target-elements target-atom-expr apply-trailer)
+
+
+(defn- del-name
+  "`del name`: strict where `unbind-name` is quiet -- CPython raises
+   NameError (a global) or UnboundLocalError (a local) deleting a name
+   with no binding, so the read runs first and the delete follows it."
+  [ctx name]
+  (let [r (resolve-name ctx name)]
+    (case (:kind r)
+      :cell (u/seq-nodes
+              [(app* 'py/local-get (u/v (symbol name)) (u/lit {:py/str name}))
+               (app* 'cell/set! (u/v (symbol name)) (u/lit :py/unbound))])
+      :class-attr (u/seq-nodes
+                    [(app* 'py/class-ns-get (u/v (:class ctx)) (u/lit name)
+                           (u/lam [] none))
+                     (app* 'py/delattr-quiet (u/v (:class ctx)) (u/lit name))])
+      :global (u/seq-nodes
+                [(app* 'py/global-get (u/v globals-sym) (global-key name))
+                 (app* 'py/global-del-quiet (u/v globals-sym) (global-key name))]))))
+
+
+;; -----------------------------------------------------------------------------
+;; Imports (C4 I1)
+;; -----------------------------------------------------------------------------
+
+(def ^:private preseeded-modules
+  "The runtime-synthesized modules `py/init!` pre-seeds into sys.modules
+   (docs/design/yang.antlr.md 8.5.6, resolution step 2): their import
+   carries no spec or body and hoists no require -- resolution never
+   reaches the linker."
+  #{"sys" "builtins"})
+
+
+(def module-prefix
+  "The reserved linker-module prefix of a Python module (8.5.6): module
+   `m` is the linker module `pym.m`; nothing is ever installed at the
+   `pym` root."
+  "pym")
+
+
+(defn module-symbol
+  "The linker module name of the Python module `name`."
+  [name]
+  (symbol (str module-prefix "." name)))
+
+
+(defn- import-target-name
+  "The module name of import target `n` (a dotted_as_name) when it is
+   I1's shape -- a single undotted name, no `as` -- else nil."
+  [pk n]
+  (let [dn (first (p/child-rules pk n "dotted_name"))]
+    (when (and dn
+               (not (p/has-token? pk n "as"))
+               (= 1 (count (p/child-rules pk dn "name"))))
+      (let [nm (first (p/child-rules pk dn "name"))]
+        (:text (first (p/children pk nm)))))))
+
+
+(defn- packet-import-targets
+  "Every import target of the packet's `import` statements, in source
+   order, at any depth (a function or class body included): delivery is
+   hoisted for each, wherever the statement runs."
+  [pk]
+  (let [out (volatile! [])]
+    (letfn [(walk
+              [n]
+              (when (p/rule? n)
+                (if (= "import_name" (:rule n))
+                  (when-let [das (first (p/child-rules pk n "dotted_as_names"))]
+                    (vswap! out into (p/child-rules pk das "dotted_as_name")))
+                  (run! walk (p/children pk n)))))]
+      (walk (p/root pk))
+      @out)))
+
+
+(defn imported-module-names
+  "The distinct module names the unit statically imports in I1's shape,
+   source order, the pre-seeded `sys` and `builtins` aside."
+  [pk]
+  (into [] (comp (keep #(import-target-name pk %))
+                 (remove preseeded-modules)
+                 (distinct))
+        (packet-import-targets pk)))
+
+
+(defn- import-requires
+  "The linker modules a unit's static imports deliver: `pym.<name>` per
+   imported name, source order. The module's own `py` require is not
+   here; the wrappers add it ahead of these."
+  [pk]
+  (mapv module-symbol (imported-module-names pk)))
+
+
+(defn- lower-import
+  "import_name (I1): every target a single undotted module, no `as`.
+   Each lowers at its statement position to `(py/import name spec body)`
+   plus the binding of the module object to the imported name in the
+   scope the statement runs in; `sys.modules` answers first, the body
+   runs lazily in the importing task. Dotted and aliased targets are
+   I2's; a from-import too. `sys` and `builtins` need no delivery: spec
+   and body are None, and the pre-seeded sys.modules entry answers."
+  [ctx n]
+  (let [pk (:pk ctx)
+        das (first (rules ctx n "dotted_as_names"))
+        targets (rules ctx das "dotted_as_name")]
+    (u/seq-nodes
+      (mapv (fn [t]
+              (when (p/has-token? pk t "as") (unsupported! t "aliased import"))
+              (let [dn (first (rules ctx t "dotted_name"))
+                    names (rules ctx dn "name")]
+                (when (not= 1 (count names))
+                  (unsupported! t "dotted import"))
+                (let [nm (name-of ctx (first names))
+                      preseeded (contains? preseeded-modules nm)
+                      mod (module-symbol nm)
+                      spec (if preseeded none (u/v (symbol (str mod) "spec")))
+                      body (if preseeded none (u/v (symbol (str mod) "body")))
+                      tmp (gen "imp" t)]
+                  (u/let1 tmp (app* 'py/import (u/lit {:py/str nm}) spec body)
+                          (assign-name ctx nm (u/v tmp))))))
+            targets))))
+
+
+(defn- lower-del-target
+  "One `del` target: a name unbound strictly, an attribute chain removed
+   from its receiver (`del m.y`, C4 I1's module attribute). Subscript and
+   starred targets are later slices'; a tuple deletes each element."
+  [ctx t]
+  (if-let [nm (scope/simple-name (:pk ctx) t)]
+    (del-name ctx nm)
+    (if-let [elems (target-elements ctx t)]
+      (u/seq-nodes (mapv #(lower-del-target ctx %) elems))
+      (let [ae (target-atom-expr ctx t)
+            ks (when ae (kids ctx ae))
+            trailers (rest ks)]
+        (when (or (nil? ae) (empty? trailers))
+          (unsupported! t "delete target"))
+        (let [receiver (reduce #(apply-trailer ctx %1 %2)
+                               ((:lower ctx) ctx (first ks))
+                               (butlast trailers))
+              last-t (last trailers)
+              head (first (kids ctx last-t))]
+          (cond
+            (p/token? head "[") (unsupported! last-t "delete of a subscript")
+            (p/token? head ".")
+            (let [attr (name-of ctx (first (rules ctx last-t "name")))]
+              (app* 'py/delattr receiver (u/lit attr)))
+            :else (unsupported! t "delete target")))))))
+
+
+(defn- lower-del
+  "del_stmt: `del exprlist`, each target deleted in order. A one-target
+   exprlist is not a tuple to `target-elements`, so it lowers as the
+   single target it is."
+  [ctx n]
+  (let [xl (first (rules ctx n "exprlist"))
+        targets (or (target-elements ctx xl) [xl])]
+    (u/seq-nodes (mapv #(lower-del-target ctx %) targets))))
 
 
 ;; =============================================================================
@@ -1501,6 +1665,12 @@
     "with_stmt" (lower-with ctx n)
     "funcdef" (lower-funcdef ctx n)
     "classdef" (lower-classdef ctx n)
+    "del_stmt" (lower-del ctx n)
+    ;; a from-import is I2's; the import_name arm lowers I1's form
+    "import_stmt" (if (p/rule? (first (kids ctx n)) "import_from")
+                    (unsupported! n "from import")
+                    ((:lower ctx) ctx (first (kids ctx n))))
+    "import_name" (lower-import ctx n)
     ;; ---- expressions
     "testlist_star_expr" (display ctx n)
     "testlist" (display ctx n)
@@ -1590,18 +1760,126 @@
    default) carries the prelude tree ahead of the body; `:linked`
    requires the module `py` from the task's link pair, then allocates the
    task's runtime state with `(py/init!)`. Either way the body names only
-   `py/` exports, never a runtime key."
+   `py/` exports, never a runtime key.
+
+   A unit that statically imports a module needs it delivered: under
+   `:linked` one `(require 'pym.<name>)` per import is hoisted after the
+   `py` require (ruling 4's explicit eager-dependency restriction; an
+   import-free unit's tree is unchanged). Imports need the linked
+   prelude -- a module closure's free reads never see the ambient store,
+   so a bundled importer's `py/*` definitions are invisible to an
+   imported body -- and a bundled unit holding an import is refused."
   ([packet] (lower-packet packet {}))
   ([packet {:keys [prelude], :or {prelude :bundled}}]
-   (let [main (app* 'py/run-main
+   (let [requires (import-requires (p/validate! packet))
+         main (app* 'py/run-main
                     (u/lam [globals-sym globals-fn-sym]
                            (lower-module-body packet)))]
      (u/mark-tails
        (case prelude
-         :bundled (u/then prelude/uast main)
-         :linked (u/seq-nodes [(app* 'require (u/lit prelude/module-name))
-                               (app* 'py/init!)
-                               main]))))))
+         :bundled (if (seq requires)
+                    (throw (ex-info
+                             "Imports need the linked prelude (docs/design/yang.antlr.md 8.5.6)"
+                             {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
+                              :construct "import under the bundled prelude"}))
+                    (u/then prelude/uast main))
+         :linked (u/seq-nodes
+                   (into [(app* 'require (u/lit prelude/module-name))]
+                         (concat (mapv #(app* 'require (u/lit %)) requires)
+                                 [(app* 'py/init!) main]))))))))
+
+
+;; =============================================================================
+;; The module emitter: one Python unit as the linker module pym.<name>
+;; =============================================================================
+
+(defn- require-node
+  "(require 'm) as a tree node."
+  [m]
+  (u/sexp->uast (list 'require (list 'quote m))))
+
+
+(def module-exports
+  "The exports of a compiled Python unit: its spec and body, immutable
+   after install (docs/design/yang.antlr.md 8.5.6's module shape)."
+  '#{spec body})
+
+
+(defn module-packet
+  "One ok packet as the linker module `pym.<name>`: one wide application
+   whose operands are `(require 'py)`, one `(require 'pym.<i>)` per
+   static import (delivery hoisted and pinned, bodies lazy), then the
+   spec and body definitions. `name` is the Python module name; I1
+   admits undotted names only, and the spec's package-ness is false (I2
+   derives it from source layout). The body is the same form
+   `lower-packet` runs as `__main__`: one code image, two roles."
+  [packet {:keys [name]}]
+  (when (or (empty? name) (str/includes? name "."))
+    (throw (ex-info "I1 module names are single undotted names"
+                    {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
+                     :construct "dotted module name",
+                     :name name})))
+  (let [requires (import-requires (p/validate! packet))
+        nodes (into [prelude/module-name] requires)
+        defs [(u/def! 'spec (u/lit {:name name, :package? false}))
+              (u/def! 'body (u/lam [globals-sym globals-fn-sym]
+                                   (lower-module-body packet)))]
+        operands (into (mapv require-node nodes) defs)
+        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
+    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
+
+
+(defn- declare-free-name
+  "The `:primitives` entry free name `n` declares over `registry`, or nil
+   when `covered` (the requirement-pinned module names) covers it."
+  [registry covered n]
+  (if (and (symbol? n) (some? (namespace n))
+           (contains? covered (symbol (namespace n))))
+    nil
+    (if-let [profile (vm/profile-of vm/primitives n)]
+      [n profile]
+      (if-let [address (module/host-export-profile registry n)]
+        (let [entry (module/module-entry (:modules registry)
+                                         (symbol (namespace n)))
+              f (get-in entry [:slice (symbol (name n))])]
+          [n {:yin.k/profile address,
+              :yin.k/effects
+              (get (:callable-effects registry) f #{})}])
+        (throw (ex-info
+                 "the module reads an undeclared name"
+                 {:yang.python.antlr/refusal
+                  :yang.python.antlr/undeclared-free,
+                  :name n}))))))
+
+
+(defn module-spec
+  "`yin.vm.linker.publish/publish-module!`'s spec for the Python module
+   `name` over the host registry `registry`, requiring `py` at
+   `py-address` and each imported module at its manifest address in
+   `deps` ({python-name address}). A free name of the module tree is
+   declared one of three ways, as the hook prelude's emitter declares
+   its own: a name qualified by `py` or by an imported `pym.<i>` is
+   covered by that requirement, discharged by a linked module of equal
+   manifest address; a bare name is a primitive declared by its
+   `vm/primitives` profile; any other `ns/name` is a host export
+   declared by the profile address the registry's host module `ns`
+   publishes. A free name none of these supplies is refused before
+   anything is published. This namespace emits; it never publishes."
+  [registry packet {:keys [name py-address deps]}]
+  (let [ast (module-packet packet {:name name})
+        covered (into #{prelude/module-name} (map module-symbol (keys deps)))
+        free-names (vec (sort-by str
+                                 (remove (conj (prelude/defined-keys ast) 'yin/def)
+                                         (prelude/free-names ast))))]
+    {:name (module-symbol name),
+     :ast ast,
+     :exports module-exports,
+     :requires (into {prelude/module-name py-address}
+                     (map (fn [[n a]] [(module-symbol n) a]))
+                     deps),
+     :primitives
+     (into {} (keep (partial declare-free-name registry covered)
+                    free-names))}))
 
 
 ;; =============================================================================

@@ -440,9 +440,10 @@
 
 
 (deftest unsupported-constructs-are-qualified-test
+  ;; `import m` and `del x` lower since I1; the I2 import forms still
+  ;; refuse, naming their construct
   (doseq [[src rule construct]
-          [["import os\n" "import_stmt" "import"]
-           ["x = a @ b\n" "expr" "operator @"]
+          [["x = a @ b\n" "expr" "operator @"]
            ["x @= b\n" "augassign" "augmented @="]
            ["def f(a: int): pass\n" "tfpdef" "parameter annotation"]
            ["a[1:2:3] = x\n" "trailer" "extended slice assignment"]
@@ -451,7 +452,6 @@
            ["x = f'{a}'\n" "atom" "f-string"]
            ["x = 1 <> 2\n" "comp_op" "comparison <>"]
            ["class C(A, B): pass\n" "classdef" "multiple inheritance"]
-           ["del x\n" "del_stmt" "del statement"]
            ["assert x\n" "assert_stmt" "assert statement"]]]
     (testing src
       (is (= {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
@@ -619,16 +619,17 @@
       (is (= :yang.python.antlr/syntax-error
              (:yang.python.antlr/diagnostic (first diagnostics))))
       (is (seq (:errors (first diagnostics))))))
-  (testing "an unsupported construct produces a qualified diagnostic"
+  (testing "an import under the bundled prelude produces a qualified
+            diagnostic (I1: imports need the linked profile)"
     (let [{:keys [program diagnostics]} (run-stages ["import os\n"])]
       (is (empty? program))
       (is (= {:yang.cst/unit [:u 1],
+              :message "Imports need the linked prelude (docs/design/yang.antlr.md 8.5.6)",
               :yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
-              :rule "import_stmt",
-              :construct "import",
-              :span [0 9],
-              :message "Unsupported Python construct: import"}
-             (first diagnostics)))))
+              :construct "import under the bundled prelude"}
+             (select-keys (first diagnostics)
+                          [:yang.cst/unit :message
+                           :yang.python.antlr/diagnostic :construct])))))
   (testing "yield at module level, and yield in a comprehension's own scope,
             is one syntax diagnostic and no program"
     (doseq [src ["yield 1\n" "x = [(yield x) for x in y]\n"]]

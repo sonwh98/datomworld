@@ -122,6 +122,28 @@
   (mapv #(name-text pk %) (p/child-rules pk n "name")))
 
 
+(defn import-bindings
+  "The names an `import_stmt` binds, as Python's own rule has it: plain
+   `import a.b` binds `a`, the root; `import a.b as x` binds `x`; a
+   `from` import is I2's and binds nothing here (the lowering refuses it
+   before any name it would bind is read)."
+  [pk n]
+  (letfn [(dotted-as
+            [dan]
+            ;; the direct `name` child exists only beside an `as`; a
+            ;; plain target binds the dotted name's root
+            (let [as-name (first (p/child-rules pk dan "name"))]
+              (if as-name
+                [(name-text pk as-name)]
+                (let [dn (first (p/child-rules pk dan "dotted_name"))]
+                  [(name-text pk (first (p/child-rules pk dn "name")))]))))]
+    (if-let [iname (first (p/child-rules pk n "import_name"))]
+      (if-let [das (first (p/child-rules pk iname "dotted_as_names"))]
+        (into [] (mapcat dotted-as) (p/child-rules pk das "dotted_as_name"))
+        [])
+      [])))
+
+
 (defn params-of
   "Parameter names of a funcdef or lambdef node, in order. Shapes the
    lowering rejects (defaults, stars, annotations) still contribute their
@@ -189,6 +211,9 @@
                                           (names-of-decl pk n))
                     "nonlocal_stmt" (vswap! acc update :nonlocals into
                                             (names-of-decl pk n))
+                    ;; an import binds names in the scope it runs in
+                    ;; (module level: globals; a function body: locals)
+                    "import_stmt" (run! bind! (import-bindings pk n))
                     "expr_stmt" (do (run! #(run! bind! (target-names pk %))
                                           (expr-stmt-targets pk n))
                                     (run! walk (p/children pk n)))

@@ -24,6 +24,7 @@
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.render :as render]
     [yang.python.antlr.safepoint :as hooks]
+    [yang.python.antlr.import-programs :as imports]
     [yang.python.antlr.safepoint-programs :as programs]
     [yang.safepoint :as safepoint]
     [yin.vm :as vm]
@@ -868,11 +869,19 @@
 
 (deftest sys-is-refused-test
   (testing "sys.setrecursionlimit and sys.settrace are not reachable: the
-            lowering refuses `import`, so neither runs silently"
-    (doseq [source ["import sys\nsys.setrecursionlimit(50)\n"
-                    "import sys\nsys.settrace(None)\n"]]
-      (is (= ["Unsupported Python construct: import"]
-             (map :message (:diagnostics (run-python (host-registry) source))))))))
+            pre-seeded `sys` module resolves under the bundled profile too
+            (I1: no linker delivery), but it exposes only sys.modules, so
+            each read is an AttributeError and nothing runs silently"
+    (doseq [[source attr] [["import sys\nsys.setrecursionlimit(50)\n"
+                            "setrecursionlimit"]
+                           ["import sys\nsys.settrace(None)\n" "settrace"]]]
+      (let [results (run-python (host-registry) source)]
+        (is (not (contains? results :diagnostics)) (pr-str results))
+        (doseq [[k v] results]
+          (is (= {:py/out [], :py/exception {:type "AttributeError",
+                                             :args [attr]}}
+                 v)
+              (str k)))))))
 
 
 (defn- node-shape
@@ -888,6 +897,21 @@
                #'programs/throwclose #'programs/nested-admission
                #'programs/delegation #'programs/while-true-pass
                #'programs/caught #'programs/def-and-while]]
+      (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
+             (map node-shape (:yang.cst/nodes @v)))
+          (str v)))))
+
+
+(deftest import-packets-are-the-parsers-test
+  (testing "each packet in import-programs is what the parser makes of the
+            source its docstring holds"
+    (doseq [v [#'imports/m-packet #'imports/k-packet #'imports/t-packet
+               #'imports/w-packet #'imports/e-packet #'imports/n-packet
+               #'imports/o-packet #'imports/d-packet #'imports/c-packet
+               #'imports/r-packet #'imports/x-packet #'imports/s-packet
+               #'imports/q-packet #'imports/tt-packet #'imports/nn-packet
+               #'imports/dotted-packet #'imports/aliased-packet
+               #'imports/from-packet #'imports/del-packet]]
       (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
              (map node-shape (:yang.cst/nodes @v)))
           (str v)))))

@@ -181,7 +181,7 @@
              (disj (sexp-def-keys (get (into {} prelude/definitions)
                                        'py/init!))
                    'py.rt/state)))
-      (is (= 61 (count prelude/runtime-keys))))))
+      (is (= 65 (count prelude/runtime-keys))))))
 
 
 ;; =============================================================================
@@ -221,11 +221,12 @@
 ;; =============================================================================
 
 (def ^:private manifest-golden
-  "P3 moved this once: the two runtime-cell accessors `py/rt-ctx` and
-   `py/rt-limit` the linked hook module reads are new exports."
+  "I1 moved this once: the definition list gained the module runtime
+   (`py/import`, module objects, sys.modules and its two pre-seeded
+   modules) and the `ImportError` class."
   (keyword (str "segment/blake3-"
-                "b891d48b14e3fc3757535e580a3511e9"
-                "5d8ddf6c57d3e637f1ba0f9a97cb0ee7")))
+                "607cef06002c49a1cebdf836b751077f"
+                "6d77c4618ebb317cc0533ef895d297a1")))
 
 
 (def ^:private vector-formats

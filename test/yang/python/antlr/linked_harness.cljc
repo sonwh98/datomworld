@@ -92,6 +92,16 @@
   (source {'py (:address @published), 'pysp (:address @published-pysp)}))
 
 
+(defn publish-guest-module!
+  "One guest module's `spec` (lower/module-spec's) published into `py`'s
+   own content store, where its pinned requirements already live:
+   `publish-module!`'s answer. Guest modules are tiny beside `py`, so a
+   test may publish its own; publish imports bottom-up, the `deps` map
+   naming each import's address."
+  [spec]
+  (publish/publish-module! (:store @published) spec))
+
+
 (def ^:private semantic-loader
   (linearize/ast-loader semantic/vm-load-program))
 

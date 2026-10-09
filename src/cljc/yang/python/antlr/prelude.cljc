@@ -50,6 +50,13 @@
                      as `%globals` and every function closes over it, which
                      is Python's own `__globals__`; a miss falls back to the
                      builtins dict, and a miss there is NameError
+     module          a cell {:py/type :module :name s :dict d} (C4 I1): the
+                     object `py/import` binds, its dict the module's own
+                     namespace, so attribute reads, writes and deletes are
+                     dict operations every function of the module sees, and
+                     `__dict__` reads the cell's dict; sys.modules itself is
+                     the dict `py.rt/modules`, `sys` and `builtins` the two
+                     module objects `py/init!` pre-seeds into it
 
    Calling convention: a function's `:code` takes one vector of arguments
    laid out as the parameters are written. `py/call-kw` (and `py/call`,
@@ -93,6 +100,14 @@
                      frame fits; the hook prelude checks function entry
                      against it and sets it
      py.rt/out       the values `print` collected, one vector per call
+     py.rt/modules   sys.modules (C4 I1): the dict of py str name to module
+                     object; an import consults it before anything else, a
+                     miss is instantiated and inserted before its body
+                     runs, and a raising body removes its entry again.
+                     py.rt/sys and py.rt/builtins-mod are the two module
+                     objects `py/init!` pre-seeds into it: `sys`, whose
+                     dict holds py.rt/modules under the name modules, and
+                     `builtins`, whose dict is the builtins namespace
 
    Escapes and handlers tell the first pass through a capture point from a
    re-entry with a flag cell allocated before the capture (`:first`, then
@@ -1009,40 +1024,54 @@
                  (let [m (py/class-lookup (get c :class) name)]
                    (if (= m :py/missing) (py/attr-error name) (py/bind o m)))
                  own))
-             (if (= t :class)
-               (let [m (py/class-lookup o name)]
-                 (if (= m :py/missing)
-                   (if (= name "__name__") (py/str (get c :name)) (py/attr-error name))
-                   m))
-               (if (= t :list)
-                 (if (= name "append")
-                   (py/method o py.b/list-append)
-                   (py/attr-error name))
-                 (if (= t :function)
-                   (if (= name "__name__")
-                     (py/str (get c :name))
+             (if (= t :module)
+               ;; the module's dict is its namespace, so every attribute
+               ;; (the dunders py/module-new sets included) reads through
+               ;; it; `__dict__` is the dict itself (C4 I1). The lookup
+               ;; key is a call: a map literal here would embed the symbol
+               (if (= name "__dict__")
+                 (get c :dict)
+                 (let [dc (cell/get (get c :dict))
+                       slot (get (get dc :index)
+                                 (assoc {} :py/str name)
+                                 :py/missing)]
+                   (if (= slot :py/missing)
+                     (py/attr-error name)
+                     (get (get dc :vals) slot))))
+               (if (= t :class)
+                 (let [m (py/class-lookup o name)]
+                   (if (= m :py/missing)
+                     (if (= name "__name__") (py/str (get c :name)) (py/attr-error name))
+                     m))
+                 (if (= t :list)
+                   (if (= name "append")
+                     (py/method o py.b/list-append)
                      (py/attr-error name))
-                   (if (= t :set)
-                     (if (= name "add") (py/method o py.b/set-add) (py/attr-error name))
-                     (if (= t :dict)
-                       (if (= name "items")
-                         (py/method o py.b/dict-items)
-                         (if (= name "keys")
-                           (py/method o py.b/dict-keys)
-                           (if (= name "values")
-                             (py/method o py.b/dict-values)
-                             (if (= name "get")
-                               (py/method o py.b/dict-get)
-                               (py/attr-error name)))))
-                       (if (= t :generator)
-                         (py/gen-attr o name)
-                         (if (= t :iterator)
-                           (if (= name "__next__")
-                             (py/method o py.b/gen-next)
-                             (if (= name "__iter__")
-                               (py/method o py.b/gen-iter)
-                               (py/attr-error name)))
-                           (py/attr-error name))))))))))
+                   (if (= t :function)
+                     (if (= name "__name__")
+                       (py/str (get c :name))
+                       (py/attr-error name))
+                     (if (= t :set)
+                       (if (= name "add") (py/method o py.b/set-add) (py/attr-error name))
+                       (if (= t :dict)
+                         (if (= name "items")
+                           (py/method o py.b/dict-items)
+                           (if (= name "keys")
+                             (py/method o py.b/dict-keys)
+                             (if (= name "values")
+                               (py/method o py.b/dict-values)
+                               (if (= name "get")
+                                 (py/method o py.b/dict-get)
+                                 (py/attr-error name)))))
+                         (if (= t :generator)
+                           (py/gen-attr o name)
+                           (if (= t :iterator)
+                             (if (= name "__next__")
+                               (py/method o py.b/gen-next)
+                               (if (= name "__iter__")
+                                 (py/method o py.b/gen-iter)
+                                 (py/attr-error name)))
+                             (py/attr-error name)))))))))))
          (py/attr-error name)))]
     [py/setattr
      (fn [o name x]
@@ -1052,7 +1081,13 @@
            (if (if (= t :instance) true (= t :class))
              (do (cell/set! o (assoc c :attrs (assoc (get c :attrs) name x)))
                  :py/None)
-             (py/attr-error name)))
+             (if (= t :module)
+               ;; a module attribute is a binding in the module's dict
+               ;; (C4 I1), so the module's own functions see the write;
+               ;; the key is a call, as py/getattr's
+               (do (py/dict-set (get c :dict) (assoc {} :py/str name) x)
+                   :py/None)
+               (py/attr-error name))))
          (py/attr-error name)))]
 
     ;; ---------------------------------------------------------- numbers
@@ -1889,6 +1924,18 @@
        (let [c (cell/get o)]
          (do (cell/set! o (assoc c :attrs (data/dissoc (get c :attrs) name)))
              :py/None)))]
+    [py/delattr
+     ;; `del o.name` (C4 I1): a module binding removed from the module's
+     ;; dict, AttributeError naming the attribute when it is absent; the
+     ;; keys are calls, as py/getattr's
+     (fn [o name]
+       (let [c (cell/get o)]
+         (if (= (get c :py/type) :module)
+           (let [d (get c :dict)]
+             (if (py/dict-has? d (assoc {} :py/str name))
+               (py/dict-del-quiet d (assoc {} :py/str name))
+               (py/attr-error name)))
+           (py/attr-error name))))]
     [py/dict-fill
      (fn [d pairs i]
        (let [pair (get pairs i :py/stop)]
@@ -2365,7 +2412,9 @@
                        (assoc {} :py/generator (get c :name))
                        (if (= t :iterator)
                          (assoc {} :py/iterator "iterator")
-                         :py/object))))))))))]
+                         (if (= t :module)
+                           (assoc {} :py/module (get c :name))
+                           :py/object)))))))))))]
     [py/snapshot-exc
      (fn [e]
        (if (= (py/content-type e) :instance)
@@ -2876,15 +2925,86 @@
              (py/type-text "type " x " doesn't define __round__ method")))))]
 
     ;; ---------------------------------------------------------- module
+    ;; Modules over sys.modules (C4 I1, docs/design/yang.antlr.md 8.5.6):
+    ;; install delivers spec and body, instantiation is the importing
+    ;; task's own evaluation, and the module object's dict is the
+    ;; namespace the body receives, so no linker store holds Python state.
+    [py/globals-fn
+     ;; the module's `globals` builtin over its namespace dict
+     (fn [g]
+       (py/make-function "globals" {:params [], :no-kw true} [] []
+                         (fn [args] g)))]
+    [py/module-of
+     ;; a module object: a heap cell {:py/type :module :name s :dict d},
+     ;; `name` plain text, `d` the namespace dict the body receives
+     (fn [name d]
+       (cell/new (assoc (assoc (assoc {} :py/type :module) :name name) :dict d)))]
+    [py/module-dict (fn [m] (get (cell/get m) :dict))]
+    [py/module-new
+     ;; a fresh module object carrying the standard dunders (8.5.6):
+     ;; __name__ and __package__ as given, __spec__ and __loader__ None;
+     ;; __file__ is absent. `name` a py str, `package` a py str or None
+     (fn [name package]
+       (let [d (py/dict-new)]
+         (do (py/dict-set d {:py/str "__name__"} name)
+             (py/dict-set d {:py/str "__package__"} package)
+             (py/dict-set d {:py/str "__spec__"} :py/None)
+             (py/dict-set d {:py/str "__loader__"} :py/None)
+             (py/module-of (get name :py/str) d))))]
+    [py/modules-ref
+     ;; sys.modules[name]: the module object, or :py/missing
+     (fn [name]
+       (let [c (cell/get py.rt/modules)
+             slot (get (get c :index) (py/key name) :py/missing)]
+         (if (= slot :py/missing)
+           :py/missing
+           (get (get c :vals) slot))))]
+    [py/modules-put!
+     (fn [name m] (do (py/dict-set py.rt/modules name m) :py/None))]
+    [py/modules-del!
+     (fn [name] (py/dict-del-quiet py.rt/modules name))]
+    [py/module-run
+     ;; instantiate the module `name` (a py str) from `body`: the object
+     ;; is created and inserted into sys.modules BEFORE the body runs, so
+     ;; an import the body itself makes finds the partial module, and a
+     ;; raising body removes the entry again and re-raises to the
+     ;; importer; the module object is the value
+     (fn [name package body]
+       (let [m (py/module-new name package)
+             d (py/module-dict m)]
+         (do (py/modules-put! name m)
+             (py/try (fn [] (do (body d (py/globals-fn d)) :py/None))
+                     (fn [e] (do (py/modules-del! name) (py/raise e)))
+                     (fn [] :py/None))
+             m)))]
+    [py/import
+     ;; the import statement's runtime (I1), the 8.5.6 resolution order:
+     ;; sys.modules first -- a hit is the module object, the body never
+     ;; re-executes; a miss instantiates from the linker-delivered spec
+     ;; and body, __package__ from the spec's package-ness. spec and body
+     ;; None name a runtime-synthesized module (`sys`, `builtins`),
+     ;; pre-seeded by py/init!, so a miss is ImportError
+     (fn [name spec body]
+       (let [hit (py/modules-ref name)]
+         (if (not (= hit :py/missing))
+           hit
+           (if (= body :py/None)
+             (py/raise-new
+               py.b/ImportError
+               (py/str (data/str-concat "No module named '"
+                                        (data/str-concat (get name :py/str) "'"))))
+             (py/module-run name
+                            (if (get spec :package?) name :py/None)
+                            body)))))]
     [py/run-module
-     ;; the body receives the module namespace dict and the module's
-     ;; `globals` builtin, a function object returning that dict
+     ;; a body against a fresh module namespace, the outcome snapshotted:
+     ;; the test-runner form of the entry wrapper. No module object and no
+     ;; sys.modules entry -- py/run-main and py/import are the named forms
      (fn [body]
        (do (cell/set! py.rt/out [])
            (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
            (let [g (py/dict-new)
-                 gf (py/make-function "globals" {:params [], :no-kw true} [] []
-                                      (fn [args] g))
+                 gf (py/globals-fn g)
                  exc (py/try (fn [] (do (body g gf) :py/None))
                              (fn [e] e)
                              (fn [] :py/None))]
@@ -2892,9 +3012,23 @@
                     :py/exception
                     (if (= exc :py/None) nil (py/snapshot-exc exc))))))]
     [py/run-main
-     ;; the entry wrapper's call: today the same as run-module; I1 gives it
-     ;; __name__ and the module object
-     (fn [body] (py/run-module body))]])
+     ;; the entry wrapper's call (I1): the same body image py/import runs,
+     ;; as the module "__main__" -- a module object inserted into
+     ;; sys.modules with __name__ set before the body runs, its raising
+     ;; body's re-raise the program's snapshotted value. One code image
+     ;; therefore sees __main__ as main and its own name as an import
+     (fn [body]
+       (do (cell/set! py.rt/out [])
+           (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
+           (let [exc (py/try
+                       (fn []
+                         (do (py/module-run (py/str "__main__") :py/None body)
+                             :py/None))
+                       (fn [e] e)
+                       (fn [] :py/None))]
+             (assoc (assoc {} :py/out (cell/get py.rt/out))
+                    :py/exception
+                    (if (= exc :py/None) nil (py/snapshot-exc exc))))))]])
 
 
 (def builtin-classes
@@ -2915,6 +3049,9 @@
    ["TypeError" 'py.b/TypeError 'py.b/Exception]
    ["ValueError" 'py.b/ValueError 'py.b/Exception]
    ["AttributeError" 'py.b/AttributeError 'py.b/Exception]
+   ;; what py/import raises when sys.modules holds no runtime-synthesized
+   ;; module either (C4 I1); catchable link refusals are I4's
+   ["ImportError" 'py.b/ImportError 'py.b/Exception]
    ["NameError" 'py.b/NameError 'py.b/Exception]
    ["UnboundLocalError" 'py.b/UnboundLocalError 'py.b/NameError]
    ["RuntimeError" 'py.b/RuntimeError 'py.b/Exception]
@@ -3089,7 +3226,9 @@
 (defn- init-form
   "`py/init!`'s body: the three runtime cells, every builtin class,
    function and method implementation, then the builtins dict seeded from
-   the tables, then the ready flag, under the uninit guard."
+   the tables, then sys.modules with the two runtime-synthesized modules
+   `py/init!` pre-seeds (8.5.6 resolution step 2), then the ready flag,
+   under the uninit guard."
   []
   (list 'fn []
         (list 'if (list '= 'py.rt/state :py/uninit)
@@ -3113,6 +3252,27 @@
                 (mapv (fn [[nm key _]]
                         (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
                       builtin-functions)
+                ;; sys.modules and its two pre-seeded modules (C4 I1):
+                ;; `sys`, whose dict holds the dict itself under modules,
+                ;; and `builtins`, whose dict IS the builtins namespace
+                ;; with the standard dunders in it
+                [(define 'py.rt/modules '(py/dict-new))
+                 (define 'py.rt/sys '(py/module-new (py/str "sys") :py/None))
+                 (list 'py/dict-set '(py/module-dict py.rt/sys)
+                       {:py/str "modules"} 'py.rt/modules)
+                 (define 'py.rt/builtins-mod '(py/module-of "builtins"
+                                                            py.b/builtins))
+                 (list 'py/dict-set 'py.b/builtins
+                       {:py/str "__name__"} '(py/str "builtins"))
+                 (list 'py/dict-set 'py.b/builtins
+                       {:py/str "__package__"} :py/None)
+                 (list 'py/dict-set 'py.b/builtins
+                       {:py/str "__spec__"} :py/None)
+                 (list 'py/dict-set 'py.b/builtins
+                       {:py/str "__loader__"} :py/None)
+                 (list 'py/modules-put! (list 'py/str "sys") 'py.rt/sys)
+                 (list 'py/modules-put! (list 'py/str "builtins")
+                       'py.rt/builtins-mod)]
                 ;; last, so a failed init never reports ready
                 [(define 'py.rt/state :py/ready)
                  :py/None])
@@ -3157,10 +3317,11 @@
 (def runtime-keys
   "Every key `py/init!` allocates, the ready flag aside, sorted: the three
    runtime cells, the builtin classes, functions and method
-   implementations, and the builtins dict. Read from the same tables
-   `init-form` reads."
+   implementations, the builtins dict, and sys.modules with its two
+   pre-seeded module objects. Read from the same tables `init-form` reads."
   (vec (sort-by str
-                (concat '[py.rt/ctx py.rt/limit py.rt/out py.b/builtins]
+                (concat '[py.rt/ctx py.rt/limit py.rt/out py.b/builtins
+                          py.rt/modules py.rt/sys py.rt/builtins-mod]
                         (mapv second builtin-classes)
                         (mapv second builtin-functions)
                         (mapv first method-implementations)))))

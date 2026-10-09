@@ -3144,8 +3144,9 @@ precompiled CST packets or rows, since the parser is JVM-only):
   `:segment/blake3-8f5e6bc93e0e8960682b65c2e4254ec959e69f0579ccda07a3189ea0e0e4b9d7`
   was moved once, by P3's two accessors, to
   `:segment/blake3-b891d48b14e3fc3757535e580a3511e95d8ddf6c57d3e637f1ba0f9a97cb0ee7`
-  (every golden moves once when the wrapper or the definition list it
-  addresses changes). Measured on the JVM: `publish-module!` of `py`
+  and once more, by I1's module runtime, to the address I1's entry pins
+  (every golden moves once per slice that changes the wrapper or the
+  definition list it addresses). Measured on the JVM: `publish-module!` of `py`
   takes about 37 to 45 s; one linked run takes about 4.4 to 5.3 s against
   0.4 to 1.0 s bundled, about 80% of it the CBOR decode of the served
   image (reflective `alength` in `dao.jing.cbor/blen`).
@@ -3154,9 +3155,10 @@ precompiled CST packets or rows, since the parser is JVM-only):
   no `pysp` binding reports the unresolved hook name. Landed, with slice
   2's recursion acceptance re-run linked too (depth tracking across the
   module boundary), in `linked_safepoint_test`: `pysp` publishes to one
-  pinned manifest address on each host
-  (`:segment/blake3-6133313d60c4080c0803daa6de5b53b195fa6c650af4b4b9e354ce247950fa87`,
-  JVM golden), and its requirement pins `py` by
+  pinned manifest address on each host (P3 pinned
+  `:segment/blake3-6133313d60c4080c0803daa6de5b53b195fa6c650af4b4b9e354ce247950fa87`,
+  moved once since by I1's `py` requirement pin to the address I1's
+  entry names, JVM golden), and its requirement pins `py` by
   manifest address, so a `pysp`-free name environment still runs the
   naive linked program and refuses the derived one by hook name.
 - F3: at the REPL, `x = 1` then `print(x)` prints `1`; the probe answers
@@ -3166,7 +3168,32 @@ precompiled CST packets or rows, since the parser is JVM-only):
   through `m.__dict__` and to `m`'s functions; a raising body removes
   its entry and propagates; a handler in the importer catches an
   exception from a function in `m` on every VM; one image as main and as
-  import sees different `__name__` values.
+  import sees different `__name__` values. Landed in `import_test`
+  (with the programs of `import_programs`, each packet the parser's for
+  its source, checked by `e2e_test`): the runtime is `py/import`,
+  `py/module-run`, `py/run-main` as `"__main__"`, the module objects
+  `py/getattr`/`py/setattr`/`py/delattr` answer for, sys.modules
+  (`py.rt/modules`) with `sys` and `builtins` pre-seeded, and the
+  `ImportError` class; the module emitter is `lower/module-packet` and
+  `lower/module-spec` (`pym.m` for module `m`), one `(require 'pym.i)`
+  hoisted per static import in the unit beside the wrapper's `py`
+  require — an import-free program's tree is unchanged, so its linked
+  program root golden did not move. Each import-free golden moved once
+  with the prelude change: the `py` manifest to
+  `:segment/blake3-607cef06002c49a1cebdf836b751077f6d77c4618ebb317cc0533ef895d297a1`
+  and, through the requirement pin, the `pysp` manifest to
+  `:segment/blake3-a842d2ad662f1d0a0dd7fb92922221343603472bac591073ac23ba82c9772d54`
+  (JVM goldens in `linked_prelude_test` and `linked_safepoint_test`);
+  the bundled prelude root, program root, derivation record and
+  prelude-id goldens in `float_address_test` moved once each; the hook
+  prelude's own root did not move. An import of a compiled module under
+  the bundled profile is refused (`Imports require the linked prelude`),
+  as is every I2 form — dotted, aliased, and `from` — and `del` is
+  lowered for name and attribute targets. `import sys` and
+  `import builtins` resolve under either profile with no delivery: spec
+  and body are `None` and no `pym.sys` require is hoisted, the
+  pre-seeded `sys.modules` entry answering; the pre-seeded `sys` exposes
+  `modules` only, so the interpreter hooks stay unreachable.
 - I2: `import a.b.c` runs three bodies once, in order, with attributes
   set; a relative import in a packageless unit raises an `ImportError`
   caught by `except`; `from pkg import sub` with no explicit import and
