@@ -40,13 +40,15 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # 72 s there, 3.6 s on the JVM) is a candidate for a speed investigation first.
 # Python slow set (2026-10-06): 65 ^:slow and 15 guard-only tests in the
 # yang.python.antlr e2e, e2e-c1, prelude-parity, safepoint, float-address
-# and int-contract tests; a Python slice landing runs `clojure -M:test -i :slow -n <ns>` for
-# its changed Python namespaces.
-# While iterating, run only `bb test:clj` (or one namespace: `clojure -M:test -n
-# <ns>`), not the full `bb test`. Run the full three-lane `bb test` once per
-# slice, before landing, and one lane set at a time: overlapping runs slow each
-# other down. Cross-host bugs show only on Node or Dart, so the full run is
-# still the gate before a commit.
+# and int-contract tests; a Python slice landing runs `bb test:sub:clj yang.python --slow`
+# (or `clojure -M:test -i :slow -n <ns>`).
+# While iterating, use the Gate Ladder (see below): G0 iterate via `bb test:sub:clj <own>`
+# or `clojure -M:test -n <ns>`. Do not run the full `bb test` while iterating.
+# At slice checkpoints, run G1 (`bb test:sub <own>`). Before landing a slice, run
+# G2 (`bb test:changed` in the worktree across all three lanes).
+# Full repo-wide `bb test` (G3) is the mandatory landing gate on master after merge.
+# Cross-host bugs show only on Node or Dart, so tri-host verification is mandatory
+# for every gate from G1 upward. Run one lane set at a time repo-wide to avoid contention.
 # Measured fast-lane times (2026-10-03): bb test about 14 min = JVM 5.5 + Node
 # 3.8 + Dart 4.3, plus builds. test:slow: Node and Dart about 5 min each (mostly
 # compile); the JVM half is estimated at 17 min (long-loops-test alone is 14),
@@ -56,6 +58,7 @@ npm test             # Node.js tests
 # Cross-host peers the JVM lane spawns. `bb test` builds both. A bare
 # `bb test:clj` builds only the Node REPL (it depends on build:yin-repl-node);
 # without build:yin-repl-peer first, the Dart-peer tests skip with a printed notice.
+# Under `bb test:sub` and `bb test:changed`, prerequisites are derived automatically.
 bb build:yin-repl-peer   # Dart exe build/yin-repl-peer (yin.repl R5 pairs)
 bb build:yin-repl-node   # Node REPL target/yin-repl.js; REQUIRED by
                          # yin.repl.dht-process-test (JVM-to-Node DHT reader,
@@ -118,8 +121,9 @@ selected namespaces and run automatically when needed.
 
 1. **G0 Iterate**: Run only the subsystem's JVM lane (`bb test:sub:clj <own>` or `clojure -M:test -n <ns>`).
 2. **G1 Checkpoint**: Run the three-lane subsystem test (`bb test:sub <own>`). Proves the home suite across all three hosts before reporting ready.
-3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change.
-4. **G3 Master**: The mandatory landing gate on master after merge (`bb test`).
+3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change (for foundation subsystems like `dao.stream` or `dao.jing`, this correctly runs nearly the full suite).
+4. **G3 Master**: The mandatory landing gate on master after merge, and for any wide change (`bb test`).
+5. **G4 Release**: Full or slow test run before a big release or cross-cutting merge (`bb test:slow` or `bb test:all`).
 
 
 The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
