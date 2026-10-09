@@ -11061,3 +11061,18 @@ Delegates:
   - Orchestration & P1-P3 Bug Remediation: agy.
 Next:
   - Proceed to Phase C4 Slice I2 (packages & relative imports) and Slice F3 (REPL Python frontend registration).
+
+## 2026-10-10 00:20:00 +07 — UCF blog: Part Two recast (resumption race as gluing, not holonomy) landed
+Completed-GMT: 2026-10-09 17:20:00 GMT
+Coding-Agent: claude (Orchestrator, Fable 5.1, background job)
+Session-ID: e77b6b18-7f5d-48ec-b8f4-0293f11ad5eb
+Tree: master (ff from worktree-ucf-blog-cross-vm)
+Done:
+  (1) Owner accepted Architect finding 11 and ruled "land it, send it through codex, merge to master". Orchestrator drafted the recast of Part Two: the connection is flat (lift/lower path-independent up to canonical equivalence); a non-consuming carrier copies the checkpoint, so the race is several candidate continuations over one occurrence; the ledger (occurrence, lease, epoch) supplies the admissibility rules. Sheaf/gluing used as an explicitly qualified analogy; curvature/holonomy/gauge no longer claimed about UCF (a6b465e5).
+  (2) Codex Architect gpt-6.1-sol, same thread 01a12162-1813-7152-947a-0f5b3c71e7eb. Round 3 CHANGES_REQUESTED, 4 essay-accuracy findings, applied (0eb73582): at most one current lease per occurrence with reclaim admitting a replacement (§7.7.7-7.7.8), epoch is one term of admission not the whole, host heterogeneity is not curvature, analogy qualifiers added and curvature distinguished from global holonomy. Round 4 READY_TO_MERGE, one LOW nit applied, 6bf8f721 ("authoritative execution lineage").
+  (3) Verified: EDN parses with all four blog keys; `git diff --check` clean. No code or tests touched.
+Delegates:
+  - Architect: codex gpt-6.1-sol (thread 01a12162-1813-7152-947a-0f5b3c71e7eb), `collab/1791400000000-architect-ucf-blog-cross-vm-review-r{3,4}.*`.
+Next:
+  - Spec follow-up, not started: tuple schema for transported state, then Architect brief to reopen UCF §7.4.1/§7.5.
+  - Delete stale remote branch `worktree-ucf-blog-cross-vm`.
