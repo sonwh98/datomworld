@@ -15,7 +15,8 @@
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
-            [yin.repl :as repl]))
+            [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]))
 
 
 ;; =============================================================================
@@ -32,7 +33,7 @@
    medium."
   ([vm-type] (session vm-type nil))
   ([vm-type output]
-   (repl/create-state (cond-> {:vm-type vm-type}
+   (repl.frontends/create-state (cond-> {:vm-type vm-type}
                         output (assoc :output-stream output)))))
 
 

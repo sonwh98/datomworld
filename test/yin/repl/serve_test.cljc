@@ -17,6 +17,7 @@
             [dao.stream :as stream]
             [dao.stream.rpc :as rpc]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.connect :as connect]
             [yin.repl.net-fixture :as fixture]
             [yin.repl.serve :as serve]))
@@ -332,7 +333,7 @@
         local (second (reduce (fn [[state texts] line]
                                 (let [[state' text] (repl/eval-input state line)]
                                   [state' (conj texts text)]))
-                              [(repl/create-state) []]
+                              [(repl.frontends/create-state) []]
                               lines))
         endpoint (reduce (fn [endpoint [i line]]
                            (eval! endpoint i line)

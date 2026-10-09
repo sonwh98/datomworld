@@ -11,6 +11,7 @@
             [dao.stream.observer :as observer]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.ast-index :as ast-index]
             [yin.repl.index :as repl.index]
             [yin.repl.query :as query]
@@ -59,7 +60,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[_ [before required after bare]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [(q-line names-query)
                        require-line
                        (q-line '[:find ?e :where [?e :no/such 1]])
@@ -75,7 +76,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[_ [_ active _ removed _ again]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [require-line
                        (q-line '[:find ?e :where [?e :no/such 1]])
                        "(reset)"
@@ -89,7 +90,7 @@
 
 (deftest vm-selection-removes-the-binding
   (let [[_ [_ switched removed]]
-        (evaluate (repl/create-state)
+        (evaluate (repl.frontends/create-state)
                   [require-line "(vm :stack)"
                    (q-line '[:find ?e :where [?e :no/such 1]])])]
     (is (str/starts-with? switched "Switched to"))
@@ -104,7 +105,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[_ [_ _ named names kind absent]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [require-line
                        "(def answer (fn [x] (+ x 42)))"
                        (q-line '[:find ?e . :in $ ?n :where [?e :yin/value ?n]]
@@ -126,7 +127,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[state [_ _ provenance current]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [require-line
                        "(def answer 42)"
                        (q-line '[:find ?s ?r
@@ -159,7 +160,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[_ texts]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       (into bump-lines
                             [(q-line calls-of-f "(quote bump)")
                              (q-line calls-of-f "(quote bump)" "{:view :current}")
@@ -189,7 +190,7 @@
     (testing (str vm-type)
       (let [by-key '[:find ?v . :in ?m :where [(get ?m :k) ?v]]
             [_ [_ bare with-options bad-view too-many]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [require-line
                        (q-line by-key "{:k 1}")
                        (q-line by-key "{:k 1}" "{:view :current}")
@@ -207,7 +208,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[_ texts]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       (into bump-lines
                             [(q-line '[:find (count ?app) :in f
                                        :where [?app :yin/operator ?op]
@@ -223,7 +224,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[_ [_ unknown fns]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [require-line
                        (q-line '[:find ?x :in % :where (r ?x)]
                                "(quote [[(r ?x) [(no-such-fn 1) ?x]]])")
@@ -238,7 +239,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[_ texts]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       (conj bump-lines
                             (q-line '[:find (count ?app)
                                       :where [?app :yin/operator ?op]
@@ -251,7 +252,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[_ [_ _ literals]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       ["(defn inc [i] (+ i 1))"
                        require-line
                        (q-line '[:find ?v
@@ -280,7 +281,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[state [_ _ failed answered]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [require-line
                        "(def answer 42)"
                        (str "((fn [a] (nope a)) "
@@ -314,7 +315,7 @@
                   (testing (str vm-type)
                     (let [n (+ repl/query-pair-capacity 6)
                           [_ [_ _ _ failed answered]]
-                          (evaluate (repl/create-state {:vm-type vm-type})
+                          (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                     [require-line
                                      "(def answer 42)"
                                      (spin-line "(nope)")
@@ -332,7 +333,7 @@
                 (doseq [vm-type vm-types]
                   (testing (str vm-type)
                     (let [[state [_ _ _ stopped answered]]
-                          (evaluate (repl/create-state {:vm-type vm-type})
+                          (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                     [require-line
                                      "(def answer 42)"
                                      (spin-line ":done")
@@ -366,7 +367,7 @@
                   (stream/append! writer
                                   (macro/ast->packet {:type :literal
                                                       :value v})))
-              [state _] (repl/eval-input (repl/create-state {:vm-type vm-type})
+              [state _] (repl/eval-input (repl.frontends/create-state {:vm-type vm-type})
                                          require-line)
               [_ text] (repl/eval-input (assoc-in state [:indexer :observer]
                                                   lossy)
@@ -380,7 +381,7 @@
                                       (throw (ex-info "store refused" {})))
                       :get-bytes-fn (fn [_address not-found] not-found)}
               [_ [_ text]]
-              (evaluate (repl/create-state {:vm-type vm-type
+              (evaluate (repl.frontends/create-state {:vm-type vm-type
                                             :index-store broken})
                         [require-line (q-line names-query)])]
           (is (str/includes? text "(:yin.repl.query/index-unavailable)"))
@@ -388,7 +389,7 @@
           ;; the program's rows (yin.vm.linker.dht.md 5.1)
           (is (str/includes? text "materialize failed"))))))
   (testing "committed code that is not published"
-    (let [[state _] (evaluate (repl/create-state) ["(+ 1 2)"])
+    (let [[state _] (evaluate (repl.frontends/create-state) ["(+ 1 2)"])
           unpublished (assoc (:indexer state) :published 0)
           response (query/answer unpublished
                                  {:row-limit 10, :byte-limit 1000}
@@ -398,7 +399,7 @@
       (is (= :yin.repl.query/index-unavailable
              (:dao.stream.apply/code (apply2/response-error response))))))
   (testing "a published index its store can no longer answer"
-    (let [[state _] (evaluate (repl/create-state) ["(+ 1 2)"])
+    (let [[state _] (evaluate (repl.frontends/create-state) ["(+ 1 2)"])
           unreadable (assoc (:indexer state) :content-store
                             {:put-bytes-fn (fn [_address _bytes] nil)
                              :get-bytes-fn (fn [_address not-found]
@@ -414,7 +415,7 @@
 
 
 (deftest an-empty-session-is-an-empty-database
-  (let [indexer (:indexer (repl/create-state))
+  (let [indexer (:indexer (repl.frontends/create-state))
         response (query/answer indexer
                                {:row-limit 10, :byte-limit 1000}
                                (apply2/request 1 query/op
@@ -431,13 +432,13 @@
                   (doseq [vm-type vm-types]
                     (testing (str vm-type)
                       (let [[_ [_ _ text]]
-                            (evaluate (repl/create-state {:vm-type vm-type})
+                            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                       [require-line
                                        (str "(+ " (str/join " " (range 1100)) ")")
                                        (q-line '[:find ?v :where [?e :yin/value ?v]])])]
                         (is (str/includes? text "(:yin.repl.query/result-limit)"))
                         (is (str/includes? text (str "over the limit of " repl/query-row-limit)))))))
-                (let [[state _] (evaluate (repl/create-state)
+                (let [[state _] (evaluate (repl.frontends/create-state)
                                           ["(def answer \"a long string literal\")"])
                       ask (fn [limits query & inputs]
                             (apply2/response-error
@@ -466,7 +467,7 @@
   (doseq [vm-type vm-types]
     (testing (str vm-type)
       (let [[_ [_ host-fn view not-a-query]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [require-line
                        (q-line '[:find ?e :in $ ?x :where [?e :yin/value ?x]]
                                "+")
@@ -495,7 +496,7 @@
   "The texts of `lines` evaluated after `inc-lines` on `vm-type`, and the
    final state."
   [vm-type lines]
-  (let [[state texts] (evaluate (repl/create-state {:vm-type vm-type})
+  (let [[state texts] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                 (into inc-lines lines))]
     [state (vec (drop (count inc-lines) texts))]))
 
@@ -584,7 +585,7 @@
                                      {:stage :packet, :reason :shape})]]
           vm-type vm-types]
     (testing (str label " " vm-type)
-      (let [[state _] (evaluate (repl/create-state {:vm-type vm-type})
+      (let [[state _] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                 inc-lines)
             [_ [ast occ datoms]]
             (evaluate (break state)
@@ -606,14 +607,14 @@
                   (doseq [vm-type vm-types]
                     (testing (str vm-type)
                       (let [[_ [_ _ text]]
-                            (evaluate (repl/create-state {:vm-type vm-type})
+                            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                       [require-line
                                        (str "(+ " (str/join " " (range 1100)) ")")
                                        (q-line '[:find ?v :in $ast
                                                  :where [$ast ?id :literal ?v]])])]
                         (is (str/includes? text "(:yin.repl.query/result-limit)"))
                         (is (str/includes? text (str "over the limit of " repl/query-row-limit)))))))
-                (let [[state _] (evaluate (repl/create-state) ["(defn inc [i] (+ i 1))"])
+                (let [[state _] (evaluate (repl.frontends/create-state) ["(defn inc [i] (+ i 1))"])
                       ask (fn [limits query]
                             (apply2/response-error
                               (query/answer (:indexer state) (:ast-indexer state) limits
@@ -631,7 +632,7 @@
 
 
 (deftest ast-sources-are-read-when-the-call-is-answered
-  (let [[state _] (evaluate (repl/create-state) ["(defn inc [i] (+ i 1))"])
+  (let [[state _] (evaluate (repl.frontends/create-state) ["(defn inc [i] (+ i 1))"])
         ask (fn [ast-indexer]
               (query/answer (:indexer state) ast-indexer
                             {:row-limit 1000, :byte-limit 100000}
@@ -655,7 +656,7 @@
 
 (deftest the-interpreter-answers-each-request-once
   (let [pair (query/make-pair 8)
-        indexer (:indexer (repl/create-state))
+        indexer (:indexer (repl.frontends/create-state))
         limits {:row-limit 10, :byte-limit 1000}
         responses (fn [pair]
                     (loop [cursor (:out-cursor pair)

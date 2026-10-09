@@ -15,6 +15,7 @@
             [dao.stream.observer :as observer]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.index :as repl.index]
             [yin.repl.store :as store]
             [yin.vm :as vm]
@@ -71,7 +72,7 @@
 
 
 (deftest one-program-is-one-transaction-of-its-expanded-projection
-  (let [state (repl/create-state)
+  (let [state (repl.frontends/create-state)
         [state' result] (repl/eval-input state "(+ 1 2)")
         [packet] (stream-values (:row-stream state'))
         root (first packet)
@@ -119,7 +120,7 @@
 
 
 (deftest the-round-publishes-covered-indexes-readable-from-dao-jing
-  (let [[state _] (evaluate (repl/create-state)
+  (let [[state _] (evaluate (repl.frontends/create-state)
                             ["(def inc2 (fn [x] (+ x 2)))" "(inc2 40)"])
         {:keys [manifest-address content-store]} (:indexer state)
         committed (into #{} (mapcat :datoms) (transactions state))]
@@ -158,7 +159,7 @@
 (deftest failed-expansions-add-nothing-raising-and-parking-programs-are-indexed
   (testing "a failed expansion forwards nothing, so nothing is committed"
     (let [[state [defined failed]]
-          (evaluate (repl/create-state)
+          (evaluate (repl.frontends/create-state)
                     ["(defmacro unless [c a b] (yin/if c b a))"
                      "(unless 1 2)"])]
       (is (not (str/starts-with? defined "Error")))
@@ -166,12 +167,12 @@
       (is (= 1 (count (transactions state)))
           "only the defmacro program was committed")))
   (testing "a program whose VM raises is still indexed"
-    (let [[state [raised]] (evaluate (repl/create-state) ["(nope 1)"])]
+    (let [[state [raised]] (evaluate (repl.frontends/create-state) ["(nope 1)"])]
       (is (str/starts-with? raised "Error: "))
       (is (= 1 (count (transactions state))))
       (is (some? (get-in state [:indexer :manifest-address])))))
   (testing "a program whose VM parks is still indexed"
-    (let [[state [text]] (evaluate (repl/create-state {:vm-type :stack})
+    (let [[state [text]] (evaluate (repl.frontends/create-state {:vm-type :stack})
                                    ["(require (quote mod))"])]
       (is (str/includes? text "pending"))
       (is (some? (:pending-run state)))
@@ -181,7 +182,7 @@
 (deftest every-evaluator-is-indexed-the-same-way
   (doseq [vm-type (keys repl/vm-constructors)]
     (testing (str vm-type)
-      (let [[state [text]] (evaluate (repl/create-state {:vm-type vm-type})
+      (let [[state [text]] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                      ["(+ 1 2)"])]
         (is (= "3" text))
         (is (= 1 (count (transactions state))))))))
@@ -220,7 +221,7 @@
         indexer (repl.index/make-indexer
                   {:observer observer
                    :session-token "token"
-                   :content-store (:index-store (repl/create-state))})
+                   :content-store (:index-store (repl.frontends/create-state))})
         _ (stream/append! writer (literal-packet 1))
         indexed (repl.index/step indexer 1)
         _ (doseq [v [2 3 4]] (stream/append! writer (literal-packet v)))
@@ -248,7 +249,7 @@
                     :lost? :failure}
         rounds (reductions
                  (fn [[state _] line] (repl/eval-input state line))
-                 [(repl/create-state) nil]
+                 [(repl.frontends/create-state) nil]
                  ["(+ 1 2)" "(def f (fn [x] (* x x)))" "(f 7)" "(+ 40 2)"])]
     (doseq [[i [state _]] (map-indexed vector (rest rounds))
             :let [ix (:indexer state)
@@ -271,7 +272,7 @@
 
 (deftest a-publication-beyond-the-old-intake-bound-completes
   (let [{:keys [writer observer]} (small-medium 16)
-        store (:index-store (repl/create-state))
+        store (:index-store (repl.frontends/create-state))
         indexer (repl.index/make-indexer
                   {:observer observer
                    :session-token "token"
@@ -304,7 +305,7 @@
   (let [broken {:put-bytes-fn (fn [_address _bytes]
                                 (throw (ex-info "store refused the write" {})))
                 :get-bytes-fn (fn [_address not-found] not-found)}
-        [state [text again]] (evaluate (repl/create-state {:index-store broken})
+        [state [text again]] (evaluate (repl.frontends/create-state {:index-store broken})
                                        ["(+ 1 2)" "(+ 2 3)"])
         status (get-in (repl/repl-state state) [:index])]
     (is (str/starts-with? text "3\nWarning: "))
@@ -324,7 +325,7 @@
 ;; =============================================================================
 
 (deftest every-row-of-each-evaluated-program-is-in-the-index-store
-  (let [[state _] (evaluate (repl/create-state)
+  (let [[state _] (evaluate (repl.frontends/create-state)
                             ["(def inc2 (fn [x] (+ x 2)))" "(inc2 40)"])
         store (get-in state [:indexer :content-store])
         packets (stream-values (:row-stream state))
@@ -350,7 +351,7 @@
                                      ((:put-bytes-fn inner) address bs))
                      :head-fn (fn [m] (swap! heads conj m)))
         [state [first-text second-text]]
-        (evaluate (repl/create-state {:index-store store})
+        (evaluate (repl.frontends/create-state {:index-store store})
                   ["(def a 4101)" "(def b 4102)"])
         packets (stream-values (:row-stream state))]
     (testing "while rows cannot be written, no round publishes and HEAD stays"
@@ -378,7 +379,7 @@
 
 
 (deftest the-name-envelopes-are-one-transaction-under-the-session-s-metadata
-  (let [[state _] (evaluate (repl/create-state) ["(def f (fn [] 1))"])
+  (let [[state _] (evaluate (repl.frontends/create-state) ["(def f (fn [] 1))"])
         key (sign/generate)
         signed [(publish/assertion key {:name 'lib :seq 1
                                         :manifest (jing/segment-key "m")})]
@@ -404,7 +405,7 @@
 
 (deftest an-index-gap-is-reported-evaluation-continues-and-reset-recovers
   (let [{:keys [writer observer]} (small-medium 1)
-        state (repl/create-state)
+        state (repl.frontends/create-state)
         _ (doseq [v [1 2]] (stream/append! writer (literal-packet v)))
         lossy (assoc-in state [:indexer :observer] observer)
         [lost text] (repl/eval-input lossy "(+ 1 2)")
@@ -437,7 +438,7 @@
 
 
 (deftest vm-selection-rebuilds-the-indexer
-  (let [[state _] (evaluate (repl/create-state) ["(+ 1 2)"])
+  (let [[state _] (evaluate (repl.frontends/create-state) ["(+ 1 2)"])
         [switched _] (repl/eval-input state "(vm :ast-walker)")]
     (is (= 1 (count (transactions state))))
     (is (empty? (transactions switched)))
@@ -487,7 +488,7 @@
           opened (store/open {:type :file :dir dir})]
       (try
         (let [[state text] (repl/eval-input
-                             (repl/create-state {:index-store opened})
+                             (repl.frontends/create-state {:index-store opened})
                              "(+ 1 2)")
               manifest (get-in state [:indexer :manifest-address])]
           (is (= "3" text))
@@ -507,7 +508,7 @@
                                                      "store refused the read"
                                                      {}))))
               [state text] (repl/eval-input
-                             (repl/create-state {:index-store broken})
+                             (repl.frontends/create-state {:index-store broken})
                              "(+ 1 2)")]
           (is (str/starts-with? text "3\nWarning: ")
               "the round evaluates and says what its publication lost")
@@ -526,14 +527,14 @@
           opened (store/open {:type :file :dir dir})]
       (try
         (let [[first-state _] (repl/eval-input
-                                (repl/create-state {:index-store opened})
+                                (repl.frontends/create-state {:index-store opened})
                                 "(+ 1 2)")
               first-manifest (get-in first-state [:indexer :manifest-address])
               failing (assoc opened
                              :head-fn (fn [_manifest]
                                         (throw (ex-info "disk gone" {}))))
               [second-state text] (repl/eval-input
-                                    (repl/create-state {:index-store failing})
+                                    (repl.frontends/create-state {:index-store failing})
                                     "(+ 2 3)")]
           (is (str/starts-with? text "5\nWarning: "))
           (is (false? (get-in (repl/repl-state second-state)

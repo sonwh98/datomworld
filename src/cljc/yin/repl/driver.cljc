@@ -19,6 +19,7 @@
             [yin.repl.adapter :as adapter]
             [yin.repl.connect :as connect]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.host :as host]))
 
 
@@ -76,7 +77,7 @@
   ([] (create-state {}))
   ([{:keys [input input-cursor repl host]}]
    (let [input (or input (create-input-medium!))]
-     {:repl (or repl (repl/create-state))
+     {:repl (or repl (repl.frontends/create-state))
       :input input
       :input-cursor (or input-cursor (mint-cursor input))
       :input-ledger :untried

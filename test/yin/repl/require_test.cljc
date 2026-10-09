@@ -24,6 +24,7 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.link :as link]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
@@ -132,7 +133,7 @@
   "A shell of `vm-type` whose content source is the in-process `store`
    and whose name environment resolves `env`."
   [vm-type store env]
-  (repl/create-state {:vm-type vm-type
+  (repl.frontends/create-state {:vm-type vm-type
                       :content-store store
                       :name-env env}))
 
@@ -297,7 +298,7 @@
 
 
 (deftest a-link-that-stays-pending-does-not-wedge-the-shell-test
-  (let [state (repl/create-state {:vm-type :stack})
+  (let [state (repl.frontends/create-state {:vm-type :stack})
         [pending text] (repl/eval-input state "(require (quote mod))")
         [held text2] (repl/eval-input pending "(+ 1 2)")
         [freed text3] (repl/eval-input held "(abandon)")]
@@ -334,7 +335,7 @@
                                           closed-exports)
         as-other (:address (publish-module store closed-module 'other
                                            closed-exports))
-        state (repl/create-state {:vm-type :stack})
+        state (repl.frontends/create-state {:vm-type :stack})
         [pending _] (repl/eval-input state "(require (quote other))")
         [held _] (repl/eval-input pending "(abandon)")
         ;; the wire starts answering, over the same surviving pair
@@ -378,7 +379,7 @@
                             {'require (get-in vm/primitives
                                               ['require :yin.k/profile])}}))
         names {'foo as-foo, 'bar as-bar}
-        state (assoc (repl/create-state {:vm-type :stack})
+        state (assoc (repl.frontends/create-state {:vm-type :stack})
                      :link-source (withholding
                                     (link/composition {:content-store store
                                                        :name-env names})
@@ -417,7 +418,7 @@
   (let [store (mem/create-content-mem)
         {:keys [address]} (publish-module store closed-module 'mod
                                           closed-exports)
-        state (repl/create-state {:vm-type :stack
+        state (repl.frontends/create-state {:vm-type :stack
                                   :content-client (silent-client)
                                   :name-env {'mod address}})
         [pending _] (repl/eval-input state "(require (quote mod))")
@@ -450,7 +451,7 @@
                                           closed-exports)
         as-other (:address (publish-module store closed-module 'other
                                            closed-exports))
-        state (repl/create-state {:vm-type :stack
+        state (repl.frontends/create-state {:vm-type :stack
                                   :content-client (silent-client)
                                   :name-env {'mod address}})
         [pending _] (repl/eval-input state "(require (quote mod))")
@@ -495,7 +496,7 @@
    `:accepted` when it does not."
   [policy]
   (try
-    (repl/create-state {:vm-type :stack :link-policy policy})
+    (repl.frontends/create-state {:vm-type :stack :link-policy policy})
     :accepted
     (catch #?(:cljd Object :clj Exception :cljs js/Error) e
       e)))
@@ -503,11 +504,11 @@
 
 (deftest link-policy-defaults-to-manual-test
   (testing ":manual is the default, and nil passes through to it"
-    (is (= :manual (:link-policy (repl/create-state {:vm-type :stack}))))
+    (is (= :manual (:link-policy (repl.frontends/create-state {:vm-type :stack}))))
     (is (= :manual (:link-policy
-                     (repl/create-state {:vm-type :stack
+                     (repl.frontends/create-state {:vm-type :stack
                                          :link-policy nil})))))
-  (let [state (repl/create-state {:vm-type :stack})
+  (let [state (repl.frontends/create-state {:vm-type :stack})
         [pending text] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")
         [held2 _] (repl/eval-input held "(+ 3 4)")
@@ -529,7 +530,7 @@
                  (if (>= (:checks view) 2)
                    {:abandon :host-gave-up}
                    :keep))
-        state (repl/create-state {:vm-type :stack :link-policy policy})
+        state (repl.frontends/create-state {:vm-type :stack :link-policy policy})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")
         [freed text] (repl/eval-input held "(+ 3 4)")]
@@ -554,7 +555,7 @@
 
 
 (deftest a-keep-policy-never-ends-a-pending-run-test
-  (let [state (repl/create-state {:vm-type :stack
+  (let [state (repl.frontends/create-state {:vm-type :stack
                                   :link-policy (constantly :keep)})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")]
@@ -565,7 +566,7 @@
 
 
 (deftest a-bare-abandon-uses-the-policy-reason-test
-  (let [state (repl/create-state {:vm-type :stack
+  (let [state (repl.frontends/create-state {:vm-type :stack
                                   :link-policy (constantly :abandon)})
         [_ text] (repl/eval-input state "(require (quote mod))")]
     (is (str/includes? text "the session link policy ended the require"))
@@ -575,26 +576,26 @@
 
 (deftest a-misbehaving-policy-is-kept-and-reported-test
   (let [boom (fn [_] (throw (ex-info "host policy boom" {})))
-        state (repl/create-state {:vm-type :stack :link-policy boom})
+        state (repl.frontends/create-state {:vm-type :stack :link-policy boom})
         [pending text] (repl/eval-input state "(require (quote mod))")]
     (testing "a throw is one error line, and the run stands"
       (is (str/includes? text "Error: host policy boom"))
       (is (str/includes? text "pending"))
       (is (some? (:pending-run pending)))))
-  (let [state (repl/create-state {:vm-type :stack
+  (let [state (repl.frontends/create-state {:vm-type :stack
                                   :link-policy (constantly :bogus)})
         [pending text] (repl/eval-input state "(require (quote mod))")]
     (testing "an out-of-contract return is kept and reported too"
       (is (str/includes? text "outside its contract"))
       (is (some? (:pending-run pending)))))
-  (let [state (repl/create-state
+  (let [state (repl.frontends/create-state
                 {:vm-type :stack
                  :link-policy (fn [_] {::x :not-part-of-the-contract})})
         [pending text] (repl/eval-input state "(require (quote mod))")]
     (testing "a map with no :abandon is out of contract, not an abandon"
       (is (str/includes? text "outside its contract"))
       (is (some? (:pending-run pending)))))
-  (let [state (repl/create-state
+  (let [state (repl.frontends/create-state
                 {:vm-type :stack
                  :link-policy (fn [_] {:abandon :reason :extra true})})
         [pending text] (repl/eval-input state "(require (quote mod))")]
@@ -617,7 +618,7 @@
 
 (deftest reset-and-vm-preserve-the-link-policy-test
   (let [policy (constantly :keep)
-        state (repl/create-state {:vm-type :stack :link-policy policy})
+        state (repl.frontends/create-state {:vm-type :stack :link-policy policy})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")
         [held2 _] (repl/eval-input held "(+ 3 4)")
@@ -635,12 +636,12 @@
 
 
 (deftest a-policy-abandon-matches-abandon-s-retained-line-semantics-test
-  (let [by-command (let [state (repl/create-state {:vm-type :stack})
+  (let [by-command (let [state (repl.frontends/create-state {:vm-type :stack})
                          [parked _] (repl/eval-input
                                       state "(require (quote mod))")
                          [held _] (repl/eval-input parked "(+ 1 2)")]
                      (repl/eval-input held "(abandon)"))
-        by-policy (let [state (repl/create-state
+        by-policy (let [state (repl.frontends/create-state
                                 {:vm-type :stack
                                  :link-policy (fn [v]
                                                 (if (= 1 (:checks v))
@@ -679,7 +680,7 @@
                                           closed-exports)
         as-other (:address (publish-module store closed-module 'other
                                            closed-exports))
-        state (repl/create-state
+        state (repl.frontends/create-state
                 {:vm-type :stack
                  :content-client (silent-client)
                  :name-env {'other as-other 'mod address}
@@ -715,7 +716,7 @@
         store (mem/create-content-mem)
         {:keys [address]} (publish-module store closed-module 'mod
                                           closed-exports)
-        state (repl/create-state
+        state (repl.frontends/create-state
                 {:vm-type :stack
                  :content-client (silent-client)
                  :name-env {'mod address}
@@ -741,7 +742,7 @@
    line -- `driver/repl-step` evaluates drained input and nothing else
    -- so the shell carries the public step an unattended host drives at
    its own cadence."
-  (let [state (repl/create-state {:vm-type :stack
+  (let [state (repl.frontends/create-state {:vm-type :stack
                                   :link-policy (constantly :keep)})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [step1 _] (repl/recheck-pending pending)
@@ -750,12 +751,12 @@
       (is (some? (:pending-run step2)))
       (is (= 2 (:checks (:pending-run step2))))
       (is (str/includes? text "pending")))
-    (let [empty (repl/create-state {:vm-type :stack})
+    (let [empty (repl.frontends/create-state {:vm-type :stack})
           [st text] (repl/recheck-pending empty)]
       (testing "nothing pending: nothing printed, nothing changed"
         (is (nil? text))
         (is (nil? (:pending-run st))))))
-  (let [state (repl/create-state
+  (let [state (repl.frontends/create-state
                 {:vm-type :stack
                  :link-policy (fn [v]
                                 (if (= 2 (:checks v))
@@ -787,7 +788,7 @@
                         e))))))
   (testing "the :content-store and :content-client attempt budget is unchanged"
     (is (= 64 link/attempt-budget))
-    (let [state (repl/create-state {:vm-type :stack
+    (let [state (repl.frontends/create-state {:vm-type :stack
                                     :content-client (silent-client)
                                     :name-env {'mod (:address
                                                       (publish-module

@@ -6,7 +6,7 @@
    state transition, and `status`/`status-text` read what a view shows.  The
    caller owns cadence and is the endpoint's only state owner; it calls `step`
    serially and only prints or displays what comes back."
-  (:require [yin.repl :as repl]
+  (:require [yin.repl.frontends :as repl.frontends]
             [yin.repl.host :as repl-host]
             [yin.repl.serve :as serve]))
 
@@ -28,7 +28,7 @@
                  :bind-host (or bind-host default-bind-host)
                  :advertised-host advertised-host
                  :host (or host (repl-host/websocket))
-                 :repl (repl/create-state {:primitives primitives})}))
+                 :repl (repl.frontends/create-state {:primitives primitives})}))
 
 
 (defn step

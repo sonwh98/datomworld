@@ -38,6 +38,7 @@
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.connect :as connect]
             [yin.repl.host.common :as host-common]))
 
@@ -220,7 +221,7 @@
               :requests-cursor (mint requests stream/anchor-oldest)
               :pending-answer nil
               :pending-successor nil
-              :repl (or repl (repl/create-state))
+              :repl (or repl (repl.frontends/create-state))
               :bind-note nil
               :step-moved? false
               :outbox []}]

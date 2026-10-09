@@ -11,6 +11,7 @@
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
             [yin.vm.debruijn-linearize :as dl]
@@ -597,7 +598,7 @@
           (reduce (fn [[state texts] line]
                     (let [[state' text] (repl/eval-input state line)]
                       [state' (conj texts text)]))
-                  [(repl/create-state {:vm-type vm-type}) []]
+                  [(repl.frontends/create-state {:vm-type vm-type}) []]
                   [(str "(def f (let [s \"" secret-word "\"] (fn [x] s)))")
                    "(f 1)"
                    "f"

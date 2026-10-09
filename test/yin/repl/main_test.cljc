@@ -14,6 +14,7 @@
             [yin.repl.main :as repl]
             [yin.repl.dht :as repl.dht]
             [yin.repl :as shell]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.driver :as driver]
             [yin.repl.host.common :as host-common]
             [yin.repl.net-fixture :as fixture]
@@ -1265,7 +1266,7 @@
 (deftest results-leave-the-vm-on-the-output-medium
   (doseq [vm-type vm-types]
     (testing (str vm-type)
-      (let [[state _] (shell/eval-input (shell/create-state {:vm-type vm-type})
+      (let [[state _] (shell/eval-input (repl.frontends/create-state {:vm-type vm-type})
                                         "(do (print \"a\") (+ 20 22))")]
         (is (= [{:type :repl/output :op :print :text "a"}
                 {:type :repl/result
@@ -1282,7 +1283,7 @@
                     (reduce (fn [[state texts] line]
                               (let [[state' text] (shell/eval-input state line)]
                                 [state' (conj texts text)]))
-                            [(shell/create-state {:vm-type vm-type}) []]
+                            [(repl.frontends/create-state {:vm-type vm-type}) []]
                             ["1" "2" "3"
                              "(+ (* 100 *3) (* 10 *2) *1)"
                              "(undefined-thing 1)"

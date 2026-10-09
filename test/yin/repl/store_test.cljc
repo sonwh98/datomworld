@@ -28,6 +28,7 @@
             [dao.stream.memory-log :as memory-log]
             [dao.space.store :as durable]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.store :as store]
             [dao.space.store.fs :as fs]))
 
@@ -334,7 +335,7 @@
 ;; =============================================================================
 
 (deftest the-default-is-the-in-memory-store-of-today
-  (let [state (repl/create-state)]
+  (let [state (repl.frontends/create-state)]
     (is (= :mem (:index-store-spec state)))
     (is (fn? (:put-bytes-fn (:index-store state))))
     (is (fn? (:get-bytes-fn (:index-store state))))
@@ -363,7 +364,7 @@
                                                     {:type :file :dir blocker})))
                          "not a directory"))
       (is (str/includes? (ex-message (refusal-of
-                                       #(repl/create-state
+                                       #(repl.frontends/create-state
                                           {:index-store-spec
                                            {:type :file :dir blocker}})))
                          "not a directory")
@@ -373,16 +374,16 @@
 
 
 (deftest a-handle-and-a-spec-together-are-refused
-  (is (str/includes? (ex-message (refusal-of #(repl/create-state
+  (is (str/includes? (ex-message (refusal-of #(repl.frontends/create-state
                                                 {:index-store
                                                  (jing.mem/create-content-mem)
                                                  :index-store-spec :mem})))
                      "not both"))
   (testing "either alone is accepted"
     (let [injected (jing.mem/create-content-mem)]
-      (is (identical? injected (:index-store (repl/create-state
+      (is (identical? injected (:index-store (repl.frontends/create-state
                                                {:index-store injected}))))
-      (is (nil? (:index-store-spec (repl/create-state
+      (is (nil? (:index-store-spec (repl.frontends/create-state
                                      {:index-store injected})))))))
 
 
@@ -394,7 +395,7 @@
   (let [dir (temp-dir)]
     (try
       (let [[state text] (repl/eval-input
-                           (repl/create-state
+                           (repl.frontends/create-state
                              {:index-store-spec {:type :file :dir dir}})
                            "(+ 1 2)")
             manifest (get-in state [:indexer :manifest-address])]
@@ -425,7 +426,7 @@
 (defn- durable-shell!
   "A shell over a durable store freshly opened on a scratch directory."
   [dir]
-  (repl/create-state {:index-store-spec {:type :file :dir dir}}))
+  (repl.frontends/create-state {:index-store-spec {:type :file :dir dir}}))
 
 
 (deftest a-durable-store-carries-its-lock-head-and-recovery
@@ -437,12 +438,12 @@
         (is (= {:manifest nil :datoms nil} (:recovery store))
             "an absent HEAD is an empty index, not a refusal")
         (is (= {:manifest nil :datoms nil}
-               (:index-recovery (repl/create-state {:index-store store})))
+               (:index-recovery (repl.frontends/create-state {:index-store store})))
             "the shell exposes the recovery for the rehydration slice")
         (store/close! store))
       (testing "the memory store carries none of it and writes no HEAD"
         (let [mem-state (repl/eval-input
-                          (repl/create-state
+                          (repl.frontends/create-state
                             {:index-store (jing.mem/create-content-mem)})
                           "(+ 1 2)")]
           (is (nil? (:head-fn (:index-store (first mem-state)))))
@@ -463,7 +464,7 @@
             (is (str/includes? (ex-message refusal) "locked"))))
         (testing "the first owner keeps working"
           (let [[state text] (repl/eval-input
-                               (repl/create-state {:index-store owner})
+                               (repl.frontends/create-state {:index-store owner})
                                "(+ 1 2)")]
             (is (= "3" text))
             (is (= {:version 1
@@ -943,7 +944,7 @@
                                           (fn [_temp]
                                             (throw (ex-info "crash" {})))})))
             [again _] (repl/eval-input
-                        (repl/create-state {:index-store crashing})
+                        (repl.frontends/create-state {:index-store crashing})
                         "(+ 2 3)")]
         (is (false? (get-in (repl/repl-state again) [:index :published?]))
             "a round whose HEAD did not move is not durably published")
@@ -971,7 +972,7 @@
                 "the recovery carries the walked datoms, not only the pointer"))
           (testing "and a fresh round over the reopened store moves HEAD"
             (let [[again _] (repl/eval-input
-                              (repl/create-state {:index-store reopened})
+                              (repl.frontends/create-state {:index-store reopened})
                               "(+ 2 3)")
                   new-manifest (get-in again [:indexer :manifest-address])]
               (is (not= manifest new-manifest))
@@ -1168,12 +1169,12 @@
   (let [dir (temp-dir)
         spec {:type :file :dir dir}]
     (try
-      (let [[first-run _] (evaluate (repl/create-state {:index-store-spec spec})
+      (let [[first-run _] (evaluate (repl.frontends/create-state {:index-store-spec spec})
                                     ["(def alpha 1001)"])
             first-token (:shell-token first-run)
             first-datoms (set (local-datoms first-run))
             _ (store/close! (:index-store first-run))
-            restarted (repl/create-state {:index-store-spec spec})
+            restarted (repl.frontends/create-state {:index-store-spec spec})
             [second-run [required old-only _ both-alpha both-beta]]
             (evaluate restarted
                       [require-line
@@ -1247,7 +1248,7 @@
 
 (deftest mem-mode-reset-still-starts-an-empty-index
   (let [[state [_ _ _ _ after-reset]]
-        (evaluate (repl/create-state)
+        (evaluate (repl.frontends/create-state)
                   ["(def alpha 1001)" require-line (provenance-line 1001)
                    "(reset)"
                    require-line])
@@ -1328,7 +1329,7 @@
                                (comp (mapcat :datoms)
                                      (map (fn [[e _a v t m]] [e v t m])))
                                committed)
-            restarted (repl/create-state {:index-store-spec {:type :file
+            restarted (repl.frontends/create-state {:index-store-spec {:type :file
                                                              :dir dir}})
             ;; The log is a live stream the later rounds append to: read
             ;; the restored groups before anything is evaluated.
@@ -1375,11 +1376,11 @@
 (deftest vm-selection-says-what-it-keeps
   (let [dir (temp-dir)]
     (try
-      (let [[durable [switched]] (evaluate (repl/create-state
+      (let [[durable [switched]] (evaluate (repl.frontends/create-state
                                              {:index-store-spec {:type :file
                                                                  :dir dir}})
                                            ["(vm :stack)"])
-            [_ [switched-mem]] (evaluate (repl/create-state) ["(vm :stack)"])]
+            [_ [switched-mem]] (evaluate (repl.frontends/create-state) ["(vm :stack)"])]
         (is (= (str "Switched to DebruijnStackVM (VM store cleared; durable"
                     " code index kept)")
                switched)

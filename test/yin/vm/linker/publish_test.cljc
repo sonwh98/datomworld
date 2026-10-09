@@ -5,6 +5,7 @@
             [dao.space.index :as space.index]
             [dao.space.query :as query]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.vm :as vm]
             [yin.vm.completion :as completion]
             [yin.vm.linearize :as linearize]
@@ -205,7 +206,7 @@
    after evaluating `lines`."
   [lines]
   (let [state (reduce (fn [s line] (first (repl/eval-input s line)))
-                      (repl/create-state)
+                      (repl.frontends/create-state)
                       lines)
         ix (:indexer state)]
     (vec (space.index/read-datoms (:content-store ix) (:manifest-address ix)))))

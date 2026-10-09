@@ -4,6 +4,7 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-register-code :as rcode]
             [dao.stream.observer :as observer]))
@@ -31,7 +32,7 @@
 
 
 (deftest fresh-state-is-a-semantic-shell-with-an-untried-ledger
-  (let [state (repl/create-state)]
+  (let [state (repl.frontends/create-state)]
     (is (= :semantic (:vm-type state))
         "the semantic VM is the default after Phase 4 (yin.vm.semantic.md §8)")
     (is (= :clojure (:lang state)))
@@ -52,24 +53,24 @@
 
 
 (deftest ordinary-source-evaluates-locally
-  (let [[_ result] (repl/eval-input (repl/create-state) "(+ 1 2)")]
+  (let [[_ result] (repl/eval-input (repl.frontends/create-state) "(+ 1 2)")]
     (is (= "3" result))))
 
 
 (deftest printed-output-precedes-the-value
-  (let [[state result] (repl/eval-input (repl/create-state) "(println \"hi\")")]
+  (let [[state result] (repl/eval-input (repl.frontends/create-state) "(println \"hi\")")]
     (is (= "hi\nnil" result))
     (is (= :dao.stream/blocked (get-in state [:ledger :output]))
         "the drain records the outcome that ended it")))
 
 
 (deftest value-history-is-injected-for-the-next-evaluation
-  (let [[_ result] (evaluate (repl/create-state) ["(+ 1 2)" "(+ *1 1)"])]
+  (let [[_ result] (evaluate (repl.frontends/create-state) ["(+ 1 2)" "(+ *1 1)"])]
     (is (= "4" result))))
 
 
 (deftest multi-line-input-accumulates-until-the-brackets-balance
-  (let [[state partial] (repl/eval-input (repl/create-state) "(+ 1")
+  (let [[state partial] (repl/eval-input (repl.frontends/create-state) "(+ 1")
         [state' result] (repl/eval-input state " 2)")]
     (is (= "" partial))
     (is (= "(+ 1" (:pending-input state)))
@@ -78,7 +79,7 @@
 
 
 (deftest the-vm-command-offers-the-ast-walker-and-the-semantic-vm
-  (let [[state result] (repl/eval-input (repl/create-state) "(vm :ast-walker)")
+  (let [[state result] (repl/eval-input (repl.frontends/create-state) "(vm :ast-walker)")
         [state' semantic] (repl/eval-input state "(vm :semantic)")
         [_ rejected] (repl/eval-input state' "(vm :bytecode)")]
     (is (= "Switched to ASTWalkerVM (store cleared)" result))
@@ -89,7 +90,7 @@
 
 
 (deftest host-primitives-survive-reset-and-vm-selection
-  (let [state (repl/create-state {:primitives {'answer (fn [] 42)}})
+  (let [state (repl.frontends/create-state {:primitives {'answer (fn [] 42)}})
         [state before] (repl/eval-input state "(answer)")
         [state _] (repl/eval-input state "(reset)")
         [state after-reset] (repl/eval-input state "(answer)")
@@ -103,7 +104,7 @@
 (deftest the-semantic-vm-evaluates-through-both-observer-stages
   ;; The program media are shared by every state threaded from one session,
   ;; so each case starts from its own session rather than a stale state.
-  (let [semantic-state #(first (repl/eval-input (repl/create-state) "(vm :semantic)"))]
+  (let [semantic-state #(first (repl/eval-input (repl.frontends/create-state) "(vm :semantic)"))]
     (testing "source loads a code segment and runs"
       (let [[state' result] (repl/eval-input (semantic-state) "(+ 1 2)")]
         (is (= "3" result))
@@ -147,7 +148,7 @@
 (deftest a-failed-input-is-consumed-exactly-once
   (doseq [vm-type [:semantic :ast-walker]]
     (testing (str vm-type " : an evaluation error and its effects do not replay")
-      (let [state (first (repl/eval-input (repl/create-state) (str "(vm " vm-type ")")))
+      (let [state (first (repl/eval-input (repl.frontends/create-state) (str "(vm " vm-type ")")))
             [state' failed] (repl/eval-input state "(do (println \"before\") (/ 1 0))")
             [state'' next-result] (repl/eval-input state' "(+ 1 2)")]
         (is (str/starts-with? failed "before\n"))
@@ -156,7 +157,7 @@
         (is (= "4" (second (repl/eval-input state'' "(+ *1 1)")))
             "observation progress and history continue past the failure"))))
   (testing "a batch the loader rejects is consumed, not re-read"
-    (let [[state failed] (repl/eval-input (repl/create-state)
+    (let [[state failed] (repl/eval-input (repl.frontends/create-state)
                                           "[[1 :a 1 0 true] [1 :b 2 0 true]]")]
       (is (str/starts-with? failed "Error: "))
       (is (= "3" (second (repl/eval-input state "(+ 1 2)")))))))
@@ -165,7 +166,7 @@
 (deftest lexical-scope-does-not-escape-a-top-level-evaluation
   (doseq [vm-type [:semantic :ast-walker]]
     (testing (str vm-type)
-      (let [state (first (repl/eval-input (repl/create-state) (str "(vm " vm-type ")")))
+      (let [state (first (repl/eval-input (repl.frontends/create-state) (str "(vm " vm-type ")")))
             [state' _] (evaluate state ["(def x 1)" "(let [x 7] x)"])
             [_ result] (repl/eval-input state' "x")]
         (is (= "1" result))))))
@@ -174,7 +175,7 @@
 (deftest reset-and-vm-selection-clear-the-value-history
   (doseq [command ["(reset)" "(vm :semantic)"]]
     (testing command
-      (let [[state _] (evaluate (repl/create-state) ["(fn [x] (+ x 1))" command])
+      (let [[state _] (evaluate (repl.frontends/create-state) ["(fn [x] (+ x 1))" command])
             [state' result] (repl/eval-input state "(*1 4)")]
         (is (nil? (:last-value state)) "no closure outlives its code segment")
         (is (str/starts-with? result "Error: "))
@@ -182,7 +183,7 @@
 
 
 (deftest language-and-compile-commands-behave-as-they-do-in-v1
-  (let [[state result] (repl/eval-input (repl/create-state) "(lang :python)")
+  (let [[state result] (repl/eval-input (repl.frontends/create-state) "(lang :python)")
         [_ compiled] (repl/eval-input state "(compile \"1 + 2\")")]
     (is (= "Switched to Python" result))
     (is (str/includes? compiled "AST:"))
@@ -192,7 +193,7 @@
 
 
 (deftest reset-rebuilds-the-vm-and-its-attachment
-  (let [[state _] (evaluate (repl/create-state) ["(+ 1 2)"])
+  (let [[state _] (evaluate (repl.frontends/create-state) ["(+ 1 2)"])
         [state' message] (repl/eval-input state "(reset)")]
     (is (= "SemanticVM reset" message))
     (is (not (identical? (:vm state) (:vm state'))))
@@ -211,7 +212,7 @@
 
 
 (deftest the-program-medium-attaches-by-descriptor
-  (let [state (repl/create-state)
+  (let [state (repl.frontends/create-state)
         writer (:program-stream state)
         descriptor (:dao.stream/descriptor (stream/descriptor writer))
         attach! (ring/make-attacher {(:dao.stream/identity descriptor) writer})
@@ -224,20 +225,20 @@
 
 
 (deftest quit-stops-the-shell-without-touching-the-host
-  (let [[state result] (repl/eval-input (repl/create-state) "(quit)")]
+  (let [[state result] (repl/eval-input (repl.frontends/create-state) "(quit)")]
     (is (= "Bye" result))
     (is (false? (:running? state)))))
 
 
 (deftest telemetry-is-rejected-and-points-at-the-built-emit-path
-  (let [[state result] (repl/eval-input (repl/create-state) "(telemetry)")]
+  (let [[state result] (repl/eval-input (repl.frontends/create-state) "(telemetry)")]
     (is (str/includes? result "yin.vm.telemetry.implementation-plan.md"))
     (is (not (str/includes? result "yin.repl")))
     (is (true? (:running? state)))))
 
 
 (deftest repl-state-reports-the-ledger-rather-than-asking-a-stream
-  (let [state (repl/create-state)
+  (let [state (repl.frontends/create-state)
         summary (repl/repl-state state)]
     (is (= :semantic (get-in summary [:vm :type])))
     (is (false? (get-in summary [:telemetry :supported?])))
@@ -249,20 +250,20 @@
 
 (deftest datom-literal-evaluation-runs-through-the-program-medium
   (testing "a runnable datom program evaluates to its value, as in v1"
-    (let [[state result] (repl/eval-input (repl/create-state)
+    (let [[state result] (repl/eval-input (repl.frontends/create-state)
                                           "[[-1 :yin/type :literal 0 1]
                                             [-1 :yin/value 99 0 1]]")]
       (is (= "99" result))
       (is (= 99 (:last-value state)))))
   (testing "a non-program datom stream is reported, never thrown at the host"
-    (let [[state result] (repl/eval-input (repl/create-state)
+    (let [[state result] (repl/eval-input (repl.frontends/create-state)
                                           "[[1 :a 1 0 true] [1 :b 2 0 true]]")]
       (is (str/starts-with? result "Error: "))
       (is (true? (:running? state))))))
 
 
 (deftest an-ingress-gap-is-fatal-to-evaluation-until-reset
-  (let [state (repl/create-state)
+  (let [state (repl.frontends/create-state)
         writer (:program-stream state)]
     ;; Evict one batch the observer never sees: the shell is the only
     ;; appender, so only a flood beyond the declared capacity can produce the
@@ -294,11 +295,11 @@
 
 (deftest unknown-commands-and-reader-failures-are-reported-not-thrown
   (testing "an unknown command"
-    (let [[state result] (repl/eval-input (repl/create-state) "(nope)")]
+    (let [[state result] (repl/eval-input (repl.frontends/create-state) "(nope)")]
       (is (str/starts-with? result "Error: "))
       (is (true? (:running? state)))))
   (testing "unreadable input"
-    (let [[_ result] (repl/eval-input (repl/create-state) "\"unterminated")]
+    (let [[_ result] (repl/eval-input (repl.frontends/create-state) "\"unterminated")]
       (is (str/starts-with? result "Error: ")))))
 
 
@@ -314,13 +315,13 @@
            ["(quote [:in % :where (r ?x)])" "[:in '% :where ('r '?x)]"]
            ["(quote [$ast ?lam :lambda ?params _])"
             "['$ast '?lam :lambda '?params '_]"]]]
-    (is (= expected (second (repl/eval-input (repl/create-state) line)))
+    (is (= expected (second (repl/eval-input (repl.frontends/create-state) line)))
         line)))
 
 
 (defn- answer
   [line]
-  (second (repl/eval-input (repl/create-state) line)))
+  (second (repl/eval-input (repl.frontends/create-state) line)))
 
 
 (deftest the-reader-reads-percent-forms-alike-on-every-host
@@ -447,7 +448,7 @@
   ;; `%` included.
   (doseq [[line fragment] [["(quote #{% %})" "uplicate key: %"]
                            ["(quote {% 1 % 2})" "uplicate key: %"]]]
-    (let [[state result] (repl/eval-input (repl/create-state) line)]
+    (let [[state result] (repl/eval-input (repl.frontends/create-state) line)]
       (is (str/starts-with? result "Error: ") (str line " => " result))
       (is (str/includes? result fragment) (str line " => " result))
       (is (true? (:running? state)) line))))
@@ -456,7 +457,7 @@
 (deftest the-output-drain-is-total-over-next
   (testing "a gap prints a loss notice and resumes at the recovery cursor"
     (let [output (handle 2)
-          state (repl/create-state {:output-stream output})]
+          state (repl.frontends/create-state {:output-stream output})]
       (doseq [n (range 5)]
         (stream/append! output {:type :repl/output :op :print :text (str n)}))
       (let [[state' text] (repl/drain-output state)]
@@ -467,7 +468,7 @@
           (is (= "" text') "the recovery cursor is retained, not re-read")))))
   (testing "a closed medium ends the drain and is recorded once"
     (let [output (handle 8)
-          state (repl/create-state {:output-stream output})]
+          state (repl.frontends/create-state {:output-stream output})]
       (stream/append! output {:type :repl/output :op :print :text "x"})
       (stream/close! output)
       (let [[state' text] (repl/drain-output state)]
@@ -477,7 +478,7 @@
 
 (deftest a-gap-does-not-cost-the-drain-an-element
   (let [output (handle repl/output-capacity)
-        state (repl/create-state {:output-stream output})]
+        state (repl.frontends/create-state {:output-stream output})]
     (dotimes [_ repl/output-capacity]
       (stream/append! output {:type :repl/output :op :print :text "x"}))
     (stream/append! output {:type :repl/result :round [:r 1] :value 7})
@@ -492,7 +493,7 @@
     (testing (str vm-type)
       (let [[state text]
             (evaluate
-              (repl/create-state {:vm-type vm-type})
+              (repl.frontends/create-state {:vm-type vm-type})
               [(str "(defn spam [n]"
                     " (if (= n 0) :done (do (print \"x\") (spam (- n 1)))))")
                (str "(spam " repl/output-capacity ")")])]
@@ -505,7 +506,7 @@
   (let [output (handle 16)]
     (stream/append! output {:type :repl/result :round ["other" 1] :value 99})
     (let [[state text] (repl/eval-input
-                         (repl/create-state {:output-stream output})
+                         (repl.frontends/create-state {:output-stream output})
                          ":first")]
       (is (= ":first" text)
           "a preloaded result from another shell is not this round's")
@@ -527,7 +528,7 @@
   (doseq [[vm-type canonical] [[:stack dcode/image-hash]
                                [:register rcode/register-hash]]]
     (testing (str vm-type)
-      (let [state (repl/create-state {:vm-type vm-type})
+      (let [state (repl.frontends/create-state {:vm-type vm-type})
             [one _] (repl/eval-input state "(def f (fn [x] (+ x 1)))")
             [two text] (repl/eval-input one "(f 1)")
             [three text'] (repl/eval-input two "(f 41)")]
@@ -542,7 +543,7 @@
   (doseq [[vm-type size] [[:stack count]
                           [:register (comp count :instructions)]]]
     (testing (str vm-type)
-      (let [[state text] (evaluate (repl/create-state {:vm-type vm-type})
+      (let [[state text] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                    ["(def f (fn [x] (+ x 1)))"
                                     "(f 1)"
                                     "(f 1)"
@@ -564,7 +565,7 @@
 
 (deftest the-output-cursor-is-minted-not-fabricated
   (let [output (handle 8)
-        state (repl/create-state {:output-stream output})]
+        state (repl.frontends/create-state {:output-stream output})]
     (is (= (oldest output) (:output-cursor state)))))
 
 
@@ -582,7 +583,7 @@
 
 (defn- vm-state
   [vm-type]
-  (first (repl/eval-input (repl/create-state) (str "(vm " vm-type ")"))))
+  (first (repl/eval-input (repl.frontends/create-state) (str "(vm " vm-type ")"))))
 
 
 (defn- results
@@ -614,7 +615,7 @@
 
 
 (deftest a-macro-defined-and-called-in-one-input-expands
-  (let [[state [result]] (results (repl/create-state)
+  (let [[state [result]] (results (repl.frontends/create-state)
                                   [(str twice-source " (twice 21)")])]
     (is (= "42" result))
     (is (contains? (:macros (repl/repl-state state)) 'twice)
@@ -623,7 +624,7 @@
 
 
 (deftest the-standard-forms-are-seeded-through-the-row-native-store
-  (let [state (repl/create-state)]
+  (let [state (repl.frontends/create-state)]
     (is (= ['defn] (keys (:macros (repl/repl-state state))))
         "a fresh session's store holds the standard defn")
     (testing "an ordinary defn application is rewritten by the stored defn"
@@ -643,7 +644,7 @@
 
 
 (deftest repl-state-lists-macro-names-and-root-addresses
-  (let [[state _] (evaluate (repl/create-state) [unless-source twice-source])
+  (let [[state _] (evaluate (repl.frontends/create-state) [unless-source twice-source])
         macros (:macros (repl/repl-state state))
         store (get-in state [:expander :ctx :store])]
     (is (= #{'defn 'unless 'twice} (set (keys macros))))
@@ -654,7 +655,7 @@
 
 
 (deftest compile-renders-rows-expansion-and-events-without-committing
-  (let [[state _] (repl/eval-input (repl/create-state) unless-source)
+  (let [[state _] (repl/eval-input (repl.frontends/create-state) unless-source)
         attempt (get-in state [:expander :ctx :attempt])
         [state' [compiled defined failed]]
         (results state ["(compile (unless false 1 2))"
@@ -677,7 +678,7 @@
 
 
 (deftest reset-rebuilds-the-expander-with-only-the-standard-forms
-  (let [[state _] (repl/eval-input (repl/create-state) unless-source)
+  (let [[state _] (repl/eval-input (repl.frontends/create-state) unless-source)
         [state' [_ unbound added]] (results state ["(reset)"
                                                    "(unless false 1 2)"
                                                    "(+ 1 2)"])]
@@ -713,7 +714,7 @@
 
 
 (deftest a-clojure-macro-expands-calls-from-other-languages
-  (let [[state _] (evaluate (repl/create-state) [unless-source twice-source
+  (let [[state _] (evaluate (repl.frontends/create-state) [unless-source twice-source
                                                  "(defn inc2 [x] (+ x 2))"])]
     (testing "Python"
       (let [[state' texts] (results state ["(lang :python)"
@@ -730,7 +731,7 @@
   (doseq [vm-type (keys repl/vm-constructors)]
     (testing (str vm-type)
       (let [[_ [plus _ q nested alias _ closure]]
-            (results (repl/create-state {:vm-type vm-type})
+            (results (repl.frontends/create-state {:vm-type vm-type})
                      ["+"
                       "(require (quote dao.space.query))"
                       "dao.space.query/q"

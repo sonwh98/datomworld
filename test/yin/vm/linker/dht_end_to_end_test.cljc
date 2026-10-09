@@ -25,6 +25,7 @@
             [dao.space.dht-test :as dht-test]
             [dao.space.index :as index]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.dht :as repl.dht]
             [yin.repl.store :as store]
             [yin.vm.linker.dht :as ld]
@@ -82,7 +83,7 @@
    --dht-key`), hydrating `manifest` first when given (`--dht-manifest`),
    declaring `principals` (`--dht-principal`)."
   [net dir port peer-ports {:keys [key manifest principals]}]
-  (repl/create-state
+  (repl.frontends/create-state
     {:index-store-spec {:type :dht
                         :dir dir
                         :peers (mapv (fn [p] {:host "127.0.0.1" :port p})

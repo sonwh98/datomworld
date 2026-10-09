@@ -12,6 +12,7 @@
             [dao.stream.cbor :as cbor]
             [dao.stream.memory-log :as memory-log]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.index :as repl.index]
             [yin.repl.store :as store]
             [yin.vm.linker.head :as head]
@@ -375,7 +376,7 @@
         key (sign/generate)]
     (try
       (let [opened (store/open {:type :file :dir dir})
-            state (evaluate (repl/create-state
+            state (evaluate (repl.frontends/create-state
                               {:index-store (recording opened heads)})
                             ["(def a 1)" "(def b 2)"])
             _ (testing "each round moves HEAD once, one t above the last"
@@ -398,7 +399,7 @@
         (let [reopened (store/open {:type :file :dir dir})]
           (try
             (let [recovery (:recovery reopened)
-                  state (repl/create-state
+                  state (repl.frontends/create-state
                           {:index-store (recording reopened heads)})]
               (testing "a rehydrated index has the sequence it had"
                 (is (= (last @heads) (:manifest recovery)))
@@ -427,7 +428,7 @@
                                          (throw (ex-info "store refused" {})))
                                        ((:put-bytes-fn inner) address bs))
                        :head-fn (fn [m] (swap! heads conj m)))
-        state (evaluate (repl/create-state {:index-store content})
+        state (evaluate (repl.frontends/create-state {:index-store content})
                         ["(def a 4101)" "(def b 4102)"])]
     (is (= [] @heads) "no HEAD moves while rows are unwritten")
     (reset! broken? false)

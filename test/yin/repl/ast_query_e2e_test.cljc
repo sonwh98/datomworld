@@ -8,6 +8,7 @@
             [dao.stream.observer :as observer]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.ast-index :as ast-index]
             [yin.vm :as vm]
             [yin.vm.macro :as macro]))
@@ -89,7 +90,7 @@
                      [$ast ?addr :variable ?name]
                      [$occ ?root ?path ?addr]]
             [_ [_ _ res]]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [require-line
                        "(defn inc [i] (+ i 1))"
                        (q-line join-q "(quote i)")])]
@@ -125,7 +126,7 @@
                           :where
                           [$ast ?node :variable ?op]]
             [state _]
-            (evaluate (repl/create-state {:vm-type vm-type})
+            (evaluate (repl.frontends/create-state {:vm-type vm-type})
                       [require-line
                        "(+ 1 2)"
                        "(* (+ 1 2) 3)"])
@@ -172,7 +173,7 @@
   ;; tuples.
   (doseq [vm-type vm-types]
     (testing (str vm-type)
-      (let [[s1 _] (evaluate (repl/create-state {:vm-type vm-type})
+      (let [[s1 _] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                              ["(+ 1 2)"])
             rel1 (ast-index/relations (:ast-indexer s1))
             status1 (repl/repl-state s1)
@@ -232,7 +233,7 @@
       (str vm-type)
       (let
         [names-q '[:find ?name :in $ast :where [$ast ?id :variable ?name]]
-         [s-init _] (evaluate (repl/create-state {:vm-type vm-type})
+         [s-init _] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                               [require-line
                                "(+ 1 2)"])
          [s-before [before]] (evaluate s-init [(q-line names-q)])
@@ -273,7 +274,7 @@
     (testing
       (str vm-type)
       (let
-        [[state _] (evaluate (repl/create-state {:vm-type vm-type})
+        [[state _] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                              [require-line])
          lossy (assoc-in state [:ast-indexer :observer] (lossy-observer))
          [_ [round-text ast-res occ-res datom-res]]
@@ -366,7 +367,7 @@
   "Evaluate `lines` after the require; answer the state and the root of
    each line's program, in round order (the require's first)."
   [vm-type lines]
-  (let [[state _] (evaluate (repl/create-state {:vm-type vm-type})
+  (let [[state _] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                             (into [require-line] lines))]
     [state (mapv first (stream-values (:row-stream state)))]))
 
@@ -484,7 +485,7 @@
                     (let
                       [[_ [_ _ vec-res map-res arity-few arity-many]]
                        (evaluate
-                         (repl/create-state {:vm-type vm-type})
+                         (repl.frontends/create-state {:vm-type vm-type})
                          [require-line
                           "(+ 1 2)"
                           (q-line '[:find ?name :in $ast :where [$ast ?id
@@ -497,7 +498,7 @@
                           (q-line '[:find ?t . :in $ast ?n :where [$ast ?id ?t
                                                                    ?n]] "1" "2")])
                        [_ [_ _ limit-res]]
-                       (evaluate (repl/create-state {:vm-type vm-type})
+                       (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                  [require-line
                                   (str "(+ " (str/join " " (range 1100)) ")")
                                   (q-line '[:find ?v :in $ast :where [$ast ?id :literal

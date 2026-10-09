@@ -9,6 +9,7 @@
             [dao.stream.observer :as observer]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.ast-index :as ast-index]
             [yin.vm :as vm]
             [yin.vm.macro :as macro]))
@@ -80,7 +81,7 @@
 (deftest every-vm-indexes-rows-and-occurrences
   (let [statuses
         (for [vm-type (keys repl/vm-constructors)]
-          (let [[state [text]] (evaluate (repl/create-state {:vm-type vm-type})
+          (let [[state [text]] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                                          ["(+ 1 2)"])
                 [packet] (stream-values (:row-stream state))
                 root (first packet)
@@ -105,7 +106,7 @@
 
 
 (deftest identical-rows-are-shared-across-roots-with-distinct-occurrences
-  (let [[state _] (evaluate (repl/create-state) ["(+ 1 2)" "(* (+ 1 2) 3)"])
+  (let [[state _] (evaluate (repl.frontends/create-state) ["(+ 1 2)" "(* (+ 1 2) 3)"])
         [[inner inner-rows] [outer outer-rows]]
         (stream-values (:row-stream state))
         shared (disj (into #{} (map first) (filter (set inner-rows) outer-rows))
@@ -129,7 +130,7 @@
 
 
 (deftest repeating-an-evaluation-adds-no-rows-or-occurrences
-  (let [[once _] (evaluate (repl/create-state) ["(+ 1 2)"])
+  (let [[once _] (evaluate (repl.frontends/create-state) ["(+ 1 2)"])
         [twice texts] (evaluate once ["(+ 1 2)" "(+ 1 2)"])]
     (is (= ["3" "3"] texts))
     (is (= 3 (count (stream-values (:row-stream twice)))))
@@ -139,19 +140,19 @@
 
 (deftest failed-expansions-add-nothing-raising-and-parking-programs-are-indexed
   (testing "a failed expansion forwards nothing, so nothing is indexed"
-    (let [[defined _] (evaluate (repl/create-state)
+    (let [[defined _] (evaluate (repl.frontends/create-state)
                                 ["(defmacro unless [c a b] (yin/if c b a))"])
           [failed [text]] (evaluate defined ["(unless 1 2)"])]
       (is (str/starts-with? text "Error: Macro expansion failed"))
       (is (= (relations defined) (relations failed)))
       (is (= 1 (get-in (repl/repl-state failed) [:ast-index :programs])))))
   (testing "a program whose VM raises is still indexed"
-    (let [[state [raised]] (evaluate (repl/create-state) ["(nope 1)"])]
+    (let [[state [raised]] (evaluate (repl.frontends/create-state) ["(nope 1)"])]
       (is (str/starts-with? raised "Error: "))
       (is (= 1 (get-in (repl/repl-state state) [:ast-index :programs])))
       (is (some #(= 'nope (nth % 2 nil)) (:ast (relations state))))))
   (testing "a program whose VM parks is still indexed"
-    (let [[state [text]] (evaluate (repl/create-state {:vm-type :stack})
+    (let [[state [text]] (evaluate (repl.frontends/create-state {:vm-type :stack})
                                    ["(require (quote mod))"])]
       (is (str/includes? text "pending"))
       (is (some? (:pending-run state)))
@@ -160,7 +161,7 @@
 
 
 (deftest a-round-that-throws-drains-the-ast-reader-without-indexing
-  (let [state (repl/create-state)
+  (let [state (repl.frontends/create-state)
         expander (:expander state)
         _ (stream/append! (:row-stream state) (literal-packet 7))
         [failed text] (repl/eval-input (assoc state :expander {}) "(+ 1 2)")
@@ -183,7 +184,7 @@
 
 (deftest an-ast-gap-loses-the-indexer-evaluation-continues-and-reset-recovers
   (let [{:keys [writer observer]} (small-medium 1)
-        state (repl/create-state)
+        state (repl.frontends/create-state)
         _ (doseq [v [1 2]] (stream/append! writer (literal-packet v)))
         lossy (assoc-in state [:ast-indexer :observer] observer)
         [lost text] (repl/eval-input lossy "(+ 1 2)")
@@ -215,7 +216,7 @@
 
 
 (deftest vm-selection-rebuilds-the-ast-indexer
-  (let [[state _] (evaluate (repl/create-state) ["(+ 1 2)"])
+  (let [[state _] (evaluate (repl.frontends/create-state) ["(+ 1 2)"])
         [switched _] (repl/eval-input state "(vm :ast-walker)")]
     (is (seq (:ast (relations state))))
     (is (= {:ast [] :occ #{}} (relations switched)))
@@ -301,7 +302,7 @@
 (deftest a-malformed-packet-in-the-session-is-reported-and-evaluation-continues
   (let [{:keys [writer observer]} (small-medium 4)
         _ (stream/append! writer "garbage")
-        state (assoc-in (repl/create-state) [:ast-indexer :observer] observer)
+        state (assoc-in (repl.frontends/create-state) [:ast-indexer :observer] observer)
         [state' text] (repl/eval-input state "(+ 1 2)")
         [state'' text'] (repl/eval-input state' "(+ 2 3)")
         [_ result] (repl/eval-input (first (repl/eval-input state'' "(reset)"))
@@ -318,14 +319,14 @@
   (let [{:keys [writer observer]} (small-medium 4)
         [root rows] (literal-packet 1)
         _ (stream/append! writer [root (conj rows (first rows))])
-        state (assoc-in (repl/create-state) [:ast-indexer :observer] observer)
+        state (assoc-in (repl.frontends/create-state) [:ast-indexer :observer] observer)
         [_ text] (repl/eval-input state "(+ 1 2)")]
     (is (= (str "3\n" (refused-warning "duplicate-address")) text))))
 
 
 (deftest healthy-rounds-carry-no-warning-on-every-vm
   (doseq [vm-type (keys repl/vm-constructors)]
-    (let [[_ texts] (evaluate (repl/create-state {:vm-type vm-type})
+    (let [[_ texts] (evaluate (repl.frontends/create-state {:vm-type vm-type})
                               ["(+ 1 2)" "(+ 2 3)"])]
       (is (= ["3" "5"] texts) (str vm-type)))))
 
@@ -334,7 +335,7 @@
   (doseq [vm-type (keys repl/vm-constructors)]
     (let [{:keys [writer observer]} (small-medium 1)
           _ (doseq [v [1 2]] (stream/append! writer (literal-packet v)))
-          state (assoc-in (repl/create-state {:vm-type vm-type})
+          state (assoc-in (repl.frontends/create-state {:vm-type vm-type})
                           [:ast-indexer :observer] observer)
           [_ text] (repl/eval-input state "(+ 1 2)")]
       (is (= (str "3\n" lost-warning) text) (str vm-type)))))
@@ -346,7 +347,7 @@
         _ (doseq [m [code ast]
                   v [1 2]]
             (stream/append! (:writer m) (literal-packet v)))
-        state (-> (repl/create-state)
+        state (-> (repl.frontends/create-state)
                   (assoc-in [:indexer :observer] (:observer code))
                   (assoc-in [:ast-indexer :observer] (:observer ast)))
         [_ text] (repl/eval-input state "(+ 1 2)")

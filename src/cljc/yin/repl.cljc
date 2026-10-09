@@ -15,9 +15,7 @@
             [dao.pretty :as pretty]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
-            [yang.clojure :as yang.clojure]
-            [yang.php :as yang.php]
-            [yang.python :as yang.python]
+            [yang.frontend :as frontend]
             [yin.repl.ast-index :as ast-index]
             [yin.repl.dht :as repl.dht]
             [yin.repl.index :as index]
@@ -874,11 +872,22 @@
    the custody control step runs during hydration and through the
    bounded shutdown drain; the custody program step runs only while
    the shell is admitted and running).  Nothing in the shell reads or
-   steps it; nil, the default, is today's behaviour."
+   steps it; nil, the default, is today's behaviour.
+
+   `:frontends` is the frontend catalog (`yang.frontend`) the session
+   compiles through, composed by the host entry point (this namespace
+   requires no frontend; see `yin.repl.frontends`).  Without it the catalog
+   is empty and every compile answers `unavailable-parser`.  The session
+   pins this immutable snapshot: installing into another catalog value
+   never changes a live session.  `:lang` selects a frontend by id
+   (`:yang.python/legacy`), by `[id revision]`, or by language (`:python`);
+   one the catalog cannot answer is an `unavailable-parser` diagnostic,
+   never a fallback to another frontend."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
-            index-store-spec dht-key principals ws-host write-heads! custody]
+            index-store-spec dht-key principals ws-host write-heads! custody
+            frontends]
      :or {lang :clojure vm-type :semantic}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
@@ -920,6 +929,7 @@
                              index-store)
                :indexer index/rehydrate (:recovery index-store))
        {:lang lang
+        :frontends (or frontends frontend/empty-catalog)
         :vm-type vm-type
         :extra-primitives primitives
         :output-stream output-stream
@@ -1594,32 +1604,84 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                    (ast-index/notice (:ast-indexer indexed))])))))))))
 
 
-(defn- compile-clojure-forms
-  [forms]
-  (if (= 1 (count forms))
-    (yang.clojure/compile (first forms))
-    (yang.clojure/compile-program forms)))
+(defn- language-ids
+  "The ids in `catalog` whose manifest language is `language`."
+  [catalog language]
+  (->> (:yang.frontend/entries catalog)
+       (keep (fn [[[id _] entry]]
+               (when (= language (:yang.frontend/language (:manifest entry)))
+                 id)))
+       distinct
+       vec))
+
+
+(defn- select-frontend
+  "Select the frontend `lang` names in `catalog`: a qualified id selects
+   id (ambiguous when several revisions are installed), `[id revision]`
+   pins one revision, any other keyword selects the one id installed for
+   that language."
+  [catalog lang]
+  (cond
+    (vector? lang) (frontend/select catalog
+                                    {:yang.frontend/id (first lang),
+                                     :yang.frontend/revision (second lang)})
+    (qualified-keyword? lang) (frontend/select catalog
+                                               {:yang.frontend/id lang})
+    :else (let [ids (language-ids catalog lang)]
+            (case (count ids)
+              0 (frontend/refused :yang.frontend/unknown {:language lang})
+              1 (frontend/select catalog {:yang.frontend/id (first ids)})
+              (frontend/refused :yang.frontend/ambiguous {:ids ids})))))
+
+
+(defn- usable-binding
+  "The binding of a successful `selected`, when it has a parse and a lower
+   stage, else nil."
+  [selected]
+  (let [binding (when (frontend/ok? selected) (:binding selected))]
+    (when (and (map? binding) (fn? (:parse binding)) (fn? (:lower binding)))
+      binding)))
+
+
+(defn- frontend-binding
+  "The installed binding for `lang` in the session's pinned catalog.  With
+   no parse and lower stage installed it throws an `unavailable-parser`
+   diagnostic: there is no fallback to another frontend."
+  [state lang]
+  (let [selected (select-frontend (:frontends state) lang)]
+    (or (usable-binding selected)
+        (throw (ex-info (str "unavailable-parser: no parser for " (pr-str lang))
+                        {:diagnostic :unavailable-parser
+                         :lang lang
+                         :selection selected})))))
+
+
+(defn- compile-input
+  "Lower `input` through the selected frontend; `forms` are the shell
+   reader's forms, used by a frontend that consumes them."
+  [state input forms]
+  (let [{:keys [parse lower] in :input} (frontend-binding state (:lang state))]
+    (lower (parse (if (= :forms in) forms input)))))
+
+
+(defn- forms-input?
+  [state]
+  (= :forms (:input (frontend-binding state (:lang state)))))
 
 
 (defn- compile-source
-  [lang input]
-  (case lang
-    :clojure (compile-clojure-forms (read-forms input))
-    :python (yang.python/compile input)
-    :php (yang.php/compile input)
-    (throw (ex-info "Unsupported Yin REPL language" {:lang lang}))))
+  [state input]
+  (let [{:keys [parse lower] in :input} (frontend-binding state (:lang state))]
+    (lower (parse (if (= :forms in) (read-forms input) input)))))
 
 
 (defn- compile-command-ast
   [state arg]
-  (case (:lang state)
-    :clojure (if (string? arg)
-               (compile-source :clojure arg)
-               (yang.clojure/compile arg))
-    (if (string? arg)
-      (compile-source (:lang state) arg)
-      (throw (ex-info "This compile command expects a source string"
-                      {:lang (:lang state) :arg arg})))))
+  (cond
+    (string? arg) (compile-source state arg)
+    (forms-input? state) (compile-input state nil [arg])
+    :else (throw (ex-info "This compile command expects a source string"
+                          {:lang (:lang state) :arg arg}))))
 
 
 (defn- render-compile-output
@@ -1687,11 +1749,11 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                          "; supported: "
                          (pr-str (vec (keys vm-constructors))))]))
       lang (let [lang (first args)]
-             (if (contains? lang-labels lang)
+             (if (usable-binding (select-frontend (:frontends state) lang))
                [(assoc state :lang lang)
-                (str "Switched to " (get lang-labels lang))]
-               [state (str "Error: Unknown Yin REPL language " (pr-str lang)
-                           "; supported: " (pr-str (vec (keys lang-labels))))]))
+                (str "Switched to " (get lang-labels lang (str lang)))]
+               [state (str "Error: unavailable-parser: Yin REPL language "
+                           (pr-str lang) " is not in the frontend catalog")]))
       compile [state (render-compile-output
                        state
                        (compile-command-ast state (first args)))]
@@ -1716,11 +1778,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
         (and form (command-form? form)) (handle-command state form)
         (and form (datom-stream? form)) (eval-program state (vec form))
         (and form (ast-map? form)) (eval-program state form)
-        forms (if (= :clojure (:lang state))
-                (eval-program state (compile-clojure-forms forms))
-                (eval-program state (compile-source (:lang state) trimmed)))
-        (= :clojure (:lang state)) [state (format-error (:error parsed))]
-        :else (eval-program state (compile-source (:lang state) trimmed))))
+        forms (eval-program state (compile-input state trimmed forms))
+        (forms-input? state) [state (format-error (:error parsed))]
+        :else (eval-program state (compile-source state trimmed))))
     (catch #?(:cljd Object :clj Exception :cljs js/Error) error
       (let [[state' output-text] (drain-output state)]
         [state' (str output-text (format-error error))]))))

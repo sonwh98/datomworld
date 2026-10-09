@@ -20,6 +20,7 @@
             [dao.stream.waitset.driver :as wake]
             [yin.repl :as shell]
             [yin.repl.dht :as repl.dht]
+            [yin.repl.frontends :as repl.frontends]
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
             [yin.repl.serve :as serve]
@@ -602,7 +603,7 @@
   ([] (boot {}))
   ([opts] (driver/create-state
             {:host (or (:adapter opts) (host/websocket))
-             :repl (shell/create-state
+             :repl (repl.frontends/create-state
                      (cond-> {:index-store-spec (:index-store-spec opts)
                               :dht-key (:dht-key opts)
                               :principals (:principals opts)
