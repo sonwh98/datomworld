@@ -7,7 +7,7 @@
         [:em "code"]
         " across lexical boundaries without accidental capture. Differential geometry taught physics how to move a "
         [:em "vector"]
-        " across a curved manifold without distortion. UCF is both at once: it is hygiene for suspended computation, and it is the connection that parallel-transports a CESK configuration across the distributed spacetime of nodes, runtimes, and checkpoints. The lease is where the curvature shows. A third part extends the transport past the boundary it was designed for: from one yin.vm to a different virtual machine altogether. The extension turned out to be narrow, and the path to seeing that it is narrow is recorded here, wrong turns included."],
+        " across a curved manifold without distortion. UCF is both at once: it is hygiene for suspended computation, and it is the connection that parallel-transports a CESK configuration across the distributed spacetime of nodes, runtimes, and checkpoints. Transport alone is not enough: a carrier that never consumes what it delivers hands the same checkpoint to every reader, and the lease is the gluing condition that makes one of those readings the computation. A third part extends the transport past the boundary it was designed for: from one yin.vm to a different virtual machine altogether. The extension turned out to be narrow, and the path to seeing that it is narrow is recorded here, wrong turns included."],
        :content
        [:section.blog-article
         [:div.section-inner
@@ -151,7 +151,9 @@
            [:strong "holonomy"]
            ", and its infinitesimal measure is "
            [:strong "curvature"]
-           ". Curvature is the obstruction to a globally consistent notion of \"the same state everywhere.\""]
+           ". Curvature is the obstruction to a globally consistent notion of \"the same state everywhere.\" Hold on to the word "
+           [:em "section"]
+           ", because it is the one that will matter. Curvature is what goes wrong when the connection itself is path-dependent; there is a different and simpler way for \"the same state everywhere\" to fail, when a flat connection hands several readers one state each and nothing says which of the resulting sections is the real one. UCF's problem turns out to be the second kind."]
           [:h3 "The Bundle of Execution"]
           [:p "Every term of that picture has a referent in datom.world, and the correspondence is exact enough to compute with."]
           [:ul.bulleted
@@ -179,17 +181,19 @@
            "A connection has one defining property beyond preserving content: it is defined pointwise along the path and depends on nothing global. UCF has the same property, and it is a stated invariant rather than an accident. The reference engine is "
            [:code "yin.vm.semantic"]
            ", and a foreign engine conforms by lifting into and lowering from its canonical configuration, never by extending it. There is no global coordinate system. There is only the local lift at the emitter, the local lower at the resumer, and the connection that relates them."]
-          [:h3 "Where the Curvature Is"]
+          [:h3 "Where Transport Stops Being Enough"]
           [:p
-           "If the manifold were flat, transport would be the end of the story. Lift, carry, lower, done. The reason UCF has a seventh section, longer than all the others, is that the manifold of distributed execution is curved, and the curvature has a name: "
+           "If every checkpoint were read exactly once, transport would be the end of the story. Lift, carry, lower, done. The reason UCF has a seventh section, longer than all the others, is that nothing in the carrier guarantees a single reading, and the failure has a name: "
            [:strong "the resumption race"]
            "."]
           [:p
            "The emitter parks, lifts, appends the value to a medium, and keeps its local parked record. Three readers see the value on the stream. The emitter's own wait set wakes because the stream it was waiting on delivered. Now four machines believe they may continue one computation. Nothing in dao.stream can stop them: a stream has no privileged reader and no destructive read."]
           [:p
-           "This is holonomy. Carry the state out along one path and back along another, and you do not get one state, you get several, each claiming to be the continuation of the same computation. Two resumers running the same checkpoint are two parallel-transported copies of one vector that have been brought back to the same point and found to disagree. The geometric content of \"split-brain\" is exactly that: transport around a loop is not the identity."]
+           "It is tempting to call this curvature, and the first draft of this essay did: carry the state around a loop and it comes back different. But that is not what happens. The connection is flat. Lift and lower are deterministic and do not depend on the path, and every one of the four machines holds a faithful copy of the same value. Nothing was distorted in transit. What went wrong is that the value was "
+           [:em "copied"]
+           ", because a stream read does not consume, and now there are four candidate futures over one point in the computation's history where there must be one. In the language of sheaves this is a gluing problem, not a transport problem. Each reader holds a local section, a perfectly good continuation over its own neighbourhood. The question is which local sections may be glued into the one global section that is the computation's world line, and a connection has no opinion on that. Something else has to supply the compatibility condition."]
           [:p
-           "UCF does not pretend the manifold is flat. It measures the curvature and fences it:"]
+           "UCF does not pretend the readers will sort it out among themselves. It supplies the gluing condition, and makes it the only one:"]
           [:ul.bulleted
            [:li
             [:strong "Content is not occurrence."]
@@ -197,7 +201,7 @@
             [:code ":yin.k/id"]
             " is content identity, for deduplication and materialization. "
             [:code ":yin.k/occurrence"]
-            " is the thing custody names, minted exactly once when a park is first exported, carried unchanged by every snapshot variant and every retry. In geometric terms: the vector has many coordinate expressions, but one identity in the bundle."]
+            " is the thing custody names, minted exactly once when a park is first exported, carried unchanged by every snapshot variant and every retry. In geometric terms: the vector has many coordinate expressions, but one identity in the bundle, and the occurrence is the point over which the candidate sections must be glued."]
            [:li
             [:strong "Resumption is a take, a take is a write, exclusion is a lease."]
             " Custody is arbitrated above the stream on an arbitration medium, a dao.space whose facts are ordinary datoms, using the dao.lease vocabulary unchanged. The leased subject is the occurrence. Only grantor-authored facts establish terms. The grantor is the transactor of the occurrence's execution ledger, the one boundary that actually possesses the right to admit effects as this occurrence."]
@@ -210,14 +214,14 @@
             [:strong "The absence of a lapse is never evidence of tenure."]
             " The first draft tried to fence by having consumers look for "
             [:code ":lapsed"]
-            " records and drop effects whose incarnation had one. That is correlation, not fencing: a partitioned consumer cannot see the lapse, and accepts stale effects. The epoch check at commitment replaces it. In the geometric reading, you cannot determine that two transported vectors agree by checking that nobody has yet reported them disagreeing. You need a gauge, and the epoch is the gauge."]
+            " records and drop effects whose incarnation had one. That is correlation, not fencing: a partitioned consumer cannot see the lapse, and accepts stale effects. The epoch check at commitment replaces it. In the geometric reading, two local sections do not glue because nobody has yet reported that they conflict; they glue because a compatibility condition says so, and the condition must be checkable by the one who commits. The epoch is that condition, issued by the authority and carried on every effect: not a measurement of anything, but the term under which a candidate is admitted as the continuation."]
            [:li
             [:strong "Causal linearity is a chain of edges."]
             " Completion of a checkpoint is not the holder's report; it is the grantor's ledger transition that atomically records the lapse, the occurrence-completed fact, and exactly one successor or terminal edge. A successor published without an accepted report is an orphan, queryable as history but never a grant. The world line of a computation is thereby a single path through occurrences, and the ledger is what makes it single."]]
           [:p
            "Notice what UCF does "
            [:em "not"]
-           " do. It does not make the manifold flat by fiat. It does not promise exactly-once effects through a bare stream; a composition that needs them must wire a fenced writer and an enrolled consumer, and one that cannot reach the authority must suspend protected commitment or declare at-least-once. A composition that cannot wire a dao.space transactor as grantor cannot offer exclusive custody at all; it composes fork semantics only. The specification calls this an honest capability limit, not a gap to paper over. Geometry agrees: you cannot remove curvature by choosing better coordinates. You can only measure it and account for it."]
+           " do. It does not make the carrier consume what it delivers, and it does not pretend that reading is taking. It does not promise exactly-once effects through a bare stream; a composition that needs them must wire a fenced writer and an enrolled consumer, and one that cannot reach the authority must suspend protected commitment or declare at-least-once. A composition that cannot wire a dao.space transactor as grantor cannot offer exclusive custody at all; it composes fork semantics only. The specification calls this an honest capability limit, not a gap to paper over. Geometry agrees: local sections do not glue themselves. Without a gluing condition you have a family of candidates, not a global section, and no choice of coordinates will turn one into the other."]
           [:h2 "Why the Two Parallels Are One"]
           [:p
            "Hygiene and parallel transport look like different ideas from different fields. They are the same idea seen at two scales."]
@@ -230,11 +234,11 @@
           [:p
            "Parallel transport is the "
            [:em "global"]
-           " story. It says: even a perfectly well-defined connection does not give a globally consistent identification of states when the base is curved, and the failure is measured by holonomy around loops. Occurrence identity, lease custody, epochs, fenced writers, the ledger as authority. These do not make the connection better defined. They make the path "
+           " story. It says: even a perfectly well-defined, perfectly flat connection gives you one faithful copy per reader, and when the carrier does not consume, that is several candidate sections over one point with nothing to choose between them. Occurrence identity, lease custody, epochs, fenced writers, the ledger as authority. These do not make the connection better defined. They are the gluing condition that makes the world line "
            [:strong "single"]
-           ": they ensure that of all the loops the value might be carried around, exactly one closes as the continuation of the computation, and every other closure is distinguishable as a lapsed incarnation."]
+           ": of all the candidate continuations over an occurrence, exactly one is admitted as the computation, and every other is distinguishable afterwards as a lapsed incarnation."]
           [:p
-           "Hygienic macro systems never needed the second half because lexical scoping is flat. Expansion happens once, at one place, and the result is a tree with no loops. Execution state in a distributed system does not have that luxury. The same checkpoint can be read from a stream by any number of peers at any later time, and the manifold they live on has nontrivial topology: partitions, retries, crash restarts, redelivery. UCF needed both halves because it transports an object that macro systems never had to move: something that is simultaneously code, environment, store, and the future of a running process, across a space where \"the same place\" is not a well-defined notion without a ledger to define it."]
+           "Hygienic macro systems never needed the second half because lexical scoping is flat. Expansion happens once, at one place, and the result is a tree: one expansion per site, nothing to glue. Execution state in a distributed system does not have that luxury. The same checkpoint can be read from a stream by any number of peers at any later time, and partitions, retries, crash restarts, and redelivery multiply the readers. UCF needed both halves because it transports an object that macro systems never had to move: something that is simultaneously code, environment, store, and the future of a running process, across a space where \"the same place\" is not a well-defined notion without a ledger to define it."]
           [:h2 "Part Three: Transport to a Different Machine"]
           [:p
            "Everything above moves a continuation between two instances of the same machine on different hosts. The fibers differ in coordinates (tempids, store keys, host representations) but not in kind: every yin.vm holds the canonical CESK and nothing else. The next question is what changes when the destination is not yin.vm at all but a different virtual machine with its own heap, its own values, and its own compiled code. This part records the decisions and, deliberately, the path that led to them, because the first two answers were wrong in instructive ways. One qualifier governs everything below: these are design decisions, not landed code. What ships today is the nested value grammar of Part One; the tuple form described here is the next specification change."]
@@ -331,7 +335,7 @@
            [:code ":yin.k/id"]
            " is that lesson, with the one necessary refinement that content identity and occurrence identity must be kept apart. Lisp taught, through forty years of macro pain, that a name is not a meaning until it carries its binding context. UCF's primitive markers, contract stamps, and content hashes are that lesson applied to a runtime instead of a reader. Just-in-time compilers taught that compiled code can be abandoned mid-flight and the interpreter's frame rebuilt from metadata kept at safepoints, and that the reverse, on-stack replacement, enters compiled code at those same points. Part Three's lift is deoptimization across a machine boundary, and its lower is analogous to on-stack replacement, though it may simply start a fresh native task from the canonical frame rather than enter a running activation; the tuple set is the interpreter frame they meet at."]
           [:p
-           "And differential geometry taught that moving a thing without distortion is not a property of the thing but of the connection you move it with, and that on a curved space the best connection in the world still leaves holonomy around loops which you must measure rather than wish away. UCF's seventh section is that lesson, written in datoms."]
+           "And geometry taught two things. Differential geometry taught that moving a thing without distortion is not a property of the thing but of the connection you move it with. Sheaf theory taught that local pieces, each correct on its own patch, do not add up to a global object unless a gluing condition says how they agree on the overlaps, and that the condition is extra structure which nothing in the pieces supplies. UCF's seventh section is the second lesson, written in datoms: the connection is Parts One and Three, and the ledger is the gluing."]
           [:p
            "A continuation is a value, not a session. That is the stance at the head of the UCF specification, and everything else follows from taking it seriously. A value can be content-addressed, so it can be deduplicated and verified. A value can be carried by anything, so no carrier is privileged. A value can be read by anyone, so custody must be arbitrated above the carrier by a boundary that actually possesses something. Hygiene makes the value mean the same thing everywhere. The lease makes sure it runs in only one place at a time. Between them, a suspended computation becomes a vector in a bundle over the distributed world, and UCF is the connection that lets it travel."]
           [:p [:strong "Learn more:"]]
