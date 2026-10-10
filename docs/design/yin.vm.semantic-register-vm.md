@@ -554,10 +554,16 @@ adding register rules; items 1-5 (one segment, instruction shape, pcs
     is a runtime terminator, and the layout syntax after it is as in
     item 10, wherever it occurs (as a body's whole expression, an arm,
     or an operand).
-13. **Canonical numbering**: re-projecting the parsed tree of each body
-    under §3.3 reproduces the body's register ids exactly
-    (`:noncanonical-registers` otherwise). This is what makes A the
-    unique projection rather than one of several equivalent spellings.
+13. **Canonical projection**: re-projecting the parsed trees of the
+    whole segment under §3.3 (minting, FIFO body queue order, label
+    placement, saturation) reproduces **the entire vector** exactly,
+    register ids and layout alike (`:noncanonical-registers` when ids
+    differ, `:noncanonical-layout` when bodies or labels are placed
+    differently). This is what makes A the unique projection rather
+    than one of several equivalent spellings: an id-only comparison
+    would accept a vector with two bodies swapped, which is not the
+    projection. (Phase-3 implementation report, 2026-10-10, unresolved
+    concern; ruled here.)
 
 Violation is a load error naming the pc and rule, first defect wins,
 as today. Both load paths (direct vector; projection to datoms) run the
