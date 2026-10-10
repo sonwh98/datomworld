@@ -432,8 +432,9 @@ the §8.2 scan gives `f` `T0` (interval `[0,1]`), the inner result `T1`
 (interval `[1,2]`), and at pc 2 `f`'s interval has expired, so the outer
 result reuses `T0`, which is also R1's outer result. So "a call-rooted
 body always differs" is false. What does follow from the two orders is
-one narrow statement: **(atomic-operator lemma)** for a `:call` whose
-operator is a single atom emitted at the body's first pc (`:var`,
+one narrow statement: **(atomic-operator lemma)** for a `:call` that is
+the body's root and whose operator is a single atom emitted at the body's
+first pc (`:var`,
 `:closure`, `:const`), the operator's interval is `[0, call-pc]`, so it
 holds `T0` at the call's pc and the §8.2 destination is some slot
 `> T0`; R1 assigns that call's destination before the operator, so its
@@ -448,7 +449,9 @@ value"`, `"store put then get"`, `"gensym"`, `"stream make"`); the
 fourteen call-rooted rows all have an atomic operator at pc 0 (a
 primitive `:var` or a `:closure`) and differ by the lemma; the two `if`
 rows have a test call whose operator `<` is at pc 0 and differ by the
-lemma applied to that call. Sixteen of twenty-six differ. Over the
+derivation, not the lemma (the test call is not the body's root: R1 reserves
+root `T0`, test result `T1`; the §8.2 scan gives the result `T3` after `<`
+and two literals). Sixteen of twenty-six differ. Over the
 register corpus (`corpus.cljc:54-118`): `:literal`, `:variable` and
 `:stream-make-default` are atoms and agree; the lemma covers, by
 inspection of the goldens, `:worked-example`, `:zero-arity-call`,
