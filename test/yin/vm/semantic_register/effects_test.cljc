@@ -3,6 +3,9 @@
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
+            [yin.vm.test-utils :as tu]
+            [yin.vm.semantic-register.walker-trace-test :as trace]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
@@ -180,6 +183,8 @@
     (let [blocked (vm/run (tail-reader main-tail?)) entry (first (:wait-set blocked))
           handle (get (:resources blocked) (:stream-id entry)) frame (peek (:k entry))]
       (is (vm/blocked? blocked))
+      (is (nil? (:control blocked)))
+      (is (nil? (:k blocked)))
       (is (= #{:segment :site :k :deliver :reason :cursor-ref :stream-id} (set (keys entry))))
       (is (= {:deliver :return} (:deliver entry)))
       (is (= (if main-tail? 0 1) (count (:k entry))))
@@ -206,6 +211,8 @@
   (let [ast (app (v 'vector) (lit nil) {:type :vm/park} (lit 2))
         parked (run-ast ast) record (vm/value parked) seg (:program parked)
         facts (get-in parked [:code seg :analysis]) rd (get-in record [:deliver :rd])]
+    (is (nil? (:control parked)))
+    (is (nil? (:k parked)))
     (is (= :parked-0 (:id record)))
     (is (= :parked-continuation (:type record)))
     (is (= (select-keys (:window parked) (analysis/saved facts (:pc record) rd)) (:window record)))
@@ -215,6 +222,8 @@
       (is (= [nil 7 2] (vm/value done))) (is (empty? (:parked done))))
     (is (re-find #"not found" (:message (error #(run-ast parked {:type :vm/resume :parked-id :missing :val (lit 1)}))))))
   (let [parked (vm/run (parity/register-machine {:type :vm/park})) record (vm/value parked)]
+    (is (nil? (:control parked)))
+    (is (nil? (:k parked)))
     (is (= {:type :parked-continuation :id :parked-0 :segment (:program parked)
             :pc 1 :env {} :window {} :k [] :deliver {:deliver :rd :rd 0}} record))
     (is (= record (edn/read-string (pr-str record))))))
@@ -277,9 +286,18 @@
   (app (lam '[r] body) capture))
 
 
-(defn every-vm=
+(defn bounded-run
+  [machine]
+  (loop [machine machine steps 0]
+    (cond
+      (vm/halted? machine) machine
+      (= steps 10000) (throw (ex-info "Test step bound exhausted" {:steps steps}))
+      :else (recur (vm/step machine) (inc steps)))))
+
+
+(defn register-value=
   [expected ast]
-  (let [result (try {:machine (run-ast ast)}
+  (let [result (try {:machine (bounded-run (parity/register-machine ast {:env {'vector vector}}))}
                     (catch #?(:cljd Object :clj Throwable :cljs :default) e
                       {:thrown (ex-message e)}))]
     (if-let [done (:machine result)]
@@ -287,28 +305,55 @@
       (is (= expected [:thrown (:thrown result)])))))
 
 
+(deftest continuation-restores-captured-environment
+  (let [ast (app (lam '[x]
+                      (app (v 'list)
+                           (with-k (if-node (app (v '=) (v 'r) (lit 7))
+                                            (v 'r)
+                                            (app (lam '[x] (app (v 'r) (lit 7))) (lit 9))))
+                           (v 'x)))
+                 (lit 1))
+        walker-machine (walker/vm-load-rows (tu/create-vm {:env {'list list}})
+                                            (vm/ast->semantic-bytecode ast) vm/ast-contract)
+        register-machine (parity/register-machine ast {:env {'list list}})
+        expected [[:value {:type :closure :params '[x]}] [:value 1]
+                  [:value :host-fn] [:value {:type :closure :params '[r]}]
+                  [:value :continuation] [:value :host-fn] [:value :continuation]
+                  [:value 7] [:value false] [:value {:type :closure :params '[x]}]
+                  [:value 9] [:value :continuation] [:value 7] [:value 7]
+                  [:value :host-fn] [:value 7] [:value 7] [:value true]
+                  [:value 7] [:value 1] [:value [7 1]] [:halt [7 1]]]
+        w (bounded-run walker-machine)
+        r (bounded-run register-machine)]
+    (is (= '(7 1) (vm/value w)))
+    (is (= '(7 1) (vm/value r)))
+    (is (= (parity/trace-normalize (vm/value w)) (parity/trace-normalize (vm/value r))))
+    (is (= expected (trace/trace-machine walker-machine false)))
+    (is (= expected (trace/trace-machine register-machine true)))))
+
+
 (deftest escape-discards-pending-frames-test
   (testing "invoked under (+ 1000 ...), the continuation delivers 7 to the
             capture point: the +1000 frame is discarded, the captured +1
             frame is not"
-    (every-vm= 9
-               (app (v '+)
-                    (lit 1)
-                    (with-k (if-node (app (v '=) (v 'r) (lit 7))
-                                     (app (v '+) (v 'r) (lit 1))
-                                     (app (v '+)
-                                          (lit 1000)
-                                          (app (v 'r) (lit 7)))))))))
+    (register-value= 9
+                     (app (v '+)
+                          (lit 1)
+                          (with-k (if-node (app (v '=) (v 'r) (lit 7))
+                                           (app (v '+) (v 'r) (lit 1))
+                                           (app (v '+)
+                                                (lit 1000)
+                                                (app (v 'r) (lit 7)))))))))
 
 
 (deftest tail-position-invocation-test
   (testing "the continuation invoked as a tail call"
-    (every-vm= 8
-               (app (v '+)
-                    (lit 1)
-                    (with-k (if-node (app (v '=) (v 'r) (lit 7))
-                                     (v 'r)
-                                     (tail (app (v 'r) (lit 7)))))))))
+    (register-value= 8
+                     (app (v '+)
+                          (lit 1)
+                          (with-k (if-node (app (v '=) (v 'r) (lit 7))
+                                           (v 'r)
+                                           (tail (app (v 'r) (lit 7)))))))))
 
 
 (deftest re-entry-after-return-test
@@ -319,7 +364,7 @@
     ;; x <- ((fn [] (current-continuation)))   ; returns before any invoke
     ;; when count = 0: saved <- x
     ;; if count < 3: count <- count + 1, (saved (* 10 count)) else [x count]
-    (every-vm=
+    (register-value=
       [30 3]
       (then
         (def! 'count (lit 0))
@@ -342,23 +387,23 @@
 
 (deftest store-not-rolled-back-test
   (testing "a store write made before the invocation is visible after it"
-    (every-vm= [1 :written]
-               (with-k (if-node (app (v '=) (v 'r) (lit 1))
-                                (app (v 'conj)
-                                     (app (v 'conj) (lit []) (v 'r))
-                                     (v 'mark))
-                                (then (def! 'mark (lit :written))
-                                      (app (v 'r) (lit 1))))))))
+    (register-value= [1 :written]
+                     (with-k (if-node (app (v '=) (v 'r) (lit 1))
+                                      (app (v 'conj)
+                                           (app (v 'conj) (lit []) (v 'r))
+                                           (v 'mark))
+                                      (then (def! 'mark (lit :written))
+                                            (app (v 'r) (lit 1))))))))
 
 
 (deftest arity-error-identical-across-vms-test
   (doseq [argc [0 2]]
     (testing (str argc " arguments")
-      (every-vm= [:thrown "Continuation expects exactly one argument"]
-                 (with-k (if-node (app (v '=) (v 'r) (lit 1))
-                                  (v 'r)
-                                  (apply app (v 'r)
-                                         (repeat argc (lit 1)))))))))
+      (register-value= [:thrown "Continuation expects exactly one argument"]
+                       (with-k (if-node (app (v '=) (v 'r) (lit 1))
+                                        (v 'r)
+                                        (apply app (v 'r)
+                                               (repeat argc (lit 1)))))))))
 
 
 (deftest stream-outcomes-and-edn-wake
