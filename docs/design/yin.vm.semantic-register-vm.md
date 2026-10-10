@@ -961,7 +961,11 @@ until phase 8.
 5. **Derivations.** §8.2-8.3 implemented; the lexical-address law
    (`addresses(H) = addresses(R) = addresses(resolve(A))`) and
    behavioural parity of all three kernels on the corpus; the §8.4
-   byte-and-contract decision recorded with its evidence.
+   byte-and-contract decision recorded with its evidence; **the
+   dependency-closure scanners (UCF §7.6.1) reimplemented over the new
+   table answer identically to the old ones on the C4 linked-prelude
+   corpus** (free names, store footprint, discharged bodies), since the
+   C4 track's module layout is built against those answers.
 6. **Continuation format.** §4.2 frames and both state shapes, the
    full frame validator, the safepoint harness of §4.1 (bidirectional
    lift/lower rows for every kind and both delivery modes, pending
