@@ -11129,3 +11129,13 @@ Next:
   - Phase 4 brief: `yin.vm.semantic-register` evaluator beside the old one; gates per design §10 (walker parity on the B0 corpus under the §2.5 correspondence, Rule R, effects, pure and effectful tail completion, abortive continuation invoke, park/resume, gensym, module store-of, FFI phases).
   - Before phase 6: amend UCF §7.3.4 and code-as-tuples §7.2 to retire the vector->datoms load path explicitly (Architect note).
   - C4 coordination note to agy is in `collab/1791520000000-orchestrator-note-c4-vs-semantic-register-vm.md`.
+
+## 2026-10-10 23:10:00 +07 — yang.python: Phase C4 Slice F3 (REPL Python ANTLR frontend) LANDED; seat taken over from agy
+Completed-GMT: 2026-10-10 16:10:00 GMT
+Coding-Agent: claude (sonnet-5-5)
+Session-ID: pending (provider-generated; interactive seat, claude.ai/code session_01XeFP6aU24GptBEgjTuLLtM)
+Tree: master@efb30dc4 (== origin)
+Supersedes: the earlier "Slice F3 ... IMPLEMENTED, NOT COMMITTED, NOT REVIEWED" entry by agy (uncommitted in the main tree; its known gaps are fixed below).
+Done: F3 landed as efb30dc4 (6 files, +962/-41): the :yang.python/antlr frontend (revision f3) in the REPL catalog on the JVM, a lexical completeness probe (strings, triple strings, escapes, comments, typed brackets, backslash continuation, EOF classification), persistent __main__ through sys.modules, :display :output policy (no stray nil echo), :primed session committed only on survival. Independent review by codex gpt-6.1-sol in three rounds: round 1 REJECT (six findings), round 2 REJECT narrowly (trimr changed string values; open string hid an earlier error; parked/refusal/abandon coverage), round 3 APPROVE. Fix rounds by opus-5-5. Evidence: opus lanes (JVM 76 tests / 467 assertions; Node 3878; Dart 3830, all green; the JVM Python session tests take 80 to 160 s each under machine load); my own focused check (frontend-catalog and yang.frontend tests 11 tests/68 assertions, kondo clean) before the commit; main's older uncommitted F3 copies were dropped after the commit. Not re-run by me on the final rebased tree: the full three lanes.
+Decisions: routing per docs/agents/routing-status.md (2026-10-10): codex/claude/cmd available, glm out with no exception; codex only for review/sign-off; implementation on opus. Worktree datomworld-c4-f3 and branch c4-f3 deleted.
+Next: Slice I2 (packages, dotted and relative imports, `as`, `*`, __package__) needs an engineer brief; then I3 to I7, F2, C2 S5, safepoint slices 3 and 4. Keep C4 AST-level (collab/1791520000000-orchestrator-note-c4-vs-semantic-register-vm.md).
