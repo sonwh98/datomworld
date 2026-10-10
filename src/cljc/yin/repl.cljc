@@ -24,6 +24,7 @@
             [yin.repl.store :as store]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
+            [yin.vm.data :as data]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-linearize :as debruijn-linearize]
             [yin.vm.debruijn-register-code :as rcode]
@@ -32,6 +33,7 @@
             [yin.vm.debruijn.stack :as stack]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
+            [yin.vm.integer :as integer]
             [yin.vm.linearize :as linearize]
             [yin.vm.macro :as macro]
             [yin.vm.module :as module]
@@ -641,8 +643,14 @@
    ((get vm-constructors vm-type)
     (cond-> {:primitives (merge (make-repl-primitives output-stream)
                                 extra-primitives)
-             :modules (cond-> (module/register-stream-module
-                                (module/default-registry))
+             :modules (cond-> (-> (module/default-registry)
+                                  module/register-stream-module
+                                  module/register-cell-module
+                                  (data/register-data-module
+                                    {::data/max-items 1048576})
+                                  (integer/register-integer-module
+                                    {::integer/max-bits 100000
+                                     ::integer/max-digits 4300}))
                         query-pair query/register)
              :make-stream make-ring-stream
              ;; the task's capability secret (yin.vm.linker.md 7.3, r10):
@@ -1041,22 +1049,38 @@
   [(:shell-token state) (:round state)])
 
 
+(defn- commit-frontend
+  "Keep what a frontend program's lowering staged (`::frontend`, see
+   `eval-compiled`) now that its VM state survives: the frontend session
+   it leaves becomes the shell's `:frontend-session`."
+  [state]
+  (let [staged (::frontend state)]
+    (cond-> (dissoc state ::frontend)
+      (contains? staged :session) (assoc :frontend-session (:session staged)))))
+
+
 (defn- finalize-eval
   "Drain the round's output and its result from the output medium.  Only a
    result stamped with this round's identity is this round's value; the
    evaluator answers once per halted program, after its prints.  A missing
    or foreign-round result is loss, reported with the append outcome the
-   runner recorded."
+   runner recorded.  The program halted, so its VM state survives and a
+   frontend's staged session is committed; a frontend whose display
+   policy is `:output` shows what the program wrote and not its value."
   [state state' vm']
   (let [append (::result-append vm')
+        display (:display (::frontend state'))
         [state'' output-text results]
-        (drain-output (assoc state' :vm (dissoc vm' ::result-append)))
+        (drain-output (commit-frontend
+                        (assoc state' :vm (dissoc vm' ::result-append))))
         round (round-id state')
         current (filterv #(= round (:round %)) results)]
     (if (seq current)
       (let [value (:value (peek current))]
         [(record-last-value state state'' value)
-         (str output-text (format-value value (host-fn-namer (:vm state''))))])
+         (str output-text
+              (when-not (= :output display)
+                (format-value value (host-fn-namer (:vm state'')))))])
       [state''
        (str output-text "Error: " result-loss-text
             (when (and append (not= :dao.stream/ok append))
@@ -1473,16 +1497,19 @@
    `:pending-run`, and the prompt returns.  Nothing is wedged: another
    line re-checks the link, the host may step one itself with
    `recheck-pending`, the link policy is consulted as the run parks, and
-   `(reset)` or `(vm ...)` drops it with the session."
+   `(reset)` or `(vm ...)` drops it with the session.  What a frontend
+   staged for the round rides on the run, committed only if it completes."
   [state state' vm' pending]
   (let [[state'' text] (drain-output state')]
     (consult-link-policy
       (assoc state''
              :vm vm'
-             :pending-run {:vm vm'
-                           :base (:vm state)
-                           :links pending
-                           :checks 0})
+             :pending-run (cond-> {:vm vm'
+                                   :base (:vm state)
+                                   :links pending
+                                   :checks 0}
+                            (::frontend state')
+                            (assoc :frontend (::frontend state'))))
       text
       (pending-text pending))))
 
@@ -1656,12 +1683,30 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                          :selection selected})))))
 
 
+(defn- lower-parsed
+  "Lower `parsed` through `binding`.  A binding with a `:lower-session`
+   stage lowers against the frontend session the shell keeps
+   (`:frontend-session`, cleared with the VM) and leaves the session it
+   answers, with the binding's `:display` policy, in the program's
+   `::frontend` metadata, for `eval-compiled` to stage."
+  [state binding parsed]
+  (let [staged (cond-> {}
+                 (:display binding) (assoc :display (:display binding)))]
+    (if-let [lower-session (:lower-session binding)]
+      (let [[ast session] (lower-session parsed (:frontend-session state))]
+        (vary-meta ast assoc ::frontend (assoc staged :session session)))
+      (cond-> ((:lower binding) parsed)
+        (seq staged) (vary-meta assoc ::frontend staged)))))
+
+
 (defn- compile-input
   "Lower `input` through the selected frontend; `forms` are the shell
    reader's forms, used by a frontend that consumes them."
   [state input forms]
-  (let [{:keys [parse lower] in :input} (frontend-binding state (:lang state))]
-    (lower (parse (if (= :forms in) forms input)))))
+  (let [binding (frontend-binding state (:lang state))]
+    (lower-parsed state binding
+                  ((:parse binding)
+                   (if (= :forms (:input binding)) forms input)))))
 
 
 (defn- forms-input?
@@ -1671,8 +1716,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
 (defn- compile-source
   [state input]
-  (let [{:keys [parse lower] in :input} (frontend-binding state (:lang state))]
-    (lower (parse (if (= :forms in) (read-forms input) input)))))
+  (let [binding (frontend-binding state (:lang state))]
+    (lower-parsed state binding
+                  ((:parse binding)
+                   (if (= :forms (:input binding)) (read-forms input) input)))))
 
 
 (defn- compile-command-ast
@@ -1726,6 +1773,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
           :last-value nil
           :last-value-2 nil
           :last-value-3 nil
+          :frontend-session nil
           :pending-run nil}))
 
 
@@ -1767,6 +1815,21 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       [state (str "Error: Unknown Yin REPL command " (pr-str command))])))
 
 
+(defn- eval-compiled
+  "Evaluate a program `compile-input` or `compile-source` lowered.  What
+   its lowering left (`::frontend`: the session and the display policy) is
+   staged on the round and committed only where the round's VM state
+   survives: when the program halts, now or when its parked require
+   completes (`finalize-eval`).  A round that fails, rolls back, or is
+   abandoned keeps the shell's previous `:frontend-session`."
+  [state ast]
+  (let [staged (::frontend (meta ast))
+        [state' text] (eval-program (cond-> state
+                                      staged (assoc ::frontend staged))
+                                    ast)]
+    [(dissoc state' ::frontend) text]))
+
+
 (defn- eval-parsed*
   "The parse dispatch of one line, against a shell with no require to
    re-check."
@@ -1778,9 +1841,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
         (and form (command-form? form)) (handle-command state form)
         (and form (datom-stream? form)) (eval-program state (vec form))
         (and form (ast-map? form)) (eval-program state form)
-        forms (eval-program state (compile-input state trimmed forms))
+        forms (eval-compiled state (compile-input state trimmed forms))
         (forms-input? state) [state (format-error (:error parsed))]
-        :else (eval-program state (compile-source state trimmed))))
+        :else (eval-compiled state (compile-source state trimmed))))
     (catch #?(:cljd Object :clj Exception :cljs js/Error) error
       (let [[state' output-text] (drain-output state)]
         [state' (str output-text (format-error error))]))))
@@ -1824,7 +1887,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
         (if (vm/halted? vm')
           (let [vm'' (engine/restore-initial-env (:env (:base parked)) vm')
                 [st text] (finalize-eval state
-                                         (assoc state' :vm vm'')
+                                         (cond-> (assoc state' :vm vm'')
+                                           (:frontend parked)
+                                           (assoc ::frontend
+                                                  (:frontend parked)))
                                          (tokenize state' vm''))]
             (fold-queued [(assoc st :vm vm'' :pending-run nil) text]
                          (cond-> (vec (:pending-lines parked))
@@ -1925,19 +1991,38 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
     (eval-parsed* state trimmed parsed)))
 
 
+(defn- input-probe
+  "The completeness probe of the session's frontend, or nil when it has
+   none or none is installed (the compile then reports it)."
+  [state]
+  (:probe (usable-binding (select-frontend (:frontends state) (:lang state)))))
+
+
 (defn eval-input
   "Evaluate one input line locally, returning `[state text]`.
 
-   Input whose brackets do not balance is retained as `:pending-input` and
-   produces no text.  Nothing here is asynchronous: the driver, not this
-   namespace, decides when the next step happens."
+   Input that is not yet a whole submission is retained as `:pending-input`
+   and produces no text: for a frontend with a `:probe` the probe decides
+   and the line is kept verbatim (whitespace can be inside a string);
+   otherwise the brackets must balance.  Nothing here is asynchronous: the
+   driver, not this namespace, decides when the next step happens."
   [state line]
-  (let [pending (or (:pending-input state) "")
+  (let [probe (input-probe state)
+        pending (or (:pending-input state) "")
+        line (if probe line (str/trim line))
         combined (if (str/blank? pending)
-                   (str/trim line)
-                   (str pending "\n" (str/trim line)))]
-    (if (pos? (bracket-balance combined))
+                   line
+                   (str pending "\n" line))]
+    (cond
+      (and probe (str/blank? combined))
+      [(assoc state :pending-input nil) ""]
+
+      (if probe
+        (= :incomplete (probe combined))
+        (pos? (bracket-balance combined)))
       [(assoc state :pending-input combined) ""]
+
+      :else
       (let [state' (assoc state :pending-input nil)
             parsed (try {:forms (read-forms combined)}
                         (catch #?(:cljd Object

@@ -90,12 +90,12 @@
 
 (deftest an-unavailable-frontend-answers-without-fallback-test
   (let [state (repl.frontends/create-state)
-        [state' answer] (run state "(lang :yang.python/antlr)")]
+        [state' answer] (run state "(lang :yang.python/uninstalled)")]
     (testing "selecting an id the catalog does not hold is a diagnostic"
       (is (str/includes? answer "unavailable-parser"))
       (is (= :clojure (:lang state'))))
     (testing "compiling under it answers unavailable-parser, not legacy"
-      (let [pinned (assoc state :lang :yang.python/antlr)
+      (let [pinned (assoc state :lang :yang.python/uninstalled)
             [_ result] (run pinned "1 + 2")
             [_ compiled] (run pinned "(compile \"1 + 2\")")]
         (is (str/includes? result "unavailable-parser"))
@@ -109,6 +109,16 @@
                           :lang :toy)
             [_ result] (run pinned "abc")]
         (is (str/includes? result "unavailable-parser"))))))
+
+
+(deftest the-antlr-id-is-installed-only-where-its-parser-runs-test
+  (let [jvm? #?(:cljd false :clj true :cljs false)
+        [state answer] (run (repl.frontends/create-state)
+                            "(lang :yang.python/antlr)")]
+    (if jvm?
+      (is (= :yang.python/antlr (:lang state)))
+      (do (is (str/includes? answer "unavailable-parser"))
+          (is (= :clojure (:lang state)))))))
 
 
 (deftest a-core-session-with-no-catalog-has-no-frontend-test
@@ -139,7 +149,7 @@
 
 
 (deftest an-explicit-parser-service-makes-an-id-available-test
-  (let [id :yang.python/antlr
+  (let [id :yang.python/service
         antlr-manifest (assoc (manifest "antlr-1") :yang.frontend/id id)
         bare (frontend/install (repl.frontends/standard)
                                antlr-manifest
@@ -150,8 +160,9 @@
                  {:parse (fn [src] (count src)),
                   :lower (fn [n] (yang.clojure/compile n))})]
     (testing "no parser and no service: unavailable, no legacy fallback"
-      (let [[state _] (run (repl.frontends/create-state {:frontends bare})
-                           "(lang :yang.python/antlr)")]
+      (let [[state answer] (run (repl.frontends/create-state {:frontends bare})
+                                "(lang :yang.python/service)")]
+        (is (str/includes? answer "unavailable-parser"))
         (is (= :clojure (:lang state))))
       (is (str/includes?
             (second (run (assoc (repl.frontends/create-state
@@ -161,5 +172,5 @@
             "unavailable-parser")))
     (testing "a configured service binding answers"
       (let [[state _] (run (repl.frontends/create-state {:frontends served})
-                           "(lang :yang.python/antlr)")]
+                           "(lang :yang.python/service)")]
         (is (= "5" (second (run state "12345"))))))))
