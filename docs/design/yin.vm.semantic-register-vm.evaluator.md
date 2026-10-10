@@ -621,9 +621,10 @@ read it from `E` (`engine.cljc:205-224`). The 4b row
 
 ## 4. The walker trace-test procedure
 
-**PROPOSED** (frozen §2.5 fixes the correspondence table; this section
-fixes the procedure, which the frozen text leaves as "a trace test
-aligns walker value-producing steps with register writes").
+**PROPOSED** (the frozen §2.5, as amended by F5, fixes the
+correspondence: events are production or delivery transitions,
+relocation and routing are administrative, and the companion design
+fixes the procedure. This section is that procedure).
 
 ### 4.1 One definition of an event, for both machines
 
@@ -665,9 +666,12 @@ operand, `eval-stream-put-target` to the value node, a definition to its
 value operand: `:494-612`, `:306-398`). The walker has no relocation
 step: a body's value flows to the caller through `:next k` inside the
 producing transition itself. A blocked step sets `:control` nil **and**
-`:blocked? true` and is excluded; a `:vm/park` sets `:control` nil with
-`:halted? true` and the parked record as value, and is a terminal event
-(§4.3).
+`:blocked? true` and is excluded. A park is recognised from the **node
+executed**: when the pre-state's `(:control vm)` is a `:vm/park` node,
+the step that follows is the park (`ast_walker.cljc:565-567`), recorded
+as the terminal `[:park id]` event (§4.3). The returned value's shape is
+never consulted for this: a literal map that looks like a parked record
+is an ordinary `[:value …]` event.
 
 **Register machine.** Drive `vm/step` with fuel 1. Classify by the
 **instruction executed** (`inst`, read from the image at the pre-state's
@@ -685,7 +689,8 @@ read from the pre-state window:
 | `:resume` | delivery (per the parked record) | yes (4b) |
 | `:return r`, `:halt r` | relocation | **no** |
 | `:jump`, `:branch-false` | routing | no |
-| `:park`, any parking or blocking step | — | no (park is the terminal `[:park …]`) |
+| `:park` | — | no: the step is recorded as the terminal `[:park id]`, recognised from `inst` being `:park`, never from the value left in `:value` |
+| any blocking step (`:stream-put :stream-next :ffi-call`, an effectful `:call`) | — | no |
 
 Why `:return r` is relocation: the body's last expression produced the
 value (one event, matching the walker's one producing transition for
@@ -702,11 +707,16 @@ Each side records a vector of **events**:
 ```clojure
 [:value v-normalized]      ; one per event (§4.1), in order
 [:halt v-normalized]       ; the final value, once, when halted with an empty ready queue
-[:park record-normalized]  ; a :vm/park / [:park rd] halt: the record's :env and :k are dropped,
-                           ; its :id kept
+[:park id]                 ; the executed :vm/park node / [:park rd] instruction halted the task;
+                           ; id is (:id (:value vm')), the engine's park id (engine.cljc:2290-2293)
 [:error message]           ; the ex-message of a throw, then the trace ends
 [:fuel-exhausted n]        ; n steps taken without halting (§4.3), then the trace ends
 ```
+
+The `[:park id]` event is emitted only when the **executed** node or
+instruction was a park (§4.3); the parked record's shape plays no part
+in recognising it, and `trace-normalize` below has no parked-record
+arm, so a guest value shaped like a parked record is ordinary data.
 
 Normalisation is one function, `trace-normalize`, applied to **every**
 compared value on both sides, including the pinned `expected` column of
@@ -715,12 +725,15 @@ type, or the plain `{:type :closure …}` map the pinned expectations
 hold, `parity_test.cljc:76-78`) → `{:type :closure :params p}` — the
 body is an AST node on the walker side, `{:segment :entry}` on the
 register side and a literal `:body` in the pinned column, so only
-`params` compare; a continuation → `:continuation`; a
-`:stream-ref`/`:cursor-ref` → `{:type t :id id}`; a host fn →
-`:host-fn`; a parked record → `{:type :parked-continuation :id id}`;
-collections recursively; everything else as is. It extends
+`params` compare; a continuation (host type) → `:continuation`; a map
+with `:type :stream-ref` or `:cursor-ref` → `{:type t :id id}` (the seal
+differs per task and is dropped); a host fn → `:host-fn`; collections
+recursively; every other value, plain maps included, as is. It extends
 `yin.vm.parity-test/normalize` (`parity_test.cljc:122-134`), which keeps
-`:body` and therefore cannot be used unchanged.
+`:body` and therefore cannot be used unchanged. The closure arm matches
+the plain `{:type :closure …}` map only because the pinned column holds
+one; a guest literal of that shape normalises identically on both
+sides, so the comparison stays sound.
 
 ### 4.3 The algorithm
 
@@ -734,11 +747,12 @@ trace-walker(ast):
     if (engine/halted-with-empty-queue? vm): events += [:halt (trace-normalize (vm/value vm))]; stop
     if (:blocked? vm): stop                      ; the trace lane runs non-blocking programs only
     if n = FUEL: events += [:fuel-exhausted n]; stop
+    park? := (= :vm/park (:type (:control vm)))  ; the node about to execute, read BEFORE the step
     vm' := try (vm/step vm) catch e: events += [:error (ex-message e)]; stop
     n := n + 1
+    if park?: events += [:park (:id (:value vm'))]; stop
     if (and (nil? (:control vm')) (not (:blocked? vm')))
-       if (:value vm') is a parked record: events += [:park …]; stop
-       else events += [:value (trace-normalize (:value vm'))]
+       events += [:value (trace-normalize (:value vm'))]
     vm := vm'
   ;; the walker's final producing step sets :control nil, :k nil and :halted? true in one
   ;; transition (cesk-return derives :halted? from the two nils), so it is recorded as
@@ -756,11 +770,17 @@ trace-register(ast):
     W0, K0   := (:window vm), (or (:k vm) [])          ; pre-state, for the operator and the frame
     vm' := try (vm/step vm) catch e: events += [:error (ex-message e)]; stop
     n := n + 1
-    if (:halted? vm') and (:value vm') is a parked record: events += [:park …]; stop
-    v := extract(inst, W0, K0, vm, vm')              ; below; :none when not an event
-    if v ≠ :none: events += [:value (trace-normalize v)]
+    if (= :park (nth inst 0)): events += [:park (:id (:value vm'))]; stop   ; by the instruction, never the value
+    r := extract(inst, W0, K0, vm, vm')              ; below: {:event? true :value v} | {:event? false}
+    if (:event? r): events += [:value (trace-normalize (:value r))]
     vm := vm'
 ```
+
+`extract` answers a **tagged** result, never a sentinel value: `{:event?
+true :value v}` when the step was an event (so a produced `:none`, `nil`
+or `false` is carried as `:value` and recorded like any other), and
+`{:event? false}` otherwise. The comparison and the diagnostics of §4.4
+read `:event?` first and `:value` only when it is true.
 
 **Extraction, by explicit destination only.** `extract` never infers a
 destination from differences between windows or from a change in the
@@ -769,15 +789,16 @@ entries at once, grow or discard `K`, and move to another body, so
 map differences identify nothing. The destination is always read from
 the instruction or from the record the instruction consumed:
 
-| `inst` | destination | value |
+| `inst` | destination | result |
 |---|---|---|
-| a production instruction of §4.1 (`rd` at tuple position 1) | `rd` | `(get (:window vm') rd)`; `:none` if the step parked or blocked (`(:blocked? vm')` or `(:halted? vm')` with a parked value) |
-| `[:call rd f args false]`, `(get W0 f)` a host fn | `rd` | `(get (:window vm') rd)`; `:none` if blocked |
-| `[:call rd f args true]`, `(get W0 f)` a host fn | the popped frame `(peek K0)` → its `:rd`; or the halt when `K0` is empty | `(get (:window vm') (:rd (peek K0)))`, or `(:value vm')` on halt; `:none` if blocked |
-| `[:call …]`, `(get W0 f)` a closure | — | `:none` |
-| `[:call …]`, `(get W0 f)` a continuation `κ` | `(:rd (:deliver (values/payload κ)))` | `(get (:window vm') that-rd)` — `κ`'s own captured delivery record, read from the pre-state |
+| a production instruction of §4.1 (`rd` at tuple position 1) | `rd` | `{:event? true :value (get (:window vm') rd)}`; for `:stream-put :stream-next :ffi-call`, `{:event? false}` when `(:blocked? vm')` |
+| `[:call rd f args false]`, `(get W0 f)` a host fn | `rd` | `{:event? true :value (get (:window vm') rd)}`; `{:event? false}` when `(:blocked? vm')` |
+| `[:call rd f args true]`, `(get W0 f)` a host fn | the popped frame `(peek K0)` → its `:rd`; or the halt when `K0` is empty | `{:event? true :value (get (:window vm') (:rd (peek K0)))}`, or `{:event? true :value (:value vm')}` when `K0` was empty and `(:halted? vm')`; `{:event? false}` when `(:blocked? vm')` |
+| `[:call …]`, `(get W0 f)` a closure | — | `{:event? false}` |
+| `[:call …]`, `(get W0 f)` a continuation `κ` | `(:rd (:deliver (values/payload κ)))` | `{:event? true :value (get (:window vm') that-rd)}` — `κ`'s own captured delivery record, read from the pre-state |
 | `[:resume id v]` (4b) | the parked record `(get-in vm [:parked id])` read **before** the step: its `:deliver` `:rd`, or the popped frame of its `:k` / the halt for `:return` mode | as the two rows above |
-| `:return :halt :jump :branch-false :park` | — | `:none` |
+| `:return :halt :jump :branch-false` | — | `{:event? false}` |
+| `:park` | — | not reached: the loop emitted `[:park id]` from `inst` and stopped |
 
 Everything `extract` reads is public machine state (`vm/control`, the
 `:window`, `:k` and `:parked` keys, the image under `:code`) and the
@@ -791,6 +812,14 @@ involved. The operator kind of the pre-state window is classified with
 above records it as `[:value …]` and then `[:halt …]`; the register side
 records the body's last write as `[:value …]`, the `:halt` as nothing
 (relocation) and then `[:halt …]`. Both traces end `[:value v] [:halt v]`.
+
+**Parking programs** end the step trace at the `[:park id]` event on
+both sides, recognised from the executed node or instruction; the
+engine then holds the record under `:parked` and the task is halted
+(`engine.cljc:2280-2296`). The 4b park/resume acceptance rows (§5.2
+items 9-10) run to completion and compare the record itself, so the two
+lanes agree: the trace says *that* a park happened and under which id,
+the run lane says *what* was parked.
 
 **Blocked programs** are outside the step trace. Stepping a blocked
 walker is undefined (`cesk-transition` with nil control and nil `k`
@@ -806,7 +835,9 @@ The test asserts whole-trace equality `(= (trace-walker ast)
 (trace-register ast))` per program and, on failure, reports the first
 differing index with both events (or the one that exists). A mismatch
 is any of: different lengths; a differing event at any index; a
-`[:error m]`, `[:park …]` or `[:fuel-exhausted n]` on one side only.
+`[:error m]`, `[:park id]` or `[:fuel-exhausted n]` on one side only.
+Two `[:value …]` events compare by their normalized `:value`, so a
+produced `:none`, `nil` or `false` compares like any other value.
 Equal error messages count as a match (error parity: unbound symbols,
 `:not-applicable`, continuation arity, "not found" for an unknown parked
 id). Fuel exhaustion on both sides at the same index is still reported
@@ -838,10 +869,28 @@ files at `d21ee43f`.
 4. `definition-programs` of `yin.vm.rule-r-test`
    (`test/yin/vm/rule_r_test.cljc:172-189`, **5 rows**), respelled
    (private there).
+5. **Trace-only rows**, defined inline in `walker-trace-test` as
+   `[name ast expected-events]`, each pinning the whole expected trace
+   so the oracle's own classification is tested, not only the two
+   machines' agreement:
 
-Blocking programs (the four effect deftests of `parity_test.cljc:163-230`,
-the `:park`-bearing corpus rows) are **not** traced step-wise; the
-run-to-completion lane covers them (§4.3, last paragraph).
+   | Name | Program (AST) | Expected events, both machines | Slice |
+   |---|---|---|---|
+   | `:literal-none` | `{:type :literal :value :none}` | `[[:value :none] [:halt :none]]` | 4a |
+   | `:parked-shaped-literal` | `{:type :literal :value {:type :parked-continuation :id :parked-0}}` | `[[:value {:type :parked-continuation :id :parked-0}] [:halt {:type :parked-continuation :id :parked-0}]]` — a `[:value …]`, never a `[:park …]`; the map is plain data to `trace-normalize` | 4a |
+   | `:park-then-halt` | `{:type :vm/park}` | `[[:park :parked-0]]` — the trace ends at the park; the engine mints `:parked-0` on a fresh task on both machines (`engine/park-id`, `engine.cljc:2273-2277`) | 4b |
+   | `:literal-none-in-call` | `(app (lam '[x] (v 'x)) (lit :none))` | `[[:value {:type :closure :params [x]}] [:value :none] [:value :none] [:halt :none]]` — the closure, the operand, the body's `x`; closure entry and `:return` add nothing | 4a |
+
+   Rows 1, 2 and 4 are `slice-4a-eligible?` (`:const`, `:closure`,
+   `:var`, `:call` only); `:park-then-halt` is deferred to 4b with
+   `:park`.
+
+Blocking programs (the four effect deftests of `parity_test.cljc:163-230`)
+are **not** traced step-wise; the run-to-completion lane covers them
+(§4.3). The `:park`-bearing register-corpus rows (`:park`, `:resume-arm`)
+are 4b-eligible and trace to an earlier `[:error …]` (their free names
+are unbound), not to a `[:park id]`; `:park-then-halt` above is the row
+that reaches one.
 
 ---
 
@@ -931,7 +980,10 @@ Applied to the corpora of §4.5 at `d21ee43f`:
   `[11 {:rule :reserved-name …}]` rows of
   `yin.vm.semantic-register.code-test/refusals` (`code_test.cljc:66-70`)
   are refused by the loader with that rule.
-- Trace: §4 over the eligible rows of corpora 1, 2 and 4 (25 + 21 + 5).
+- Trace: §4 over the eligible rows of corpora 1, 2 and 4 (25 + 21 + 5)
+  plus the three 4a trace-only rows of §4.5 item 5 (`:literal-none`,
+  `:parked-shaped-literal`, `:literal-none-in-call`), whose expected
+  traces are pinned.
 
 **Acceptance list (4a).** Each item is checked by a named test or a
 command.
@@ -1192,9 +1244,11 @@ command.
 24. `gc-roots` names `:window`: a cell ref held only in a register
     survives `engine/collect` (`effects-test/window-is-a-gc-root`;
     pattern `heap_reclamation_test.cljc`).
-25. Walker trace and parity lanes now cover corpus 3 and the 12 rows 4a
-    deferred (11 register-corpus rows and `"stream make"`); the
-    eligible counts asserted become 26, 32 and 5;
+25. Walker trace and parity lanes now cover corpus 3, the 12 rows 4a
+    deferred (11 register-corpus rows and `"stream make"`) and the
+    trace-only row `:park-then-halt` (§4.5 item 5), whose pinned trace
+    `[[:park :parked-0]]` must hold on both machines; the eligible
+    counts asserted become 26, 32 and 5;
     `walker-trace-test/traces-align` and `parity-test/*` green.
 26. `clojure -M:kondo` clean on the changed files; `bb test:sub yin.vm`
     green on three hosts, then `bb test:changed` (G2) green on three
