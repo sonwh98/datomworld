@@ -530,7 +530,7 @@ the observable results must be equal.
 | `yin.vm.debruijn-linearize-test`'s `corpus` (`debruijn_linearize_test.cljc:83-124`), respelled | 15 | every named mnemonic, `:definition`, `:default-gensym`, `:default-buffer`, `:duplicate-param`, `:nested-closure`; bytes |
 | `address-law-extra-fixtures` (`debruijn_register_contract_test.cljc:311-320`) | 4 | shared-occurrence and duplicate-binder fixtures; bytes and §5 |
 | the live fixtures A-E and `r2-lift-programs` of `debruijn_register_compile_test.cljc:608-766, 998-1011`, respelled | 5 + 12 | boundary `live` cases and the R2 nodes; bytes and validators |
-| the C4 linked-prelude corpus by name (§6.1.4) | 8 modules, 6 linked programs | runtime through the linked harness, read-only |
+| the C4 linked-prelude corpus by name (§6.1.4) | 8 modules, 10 linked programs | runtime through the linked harness, read-only |
 
 #### 6.1.2 Observable result and normalization
 
@@ -626,12 +626,15 @@ the `pysp` spec's `:ast`; the six guest specs' `:ast`) is run **as a root
 program** on both pipelines under the linked harness: `py`'s own body
 requires nothing and defines its runtime into the store; `pysp`'s body
 `(require 'py)` and defines; a guest's body requires `py` and its
-imports and defines. Observable: `[halted? blocked? defined-keys]` where
-`defined-keys` is the sorted set of keys the run left in the task's
-store (the module's definitions, `prelude/defined-keys` of its AST being
-the expected set) under `native-normalize` on the values' *types*
-(closure → `:closure`, else the value); compared old = new and the key
-set equal to `(prelude/defined-keys ast)` (`prelude.cljc:3416-3425`).
+imports and defines. Observable: `[halted? blocked? store]` where `store`
+is the map of what the run left in the task's store, under
+`native-normalize` on the values (closure → `:closure`, else the value),
+compared old = new. Separately the store's key set is asserted equal to
+`(prelude/defined-keys ast)` (`prelude.cljc:3416-3425`; the module
+fixtures supply top-level placeholders for nested runtime keys, and
+`defined-keys` is a syntactic any-depth scanner, not an execution
+oracle). Coverage claimed: top-level execution and closure creation only;
+invoked module bodies are covered at phase 8.
 This runs every definition and every top-level expression of every
 module body through the new lowering on both kernels.
 
@@ -1089,7 +1092,7 @@ pipeline switches). Both are listed.
 | `linker_test/pinned-identities-are-host-independent` (`linker_test.cljc:521-531`): H `52791d4a…` and R `c0aefe2f…` of `((fn [x] (+ x 1)) 10)` | the test's `stack-image`/`register-image` helpers (`:253-260`, `dl/adapt`/`rc/adapt`) switch to `derive` | phase 8 | both strings recomputed as the two rows above from §6.3 row 6's printed images, after the descriptor change |
 | R and H values and register counts derived live through `rc/adapt`/`dl/adapt` (`attach_image_test`, `linked_harness`, `repl_test`, `linker_require_test`, the `yang.python.antlr.*` tests, `handoff_v1_test`, …) | computed at test time, not pinned | phase 8, when the callers switch | no constant to regenerate; the execution oracle (§6.1) and the C4 suite running over new images (§6.1.4 (c)) are the evidence |
 | the twelve R hashes and images of `debruijn_register_compile_test.cljc:449-620` and every other test of `lower-register`, `lower-stack`, `resolve`, `unresolve`, the lifts | tests of deleted code | phase 8 | **deleted, not regenerated**; their programs are in `C` and covered by §6.1-6.3; `golden-descriptor-hash-test` is moved first (row above) |
-| the C4 `manifest-golden` (`linked_prelude_test.cljc:229-234`, JVM golden) and every published manifest | the C4 track's test; every publisher | phase 8 | publish twice (idempotence is already asserted) and diff the manifest map against the pre-cutover one. **Final manifest shape and every affected entry**: `:yin.module/name`, `:yin.module/schema` (1), `:yin.module/exports`, `:yin.module/requires`, `:yin.module/primitives`, `:yin.module/footprint`, `:yin.module/tree` — **unchanged**; `:yin.module/contracts` — `:yin.semantic/code` `"v3"`→`"v4"`, the three others unchanged (`"v3"` AST, `"b2"`, `"r2"`); `:yin.module/derivations` — all three record addresses change (semantic: output A_v4; stack and register: input A_v4 and new checksum outputs); `:yin.module/index` — **new shape** `{:yin.debruijn.code <h-storage-address> :yin.debruijn.register <r-storage-address>}`, keyed by format (within a manifest A is fixed by the semantic record, so the linker §3 amendment's `[A f]` key collapses to `f`), replacing today's `{H addr R addr}` (`publish.cljc:189`); both storage addresses change (new image bytes). Each changed address recomputes from its printed record or image |
+| the C4 `manifest-golden` (`linked_prelude_test.cljc:229-234`, JVM golden) and every published manifest | the C4 track's test; every publisher | phase 8 | publish twice (idempotence is already asserted) and diff the manifest map against the pre-cutover one. **Final manifest shape and every affected entry**: `:yin.module/name`, `:yin.module/schema` (1), `:yin.module/exports`, `:yin.module/requires`, `:yin.module/primitives`, `:yin.module/footprint`, `:yin.module/tree` — **unchanged**; `:yin.module/contracts` — `:yin.semantic/code` `"v3"`→`"v4"`, the three others unchanged (`"v3"` AST, `"b2"`, `"r2"`); `:yin.module/derivations` — all three record addresses change (semantic: output A_v4; stack and register: input A_v4 and new checksum outputs); `:yin.module/index` — **new shape** `{:yin.debruijn.code <h-storage-address> :yin.debruijn.register <r-storage-address>}`, keyed by format (within a manifest A is fixed by the semantic record, so the linker §3 amendment's `[A f]` key collapses to `f`), replacing today's `{H addr R addr}` (`publish.cljc:189`); both storage addresses are recomputed from the final images and are not required to differ from the previous ones (descriptors are outside the stored image payload; an address changes only if its payload changes). Each changed address recomputes from its printed record or image; descriptor-dependent checksum regeneration is checked separately |
 | `:yin.module/index` entries in every linker-local `:indexes` and the index attribute `(linker/address-attribute f)` (`linker.cljc:948-973`) | the format index | phase 8 | re-minted from the manifests; a reviewer checks `(index-from-datoms f datoms)` against the manifest's index entry for `f` |
 
 ### 8.2 Descriptors and lifts
@@ -1306,11 +1309,14 @@ source-index : A → #{tree-address …}      ; the trees this composition knows
   (A is `segment-key` of the vector alone, UCF §7.3.2).
 - **Several trees, one A.** The set may hold several addresses; any one
   retrievable member satisfies the invariant. A derivation record names
-  the one tree it was lowered from; the record's input is that tree, not
-  "the" tree of A.
+  the one tree it was lowered from; the **semantic** derivation record's input
+  is that tree, not "the" tree of A. Native (stack and register) derivation
+  records take A as input and reach the source tree through the semantic
+  record and the association.
 - **Completeness check.** A value or outcome is **complete** for the
   invariant when every segment address it carries or requires has a
-  non-empty `source-index` entry. Absence of an entry is the design
+  non-empty `source-index` entry; an absent entry and an entry holding an
+  empty tree set are both incomplete. Absence of an entry is the design
   defect the owner names (the lowering site lost the tree): a manifest
   without `:yin.module/tree` for guest code is `:manifest-shape`; a UCF
   value with a segment in `:yin.k/segments` and no `:yin.k/trees` entry
