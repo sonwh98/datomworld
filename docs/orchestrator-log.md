@@ -11109,3 +11109,23 @@ Next:
   - Phase 3 brief: linearizer (`project` per §3.3), loader rules (§3.4, both load paths), static analysis (§8.1 def/use/L/saved), with an independent liveness reference implementation; gates per §10.
   - Confirm whether the C4 linked-prelude scanners read instruction shapes (yang.python side effect).
   - Stale `:segment/sha256-...` spellings in UCF prose (editorial; code mints BLAKE3).
+
+## 2026-10-10 18:10:00 +07 — semantic-register-vm phase 3 landed (linearizer, §3.4 validator, §8.1 liveness); G3 green
+Completed-GMT: 2026-10-10 11:10:00 GMT
+Coding-Agent: claude (Orchestrator + Architect per owner instruction, Fable 5.1, background job)
+Session-ID: e77b6b18-7f5d-48ec-b8f4-0293f11ad5eb
+Tree: master@f46935ad (== origin)
+Done:
+  (1) Phase 3 dispatched to claude-opus-5-5 (VM Engineer, session cc3ca0a9-1c0d-4d53-89e0-62880f542713) in sibling worktree `/Users/sto/workspace/datomworld-srvm-p3`, branch `srvm-phase3`. Delivered: `yin.vm.semantic-register.{code,linearize,analysis}` (operand table, contract "v4", §3.1 shift-reduce parser, rules 1-13 first-defect-wins, `project` with both AST lanes and pre-order body-local minting, explicit CFG / def / use / L / saved) plus `corpus` (32 programs, inline goldens, pinned addresses) and four test namespaces; 8 new files, 2302 lines; old VM, linearizer, code namespace and existing tests untouched. Headless `acceptEdits` cannot `git add`; the orchestrator committed (7a010962, rebased f46935ad).
+  (2) Round 2 on the implementer's unresolved concern: Architect ruling that §3.4 item 13 compares the whole re-projected vector (`:noncanonical-layout`), design 3e93b063, implemented and tested.
+  (3) Orchestrator verification on the final code: JVM 33 tests / 1133 assertions / 0 / 0; Node same, all four namespaces listed; Dart 4 shards, +33 passed; `clj -M:kondo` 0/0; `cljstyle check` clean; `git diff --cached --check` clean.
+  (4) Codex Architect gpt-6.1-sol (thread 01a121d7-5ba4-71b1-a70b-f6b4cf3d056a): R1 CHANGES_REQUESTED, one merge-blocking design-gate mismatch (the phase-3 gate presumed the vector->datoms projection retired by the owner 2026-09-18); all seven ambiguity readings accepted; item-13 rule confirmed; liveness reference confirmed independent; no portability blockers; image sufficient for phase 4. Design amended 5dcddd68 (gate in direct-vector form; `:end` exclusive; phase 4 computes analysis once per admitted image as engine-local data). R2 READY_TO_MERGE.
+  (5) G3 landing gate on master f46935ad, one lane at a time: JVM 3996 tests / 245375 assertions / 0 failures / 0 errors; Node 3866 / 109408 / 0 / 0; Dart 232 test files in 8 shards, +3818 all passed.
+  (6) Process note: the `srvm-phase3` feature branch was force-pushed after rebase (master was fast-forwarded only).
+Delegates:
+  - Implementer: claude-opus-5-5 (session cc3ca0a9-1c0d-4d53-89e0-62880f542713), `collab/1791530000000-vm-engineer-srvm-phase3*`.
+  - Architect: codex gpt-6.1-sol, `collab/1791530000000-architect-srvm-phase3-review{,-r2}.*`.
+Next:
+  - Phase 4 brief: `yin.vm.semantic-register` evaluator beside the old one; gates per design §10 (walker parity on the B0 corpus under the §2.5 correspondence, Rule R, effects, pure and effectful tail completion, abortive continuation invoke, park/resume, gensym, module store-of, FFI phases).
+  - Before phase 6: amend UCF §7.3.4 and code-as-tuples §7.2 to retire the vector->datoms load path explicitly (Architect note).
+  - C4 coordination note to agy is in `collab/1791520000000-orchestrator-note-c4-vs-semantic-register-vm.md`.
