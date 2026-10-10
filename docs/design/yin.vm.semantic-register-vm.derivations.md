@@ -425,35 +425,43 @@ Derivation of the second row under §8.2's own rules: at pc 3 nothing has
 `v5` end at 5) and `v0` takes `T2`. Every operand of every instruction
 differs from R1's, and the register count differs.
 
-Two demonstrated samples are not a theorem, so the claim is narrowed to
-what the two allocators' stated rules entail. **Lemma (root result).**
-For a body whose root expression is a `:call`, `:ffi-call`, `:define` or
-stream effect with at least one child: R1 gives the root `T0`
-(`main-temp`, `:380-383`; the lambda bodies' first `allocate-temp!`,
-`:388`); under §8.2 the root's first child's chain begins at the body's
-first pc and takes `T0`, its interval ends at the root's pc (the root
-reads it) and has not expired there (`end < p` is false), so the root
-cannot take `T0`. The result register differs. **Lemma (call
-destination).** For a `:call` whose operator's first instruction is at
-the body's first pc: R1 assigns the call's destination before the
-operator, so destination < operator slot; §8.2 assigns it at the call's
-pc while the operator (`T0`) is live, so destination > operator slot.
-Both lemmas follow from the two allocation orders alone; conditional and
-`:resume` roots are **not** covered (for `(if c 1 2)` both allocators
-give the result `T0`, since the test interval expires at the
-`:branch-false`), and no claim is made about them beyond the gate.
+Two demonstrated samples are not a theorem, and no universal claim is
+made. A child expression's *result* is not its *first instruction*: for
+`((f))` (A: `[:var 2 f] [:call 1 2 [] false] [:call 0 1 [] false] [:halt 0]`)
+the §8.2 scan gives `f` `T0` (interval `[0,1]`), the inner result `T1`
+(interval `[1,2]`), and at pc 2 `f`'s interval has expired, so the outer
+result reuses `T0`, which is also R1's outer result. So "a call-rooted
+body always differs" is false. What does follow from the two orders is
+one narrow statement: **(atomic-operator lemma)** for a `:call` whose
+operator is a single atom emitted at the body's first pc (`:var`,
+`:closure`, `:const`), the operator's interval is `[0, call-pc]`, so it
+holds `T0` at the call's pc and the §8.2 destination is some slot
+`> T0`; R1 assigns that call's destination before the operator, so its
+destination `<` the operator's slot. The destinations differ. Nothing is
+claimed for any other shape (conditional roots, `:define` roots, calls
+whose operator is itself a call or a conditional, `:resume`); for
+`(if c 1 2)`, for instance, both allocators give the result `T0`.
 
-Applied to the B0 corpus (`parity_test.cljc:39-115`): ten rows are a
-single atom and agree (the six literal rows, `"closure value"`, `"store
-put then get"`, `"gensym"`, `"stream make"`); fourteen rows are
-call-rooted and differ by the root lemma; the two `if` rows have a call
-as test whose operator is at pc 0 and differ by the call-destination
-lemma. Sixteen of twenty-six differ. Over the register corpus
-(`corpus.cljc:54-118`) `:literal`, `:variable` and `:stream-make-default`
-are atoms and agree; every call-rooted row differs by the root lemma; the
-conditional-rooted rows (`:if`, `:if-in-test`, `:nested-if-same-rd`,
-`:all-terminal-arms`, `:resume-arm`) and `:resume-body` are left to the
-gate.
+Applied row by row to the B0 corpus (`parity_test.cljc:39-115`): ten
+rows are a single atom and agree (the six literal rows, `"closure
+value"`, `"store put then get"`, `"gensym"`, `"stream make"`); the
+fourteen call-rooted rows all have an atomic operator at pc 0 (a
+primitive `:var` or a `:closure`) and differ by the lemma; the two `if`
+rows have a test call whose operator `<` is at pc 0 and differ by the
+lemma applied to that call. Sixteen of twenty-six differ. Over the
+register corpus (`corpus.cljc:54-118`): `:literal`, `:variable` and
+`:stream-make-default` are atoms and agree; the lemma covers, by
+inspection of the goldens, `:worked-example`, `:zero-arity-call`,
+`:nested-calls`, `:lambda-application`, `:body-queue-order`,
+`:if-operand`, `:if-in-tail`, `:all-tail-arms`, `:gensym`, `:store-ops`,
+`:current-continuation`, `:park`, `:resume-operand`,
+`:resume-lambda-body`, `:closure-in-arm-in-body`, `:shared-occurrence`
+and `:define-then-call` (each a main-sequence call whose operator is a
+`:var` or `:closure` at pc 0); the remaining rows (`:nested-lambdas`,
+whose outer operator is itself a call; `:if`, `:if-in-test`,
+`:nested-if-same-rd`, `:all-terminal-arms`, `:resume-arm`; `:define`,
+`:define-call`; `:streams`, `:ffi-call`, `:ffi-call-no-args`;
+`:resume-body`) are left to the gate without a claim.
 
 **Consequence for `"r2"` under frozen §6.** The allocation rule is one of
 the five things §6 names as the normative contract ("descriptors,
@@ -965,8 +973,14 @@ Three corpora, each run through (i), (ii) and (iii), three tests in
    (`prelude.cljc:3428-3430`, `:3445-3466`). So two further equalities
    are asserted per module, with the C4 track's own public walkers as a
    fourth, independent raw oracle:
-   - raw: `(scan/free-names v4) = (set (prelude/free-names ast))`
-     (`prelude.cljc:3395-3414`, a lexical walk over the map AST);
+   - raw: `(scan/free-names v4) = (disj (set (prelude/free-names ast)) vm/definition-operator)`.
+     `prelude/free-names` (`prelude.cljc:3395-3414`) is a generic lexical
+     walk whose default branch visits every value of an `:application`
+     node, the definition's `yin/def` operator variable included, so it
+     reports `yin/def` for any module with a definition; `scan/free-names`,
+     `vm/free-names` and the linker obligations exclude it (Rule R: the
+     operator is syntax, item 11 guarantees no `:var` names it), hence
+     the `disj`;
    - discharged: `(set (keys (:primitives spec)))` =
      `(scan/free-names v4)` minus `(conj (prelude/defined-keys ast) 'yin/def)`
      (`prelude.cljc:3416-3425`) minus every name whose namespace symbol
@@ -1141,10 +1155,15 @@ change is noticed.
    rows of the stack corpus and the `:nested-lambdas` golden resolve to
    the depths and positions `debruijn_test.cljc:363-402` pins; `y` in
    `:free-variable` is `:yin.resolved/free y`.
-4. `derive-test/resolve-vector-is-a-stage-value`: the namespace exports no
-   function whose name contains `hash`, `address` or `key` other than
-   `addresses`; `resolve-vector`'s result round-trips `pr-str`/`read-string`
-   (pure data) — the "no identity" clause made testable.
+4. `derive-test/resolve-vector-is-a-stage-value`: the namespace exports
+   no function that assigns an executable identity: none whose name
+   contains `hash`, `key`, `identity` or `digest`, and none named
+   `address` or `code-address`; the two **address-sequence readers**
+   `addresses` and `resolved-addresses` are permitted by name, and the
+   test asserts each returns a vector of `[:bound d q]`/`[:free sym]`
+   tuples, never a string or keyword. `resolve-vector`'s result
+   round-trips `pr-str`/`read-string` (pure data). This is the "no
+   identity" clause made testable.
 5. `derive-test/stack-lowerer-equivalence`: for every `P ∈ C`, §4.1
    comparisons (1) structure, (2) `encode-image` bytes, (3) `image-hash`
    between `(stack-image v)` and `(dl/adapt (vm/ast->datoms P))`; plus,
@@ -1163,12 +1182,21 @@ change is noticed.
    with the non-vacuity assertions including the no-`[:free yin/def]`
    one.
 8. `derive-test/derived-stack-images-run-on-b3`: the **runtime corpus**
-   is every one of the 26 B0 rows plus the ten value-producing
-   register-corpus rows (`:literal :define :define-call :gensym
-   :store-ops :lambda-application :nested-lambdas :if-in-test
-   :define-then-call :stream-make-default`; the other 22 reference
-   unbound names and are outside the runtime gate, byte comparison
-   covering them in item 5). Composition:
+   is every one of the 26 B0 rows plus the **twelve selected
+   register-corpus rows** that run to a value on the walker under the
+   composition below: `:literal :define :define-call :gensym :store-ops
+   :lambda-application :nested-lambdas :if-in-test :define-then-call
+   :stream-make-default` and the two closure-valued rows
+   `:body-queue-order :closure-in-arm-in-body` (which normalise to
+   `:closure`). The other twenty are excluded for stated reasons:
+   seventeen read an unbound name and throw (`:variable :worked-example
+   :zero-arity-call :nested-calls :if :nested-if-same-rd :if-operand
+   :if-in-tail :all-terminal-arms :all-tail-arms :streams :ffi-call
+   :current-continuation :park :resume-arm :resume-operand
+   :shared-occurrence`), two resume an unknown parked id
+   (`:resume-body :resume-lambda-body`), and one needs an FFI bridge
+   (`:ffi-call-no-args`). Byte comparison covers all 32 in item 5.
+   Composition:
    `(dvm/create-vm image {:primitives vm/primitives :make-stream tu/make-stream
    :contract vm/stack-contract})` (the options `debruijn/stack.cljc:369-394`
    lists; `tu/make-stream` is what `"stream make"` needs). The result is
@@ -1316,8 +1344,9 @@ census is phase 6), the C4 track, every kernel and lowerer.
    (i), (ii), (iii).
 7. `scan-test/scanners-agree-on-the-c4-modules` (`^:slow`, guarded): the
    eight module ASTs by name; (i), (ii), (iii) each; the raw equality
-   with `prelude/free-names`; and the discharged equality with the
-   spec's `:primitives` keys (§6.3). **This test must actually run for
+   `(= (scan/free-names v4) (disj (set (prelude/free-names ast)) vm/definition-operator))`;
+   and the discharged equality with the spec's `:primitives` keys
+   (§6.3). **This test must actually run for
    sign-off**: the slice's checkpoint is `bb test:sub yin.vm --slow` (or
    `clojure -M:test -i :slow -n yin.vm.semantic-register.scan-test`) on
    three hosts, and the report quotes the row count it saw; a green
@@ -1555,15 +1584,28 @@ layouts by construction. Replace, in §10 phase 5:
 with:
 
 > **the dependency-closure scanners (UCF §7.6.1) reimplemented over the
-> new table answer identically to the old ones and to the tree-side
-> oracle on the B0 corpus, the register corpus and the C4 linked-prelude
-> modules by name** (free-name sets; free-name occurrences and
-> definitions compared by name and `:in-body?`/`:conditional?` flag in
-> order, positions excluded since the layouts differ; application-site
-> counts; store keys, FFI ops, parked ids and effect kinds; and the
-> step-5a join's retained obligations in order), with the old scanners'
-> answers pinned as goldens before cutover deletes them, since the C4
-> track's module declarations are built against those answers.
+> new table agree with the old ones and with the tree-side oracles on
+> the B0 corpus, the register corpus and the C4 linked-prelude modules
+> by name**, under three obligations (derivations design §6.3): (i)
+> unordered agreement, old = new = the tree scanners and queries, on
+> free-name sets, the multiset of free-name occurrences as
+> `[name in-body?]`, the multiset of definitions as `[name conditional?]`,
+> and the store-key, FFI-op, parked-id and effect-kind sets (positions
+> excluded since the layouts differ; the tree scanners order by
+> structural path and are compared unordered); (ii) ordered agreement,
+> old = new = an independent emission-order tree oracle (main sequence
+> then bodies FIFO; a definition visits only its value operand), on the
+> occurrence and definition sequences and on the application-site count
+> (definition applications excluded, FFI sites included); (iii) join
+> agreement through `linker/verify`, old = new on the **complete
+> normalised outcome**: a success with its retained obligations as
+> `[name in-body?]` in order, or a refusal with its reason and name
+> (`:use-before-definition` included, exercised by a row that must
+> refuse on both sides). The old scanners' answers, normalised joins
+> included, are pinned as goldens before cutover deletes them, since the
+> C4 track's module declarations are built against those answers; the
+> C4 gate is read-only and compares declarations against the discharged
+> external-name set, not raw free names.
 
 ### F12 — the frozen §8.1 is unaffected; the structural slot is retired with §8.2
 
