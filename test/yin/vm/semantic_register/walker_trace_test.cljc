@@ -21,7 +21,7 @@
       (:blocked? after) {:event? false}
       (contains? #{:const :var :closure :gensym :store-get :store-put :define
                    :stream-make :stream-cursor :stream-close :stream-put :stream-next
-                   :current-continuation} op)
+                   :current-continuation :ffi-call} op)
       {:event? true :value (get (:window after) (nth inst 1))}
       (and (= :call op) (fn? (get (:window before) (nth inst 2))))
       (if (nth inst 4)
@@ -111,9 +111,8 @@
 
 
 (deftest traces-align
-  (let [rows (filter #(parity/stage1-eligible? (second %))
-                     (concat b0/corpus corpus/programs parity/definition-programs))]
-    (is (= 61 (count rows)))
+  (let [rows (concat b0/corpus corpus/programs parity/definition-programs parity/continuation-programs)]
+    (is (= 68 (count rows)))
     (doseq [[label ast] rows]
       (testing (str label)
         (let [a (trace-walker ast) b (trace-register ast)]
@@ -125,7 +124,6 @@
   (is (= 6 (count trace-only-rows)))
   (doseq [[label ast expected] trace-only-rows]
     (testing label
-      (is (parity/stage1-eligible? ast))
       (is (= expected (trace-walker ast)))
       (is (= expected (trace-register ast))))))
 
@@ -149,3 +147,10 @@
         expected [[:value 9] [:value 9] [:halt 9]]]
     (is (= expected (trace-machine w false)))
     (is (= expected (trace-machine r true)))))
+
+
+(deftest continuation-arity-two-trace
+  (let [ast (parity/with-k (corpus/app (corpus/v 'r) (corpus/lit 1) (corpus/lit 2)))
+        w (trace-walker ast) r (trace-register ast)]
+    (is (= w r))
+    (is (= [:error "Continuation expects exactly one argument"] (peek r)))))

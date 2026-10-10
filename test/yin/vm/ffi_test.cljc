@@ -12,6 +12,7 @@
             [yin.vm.ffi :as ffi]
             [yin.vm.linearize :as linearize]
             [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as sr]
             [yin.vm.test-utils :as tu]))
 
 
@@ -379,7 +380,9 @@
 
 (def ^:private vm-kinds
   "Each VM kind's run of `ast` on a fresh VM built from `opts`."
-  {:ast-walker (fn [opts ast] (vm/eval (ast-walker/create-vm opts) ast)),
+  {:semantic-register (fn [opts ast]
+                        (vm/run (sr/load-ast (sr/create-vm opts) (vm/ast->datoms ast) vm/ast-contract))),
+   :ast-walker (fn [opts ast] (vm/eval (ast-walker/create-vm opts) ast)),
    :semantic (fn [opts ast]
                (vm/run (load-semantic (semantic/create-vm opts)
                                       (vm/ast->datoms ast)))),

@@ -26,6 +26,7 @@
             [yin.vm.macro :as m]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as sr]
             [yin.vm.test-utils :as tu]
             [yin.vm.ucf :as ucf]))
 
@@ -139,7 +140,10 @@
 
 
 (def ^:private backends
-  {:ast-walker walker-run,
+  {:semantic-register (fn [ast]
+                        (vm/run (sr/load-ast (sr/create-vm {:make-stream tu/make-stream :capability-secret tu/secret})
+                                             (vm/ast->datoms ast) vm/ast-contract))),
+   :ast-walker walker-run,
    :semantic semantic-run,
    :stack stack-run,
    :register register-run})
@@ -220,7 +224,7 @@
 
 
 (deftest a-parked-read-in-a-definition-resumes-and-writes
-  (doseq [[backend run] (select-keys backends [:ast-walker :semantic])]
+  (doseq [[backend run] (select-keys backends [:ast-walker :semantic :semantic-register])]
     (testing (name backend)
       (let [blocked (run parked-definition)
             handle (get (:resources blocked) :stream-0)]

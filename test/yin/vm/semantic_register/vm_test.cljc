@@ -257,10 +257,3 @@
     (is (= {:segment -1 :pc 3} (:control ret)))
     (is (nil? (:k ret)))
     (is (= :deliver (:rule (error-data #(sr/register-restore base {} 1)))))))
-
-
-(deftest stage2-deferred-arms
-  (let [ffi (parity/register-machine {:type :dao.stream.apply/call :op :op/ping :operands []})
-        link (parity/register-machine (corpus/app (corpus/v 'require) (corpus/lit 'foo)))]
-    (is (= {:reason :not-in-slice-4a :op :ffi-call} (error-data #(vm/run ffi))))
-    (is (= {:reason :not-in-stage1 :op :call} (error-data #(vm/run link))))))

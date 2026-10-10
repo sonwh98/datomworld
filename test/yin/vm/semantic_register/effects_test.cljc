@@ -2,6 +2,8 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
+            [dao.stream.apply :as apply2]
+            [yin.vm.ffi :as ffi]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
             [yin.vm.test-utils :as tu]
@@ -291,6 +293,7 @@
   (loop [machine machine steps 0]
     (cond
       (vm/halted? machine) machine
+      (vm/blocked? machine) (throw (ex-info "Continuation value test blocked" {:steps steps}))
       (= steps 10000) (throw (ex-info "Test step bound exhausted" {:steps steps}))
       :else (recur (vm/step machine) (inc steps)))))
 
@@ -431,3 +434,448 @@
     (is (= 7 (vm/value put)))
     (is (= 7 (:dao.stream/value (stream/next handle cursor)))))
   (is (some? (error #(run-ast (put-node (lit {:type :stream-ref :id :missing}) (lit 1)))))))
+
+
+(defn ffi-node
+  [op & operands]
+  {:type :dao.stream.apply/call :op op :operands (vec operands)})
+
+
+(defn ffi-program
+  []
+  (app (v 'vector) (lit nil) (ffi-node :op/echo (lit 7)) (lit 2)))
+
+
+(deftest ffi-sent
+  (let [before (until-inst (parity/register-machine (ffi-program)
+                                                    {:env {'vector vector} :ffi-caller-id :caller}) :ffi-call)
+        {:keys [segment pc]} (:control before)
+        rd (second (nth (get-in before [:code segment :vector]) pc))
+        blocked (vm/step before) entry (first (:wait-set blocked)) call-id (:call-id entry)]
+    (is (vm/blocked? blocked))
+    (is (nil? (:control blocked))) (is (nil? (:k blocked)))
+    (is (= [:caller :parked-0] call-id))
+    (is (= :next (:reason entry)))
+    (is (= {1 vector 2 nil} (:window entry)))
+    (is (= {:deliver :rd :rd 3} (:deliver entry)))
+    (is (= rd 3))
+    (is (= (inc pc) (:pc entry)))
+    (is (= (:env before) (:env entry)))
+    (is (= (select-keys (:window before) (analysis/saved (get-in before [:code segment :analysis]) (inc pc) rd))
+           (:window entry)))
+    (is (not-any? #(contains? entry %) [:datom :request-sent :op]))
+    (is (= (select-keys entry [:segment :pc :env :window :k :deliver])
+           (select-keys (get (:parked blocked) call-id) [:segment :pc :env :window :k :deliver])))
+    (let [bridge (ffi/bridge-step (ffi/attach blocked {:op/echo identity}))
+          ready (engine/check-wait-set (:vm bridge))
+          restored (engine/resume-from-run-queue ready sr/register-restore)]
+      (is (:handled? bridge))
+      (is (= (assoc (:window entry) rd 7) (:window restored)))
+      (is (empty? (:parked restored)))
+      (is (= [nil 7 2] (vm/value (vm/run restored)))))))
+
+
+(deftest ffi-retained
+  (let [call-in (:dao.stream/handle (one-slot-stream 1))
+        call-out (tu/new-stream 8)
+        _ (stream/append! call-in :occupy)
+        before (until-inst (parity/register-machine (ffi-program)
+                                                    {:env {'vector vector} :call-in call-in
+                                                     :call-out call-out
+                                                     :call-out-cursor (:dao.stream/cursor (stream/cursor call-out stream/anchor-oldest))}) :ffi-call)
+        blocked (vm/step before) entry (first (:wait-set blocked))
+        call-id (:call-id entry) request (:datom entry)]
+    (is (vm/blocked? blocked))
+    (is (= :put (:reason entry)))
+    (is (:request-sent entry))
+    (is (= call-id (apply2/request-id request)))
+    (is (= :op/echo (apply2/request-op request)))
+    (is (= [7] (apply2/request-args request)))
+    (is (= {1 vector 2 nil} (:window entry)))
+    (stream/next call-in 0)
+    (let [ready (engine/check-wait-set blocked)
+          reader-state (engine/resume-from-run-queue ready sr/register-restore)
+          wait (first (:wait-set reader-state))]
+      (is (vm/blocked? reader-state))
+      (is (false? (:halted? reader-state)))
+      (is (nil? (:control reader-state))) (is (nil? (:k reader-state)))
+      (is (= (:window blocked) (:window reader-state)))
+      (is (= :yin/blocked (:value reader-state)))
+      (is (= :next (:reason wait)))
+      (is (= call-id (:call-id wait)))
+      (is (= (select-keys entry [:segment :pc :env :window :k :deliver])
+             (select-keys wait [:segment :pc :env :window :k :deliver])))
+      (is (not-any? #(contains? wait %) [:datom :request-sent :op]))
+      (is (contains? (:parked reader-state) call-id))
+      (is (= request (:dao.stream/value (stream/next call-in 0))))
+      (stream/append! (get (:resources reader-state) vm/call-out-stream-key) (apply2/success-response call-id 7))
+      (let [done (vm/run reader-state)]
+        (is (= [nil 7 2] (vm/value done)))
+        (is (empty? (:parked done)))))))
+
+
+(deftest retained-response-route
+  (doseq [carried? [false true]]
+    (let [payload {:segment -1 :pc 3 :env {} :window {1 nil} :k [] :deliver {:deliver :rd :rd 2}}
+          entry (cond-> (assoc payload :request-sent true :call-id :p :reason :put :datom {:request true})
+                  carried? (assoc :response-cursor :custom-cursor :response-stream :custom-stream))
+          base (assoc (sr/create-vm) :parked {:p payload})
+          after (sr/register-restore base entry (:datom entry))
+          wait (first (:wait-set after))]
+      (is (vm/blocked? after))
+      (is (= payload (select-keys wait (keys payload))))
+      (is (= (if carried? :custom-cursor vm/call-out-cursor-key) (get-in wait [:cursor-ref :id])))
+      (is (= (if carried? :custom-stream vm/call-out-stream-key) (:stream-id wait)))
+      (is (= (:parked base) (:parked after)))
+      (is (nil? (:control after)))
+      (is (nil? (:k after))))))
+
+
+(deftest ffi-error-raises
+  (let [blocked (vm/run (parity/register-machine (ffi-node :op/fail (lit 7))))
+        call-id (:call-id (first (:wait-set blocked)))]
+    (stream/append! (get (:resources blocked) vm/call-out-stream-key)
+                    (apply2/error-response call-id :test/failed "broken"))
+    (is (re-find #"FFI call failed" (:message (error #(vm/run blocked)))))))
+
+
+(deftest ffi-response-validation
+  (let [entry {:segment -1 :pc 1 :env {} :window {} :k [] :deliver {:deliver :rd :rd 0} :call-id :p}
+        base (assoc (sr/create-vm) :parked {:p entry})]
+    (is (re-find #"malformed" (:message (error #(sr/register-restore base entry :bad)))))
+    (is (re-find #"correlate" (:message (error #(sr/register-restore base entry (apply2/success-response :other 8))))))
+    (let [done (sr/register-restore base entry (apply2/success-response :p nil))]
+      (is (= {0 nil} (:window done)))
+      (is (empty? (:parked done))))))
+
+
+(deftest ffi-pair-required-before-parking
+  (let [machine (sr/load-ast (sr/create-vm) (vm/ast->datoms (ffi-node :op/echo)) vm/ast-contract)]
+    (is (re-find #"without an FFI call pair" (:message (error #(vm/run machine)))))
+    (is (empty? (:parked machine)))
+    (is (zero? (:id-counter machine)))))
+
+
+(deftest declared-profile-refusal
+  (let [registry (module/register-host-module
+                   (module/default-registry) 'bad
+                   {'sneak (fn [] (module/make-effect :vm/store-put {:key 'secret :val 7}))}
+                   {'sneak (vm/primitive-profile 'sneak :pure [0] #{} :none)})
+        ast (app (v 'bad/sneak))
+        data (:data (error #(vm/run (parity/register-machine ast {:modules registry}))))]
+    (is (= {:yin.k/status :yin.k/undeclared-effect :yin.k/effect :vm/store-put :yin.k/effects #{}}
+           (select-keys data [:yin.k/status :yin.k/effect :yin.k/effects])))))
+
+
+;; Respelled bridge rows from semantic-ffi-test; helpers load register images.
+(defn bridge-throws?
+  [f]
+  (some? (error f)))
+
+
+(defn bridge-make-vm
+  ([] (bridge-make-vm {}))
+  ([opts] (sr/create-vm
+            (cond-> (merge {:make-stream tu/make-stream :capability-secret tu/secret} opts)
+              (:call-out opts) (assoc :call-out-cursor (vm/mint-oldest (:call-out opts) :test))))))
+
+
+(defn bridge-run-ast
+  [machine ast]
+  (vm/run (sr/load-ast machine (vm/ast->datoms ast) vm/ast-contract)))
+
+
+(defn bridge-resume
+  [machine]
+  (vm/eval machine nil))
+
+
+(defn bridge-call-ast
+  ([op] (bridge-call-ast op []))
+  ([op args] {:type :dao.stream.apply/call :op op :operands (mapv lit args)}))
+
+
+(deftest bridge-installed-handlers-round-trip-test
+  (testing "A host call is dispatched and its parked continuation resumes"
+    (let [result (bridge-run-ast (bridge-make-vm {:bridge {:op/echo identity}})
+                                 (bridge-call-ast :op/echo [42]))]
+      (is (vm/halted? result))
+      (is (= 42 (vm/value result)))))
+  (testing "Arguments are evaluated left to right before the call"
+    (let [result (bridge-run-ast (bridge-make-vm {:bridge {:op/list vector}})
+                                 (bridge-call-ast :op/list [1 2 3]))]
+      (is (= [1 2 3] (vm/value result)))))
+  (testing "The result feeds the instructions after the call site"
+    (let [result (bridge-run-ast (bridge-make-vm {:bridge {:op/echo identity}})
+                                 {:type :application,
+                                  :operator {:type :variable, :name '+},
+                                  :operands [{:type :literal, :value 1}
+                                             (bridge-call-ast :op/echo [41])]})]
+      (is (= 42 (vm/value result))))))
+
+
+(deftest bridge-manual-bridge-step-test
+  (testing "Without installed handlers the VM parks and a driver steps it"
+    (let [parked (bridge-run-ast (bridge-make-vm) (bridge-call-ast :op/echo [7]))
+          entry (first (:wait-set parked))]
+      (is (vm/blocked? parked))
+      (is (= :yin/blocked (vm/value parked)))
+      (is (= 1 (count (:wait-set parked)))
+          "The continuation waits in the polling wait set, not on a waiter")
+      (is (= :next (:reason entry)))
+      (is (contains? (:parked parked) (:call-id entry)))
+      (is (= (:wait-set parked) (edn/read-string (pr-str (:wait-set parked))))
+          "The response reader is registers and ids, never a closure")
+      (let [attached (ffi/attach parked {:op/echo identity})
+            {:keys [handled? vm]} (ffi/bridge-step attached)]
+        (is (true? handled?))
+        (let [done (bridge-resume vm)]
+          (is (vm/halted? done))
+          (is (= 7 (vm/value done)))
+          (is (empty? (:parked done))))))))
+
+
+(deftest bridge-error-responses-surface-as-errors-test
+  (testing "An unknown op is a portable error response, not an escaping throw"
+    (let [parked (bridge-run-ast (bridge-make-vm) (bridge-call-ast :op/missing [1]))
+          {:keys [vm handled?]} (ffi/bridge-step (ffi/attach parked
+                                                             {:op/other
+                                                              identity}))]
+      (is (true? handled?) "The response was delivered")
+      (is (bridge-throws? (fn [] (bridge-resume vm))))))
+  (testing "A failing handler is an error response too"
+    (let [parked (bridge-run-ast (bridge-make-vm) (bridge-call-ast :op/boom []))
+          bang (fn [] (throw (ex-info "boom" {})))
+          {:keys [vm]} (ffi/bridge-step (ffi/attach parked {:op/boom bang}))]
+      (is (bridge-throws? (fn [] (bridge-resume vm)))))))
+
+
+(deftest bridge-a-response-for-another-call-does-not-resume-this-one-test
+  (let [parked (bridge-run-ast (bridge-make-vm) (bridge-call-ast :op/echo [1]))
+        call-id (:call-id (first (:wait-set parked)))
+        call-out (get (:resources parked) vm/call-out-stream-key)]
+    (apply2/put-response! call-out (apply2/success-response [:other call-id] 1))
+    (let [still (bridge-resume parked)]
+      (is (vm/blocked? still)
+          "A mis-correlated response is skipped, never this call's value")
+      (is (= call-id (:call-id (first (:wait-set still)))))
+      (is (= [{:kind :unmatched, :response-id [:other call-id],
+               :cell vm/call-out-cursor-key}]
+             (first (engine/take-ffi-diagnostics still))))
+      (apply2/put-response! call-out (apply2/success-response call-id 2))
+      (is (= 2 (vm/value (bridge-resume still))) "Its own response resumes it"))))
+
+
+(deftest bridge-a-response-for-a-woken-writer-is-left-for-its-reader-test
+  (let [parked (bridge-run-ast (bridge-make-vm {:ffi-caller-id "t"}) (bridge-call-ast :op/echo [1]))
+        mine (:call-id (first (:wait-set parked)))
+        other ["t" :parked-9]
+        call-out (get (:resources parked) vm/call-out-stream-key)
+        cell (get-in parked [:resources vm/call-out-cursor-key :cursor])
+        ;; a retained writer the sweep already woke: its request landed,
+        ;; and it is not yet restored as the reader of `other`
+        woken-writer {:request-sent true, :call-id other, :reason :put}]
+    (apply2/put-response! call-out (apply2/success-response other 9))
+    (apply2/put-response! call-out (apply2/success-response mine 1))
+    (let [checked (engine/check-wait-set
+                    (assoc parked :ready-queue [woken-writer]))]
+      (is (= [mine] (map :call-id (:wait-set checked)))
+          "the reader behind it keeps waiting")
+      (is (= cell (get-in checked [:resources vm/call-out-cursor-key :cursor]))
+          "the writer's response was not consumed")
+      (is (empty? (first (engine/take-ffi-diagnostics checked)))))
+    (let [checked (engine/check-wait-set parked)]
+      (is (empty? (:wait-set checked)) "with no such writer, it is skipped")
+      (is (= [mine] (map :call-id (:ready-queue checked))))
+      (is (= [other] (map :response-id
+                          (first (engine/take-ffi-diagnostics checked))))))))
+
+
+;; =============================================================================
+;; The step is once-only
+;; =============================================================================
+
+(defn- bridge-scripted-writer
+  "A call-out handle whose append outcomes are scripted."
+  [outcomes]
+  (reify
+    stream/IDaoStreamReader
+    (cursor
+      [_ _arg]
+      {:dao.stream/outcome :dao.stream/ok,
+       :dao.stream/cursor :out-0})
+
+    (next [_ _arg] {:dao.stream/outcome :dao.stream/blocked})
+
+
+    stream/IDaoStreamWriter
+
+    (append!
+      [_ _arg]
+      (let [o (first @outcomes)]
+        (swap! outcomes rest)
+        {:dao.stream/outcome o}))))
+
+
+(deftest bridge-full-retains-the-response-and-runs-the-handler-once-test
+  (let [calls (atom 0)
+        outcomes (atom [:dao.stream/full :dao.stream/ok])
+        vm0 (bridge-make-vm {:call-in (tu/new-stream 8),
+                             :call-out (bridge-scripted-writer outcomes)})
+        parked (ffi/attach (bridge-run-ast vm0 (bridge-call-ast :op/count []))
+                           {:op/count (fn [] (swap! calls inc))})
+        cursor-before (get-in parked [:bridge :cursor])
+        step1 (ffi/bridge-step parked)]
+    (testing "A full response stream retains the response and the successor"
+      (is (false? (:handled? step1)))
+      (is (true? (:retained? step1)))
+      (is (= 1 @calls))
+      (is (= cursor-before (get-in (:vm step1) [:bridge :cursor])))
+      (is (some? (get-in (:vm step1) [:bridge :pending-response]))))
+    (testing "The retry appends the retained response without re-running"
+      (let [step2 (ffi/bridge-step (:vm step1))]
+        (is (true? (:handled? step2)))
+        (is (= 1 @calls) "The handler executed exactly once")
+        (is (not= cursor-before (get-in (:vm step2) [:bridge :cursor])))
+        (is (nil? (get-in (:vm step2) [:bridge :pending-response])))))))
+
+
+(defn- bridge-gated-call-in
+  "A call-in handle delegating to a real stream, whose first `gate-count`
+   appends return `full` without reaching the delegate."
+  [delegate gate-count]
+  (let [gate (atom gate-count)]
+    (reify
+      stream/IDaoStreamReader
+      (cursor [_ anchor] (stream/cursor delegate anchor))
+
+      (next [_ cursor] (stream/next delegate cursor))
+
+
+      stream/IDaoStreamWriter
+
+      (append!
+        [_ v]
+        (if (pos? @gate)
+          (do (swap! gate dec)
+              {:dao.stream/outcome :dao.stream/full})
+          (stream/append! delegate v))))))
+
+
+(deftest bridge-full-retains-the-unsent-request-test
+  (let [attempts (atom [])
+        call-in (reify
+                  stream/IDaoStreamReader
+                  (cursor
+                    [_ _arg]
+                    {:dao.stream/outcome :dao.stream/ok,
+                     :dao.stream/cursor :in-0})
+
+                  (next [_ _arg] {:dao.stream/outcome :dao.stream/blocked})
+
+
+                  stream/IDaoStreamWriter
+
+                  (append!
+                    [_ v]
+                    (swap! attempts conj v)
+                    {:dao.stream/outcome :dao.stream/full}))
+        parked (bridge-run-ast (bridge-make-vm {:call-in call-in, :call-out (tu/new-stream 8)})
+                               (bridge-call-ast :op/echo [3]))]
+    (testing "A full call-in parks the call with its request retained"
+      (is (vm/blocked? parked))
+      (is (= 1 (count (:wait-set parked))))
+      (let [waiter (first (:wait-set parked))
+            request (:datom waiter)
+            [parked-id] (keys (:parked parked))]
+        (is (= :put (:reason waiter)))
+        (is (true? (:request-sent waiter)))
+        (is (apply2/request? request))
+        (is (= parked-id (apply2/request-id request) (:call-id waiter))
+            "The retained request keeps the allocated id for the retry")
+        (is (= :op/echo (apply2/request-op request)))
+        (is (= [3] (apply2/request-args request)))))
+    (testing "The polling wait set retries the identical encoded request"
+      (is (vm/blocked? (bridge-resume parked)))
+      (is (> (count @attempts) 1) "The wait set retried the append")
+      (is (apply = @attempts)))))
+
+
+(deftest bridge-full-request-is-sent-on-retry-and-answered-test
+  (let [parked (bridge-run-ast (bridge-make-vm {:call-in (bridge-gated-call-in (tu/new-stream 8) 1),
+                                                :call-out (tu/new-stream 8)})
+                               (bridge-call-ast :op/echo [5]))]
+    (testing "The retry sent the request; the call waits for its response"
+      (is (vm/blocked? parked))
+      (is (= 1 (count (:wait-set parked))))
+      (is (= :next (:reason (first (:wait-set parked))))))
+    (let [{:keys [handled? request-id vm]}
+          (ffi/bridge-step (ffi/attach parked {:op/echo identity}))
+          done (bridge-resume vm)]
+      (is (true? handled?))
+      (is (= (first (keys (:parked parked))) request-id))
+      (is (vm/halted? done))
+      (is (= 5 (vm/value done)))
+      (is (empty? (:parked done))))))
+
+
+(deftest bridge-terminal-append-outcome-ends-the-bridge-test
+  (let [vm0 (bridge-make-vm {:call-in (tu/new-stream 8),
+                             :call-out (bridge-scripted-writer (atom [:dao.stream/closed]))})
+        parked (ffi/attach (bridge-run-ast vm0 (bridge-call-ast :op/echo [1]))
+                           {:op/echo identity})
+        {:keys [handled? terminal vm]} (ffi/bridge-step parked)]
+    (is (false? handled?))
+    (is (= :dao.stream/closed terminal))
+    (is (= :dao.stream/closed (:terminal (ffi/bridge-step vm))))))
+
+
+;; =============================================================================
+;; Reading the request side
+;; =============================================================================
+
+(deftest bridge-gap-at-the-bridge-cursor-is-fatal-test
+  (testing "An evicted request can never be answered, so it is reported"
+    (let [call-in (tu/new-stream 2)
+          vm0 (bridge-make-vm {:call-in call-in,
+                               :call-out (tu/new-stream 8),
+                               :bridge {:op/echo identity}})]
+      (dotimes [n 5] (stream/append! call-in (apply2/request n :op/echo [n])))
+      (is (bridge-throws? (fn [] (ffi/bridge-step vm0)))))))
+
+
+(deftest bridge-history-before-the-cursor-is-not-skipped-test
+  (testing "A pre-filled call-in is read from oldest, not from newest"
+    (let [call-in (tu/new-stream 8)
+          _ (stream/append! call-in (apply2/request :pre :op/echo [:early]))
+          vm0 (bridge-make-vm {:call-in call-in,
+                               :call-out (tu/new-stream 8),
+                               :bridge {:op/echo identity}})
+          {:keys [handled? request-id]} (ffi/bridge-step vm0)]
+      (is (true? handled?))
+      (is (= :pre request-id)))))
+
+
+;; =============================================================================
+;; A VM with no pair, and repeated calls
+;; =============================================================================
+
+(deftest bridge-no-call-pair-test
+  (let [bare (sr/create-vm {})]
+    (testing "A VM without :make-stream or explicit streams holds no pair"
+      (is (nil? (ffi/call-pair (:resources bare)))))
+    (testing "A non-nil bridge on such a VM is a construction error"
+      (is (bridge-throws? (fn [] (sr/create-vm {:bridge {:op/echo identity}})))))
+    (testing "A call fails before park-continuation"
+      (is (bridge-throws? (fn [] (bridge-run-ast bare (bridge-call-ast :op/echo [1]))))))))
+
+
+(deftest bridge-completed-calls-leave-no-parked-entries-test
+  (let [vm0 (bridge-make-vm {:bridge {:op/echo identity}})
+        first-done (bridge-run-ast vm0 (bridge-call-ast :op/echo [1]))]
+    (is (empty? (:parked first-done)))
+    (let [second-done (bridge-run-ast first-done (bridge-call-ast :op/echo [2]))]
+      (is (vm/halted? second-done))
+      (is (= 2 (vm/value second-done)))
+      (is (empty? (:parked second-done))
+          "Repeated host calls do not accumulate in :parked"))))

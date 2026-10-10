@@ -7,7 +7,7 @@
             [yin.vm.values :as values]
             [yin.vm.semantic-register :as sr]
             [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.corpus :as corpus]
+            [yin.vm.semantic-register.corpus :as corpus :refer [lit v lam app tail if-node def!]]
             [yin.vm.semantic-register.linearize :as sr-linearize]))
 
 
@@ -20,12 +20,6 @@
   [ast]
   (every? #(contains? slice-4a-mnemonics (nth % 0))
           (:vector (sr-linearize/project ast))))
-
-
-(defn stage1-eligible?
-  "Stage 1 admits the engine-free instruction set; FFI is stage 2."
-  [ast]
-  (every? #(not= :ffi-call (first %)) (:vector (sr-linearize/project ast))))
 
 
 (defn trace-normalize
@@ -84,7 +78,7 @@
 
 
 (deftest b0-values
-  (let [rows (filter #(stage1-eligible? (second %)) b0/corpus)]
+  (let [rows b0/corpus]
     (is (= 26 (count rows)))
     (doseq [[label ast expected] rows]
       (testing label
@@ -95,8 +89,8 @@
 
 
 (deftest corpus-outcomes
-  (let [rows (filter #(stage1-eligible? (second %)) corpus/programs)]
-    (is (= 30 (count rows)))
+  (let [rows corpus/programs]
+    (is (= 32 (count rows)))
     (doseq [[label ast] rows]
       (testing label (is (= (outcome (walker-machine ast)) (outcome (register-machine ast))))))))
 
@@ -142,3 +136,111 @@
           (is (vm/halted? result)))
         (is (= (trace-normalize (vm/value walker))
                (trace-normalize (vm/value register))))))))
+
+
+(def capture {:type :vm/current-continuation})
+
+
+(defn with-k
+  [body]
+  (app (lam '[r] body) capture))
+
+
+;; The five reviewed continuation programs; arity-two is checked separately.
+(def continuation-programs
+  [[:escape (app (v '+)
+                 (lit 1)
+                 (with-k (if-node (app (v '=) (v 'r) (lit 7))
+                                  (app (v '+) (v 'r) (lit 1))
+                                  (app (v '+)
+                                       (lit 1000)
+                                       (app (v 'r) (lit 7)))))) 9]
+   [:tail-invoke (app (v '+)
+                      (lit 1)
+                      (with-k (if-node (app (v '=) (v 'r) (lit 7))
+                                       (v 'r)
+                                       (tail (app (v 'r) (lit 7)))))) 8]
+   [:re-entry (then
+                (def! 'count (lit 0))
+                (app (lam ['x]
+                          (then (if-node (app (v '=) (v 'count) (lit 0))
+                                         (def! 'saved (v 'x))
+                                         (lit nil))
+                                (if-node (app (v '<) (v 'count) (lit 3))
+                                         (then (def! 'count
+                                                 (app (v '+) (v 'count) (lit 1)))
+                                               (app (v 'saved)
+                                                    (app (v '*)
+                                                         (lit 10)
+                                                         (v 'count))))
+                                         (app (v 'conj)
+                                              (app (v 'conj) (lit []) (v 'x))
+                                              (v 'count)))))
+                     (app (lam [] capture)))) [30 3]]
+   [:store-after-invoke (with-k (if-node (app (v '=) (v 'r) (lit 1))
+                                         (app (v 'conj)
+                                              (app (v 'conj) (lit []) (v 'r))
+                                              (v 'mark))
+                                         (then (def! 'mark (lit :written))
+                                               (app (v 'r) (lit 1))))) [1 :written]]
+   [:arity-zero (with-k (if-node (app (v '=) (v 'r) (lit 1))
+                                 (v 'r)
+                                 (apply app (v 'r)
+                                        (repeat 0 (lit 1))))) [:thrown "Continuation expects exactly one argument"]]])
+
+
+(defn continuation-outcome
+  [machine]
+  (try
+    (loop [machine machine steps 0]
+      (cond
+        (vm/halted? machine) (outcome machine)
+        (vm/blocked? machine) {:error "Continuation parity test blocked"}
+        (= steps 10000) {:error "Continuation parity step bound exhausted"}
+        :else (recur (vm/step machine) (inc steps))))
+    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+      {:error (ex-message e)})))
+
+
+(deftest continuation-outcomes
+  (is (= 5 (count continuation-programs)))
+  (doseq [[label ast expected] continuation-programs]
+    (testing label
+      (let [w (continuation-outcome (walker-machine ast)) r (continuation-outcome (register-machine ast))]
+        (is (= w r))
+        (if (and (vector? expected) (= :thrown (first expected)))
+          (is (= (second expected) (:error r)))
+          (is (= expected (:value r))))))))
+
+
+(deftest ffi-round-trip-parity
+  (let [ast {:type :dao.stream.apply/call :op :op/echo :operands [(lit 42)]}
+        run (fn [register?]
+              (let [seen (atom []) opts {:bridge {:op/echo (fn [x] (swap! seen conj x) x)}}
+                    machine (if register? (register-machine ast opts)
+                                (walker/vm-load-rows (tu/create-vm opts) (vm/ast->semantic-bytecode ast) vm/ast-contract))]
+                [(outcome machine) @seen]))]
+    (is (= (run false) (run true)))
+    (is (= 42 (get-in (run true) [0 :value])))
+    (is (= [42] (second (run true))))))
+
+
+(deftest stream-run-parity
+  (doseq [register? [false true]]
+    (let [load (fn [machine ast]
+                 (if register? (sr/load-ast machine (vm/ast->datoms ast) vm/ast-contract)
+                     (walker/vm-load-rows machine (vm/ast->semantic-bytecode ast) vm/ast-contract)))
+          base (if register? (register-machine {:type :stream/make :buffer 4})
+                   (walker-machine {:type :stream/make :buffer 4}))
+          made (vm/run base) s (vm/value made)
+          read {:type :stream/next :source {:type :stream/cursor :source (lit s)}}
+          blocked (vm/run (load made read))
+          put (vm/run (load made {:type :stream/put :target (lit s) :val (lit 99)}))
+          got (vm/run (load put read))
+          closed (vm/run (load got {:type :stream/close :source (lit s)}))]
+      (is (vm/blocked? blocked))
+      (is (= :yin/blocked (vm/value blocked)))
+      (is (= 99 (vm/value put)))
+      (is (= 99 (vm/value got)))
+      (is (nil? (vm/value closed)))
+      (is (vm/halted? closed)))))
