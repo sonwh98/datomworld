@@ -259,14 +259,8 @@
     (is (= :deliver (:rule (error-data #(sr/register-restore base {} 1)))))))
 
 
-(deftest deferred-arms
-  (doseq [ast [{:type :vm/park} {:type :vm/current-continuation}
-               {:type :stream/make} {:type :vm/resume :parked-id :p :val (corpus/lit 1)}]]
-    (let [m (parity/register-machine ast) op (first (last (butlast (get-in m [:code (:program m) :vector]))))]
-      (is (= {:reason :not-in-slice-4a :op op}
-             (select-keys (error-data #(vm/run m)) [:reason :op])))))
-  (let [effect (parity/register-machine (corpus/app (corpus/v 'require) (corpus/lit 'foo)))
-        m (parity/register-machine (corpus/app (corpus/v 'k)))
-        k (values/continuation (:owner m) {})]
-    (is (= {:reason :not-in-slice-4a :op :call} (error-data #(vm/run effect))))
-    (is (= {:reason :not-in-slice-4a :op :call} (error-data #(vm/run (assoc-in m [:env 'k] k)))))))
+(deftest stage2-deferred-arms
+  (let [ffi (parity/register-machine {:type :dao.stream.apply/call :op :op/ping :operands []})
+        link (parity/register-machine (corpus/app (corpus/v 'require) (corpus/lit 'foo)))]
+    (is (= {:reason :not-in-slice-4a :op :ffi-call} (error-data #(vm/run ffi))))
+    (is (= {:reason :not-in-stage1 :op :call} (error-data #(vm/run link))))))

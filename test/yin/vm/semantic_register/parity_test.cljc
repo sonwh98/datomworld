@@ -22,6 +22,12 @@
           (:vector (sr-linearize/project ast))))
 
 
+(defn stage1-eligible?
+  "Stage 1 admits the engine-free instruction set; FFI is stage 2."
+  [ast]
+  (every? #(not= :ffi-call (first %)) (:vector (sr-linearize/project ast))))
+
+
 (defn trace-normalize
   [value]
   (cond
@@ -78,8 +84,8 @@
 
 
 (deftest b0-values
-  (let [rows (filter #(slice-4a-eligible? (second %)) b0/corpus)]
-    (is (= 25 (count rows)))
+  (let [rows (filter #(stage1-eligible? (second %)) b0/corpus)]
+    (is (= 26 (count rows)))
     (doseq [[label ast expected] rows]
       (testing label
         (doseq [machine [(register-machine ast) (walker-machine ast)]]
@@ -89,8 +95,8 @@
 
 
 (deftest corpus-outcomes
-  (let [rows (filter #(slice-4a-eligible? (second %)) corpus/programs)]
-    (is (= 21 (count rows)))
+  (let [rows (filter #(stage1-eligible? (second %)) corpus/programs)]
+    (is (= 30 (count rows)))
     (doseq [[label ast] rows]
       (testing label (is (= (outcome (walker-machine ast)) (outcome (register-machine ast))))))))
 
@@ -112,16 +118,24 @@
     (corpus/app (corpus/lam '[x]
                             (corpus/app (corpus/lam '[x] (corpus/v 'x)) (corpus/lit 2)))
                 (corpus/lit 1))
-    2]])
+    2]
+   [:caller-env-after-return
+    (corpus/app (corpus/lam '[x]
+                            (corpus/app (corpus/v 'list)
+                                        (corpus/app (corpus/lam '[x] (corpus/lit 2)) (corpus/lit 9))
+                                        (corpus/v 'x)))
+                (corpus/lit 1))
+    '(2 1)]])
 
 
 (deftest extra-row-values
-  (is (= 1 (count slice-4a-extra-rows)))
+  (is (= 2 (count slice-4a-extra-rows)))
   (doseq [[label ast expected] slice-4a-extra-rows]
     (testing label
       (is (slice-4a-eligible? ast))
-      (let [walker (vm/run (walker-machine ast))
-            register (vm/run (register-machine ast))]
+      (let [walker (vm/run (walker/vm-load-rows (tu/create-vm {:env {'list list}})
+                                                (vm/ast->semantic-bytecode ast) vm/ast-contract))
+            register (vm/run (register-machine ast {:env {'list list}}))]
         (doseq [result [walker register]]
           (is (= expected (vm/value result)))
           (is (= (trace-normalize expected) (trace-normalize (vm/value result))))

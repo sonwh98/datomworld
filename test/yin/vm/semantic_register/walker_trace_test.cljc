@@ -2,6 +2,9 @@
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
+            [yin.vm.values :as values]
+            [yin.vm.ast-walker :as walker]
+            [yin.vm.semantic-register :as sr]
             [yin.vm.parity-test :as b0]
             [yin.vm.semantic-register.corpus :as corpus]
             [yin.vm.semantic-register.parity-test :as parity]))
@@ -16,7 +19,9 @@
   (let [op (first inst)]
     (cond
       (:blocked? after) {:event? false}
-      (contains? #{:const :var :closure :gensym :store-get :store-put :define} op)
+      (contains? #{:const :var :closure :gensym :store-get :store-put :define
+                   :stream-make :stream-cursor :stream-close :stream-put :stream-next
+                   :current-continuation} op)
       {:event? true :value (get (:window after) (nth inst 1))}
       (and (= :call op) (fn? (get (:window before) (nth inst 2))))
       (if (nth inst 4)
@@ -24,6 +29,16 @@
           {:event? true :value (get (:window after) (:rd frame))}
           {:event? true :value (:value after)})
         {:event? true :value (get (:window after) (nth inst 1))})
+      (and (= :call op) (values/continuation? (get (:window before) (nth inst 2))))
+      (let [payload (values/payload (get (:window before) (nth inst 2)))]
+        {:event? true :value (get (:window after) (get-in payload [:deliver :rd]))})
+      (= :resume op)
+      (let [entry (get-in before [:parked (nth inst 1)])]
+        (if (= :rd (get-in entry [:deliver :deliver]))
+          {:event? true :value (get (:window after) (get-in entry [:deliver :rd]))}
+          (if-let [frame (peek (:k entry))]
+            {:event? true :value (get (:window after) (:rd frame))}
+            {:event? true :value (:value after)})))
       :else {:event? false})))
 
 
@@ -81,13 +96,24 @@
    [:literal-none-in-call (corpus/app (corpus/lam '[x] (corpus/v 'x)) (corpus/lit :none))
     '[[:value {:type :closure :params [x]}] [:value :none] [:value :none] [:halt :none]]]
    [:main-tail-primitive (corpus/tail (corpus/app (corpus/v '+) (corpus/lit 1) (corpus/lit 2)))
-    [[:value :host-fn] [:value 1] [:value 2] [:value 3] [:halt 3]]]])
+    [[:value :host-fn] [:value 1] [:value 2] [:value 3] [:halt 3]]]
+   [:park-then-halt {:type :vm/park} [[:park :parked-0]]]
+   [:continuation-delivery
+    (corpus/app (corpus/lam '[r]
+                            (corpus/if-node (corpus/app (corpus/v '=) (corpus/v 'r) (corpus/lit 7))
+                                            (corpus/v 'r)
+                                            (corpus/app (corpus/v 'r) (corpus/lit 7))))
+                {:type :vm/current-continuation})
+    '[[:value {:type :closure :params [r]}] [:value :continuation]
+      [:value :host-fn] [:value :continuation] [:value 7] [:value false]
+      [:value :continuation] [:value 7] [:value 7]
+      [:value :host-fn] [:value 7] [:value 7] [:value true] [:value 7] [:halt 7]]]])
 
 
 (deftest traces-align
-  (let [rows (filter #(parity/slice-4a-eligible? (second %))
+  (let [rows (filter #(parity/stage1-eligible? (second %))
                      (concat b0/corpus corpus/programs parity/definition-programs))]
-    (is (= 51 (count rows)))
+    (is (= 61 (count rows)))
     (doseq [[label ast] rows]
       (testing (str label)
         (let [a (trace-walker ast) b (trace-register ast)]
@@ -96,10 +122,10 @@
 
 
 (deftest trace-oracle-pinned-values
-  (is (= 4 (count trace-only-rows)))
+  (is (= 6 (count trace-only-rows)))
   (doseq [[label ast expected] trace-only-rows]
     (testing label
-      (is (parity/slice-4a-eligible? ast))
+      (is (parity/stage1-eligible? ast))
       (is (= expected (trace-walker ast)))
       (is (= expected (trace-register ast))))))
 
@@ -111,3 +137,15 @@
     (is (= expected (trace-walker ast)))
     (is (= expected (trace-register ast)))
     (is (= 6 (count (filter #(= :value (first %)) (trace-register ast)))))))
+
+
+(deftest resume-delivery-trace
+  (let [park {:type :vm/park}
+        resume {:type :vm/resume :parked-id :parked-0 :val (corpus/lit 9)}
+        w (vm/run (parity/walker-machine park))
+        r (vm/run (parity/register-machine park))
+        w (walker/vm-load-rows w (vm/ast->semantic-bytecode resume) vm/ast-contract)
+        r (sr/load-ast r (vm/ast->datoms resume) vm/ast-contract)
+        expected [[:value 9] [:value 9] [:halt 9]]]
+    (is (= expected (trace-machine w false)))
+    (is (= expected (trace-machine r true)))))
