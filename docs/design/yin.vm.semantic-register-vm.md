@@ -10,6 +10,13 @@ then that document describes the running machine. `semantic-register-vm`
 is a working name: on cutover (§10 phase 8) the old evaluator is deleted
 and this one takes the name `yin.vm.semantic`.
 
+Amended 2026-10-10 after the phase-4 design review (codex rulings F1-F7,
+text in `yin.vm.semantic-register-vm.evaluator.md` §6): §2.1 (K has one
+frame kind), §2.4 (restore seam, deferred versus immediate tail halt
+environment, `define` through `put-active`), §2.5 (events: production
+versus relocation), §4.1 (in-VM reason names), §10 phase 4 (interim link
+format), §11 item 4. No transition and no shape changed.
+
 ## 1. Stance, in the owner's words
 
 > "The AST is the source of truth but the semantic vm is the canonical
@@ -78,11 +85,12 @@ $$\langle C, E, S, K\rangle,\qquad C = \langle seg,\ pc,\ W\rangle$$
   has no registers; it has `:value` and `:evaluated`) and leaves the de
   Bruijn register image free to map parameters to its own `L` bank.
 - **S**: unchanged.
-- **K**: a vector of frames, innermost last. One frame kind for calls,
-  `{:type :return :segment :pc :env :window :rd}` (§2.4), and the
-  engine's effect-continuation frames (`:dao.stream.apply/eval-call`,
-  `:request-sent`) extended with `:segment :pc :window :rd` in place of
-  `:segment :pc :stack`.
+- **K**: a vector of frames, innermost last, of one kind,
+  `{:type :return :segment :pc :env :window :rd}` (§2.4). The FFI
+  phases (sent, retained) are markers on the wait entry (`:call-id`,
+  `:request-sent`), as in the stack machine today, never frames of
+  `K`; the walker's `:dao.stream.apply/eval-call` and `:request-sent`
+  continuation types correspond to those markers (§2.5).
 
 ### 2.2 Registers
 
@@ -149,8 +157,10 @@ $$\begin{aligned}
 &\text{halt}:&& \to \text{halted},\ \text{result} = W[I.value\text{-}reg]
 \end{aligned}$$
 
-`define` writes through `engine/store-put`, which refuses the reserved
-key (Rule R unchanged); the definition operator is never resolved.
+`define` writes through `engine/put-active`, which routes the write
+to the active module store or the task's store and calls
+`engine/store-put`, which refuses the reserved key (Rule R unchanged);
+the definition operator is never resolved.
 
 **The saved window.** Wherever a transition saves the current
 activation for later delivery of a value into `rd`, the window it saves
@@ -229,12 +239,24 @@ A `tail` state carries no window and no `E` of its own; the store
 context any later code needs is in the frames of `K`. Delivery of `v`
 to an `act` with `{:deliver :rd r}` restores it, writes `W[r ← v]`, and
 continues at `pc`; delivery to a `tail` with `{:deliver :return}` runs
-`return(v)` against `K`, which pops a frame or halts. The engine seam
-already supports this: `handle-effect`'s `restore-fn(base, entry, value)`
-treats the VM payload as data and does not require a current
-activation, so the semantic restore helper decodes the completion and
-either resumes an `act` or runs `return(v)`; no trampoline activation
-is synthesized. The two shapes cover primitive effects, `:park`,
+`return(v)` against `K`, which pops a frame or halts. When a deferred
+tail completion halts, the machine's `:env` is the scheduler's current
+`:env` at the restore (`base`), cleared of the module-store key; when an
+immediate tail completion halts (a pure primitive or a non-parking
+effect in a tail call), it is the current `E` so cleared, as `:halt`
+leaves it. The two are not equated: no `E` of the tail site travels in
+the `tail` state. The engine seam already supports this: a VM's restore
+function `restore-fn(base, entry, value)` is called from exactly two
+places, `engine/resume-from-run-queue` (a woken wait entry, after the
+entry has left the ready queue and after the terminal-outcome check,
+with `base` the blocked machine) and `engine/resume-continuation` (an
+explicit `:resume`, with no terminal check and with `base` the
+resuming machine, which may be active). Neither path requires a
+current activation: the helper reads only the entry, the value and the
+machine's tables, treats the VM payload as data, and either resumes an
+`act` or runs `return(v)`, which may halt; the `:resume` transition
+accepts a halted result. No trampoline activation is synthesized. The
+two shapes cover primitive effects, `:park`,
 `:current-continuation`, stream and FFI waits (including the
 `request-sent` phase, which advances the FFI protocol without
 delivering anything to guest code), link waits (whose three phases
@@ -300,14 +322,15 @@ it allows administrative steps on both sides:
 | a non-tail call's continuation frame (saved env, `:evaluated` prefix) | a `ret` frame: saved `E`, `saved(pc+1, rd)` as the window, `rd` |
 | `request-sent` | the retained-request phase: the FFI protocol advances, nothing is delivered to guest code |
 | `eval-call` completion | correlated response decoding, parked bookkeeping removal, delivery to `rd` |
-| walker frame pushes/pops; register `:jump` / `:return` administrative steps | no single-step counterpart; the correspondence holds at the next value-producing step |
+| walker frame pushes/pops; register `:jump` / `:branch-false` / `:return r` / `:halt r` | no single-step counterpart; the correspondence holds at the next event. An **event** is a transition that produces an expression's result or delivers a value to a suspended destination (a popped frame, a captured destination, the halt); a transition that relocates a result already produced (`:return r`, `:halt r`, a walker frame pop) is administrative. `return(v)` of a tail primitive's or tail effect's value is a delivery event. Events are classified by role, never by whether the value already occurs elsewhere |
 
 Expression frames correspond to **pc and `W`**, not to `ret` frames; a
 `ret` frame corresponds only to a suspended caller activation. The
 parity lane (§10, phase 4) runs every corpus program on both machines
 and compares values, store, effect traces and halting; a trace test
-aligns walker value-producing steps with register writes under the
-table above, administrative steps skipped.
+aligns the two machines' events (production and delivery, as the last
+row defines them) under the table above, administrative steps skipped;
+the companion design's §4 fixes the procedure.
 
 ## 3. The canonical grammar
 
@@ -592,8 +615,8 @@ tail call raises the `tail` form of whichever row its effect falls in.
 |---|---|---|---|
 | blocked read | `:stream-next rd c` → `blocked` | `act`, pending cell `c` | `rd` ← read value; nil on `end`; `:dao.stream/gap` on gap |
 | blocked write | `:stream-put rd s v` → `full` | `act`, pending retains `W[v]` and the stream | `rd` ← written value on retry `ok` |
-| FFI call, sent | `:ffi-call rd op args` → `ok` | `act`, pending `:ffi` (call id, response cell) | `rd` ← correlated `ok` value; `error` raises; bookkeeping removed |
-| FFI call, retained | `:ffi-call` → `full` | `act`, pending `:ffi-request` (envelope verbatim) | none at this phase; on append `ok` the entry becomes the sent phase |
+| FFI call, sent | `:ffi-call rd op args` → `ok` | `act`, pending `:ffi` (call id, response cell); in-VM `:reason :next` with `:call-id` | `rd` ← correlated `ok` value; `error` raises; bookkeeping removed |
+| FFI call, retained | `:ffi-call` → `full` | `act`, pending `:ffi-request` (envelope verbatim); in-VM `:reason :put` with `:request-sent` | none at this phase; on append `ok` the entry becomes the sent phase |
 | effectful call, non-tail | `:call rd f args false` whose operator yields a blocking effect | `act`, pending per the effect kind | per the kind's row |
 | effectful call, tail | `:call rd f args true` likewise | `tail`, pending per the effect kind | **through return** against `K` |
 | link request | `:module/require` miss, request in hand | `act` or `tail`, pending `:link-request` | none at this phase; on append `ok` the entry becomes link response |
@@ -974,6 +997,11 @@ until phase 8.
    *(Met 2026-10-10, commit 7a010962 on `srvm-phase3`; Architect
    review `collab/1791530000000-architect-srvm-phase3-review.*`.)*
 4. **Evaluator.** `yin.vm.semantic-register` beside `yin.vm.semantic`.
+   During coexistence the evaluator links under the interim format
+   `:yin.semantic-register/code`, contract `"v4"`; phase 5 supplies its
+   production linker format record (the dependency-closure scanners over
+   the new table), and phase 8 retires it in favour of
+   `:yin.semantic/code` `"v4"`.
    Gate: walker parity on the full B0 corpus (values, store, effects,
    halting) under the §2.5 correspondence; Rule R rows; effects,
    non-tail and tail recursion, pure and effectful tail completion,
@@ -1017,9 +1045,10 @@ the answers are adopted above:
    scope (§3.4 item 6).
 3. **A carried live claim**: not carried; the window's keys are the
    membership claim and are validated by recomputation (§4.2).
-4. **Tail effects**: routed directly through `K`; the engine seam's
-   `restore-fn(base, entry, value)` needs no current activation, so no
-   trampoline; the closed `tail` state and the semantic restore helper
+4. **Tail effects**: routed directly through `K`; the engine's
+   two restore paths (`engine/resume-from-run-queue`,
+   `engine/resume-continuation`) call `restore-fn(base, entry, value)`
+   and neither requires a current activation, so no trampoline; the closed `tail` state and the semantic restore helper
    are specified in §2.4.
 
 Nothing remains open in this document before freeze. The one item
