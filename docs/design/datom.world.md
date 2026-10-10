@@ -29,6 +29,7 @@ Restrictions are a feature.
 - Do not introduce shared mutable state.
 - Do not collapse interpretation and execution into the same layer.
 - Do not assume graphs: graphs must be constructed explicitly from tuples.
+- Do not lose information (unitarity): streams are append-only and no datom is destroyed, only reinterpreted. The Universal AST is never lost: it is always retrievable wherever code is lowered, by address or by a query over its datoms. Every derived form (semantic vector, native images, indexes) is an interpretation of it and may drop facts only because the AST remains.
 
 ## Tuples and Datoms
 
