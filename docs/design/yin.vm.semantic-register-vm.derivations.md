@@ -253,22 +253,24 @@ next   := 0                                   ; next never-used index
 peak   := 0
 slot   := {}                                  ; virtual id → temporary index
 for p from s to e-1:
-  for each intervaled v with end(v) < p and v not yet expired:  free := free ∪ {slot(v)}
-  if some intervaled v has start(v) = p:                        ; at most one, §2.3 note
-     i := (first free) if free non-empty else next, next := next+1
-     free := free − {i}; slot(v) := i; peak := max(peak, i+1)
+  for each intervaled v, in increasing end(v) then increasing v,
+      with end(v) < p and v not yet expired:        free := free ∪ {slot(v)}
+  for each intervaled v with start(v) = p, in increasing v:
+     if free is non-empty: i := (first free); free := free − {i}
+     else:                 i := next; next := next + 1       ; a never-used slot
+     slot(v) := i; peak := max(peak, i+1)
 registers := locals + peak + (1 if the body names a definition-less id, else 0)
 ```
 
-- **At most one interval starts per pc**: `start(v)` is either `v`'s
-  first definition pc, and one instruction defines one register, or a
-  layout-syntax live point, which is strictly before any definition and
-  belongs to exactly one `v` per the structured grammar (an `L` point of
-  layout syntax names the destination of the one enclosing expression).
-  No tie-break by virtual id is ever needed; the frozen "then increasing
-  virtual id" clause is kept as a defensive total order and never
-  exercised on a well-formed vector. Expiry order does not matter
-  (freeing is set union).
+- The two loops are the frozen scan's, with their **total order**
+  (increasing `end` then increasing virtual id for expiry; increasing
+  virtual id for assignment) kept verbatim, so the result never depends
+  on how many intervals happen to start or expire at one pc. On a
+  well-formed vector at most one interval starts per pc (one instruction
+  defines one register; a layout-syntax live point belongs to one
+  enclosing destination), but the implementation does **not** rely on
+  that: the loop runs over whatever starts. `next` advances only when a
+  never-used slot is taken, so `peak = next` at the end of the scan.
 - **No same-instruction source/destination reuse** (frozen): expiry is
   `end < p`, so a source whose interval ends at `p` is still assigned
   when `p`'s destination is allocated; the destination never takes a
@@ -317,16 +319,27 @@ gives `{boundary-pc live-vector}`, written into the tuple at
 successors), and the validator's `live-exact` rule (`:631-649`)
 recomputes the same function on every receiving host.
 
-**Checked, not assumed** (§6.2 item 4): for every boundary pc `p` the
-filled `live` equals the sorted physical image of `(L(p+1) − {rd})`
-computed by `analysis/live` over A. The two analyses are independent
-(one over the physical image with slot reuse, one over virtual ids); the
-argument that they agree is that all edges go forward in pc, that the
-slot map is injective over simultaneously intervaled ids, and that no
-reachable instruction reads a slot after its interval ended. It is
-stated as a property the gate checks on every corpus program, not as a
-theorem the implementation relies on: production `live` is
-`body-liveness`'s, full stop.
+**Checked, not assumed** (§6.2 item 4). For every boundary pc `p`, let
+the **virtual live-out** be `⋃ { L(s) : s ∈ (analysis/successors v p) }`
+over the **actual** successors of §8.1 (`analysis.cljc:15-28`: none for
+a tail `:call`, `:return`, `:halt`, `:resume`; the target for `:jump`;
+both for `:branch-false`; `p+1` otherwise). The filled `live` must equal
+the sorted physical image of `(virtual-live-out(p) − {rd})`. For a
+non-tail boundary that is `L(p+1) − {rd}`; for a **tail `:call`** the
+successor set is empty, so the virtual live-out is `{}` and `live` is
+`[]`, which is also what `body-liveness` returns and what
+`live-tail-rule` requires (`debruijn_register_code.cljc:621-628`).
+`L(p+1)` itself is **not** the right comparison for a tail call: in
+`(f (g x) y)` with the inner call marked tail (§6.3 row 9) the layout
+syntax after the inner call keeps `f` in `L(p+1)` while nothing can
+reach it, so `L(p+1) − {rd}` would be `{f}` and the gate would wrongly
+fail. The two analyses are independent (physical image with slot reuse
+versus virtual ids); the argument that they agree is that all edges go
+forward in pc, the slot map is injective over simultaneously intervaled
+ids, and no reachable instruction reads a slot after its interval ended.
+It is a property the gate checks on every corpus program, not a theorem
+the implementation relies on: production `live` is `body-liveness`'s,
+full stop.
 
 ### 2.6 Why this and not R1's discipline
 
@@ -335,9 +348,10 @@ tree walk: destination at expression entry, lowest free, release on
 consumption (`debruijn_register_compile.cljc:88-116, 152-306`). The
 linear scan allocates by pc order over `L`, which is what makes it a
 function of A and of the analysis phase 4 and 6 already consume (frozen
-§8.1), with no tree walk and no second notion of liveness. The two give
-different bytes on most programs (§6.3 shows `(+ 1 2)` and `((f))` side
-by side); under ruling 2 that is a regeneration, not a version.
+§8.1), with no tree walk and no second notion of liveness. Its bytes are
+its own: R is the register kernel's bytecode and need not equal the old
+image's or H (owner, 2026-10-11); under ruling 2 the pinned R values are
+regenerated, not versioned.
 
 ---
 
@@ -384,10 +398,13 @@ body(main): emit(expr); [:halt]      body(lambda): emit(expr); [:return]
 ```
 
 Children are the parse node's `:children` in order, which is `code/uses`
-order, which is §3.1's evaluation order. The walk is the named
-linearizer's flattening (frozen §8.3 step 4 names it) read off A's parse
-instead of a tree; it has **no allocation choice**, so the stack image
-of a tree has one spelling. §6.3 pins the goldens; §6.1 is the oracle.
+order, which is §3.1's evaluation order. The walk is defined by the
+table above and by nothing else: H is the stack kernel's bytecode, a
+function of A under these rules, and it need not equal the old
+`lower-stack` output or R (owner, 2026-10-11). No test, golden or
+observation in this design compares the new H with the old; the goldens
+of §6.3 are derived from this table and checked against the emitter, and
+the execution oracle (§6.1) is the only relation to the old pipeline.
 The frozen §8.3 remark that `(f (g x) y)` needs `f` kept while `(g x)`
 runs is met the only way a stack machine meets it: `f` is pushed before
 the operands are emitted.
@@ -428,10 +445,15 @@ dropped:
 
 | Fact | Dropped by | Evidence |
 |---|---|---|
-| `:macro?` on a lambda | the row grammar has only `:params` and `:body` for `:lambda` (`vm.cljc:1067`); the datom lane's `flatten-tree` reads `:params` and `:body` only (`linearize.cljc:103-105`) | `an-explicit-macro-false-projects-like-an-absent-one` is the dormant projection's test (`debruijn_test.cljc:452`); for A, `(= (project (assoc lam :macro? true)) (project lam))` is asserted in §6.2 item 6 |
-| shared `:eid`s (one node referenced from two sites) | occurrence expansion (frozen §3.3 item 1): `flatten-tree` lowers each reference where it is reached; `ast->semantic-bytecode` keeps one row for the shared node and `project-rows` expands it (`shared-occurrences-expand-positionally`, `linearize_test.cljc:107-119`) | `:shared-occurrence` with and without `:eid` on the shared call gives the same vector (§6.2 item 6) |
-| `:tail?` on a non-application node | `flatten-tree` reads `:tail?` only in the `:application` arm (`linearize.cljc:116`) | asserted in §6.2 item 6 |
-| entity ids, datom order, `t`/`m`, provenance paths | pc is the index; provenance is a side table outside the vector (`linearize.cljc:20-22`, UCF §7.3.2 `:393-397`) | `projection-is-deterministic` (`linearize_test.cljc:83`) already shuffles the datom lane |
+| `:macro?` on a lambda | the row grammar has only `:params` and `:body` for `:lambda` (`vm.cljc:1067`); the datom lane's `flatten-tree` `:lambda` arm reads `:params` and `:body` only (`src/cljc/yin/vm/semantic_register/linearize.cljc:103-105`) | `an-explicit-macro-false-projects-like-an-absent-one` is the dormant projection's test (`debruijn_test.cljc:452`); for A, the `:vector` and `:address` of `(project (assoc lam :macro? true))` and `(project lam)` are asserted equal in §6.2 item 6 |
+| shared `:eid`s (one node referenced from two sites) | occurrence expansion (frozen §3.3 item 1): `flatten-tree` lowers each reference where it is reached; `ast->semantic-bytecode` keeps one row for the shared node and `project-rows` expands it (`shared-occurrences-expand-positionally`, `test/yin/vm/semantic_register/linearize_test.cljc:107-119`) | `:shared-occurrence` with and without `:eid` on the shared call gives the same `:vector` and `:address` (§6.2 item 6) |
+| `:tail?` on a non-application node | `flatten-tree` reads `:tail?` only in the `:application` arm, `(boolean (slot id :tail?))` (`semantic_register/linearize.cljc:116`; the definition arm at `:107-112` reads no tail flag) | asserted in §6.2 item 6 |
+| entity ids, datom order, `t`/`m`, provenance paths | pc is the index; provenance is a side table outside the vector (`semantic_register/linearize.cljc:20-22`, UCF §7.3.2 `:393-397`) | `projection-is-deterministic` (`semantic_register/linearize_test.cljc:83`) already shuffles the datom lane |
+
+A is **not** a key to the original AST: §4.2's whole point is that
+several ASTs project to one A, which is why the unitarity association of
+§9.2 maps an A to the tree(s) it was projected from and never pretends
+the inverse is a function.
 
 The old lowerers *did* read one of these through the resolved tuples:
 `resolve` carries `:yin/macro?` (`debruijn_resolve.cljc:171`), though
@@ -539,16 +561,21 @@ observable must also equal the pinned `expected` under
 value: `:literal :define :define-call :gensym :store-ops
 :lambda-application :nested-lambdas :if-in-test :define-then-call
 :stream-make-default :body-queue-order :closure-in-arm-in-body`. The
-other twenty are run too, on both pipelines, and must agree on their
-**throw**: seventeen read an unbound name (`:variable :worked-example
-:zero-arity-call :nested-calls :if :nested-if-same-rd :if-operand
-:if-in-tail :all-terminal-arms :all-tail-arms :streams :ffi-call
+other twenty are run too, on both pipelines: **nineteen throw
+comparisons** (equal `[:thrown message]` observables), seventeen reading
+an unbound name (`:variable :worked-example :zero-arity-call
+:nested-calls :if :nested-if-same-rd :if-operand :if-in-tail
+:all-terminal-arms :all-tail-arms :streams :ffi-call
 :current-continuation :park :resume-arm :resume-operand
-:shared-occurrence`), two resume an unknown parked id (`:resume-body
-:resume-lambda-body`), one needs an FFI bridge (`:ffi-call-no-args`, run
-with the `:op/ping` bridge of `parity_test.cljc:163-173`'s shape so it
-completes). Equal observables including equal throw messages is the
-gate; byte goldens are §6.3's business, never this lane's.
+:shared-occurrence`) and two resuming an unknown parked id
+(`:resume-body :resume-lambda-body`); and **one successful FFI
+comparison**, `:ffi-call-no-args` (`{:op :op/ping :operands []}`), run
+with an explicit zero-argument bridge `{:bridge {:op/ping (fn [] :pong)}}`
+added to the composition (the parity fixture at `parity_test.cljc:163-173`
+implements `:op/echo` with one argument and is the template, not the
+bridge), expected observable `[true false :pong]` on both pipelines.
+Equal observables is the gate; byte goldens are §6.3's business, never
+this lane's.
 
 #### 6.1.4 The C4 corpus, read-only
 
@@ -561,16 +588,64 @@ pipeline named, and drives it with `h/drive` (`:161-171`) against
 `h/source` over the harness's published `py` and, for the import
 programs, the guest modules it publishes itself through
 `h/publish-guest-module!` (`:95-102`), exactly as `import_test.cljc`'s
-private `published-guests` does (`:342-363`). The served modules' native
-images are the publisher's (old pipeline until cutover); only the **root
-program's** lowering differs between old and new, which is the oracle's
-purpose. Programs: the six guest import programs `o t m r e n`
-(`import_test.cljc:400-516`, by packet name) lowered with
-`lower/lower-packet pk {:prelude :linked}`, plus the eight module ASTs of
-§7.3 run as programs where `linked_prelude_test` runs them. Observable:
-`[halted? blocked? (render/output value)]` as `import_test`'s `outcome`
-(`:375-378`), compared old = new per backend family. `^:slow`, guarded,
-and it must actually run for sign-off (§10 5b item 9).
+private `published-guests` does (`:342-363`: the **module packets**
+`k m t w e n`, `import_programs.cljc:176, 11, 225, 276, 334, 378`,
+published bottom-up with `t` depending on `k`).
+
+**Two populations, kept apart.**
+
+*(a) Root import programs.* The nine root packets the import tests run,
+each lowered with `lower/lower-packet pk {:prelude :linked}`, with the
+expected outcome the C4 test pins (`import_test.cljc:400-516`), compared
+old = new per backend family **and** equal to that pinned outcome:
+
+| Root packet (`import_programs.cljc`) | C4 test | Expected `[halted? blocked? output]` |
+|---|---|---|
+| `o-packet` (`:410`) | `import-orders-statements-test` | `[true false {:py/out ["a" "m-body" "b"] :py/exception nil}]` |
+| `q-packet` (`:997`) | `second-import-does-not-re-execute-test` | `[true false {:py/out ["m-body" "done"] :py/exception nil}]` |
+| `d-packet` (`:473`) | same | `[true false {:py/out ["m-body" "7"] :py/exception nil}]` |
+| `c-packet` (`:533`) | `module-dict-mutations-are-shared-test` | `[true false {:py/out ["m-body" "5" "absent" "('gone', 5)"] :py/exception nil}]` |
+| `r-packet` (`:698`) | `raising-body-removes-its-entry-test` | `[true false {:py/out ["w-once" "cleaned" "w-once" "again"] :py/exception nil}]` |
+| `x-packet` (`:813`) | `importer-catches-imported-function-exception-test` | `[true false {:py/out ["caught-e"] :py/exception nil}]` |
+| `nn-packet` (`:1085`) | `one-image-two-names-test` | `[true false {:py/out ["n"] :py/exception nil}]` |
+| the inline `main` of `one-image-two-names-test` (`import_test.cljc:497-504`: `(require 'py) (require 'pym.n) (py/init!) (py/run-main pym.n/body)`), rebuilt in the test | same | `[true false {:py/out ["__main__"] :py/exception nil}]` |
+| `s-packet` (`:890`) | `preseeded-modules-resolve-test` | `[true false {:py/out ["m-body" "True" "True"] :py/exception nil}]` |
+| `tt-packet` (`:1045`) | `transitive-import-delivers-test` | `[true false {:py/out ["k-body" "t-sees 3" "t-done"] :py/exception nil}]` |
+
+Ten root programs, count asserted. Here only the **root program's**
+lowering differs between old and new; the served module bodies (`py`,
+the six guests) are the publisher's old images until cutover. This
+population therefore covers the new lowering of **root code that links,
+imports, catches cross-module exceptions and reads module state**, not
+the module bodies themselves.
+
+*(b) Module bodies, executed as root programs.* To exercise the new
+lowering of the module code itself without editing C4 files or the
+publisher, each of the eight module ASTs of §7.3 (`prelude/module-uast`;
+the `pysp` spec's `:ast`; the six guest specs' `:ast`) is run **as a root
+program** on both pipelines under the linked harness: `py`'s own body
+requires nothing and defines its runtime into the store; `pysp`'s body
+`(require 'py)` and defines; a guest's body requires `py` and its
+imports and defines. Observable: `[halted? blocked? defined-keys]` where
+`defined-keys` is the sorted set of keys the run left in the task's
+store (the module's definitions, `prelude/defined-keys` of its AST being
+the expected set) under `native-normalize` on the values' *types*
+(closure → `:closure`, else the value); compared old = new and the key
+set equal to `(prelude/defined-keys ast)` (`prelude.cljc:3416-3425`).
+This runs every definition and every top-level expression of every
+module body through the new lowering on both kernels.
+
+*(c) Not covered until phase 8.* The install-child path over **newly
+lowered module images** (a `require` that spawns the module's body from
+a manifest whose H/R images came from `derive`) is not exercised by (a)
+or (b), because publishing new images needs the production publisher to
+switch (§7.6, §8.3). It is covered at phase 8 by the C4 suite itself
+(`import_test`, `linked_prelude_test`, `safepoint_test`), whose pinned
+outcomes then run over new images; §10.4 names that as a phase-8 gate.
+
+Observables for (a) use `render/output` as `import_test`'s `outcome`
+does (`:375-378`). `^:slow`, guarded, and it must actually run for
+sign-off (§10 5b item 9).
 
 ### 6.2 Validators, liveness, determinism
 
@@ -585,18 +660,21 @@ Every image either pipeline produces, for every program of `C`:
 3. Every `:load-bound d q` has `d` below its body's chain length and `q`
    below that frame's arity (the kernels' `body-scope-rule` /
    `scope-defect` check this; asserted again from `chain`).
-4. **Two liveness analyses agree** (§2.5): for every boundary pc, the
-   filled `live` equals the sorted physical image of `(L(p+1) − {rd})`
-   from `analysis/live`.
+4. **Two liveness analyses agree** (§2.5): for every boundary pc `p`,
+   the filled `live` equals the sorted physical image of the virtual
+   live-out over the **actual successors** `(analysis/successors v p)`
+   minus `rd`; for every tail `:call` both sides are `[]`.
 5. **Determinism**: `(= (register-image v) (register-image v))` and
    `(= (stack-image v) (stack-image v))` as structures and as
    `encode-register-image`/`encode-image` bytes.
 6. **Same A, same images**: for the pairs (lambda with and without
    `:macro? true`; `:shared-occurrence` with and without `:eid` on the
    shared node; an application with and without `:tail? false` on a
-   literal operand), `(= (project a) (project b))` and therefore equal
-   R and H; asserted both ways so a future projection change that starts
-   carrying one of these facts is noticed.
+   literal operand), the `:vector` and the `:address` of the two
+   projections are equal (**not** the whole `project` result, whose
+   `:provenance` legitimately differs), and therefore R and H are equal;
+   asserted both ways so a future projection change that starts carrying
+   one of these facts is noticed.
 
 ### 6.3 Hand-derived goldens
 
@@ -605,7 +683,8 @@ the A goldens of `corpus.cljc` and the rules of §2-§3; the R and H hash
 strings are **not** written here and are filled by the implementer from
 the pinned image through the public hash function, which is how a
 reviewer verifies them (§8.1). `L` is `analysis/live`; `v` are virtual
-ids; `T` temporaries.
+ids; `T` temporaries. For every H image the pc of each label is stated;
+labels are the only place a stack pc is not simply "the next slot".
 
 **1. `(+ 1 2)`** (B0 `"addition"` shape). A: `[:var 1 +] [:const 2 1]
 [:const 3 2] [:call 0 1 [2 3] false] [:halt 0]`. `L(4)={0} L(3)={1,2,3}
@@ -615,9 +694,8 @@ peak 4.
 R image: `[[:load-free 0 +] [:const 1 1] [:const 2 2] [:call 3 0 [1 2] false []] [:halt 3]]`,
 body `{:locals 0 :registers 4 :start 0 :end 4}`; `live` at pc 3 =
 `L(4)` image `{T3}` minus rd `T3` = `[]`.
-H image: `[[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:halt]]`.
-(R1 gave `[:load-free 1 +] [:const 2 1] [:const 3 2] [:call 0 1 [2 3] false []] [:halt 0]`,
-`debruijn_register_compile_test.cljc:608-620`: the result slot moved.)
+H image (pcs 0-7, no labels):
+`[[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:halt]]`.
 
 **2. `(f (g x) y)`** (`:worked-example`). A: pcs 0-6 `[:var 1 f] [:var 3 g]
 [:var 4 x] [:call 2 3 [4] false] [:var 5 y] [:call 0 1 [2 5] false] [:halt 0]`.
@@ -632,7 +710,8 @@ body `{:locals 0 :registers 4 :start 0 :end 6}`. `live` at pc 3:
 call); at pc 5: `L(6)={0}` → `{T2}` minus rd = `[]`. Cross-check with
 `body-liveness` over the physical image: live-in(4) = `{0,3}`, so live
 at 3 is `[0]`; live-in(6) = `{2}`, so live at 5 is `[]`.
-H image: `[[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 1 false] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]`.
+H image (pcs 0-11, no labels):
+`[[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 1 false] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]`.
 
 **3. `((f))`**. A: `[:var 2 f] [:call 1 2 [] false] [:call 0 1 [] false] [:halt 0]`.
 `L(3)={0} L(2)={1} L(1)={2} L(0)={}`. Intervals `v2:[0,1] v1:[1,2]
@@ -641,7 +720,8 @@ peak 2.
 R image: `[[:load-free 0 f] [:call 1 0 [] false []] [:call 0 1 [] false []] [:halt 0]]`,
 body `{:locals 0 :registers 2 :start 0 :end 3}`; `live` at pc 1:
 `L(2)={1}`→`{T1}` minus rd `T1` = `[]`; at pc 2: `{T0}` minus `T0` = `[]`.
-H image: `[[:load-free f] [:push] [:call 0 false] [:push] [:call 0 false] [:halt]]`.
+H image (pcs 0-5, no labels):
+`[[:load-free f] [:push] [:call 0 false] [:push] [:call 0 false] [:halt]]`.
 
 **4. `(if c 1 2)`** (`:if`). A: `[:var 1 c] [:branch-false 1 4] [:const 0 1]
 [:jump 5] [:const 0 2] [:halt 0]`. `L(5)={0} L(4)={} L(3)={0} L(2)={}
@@ -650,7 +730,9 @@ and 5 → `[2,5]`. Scan: `v1→T0`; pc 2 `v1` expires, `v0→T0`; peak 1.
 R image: `[[:load-free 0 c] [:branch-false 0 4] [:const 0 1] [:jump 5] [:const 0 2] [:halt 0]]`,
 body `{:locals 0 :registers 1 :start 0 :end 5}`. The test register is
 reused for the result: legal, the test is dead after the branch.
-H image: `[[:load-free c] [:branch-false 4] [:const 1] [:jump 5] [:const 2] [:halt]]`.
+H image: pc 0 `[:load-free c]`, 1 `[:branch-false Lelse]`, 2 `[:const 1]`,
+3 `[:jump Lend]`, **Lelse = 4** `[:const 2]`, **Lend = 5** `[:halt]`:
+`[[:load-free c] [:branch-false 4] [:const 1] [:jump 5] [:const 2] [:halt]]`.
 
 **5. `(f (if c 1 2) y)`** (`:if-operand`). A: pcs 0-8 `[:var 1 f] [:var 3 c]
 [:branch-false 3 5] [:const 2 1] [:jump 6] [:const 2 2] [:var 4 y]
@@ -662,7 +744,12 @@ v0:[7,8]`. Scan: `v1→T0 v3→T1`; pc 3 `v3` expires, `v2→T1`; pc 6
 R image: `[[:load-free 0 f] [:load-free 1 c] [:branch-false 1 5] [:const 1 1] [:jump 6] [:const 1 2] [:load-free 2 y] [:call 3 0 [1 2] false []] [:halt 3]]`,
 body `{:locals 0 :registers 4 :start 0 :end 8}`; `live` at pc 7 =
 `L(8)={0}`→`{T3}` minus `T3` = `[]`.
-H image: `[[:load-free f] [:push] [:load-free c] [:branch-false 5] [:const 1] [:jump 6] [:const 2] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]`.
+H image, pc by pc: 0 `[:load-free f]`, 1 `[:push]`, 2 `[:load-free c]`,
+3 `[:branch-false Lelse]`, 4 `[:const 1]`, 5 `[:jump Lend]`, **Lelse = 6**
+`[:const 2]`, **Lend = 7** `[:push]` (the conditional's value is an
+operand, so the push follows the join), 8 `[:load-free y]`, 9 `[:push]`,
+10 `[:call 2 false]`, 11 `[:halt]`:
+`[[:load-free f] [:push] [:load-free c] [:branch-false 6] [:const 1] [:jump 7] [:const 2] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]`.
 
 **6. A tail call: `((fn [x] (+ x 1)) 10)`** (`:lambda-application`). A:
 main `[:closure 1 [x] 4] [:const 2 10] [:call 0 1 [2] false] [:halt 0]`;
@@ -678,17 +765,22 @@ R image: `[[:closure 0 1 4] [:const 1 10] [:call 2 0 [1] false []] [:halt 2] [:l
 bodies `[{:locals 0 :registers 3 :start 0 :end 3} {:locals 1 :registers 5 :start 4 :end 8}]`;
 main `live` at pc 2 = `L(3)={0}`→`{T2}` minus `T2` = `[]`; the tail
 call's `live` is `[]` by the successor rule (`live-tail-rule`,
-`debruijn_register_code.cljc:621-628`). (R1's golden for this program,
-`debruijn_register_compile_test.cljc:460-478`, had registers 3 and 5 but
-different slots: `[:closure 1 1 4] … [:call 0 1 [2] false []]` and
-`[:call 1 2 [3 4] true []] [:return 1]`.)
-H image: `[[:closure 1 4] [:push] [:const 10] [:push] [:call 1 false] [:halt] [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push] [:call 2 true] [:return]]`.
+`debruijn_register_code.cljc:621-628`).
+H image, pc by pc: main 0 `[:closure 1 Lbody]`, 1 `[:push]`, 2 `[:const 10]`,
+3 `[:push]`, 4 `[:call 1 false]`, 5 `[:halt]` (six instructions, so the
+body starts at **Lbody = 6**); body 6 `[:load-free +]`, 7 `[:push]`,
+8 `[:load-bound 0 0]`, 9 `[:push]`, 10 `[:const 1]`, 11 `[:push]`,
+12 `[:call 2 true]`, 13 `[:return]`:
+`[[:closure 1 6] [:push] [:const 10] [:push] [:call 1 false] [:halt] [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push] [:call 2 true] [:return]]`.
+(The stack image's body pc differs from A's `4` because the stack image
+has pushes A does not; §2.4 "layout is A's" is a register-image fact
+only.)
 
 **7. Definitions.** `(yin/def x 5)` (`:define`): A `[:const 1 5]
 [:define 0 x 1] [:halt 0]`; `L(2)={0} L(1)={1}`; `v1:[0,1] v0:[1,2]`;
 scan `v1→T0`, pc 1 `v0→T1`; peak 2.
 R: `[[:const 0 5] [:define 1 x 0] [:halt 1]]`, body `{:locals 0 :registers 2 :start 0 :end 2}`.
-H: `[[:const 5] [:define x] [:halt]]`.
+H (pcs 0-2, no labels): `[[:const 5] [:define x] [:halt]]`.
 `(yin/def y (+ 1 2))` (`:define-call`): A pcs 0-5 `[:var 2 +] [:const 3 1]
 [:const 4 2] [:call 1 2 [3 4] false] [:define 0 y 1] [:halt 0]`;
 `L(5)={0} L(4)={1} L(3)={2,3,4} L(2)={2,3} L(1)={2}`; intervals
@@ -697,7 +789,7 @@ H: `[[:const 5] [:define x] [:halt]]`.
 R: `[[:load-free 0 +] [:const 1 1] [:const 2 2] [:call 3 0 [1 2] false []] [:define 0 y 3] [:halt 0]]`,
 body `{:locals 0 :registers 4 :start 0 :end 5}`; `live` at pc 3 =
 `L(4)={1}`→`{T3}` minus `T3` = `[]`.
-H: `[[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:define y] [:halt]]`.
+H (pcs 0-8, no labels): `[[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:define y] [:halt]]`.
 A layout-syntax note for §2.2's widened `start`: `(if c (resume :p 1) 2)`
 lowers to `[:var 1 c] [:branch-false 1 5] [:const 2 1] [:resume :p 2]
 [:jump 6] [:const 0 2] [:halt 0]`; `L(4) = L(6) = {0}` while `v0`'s only
@@ -723,15 +815,39 @@ reachable instruction; `register-bounds-rule` holds (`3 < 4`);
 `body-liveness` sees `T3` used at pc 4 and never defined, which affects
 no boundary's `live` (the only boundary is pc 4 itself, whose live-out
 is `{T2}`).
-H image: `[[:load-free f] [:push] [:load-free x] [:resume :p] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]`.
+H image (pcs 0-8, no labels):
+`[[:load-free f] [:push] [:load-free x] [:resume :p] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]`.
 
-Every number above was derived by hand twice (once for the design, once
-while writing this table) and cross-checked against `analysis_test.cljc`
-where it pins the same `L`; none was produced by running code. The
-implementer's test pins these images literally and the gate of §6.2
-item 1 validates them; a disagreement between a pinned image and the
-implementation is investigated against §2-§3's rules, and this table is
-corrected if the derivation, not the implementation, was wrong.
+**9. A tail call as an operand: `(f (g x) y)` with the inner call marked
+`:tail? true`** (the shape §2.5's law must handle; not in any corpus, so
+it is a new inline row). A: pcs 0-6 `[:var 1 f] [:var 3 g] [:var 4 x]
+[:call 2 3 [4] true] [:var 5 y] [:call 0 1 [2 5] false] [:halt 0]` (the
+validator accepts it: items 8 and 10 treat pcs 4-6 as layout syntax
+after the terminator). Successors: pc 3 has none. `L(6)={0} L(5)={1,2,5}
+L(4)={1,2} L(3)={3,4} L(2)={3} L(1)={} L(0)={}`. Intervals: `v1`: def 0,
+live 4,5 → `[0,5]`; `v3:[1,3]`; `v4:[2,3]`; `v2`: def 3 (the tail call
+names its `rd`), live 4,5 → `[3,5]`; `v5:[4,5]`; `v0:[5,6]`. Scan:
+`v1→T0 v3→T1 v4→T2`; pc 3 `v2→T3`; pc 4 `v3,v4` expire, `v5→T1`; pc 5
+`v0→T2`; peak 4.
+R image: `[[:load-free 0 f] [:load-free 1 g] [:load-free 2 x] [:call 3 1 [2] true []] [:load-free 1 y] [:call 2 0 [3 1] false []] [:halt 2]]`,
+body `{:locals 0 :registers 4 :start 0 :end 6}`. `live` at pc 3 is
+**`[]`**: the tail call has no successor, so its virtual live-out is `{}`
+(and `L(4) − {2}` would have been `{1}` → `[0]`, which is exactly why
+§2.5 compares live-out over actual successors). `live` at pc 5 =
+`L(6) − {0}` = `[]`.
+H image (pcs 0-11, no labels):
+`[[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 1 true] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]`.
+
+Every number above was derived by hand twice and, for the R rows,
+cross-checked against the reviewer's independent derivations where they
+exist (`(+ 1 2)`, `(f (g x) y)`, `((f))`, `(f (if c 1 2) y)`, the tail
+call, both definitions, `(f (resume :p x) y)`); the two H label errors
+the reviewer found in rows 5 and 6 are corrected above and every other H
+pc was re-counted. None was produced by running code. The implementer's
+test pins these images literally and §6.2 item 1 validates them; a
+disagreement between a pinned image and the implementation is
+investigated against §2-§3's rules, and this table is corrected if the
+derivation, not the implementation, was wrong.
 
 ---
 
@@ -960,24 +1076,40 @@ map) and recomputes the constant with the public function named; a
 constant that cannot be recomputed from a printed intermediate is not
 accepted.
 
+Two moments regenerate: **slices 5a/5b** (the new lowerers get their own
+goldens) and **phase 8** (the descriptors lose their lift declaration,
+§8.2, which changes every H and R checksum once more, and the production
+pipeline switches). Both are listed.
+
 | Constant | Where | When | Mechanical check |
 |---|---|---|---|
-| R goldens of the new lowerer | new tests in `derive_test.cljc` pinning §6.3's images and their `register-hash` | 5b | `(rcode/register-hash <printed image>)` equals the pinned string; the image equals §6.3 |
-| H goldens of the new lowerer | likewise with `image-hash` | 5a | `(dc/image-hash <printed vector>)`; the vector equals §6.3; **expected equal to today's H strings** (the stack image has one spelling, §3.2), which the test records as an observation, not a gate |
-| `linker_test/pinned-identities-are-host-independent` (`linker_test.cljc:521-531`): R `c0aefe2f…` of the worked example (`((fn [x] (+ x 1)) 10)`) | phase 8, when its `register-image` helper (`:258-260`, `rc/adapt`) switches to `derive` | `(rcode/register-hash (:image (derive/register-image (:vector (project worked-example)))))`; the image must equal §6.3 row 6; the H string `52791d4a…` is expected unchanged |
-| R and H values and register counts the yang/REPL/linker tests derive live through `rc/adapt`/`dl/adapt` (`attach_image_test`, `linked_harness`, `repl_test`, `linker_require_test`, the `yang.python.antlr.*` tests, `handoff_v1_test`, …) | computed at test time, not pinned | phase 8, when the callers switch | no constant to regenerate; the execution oracle (§6.1) is the evidence |
-| the twelve R hashes and images of `debruijn_register_compile_test.cljc:449-620` and every other test of `lower-register`, `lower-stack`, `resolve`, `unresolve`, the lifts | tests of deleted code | phase 8 | **deleted, not regenerated**; their programs are in `C` and their behaviour is covered by §6.1-6.3 |
-| the C4 `manifest-golden` (`linked_prelude_test.cljc:229-234`, JVM golden) and every published manifest's `:yin.module/index` R key and register derivation record | the C4 track's test | phase 8 (the semantic record and `:yin.module/contracts` move at cutover anyway) | publish twice (the test already asserts idempotence) and diff the manifest map against the pre-cutover one: only `:yin.module/contracts`, the three derivation-record addresses, the `:yin.module/index` R entry and `:yin.module/tree` (unchanged) may differ, and each changed address recomputes from its printed record |
-| `rcode/descriptor-hash`, `dc/descriptor-hash` | `golden-descriptor-hash-test` (`debruijn_register_compile_test.cljc:449`) and every H | never | **unchanged**: no descriptor datum moves; the test keeps passing; the `contract-version` docstring is amended at phase 8 to record that allocation changes are regenerations under the owner's ruling |
+| R goldens of the new lowerer | new tests in `derive_test.cljc` pinning §6.3's images and their `register-hash` | 5b, and again at phase 8 (descriptor change) | `(rcode/register-hash <printed image>)` equals the pinned string; the image equals §6.3 and is unchanged by the descriptor edit |
+| H goldens of the new lowerer | likewise with `image-hash` | 5a, and again at phase 8 | `(dc/image-hash <printed vector>)` equals the pinned string; the vector equals §6.3. No relation to the old `lower-stack` output is recorded or checked (owner, 2026-10-11) |
+| `rcode/descriptor-hash`, `dc/descriptor-hash` | pinned in a test that survives: a **new** `test/yin/vm/debruijn_register_code_test.cljc` (`golden-descriptor-hash-test` moved out of `debruijn_register_compile_test.cljc:445-450`, which phase 8 deletes) and `debruijn_code_test.cljc:368` extended from `string?` to the pinned value | 5b (move, same value); phase 8 (new value) | `(jing/sha256 (dc/encode-scalar <printed descriptor>))` equals the pinned string (`debruijn_code.cljc:542-548`; `debruijn_register_code.cljc:257-258`); the printed descriptor differs from the previous one only by the removed `:dim/lift-to` row and, if the arity row counts it, by nothing else (`:dim/arity` counts opcode-table entries, `:196`, not descriptor rows) |
+| `linker_test/pinned-identities-are-host-independent` (`linker_test.cljc:521-531`): H `52791d4a…` and R `c0aefe2f…` of `((fn [x] (+ x 1)) 10)` | the test's `stack-image`/`register-image` helpers (`:253-260`, `dl/adapt`/`rc/adapt`) switch to `derive` | phase 8 | both strings recomputed as the two rows above from §6.3 row 6's printed images, after the descriptor change |
+| R and H values and register counts derived live through `rc/adapt`/`dl/adapt` (`attach_image_test`, `linked_harness`, `repl_test`, `linker_require_test`, the `yang.python.antlr.*` tests, `handoff_v1_test`, …) | computed at test time, not pinned | phase 8, when the callers switch | no constant to regenerate; the execution oracle (§6.1) and the C4 suite running over new images (§6.1.4 (c)) are the evidence |
+| the twelve R hashes and images of `debruijn_register_compile_test.cljc:449-620` and every other test of `lower-register`, `lower-stack`, `resolve`, `unresolve`, the lifts | tests of deleted code | phase 8 | **deleted, not regenerated**; their programs are in `C` and covered by §6.1-6.3; `golden-descriptor-hash-test` is moved first (row above) |
+| the C4 `manifest-golden` (`linked_prelude_test.cljc:229-234`, JVM golden) and every published manifest | the C4 track's test; every publisher | phase 8 | publish twice (idempotence is already asserted) and diff the manifest map against the pre-cutover one. **Final manifest shape and every affected entry**: `:yin.module/name`, `:yin.module/schema` (1), `:yin.module/exports`, `:yin.module/requires`, `:yin.module/primitives`, `:yin.module/footprint`, `:yin.module/tree` — **unchanged**; `:yin.module/contracts` — `:yin.semantic/code` `"v3"`→`"v4"`, the three others unchanged (`"v3"` AST, `"b2"`, `"r2"`); `:yin.module/derivations` — all three record addresses change (semantic: output A_v4; stack and register: input A_v4 and new checksum outputs); `:yin.module/index` — **new shape** `{:yin.debruijn.code <h-storage-address> :yin.debruijn.register <r-storage-address>}`, keyed by format (within a manifest A is fixed by the semantic record, so the linker §3 amendment's `[A f]` key collapses to `f`), replacing today's `{H addr R addr}` (`publish.cljc:189`); both storage addresses change (new image bytes). Each changed address recomputes from its printed record or image |
+| `:yin.module/index` entries in every linker-local `:indexes` and the index attribute `(linker/address-attribute f)` (`linker.cljc:948-973`) | the format index | phase 8 | re-minted from the manifests; a reviewer checks `(index-from-datoms f datoms)` against the manifest's index entry for `f` |
 
 ### 8.2 Descriptors and lifts
 
-**DECIDED.** `rcode/descriptor`, `dc/descriptor` and their versions do not
-change (§2.1, §3.1). The `:dim/lift-to [:yin.code/*]` label stays as data;
-the lift functions (`dl/lift`, `rc/lift`), which produce the `"v3"` named
-shape as a test oracle against `yin.vm.linearize/lower`, are deleted at
-phase 8 with that namespace. No lift-contract question remains (ruling
-2).
+**DECIDED** by ruling 2 and the reviewer's finding. Both descriptors
+declare a lift morphism, `[:yin.debruijn.code/dimension :dim/lift-to [:yin.code/*]]`
+(`debruijn_code.cljc:145`) and `[:yin.debruijn.register/dimension :dim/lift-to [:yin.code/*]]`
+(`debruijn_register_code.cljc:204`), and both rows are hashed into
+`descriptor-hash` and so into every H and R. The lift functions
+(`dl/lift`, `rc/lift`) and the `:yin.code/*` named vector they target are
+deleted at phase 8 with `yin.vm.linearize`; keeping a declaration of a
+morphism that no longer exists would be legacy. **At phase 8 the
+`:dim/lift-to` row is removed from both descriptors**; `lowering-contract-version`
+2 and `contract-version` 4 are **not** bumped (ruling 2), so the
+descriptor change is a regeneration, and every H and R checksum is
+regenerated once more (§8.1 rows). During phases 5-7 the descriptors do
+not change, so the 5a/5b goldens are pinned under the current descriptor
+hash and re-pinned at phase 8. The `contract-version` docstring's
+"bumped whenever … allocation …" sentence is amended at phase 8 to
+record the owner's no-version rule.
 
 ### 8.3 What keeps the old lowerers alive until phase 8
 
@@ -1000,8 +1132,18 @@ one helper both phases share, `debruijn.cljc:617-637`).
 
 ### 9.1 To the frozen design (`yin.vm.semantic-register-vm.md`)
 
-**F8 — §8.2 adopted as written, with two closures and one correction.**
-Evidence: §2 of this document. Replace, in §8.2 "Intervals",
+Reviewer rulings (codex gpt-6.1-sol, route-(a) review, 2026-10-10): F9
+**ACCEPT**; F8, F10, F11, F12, F13, F14 **ACCEPT WITH CHANGES**, the
+changes applied below (F8: total scan order kept, liveness comparison
+over actual successors; F10: precise executable coverage; F11:
+descriptors regenerated when their lift declaration goes; F12: corrected
+gates and the complete scanner text; F13: descriptor-dependent checksum
+changes, no H-equality claim; F14: descriptor cleanup, index and record
+migration, replacement coverage before deleting old tests).
+
+**F8 — §8.2 adopted as written, with two closures and one correction
+(ACCEPT WITH CHANGES).** Evidence: §2 of this document. Replace, in §8.2
+"Intervals",
 
 > `start(v)` is the pc of its first syntactic definition in textual
 > order; `end(v)` is the greatest pc at which `v ∈ L(pc)` or `v` is
@@ -1014,81 +1156,125 @@ with
 > `start(v)` is the first syntactic definition, and the widening covers
 > only layout-syntax live points (derivations design §2.2),
 
-and in "Scan" append after "assign the lowest-numbered free temporary
-`Tᵢ`": "At most one interval starts at any pc on a well-formed vector,
-so the virtual-id tie-break is never exercised." In step 3 ("Fill
-`live`"), replace "`live` is the physical image of `L(pc+1) − {rd}`,
-computed statically over the whole CFG of the body" with "`live` is
+"Scan" keeps its total order verbatim (expire in increasing `end` then
+increasing virtual id; assign each starting interval in increasing
+virtual id; the never-used counter advances only when a never-used slot
+is taken). In step 3 ("Fill `live`"), replace "`live` is the physical
+image of `L(pc+1) − {rd}`, computed statically over the whole CFG of the
+body, unreachable components included, and for a tail `:call` it is
+empty, because its successor set is empty" with "`live` is
 `body-liveness` of the emitted physical body, the format's one liveness
-function; its equality with the physical image of `L(pc+1) − {rd}` is a
-checked property of the gate (derivations design §2.5), not a second
-definition". Replace the closing paragraph "What this replaces in R1 …
+function; its equality with the physical image of the virtual live-out
+over the instruction's **actual successors** (§8.1) minus `rd`, which is
+`L(pc+1) − {rd}` for a non-tail boundary and the empty set for a tail
+`:call`, is a checked property of the gate (derivations design §2.5),
+not a second definition". Replace the closing paragraph "What this replaces in R1 …
 `lift` changes its output contract to the §2.3 table." with: "This
 replaces R1's lowerer whole: `lower-register` and its tree walk are
-deleted at cutover (§10 phase 8); `body-liveness`, the R2 descriptor,
-the validator and the kernel are reused unchanged. The lifts are deleted
+deleted at cutover (§10 phase 8); `body-liveness`, the validator and
+the kernel are reused unchanged; the R2 descriptor loses its lift
+declaration at cutover (derivations design §8.2). The lifts are deleted
 with the named linearizer."
 
-**F9 — §8.3 has no adapter and parses once.** Evidence: §3.2; both
-emitters own their FIFO queue and label pass. Replace §8.3 steps 1-4 with:
+**F9 — §8.3 has no adapter and parses once (ACCEPT).** Evidence: §3.2;
+both emitters own their FIFO queue and label pass. Replace §8.3 steps
+1-4 with:
 
 > 1. Resolve as in §8.2 step 1 (the resolved vector carries the parse).
 > 2. **Emit** by one walk over each body's recovered tree: operator,
 >    `:push`, operands with `:push` each, `:call argc tail?`, labels for
 >    conditionals, `:define name` after its value, bodies out of line in
 >    FIFO discovery order, each ending in `:return`, main in `:halt`;
->    labels resolved to pcs in a second pass. The walk is the named
->    linearizer's flattening read off A's parse; body discovery order
->    agrees with A's and R's, and the stack image's pcs are its own.
->    H = `image-hash` of the result, as a checksum.
+>    labels resolved to pcs in a second pass. Body discovery order
+>    agrees with A's and R's, and the stack image's pcs are its own; H
+>    is the stack kernel's bytecode and need equal neither R nor any
+>    earlier image. H = `image-hash` of the result, as a checksum.
 
-**F10 — §8.4 is replaced by the execution oracle.** Replace §8.4 whole
-with:
+**F10 — §8.4 is replaced by the execution oracle (ACCEPT WITH CHANGES).**
+Replace §8.4 whole with:
 
 > ### 8.4 Verification
 >
-> R and H are functions of A alone; the old lowerers are an execution
-> oracle, not a byte oracle: every corpus program runs through the old
-> and the new pipeline on the same kernels under the same composition
-> and must give identical observable results under one normalization
-> (derivations design §6.1); every emitted image passes the format's
-> validator, including `live-exact`; the tricky cases are pinned as
-> hand-derived goldens; and determinism is checked (same A, same
-> bytes; ASTs differing only in facts A omits, same A). Pinned
-> checksums are regenerated once (derivations design §8.1); nothing is
-> versioned.
+> R and H are functions of A alone and are two kernels' bytecode: they
+> need not equal each other or any earlier image, and no gate compares
+> them with one. The old lowerers are an **execution** oracle: every
+> program of the corpus the derivations design §6.1.1 names runs through
+> the old and the new pipeline on the same kernels under the same
+> composition and must give identical observable results under one
+> normalization (§6.1.2), with the executable rows stated precisely
+> (§6.1.3: the 26 B0 rows and twelve register-corpus rows to a value,
+> nineteen rows to an equal throw, one FFI row under an explicit
+> zero-argument bridge; §6.1.4: ten C4 root import programs to their
+> pinned outcomes and the eight module bodies run as root programs, the
+> install-child path over new module images being phase 8's). Every
+> emitted image passes the format's validator, including `live-exact`;
+> the tricky cases are pinned as hand-derived goldens (§6.3); and
+> determinism is checked (same A, same bytes; ASTs differing only in
+> facts A omits, same A). Pinned checksums are regenerated, once at the
+> slice and once at cutover (§8.1); nothing is versioned.
 
-**F11 — §6, second paragraph.** Replace from "The de Bruijn contracts
-`"b2"` and `"r2"` are **not re-versioned by this document**." to the
-paragraph's end with:
+**F11 — §6, second paragraph (ACCEPT WITH CHANGES).** Replace from "The
+de Bruijn contracts `"b2"` and `"r2"` are **not re-versioned by this
+document**." to the paragraph's end with:
 
 > The de Bruijn contracts keep their names `"b2"` and `"r2"` and their
-> descriptors; their lowerers change in place (owner, 2026-10-11: no
-> legacy, no version), and the pinned checksums that depend on the
-> register allocation are regenerated once, mechanically (derivations
-> design §8.1).
+> version numbers; their lowerers change in place (owner, 2026-10-11: no
+> legacy, no version). At cutover their descriptors lose the lift
+> declaration `:dim/lift-to`, since the lift and its target are deleted
+> with the named linearizer; the descriptor hashes and every H and R
+> checksum are regenerated then, mechanically (derivations design §8.1-8.2).
 
-**F12 — §10 phase 5.** Replace "the §8.4 byte-and-contract decision
-recorded with its evidence" with "the execution oracle, validators,
-goldens and determinism checks of §8.4 green on three hosts"; and
-replace the scanner clause from "**the dependency-closure scanners …**"
-to the end with the three-obligation text of the previous revision's
-F11 (unordered structural-order multisets; ordered emission-order
-oracle; complete join outcome including refusal reason and name; the C4
-gate read-only, comparing declarations against the discharged
-external-name set), unchanged.
+**F12 — §10 phase 5 (ACCEPT WITH CHANGES).** Replace "the §8.4
+byte-and-contract decision recorded with its evidence" with "the
+execution oracle, validators, goldens and determinism checks of §8.4
+green on three hosts, the slow C4 rows actually run"; and replace the
+scanner clause from "**the dependency-closure scanners …**" to the end of
+the phase with:
 
-**F13 — §9 "Corpora".** Replace "H and R goldens are preserved only if
-§8.4 says the bytes held." with "R goldens are regenerated once; H
-goldens are expected unchanged and are regenerated the same way
-(derivations design §8.1)."
+> **the dependency-closure scanners (UCF §7.6.1) reimplemented over the
+> new table agree with the old ones and with the tree-side oracles on
+> the B0 corpus, the register corpus and the C4 linked-prelude modules
+> by name**, under three obligations (derivations design §7.3): (i)
+> unordered agreement, old = new = the tree scanners and queries, on
+> free-name sets, the multiset of free-name occurrences as
+> `[name in-body?]`, the multiset of definitions as `[name conditional?]`,
+> and the store-key, FFI-op, parked-id and effect-kind sets (positions
+> excluded since the layouts differ; the tree scanners order by
+> structural path and are compared unordered); (ii) ordered agreement,
+> old = new = an independent emission-order tree oracle (main sequence
+> then bodies FIFO; a definition visits only its value operand), on the
+> occurrence and definition sequences and on the application-site count
+> (definition applications excluded, FFI sites included); (iii) join
+> agreement through `linker/verify`, old = new on the **complete
+> normalised outcome**: a success with its retained obligations as
+> `[name in-body?]` in order, or a refusal with its reason and name
+> (`:use-before-definition` included, exercised by a row that must
+> refuse on both sides). The old scanners' answers, normalised joins
+> included, are pinned as goldens before cutover deletes them, since the
+> C4 track's module declarations are built against those answers; the
+> C4 gate is read-only and compares declarations against the discharged
+> external-name set (module-defined keys and `yin/def` removed,
+> requirement-covered names removed), not raw free names.
 
-**F14 — §10 phase 8.** After "remove the old H/R request paths and the
-`raise` dependency," insert "delete `yin.vm.debruijn-resolve`,
-`yin.vm.debruijn-linearize`, `yin.vm.debruijn-register-compile` and
-their tests, switching `linker/relowered`, `publish-closure!` and the
-REPL to the A-derived lowerings (derivations design §8.3); regenerate
-the manifests' derivation records as `A → H`, `A → R` (§7.6)".
+**F13 — §9 "Corpora" (ACCEPT WITH CHANGES).** Replace "H and R goldens
+are preserved only if §8.4 says the bytes held." with "R and H goldens
+are the new lowerers' own, pinned at the slices and re-pinned at cutover
+when the descriptors lose their lift declaration (derivations design
+§8.1-8.2); neither is compared with an earlier image."
+
+**F14 — §10 phase 8 (ACCEPT WITH CHANGES).** After "remove the old H/R
+request paths and the `raise` dependency," insert "remove the
+`:dim/lift-to` row from both de Bruijn descriptors without a version
+bump and regenerate the descriptor hashes and every pinned H and R
+(derivations design §8.1-8.2); delete `yin.vm.debruijn-resolve`,
+`yin.vm.debruijn-linearize`, `yin.vm.debruijn-register-compile` and their
+tests only after the replacement coverage of §8.4 is green and the
+descriptor-hash golden has moved to a surviving namespace; switch
+`linker/relowered`, `publish-closure!` and the REPL to the A-derived
+lowerings (§8.3); regenerate the manifests' derivation records as
+`A → H`, `A → R` and the format index in its final shape
+`{format storage-address}` (§7.6, §8.1); run the C4 suite over the newly
+published images as the install-child gate (§6.1.4 (c))".
 
 ### 9.2 Statements that conflict with the unitarity invariant
 
@@ -1096,11 +1282,54 @@ the manifests' derivation records as `A → H`, `A → R` (§7.6)".
 
 | Document and place | Statement | Conflict | Proposed amendment |
 |---|---|---|---|
-| `yin.vm.linker.md:216-222` (§3 amendment) | "A request names `{:format f :hash A}`; the format index maps `[A f]` to the storage address of the native image for `f` … the canonical vector stays obtainable independently of any native-image entry." | A receiver can obtain A and a native image with no path to the tree; nothing in the by-identity flow names the tree. | After "stays obtainable": "and so does the tree: the format index also maps A to the address of the canonical tree it was projected from, populated at publication (`:yin.module/tree`), and a by-identity response for any format carries that address as `:yin.link/tree`. A native image whose tree address is unknown to the serving composition is refused at step 2 (`:tree-unavailable`): under the unitarity invariant the AST is retrievable wherever code is lowered, and lowering includes re-lowering at a receiver." |
-| `yin.vm.linker.md:225-232` (§3 amendment, walker bullet) | "the verification direction is **tree → A**, and no reconstruction of a tree from A is required or assumed." | None: retrieval, not reconstruction, is what the invariant requires. Keep; add one sentence. | Append: "The tree is retrieved by address, never reconstructed; the invariant guarantees the address is known." |
-| `yin.vm.linker.md:1776-1783` (§8.1, `:trusted`) | "Under `:trusted`, the linker checks only the record's input and output addresses … A composition that chooses `:trusted` has chosen to accept the publisher's lowering." | `:trusted` lets a composition link and run an image without the tree being present anywhere it can reach (the manifest names the address, but nothing checks it resolves). | Append: "Under either policy the tree named by `:yin.module/tree` must be retrievable from the serving composition's store (a `jing/get` existence check at step 2, not a verification); its absence is `:tree-unavailable`. `:trusted` skips re-lowering, never retrievability." |
-| `yin.vm.linker.md:1984-1987` (§8.3, host modules) | "A host module is entered as an already-linked manifest with `:yin.module/tree` absent, `:yin.module/derivations {}`, and its exports listed under `:yin.module/primitives` by profile address." | A manifest without a tree is a manifest of code with no AST. | Replace "with `:yin.module/tree` absent" with "with `:yin.module/tree nil`, an explicit statement that the module holds **no guest code**: host functions are not lowered and have no AST; the unitarity invariant governs guest code and is not weakened by a host module, which may carry no derivation and no image. A manifest with a nil tree and a non-empty `:yin.module/derivations` is `:manifest-shape`." |
-| `yin.vm.universal-continuation-format.md:511` (§7.3.4) and `:528-536` (resolution order) | "`:yin.k/carried` carries vectors, not batches"; a resumer resolves an address from its index, from `:yin.k/carried`, or from `dao.jing`, and loads on the two checks (hash, grammar). | A continuation can be resumed from carried vectors alone; the tree of carried code is not named anywhere in the value, so a resumer that lowers (a native kernel re-deriving R or H from a carried A) may have no path to it. | After "carries vectors, not batches": "and `:yin.k/requires :yin.k/trees` maps every segment address in `:yin.k/segments` to the address of its canonical tree, as the manifest's `:yin.module/tree` does for a module. A resumer resolves a tree the same three ways; a tree that resolves nowhere is reported under `:yin.k/missing :yin.k/trees` and makes discovery `:incomplete` (§7.6.5), never a silent load. The derivations of native images do not read the tree; the invariant is about retrievability, which the value must preserve." |
+**The source association, defined once and used by every row.** The
+invariant asks that the AST be *retrievable*: by address, or by a query
+over its datoms. It does not ask that it be fetched, and A does not
+identify it (§4.2: several trees project to one A). So the association
+is a **set-valued index from a segment address to tree addresses**:
+
+```
+source-index : A → #{tree-address …}      ; the trees this composition knows project to A
+```
+
+- **Carrier.** In a manifest, `:yin.module/tree` (one tree; the one the
+  publisher lowered from, also the `:yin.ledger/input` of its semantic
+  derivation record). In a by-identity link outcome, a new key
+  `:yin.link/trees #{…}`, the serving composition's `source-index`
+  entry for A. In a UCF value, `:yin.k/requires :yin.k/trees {A #{tree-address …}}`,
+  one entry per address in `:yin.k/segments`. In a composition, the
+  linker-local `:indexes` gain `:source-index`, populated at
+  publication (`publish-closure!` knows both addresses) and at every
+  verified manifest or outcome that names a tree.
+- **Independence.** The canonical vector's bytes and A are unchanged by
+  the association: it is an index beside the content, never inside it
+  (A is `segment-key` of the vector alone, UCF §7.3.2).
+- **Several trees, one A.** The set may hold several addresses; any one
+  retrievable member satisfies the invariant. A derivation record names
+  the one tree it was lowered from; the record's input is that tree, not
+  "the" tree of A.
+- **Completeness check.** A value or outcome is **complete** for the
+  invariant when every segment address it carries or requires has a
+  non-empty `source-index` entry. Absence of an entry is the design
+  defect the owner names (the lowering site lost the tree): a manifest
+  without `:yin.module/tree` for guest code is `:manifest-shape`; a UCF
+  value with a segment in `:yin.k/segments` and no `:yin.k/trees` entry
+  is `:yin.k/missing :yin.k/trees` and discovery `:incomplete` (§7.6.5).
+- **Absence versus transient failure.** A **known** tree address whose
+  read fails now (a `dao.jing` miss, a transport error) is not absence:
+  the association is intact and the read is retried or reported as the
+  ordinary fetch outcome of the medium (`:absent` at step 2 of the link
+  it belongs to). Nothing in this design turns a failed read into a
+  refusal of code that is otherwise linkable: retrievability is a
+  property of the association, not of one read.
+
+| Document and place | Statement | Conflict | Proposed amendment |
+|---|---|---|---|
+| `yin.vm.linker.md:216-222` (§3 amendment) | "A request names `{:format f :hash A}`; the format index maps `[A f]` to the storage address of the native image for `f` … the canonical vector stays obtainable independently of any native-image entry." | A receiver can obtain A and a native image with no path to the tree; nothing in the by-identity flow names a tree. | After "stays obtainable": "and so does a tree it was projected from: the composition's `source-index` maps A to the set of tree addresses it knows (populated at publication and from every verified manifest), and a by-identity outcome for any format carries that set as `:yin.link/trees`. A is not a key to one tree (several ASTs project to one A); the invariant is satisfied when at least one member is known. A native image for which the serving composition knows no tree is a composition defect (`:tree-unavailable` at step 2), distinct from a known tree whose read fails, which is the medium's ordinary `:absent`." |
+| `yin.vm.linker.md:225-232` (§3 amendment, walker bullet) | "the verification direction is **tree → A**, and no reconstruction of a tree from A is required or assumed." | None: retrieval, not reconstruction, is what the invariant requires. Keep; add one sentence. | Append: "A tree is retrieved by address through the `source-index`, never reconstructed from A." |
+| `yin.vm.linker.md:1776-1783` (§8.1, `:trusted`) | "Under `:trusted`, the linker checks only the record's input and output addresses … A composition that chooses `:trusted` has chosen to accept the publisher's lowering." | `:trusted` skips fetching the tree; nothing says the composition must still be able to retrieve it. The conflict is one of obligation, not of fetching. | Append: "`:trusted` skips **re-lowering**, never retrievability: the composition that serves under `:trusted` holds the manifest's `:yin.module/tree` address in its `source-index` and is responsible for the tree being retrievable from it (the publisher's store, or a store it can reach); no fetch is performed by the policy, and a tree whose read fails later is the medium's `:absent`, not a policy violation." |
+| `yin.vm.linker.md:1984-1987` (§8.3, host modules) | "A host module is entered as an already-linked manifest with `:yin.module/tree` absent, `:yin.module/derivations {}`, and its exports listed under `:yin.module/primitives` by profile address." | Read literally, a manifest without a tree is code without an AST. | Append (the absent field stays as it is): "This is the **guest-code carve-out**: the unitarity invariant governs guest code, the code that is lowered. A host module lowers nothing, has no AST and no derivations, and declares only profiles; its manifest therefore carries no tree, and `:manifest-shape` requires that a manifest without `:yin.module/tree` also have empty `:yin.module/derivations` and no `:yin.module/index`, so a tree-less manifest can never name an image." |
+| `yin.vm.universal-continuation-format.md:511` (§7.3.4) and `:528-536` (resolution order) | "`:yin.k/carried` carries vectors, not batches"; a resumer resolves an address from its index, from `:yin.k/carried`, or from `dao.jing`, and loads on the two checks (hash, grammar). | A continuation can be resumed from carried vectors alone; no tree of any carried or required segment is named in the value, so wherever a resumer lowers (a native kernel deriving R or H from a carried A) the tree may be unreachable. | After "carries vectors, not batches": "and `:yin.k/requires :yin.k/trees` maps every address in `:yin.k/segments` to the set of tree addresses the emitter's `source-index` held for it. The three-way resolution order applies to **vectors**; a tree is resolved by address through the resumer's own `source-index` or by a `dao.jing` read, and the value's `:yin.k/trees` entries are merged into that index on arrival. A segment with no `:yin.k/trees` entry is `:yin.k/missing :yin.k/trees` and discovery is `:incomplete` (§7.6.5), never a silent load; a known tree address that does not read now is a fetch outcome, not a missing association. The derivations of native images do not read the tree; the value preserves retrievability, which is what the invariant asks." |
 | `yin.vm.linker.md` §8.1 manifest rules, "One tree" | "The `:yin.ast/code` image *is* this tree, so it has no derivation record." | None. Keep. | — |
 
 ### 9.3 Checked and consistent (no amendment)
@@ -1149,17 +1378,22 @@ every existing source file and test.
    `resolved-addresses` are permitted by name and return vectors of
    `[:bound d q]`/`[:free sym]` tuples; `resolve`'s result round-trips
    `pr-str`/`read-string`.
-4. `derive-test/stack-goldens`: the H images of §6.3 rows 1-8, pinned
-   literally, with their `image-hash` strings pinned from the printed
-   vector (§8.1), and the observation recorded whether each equals
-   `(dl/adapt …)`'s image.
+4. `derive-test/stack-goldens`: the H images of §6.3 rows 1-9, pinned
+   literally with the pc of every label, and their `image-hash` strings
+   pinned from the printed vector (§8.1). The test compares the emitter
+   with these rows and with nothing else: no `dl/adapt` call, no
+   observation about the old stack image.
 5. `derive-test/stack-images-validate`: §6.2 items 1-3 for every `P ∈ C`
    on the stack image.
-6. `derive-test/stack-determinism`: §6.2 items 5-6 for the stack image.
+6. `derive-test/stack-determinism`: §6.2 items 5-6 for the stack image
+   (vectors and addresses compared, not provenance-bearing maps).
 7. `derive-test/stack-execution-oracle`: §6.1 over `C`'s runtime rows on
-   `dvm/create-vm` for the old and new pipelines, equal observables,
-   B0 rows also equal to their pinned `expected` under `native-normalize`;
-   the twenty non-value register rows agree on their throw messages.
+   `dvm/create-vm` for the old and new pipelines, equal observables:
+   26 B0 rows also equal to their pinned `expected` under
+   `native-normalize`; twelve register rows to a value; nineteen register
+   rows to an equal `[:thrown message]`; `:ffi-call-no-args` to
+   `[true false :pong]` under the explicit `{:op/ping (fn [] :pong)}`
+   bridge (§6.1.3); counts 26, 12, 19, 1 asserted.
 8. `derive-test/lexical-address-law-stack`: §5 legs A, `resolve(A)`, H,
    and the old resolver through `resolved-addresses`, with the
    non-vacuity assertions.
@@ -1170,18 +1404,24 @@ every existing source file and test.
 ### 10.2 Slice 5b: A → R
 
 **Files to change.** `derive.cljc`: `register-image` per §2.
-`derive_test.cljc`: the items below. Nothing else; `debruijn_register_code.cljc`
-and the register kernel are untouched.
+`derive_test.cljc`: the items below. **File to create:**
+`test/yin/vm/debruijn_register_code_test.cljc` (item 10). Nothing else;
+`debruijn_register_code.cljc` and the register kernel are untouched.
 
 **Acceptance (5b).**
 
-1. `derive-test/register-goldens`: the R images of §6.3 rows 1-8 pinned
+1. `derive-test/register-goldens`: the R images of §6.3 rows 1-9 pinned
    literally (instructions **and** body descriptors), their
-   `register-hash` strings pinned from the printed image (§8.1).
+   `register-hash` strings pinned from the printed image (§8.1); row 9's
+   tail-call-as-operand image with `live [] ` on the tail call is among
+   them.
 2. `derive-test/register-images-validate`: §6.2 items 1-3 for every
    `P ∈ C`, `register-image-defect` nil including `live-exact`.
 3. `derive-test/two-liveness-analyses-agree`: §6.2 item 4 on every
-   boundary pc of every `P ∈ C`.
+   boundary pc of every `P ∈ C` and of §6.3 row 9: the filled `live`
+   equals the physical image of the virtual live-out over
+   `analysis/successors` minus `rd`; every tail `:call` has `live []`
+   on both sides.
 4. `derive-test/structural-slot`: `:resume-operand`, `:all-terminal-arms`
    and `:resume-lambda-body` have `registers = peak + 1`, the structural
    slot is named only by layout-syntax operands, and it appears in no
@@ -1189,16 +1429,24 @@ and the register kernel are untouched.
    from every `live` whose pc is in `analysis/reachable`).
 5. `derive-test/register-determinism`: §6.2 items 5-6.
 6. `derive-test/register-execution-oracle`: §6.1 on `rvm/create-vm`, as
-   5a item 7.
+   5a item 7 (counts 26, 12, 19, 1 asserted).
 7. `derive-test/lexical-address-law`: all legs.
 8. `derive-test/worked-example-slots`: §6.3 row 2 exactly, including
    `[:call 3 1 [2] false [0]]`.
 9. `derive-test/c4-execution-oracle` (`^:slow`, guarded): §6.1.4, both
-   kernel families, old = new per program; **must actually run for
-   sign-off** (`bb test:sub yin.vm --slow` or
+   kernel families, old = new per program: (a) the ten root import
+   programs, each also equal to its pinned C4 outcome (count 10
+   asserted); (b) the eight module bodies run as root programs, equal
+   observables and the defined-key set equal to `prelude/defined-keys`
+   (count 8 asserted); (c) is stated as not covered until phase 8.
+   **Must actually run for sign-off** (`bb test:sub yin.vm --slow` or
    `clojure -M:test -i :slow -n yin.vm.semantic-register.derive-test` on
-   three hosts; the report quotes the program count it saw).
-10. kondo clean; `bb test:sub yin.vm` green on three hosts.
+   three hosts; the report quotes the two counts it saw).
+10. `debruijn-register-code-test/golden-descriptor-hash-test`: the
+    descriptor-hash golden moved out of `debruijn_register_compile_test.cljc:445-450`
+    into the new surviving namespace, same value (§8.1); the old copy is
+    left in place until phase 8 deletes its file.
+11. kondo clean; `bb test:sub yin.vm` green on three hosts.
 
 ### 10.3 Slice 5c: scanners and format record
 
@@ -1266,20 +1514,21 @@ the backend's `:obligations` at `semantic-register-format`'s scanner, a
 two-line follow-up belonging to whichever lands second. Phase 6 is the
 first consumer of `scan` outside the linker (the UCF census over
 register frames); `handoff.cljc`'s `free-names-v2`/`validate-closures-v2`
-gain their `"v4"` arms there. Phase 8 performs §7.6, §8.1's cutover rows
-and §8.3's deletions.
+gain their `"v4"` arms there. Phase 8 performs §7.6, §8.1's cutover rows,
+§8.2's descriptor change and §8.3's deletions, and runs the C4 suite over
+newly published images as the install-child gate (§6.1.4 (c)).
 
 ---
 
 ## 11. Owner questions
 
-**None.** Every decision above follows from the rulings of §0.1, the
-frozen design, or code that exists. Two items are flagged for the owner's
-attention without needing a decision: (a) the H bytes are expected to
-coincide with today's (§3.2, §8.1) and the design records that as an
-observation, not a requirement; (b) the unitarity amendments of §9.2 are
-proposed text for documents this phase does not edit, and their adoption
-is the orchestrator's queue item, not this slice's.
+**None.** Every decision above follows from the rulings of §0.1 (with
+the 2026-10-11 ruling that R and H are two kernels' bytecode and need
+equal neither each other nor any earlier image), the frozen design, or
+code that exists. One item is flagged for the owner's attention without
+needing a decision: the unitarity amendments of §9.2 are proposed text
+for documents this phase does not edit, and their adoption is the
+orchestrator's queue item, not this slice's.
 
 ---
 
