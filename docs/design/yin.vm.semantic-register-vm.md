@@ -566,8 +566,15 @@ adding register rules; items 1-5 (one segment, instruction shape, pcs
     concern; ruled here.)
 
 Violation is a load error naming the pc and rule, first defect wins,
-as today. Both load paths (direct vector; projection to datoms) run the
-same rules (code-as-tuples §7.2 unchanged).
+as today. **One vector validator.** The owner's ruling of 2026-09-18
+retired the vector→datoms projection (`code/vector->datoms`), so the
+"two load paths" of UCF §7.3.4 and code-as-tuples §7.2 take their
+direct-vector form here: the direct vector load and the two AST
+projection lanes (datom lane, row lane) all feed this one validator,
+the lanes agree with each other and with the golden vector and address
+for every corpus program, and malformed input is refused by the
+validator on the direct vector (one refusal row per rule). Equivalence
+of a vector→datoms projection is retired, not deferred.
 
 ## 4. Safepoints and the continuation format
 
@@ -953,10 +960,19 @@ until phase 8.
    loader rules of §3.4 (both load paths), **and the §8.1 analysis
    (def, use, `L`, `saved`)**, which the phase-4 evaluator needs for
    every call save and capture and so cannot wait for phase 5. Gate:
-   deterministic vectors across JVM/Node/Dart on the corpus;
-   malformed-input refusal rows for every rule including item 13;
-   direct and datom load paths agree (code-as-tuples §7.2 law); `L`
-   agrees with a reference implementation on the corpus.
+   deterministic vectors across JVM/Node/Dart on the corpus (the same
+   inline goldens and pinned addresses on all three); malformed-input
+   refusal rows for every rule including item 13, on the direct vector;
+   both AST projection lanes and the direct vector load through the one
+   validator to equal images (§3.4, direct-vector form; the
+   vector→datoms equivalence is retired); `L` agrees with an
+   independent reference implementation on the corpus. The image
+   `load-vector` returns is `{:vector :address :bodies [{:start :end
+   :owner :registers}]}` with `:end` **exclusive**; phase 4 computes
+   `analysis` once per admitted image as engine-local derived data, and
+   neither parsed trees nor saved sets enter canonical content.
+   *(Met 2026-10-10, commit 7a010962 on `srvm-phase3`; Architect
+   review `collab/1791530000000-architect-srvm-phase3-review.*`.)*
 4. **Evaluator.** `yin.vm.semantic-register` beside `yin.vm.semantic`.
    Gate: walker parity on the full B0 corpus (values, store, effects,
    halting) under the §2.5 correspondence; Rule R rows; effects,
