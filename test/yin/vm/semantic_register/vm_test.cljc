@@ -144,15 +144,32 @@
 
 
 (deftest return-writes-rd-once
-  (let [m (parity/register-machine (corpus/app (corpus/lam '[x] (corpus/v 'x)) (corpus/lit nil)))
+  (let [ast (corpus/app (corpus/v 'f)
+                        (corpus/app (corpus/lam '[z] (corpus/app (corpus/v 'g) (corpus/v 'z)))
+                                    (corpus/v 'x))
+                        (corpus/v 'y))
+        m (parity/register-machine ast {:env {'f vector 'g identity 'x nil 'y 2}})
         before (loop [m m]
                  (let [{:keys [segment pc]} (:control m)]
                    (if (= :return (first (nth (get-in m [:code segment :vector]) pc))) m (recur (vm/step m)))))
-        frame (peek (:k before)) after (vm/step before)]
+        {:keys [segment pc]} (:control before)
+        result-reg (second (nth (get-in before [:code segment :vector]) pc))
+        frame (peek (:k before))
+        v (get (:window before) result-reg)
+        after (vm/step before)]
+    (is (= {1 vector} (:window frame)))
+    (is (= 2 (:rd frame)))
+    (is (= 0 result-reg))
+    (is (not= (:rd frame) result-reg))
+    (is (= {1 identity 2 nil 0 nil} (:window before)))
+    (is (> (count (:window before)) 1))
+    (is (nil? v))
+    (is (= (assoc (:window frame) (:rd frame) v) (:window after)))
     (is (= (:window frame) (dissoc (:window after) (:rd frame))))
     (is (contains? (:window after) (:rd frame)))
     (is (nil? (get (:window after) (:rd frame))))
-    (is (nil? (:k after)))))
+    (is (nil? (:k after)))
+    (is (= [nil 2] (vm/value (vm/run after))))))
 
 
 (deftest halt-shape

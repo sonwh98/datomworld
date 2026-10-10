@@ -79,7 +79,9 @@
     [[:value {:type :parked-continuation :id :parked-0}]
      [:halt {:type :parked-continuation :id :parked-0}]]]
    [:literal-none-in-call (corpus/app (corpus/lam '[x] (corpus/v 'x)) (corpus/lit :none))
-    '[[:value {:type :closure :params [x]}] [:value :none] [:value :none] [:halt :none]]]])
+    '[[:value {:type :closure :params [x]}] [:value :none] [:value :none] [:halt :none]]]
+   [:main-tail-primitive (corpus/tail (corpus/app (corpus/v '+) (corpus/lit 1) (corpus/lit 2)))
+    [[:value :host-fn] [:value 1] [:value 2] [:value 3] [:halt 3]]]])
 
 
 (deftest traces-align
@@ -94,7 +96,7 @@
 
 
 (deftest trace-oracle-pinned-values
-  (is (= 3 (count trace-only-rows)))
+  (is (= 4 (count trace-only-rows)))
   (doseq [[label ast expected] trace-only-rows]
     (testing label
       (is (parity/slice-4a-eligible? ast))

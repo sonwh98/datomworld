@@ -104,3 +104,27 @@
         (let [result (vm/run machine)]
           (is (= expected (vm/value result)))
           (is (= slice (select-keys (vm/store result) (keys slice)))))))))
+
+
+;; Slice-4a extras stay separate from the phase-3 corpus and its pinned addresses.
+(def slice-4a-extra-rows
+  [[:parameter-shadowing
+    (corpus/app (corpus/lam '[x]
+                            (corpus/app (corpus/lam '[x] (corpus/v 'x)) (corpus/lit 2)))
+                (corpus/lit 1))
+    2]])
+
+
+(deftest extra-row-values
+  (is (= 1 (count slice-4a-extra-rows)))
+  (doseq [[label ast expected] slice-4a-extra-rows]
+    (testing label
+      (is (slice-4a-eligible? ast))
+      (let [walker (vm/run (walker-machine ast))
+            register (vm/run (register-machine ast))]
+        (doseq [result [walker register]]
+          (is (= expected (vm/value result)))
+          (is (= (trace-normalize expected) (trace-normalize (vm/value result))))
+          (is (vm/halted? result)))
+        (is (= (trace-normalize (vm/value walker))
+               (trace-normalize (vm/value register))))))))
