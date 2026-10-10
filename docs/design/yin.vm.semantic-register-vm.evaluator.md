@@ -37,7 +37,8 @@ the three landed phase-3 namespaces under
 `src/cljc/yin/vm/semantic_register/` (`code`, `linearize`, `analysis`)
 and the same engine seams `yin.vm.semantic` requires
 (`src/cljc/yin/vm/semantic.cljc:35-44`): `yin.vm`, `yin.vm.engine`,
-`yin.vm.ffi`, `yin.vm.module`, `yin.vm.telemetry`, `yin.vm.ucf`,
+`yin.vm.ffi`, `yin.vm.module`, `yin.vm.telemetry`, `yin.vm.ucf` (slice 4a
+does not need it: the image address comes from `code/load-vector`),
 `yin.vm.values`. It does **not** require `yin.vm.code` (the stack
 operand table) or `yin.vm.linearize` (the stack lowering).
 
@@ -915,7 +916,8 @@ change is needed.
   :store-put :halt :return :call` (closure and host-fn **value**
   operators only; the effect and `:continuation` arms throw
   `{:reason :not-in-slice-4a}` until 4b), `register-restore` with
-  steps 2-3 of §2.2 (step 1 and the `:call-id` handling land in 4b; in
+  step 3 of §2.2 only, the delivery step (steps 1 and 2 of §2.2, the
+  retained-request re-park and the `:call-id` handling, land in 4b; in
   4a nothing reaches the helper, but `run` must be `engine/run-loop`
   with it from the start), the `vm/IVM` and `vm/IVMState` extensions
   (`step` = `vm-hot` with fuel 1; `run` = `ffi/maybe-run` over the
@@ -1019,7 +1021,18 @@ command.
    bounded by 1 (`vm-test/tail-countdown`).
 8. `:return` with a non-empty `K` writes exactly the popped frame's
    `:rd` and nothing else: `(dissoc (:window vm') rd)` equals the frame's
-   `:window` (`vm-test/return-writes-rd-once`).
+   `:window` (`vm-test/return-writes-rd-once`). **The program must make
+   the check able to fail** (slice-4a review, 2026-10-10: the original
+   `((fn [x] x) nil)` has an empty saved window and the same register
+   number for the frame's `rd` and the body's result, so a `:return` that
+   wrote into the callee's window, or wrote twice, passed it). Use a
+   program whose saved window is non-empty, whose frame `rd` differs from
+   the body's result register, and whose callee window has more than one
+   key, for example `(app (v 'f) (app (lam '[z] (app (v 'g) (v 'z))) (v
+   'x)) (v 'y))` with `f` = `vector`, `g` = `identity`, `x` = nil, `y` =
+   2 (frame window `{1 f}`, `rd` 2, callee window `{1 g 2 z 0 v}`), and
+   assert the exact post-return window `(= (assoc (:window frame) (:rd
+   frame) v) (:window after))` and then the final value `[nil 2]`.
 9. `:return`/`:halt` with empty `K` halts: `:control nil :k nil
    :halted? true`, `:value` the result, `:env` without
    `engine/store-of-key`; `(vm/halted? vm')` (`vm-test/halt-shape`).
@@ -1256,6 +1269,74 @@ command.
     and `… .link-test`.
 
 ---
+
+### 5.3 Carried into slice 4b from the slice-4a review (2026-10-10)
+
+The adversarial review of slice 4a (claude-fable-5-1, commit `9a8e7915`;
+`collab/1791560000000-reviewer-srvm-phase4a.claude-fable-5-1.findings.md`)
+found no defect in `semantic_register.cljc` and 14 of 19 mutants caught
+(five survived: one equivalent, M1; four closed in the 4a fix round, M6,
+M7, M16 and M17). Its round-2 confirmation
+(`collab/1791600000000-reviewer-srvm-phase4a-r2.claude-fable-5-1.findings.md`,
+READY_TO_MERGE) found three further low-risk survivors, items 7 to 9
+below. These carry into 4b, and the 4b brief must list each:
+
+1. **Restore steps 1 and 2.** §5.1's "steps 2-3" was a self-contradiction
+   (step 2 of §2.2 is the `:call-id` handling); 4a implements step 3 only.
+   4b implements step 1 (retained-request re-park) and step 2 (`:call-id`
+   removal and `ffi/call-result` decoding) explicitly.
+2. **Trace `extract` arms.** `walker_trace_test`'s `extract` has no
+   `:continuation` arm (§4.3 table row 5) and no `:resume` arm; both fall
+   to `{:event? false}`, correct while 4a throws before `extract`. 4b adds
+   both, reading `κ`'s `:deliver` / the parked record from the PRE-state,
+   with a pinned trace row for each.
+3. **Engine composition.** Use `engine/active-continuation?` (not
+   `#(some? (:control %))`) as the run-loop's active predicate, and call
+   `engine/scheduler-round` instead of re-implementing it, so 4b's blocked
+   and parked states are judged by the engine's own flags.
+4. **Materialization rule vs code.** §1.8 says the pure arms do not
+   materialize; the 4a code materializes before `:define`, `:gensym`,
+   `:store-put` and every `:call` (harmless: the exit `put-registers`
+   overwrites every register). 4b decides: drop the four materializations,
+   or amend §1.8. Do not leave the two disagreeing.
+5. **The saved-window subtraction is unobservable at a call frame.** By
+   definite assignment `rd` is not in the window at its own call site, so
+   `W restricted to L(p)` equals `W restricted to (L(p) minus {rd})` there
+   and `analysis/live` for `analysis/saved` is an EQUIVALENT mutant at
+   `ret` frames. Do not write a gate for it at a call frame. A `κ`
+   capture is equally unobservable (`rd` is likewise absent from `W` by
+   definite assignment, and invocation writes into a copy of the captured
+   window, never the capture); the only observable place is the static
+   `L` published on the wire, in the foreign-engine `live` operands
+   (phase 6).
+6. **Two closing rows exist in 4a** (added in the fix round): a
+   main-level tail primitive trace row (`:main-tail-primitive`), because
+   the oracle's empty-`K0` tail branch was otherwise reached by no traced
+   row, and a parameter-shadowing row (`:parameter-shadowing`, a 4a-only
+   row in `parity_test`, not in the shared phase-3 corpus), which closes
+   the reversed callee-env merge mutant. 4b's `:continuation` and
+   `:resume` rows (item 2) close the matching gap for those arms.
+7. **The tail host-fn pop is gated only by programs with an empty saved
+   window.** The pop-and-deliver transition exists three times (the
+   `:return` arm, the tail host-fn completion and `register-restore`'s
+   `:return` arm). Item 8's strengthened test gates the first and
+   `restore-delivery` the third; the second is exercised only by programs
+   whose saved window is empty, so the item-8 mutant applied to the tail
+   host-fn copy survives. 4b either factors the three pops into one
+   `return-to [frame v]` helper (one gate covers all) or adds a sibling
+   test, with a non-empty saved window, for the tail host-fn pop.
+8. **A callee `E` kept after `:return`** (restoring the callee's `E`
+   instead of `(:env frame)`) survives every test, because every test
+   callee's env is a superset of the caller's. Add
+   `((fn [x] (list ((fn [x] 2) 9) x)) 1)` -> `(2 1)` (the mutant gives
+   `(2 9)`) to `slice-4a-extra-rows`.
+9. **Notes not to lose.** Item 8's test cannot tell a `:return` reading
+   the wrong source register from the right one, because `x` is nil
+   there (optional: `x` = 7, final value `[7 2]`); the `[5 7 8 9 6]`
+   write order claimed for item 12 is a static read of the golden, not an
+   observed machine write order; two performance notes: a tail closure
+   call builds a `ret` frame it then discards, and `image` is re-fetched
+   from `(:code machine)` on every instruction. None affects correctness.
 
 ## 6. Findings and proposed amendments to the frozen design
 
